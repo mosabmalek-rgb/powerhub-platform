@@ -245,6 +245,27 @@ export const invoiceShareLinks = mysqlTable("invoiceShareLinks", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const collectorSessions = mysqlTable("collectorSessions", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
+  collectorUserId: int("collectorUserId").notNull().references(() => users.id),
+  status: mysqlEnum("status", ["open", "closed"]).default("open").notNull(),
+  openingCash: decimal("openingCash", { precision: 14, scale: 2 }).default("0").notNull(),
+  expectedCash: decimal("expectedCash", { precision: 14, scale: 2 }).default("0").notNull(),
+  declaredCash: decimal("declaredCash", { precision: 14, scale: 2 }),
+  varianceAmount: decimal("varianceAmount", { precision: 14, scale: 2 }),
+  openedAt: timestamp("openedAt").defaultNow().notNull(),
+  closedAt: timestamp("closedAt"),
+  notes: text("notes"),
+  closedByUserId: int("closedByUserId").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("collector_sessions_tenant_site_idx").on(table.tenantId, table.siteId, table.status),
+  index("collector_sessions_collector_status_idx").on(table.collectorUserId, table.status),
+]);
+
 export const payments = mysqlTable("payments", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
@@ -257,6 +278,7 @@ export const payments = mysqlTable("payments", {
   referenceNo: varchar("referenceNo", { length: 120 }),
   status: mysqlEnum("status", ["pending", "completed", "cancelled", "refunded"]).default("completed").notNull(),
   collectedByUserId: int("collectedByUserId").references(() => users.id),
+  collectorSessionId: int("collectorSessionId").references(() => collectorSessions.id),
   paidAt: timestamp("paidAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [

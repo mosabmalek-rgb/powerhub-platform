@@ -4,6 +4,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
+  collectorSessions,
   expenses,
   invoiceLines,
   generators,
@@ -480,7 +481,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
       paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "wallet", "bank_transfer", "card"]).default("cash"), referenceNo: z.string().max(120).optional(),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, recordRoles);
+      const role = await requireRole(ctx.user.id, input.siteId, recordRoles);
       const db = await dbOrThrow();
       const [subscriber] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
@@ -491,7 +492,15 @@ export const powerhubRouter = router({
         if (input.amount > Number(invoiceScope.balanceDue)) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الدفعة تتجاوز الرصيد المتبقي للفواتير." });
       }
       const tenantId = await getSiteTenant(input.siteId);
-      const id = insertId(await db.insert(payments).values({ ...input, tenantId, amount: String(input.amount), collectedByUserId: ctx.user.id }));
+      let collectorSessionId: number | undefined;
+      if (role === "collector") {
+        const [openSession] = await db.select({ id: collectorSessions.id }).from(collectorSessions).where(and(
+          eq(collectorSessions.tenantId, tenantId), eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id), eq(collectorSessions.status, "open"),
+        )).limit(1);
+        if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
+        collectorSessionId = openSession.id;
+      }
+      const id = insertId(await db.insert(payments).values({ ...input, tenantId, amount: String(input.amount), collectedByUserId: ctx.user.id, collectorSessionId }));
       if (input.invoiceId) {
         const [invoice] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
         if (invoice) {
@@ -500,8 +509,48 @@ export const powerhubRouter = router({
           await db.update(invoices).set({ paidAmount: String(paidAmount), balanceDue: String(balanceDue), status: balanceDue === 0 ? "paid" : "partially_paid" }).where(eq(invoices.id, invoice.id));
         }
       }
-      await writeAudit({ userId: ctx.user.id, entityType: "payment", entityId: String(id), action: "create", afterData: input });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "payment", entityId: String(id), action: "create", afterData: input, metadata: { collectorSessionId } });
       return { id };
+    }),
+  }),
+
+  collectorSessions: router({
+    list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const role = await requireRole(ctx.user.id, input.siteId, recordRoles);
+      const db = await dbOrThrow();
+      const scope = role === "collector" ? and(eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id)) : eq(collectorSessions.siteId, input.siteId);
+      return db.select({ session: collectorSessions, collector: users }).from(collectorSessions).innerJoin(users, eq(collectorSessions.collectorUserId, users.id)).where(scope).orderBy(desc(collectorSessions.openedAt)).limit(100);
+    }),
+    current: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, recordRoles);
+      const db = await dbOrThrow();
+      const [session] = await db.select().from(collectorSessions).where(and(eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id), eq(collectorSessions.status, "open"))).limit(1);
+      return session ?? null;
+    }),
+    open: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), openingCash: z.number().min(0).default(0), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+      const role = await requireRole(ctx.user.id, input.siteId, recordRoles);
+      if (role !== "collector") throw new TRPCError({ code: "FORBIDDEN", message: "جلسة التحصيل الميدانية مخصصة لدور المحصل." });
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const [existing] = await db.select({ id: collectorSessions.id }).from(collectorSessions).where(and(eq(collectorSessions.tenantId, tenantId), eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id), eq(collectorSessions.status, "open"))).limit(1);
+      if (existing) throw new TRPCError({ code: "CONFLICT", message: "لديك جلسة تحصيل مفتوحة بالفعل لهذه المحطة." });
+      const id = insertId(await db.insert(collectorSessions).values({ tenantId, siteId: input.siteId, collectorUserId: ctx.user.id, openingCash: String(input.openingCash), notes: input.notes }));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "collector_session", entityId: String(id), action: "open", afterData: input });
+      return { id };
+    }),
+    close: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), sessionId: z.number().int().positive(), declaredCash: z.number().min(0), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+      const role = await requireRole(ctx.user.id, input.siteId, recordRoles);
+      const db = await dbOrThrow();
+      const [session] = await db.select().from(collectorSessions).where(and(eq(collectorSessions.id, input.sessionId), eq(collectorSessions.siteId, input.siteId))).limit(1);
+      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "جلسة التحصيل غير موجودة ضمن المحطة المحددة." });
+      if (session.status !== "open") throw new TRPCError({ code: "CONFLICT", message: "تم إغلاق جلسة التحصيل مسبقاً." });
+      if (role === "collector" && session.collectorUserId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن للمحصل إغلاق جلسة محصل آخر." });
+      const [cashTotals] = await db.select({ amount: sql<string>`coalesce(sum(${payments.amount}), 0)` }).from(payments).where(and(eq(payments.collectorSessionId, session.id), eq(payments.paymentMethod, "cash"), eq(payments.status, "completed")));
+      const expectedCash = Number(session.openingCash) + Number(cashTotals?.amount ?? 0);
+      const varianceAmount = input.declaredCash - expectedCash;
+      await db.update(collectorSessions).set({ status: "closed", expectedCash: String(expectedCash), declaredCash: String(input.declaredCash), varianceAmount: String(varianceAmount), notes: input.notes ?? session.notes, closedAt: new Date(), closedByUserId: ctx.user.id }).where(eq(collectorSessions.id, session.id));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "collector_session", entityId: String(session.id), action: "close", beforeData: session, afterData: { declaredCash: input.declaredCash, expectedCash, varianceAmount } });
+      return { expectedCash, varianceAmount };
     }),
   }),
 

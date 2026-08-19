@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { auditLogs, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenants, users } from "../drizzle/schema";
+import { auditLogs, collectorSessions, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { powerhubRouter } from "./powerhub";
 
@@ -12,6 +12,7 @@ const createdPaymentIds: number[] = [];
 let createdReadingA: number | undefined;
 const createdSubscriberIds: number[] = [];
 let createdInvoiceId: number | undefined;
+let createdCollectorSessionId: number | undefined;
 
 function insertId(result: unknown) {
   const header = Array.isArray(result) ? result[0] : result;
@@ -76,8 +77,11 @@ describe("tenant isolation", () => {
     const accountantSubscriber = await accountant.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-accountant-site`, fullName: "Accountant Site", phone: "700000004", subscriptionType: "commercial" });
     createdSubscriberIds.push(accountantSubscriber.id);
     const accountantPayment = await accountant.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, paymentNo: `${suffix}-accountant`, amount: 1, paymentMethod: "cash" });
+    const collectorSession = await collector.collectorSessions.open({ siteId: ids.siteA, openingCash: 5 });
+    createdCollectorSessionId = collectorSession.id;
     const collectorPayment = await collector.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, paymentNo: `${suffix}-collector`, amount: 1, paymentMethod: "cash" });
     createdPaymentIds.push(accountantPayment.id, collectorPayment.id);
+    await expect(collector.collectorSessions.close({ siteId: ids.siteA, sessionId: collectorSession.id, declaredCash: 6 })).resolves.toMatchObject({ expectedCash: 6, varianceAmount: 0 });
     const reading = await technician.readings.create({ siteId: ids.siteA, meterId: ids.meterA, readingValue: "12", captureMethod: "manual" });
     createdReadingA = reading.id;
     await expect(technician.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, paymentNo: `${suffix}-technician`, amount: 1, paymentMethod: "cash" })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -118,6 +122,7 @@ describe("tenant isolation", () => {
     const db = await getDb();
     if (!db) return;
     if (createdPaymentIds.length) await db.delete(payments).where(inArray(payments.id, createdPaymentIds));
+    if (createdCollectorSessionId) await db.delete(collectorSessions).where(eq(collectorSessions.id, createdCollectorSessionId));
     if (createdInvoiceId) {
       await db.delete(notificationMessages).where(eq(notificationMessages.invoiceId, createdInvoiceId));
       await db.delete(invoiceLines).where(eq(invoiceLines.invoiceId, createdInvoiceId));

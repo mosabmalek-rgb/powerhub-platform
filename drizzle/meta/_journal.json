@@ -57,6 +57,13 @@
       "when": 1787160137479,
       "tag": "0007_complex_thunderbolt_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1787160875636,
+      "tag": "0008_lush_masque",
+      "breakpoints": true
     }
   ]
 }
