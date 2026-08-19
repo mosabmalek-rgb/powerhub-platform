@@ -59,6 +59,7 @@ describe("tenant isolation", () => {
     await expect(caller.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberB, paymentNo: `${suffix}-payment`, amount: 10, paymentMethod: "cash" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(caller.invoices.createFromReading({ siteId: ids.siteA, readingId: ids.readingB, tariffId: 999999, billingPeriod: "2026-08", dueDate: new Date("2026-08-31"), discountAmount: 0 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(caller.messaging.listConfigurations({ siteId: ids.siteB })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.collectorSessions.list({ siteId: ids.siteB })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const [manager] = await db.select().from(users).where(eq(users.id, ids.userManager));
     const managerCaller = powerhubRouter.createCaller({ user: manager, req: {} as never, res: {} as never });
     await expect(managerCaller.subscribers.create({ siteId: ids.siteA2, subscriberNo: `${suffix}-cross-site`, fullName: "Cross Site", phone: "700000001", subscriptionType: "residential" })).rejects.toMatchObject({ code: "FORBIDDEN" });
