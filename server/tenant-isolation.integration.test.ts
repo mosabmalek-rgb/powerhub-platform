@@ -1,16 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { auditLogs, meterReadings, meters, payments, sites, staffProfiles, subscribers, tenantMembers, tenants, users } from "../drizzle/schema";
+import { auditLogs, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { powerhubRouter } from "./powerhub";
 
 const runDatabaseIsolationTest = process.env.RUN_TENANT_ISOLATION_TESTS === "1";
 const testIfEnabled = runDatabaseIsolationTest ? it : it.skip;
 const suffix = `isolation-${Date.now()}`;
-let ids: { userA: number; userB: number; userManager: number; userAccountant: number; userCollector: number; userTechnician: number; userViewer: number; tenantA: number; tenantB: number; siteA: number; siteA2: number; siteB: number; subscriberA: number; meterA: number; subscriberB: number; meterB: number; readingB: number };
+let ids: { userA: number; userB: number; userManager: number; userAccountant: number; userCollector: number; userTechnician: number; userViewer: number; tenantA: number; tenantB: number; siteA: number; siteA2: number; siteB: number; subscriberA: number; meterA: number; baseReadingA: number; tariffA: number; subscriberB: number; meterB: number; readingB: number };
 const createdPaymentIds: number[] = [];
 let createdReadingA: number | undefined;
 const createdSubscriberIds: number[] = [];
+let createdInvoiceId: number | undefined;
 
 function insertId(result: unknown) {
   const header = Array.isArray(result) ? result[0] : result;
@@ -38,11 +39,12 @@ describe("tenant isolation", () => {
     await db.insert(staffProfiles).values([{ siteId: siteA, userId: userManager, role: "manager" }, { siteId: siteA, userId: userAccountant, role: "accountant" }, { siteId: siteA, userId: userCollector, role: "collector" }, { siteId: siteA, userId: userTechnician, role: "technician" }, { siteId: siteA, userId: userViewer, role: "viewer" }]);
     const subscriberA = insertId(await db.insert(subscribers).values({ tenantId: tenantA, siteId: siteA, subscriberNo: `${suffix}-a`, fullName: "Subscriber A", phone: "700000010" }));
     const meterA = insertId(await db.insert(meters).values({ tenantId: tenantA, subscriberId: subscriberA, serialNumber: `${suffix}-meter-a` }));
-    await db.insert(meterReadings).values({ tenantId: tenantA, meterId: meterA, readingValue: "10", status: "approved" });
+    const baseReadingA = insertId(await db.insert(meterReadings).values({ tenantId: tenantA, meterId: meterA, readingValue: "10", status: "approved" }));
+    const tariffA = insertId(await db.insert(tariffs).values({ tenantId: tenantA, siteId: siteA, name: "Tariff A", code: `${suffix}-tariff`, pricePerKwh: "1.5", fixedFee: "2", taxRate: "0" }));
     const subscriberB = insertId(await db.insert(subscribers).values({ tenantId: tenantB, siteId: siteB, subscriberNo: suffix, fullName: "Subscriber B", phone: "700000000" }));
     const meterB = insertId(await db.insert(meters).values({ tenantId: tenantB, subscriberId: subscriberB, serialNumber: `${suffix}-meter` }));
     const readingB = insertId(await db.insert(meterReadings).values({ tenantId: tenantB, meterId: meterB, readingValue: "100", status: "approved" }));
-    ids = { userA, userB, userManager, userAccountant, userCollector, userTechnician, userViewer, tenantA, tenantB, siteA, siteA2, siteB, subscriberA, meterA, subscriberB, meterB, readingB };
+    ids = { userA, userB, userManager, userAccountant, userCollector, userTechnician, userViewer, tenantA, tenantB, siteA, siteA2, siteB, subscriberA, meterA, baseReadingA, tariffA, subscriberB, meterB, readingB };
   });
 
   testIfEnabled("rejects cross-tenant identifiers and cross-site manager access", async () => {
@@ -98,11 +100,29 @@ describe("tenant isolation", () => {
     await expect(ownerCaller.readings.create({ ...input, clientOperationId: crypto.randomUUID(), readingValue: "5" })).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  testIfEnabled("creates invoice lines and queues the tenant notification", async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
+    const [owner] = await db.select().from(users).where(eq(users.id, ids.userA));
+    const ownerCaller = powerhubRouter.createCaller({ user: owner, req: {} as never, res: {} as never });
+    const invoice = await ownerCaller.invoices.createFromReading({ siteId: ids.siteA, readingId: ids.baseReadingA, tariffId: ids.tariffA, billingPeriod: "2026-08", dueDate: new Date("2026-08-31"), discountAmount: 0 });
+    createdInvoiceId = invoice.id;
+    const lines = await db.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, invoice.id));
+    const [notification] = await db.select().from(notificationMessages).where(eq(notificationMessages.invoiceId, invoice.id));
+    expect(lines).toHaveLength(3);
+    expect(notification).toMatchObject({ tenantId: ids.tenantA, channel: "whatsapp", eventType: "invoice_issued", status: "pending" });
+  });
+
   afterAll(async () => {
     if (!runDatabaseIsolationTest || !ids) return;
     const db = await getDb();
     if (!db) return;
     if (createdPaymentIds.length) await db.delete(payments).where(inArray(payments.id, createdPaymentIds));
+    if (createdInvoiceId) {
+      await db.delete(notificationMessages).where(eq(notificationMessages.invoiceId, createdInvoiceId));
+      await db.delete(invoiceLines).where(eq(invoiceLines.invoiceId, createdInvoiceId));
+      await db.delete(invoices).where(eq(invoices.id, createdInvoiceId));
+    }
     await db.delete(meterReadings).where(inArray(meterReadings.meterId, [ids.meterA, ids.meterB]));
     await db.delete(meters).where(eq(meters.id, ids.meterB));
     await db.delete(meters).where(eq(meters.id, ids.meterA));
@@ -110,6 +130,7 @@ describe("tenant isolation", () => {
     await db.delete(subscribers).where(eq(subscribers.id, ids.subscriberA));
     if (createdSubscriberIds.length) await db.delete(subscribers).where(inArray(subscribers.id, createdSubscriberIds));
     await db.delete(staffProfiles).where(inArray(staffProfiles.userId, [ids.userManager, ids.userAccountant, ids.userCollector, ids.userTechnician, ids.userViewer]));
+    await db.delete(tariffs).where(eq(tariffs.id, ids.tariffA));
     await db.delete(auditLogs).where(inArray(auditLogs.siteId, [ids.siteA, ids.siteA2, ids.siteB]));
     await db.delete(sites).where(inArray(sites.id, [ids.siteA, ids.siteA2, ids.siteB]));
     await db.delete(tenantMembers).where(inArray(tenantMembers.tenantId, [ids.tenantA, ids.tenantB]));
