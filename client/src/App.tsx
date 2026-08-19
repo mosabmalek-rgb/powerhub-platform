@@ -13,6 +13,7 @@ import SettingsPage from "./pages/SettingsPage";
 import NetworkDirectoryPage from "./pages/NetworkDirectoryPage";
 import ReportsPage from "./pages/ReportsPage";
 import MessagingSettingsPage from "./pages/MessagingSettingsPage";
+import AuditLogPage from "./pages/AuditLogPage";
 import PublicInvoice from "./pages/PublicInvoice";
 
 function Router() {
@@ -29,7 +30,7 @@ function Router() {
       <Route path={"/expenses"}>{() => <OperationsPage section="expenses" />}</Route>
       <Route path={"/reports"} component={ReportsPage} />
       <Route path={"/notifications"} component={MessagingSettingsPage} />
-      <Route path={"/audit"}>{() => <OperationsPage section="audit" />}</Route>
+      <Route path={"/audit"} component={AuditLogPage} />
       <Route path={"/map"}>{() => <FeaturePage section="map" />}</Route>
       <Route path={"/settings"} component={SettingsPage} />
       <Route path={"/404"} component={NotFound} />

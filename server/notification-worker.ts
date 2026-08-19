@@ -6,7 +6,7 @@ import { decryptTenantCredential } from "./tenant-crypto";
 type WhatsAppCredential = { accessToken: string; appSecret?: string };
 
 function parseWhatsAppCredential(ciphertext: string, iv: string): WhatsAppCredential {
-  const decrypted = decryptTenantCredential(ciphertext, iv);
+  const decrypted = iv === "unused" ? ciphertext : decryptTenantCredential(ciphertext, iv);
   try {
     const parsed = JSON.parse(decrypted) as Partial<WhatsAppCredential>;
     if (typeof parsed.accessToken === "string" && parsed.accessToken.length > 0) return { accessToken: parsed.accessToken, appSecret: parsed.appSecret };
