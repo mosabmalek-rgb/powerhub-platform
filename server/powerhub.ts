@@ -32,6 +32,7 @@ type PowerRole = "owner" | "manager" | "accountant" | "collector" | "technician"
 
 const createRoles: PowerRole[] = ["owner", "manager", "accountant"];
 const recordRoles: PowerRole[] = ["owner", "manager", "accountant", "collector"];
+const readingRoles: PowerRole[] = ["owner", "manager", "accountant", "technician"];
 
 async function dbOrThrow() {
   const db = await getDb();
@@ -64,7 +65,6 @@ async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
       .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, userId), eq(tenantMembers.isActive, true))).limit(1);
     if (!member) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
     if (member.role === "owner") return "owner";
-    if (member.role === "admin") return "manager";
   }
 
   const [profile] = await db
@@ -170,11 +170,13 @@ export const powerhubRouter = router({
         const db = await dbOrThrow();
         const tenantId = await getSiteTenant(input.siteId);
         if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ربط المحطة بمستأجر قبل تعيين الفريق." });
-        const tenantRole = input.role === "owner" ? "owner" : input.role === "manager" ? "admin" : "member" as const;
+        const [existingMembership] = await db.select({ role: tenantMembers.role }).from(tenantMembers)
+          .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, input.userId))).limit(1);
+        const tenantRole = existingMembership?.role === "owner" || input.role === "owner" ? "owner" : "member" as const;
         await db.transaction(async (tx) => {
           await tx.insert(tenantMembers).values({ tenantId, userId: input.userId, role: tenantRole, isActive: true }).onDuplicateKeyUpdate({ set: { role: tenantRole, isActive: true } });
           await tx.update(staffProfiles).set({ isActive: false }).where(and(eq(staffProfiles.siteId, input.siteId), eq(staffProfiles.userId, input.userId)));
-          await tx.insert(staffProfiles).values({ siteId: input.siteId, userId: input.userId, role: input.role, isActive: true });
+          await tx.insert(staffProfiles).values({ siteId: input.siteId, userId: input.userId, role: input.role, isActive: true }).onDuplicateKeyUpdate({ set: { isActive: true, updatedAt: new Date() } });
         });
         await writeAudit({ userId: ctx.user.id, entityType: "staff_profile", entityId: `${input.siteId}:${input.userId}`, action: "assign_role", afterData: input });
         return { success: true };
@@ -222,7 +224,8 @@ export const powerhubRouter = router({
     }).omit({ code: true })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, createRoles);
       const db = await dbOrThrow();
-      const id = insertId(await db.insert(subscribers).values(input));
+      const tenantId = await getSiteTenant(input.siteId);
+      const id = insertId(await db.insert(subscribers).values({ ...input, tenantId }));
       await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),
@@ -260,7 +263,8 @@ export const powerhubRouter = router({
         const [generator] = await db.select({ id: generators.id }).from(generators).where(and(eq(generators.id, input.generatorId), eq(generators.siteId, input.siteId))).limit(1);
         if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
       }
-      const id = insertId(await db.insert(meters).values({ subscriberId: input.subscriberId, generatorId: input.generatorId, serialNumber: input.serialNumber, meterType: input.meterType, multiplier: input.multiplier }));
+      const tenantId = await getSiteTenant(input.siteId);
+      const id = insertId(await db.insert(meters).values({ tenantId, subscriberId: input.subscriberId, generatorId: input.generatorId, serialNumber: input.serialNumber, meterType: input.meterType, multiplier: input.multiplier }));
       await writeAudit({ userId: ctx.user.id, entityType: "meter", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),
@@ -278,7 +282,8 @@ export const powerhubRouter = router({
     })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, createRoles);
       const db = await dbOrThrow();
-      const id = insertId(await db.insert(tariffs).values({ ...input, pricePerKwh: String(input.pricePerKwh), fixedFee: String(input.fixedFee), taxRate: String(input.taxRate) }));
+      const tenantId = await getSiteTenant(input.siteId);
+      const id = insertId(await db.insert(tariffs).values({ ...input, tenantId, pricePerKwh: String(input.pricePerKwh), fixedFee: String(input.fixedFee), taxRate: String(input.taxRate) }));
       await writeAudit({ userId: ctx.user.id, entityType: "tariff", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),
@@ -297,7 +302,8 @@ export const powerhubRouter = router({
     })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"]);
       const db = await dbOrThrow();
-      const id = insertId(await db.insert(generators).values(input));
+      const tenantId = await getSiteTenant(input.siteId);
+      const id = insertId(await db.insert(generators).values({ ...input, tenantId }));
       await writeAudit({ userId: ctx.user.id, entityType: "generator", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),
@@ -328,7 +334,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), meterId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/),
       captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, recordRoles);
+      await requireRole(ctx.user.id, input.siteId, readingRoles);
       const db = await dbOrThrow();
       const [meterScope] = await db.select({ id: meters.id }).from(meters).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
         .where(and(eq(meters.id, input.meterId), eq(subscribers.siteId, input.siteId))).limit(1);
@@ -351,7 +357,7 @@ export const powerhubRouter = router({
         imageKey = stored.key;
       }
       const id = insertId(await db.insert(meterReadings).values({
-        meterId: input.meterId, readingValue: input.readingValue, previousReadingValue: previous?.readingValue,
+        tenantId: await getSiteTenant(input.siteId), meterId: input.meterId, readingValue: input.readingValue, previousReadingValue: previous?.readingValue,
         consumptionKwh: String(nextValue - previousValue), captureMethod: input.captureMethod, imageKey, imageHash,
         notes: input.notes, enteredByUserId: ctx.user.id,
       }));
@@ -403,7 +409,7 @@ export const powerhubRouter = router({
       const invoiceNo = nextInvoiceNo(site.code, input.billingPeriod, Number(countResult[0]?.count ?? 0) + 1);
       const id = await db.transaction(async (tx) => {
         const invoiceId = insertId(await tx.insert(invoices).values({
-          siteId: input.siteId, subscriberId: meter.subscriberId, meterId: meter.id, readingId: reading.id, tariffId: tariff.id,
+          tenantId: site.tenantId, siteId: input.siteId, subscriberId: meter.subscriberId, meterId: meter.id, readingId: reading.id, tariffId: tariff.id,
           invoiceNo, billingPeriod: input.billingPeriod, dueDate: input.dueDate, previousReading: reading.previousReadingValue,
           currentReading: reading.readingValue, consumptionKwh: reading.consumptionKwh ?? "0", pricePerKwh: tariff.pricePerKwh,
           fixedFee: tariff.fixedFee, taxAmount: String(calculated.taxAmount), discountAmount: String(input.discountAmount),
@@ -415,7 +421,7 @@ export const powerhubRouter = router({
           { lineType: "tax" as const, description: "الضريبة", quantity: "1", unitPrice: String(tariff.taxRate), amount: String(calculated.taxAmount), displayOrder: 3 },
         ];
         if (input.discountAmount > 0) lines.push({ lineType: "discount" as const, description: "خصم", quantity: "1", unitPrice: String(input.discountAmount), amount: String(input.discountAmount), displayOrder: 4 });
-        await tx.insert(invoiceLines).values(lines.map((line) => ({ ...line, invoiceId })));
+        await tx.insert(invoiceLines).values(lines.map((line) => ({ ...line, tenantId: site.tenantId, invoiceId })));
         return invoiceId;
       });
       await db.insert(notificationMessages).values({
@@ -438,7 +444,7 @@ export const powerhubRouter = router({
         const [invoice] = await db.select().from(invoices).where(and(eq(invoices.id, input.invoiceId), eq(invoices.siteId, input.siteId))).limit(1);
         if (!invoice || invoice.status === "draft" || invoice.status === "cancelled") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن مشاركة فاتورة غير صادرة أو ملغاة." });
         const token = generateInvoiceShareToken();
-        const id = insertId(await db.insert(invoiceShareLinks).values({ invoiceId: invoice.id, tokenHash: hashInvoiceShareToken(token), tokenPreview: token.slice(0, 8), expiresAt: input.expiresAt }));
+        const id = insertId(await db.insert(invoiceShareLinks).values({ tenantId: invoice.tenantId, invoiceId: invoice.id, tokenHash: hashInvoiceShareToken(token), tokenPreview: token.slice(0, 8), expiresAt: input.expiresAt }));
         await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "invoice_share_link", entityId: String(id), action: "create", metadata: { invoiceId: invoice.id } });
         return { token, path: `/invoice/${token}` };
       }),
@@ -478,7 +484,8 @@ export const powerhubRouter = router({
         if (invoiceScope.status === "cancelled" || invoiceScope.status === "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تسجيل دفعة على فاتورة ملغاة أو مسودة." });
         if (input.amount > Number(invoiceScope.balanceDue)) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الدفعة تتجاوز الرصيد المتبقي للفواتير." });
       }
-      const id = insertId(await db.insert(payments).values({ ...input, amount: String(input.amount), collectedByUserId: ctx.user.id }));
+      const tenantId = await getSiteTenant(input.siteId);
+      const id = insertId(await db.insert(payments).values({ ...input, tenantId, amount: String(input.amount), collectedByUserId: ctx.user.id }));
       if (input.invoiceId) {
         const [invoice] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
         if (invoice) {
@@ -508,7 +515,8 @@ export const powerhubRouter = router({
         const [generator] = await db.select({ id: generators.id }).from(generators).where(and(eq(generators.id, input.generatorId), eq(generators.siteId, input.siteId))).limit(1);
         if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
       }
-      const id = insertId(await db.insert(expenses).values({ ...input, amount: String(input.amount), createdByUserId: ctx.user.id }));
+      const tenantId = await getSiteTenant(input.siteId);
+      const id = insertId(await db.insert(expenses).values({ ...input, tenantId, amount: String(input.amount), createdByUserId: ctx.user.id }));
       await writeAudit({ userId: ctx.user.id, entityType: "expense", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),

@@ -92,6 +92,7 @@ export const staffProfiles = mysqlTable("staffProfiles", {
 
 export const generators = mysqlTable("generators", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   siteId: int("siteId").notNull().references(() => sites.id),
   code: varchar("code", { length: 50 }).notNull(),
   name: varchar("name", { length: 160 }).notNull(),
@@ -106,11 +107,13 @@ export const generators = mysqlTable("generators", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("generator_site_code_unique").on(table.siteId, table.code),
+  index("generators_tenant_site_idx").on(table.tenantId, table.siteId),
   index("generators_site_status_idx").on(table.siteId, table.status),
 ]);
 
 export const subscribers = mysqlTable("subscribers", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   siteId: int("siteId").notNull().references(() => sites.id),
   subscriberNo: varchar("subscriberNo", { length: 50 }).notNull(),
   fullName: varchar("fullName", { length: 180 }).notNull(),
@@ -122,11 +125,13 @@ export const subscribers = mysqlTable("subscribers", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("subscriber_site_number_unique").on(table.siteId, table.subscriberNo),
+  index("subscribers_tenant_site_idx").on(table.tenantId, table.siteId),
   index("subscribers_site_status_idx").on(table.siteId, table.serviceStatus),
 ]);
 
 export const meters = mysqlTable("meters", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   subscriberId: int("subscriberId").notNull().references(() => subscribers.id),
   generatorId: int("generatorId").references(() => generators.id),
   serialNumber: varchar("serialNumber", { length: 100 }).notNull().unique(),
@@ -140,6 +145,7 @@ export const meters = mysqlTable("meters", {
 
 export const tariffs = mysqlTable("tariffs", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   siteId: int("siteId").notNull().references(() => sites.id),
   name: varchar("name", { length: 160 }).notNull(),
   code: varchar("code", { length: 50 }).notNull(),
@@ -151,10 +157,12 @@ export const tariffs = mysqlTable("tariffs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
   uniqueIndex("tariff_site_code_unique").on(table.siteId, table.code),
+  index("tariffs_tenant_site_idx").on(table.tenantId, table.siteId),
 ]);
 
 export const meterReadings = mysqlTable("meterReadings", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   meterId: int("meterId").notNull().references(() => meters.id),
   readingAt: timestamp("readingAt").defaultNow().notNull(),
   readingValue: decimal("readingValue", { precision: 15, scale: 3 }).notNull(),
@@ -178,6 +186,7 @@ export const meterReadings = mysqlTable("meterReadings", {
 
 export const invoices = mysqlTable("invoices", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   siteId: int("siteId").notNull().references(() => sites.id),
   subscriberId: int("subscriberId").notNull().references(() => subscribers.id),
   meterId: int("meterId").notNull().references(() => meters.id),
@@ -203,11 +212,13 @@ export const invoices = mysqlTable("invoices", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("invoice_meter_period_unique").on(table.meterId, table.billingPeriod),
+  index("invoices_tenant_site_idx").on(table.tenantId, table.siteId),
   index("invoices_site_status_idx").on(table.siteId, table.status),
 ]);
 
 export const invoiceLines = mysqlTable("invoiceLines", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   invoiceId: int("invoiceId").notNull().references(() => invoices.id),
   lineType: mysqlEnum("lineType", ["energy", "fixed_fee", "tax", "discount", "late_fee", "other"]).notNull(),
   description: varchar("description", { length: 255 }).notNull(),
@@ -222,6 +233,7 @@ export const invoiceLines = mysqlTable("invoiceLines", {
 
 export const invoiceShareLinks = mysqlTable("invoiceShareLinks", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   invoiceId: int("invoiceId").notNull().references(() => invoices.id),
   tokenHash: varchar("tokenHash", { length: 128 }).notNull().unique(),
   tokenPreview: varchar("tokenPreview", { length: 20 }).notNull(),
@@ -234,6 +246,7 @@ export const invoiceShareLinks = mysqlTable("invoiceShareLinks", {
 
 export const payments = mysqlTable("payments", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   siteId: int("siteId").notNull().references(() => sites.id),
   subscriberId: int("subscriberId").notNull().references(() => subscribers.id),
   invoiceId: int("invoiceId").references(() => invoices.id),
@@ -246,11 +259,13 @@ export const payments = mysqlTable("payments", {
   paidAt: timestamp("paidAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
+  index("payments_tenant_site_idx").on(table.tenantId, table.siteId),
   index("payments_site_date_idx").on(table.siteId, table.paidAt),
 ]);
 
 export const expenses = mysqlTable("expenses", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   siteId: int("siteId").notNull().references(() => sites.id),
   generatorId: int("generatorId").references(() => generators.id),
   category: mysqlEnum("category", ["fuel", "maintenance", "payroll", "parts", "transport", "other"]).notNull(),
@@ -261,6 +276,7 @@ export const expenses = mysqlTable("expenses", {
   createdByUserId: int("createdByUserId").references(() => users.id),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
+  index("expenses_tenant_site_idx").on(table.tenantId, table.siteId),
   index("expenses_site_date_idx").on(table.siteId, table.occurredAt),
 ]);
 

@@ -18,8 +18,8 @@ export default function SettingsPage() {
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const [siteId, setSiteId] = useState<number | null>(null);
   useEffect(() => { if (!siteId && sitesQuery.data?.[0]) setSiteId(sitesQuery.data[0].id); }, [siteId, sitesQuery.data]);
-  const directoryQuery = trpc.powerhub.staff.directory.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId && isAuthenticated) });
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId && isAuthenticated) });
+  const directoryQuery = trpc.powerhub.staff.directory.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId && isAuthenticated && accessQuery.data?.role === "owner") });
   const staffQuery = trpc.powerhub.staff.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId && isAuthenticated) });
   const assignRole = trpc.powerhub.staff.assign.useMutation({ onSuccess: async () => { await Promise.all([utils.powerhub.staff.list.invalidate(), utils.powerhub.audit.list.invalidate()]); toast.success("تم تحديث دور المستخدم للمحطة."); }, onError: (error) => toast.error(error.message) });
 
