@@ -1,4 +1,62 @@
 @import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Tajawal", system-ui, sans-serif;
+  --font-display: "Inter", "Tajawal", sans-serif;
+}
+
+:root {
+  --background: #0d1117;
+  --foreground: #f8fafc;
+  --card: #111823;
+  --card-foreground: #f8fafc;
+  --popover: #111823;
+  --popover-foreground: #f8fafc;
+  --primary: #f5b800;
+  --primary-foreground: #0d1117;
+  --secondary: #1b222c;
+  --secondary-foreground: #f8fafc;
+  --muted: #1b222c;
+  --muted-foreground: #94a3b8;
+  --accent: #1b222c;
+  --accent-foreground: #f8fafc;
+  --border: rgba(255,255,255,.1);
+  --ring: #f5b800;
+  --radius: 1rem;
+}
+
+* { border-color: var(--border); }
+
+html { background: #0d1117; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #0d1117;
+  color: #f8fafc;
+  font-family: "Tajawal", system-ui, sans-serif;
+}
+
+button, input, select, textarea { font: inherit; }
+
+.font-display { font-family: "Inter", "Tajawal", sans-serif; }
+
+.shadow-panel { box-shadow: 0 18px 50px rgba(0,0,0,.22); }
+
+.ph-grid-bg {
+  background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.ph-hero-grid {
+  background-image: radial-gradient(circle at 86% 10%, rgba(245,184,0,.17), transparent 31%), linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button { transition: transform 160ms cubic-bezier(.23,1,.32,1), background-color 160ms cubic-bezier(.23,1,.32,1), border-color 160ms cubic-bezier(.23,1,.32,1); }
+  button:active { transform: scale(.98); }
+}
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));

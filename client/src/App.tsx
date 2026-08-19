@@ -5,12 +5,29 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import FeaturePage from "./pages/FeaturePage";
+import OperationsPage from "./pages/OperationsPage";
+import MeterReadingsPage from "./pages/MeterReadingsPage";
+import BillingPage from "./pages/BillingPage";
+import PublicInvoice from "./pages/PublicInvoice";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/invoice/:token"} component={PublicInvoice} />
+      <Route path={"/subscribers"}>{() => <OperationsPage section="subscribers" />}</Route>
+      <Route path={"/generators"}>{() => <OperationsPage section="generators" />}</Route>
+      <Route path={"/readings"} component={MeterReadingsPage} />
+      <Route path={"/invoices"} component={BillingPage} />
+      <Route path={"/collections"}>{() => <OperationsPage section="collections" />}</Route>
+      <Route path={"/expenses"}>{() => <OperationsPage section="expenses" />}</Route>
+      <Route path={"/reports"}>{() => <OperationsPage section="reports" />}</Route>
+      <Route path={"/notifications"}>{() => <OperationsPage section="notifications" />}</Route>
+      <Route path={"/audit"}>{() => <OperationsPage section="audit" />}</Route>
+      <Route path={"/map"}>{() => <FeaturePage section="map" />}</Route>
+      <Route path={"/settings"}>{() => <FeaturePage section="settings" />}</Route>
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
@@ -27,7 +44,7 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider
-        defaultTheme="light"
+        defaultTheme="dark"
         // switchable
       >
         <TooltipProvider>
