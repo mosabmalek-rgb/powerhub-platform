@@ -76,6 +76,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   const canManageInvoices = can(powerRole, "issueInvoices");
   const canManageSubscribers = can(powerRole, "manageSubscribers");
   const canManageGenerators = can(powerRole, "manageGenerators");
+  const canViewAudit = can(powerRole, "viewAudit");
   const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
   const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
   const metersQuery = trpc.powerhub.meters.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
@@ -85,7 +86,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   const paymentsQuery = trpc.powerhub.payments.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
   const expensesQuery = trpc.powerhub.expenses.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
   const notificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
-  const auditQuery = trpc.powerhub.audit.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
+  const auditQuery = trpc.powerhub.audit.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(canQuery && canViewAudit) });
   const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
 
   const refreshOperational = async () => {
@@ -126,6 +127,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   if (section === "generators" && !canManageGenerators) return <DashboardLayout><div className="space-y-6 pb-12">{header}<ReadOnlyCard /></div></DashboardLayout>;
   if (section === "readings" && !canManageReadings) return <DashboardLayout><div className="space-y-6 pb-12">{header}<ReadOnlyCard /></div></DashboardLayout>;
   if (section === "invoices" && !canManageInvoices) return <DashboardLayout><div className="space-y-6 pb-12">{header}<ReadOnlyCard /></div></DashboardLayout>;
+  if (section === "audit" && !canViewAudit) return <DashboardLayout><div className="space-y-6 pb-12">{header}<ReadOnlyCard /></div></DashboardLayout>;
 
   return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersModule siteId={siteId!} data={subscribersQuery.data ?? []} pending={addSubscriber.isPending} onSubmit={addSubscriber.mutate} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} generators={generatorsQuery.data ?? []} meters={metersQuery.data ?? []} readings={readingsQuery.data ?? []} meterPending={addMeter.isPending} readingPending={addReading.isPending} onAddMeter={addMeter.mutate} onAddReading={addReading.mutate} />}{section === "invoices" && <InvoicesModule siteId={siteId!} tariffs={tariffsQuery.data ?? []} invoices={invoicesQuery.data ?? []} pending={addTariff.isPending} onAddTariff={addTariff.mutate} onCreateLink={createLink.mutate} />}{section === "collections" && <><CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} invoices={invoicesQuery.data ?? []} payments={paymentsQuery.data ?? []} pending={addPayment.isPending} onSubmit={addPayment.mutate} canCollect={canCreateFinancialRecord} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} expenses={expensesQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutate} /> : <ExpensesReadOnlyModule expenses={expensesQuery.data ?? []} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }

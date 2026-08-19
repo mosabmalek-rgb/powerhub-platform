@@ -7,7 +7,7 @@ import { powerhubRouter } from "./powerhub";
 const runDatabaseIsolationTest = process.env.RUN_TENANT_ISOLATION_TESTS === "1";
 const testIfEnabled = runDatabaseIsolationTest ? it : it.skip;
 const suffix = `isolation-${Date.now()}`;
-let ids: { userA: number; userB: number; userManager: number; userAccountant: number; userCollector: number; userTechnician: number; userViewer: number; tenantA: number; tenantB: number; siteA: number; siteA2: number; siteB: number; subscriberA: number; meterA: number; baseReadingA: number; tariffA: number; subscriberB: number; meterB: number; readingB: number };
+let ids: { userA: number; userB: number; userManager: number; userAccountant: number; userCollector: number; userTechnician: number; userViewer: number; userSiteOwner: number; tenantA: number; tenantB: number; siteA: number; siteA2: number; siteB: number; subscriberA: number; meterA: number; baseReadingA: number; tariffA: number; subscriberB: number; meterB: number; readingB: number };
 const createdPaymentIds: number[] = [];
 let createdReadingA: number | undefined;
 const createdSubscriberIds: number[] = [];
@@ -31,6 +31,7 @@ describe("tenant isolation", () => {
     const userCollector = insertId(await db.insert(users).values({ openId: `${suffix}-collector`, name: "Collector A", role: "user" }));
     const userTechnician = insertId(await db.insert(users).values({ openId: `${suffix}-technician`, name: "Technician A", role: "user" }));
     const userViewer = insertId(await db.insert(users).values({ openId: `${suffix}-viewer`, name: "Viewer A", role: "user" }));
+    const userSiteOwner = insertId(await db.insert(users).values({ openId: `${suffix}-site-owner`, name: "Site Owner A", role: "user" }));
     const tenantA = insertId(await db.insert(tenants).values({ name: "Tenant A", slug: `${suffix}-a` }));
     const tenantB = insertId(await db.insert(tenants).values({ name: "Tenant B", slug: `${suffix}-b` }));
     await db.insert(tenantMembers).values([{ tenantId: tenantA, userId: userA, role: "owner" }, { tenantId: tenantA, userId: userManager, role: "member" }, { tenantId: tenantA, userId: userAccountant, role: "member" }, { tenantId: tenantA, userId: userCollector, role: "member" }, { tenantId: tenantA, userId: userTechnician, role: "member" }, { tenantId: tenantA, userId: userViewer, role: "member" }, { tenantId: tenantB, userId: userB, role: "owner" }]);
@@ -45,7 +46,7 @@ describe("tenant isolation", () => {
     const subscriberB = insertId(await db.insert(subscribers).values({ tenantId: tenantB, siteId: siteB, subscriberNo: suffix, fullName: "Subscriber B", phone: "700000000" }));
     const meterB = insertId(await db.insert(meters).values({ tenantId: tenantB, subscriberId: subscriberB, serialNumber: `${suffix}-meter` }));
     const readingB = insertId(await db.insert(meterReadings).values({ tenantId: tenantB, meterId: meterB, readingValue: "100", status: "approved" }));
-    ids = { userA, userB, userManager, userAccountant, userCollector, userTechnician, userViewer, tenantA, tenantB, siteA, siteA2, siteB, subscriberA, meterA, baseReadingA, tariffA, subscriberB, meterB, readingB };
+    ids = { userA, userB, userManager, userAccountant, userCollector, userTechnician, userViewer, userSiteOwner, tenantA, tenantB, siteA, siteA2, siteB, subscriberA, meterA, baseReadingA, tariffA, subscriberB, meterB, readingB };
   });
 
   testIfEnabled("rejects cross-tenant identifiers and cross-site manager access", async () => {
@@ -54,14 +55,23 @@ describe("tenant isolation", () => {
     const [ownerA] = await db.select().from(users).where(eq(users.id, ids.userA));
     const caller = powerhubRouter.createCaller({ user: ownerA, req: {} as never, res: {} as never });
     await expect(caller.staff.myAccess({ siteId: ids.siteA })).resolves.toEqual({ role: "owner" });
+    await expect(caller.sites.list()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: ids.siteA }), expect.objectContaining({ id: ids.siteA2 })]));
     const ownerSubscriber = await caller.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-owner-site`, fullName: "Owner Site", phone: "700000003", subscriptionType: "residential" });
     createdSubscriberIds.push(ownerSubscriber.id);
+    await caller.staff.assign({ siteId: ids.siteA, userId: ids.userSiteOwner, role: "owner" });
+    const [siteOwnerUser] = await db.select().from(users).where(eq(users.id, ids.userSiteOwner));
+    const siteOwnerCaller = powerhubRouter.createCaller({ user: siteOwnerUser, req: {} as never, res: {} as never });
+    await expect(siteOwnerCaller.staff.myAccess({ siteId: ids.siteA })).resolves.toEqual({ role: "owner" });
+    await expect(siteOwnerCaller.subscribers.list({ siteId: ids.siteA2 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(siteOwnerCaller.sites.list()).resolves.toEqual([expect.objectContaining({ id: ids.siteA })]);
     await expect(caller.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberB, paymentNo: `${suffix}-payment`, amount: 10, paymentMethod: "cash" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(caller.invoices.createFromReading({ siteId: ids.siteA, readingId: ids.readingB, tariffId: 999999, billingPeriod: "2026-08", dueDate: new Date("2026-08-31"), discountAmount: 0 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(caller.messaging.listConfigurations({ siteId: ids.siteB })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.collectorSessions.list({ siteId: ids.siteB })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const [manager] = await db.select().from(users).where(eq(users.id, ids.userManager));
     const managerCaller = powerhubRouter.createCaller({ user: manager, req: {} as never, res: {} as never });
+    await expect(managerCaller.sites.list()).resolves.toEqual([expect.objectContaining({ id: ids.siteA })]);
+    await expect(managerCaller.subscribers.list({ siteId: ids.siteA2 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(managerCaller.subscribers.create({ siteId: ids.siteA2, subscriberNo: `${suffix}-cross-site`, fullName: "Cross Site", phone: "700000001", subscriptionType: "residential" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const managerSubscriber = await managerCaller.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-manager-site`, fullName: "Manager Site", phone: "700000002", subscriptionType: "residential" });
     createdSubscriberIds.push(managerSubscriber.id);
@@ -142,12 +152,12 @@ describe("tenant isolation", () => {
     await db.delete(subscribers).where(eq(subscribers.id, ids.subscriberB));
     await db.delete(subscribers).where(eq(subscribers.id, ids.subscriberA));
     if (createdSubscriberIds.length) await db.delete(subscribers).where(inArray(subscribers.id, createdSubscriberIds));
-    await db.delete(staffProfiles).where(inArray(staffProfiles.userId, [ids.userManager, ids.userAccountant, ids.userCollector, ids.userTechnician, ids.userViewer]));
+    await db.delete(staffProfiles).where(inArray(staffProfiles.userId, [ids.userManager, ids.userAccountant, ids.userCollector, ids.userTechnician, ids.userViewer, ids.userSiteOwner]));
     await db.delete(tariffs).where(eq(tariffs.id, ids.tariffA));
     await db.delete(auditLogs).where(inArray(auditLogs.siteId, [ids.siteA, ids.siteA2, ids.siteB]));
     await db.delete(sites).where(inArray(sites.id, [ids.siteA, ids.siteA2, ids.siteB]));
     await db.delete(tenantMembers).where(inArray(tenantMembers.tenantId, [ids.tenantA, ids.tenantB]));
     await db.delete(tenants).where(inArray(tenants.id, [ids.tenantA, ids.tenantB]));
-    await db.delete(users).where(inArray(users.id, [ids.userA, ids.userB, ids.userManager, ids.userAccountant, ids.userCollector, ids.userTechnician, ids.userViewer]));
+    await db.delete(users).where(inArray(users.id, [ids.userA, ids.userB, ids.userManager, ids.userAccountant, ids.userCollector, ids.userTechnician, ids.userViewer, ids.userSiteOwner]));
   });
 });

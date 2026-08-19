@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
@@ -74,8 +74,7 @@ async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
     .limit(1);
 
   if (profile) return profile.role;
-  if (tenantId) return "viewer";
-  throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد صلاحية للوصول إلى هذه المحطة." });
+  throw new TRPCError({ code: "FORBIDDEN", message: "لا يوجد تعيين فعال لك في هذه المحطة." });
 }
 
 async function requireRole(userId: number, siteId: number, allowed: PowerRole[]) {
@@ -172,7 +171,7 @@ export const powerhubRouter = router({
         if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ربط المحطة بمستأجر قبل تعيين الفريق." });
         const [existingMembership] = await db.select({ role: tenantMembers.role }).from(tenantMembers)
           .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, input.userId))).limit(1);
-        const tenantRole = existingMembership?.role === "owner" || input.role === "owner" ? "owner" : "member" as const;
+        const tenantRole = existingMembership?.role === "owner" ? "owner" : "member" as const;
         await db.transaction(async (tx) => {
           await tx.insert(tenantMembers).values({ tenantId, userId: input.userId, role: tenantRole, isActive: true }).onDuplicateKeyUpdate({ set: { role: tenantRole, isActive: true } });
           await tx.update(staffProfiles).set({ isActive: false }).where(and(eq(staffProfiles.siteId, input.siteId), eq(staffProfiles.userId, input.userId)));
@@ -186,10 +185,17 @@ export const powerhubRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       const db = await dbOrThrow();
       if (ctx.user.role === "admin") return db.select().from(sites).orderBy(desc(sites.createdAt));
-      return db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, status: sites.status })
-        .from(tenantMembers)
-        .innerJoin(sites, eq(tenantMembers.tenantId, sites.tenantId))
+      const memberships = await db.select({ tenantId: tenantMembers.tenantId, role: tenantMembers.role }).from(tenantMembers)
         .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true)));
+      const ownerTenantIds = memberships.filter((member) => member.role === "owner").map((member) => member.tenantId);
+      const [ownedSites, assignedSites] = await Promise.all([
+        ownerTenantIds.length ? db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, status: sites.status }).from(sites).where(inArray(sites.tenantId, ownerTenantIds)) : Promise.resolve([]),
+        db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, status: sites.status }).from(staffProfiles)
+          .innerJoin(sites, eq(staffProfiles.siteId, sites.id))
+          .innerJoin(tenantMembers, and(eq(tenantMembers.tenantId, sites.tenantId), eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true)))
+          .where(and(eq(staffProfiles.userId, ctx.user.id), eq(staffProfiles.isActive, true))),
+      ]);
+      return Array.from(new Map([...ownedSites, ...assignedSites].map((site) => [site.id, site])).values());
     }),
     create: protectedProcedure.input(siteInput).mutation(async ({ ctx, input }) => {
       const db = await dbOrThrow();

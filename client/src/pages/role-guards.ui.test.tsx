@@ -96,6 +96,12 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("button", { name: /تسجيل الدفعة/ })).toBeInTheDocument();
   });
 
+  it("keeps audit records unavailable to the collector", () => {
+    mocks.activeRole = "collector";
+    render(<OperationsPage section="audit" />);
+    expect(screen.getByText(/لا يتيح دورك تنفيذ هذه العملية/)).toBeInTheDocument();
+  });
+
   it("hides meter installation and reading entry from the viewer in the field page", () => {
     render(<MeterReadingsPage />);
     expect(screen.queryByText("إضافة عداد")).not.toBeInTheDocument();
