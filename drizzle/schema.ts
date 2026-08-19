@@ -24,8 +24,51 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const tenants = mysqlTable("tenants", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  slug: varchar("slug", { length: 80 }).notNull().unique(),
+  status: mysqlEnum("status", ["active", "suspended", "archived"]).default("active").notNull(),
+  plan: mysqlEnum("plan", ["starter", "professional", "enterprise"]).default("starter").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const tenantMembers = mysqlTable("tenantMembers", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  userId: int("userId").notNull().references(() => users.id),
+  role: mysqlEnum("role", ["owner", "admin", "member"]).default("member").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("tenant_member_unique").on(table.tenantId, table.userId),
+  index("tenant_member_user_idx").on(table.userId, table.isActive),
+]);
+
+export const tenantMessagingConfigurations = mysqlTable("tenantMessagingConfigurations", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  channel: mysqlEnum("channel", ["whatsapp", "sms"]).notNull(),
+  provider: varchar("provider", { length: 80 }).notNull(),
+  senderId: varchar("senderId", { length: 120 }),
+  phoneNumberId: varchar("phoneNumberId", { length: 120 }),
+  templateName: varchar("templateName", { length: 120 }),
+  credentialCiphertext: text("credentialCiphertext"),
+  credentialIv: varchar("credentialIv", { length: 64 }),
+  credentialKeyVersion: int("credentialKeyVersion").default(1).notNull(),
+  webhookVerifyTokenHash: varchar("webhookVerifyTokenHash", { length: 128 }),
+  isActive: boolean("isActive").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("tenant_channel_unique").on(table.tenantId, table.channel),
+]);
+
 export const sites = mysqlTable("sites", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").references(() => tenants.id),
   name: varchar("name", { length: 160 }).notNull(),
   code: varchar("code", { length: 50 }).notNull().unique(),
   city: varchar("city", { length: 100 }),
@@ -223,6 +266,7 @@ export const expenses = mysqlTable("expenses", {
 
 export const notificationMessages = mysqlTable("notificationMessages", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").references(() => tenants.id),
   invoiceId: int("invoiceId").references(() => invoices.id),
   subscriberId: int("subscriberId").references(() => subscribers.id),
   channel: mysqlEnum("channel", ["whatsapp", "sms"]).notNull(),
@@ -239,6 +283,8 @@ export const notificationMessages = mysqlTable("notificationMessages", {
 
 export const auditLogs = mysqlTable("auditLogs", {
   id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").references(() => tenants.id),
+  siteId: int("siteId").references(() => sites.id),
   userId: int("userId").references(() => users.id),
   entityType: varchar("entityType", { length: 80 }).notNull(),
   entityId: varchar("entityId", { length: 80 }).notNull(),
@@ -248,6 +294,7 @@ export const auditLogs = mysqlTable("auditLogs", {
   metadata: json("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
+  index("audit_tenant_site_date_idx").on(table.tenantId, table.siteId, table.createdAt),
   index("audit_entity_idx").on(table.entityType, table.entityId),
   index("audit_user_date_idx").on(table.userId, table.createdAt),
 ]);

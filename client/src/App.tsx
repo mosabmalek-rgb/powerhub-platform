@@ -9,6 +9,10 @@ import FeaturePage from "./pages/FeaturePage";
 import OperationsPage from "./pages/OperationsPage";
 import MeterReadingsPage from "./pages/MeterReadingsPage";
 import BillingPage from "./pages/BillingPage";
+import SettingsPage from "./pages/SettingsPage";
+import NetworkDirectoryPage from "./pages/NetworkDirectoryPage";
+import ReportsPage from "./pages/ReportsPage";
+import MessagingSettingsPage from "./pages/MessagingSettingsPage";
 import PublicInvoice from "./pages/PublicInvoice";
 
 function Router() {
@@ -17,17 +21,17 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/invoice/:token"} component={PublicInvoice} />
-      <Route path={"/subscribers"}>{() => <OperationsPage section="subscribers" />}</Route>
-      <Route path={"/generators"}>{() => <OperationsPage section="generators" />}</Route>
+      <Route path={"/subscribers"}>{() => <NetworkDirectoryPage kind="subscribers" />}</Route>
+      <Route path={"/generators"}>{() => <NetworkDirectoryPage kind="generators" />}</Route>
       <Route path={"/readings"} component={MeterReadingsPage} />
       <Route path={"/invoices"} component={BillingPage} />
       <Route path={"/collections"}>{() => <OperationsPage section="collections" />}</Route>
       <Route path={"/expenses"}>{() => <OperationsPage section="expenses" />}</Route>
-      <Route path={"/reports"}>{() => <OperationsPage section="reports" />}</Route>
-      <Route path={"/notifications"}>{() => <OperationsPage section="notifications" />}</Route>
+      <Route path={"/reports"} component={ReportsPage} />
+      <Route path={"/notifications"} component={MessagingSettingsPage} />
       <Route path={"/audit"}>{() => <OperationsPage section="audit" />}</Route>
       <Route path={"/map"}>{() => <FeaturePage section="map" />}</Route>
-      <Route path={"/settings"}>{() => <FeaturePage section="settings" />}</Route>
+      <Route path={"/settings"} component={SettingsPage} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

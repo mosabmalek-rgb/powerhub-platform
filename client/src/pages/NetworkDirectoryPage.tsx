@@ -1,0 +1,86 @@
+import { useAuth } from "@/_core/hooks/useAuth";
+import DashboardLayout from "@/components/DashboardLayout";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { startLogin } from "@/const";
+import { trpc } from "@/lib/trpc";
+import { Bolt, Loader2, Pencil, Plus, UsersRound } from "lucide-react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+
+type DirectoryKind = "subscribers" | "generators";
+type Values = Record<string, string | number | undefined>;
+const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>;
+}
+
+export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) {
+  const { isAuthenticated, loading } = useAuth();
+  const utils = trpc.useUtils();
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
+  const [siteId, setSiteId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<any>(null);
+  useEffect(() => { if (!siteId && sitesQuery.data?.[0]) setSiteId(sitesQuery.data[0].id); }, [siteId, sitesQuery.data]);
+  const enabled = Boolean(siteId && isAuthenticated);
+  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
+  const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers" });
+  const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators" });
+  const role = accessQuery.data?.role;
+  const canEdit = kind === "subscribers" ? ["owner", "manager", "accountant"].includes(role ?? "") : ["owner", "manager", "technician"].includes(role ?? "");
+  const data: any[] = kind === "subscribers" ? subscribersQuery.data ?? [] : generatorsQuery.data ?? [];
+  const activeSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
+  const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
+
+  const createSubscriber = trpc.powerhub.subscribers.create.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت إضافة المشترك."); }, onError: (e) => toast.error(e.message) });
+  const updateSubscriber = trpc.powerhub.subscribers.update.useMutation({ onSuccess: async () => { await refresh(); setEditing(null); toast.success("تم تحديث المشترك."); }, onError: (e) => toast.error(e.message) });
+  const createGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت إضافة المولد."); }, onError: (e) => toast.error(e.message) });
+  const updateGenerator = trpc.powerhub.generators.update.useMutation({ onSuccess: async () => { await refresh(); setEditing(null); toast.success("تم تحديث المولد."); }, onError: (e) => toast.error(e.message) });
+
+  const submitSubscriber = (values: Values) => {
+    const base = { siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone), address: values.address ? String(values.address) : undefined, subscriptionType: values.subscriptionType as "residential" | "commercial", serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected" };
+    if (editing) updateSubscriber.mutate({ ...base, id: editing.id });
+    else createSubscriber.mutate({ ...base, subscriberNo: String(values.subscriberNo) });
+  };
+  const submitGenerator = (values: Values) => {
+    if (editing) updateGenerator.mutate({ siteId: siteId!, id: editing.id, name: String(values.name), ratedCapacityKw: String(values.ratedCapacityKw), fuelLevelLiters: String(values.fuelLevelLiters), operatingHours: String(values.operatingHours), status: values.status as "active" | "maintenance" | "stopped" | "offline" });
+    else createGenerator.mutate({ siteId: siteId!, code: String(values.code), name: String(values.name), serialNumber: values.serialNumber ? String(values.serialNumber) : undefined, ratedCapacityKw: String(values.ratedCapacityKw), fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other" });
+  };
+
+  if (loading) return <DashboardLayout><Loading /></DashboardLayout>;
+  if (!isAuthenticated) return <DashboardLayout><LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} /></DashboardLayout>;
+  if (!sitesQuery.data?.length) return <DashboardLayout><EmptySetup /></DashboardLayout>;
+  const title = kind === "subscribers" ? "المشتركون" : "المحطات والمولدات";
+  const Icon = kind === "subscribers" ? UsersRound : Bolt;
+  const pending = createSubscriber.isPending || updateSubscriber.isPending || createGenerator.isPending || updateGenerator.isPending;
+
+  return <DashboardLayout><div className="space-y-6 pb-12">
+    <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><select value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></header>
+    <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr]">
+      {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <SubscriberEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} /> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
+      <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex items-center justify-between border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل {title}</h2><span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">{data.length} سجل</span></div><div className="p-5">{data.length ? <div className="space-y-2">{data.map((item) => <RecordRow key={item.id} kind={kind} item={item} canEdit={canEdit} onEdit={() => setEditing(item)} />)}</div> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">لا توجد سجلات في {activeSite?.name}. {canEdit ? "استخدم النموذج لإضافة أول سجل." : ""}</div>}</div></CardContent></Card>
+    </div>
+  </div></DashboardLayout>;
+}
+
+function SubscriberEditor({ editing, pending, onCancel, onSubmit }: { editing: any; pending: boolean; onCancel: () => void; onSubmit: (values: Values) => void }) {
+  return <><EditorTitle text={editing ? "تعديل مشترك" : "إضافة مشترك"} editing={Boolean(editing)} onCancel={onCancel} /><form className="mt-5 space-y-4" onSubmit={(e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); onSubmit({ subscriberNo: String(f.get("subscriberNo") || editing?.subscriberNo), fullName: String(f.get("fullName")), phone: String(f.get("phone")), address: String(f.get("address") || ""), subscriptionType: String(f.get("subscriptionType")), serviceStatus: String(f.get("serviceStatus")) }); }}><Field label="رقم المشترك">{editing ? <input value={editing.subscriberNo} readOnly className={`${inputClass} opacity-60`} dir="ltr" /> : <input required name="subscriberNo" placeholder="SUB-0001" className={inputClass} dir="ltr" />}</Field><Field label="الاسم"><input required name="fullName" defaultValue={editing?.fullName} className={inputClass} /></Field><Field label="رقم الهاتف"><input required name="phone" defaultValue={editing?.phone} className={inputClass} dir="ltr" /></Field><Field label="العنوان"><input name="address" defaultValue={editing?.address ?? ""} className={inputClass} /></Field><Field label="نوع الاشتراك"><select name="subscriptionType" defaultValue={editing?.subscriptionType ?? "residential"} className={inputClass}><option value="residential">سكني</option><option value="commercial">تجاري</option></select></Field><Field label="حالة الخدمة"><select name="serviceStatus" defaultValue={editing?.serviceStatus ?? "active"} className={inputClass}><option value="active">نشط</option><option value="suspended">معلق</option><option value="disconnected">مفصول</option></select></Field><SubmitButton text={editing ? "حفظ التعديلات" : "إضافة المشترك"} pending={pending} /></form></>;
+}
+
+function GeneratorEditor({ editing, pending, onCancel, onSubmit }: { editing: any; pending: boolean; onCancel: () => void; onSubmit: (values: Values) => void }) {
+  return <><EditorTitle text={editing ? "تعديل مولد" : "إضافة مولد"} editing={Boolean(editing)} onCancel={onCancel} /><form className="mt-5 space-y-4" onSubmit={(e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); onSubmit(editing ? { name: String(f.get("name")), ratedCapacityKw: String(f.get("ratedCapacityKw")), fuelLevelLiters: String(f.get("fuelLevelLiters")), operatingHours: String(f.get("operatingHours")), status: String(f.get("status")) } : { code: String(f.get("code")), name: String(f.get("name")), serialNumber: String(f.get("serialNumber") || ""), ratedCapacityKw: String(f.get("ratedCapacityKw")), fuelType: String(f.get("fuelType")) }); }}><Field label="رمز المولد">{editing ? <input value={editing.code} readOnly className={`${inputClass} opacity-60`} dir="ltr" /> : <input required name="code" placeholder="GEN-01" className={inputClass} dir="ltr" />}</Field><Field label="الاسم"><input required name="name" defaultValue={editing?.name} className={inputClass} /></Field><Field label="القدرة kW"><input required name="ratedCapacityKw" defaultValue={editing?.ratedCapacityKw} type="number" min="1" step="0.001" className={inputClass} dir="ltr" /></Field>{editing ? <><Field label="الوقود باللتر"><input required name="fuelLevelLiters" defaultValue={editing.fuelLevelLiters} type="number" min="0" step="0.01" className={inputClass} dir="ltr" /></Field><Field label="ساعات التشغيل"><input required name="operatingHours" defaultValue={editing.operatingHours} type="number" min="0" step="0.01" className={inputClass} dir="ltr" /></Field><Field label="الحالة"><select name="status" defaultValue={editing.status} className={inputClass}><option value="active">يعمل</option><option value="maintenance">صيانة</option><option value="stopped">متوقف</option><option value="offline">غير متصل</option></select></Field></> : <><Field label="الرقم التسلسلي"><input name="serialNumber" className={inputClass} dir="ltr" /></Field><Field label="نوع الوقود"><select name="fuelType" className={inputClass}><option value="diesel">ديزل</option><option value="gasoline">بنزين</option><option value="gas">غاز</option><option value="other">آخر</option></select></Field></>}<SubmitButton text={editing ? "حفظ التعديلات" : "إضافة المولد"} pending={pending} /></form></>;
+}
+
+function RecordRow({ kind, item, canEdit, onEdit }: { kind: DirectoryKind; item: any; canEdit: boolean; onEdit: () => void }) {
+  const subscriber = kind === "subscribers";
+  return <div className="flex items-center justify-between rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3"><div><p className="font-bold text-white">{subscriber ? item.fullName : item.name}</p><p className="mt-1 text-xs text-slate-500">{subscriber ? `${item.subscriberNo} · ${item.phone} · ${item.subscriptionType === "commercial" ? "تجاري" : "سكني"}` : `${item.code} · ${item.ratedCapacityKw} kW · ${item.operatingHours} ساعة`}</p></div><div className="flex items-center gap-2">{subscriber ? <Badge className={item.serviceStatus === "active" ? "bg-emerald-400/10 text-emerald-400" : "bg-rose-400/10 text-rose-400"}>{item.serviceStatus === "active" ? "نشط" : item.serviceStatus === "suspended" ? "معلق" : "مفصول"}</Badge> : <Badge className="bg-[#F5B800]/10 text-[#F5B800]">{item.status === "active" ? "يعمل" : item.status === "maintenance" ? "صيانة" : item.status}</Badge>}{canEdit && <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={onEdit}><Pencil className="h-3.5 w-3.5" /></Button>}</div></div>;
+}
+
+function EditorTitle({ text, editing, onCancel }: { text: string; editing: boolean; onCancel: () => void }) { return <div className="flex items-center justify-between"><h2 className="font-bold text-white">{text}</h2>{editing && <Button size="sm" variant="ghost" className="text-slate-400" onClick={onCancel}>إلغاء</Button>}</div>; }
+function SubmitButton({ text, pending }: { text: string; pending: boolean }) { return <Button disabled={pending} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]"><Plus className="ml-2 h-4 w-4" />{text}</Button>; }
+function Loading() { return <div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div>; }
+function LoginPrompt({ title }: { title: string }) { return <div className="mx-auto mt-12 max-w-xl rounded-[28px] border border-[#F5B800]/20 bg-[#111823] p-8 text-center shadow-panel"><UsersRound className="mx-auto h-8 w-8 text-[#F5B800]" /><h1 className="mt-5 text-xl font-extrabold text-white">سجّل الدخول إلى {title}</h1><p className="mt-3 leading-7 text-slate-400">يتطلب الوصول إلى بيانات الشبكة حساباً مصرحاً له.</p><Button onClick={() => startLogin()} className="mt-6 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تسجيل الدخول</Button></div>; }
+function ReadOnlyCard() { return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-7 text-center text-sm leading-7 text-slate-500">أنت في وضع القراءة فقط لهذه المحطة. تواصل مع مالك المحطة أو مديرها لتفعيل صلاحية التعديل.</CardContent></Card>; }
+function EmptySetup() { return <div className="mx-auto mt-12 max-w-xl rounded-[28px] border border-white/10 bg-[#111823] p-8 text-center shadow-panel"><h1 className="text-xl font-extrabold text-white">أنشئ محطة أولاً</h1><p className="mt-3 text-slate-400">المشتركون والمولدات مرتبطون بمحطة توزيع محددة.</p></div>; }

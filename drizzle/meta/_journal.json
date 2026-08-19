@@ -22,6 +22,20 @@
       "when": 1787152268551,
       "tag": "0002_powerful_night_nurse",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1787157099618,
+      "tag": "0003_smart_the_renegades",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1787157291495,
+      "tag": "0004_loose_juggernaut",
+      "breakpoints": true
     }
   ]
 }
