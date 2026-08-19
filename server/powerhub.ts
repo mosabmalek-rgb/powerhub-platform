@@ -28,12 +28,11 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { storagePut } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
+import { rolesWith, type PowerRole } from "../shared/powerhub-rbac";
 
-type PowerRole = "owner" | "manager" | "accountant" | "collector" | "technician" | "viewer";
-
-const createRoles: PowerRole[] = ["owner", "manager", "accountant"];
-const recordRoles: PowerRole[] = ["owner", "manager", "accountant", "collector"];
-const readingRoles: PowerRole[] = ["owner", "manager", "accountant", "technician"];
+const createRoles = rolesWith("issueInvoices");
+const recordRoles = rolesWith("collectPayments");
+const readingRoles = rolesWith("recordReadings");
 
 async function dbOrThrow() {
   const db = await getDb();
@@ -629,6 +628,18 @@ export const powerhubRouter = router({
       return db.select({ notification: notificationMessages, subscriber: subscribers }).from(notificationMessages)
         .innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id))
         .where(eq(subscribers.siteId, input.siteId)).orderBy(desc(notificationMessages.createdAt));
+    }),
+    retry: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
+      const db = await dbOrThrow();
+      const [notificationScope] = await db.select({ id: notificationMessages.id, status: notificationMessages.status }).from(notificationMessages)
+        .innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id))
+        .where(and(eq(notificationMessages.id, input.notificationId), eq(subscribers.siteId, input.siteId))).limit(1);
+      if (!notificationScope) throw new TRPCError({ code: "NOT_FOUND", message: "رسالة الإشعار لا تتبع للمحطة المحددة." });
+      if (notificationScope.status !== "failed") throw new TRPCError({ code: "BAD_REQUEST", message: "يمكن إعادة محاولة الرسائل الفاشلة فقط." });
+      await db.update(notificationMessages).set({ status: "pending", lastError: null }).where(eq(notificationMessages.id, input.notificationId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(input.notificationId), action: "retry", metadata: { previousStatus: "failed" } });
+      return { success: true };
     }),
   }),
 

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { can } from "@shared/powerhub-rbac";
 import { Bolt, Loader2, Pencil, Plus, UsersRound } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -29,7 +30,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers" });
   const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators" });
   const role = accessQuery.data?.role;
-  const canEdit = kind === "subscribers" ? ["owner", "manager", "accountant"].includes(role ?? "") : ["owner", "manager", "technician"].includes(role ?? "");
+  const canEdit = kind === "subscribers" ? can(role, "manageSubscribers") : can(role, "manageGenerators");
   const data: any[] = kind === "subscribers" ? subscribersQuery.data ?? [] : generatorsQuery.data ?? [];
   const activeSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
   const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);

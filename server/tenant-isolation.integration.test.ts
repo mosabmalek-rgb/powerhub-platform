@@ -116,6 +116,13 @@ describe("tenant isolation", () => {
     const [notification] = await db.select().from(notificationMessages).where(eq(notificationMessages.invoiceId, invoice.id));
     expect(lines).toHaveLength(3);
     expect(notification).toMatchObject({ tenantId: ids.tenantA, channel: "whatsapp", eventType: "invoice_issued", status: "pending" });
+    const [ownerB] = await db.select().from(users).where(eq(users.id, ids.userB));
+    const otherTenantCaller = powerhubRouter.createCaller({ user: ownerB, req: {} as never, res: {} as never });
+    await expect(otherTenantCaller.notifications.retry({ siteId: ids.siteB, notificationId: notification.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await db.update(notificationMessages).set({ status: "failed", lastError: "اختبار مزود محلي" }).where(eq(notificationMessages.id, notification.id));
+    await expect(ownerCaller.notifications.retry({ siteId: ids.siteA, notificationId: notification.id })).resolves.toEqual({ success: true });
+    const [retried] = await db.select().from(notificationMessages).where(eq(notificationMessages.id, notification.id));
+    expect(retried).toMatchObject({ status: "pending", lastError: null });
   });
 
   afterAll(async () => {

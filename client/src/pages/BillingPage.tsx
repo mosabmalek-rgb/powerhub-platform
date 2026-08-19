@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { can } from "@shared/powerhub-rbac";
 import { Copy, FilePlus2, Loader2, ReceiptText, ShieldCheck } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -24,7 +25,7 @@ export default function BillingPage() {
   useEffect(() => { if (!siteId && sitesQuery.data?.[0]) setSiteId(sitesQuery.data[0].id); }, [siteId, sitesQuery.data]);
   const enabled = Boolean(isAuthenticated && siteId);
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
-  const canIssue = ["owner", "manager", "accountant"].includes(accessQuery.data?.role ?? "");
+  const canIssue = can(accessQuery.data?.role, "issueInvoices");
   const readingsQuery = trpc.powerhub.readings.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const tariffsQuery = trpc.powerhub.tariffs.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const invoicesQuery = trpc.powerhub.invoices.list.useQuery({ siteId: siteId ?? 0 }, { enabled });

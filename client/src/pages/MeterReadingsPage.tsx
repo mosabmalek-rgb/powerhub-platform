@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { startLogin } from "@/const";
 import { enqueueReading, listQueuedReadings, removeQueuedReading, type QueuedReading, updateQueuedReading } from "@/lib/offline-reading-queue";
 import { trpc } from "@/lib/trpc";
+import { can } from "@shared/powerhub-rbac";
 import { Camera, CloudOff, Gauge, ImagePlus, Loader2, Plus, RotateCw, UploadCloud, Wifi } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -53,9 +54,9 @@ export default function MeterReadingsPage() {
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const currentSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
   const role = accessQuery.data?.role;
-  const canInstallMeter = role === "owner" || role === "manager" || role === "technician";
-  const canRecordReading = canInstallMeter || role === "accountant";
-  const canApproveReading = role === "owner" || role === "manager" || role === "accountant";
+  const canInstallMeter = can(role, "manageGenerators");
+  const canRecordReading = can(role, "recordReadings");
+  const canApproveReading = can(role, "approveReadings");
 
   const loadQueuedReadings = useCallback(async () => {
     if (!siteId) return;
