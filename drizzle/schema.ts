@@ -164,6 +164,7 @@ export const meterReadings = mysqlTable("meterReadings", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
   meterId: int("meterId").notNull().references(() => meters.id),
+  clientOperationId: varchar("clientOperationId", { length: 80 }).unique(),
   readingAt: timestamp("readingAt").defaultNow().notNull(),
   readingValue: decimal("readingValue", { precision: 15, scale: 3 }).notNull(),
   previousReadingValue: decimal("previousReadingValue", { precision: 15, scale: 3 }),

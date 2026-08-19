@@ -332,19 +332,25 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), meterId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/),
-      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(),
+      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(),
     })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, readingRoles);
       const db = await dbOrThrow();
       const [meterScope] = await db.select({ id: meters.id }).from(meters).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
         .where(and(eq(meters.id, input.meterId), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!meterScope) throw new TRPCError({ code: "NOT_FOUND", message: "العداد لا يتبع للمحطة المحددة." });
+      const tenantId = await getSiteTenant(input.siteId);
+      if (input.clientOperationId) {
+        const [existing] = await db.select({ id: meterReadings.id, consumptionKwh: meterReadings.consumptionKwh, status: meterReadings.status }).from(meterReadings)
+          .where(and(eq(meterReadings.tenantId, tenantId), eq(meterReadings.clientOperationId, input.clientOperationId))).limit(1);
+        if (existing) return { id: existing.id, consumptionKwh: Number(existing.consumptionKwh ?? 0), status: existing.status, replayed: true };
+      }
       const [previous] = await db.select({ readingValue: meterReadings.readingValue }).from(meterReadings)
         .where(and(eq(meterReadings.meterId, input.meterId), eq(meterReadings.status, "approved")))
         .orderBy(desc(meterReadings.readingAt)).limit(1);
       const previousValue = previous ? Number(previous.readingValue) : 0;
       const nextValue = Number(input.readingValue);
-      if (nextValue < previousValue) throw new TRPCError({ code: "BAD_REQUEST", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة." });
+      if (nextValue < previousValue) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة." });
       let imageKey: string | undefined;
       let imageHash: string | undefined;
       if (input.imageData) {
@@ -357,12 +363,12 @@ export const powerhubRouter = router({
         imageKey = stored.key;
       }
       const id = insertId(await db.insert(meterReadings).values({
-        tenantId: await getSiteTenant(input.siteId), meterId: input.meterId, readingValue: input.readingValue, previousReadingValue: previous?.readingValue,
+        tenantId, meterId: input.meterId, clientOperationId: input.clientOperationId, readingValue: input.readingValue, previousReadingValue: previous?.readingValue,
         consumptionKwh: String(nextValue - previousValue), captureMethod: input.captureMethod, imageKey, imageHash,
         notes: input.notes, enteredByUserId: ctx.user.id,
       }));
       await writeAudit({ userId: ctx.user.id, entityType: "meter_reading", entityId: String(id), action: "create", afterData: input });
-      return { id, consumptionKwh: nextValue - previousValue, status: "pending_review" as const };
+      return { id, consumptionKwh: nextValue - previousValue, status: "pending_review" as const, replayed: false };
     }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
