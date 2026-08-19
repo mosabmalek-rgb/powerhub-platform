@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { auditLogs, collectorSessions, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenants, users } from "../drizzle/schema";
+import { auditLogs, collectorSessions, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenantMessagingConfigurations, tenants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { powerhubRouter } from "./powerhub";
 
@@ -35,6 +35,10 @@ describe("tenant isolation", () => {
     const tenantA = insertId(await db.insert(tenants).values({ name: "Tenant A", slug: `${suffix}-a` }));
     const tenantB = insertId(await db.insert(tenants).values({ name: "Tenant B", slug: `${suffix}-b` }));
     await db.insert(tenantMembers).values([{ tenantId: tenantA, userId: userA, role: "owner" }, { tenantId: tenantA, userId: userManager, role: "member" }, { tenantId: tenantA, userId: userAccountant, role: "member" }, { tenantId: tenantA, userId: userCollector, role: "member" }, { tenantId: tenantA, userId: userTechnician, role: "member" }, { tenantId: tenantA, userId: userViewer, role: "member" }, { tenantId: tenantB, userId: userB, role: "owner" }]);
+    await db.insert(tenantMessagingConfigurations).values([
+      { tenantId: tenantA, channel: "whatsapp", provider: "local-whatsapp", isActive: true },
+      { tenantId: tenantA, channel: "sms", provider: "local-sms", isActive: true },
+    ]);
     const siteA = insertId(await db.insert(sites).values({ tenantId: tenantA, name: "Site A", code: `${suffix}-a`.toUpperCase() }));
     const siteA2 = insertId(await db.insert(sites).values({ tenantId: tenantA, name: "Site A2", code: `${suffix}-a2`.toUpperCase() }));
     const siteB = insertId(await db.insert(sites).values({ tenantId: tenantB, name: "Site B", code: `${suffix}-b`.toUpperCase() }));
@@ -123,9 +127,15 @@ describe("tenant isolation", () => {
     const invoice = await ownerCaller.invoices.createFromReading({ siteId: ids.siteA, readingId: ids.baseReadingA, tariffId: ids.tariffA, billingPeriod: "2026-08", dueDate: new Date("2026-08-31"), discountAmount: 0 });
     createdInvoiceId = invoice.id;
     const lines = await db.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, invoice.id));
-    const [notification] = await db.select().from(notificationMessages).where(eq(notificationMessages.invoiceId, invoice.id));
+    const queuedNotifications = await db.select().from(notificationMessages).where(eq(notificationMessages.invoiceId, invoice.id));
     expect(lines).toHaveLength(3);
-    expect(notification).toMatchObject({ tenantId: ids.tenantA, channel: "whatsapp", eventType: "invoice_issued", status: "pending" });
+    expect(queuedNotifications).toHaveLength(2);
+    expect(queuedNotifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tenantId: ids.tenantA, channel: "whatsapp", eventType: "invoice_issued", status: "pending" }),
+      expect.objectContaining({ tenantId: ids.tenantA, channel: "sms", eventType: "invoice_issued", status: "pending" }),
+    ]));
+    const notification = queuedNotifications.find((message) => message.channel === "whatsapp");
+    if (!notification) throw new Error("Expected queued WhatsApp notification");
     const [ownerB] = await db.select().from(users).where(eq(users.id, ids.userB));
     const otherTenantCaller = powerhubRouter.createCaller({ user: ownerB, req: {} as never, res: {} as never });
     await expect(otherTenantCaller.notifications.retry({ siteId: ids.siteB, notificationId: notification.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -156,6 +166,7 @@ describe("tenant isolation", () => {
     await db.delete(tariffs).where(eq(tariffs.id, ids.tariffA));
     await db.delete(auditLogs).where(inArray(auditLogs.siteId, [ids.siteA, ids.siteA2, ids.siteB]));
     await db.delete(sites).where(inArray(sites.id, [ids.siteA, ids.siteA2, ids.siteB]));
+    await db.delete(tenantMessagingConfigurations).where(inArray(tenantMessagingConfigurations.tenantId, [ids.tenantA, ids.tenantB]));
     await db.delete(tenantMembers).where(inArray(tenantMembers.tenantId, [ids.tenantA, ids.tenantB]));
     await db.delete(tenants).where(inArray(tenants.id, [ids.tenantA, ids.tenantB]));
     await db.delete(users).where(inArray(users.id, [ids.userA, ids.userB, ids.userManager, ids.userAccountant, ids.userCollector, ids.userTechnician, ids.userViewer, ids.userSiteOwner]));

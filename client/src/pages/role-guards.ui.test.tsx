@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BillingPage from "./BillingPage";
@@ -13,6 +13,8 @@ import SettingsPage from "./SettingsPage";
 const mocks = vi.hoisted(() => ({
   activeRole: "viewer",
   site: { id: 1, name: "محطة الاختبار", code: "TEST-01" },
+  invoices: [] as Array<{ id: number; invoiceNo: string; billingPeriod: string; consumptionKwh: string; balanceDue: string; status: string }>,
+  createShareLink: vi.fn(),
   mutation: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
   query: (data: unknown = []) => ({ data, isLoading: false, isFetching: false }),
 }));
@@ -30,21 +32,21 @@ vi.mock("@/lib/trpc", () => ({
       meters: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       readings: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
-      invoices: { list: { useQuery: () => mocks.query([]) }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: mocks.mutation } },
+      invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
       subscribers: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       payments: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       expenses: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) } },
       audit: { list: { useQuery: () => mocks.query([]) } },
-      collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => mocks.query(undefined) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
+      collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation } },
       notifications: { list: { useQuery: () => mocks.query([]) }, retry: { useMutation: mocks.mutation } },
     },
   },
 }));
 
-afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; });
+afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; mocks.invoices = []; mocks.createShareLink.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("hides invoice issuance and sharing controls from the viewer", () => {
@@ -65,11 +67,31 @@ describe("role guards in administration UI", () => {
     expect(screen.queryByRole("button", { name: /إضافة المشترك/ })).not.toBeInTheDocument();
   });
 
+  it("shows generator creation to the technician but keeps it read-only for the accountant", () => {
+    mocks.activeRole = "technician";
+    const { unmount } = render(<NetworkDirectoryPage kind="generators" />);
+    expect(screen.getByRole("button", { name: "إضافة المولد" })).toBeInTheDocument();
+    unmount();
+    mocks.activeRole = "accountant";
+    render(<NetworkDirectoryPage kind="generators" />);
+    expect(screen.getByText(/وضع القراءة فقط لهذه المحطة/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إضافة المولد" })).not.toBeInTheDocument();
+  });
+
   it("hides tenant messaging configuration from every non-owner role", () => {
     mocks.activeRole = "manager";
     render(<MessagingSettingsPage />);
     expect(screen.getByText(/تحتاج إلى دور/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /حفظ إعداد WhatsApp/ })).not.toBeInTheDocument();
+  });
+
+  it("shows separate WhatsApp and SMS configuration forms to the owner", () => {
+    mocks.activeRole = "owner";
+    render(<MessagingSettingsPage />);
+    expect(screen.getByText("إعداد WhatsApp Cloud API")).toBeInTheDocument();
+    expect(screen.getByText("إعداد SMS")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /حفظ إعداد WhatsApp/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /حفظ إعداد SMS/ })).toBeInTheDocument();
   });
 
   it("shows team administration to the owner", () => {
@@ -96,10 +118,41 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("button", { name: /تسجيل الدفعة/ })).toBeInTheDocument();
   });
 
+  it("shows expense entry to the accountant but keeps it read-only for the collector", () => {
+    mocks.activeRole = "accountant";
+    const { unmount } = render(<OperationsPage section="expenses" />);
+    expect(screen.getByRole("button", { name: "حفظ المصروف" })).toBeInTheDocument();
+    unmount();
+    mocks.activeRole = "collector";
+    render(<OperationsPage section="expenses" />);
+    expect(screen.queryByRole("button", { name: "حفظ المصروف" })).not.toBeInTheDocument();
+  });
+
+  it("shows the collector session opening flow to the collector", () => {
+    mocks.activeRole = "collector";
+    render(<OperationsPage section="collections" />);
+    expect(screen.getByText(/افتح جلسة قبل تسجيل دفعاتك الميدانية/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "فتح جلسة تحصيل" })).toBeInTheDocument();
+  });
+
+  it("lets an accountant create a public share link from an issued invoice", () => {
+    mocks.activeRole = "accountant";
+    mocks.invoices = [{ id: 44, invoiceNo: "PH-TEST-0044", billingPeriod: "2026-08", consumptionKwh: "50", balanceDue: "75", status: "issued" }];
+    render(<OperationsPage section="invoices" />);
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء رابط" }));
+    expect(mocks.createShareLink).toHaveBeenCalledWith({ siteId: 1, invoiceId: 44 });
+  });
+
   it("keeps audit records unavailable to the collector", () => {
     mocks.activeRole = "collector";
     render(<OperationsPage section="audit" />);
     expect(screen.getByText(/لا يتيح دورك تنفيذ هذه العملية/)).toBeInTheDocument();
+  });
+
+  it("shows audit records to the owner", () => {
+    mocks.activeRole = "owner";
+    render(<OperationsPage section="audit" />);
+    expect(screen.getByRole("heading", { name: "سجل التدقيق" })).toBeInTheDocument();
   });
 
   it("hides meter installation and reading entry from the viewer in the field page", () => {

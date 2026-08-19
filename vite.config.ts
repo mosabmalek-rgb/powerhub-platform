@@ -1,10 +1,10 @@
 import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
+import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
-import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -155,11 +155,18 @@ const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(
 export default defineConfig({
   plugins,
   resolve: {
+    dedupe: ["react", "react-dom", "@tanstack/react-query", "@trpc/react-query"],
     alias: {
+      "react": path.resolve(PROJECT_ROOT, "node_modules", "react"),
+      "react-dom": path.resolve(PROJECT_ROOT, "node_modules", "react-dom"),
+      "react-dom/client": path.resolve(PROJECT_ROOT, "node_modules", "react-dom", "client.js"),
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
     },
+  },
+  optimizeDeps: {
+    include: ["react", "react-dom", "react-dom/client", "@tanstack/react-query", "@trpc/react-query"],
   },
   envDir: path.resolve(import.meta.dirname),
   root: path.resolve(import.meta.dirname, "client"),

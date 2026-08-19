@@ -1,4 +1,4 @@
-const CACHE_NAME = "powerhub-shell-v1";
+const CACHE_NAME = "powerhub-shell-v2";
 const APP_SHELL = ["/"];
 
 self.addEventListener("install", (event) => {
@@ -21,9 +21,10 @@ self.addEventListener("fetch", (event) => {
     }).catch(() => caches.match("/")));
     return;
   }
-  event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-    const copy = response.clone();
-    void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-    return response;
-  })));
+  // Never cache Vite development modules or other versioned runtime assets.
+  // An old React module can otherwise survive a hot reload and conflict with
+  // the current ReactDOM dispatcher.
+  if (url.pathname.startsWith("/@") || url.pathname.includes("/node_modules/") || url.searchParams.has("v")) return;
+
+  event.respondWith(caches.match(request).then((cached) => cached || fetch(request)));
 });

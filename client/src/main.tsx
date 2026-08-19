@@ -82,6 +82,8 @@ createRoot(document.getElementById("root")!).render(
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    void navigator.serviceWorker.register("/sw.js").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
+    // Versioned URL forces an immediate Service Worker update after changing
+    // cache semantics, even when a legacy worker had cached /sw.js itself.
+    void navigator.serviceWorker.register("/sw.js?v=2").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
   });
 }
