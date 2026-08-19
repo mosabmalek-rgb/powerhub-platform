@@ -22,3 +22,7 @@ export function decryptTenantCredential(ciphertext: string, iv: string) {
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
 }
+
+export function hashWebhookVerifyToken(value: string) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}

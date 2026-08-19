@@ -8,6 +8,9 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { sdk } from "./sdk";
+import { processNotificationQueue } from "../notification-worker";
+import { receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "../messaging-webhooks";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -32,10 +35,21 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
+  app.use(express.json({ limit: "50mb", verify: (req, _res, buffer) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buffer; } }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
+  app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);
+  app.post("/api/scheduled/process-notifications", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron || !user.taskUid) return res.status(403).json({ error: "cron_only" });
+      return res.json({ ok: true, ...(await processNotificationQueue(25)) });
+    } catch (error) {
+      return res.status(500).json({ error: error instanceof Error ? error.message : "notification_processing_failed", timestamp: new Date().toISOString() });
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",

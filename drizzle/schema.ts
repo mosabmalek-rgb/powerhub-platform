@@ -68,7 +68,7 @@ export const tenantMessagingConfigurations = mysqlTable("tenantMessagingConfigur
 
 export const sites = mysqlTable("sites", {
   id: int("id").autoincrement().primaryKey(),
-  tenantId: int("tenantId").references(() => tenants.id),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   name: varchar("name", { length: 160 }).notNull(),
   code: varchar("code", { length: 50 }).notNull().unique(),
   city: varchar("city", { length: 100 }),
@@ -266,7 +266,7 @@ export const expenses = mysqlTable("expenses", {
 
 export const notificationMessages = mysqlTable("notificationMessages", {
   id: int("id").autoincrement().primaryKey(),
-  tenantId: int("tenantId").references(() => tenants.id),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
   invoiceId: int("invoiceId").references(() => invoices.id),
   subscriberId: int("subscriberId").references(() => subscribers.id),
   channel: mysqlEnum("channel", ["whatsapp", "sms"]).notNull(),
@@ -283,8 +283,8 @@ export const notificationMessages = mysqlTable("notificationMessages", {
 
 export const auditLogs = mysqlTable("auditLogs", {
   id: int("id").autoincrement().primaryKey(),
-  tenantId: int("tenantId").references(() => tenants.id),
-  siteId: int("siteId").references(() => sites.id),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
   userId: int("userId").references(() => users.id),
   entityType: varchar("entityType", { length: 80 }).notNull(),
   entityId: varchar("entityId", { length: 80 }).notNull(),
