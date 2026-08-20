@@ -388,3 +388,19 @@ html {
   box-shadow: 0 0 0 3px rgba(245, 184, 0, 0.12), 0 0 14px rgba(245, 184, 0, 0.5);
   transform: translateX(50%);
 }
+
+.dark .ph-landing-logo-glow {
+  position: relative;
+  isolation: isolate;
+}
+
+.dark .ph-landing-logo-glow::before {
+  position: absolute;
+  inset: 18% -14%;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(245, 184, 0, 0.34) 0%, rgba(245, 184, 0, 0.12) 42%, transparent 74%);
+  filter: blur(10px);
+  opacity: 0.82;
+}

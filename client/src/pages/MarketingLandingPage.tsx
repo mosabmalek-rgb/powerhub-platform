@@ -78,7 +78,7 @@ export default function MarketingLandingPage() {
 
       <header className="ph-topbar-rail sticky top-0 z-30 border-b border-white/8 bg-[#0D1117]/85 backdrop-blur-xl">
         <div className="container flex h-[92px] items-center justify-between gap-3">
-          <button className="shrink-0" onClick={() => setLocation("/")} aria-label="PowerHub">
+          <button className="ph-landing-logo-glow shrink-0" onClick={() => setLocation("/")} aria-label="PowerHub">
             <PowerHubLogo header />
           </button>
           <nav className="hidden items-center gap-7 text-sm font-bold text-slate-300 lg:flex">
