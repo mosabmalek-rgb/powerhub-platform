@@ -265,3 +265,99 @@ html {
     }
   }
 }
+
+/* Light PowerHub theme: warm paper surfaces, graphite typography, electrical-gold accents. */
+:root:not(.dark) {
+  --background: #f5f7fb;
+  --foreground: #17212b;
+  --card: #ffffff;
+  --card-foreground: #17212b;
+  --popover: #ffffff;
+  --popover-foreground: #17212b;
+  --secondary: #edf1f6;
+  --secondary-foreground: #263546;
+  --muted: #eef2f6;
+  --muted-foreground: #5b6979;
+  --accent: #fff7dd;
+  --accent-foreground: #17212b;
+  --border: #dbe3ec;
+  --input: #d5dee8;
+  --ring: #bc8400;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #17212b;
+  --sidebar-accent: #fff7dd;
+  --sidebar-accent-foreground: #17212b;
+  --sidebar-border: #dbe3ec;
+  --sidebar-ring: #bc8400;
+}
+
+:root:not(.dark) html,
+:root:not(.dark) body {
+  background: #f5f7fb;
+  color: #17212b;
+}
+
+:root:not(.dark) [class*="bg-[#0D1117]"],
+:root:not(.dark) [class*="bg-[#0d1117]"],
+:root:not(.dark) [class*="bg-[#111823]"],
+:root:not(.dark) [class*="bg-[#101722]"],
+:root:not(.dark) [class*="bg-[#0B1018]"],
+:root:not(.dark) [class*="bg-[#090d12]"],
+:root:not(.dark) [class*="bg-[#1b222c]"],
+:root:not(.dark) [class*="bg-[#1B222C]"] {
+  background-color: #ffffff !important;
+}
+
+:root:not(.dark) [class*="bg-white/["],
+:root:not(.dark) [class*="bg-white/"] {
+  background-color: #f8fafc !important;
+}
+
+:root:not(.dark) [class*="border-white"],
+:root:not(.dark) [class*="border-[#0D1117]"],
+:root:not(.dark) [class*="border-[#111823]"] {
+  border-color: #dbe3ec !important;
+}
+
+:root:not(.dark) [class*="text-white"],
+:root:not(.dark) [class*="text-slate-200"],
+:root:not(.dark) [class*="text-slate-300"] {
+  color: #17212b !important;
+}
+
+:root:not(.dark) [class*="text-slate-400"],
+:root:not(.dark) [class*="text-slate-500"],
+:root:not(.dark) [class*="text-slate-600"] {
+  color: #536477 !important;
+}
+
+:root:not(.dark) [class*="text-[#F5B800]"],
+:root:not(.dark) [class*="text-[#ffd23f]"] {
+  color: #9a6800 !important;
+}
+
+:root:not(.dark) [class*="from-[#111823]"],
+:root:not(.dark) [class*="to-[#131d2b]"] {
+  background-image: none !important;
+}
+
+:root:not(.dark) .ph-grid-bg,
+:root:not(.dark) .ph-hero-grid {
+  background-image: radial-gradient(circle at 86% 10%, rgba(245, 184, 0, 0.14), transparent 29%), linear-gradient(rgba(23, 33, 43, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(23, 33, 43, 0.035) 1px, transparent 1px);
+}
+
+:root:not(.dark) html {
+  scrollbar-color: #c68a00 #edf1f6;
+}
+
+:root:not(.dark) *::-webkit-scrollbar-track,
+:root:not(.dark) *::-webkit-scrollbar-corner {
+  background: #edf1f6;
+  border-color: #edf1f6;
+}
+
+:root:not(.dark) *::-webkit-scrollbar-thumb {
+  border-color: #edf1f6;
+  background: linear-gradient(180deg, #f7c63a 0%, #b77a00 100%);
+  box-shadow: 0 0 0 1px rgba(151, 100, 0, 0.15), 0 4px 12px rgba(33, 45, 60, 0.14);
+}
