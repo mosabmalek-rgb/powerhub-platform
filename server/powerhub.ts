@@ -14,6 +14,7 @@ import {
   meters,
   notificationMessages,
   payments,
+  platformRolePolicies,
   sites,
   staffProfiles,
   subscribers,
@@ -29,7 +30,7 @@ import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareTok
 import { resolveInvoiceNotificationChannels } from "./notification-channels";
 import { storagePut } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
-import { rolesWith, type PowerRole } from "../shared/powerhub-rbac";
+import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 
 const createRoles = rolesWith("issueInvoices");
 const recordRoles = rolesWith("collectPayments");
@@ -78,9 +79,18 @@ async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
   throw new TRPCError({ code: "FORBIDDEN", message: "لا يوجد تعيين فعال لك في هذه المحطة." });
 }
 
-async function requireRole(userId: number, siteId: number, allowed: PowerRole[]) {
+async function enforcePlatformRolePolicy(role: PowerRole, capability?: PowerCapability) {
+  if (!capability) return;
+  const db = await dbOrThrow();
+  const [policy] = await db.select({ isAllowed: platformRolePolicies.isAllowed }).from(platformRolePolicies)
+    .where(and(eq(platformRolePolicies.role, role), eq(platformRolePolicies.capability, capability))).limit(1);
+  if (policy && !policy.isAllowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+}
+
+async function requireRole(userId: number, siteId: number, allowed: PowerRole[], capability?: PowerCapability) {
   const role = await resolveRole(userId, siteId);
   if (!allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
+  await enforcePlatformRolePolicy(role, capability);
   return role;
 }
 
@@ -126,7 +136,7 @@ const siteScoped = z.object({ siteId: z.number().int().positive() });
 export const powerhubRouter = router({
   messaging: router({
     listConfigurations: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const tenantId = await getSiteTenant(input.siteId);
       if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
       const db = await dbOrThrow();
@@ -137,7 +147,7 @@ export const powerhubRouter = router({
       senderId: z.string().max(120).optional(), phoneNumberId: z.string().max(120).optional(), templateName: z.string().max(120).optional(),
       credential: z.string().min(8).max(4096), webhookVerifyToken: z.string().min(16).max(256).optional(), webhookAppSecret: z.string().min(16).max(512).optional(), isActive: z.boolean().default(true),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const tenantId = await getSiteTenant(input.siteId);
       if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
       const db = await dbOrThrow();
@@ -153,20 +163,20 @@ export const powerhubRouter = router({
   staff: router({
     myAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => ({ role: await resolveRole(ctx.user.id, input.siteId) })),
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam");
       const db = await dbOrThrow();
       return db.select({ profile: staffProfiles, user: users }).from(staffProfiles)
         .innerJoin(users, eq(staffProfiles.userId, users.id))
         .where(and(eq(staffProfiles.siteId, input.siteId), eq(staffProfiles.isActive, true)));
     }),
     directory: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const db = await dbOrThrow();
       return db.select({ id: users.id, name: users.name, email: users.email, role: users.role }).from(users).orderBy(desc(users.lastSignedIn));
     }),
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]) }))
       .mutation(async ({ ctx, input }) => {
-        await requireRole(ctx.user.id, input.siteId, ["owner"]);
+        await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
         const db = await dbOrThrow();
         const tenantId = await getSiteTenant(input.siteId);
         if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ربط المحطة بمستأجر قبل تعيين الفريق." });
@@ -229,7 +239,7 @@ export const powerhubRouter = router({
       address: z.string().max(1000).optional(),
       subscriptionType: z.enum(["residential", "commercial"]).default("residential"),
     }).omit({ code: true })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, createRoles);
+      await requireRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
       const id = insertId(await db.insert(subscribers).values({ ...input, tenantId }));
@@ -240,7 +250,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
       address: z.string().max(1000).optional(), subscriptionType: z.enum(["residential", "commercial"]), serviceStatus: z.enum(["active", "suspended", "disconnected"]),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageSubscribers");
       const db = await dbOrThrow();
       const [existing] = await db.select().from(subscribers).where(and(eq(subscribers.id, input.id), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن المحطة المحددة." });
@@ -262,7 +272,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), generatorId: z.number().int().positive().optional(),
       serialNumber: z.string().min(2).max(100), meterType: z.enum(["manual", "digital", "smart"]).default("manual"), multiplier: z.string().regex(/^\d+(\.\d{1,3})?$/).default("1"),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageSubscribers");
       const db = await dbOrThrow();
       const [subscriber] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
@@ -287,7 +297,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), name: z.string().min(2).max(160), code: z.string().min(2).max(50),
       pricePerKwh: z.number().min(0), fixedFee: z.number().min(0).default(0), taxRate: z.number().min(0).max(100).default(0),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, createRoles);
+      await requireRole(ctx.user.id, input.siteId, createRoles, "manageTariffs");
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
       const id = insertId(await db.insert(tariffs).values({ ...input, tenantId, pricePerKwh: String(input.pricePerKwh), fixedFee: String(input.fixedFee), taxRate: String(input.taxRate) }));
@@ -307,7 +317,7 @@ export const powerhubRouter = router({
       serialNumber: z.string().max(100).optional(), ratedCapacityKw: z.string().regex(/^\d+(\.\d{1,3})?$/),
       fuelType: z.enum(["diesel", "gasoline", "gas", "other"]).default("diesel"),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
       const id = insertId(await db.insert(generators).values({ ...input, tenantId }));
@@ -318,7 +328,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), id: z.number().int().positive(), name: z.string().min(2).max(160), ratedCapacityKw: z.string().regex(/^\d+(\.\d{1,3})?$/),
       fuelLevelLiters: z.string().regex(/^\d+(\.\d{1,2})?$/), operatingHours: z.string().regex(/^\d+(\.\d{1,2})?$/), status: z.enum(["active", "maintenance", "stopped", "offline"]),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
       const db = await dbOrThrow();
       const [existing] = await db.select().from(generators).where(and(eq(generators.id, input.id), eq(generators.siteId, input.siteId))).limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود ضمن المحطة المحددة." });
@@ -341,7 +351,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), meterId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/),
       captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, readingRoles);
+      await requireRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
       const db = await dbOrThrow();
       const [meterScope] = await db.select({ id: meters.id }).from(meters).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
         .where(and(eq(meters.id, input.meterId), eq(subscribers.siteId, input.siteId))).limit(1);
@@ -379,7 +389,7 @@ export const powerhubRouter = router({
     }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
-        await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
+        await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
         const db = await dbOrThrow();
         const [readingScope] = await db.select({ id: meterReadings.id }).from(meterReadings)
           .innerJoin(meters, eq(meterReadings.meterId, meters.id))
@@ -404,7 +414,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), readingId: z.number().int().positive(), tariffId: z.number().int().positive(),
       billingPeriod: z.string().regex(/^\d{4}-\d{2}$/), dueDate: z.date(), discountAmount: z.number().min(0).default(0),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, createRoles);
+      await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
       const db = await dbOrThrow();
       const [readingScope] = await db.select({ reading: meterReadings, meter: meters, subscriber: subscribers }).from(meterReadings)
         .innerJoin(meters, eq(meterReadings.meterId, meters.id))
@@ -489,7 +499,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
       paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "wallet", "bank_transfer", "card"]).default("cash"), referenceNo: z.string().max(120).optional(),
     })).mutation(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, recordRoles);
+      const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       const db = await dbOrThrow();
       const [subscriber] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
@@ -524,19 +534,19 @@ export const powerhubRouter = router({
 
   collectorSessions: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, recordRoles);
+      const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       const db = await dbOrThrow();
       const scope = role === "collector" ? and(eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id)) : eq(collectorSessions.siteId, input.siteId);
       return db.select({ session: collectorSessions, collector: users }).from(collectorSessions).innerJoin(users, eq(collectorSessions.collectorUserId, users.id)).where(scope).orderBy(desc(collectorSessions.openedAt)).limit(100);
     }),
     current: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, recordRoles);
+      await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       const db = await dbOrThrow();
       const [session] = await db.select().from(collectorSessions).where(and(eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id), eq(collectorSessions.status, "open"))).limit(1);
       return session ?? null;
     }),
     open: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), openingCash: z.number().min(0).default(0), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, recordRoles);
+      const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       if (role !== "collector") throw new TRPCError({ code: "FORBIDDEN", message: "جلسة التحصيل الميدانية مخصصة لدور المحصل." });
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
@@ -547,7 +557,7 @@ export const powerhubRouter = router({
       return { id };
     }),
     close: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), sessionId: z.number().int().positive(), declaredCash: z.number().min(0), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, recordRoles);
+      const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       const db = await dbOrThrow();
       const [session] = await db.select().from(collectorSessions).where(and(eq(collectorSessions.id, input.sessionId), eq(collectorSessions.siteId, input.siteId))).limit(1);
       if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "جلسة التحصيل غير موجودة ضمن المحطة المحددة." });
@@ -572,7 +582,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), generatorId: z.number().int().positive().optional(), category: z.enum(["fuel", "maintenance", "payroll", "parts", "transport", "other"]),
       description: z.string().min(2).max(255), amount: z.number().positive(), referenceNo: z.string().max(120).optional(),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, createRoles);
+      await requireRole(ctx.user.id, input.siteId, createRoles, "manageExpenses");
       const db = await dbOrThrow();
       if (input.generatorId) {
         const [generator] = await db.select({ id: generators.id }).from(generators).where(and(eq(generators.id, input.generatorId), eq(generators.siteId, input.siteId))).limit(1);
@@ -639,7 +649,7 @@ export const powerhubRouter = router({
         .where(eq(subscribers.siteId, input.siteId)).orderBy(desc(notificationMessages.createdAt));
     }),
     retry: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
       const [notificationScope] = await db.select({ id: notificationMessages.id, status: notificationMessages.status }).from(notificationMessages)
         .innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id))
@@ -654,7 +664,7 @@ export const powerhubRouter = router({
 
   audit: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
       const db = await dbOrThrow();
       return db.select().from(auditLogs).where(eq(auditLogs.siteId, input.siteId)).orderBy(desc(auditLogs.createdAt)).limit(100);
     }),

@@ -6,17 +6,19 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { BarChart3, Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, Loader2, Plus, RefreshCw, ShieldAlert, UsersRound } from "lucide-react";
+import { AdvancedDashboard, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, OwnerLifecyclePanel, PlatformControlPanel, PlatformRolePoliciesPanel } from "./AdminAdvancedWorkspace";
+import { BarChart3, Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, Loader2, Plus, RefreshCw, ShieldAlert, Ticket, UsersRound } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-type Tab = "overview" | "generators" | "users" | "finance" | "reports" | "notifications" | "security" | "settings";
+type Tab = "overview" | "generators" | "users" | "finance" | "reports" | "complaints" | "notifications" | "security" | "settings";
 const tabs: Array<{ id: Tab; label: string; icon: typeof BarChart3 }> = [
   { id: "overview", label: "لوحة التحكم", icon: BarChart3 },
   { id: "generators", label: "إدارة المولدات", icon: Building2 },
   { id: "users", label: "إدارة المستخدمين", icon: UsersRound },
   { id: "finance", label: "المالية والتحصيل", icon: CircleDollarSign },
   { id: "reports", label: "التقارير", icon: FileDown },
+  { id: "complaints", label: "الشكاوى", icon: Ticket },
   { id: "notifications", label: "التنبيهات", icon: CheckCircle2 },
   { id: "security", label: "الأمان والسجلات", icon: ShieldAlert },
   { id: "settings", label: "إعدادات المنصة", icon: CalendarClock },
@@ -70,15 +72,16 @@ export default function AdminConsolePage() {
   if (!isAuthenticated) return <DashboardLayout><AccessCard title="سجّل الدخول إلى إدارة المنصة" action="تسجيل الدخول" onClick={startLogin} /></DashboardLayout>;
   if (!isPlatformAdmin) return <DashboardLayout><AccessCard title="هذه الصفحة مخصصة لآدمن PowerHub" detail="لا يمكن لصاحب مولد أو عضو فريق الوصول إلى بيانات جميع المستأجرين." /></DashboardLayout>;
 
-  return <DashboardLayout><main className="space-y-6 pb-12"><header className="rounded-[26px] border border-[#F5B800]/20 bg-[#111823]/85 p-6 shadow-panel"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ShieldAlert className="h-4 w-4" />إدارة PowerHub العليا</div><h1 className="mt-2 text-2xl font-extrabold text-white">أصحاب المولدات والاشتراكات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">إدارة مستقلة لمساحات أصحاب المولدات، وحالة اشتراكاتهم، ومؤشرات السكان والأنشطة التجارية عبر المنصة.</p></div><Button variant="outline" onClick={() => void refresh()} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />تحديث البيانات</Button></div><div className="mt-6 flex flex-wrap gap-2 border-t border-white/8 pt-4">{tabs.map((item) => { const Icon = item.icon; return <Button key={item.id} variant="outline" onClick={() => setTab(item.id)} className={tab === item.id ? "border-[#F5B800] bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f] hover:text-[#0D1117]" : "border-white/10 text-slate-300 hover:bg-white/5 hover:text-white"}><Icon className="ml-2 h-4 w-4" />{item.label}</Button>; })}</div></header>
-    {tab === "overview" && <OverviewTab totals={overview.data?.totals} rows={overviewRows} tenantFilter={tenantFilter} onFilter={setTenantFilter} snapshot={snapshot.data} />}
-    {tab === "generators" && <GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending} onStatus={setGeneratorStatus.mutate} />}
-    {tab === "users" && <UsersCenter users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} userSummary={snapshot.data?.users} />}
+  return <DashboardLayout><main className="space-y-6 pb-12"><header className="rounded-[26px] border border-[#F5B800]/20 bg-[#111823]/85 p-6 shadow-panel"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ShieldAlert className="h-4 w-4" />إدارة PowerHub العليا</div><h1 className="mt-2 text-2xl font-extrabold text-white">مركز قيادة المنصة</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">تحليلات مركزية للمولدات والمشتركين والتحصيل والشكاوى، مع أدوات أمن وإدارة محكومة بدور آدمن PowerHub.</p></div><Button variant="outline" onClick={() => void refresh()} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />تحديث البيانات</Button></div><div className="mt-6 flex flex-wrap gap-2 border-t border-white/8 pt-4">{tabs.map((item) => { const Icon = item.icon; return <Button key={item.id} variant="outline" onClick={() => setTab(item.id)} className={tab === item.id ? "border-[#F5B800] bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f] hover:text-[#0D1117]" : "border-white/10 text-slate-300 hover:bg-white/5 hover:text-white"}><Icon className="ml-2 h-4 w-4" />{item.label}</Button>; })}</div></header>
+    {tab === "overview" && <AdvancedDashboard />}
+    {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending} onStatus={setGeneratorStatus.mutate} /><GeneratorInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
+    {tab === "users" && <><UsersCenter users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} userSummary={snapshot.data?.users} /><OwnerLifecyclePanel /></>}
     {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutate} />}
     {tab === "reports" && <ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} />}
+    {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
-    {tab === "settings" && <SettingsCenter security={security.data} pending={saveSecuritySetting.isPending} onSaveSetting={saveSecuritySetting.mutate} />}
+    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><PlatformRolePoliciesPanel /></>}
   </main></DashboardLayout>;
 }
 

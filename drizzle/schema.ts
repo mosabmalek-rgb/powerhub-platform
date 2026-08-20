@@ -385,6 +385,77 @@ export const platformSecuritySettings = mysqlTable("platformSecuritySettings", {
   uniqueIndex("platform_security_setting_key_unique").on(table.settingKey),
 ]);
 
+export const complaints = mysqlTable("complaints", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
+  subscriberId: int("subscriberId").references(() => subscribers.id),
+  title: varchar("title", { length: 180 }).notNull(),
+  description: text("description").notNull(),
+  priority: mysqlEnum("priority", ["low", "normal", "high", "urgent"]).default("normal").notNull(),
+  status: mysqlEnum("status", ["open", "assigned", "in_progress", "resolved", "closed"]).default("open").notNull(),
+  assignedUserId: int("assignedUserId").references(() => users.id),
+  response: text("response"),
+  openedAt: timestamp("openedAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("complaints_tenant_site_status_idx").on(table.tenantId, table.siteId, table.status),
+  index("complaints_assignee_status_idx").on(table.assignedUserId, table.status),
+]);
+
+export const platformTariffPolicies = mysqlTable("platformTariffPolicies", {
+  id: int("id").autoincrement().primaryKey(),
+  minimumPricePerKwh: decimal("minimumPricePerKwh", { precision: 14, scale: 4 }).notNull(),
+  maximumPricePerKwh: decimal("maximumPricePerKwh", { precision: 14, scale: 4 }).notNull(),
+  effectiveFrom: timestamp("effectiveFrom").notNull(),
+  notificationRequested: boolean("notificationRequested").default(false).notNull(),
+  notes: text("notes"),
+  createdByUserId: int("createdByUserId").notNull().references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("platform_tariff_effective_idx").on(table.effectiveFrom),
+]);
+
+export const platformSettings = mysqlTable("platformSettings", {
+  id: int("id").autoincrement().primaryKey(),
+  settingKey: varchar("settingKey", { length: 100 }).notNull(),
+  isEnabled: boolean("isEnabled").default(false).notNull(),
+  value: json("value"),
+  message: text("message"),
+  updatedByUserId: int("updatedByUserId").references(() => users.id),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("platform_setting_key_unique").on(table.settingKey),
+]);
+
+export const platformRolePolicies = mysqlTable("platformRolePolicies", {
+  id: int("id").autoincrement().primaryKey(),
+  role: mysqlEnum("role", ["owner", "manager", "accountant", "collector", "technician", "viewer"]).notNull(),
+  capability: mysqlEnum("capability", ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"]).notNull(),
+  isAllowed: boolean("isAllowed").default(true).notNull(),
+  updatedByUserId: int("updatedByUserId").references(() => users.id),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("platform_role_capability_unique").on(table.role, table.capability),
+  index("platform_role_policy_role_idx").on(table.role),
+]);
+
+export const accessRecoveryRequests = mysqlTable("accessRecoveryRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  ownerUserId: int("ownerUserId").references(() => users.id),
+  requestedByUserId: int("requestedByUserId").notNull().references(() => users.id),
+  method: mysqlEnum("method", ["oauth_invite", "manual_review"]).default("oauth_invite").notNull(),
+  status: mysqlEnum("status", ["pending", "issued", "completed", "cancelled"]).default("pending").notNull(),
+  note: text("note"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+}, (table) => [
+  index("access_recovery_tenant_status_idx").on(table.tenantId, table.status),
+]);
+
 export const auditLogs = mysqlTable("auditLogs", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
