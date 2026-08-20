@@ -39,11 +39,14 @@ describe("platform administration integration", () => {
       tenantName: "مالك مولد تكاملي",
       slug: `${suffix}-tenant`,
       ownerName: "صاحب المولد التكاملي",
-      ownerPhone: "0790000000",
-      ownerEmail: "owner@example.com",
+      ownerPhone: suffix.replace(/\D/g, ""),
+      ownerEmail: `${suffix}@example.com`,
       ownerUserId,
       siteName: "محطة اختبار الإدارة",
       siteCode: `${suffix}-site`,
+      generatorName: `${suffix}-مولد معلق`,
+      generatorCode: `${suffix}-pending`,
+      generatorCapacityKw: 100,
       city: "بغداد",
       plan: "professional",
       subscriptionStatus: "trial",
@@ -59,15 +62,19 @@ describe("platform administration integration", () => {
     expect(profile).toMatchObject({ ownerUserId, fullName: "صاحب المولد التكاملي" });
     expect(subscription).toMatchObject({ plan: "professional", status: "trial", billingCycle: "monthly", autoRenew: true });
     expect(membership).toMatchObject({ userId: ownerUserId, role: "owner" });
+    const [pendingGenerator] = await db.select().from(generators).where(eq(generators.id, created.generatorId));
+    expect(pendingGenerator.status).toBe("pending");
+    await caller.approvePendingGenerator({ generatorId: created.generatorId });
+    const [approvedGenerator] = await db.select().from(generators).where(eq(generators.id, created.generatorId));
+    expect(approvedGenerator.status).toBe("active");
     await expect(caller.renewSubscription({ tenantId: created.tenantId, periods: 2 })).resolves.toMatchObject({ endsAt: expect.any(Date) });
     const [renewed] = await db.select().from(tenantSubscriptions).where(eq(tenantSubscriptions.tenantId, created.tenantId));
     expect(renewed).toMatchObject({ status: "active", renewalCount: 2 });
-    const generatorId = insertId(await db.insert(generators).values({ tenantId: created.tenantId, siteId: created.siteId, code: `${suffix}-gen`, name: "مولد اختبار الحظر", ratedCapacityKw: "100", status: "active" }));
-    await caller.setGeneratorStatus({ id: generatorId, status: "blocked" });
-    const [blockedGenerator] = await db.select().from(generators).where(eq(generators.id, generatorId));
+    await caller.setGeneratorStatus({ id: created.generatorId, status: "blocked" });
+    const [blockedGenerator] = await db.select().from(generators).where(eq(generators.id, created.generatorId));
     expect(blockedGenerator.status).toBe("blocked");
-    const generatorDetails = await caller.generatorDetails({ generatorId });
-    expect(generatorDetails.generator).toMatchObject({ id: generatorId, status: "blocked", ratedCapacityKw: "100.000" });
+    const generatorDetails = await caller.generatorDetails({ generatorId: created.generatorId });
+    expect(generatorDetails.generator).toMatchObject({ id: created.generatorId, status: "blocked", ratedCapacityKw: "100.000" });
     expect(generatorDetails.subscriberSummary.total).toBeGreaterThanOrEqual(0);
     await db.insert(notificationMessages).values({ tenantId: created.tenantId, channel: "whatsapp", eventType: "service_alert", recipient: "0790000000", status: "pending", payload: { source: "admin-integration" } });
     await caller.recordSecurityEvent({ eventType: "backup", severity: "info", status: "success", title: "نسخة اختبار", details: "اكتمل اختبار سجل النسخ" });
@@ -76,7 +83,7 @@ describe("platform administration integration", () => {
     expect(security.events.some((event) => event.title === "نسخة اختبار")).toBe(true);
     expect(security.settings.some((setting) => setting.settingKey === `${suffix}-audit-guard` && setting.isEnabled)).toBe(true);
     const snapshot = await caller.platformSnapshot();
-    expect(snapshot.generators.directory.some((item) => item.id === generatorId && item.status === "blocked")).toBe(true);
+    expect(snapshot.generators.directory.some((item) => item.id === created.generatorId && item.status === "blocked")).toBe(true);
     expect(snapshot.users.staffDirectory.some((item) => item.userName === "Generator Owner" && item.role === "owner")).toBe(true);
     const notificationLedger = await caller.listNotifications();
     expect(notificationLedger.some((item) => item.tenantName === "مالك مولد تكاملي" && item.eventType === "service_alert")).toBe(true);
@@ -96,9 +103,9 @@ describe("platform administration integration", () => {
     await caller.savePlatformSetting({ settingKey: "public_invoice_options", isEnabled: true, message: "رسالة رابط اختبار", value: { showPlatformBranding: true, showSupportText: false } });
     const dashboard = await caller.advancedDashboard();
     expect(dashboard.kpis.subscribers).toBeGreaterThanOrEqual(0);
-    expect(dashboard.latestGenerators.some((item) => item.id === generatorId)).toBe(true);
-    const search = await caller.globalSearch({ query: "مولد اختبار" });
-    expect(search.some((item) => item.kind === "generator" && item.id === generatorId)).toBe(true);
+    expect(dashboard.latestGenerators.some((item) => item.id === created.generatorId)).toBe(true);
+    const search = await caller.globalSearch({ query: suffix.slice(-6) });
+    expect(search.some((item) => item.kind === "generator" && item.id === created.generatorId)).toBe(true);
     const listedComplaints = await caller.listComplaints();
     expect(listedComplaints.some((item) => item.id === complaintId && item.status === "resolved")).toBe(true);
     const configuration = await caller.platformConfiguration();

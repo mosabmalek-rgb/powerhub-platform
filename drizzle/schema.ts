@@ -55,6 +55,8 @@ export const tenantOwnerProfiles = mysqlTable("tenantOwnerProfiles", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("tenant_owner_profile_tenant_unique").on(table.tenantId),
+  uniqueIndex("tenant_owner_profile_phone_unique").on(table.phone),
+  uniqueIndex("tenant_owner_profile_email_unique").on(table.email),
   index("tenant_owner_profile_user_idx").on(table.ownerUserId),
 ]);
 
@@ -183,12 +185,13 @@ export const generators = mysqlTable("generators", {
   fuelType: mysqlEnum("fuelType", ["diesel", "gasoline", "gas", "other"]).default("diesel").notNull(),
   fuelLevelLiters: decimal("fuelLevelLiters", { precision: 12, scale: 2 }).default("0").notNull(),
   operatingHours: decimal("operatingHours", { precision: 12, scale: 2 }).default("0").notNull(),
-  status: mysqlEnum("status", ["active", "maintenance", "stopped", "offline", "blocked"]).default("stopped").notNull(),
+  status: mysqlEnum("status", ["pending", "active", "maintenance", "stopped", "offline", "blocked"]).default("pending").notNull(),
   lastMaintenanceAt: timestamp("lastMaintenanceAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("generator_site_code_unique").on(table.siteId, table.code),
+  uniqueIndex("generator_name_unique").on(table.name),
   index("generators_tenant_site_idx").on(table.tenantId, table.siteId),
   index("generators_site_status_idx").on(table.siteId, table.status),
 ]);

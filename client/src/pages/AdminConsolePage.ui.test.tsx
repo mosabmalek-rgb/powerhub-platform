@@ -50,6 +50,7 @@ vi.mock("@/lib/trpc", () => ({
       renewSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       attachOwnerUser: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       setGeneratorStatus: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
+      approvePendingGenerator: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       recordSecurityEvent: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       saveSecuritySetting: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
     },
@@ -76,8 +77,9 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("إجمالي المشتركين")).toBeInTheDocument();
     expect(screen.getAllByText("150").length).toBeGreaterThan(0);
     fireEvent.click(sidebarNav("اشتراك صاحب مولد"));
-    expect(screen.getByText("إضافة اشتراك صاحب مولد")).toBeInTheDocument();
+    expect(screen.getByText("إضافة صاحب مولد جديد")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("رقم الهوية")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("اسم المولد الفريد")).toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المستخدمين"));
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
     fireEvent.click(sidebarNav("المالية والتحصيل"));
@@ -109,6 +111,7 @@ describe("PowerHub platform administration UI", () => {
     render(<AdminConsolePage />);
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);
+    expect(screen.getByText("بانتظار المراجعة")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "حظر المولد" })).toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المستخدمين"));
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();

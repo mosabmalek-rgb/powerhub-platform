@@ -114,6 +114,10 @@ export const adminRouter = router({
     ownerPhone: z.string().min(5).max(30),
     ownerEmail: z.string().email(),
     identityNumber: z.string().min(4).max(50),
+    generatorName: z.string().min(2).max(160),
+    generatorCode: z.string().min(2).max(50).transform((value) => value.toUpperCase()),
+    generatorCapacityKw: z.number().positive().max(100000),
+    generatorFuelType: z.enum(["diesel", "gasoline", "gas", "other"]).default("diesel"),
     companyName: z.string().max(180).optional(),
     temporaryPassword: z.string().min(8).max(128),
     siteName: z.string().min(2).max(160),
@@ -127,6 +131,17 @@ export const adminRouter = router({
     notes: z.string().max(2000).optional(),
   })).mutation(async ({ ctx, input }) => {
     const email = input.ownerEmail.trim().toLowerCase();
+    const phone = input.ownerPhone.trim();
+    const generatorName = input.generatorName.trim();
+    const db = await dbOrThrow();
+    const [[existingPhone], [existingGenerator], [existingEmail]] = await Promise.all([
+      db.select({ id: tenantOwnerProfiles.id }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.phone, phone)).limit(1),
+      db.select({ id: generators.id }).from(generators).where(eq(generators.name, generatorName)).limit(1),
+      db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1),
+    ]);
+    if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم هاتف صاحب المولد مستخدم بالفعل." });
+    if (existingGenerator) throw new TRPCError({ code: "CONFLICT", message: "اسم المولد مستخدم بالفعل." });
+    if (existingEmail) throw new TRPCError({ code: "CONFLICT", message: "البريد الإلكتروني لصاحب المولد مستخدم بالفعل." });
     const { data: created, error: createError } = await supabaseAdmin().auth.admin.createUser({
       email,
       password: input.temporaryPassword,
@@ -136,7 +151,6 @@ export const adminRouter = router({
     if (createError || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء حساب صاحب المولد في Supabase. قد يكون البريد مستخدماً بالفعل." });
 
     try {
-      const db = await dbOrThrow();
       const ownerUser = await syncSupabaseUser({ id: created.user.id, email, name: input.ownerName });
       const startedAt = new Date();
       const endsAt = input.endsAt ?? addSubscriptionPeriod(startedAt, input.billingCycle);
@@ -147,7 +161,7 @@ export const adminRouter = router({
           tenantId,
           ownerUserId: ownerUser.id,
           fullName: input.ownerName,
-          phone: input.ownerPhone,
+          phone,
           email,
           companyName: input.companyName,
           identityNumberCiphertext: identity.ciphertext,
@@ -158,12 +172,13 @@ export const adminRouter = router({
         });
         await tx.insert(tenantSubscriptions).values({ tenantId, plan: input.plan, status: input.subscriptionStatus, billingCycle: input.billingCycle, startedAt, endsAt, autoRenew: input.autoRenew, notes: input.notes });
         const siteId = insertId(await tx.insert(sites).values({ tenantId, name: input.siteName, code: input.siteCode, city: input.city }));
+        const generatorId = insertId(await tx.insert(generators).values({ tenantId, siteId, name: generatorName, code: input.generatorCode, ratedCapacityKw: String(input.generatorCapacityKw), fuelType: input.generatorFuelType, status: "pending" }));
         await tx.insert(tenantMembers).values({ tenantId, userId: ownerUser.id, role: "owner", isActive: true, membershipStatus: "active", invitedByUserId: ctx.user.id });
         await tx.insert(staffProfiles).values({ siteId, userId: ownerUser.id, role: "owner", isActive: true });
-        return { tenantId, siteId };
+        return { tenantId, siteId, generatorId };
       });
       await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
-      await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "tenant", entityId: String(result.tenantId), action: "platform_admin_create_generator_owner_with_temporary_password", afterData: { tenantName: input.tenantName, ownerName: input.ownerName, ownerEmail: email, plan: input.plan }, actorPlatformRole: platformRoleOf(ctx.user) });
+      await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "generator", entityId: String(result.generatorId), action: "platform_admin_create_pending_generator_owner", afterData: { tenantName: input.tenantName, ownerName: input.ownerName, ownerEmail: email, generatorName, generatorCode: input.generatorCode, generatorStatus: "pending", plan: input.plan }, actorPlatformRole: platformRoleOf(ctx.user) });
       return { ...result, ownerUserId: ownerUser.id, forcePasswordChange: true };
     } catch (error) {
       await supabaseAdmin().auth.admin.deleteUser(created.user.id);
@@ -190,6 +205,7 @@ export const adminRouter = router({
     const [generatorTotals] = await db.select({
       total: sql<number>`count(*)`,
       active: sql<number>`sum(case when ${generators.status} = 'active' then 1 else 0 end)`,
+      pending: sql<number>`sum(case when ${generators.status} = 'pending' then 1 else 0 end)`,
       maintenance: sql<number>`sum(case when ${generators.status} = 'maintenance' then 1 else 0 end)`,
       stopped: sql<number>`sum(case when ${generators.status} in ('stopped', 'offline') then 1 else 0 end)`,
       blocked: sql<number>`sum(case when ${generators.status} = 'blocked' then 1 else 0 end)`,
@@ -268,22 +284,29 @@ export const adminRouter = router({
       .innerJoin(sites, eq(generators.siteId, sites.id))
       .orderBy(desc(generators.createdAt)).limit(200);
     const pendingRegistrations = await db.select({
+      generatorId: generators.id,
+      generatorName: generators.name,
+      generatorCode: generators.code,
+      ratedCapacityKw: generators.ratedCapacityKw,
       tenantId: tenantOwnerProfiles.tenantId,
       ownerName: tenantOwnerProfiles.fullName,
       phone: tenantOwnerProfiles.phone,
-      invitedAt: tenantOwnerProfiles.invitedAt,
       tenantName: tenants.name,
-    }).from(tenantOwnerProfiles)
-      .innerJoin(tenants, eq(tenantOwnerProfiles.tenantId, tenants.id))
-      .where(sql`${tenantOwnerProfiles.ownerUserId} is null`)
-      .orderBy(desc(tenantOwnerProfiles.createdAt));
+      siteName: sites.name,
+      createdAt: generators.createdAt,
+    }).from(generators)
+      .innerJoin(tenantOwnerProfiles, eq(generators.tenantId, tenantOwnerProfiles.tenantId))
+      .innerJoin(tenants, eq(generators.tenantId, tenants.id))
+      .innerJoin(sites, eq(generators.siteId, sites.id))
+      .where(eq(generators.status, "pending"))
+      .orderBy(desc(generators.createdAt));
     const staffDirectory = await db.select({ id: staffProfiles.id, role: staffProfiles.role, isActive: staffProfiles.isActive, userName: users.name, userEmail: users.email, tenantName: tenants.name, siteName: sites.name })
       .from(staffProfiles).innerJoin(users, eq(staffProfiles.userId, users.id)).leftJoin(sites, eq(staffProfiles.siteId, sites.id)).leftJoin(tenants, eq(sites.tenantId, tenants.id)).orderBy(desc(staffProfiles.updatedAt)).limit(300);
     const subscriberDirectory = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, subscriptionType: subscribers.subscriptionType, serviceStatus: subscribers.serviceStatus, tenantName: tenants.name, siteName: sites.name })
       .from(subscribers).innerJoin(tenants, eq(subscribers.tenantId, tenants.id)).innerJoin(sites, eq(subscribers.siteId, sites.id)).orderBy(desc(subscribers.createdAt)).limit(300);
     return {
       generators: {
-        total: Number(generatorTotals?.total ?? 0), active: Number(generatorTotals?.active ?? 0), maintenance: Number(generatorTotals?.maintenance ?? 0), stopped: Number(generatorTotals?.stopped ?? 0), blocked: Number(generatorTotals?.blocked ?? 0), capacityKw: Number(generatorTotals?.capacityKw ?? 0), directory: generatorDirectory, pendingRegistrations,
+        total: Number(generatorTotals?.total ?? 0), active: Number(generatorTotals?.active ?? 0), pending: Number(generatorTotals?.pending ?? 0), maintenance: Number(generatorTotals?.maintenance ?? 0), stopped: Number(generatorTotals?.stopped ?? 0), blocked: Number(generatorTotals?.blocked ?? 0), capacityKw: Number(generatorTotals?.capacityKw ?? 0), directory: generatorDirectory, pendingRegistrations,
       },
       users: { total: Number(userTotals?.total ?? 0), platformAdmins: Number(userTotals?.platformAdmins ?? 0), activeStaff: Number(staffTotal?.total ?? 0), staffDirectory, subscriberDirectory },
       finance: { overdueCount: Number(invoiceTotals?.overdueCount ?? 0), overdueAmount: Number(invoiceTotals?.overdueAmount ?? 0), issuedAmount: Number(invoiceTotals?.issuedAmount ?? 0), completedPayments: Number(paymentTotals?.completedCount ?? 0), completedAmount: Number(paymentTotals?.completedAmount ?? 0), paymentMethods: paymentMethods.map((item) => ({ ...item, count: Number(item.count), amount: Number(item.amount) })), collectionsByGenerator: collectionsByGenerator.map((item) => ({ ...item, count: Number(item.count), amount: Number(item.amount) })) },
@@ -408,6 +431,10 @@ export const adminRouter = router({
     ownerUserId: z.number().int().positive().optional(),
     siteName: z.string().min(2).max(160),
     siteCode: z.string().min(2).max(50).transform((value) => value.toUpperCase()),
+    generatorName: z.string().min(2).max(160),
+    generatorCode: z.string().min(2).max(50).transform((value) => value.toUpperCase()),
+    generatorCapacityKw: z.number().positive().max(100000),
+    generatorFuelType: z.enum(["diesel", "gasoline", "gas", "other"]).default("diesel"),
     city: z.string().max(100).optional(),
     plan: planSchema.default("starter"),
     subscriptionStatus: subscriptionStatusSchema.default("trial"),
@@ -417,6 +444,16 @@ export const adminRouter = router({
     notes: z.string().max(2000).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();
+    const phone = input.ownerPhone.trim();
+    const generatorName = input.generatorName.trim();
+    const [[existingPhone], [existingGenerator], [existingEmail]] = await Promise.all([
+      db.select({ id: tenantOwnerProfiles.id }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.phone, phone)).limit(1),
+      db.select({ id: generators.id }).from(generators).where(eq(generators.name, generatorName)).limit(1),
+      input.ownerEmail ? db.select({ id: tenantOwnerProfiles.id }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.email, input.ownerEmail.trim().toLowerCase())).limit(1) : Promise.resolve([]),
+    ]);
+    if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم هاتف صاحب المولد مستخدم بالفعل." });
+    if (existingGenerator) throw new TRPCError({ code: "CONFLICT", message: "اسم المولد مستخدم بالفعل." });
+    if (existingEmail) throw new TRPCError({ code: "CONFLICT", message: "البريد الإلكتروني لصاحب المولد مستخدم بالفعل." });
     if (input.ownerUserId) {
       const [ownerUser] = await db.select({ id: users.id }).from(users).where(eq(users.id, input.ownerUserId)).limit(1);
       if (!ownerUser) throw new TRPCError({ code: "NOT_FOUND", message: "حساب المالك المحدد غير موجود." });
@@ -434,7 +471,7 @@ export const adminRouter = router({
         tenantId,
         ownerUserId: input.ownerUserId,
         fullName: input.ownerName,
-        phone: input.ownerPhone,
+        phone,
         email: input.ownerEmail,
         companyName: input.companyName,
         invitedAt: input.ownerUserId ? undefined : startedAt,
@@ -456,6 +493,7 @@ export const adminRouter = router({
         code: input.siteCode,
         city: input.city,
       }));
+      const generatorId = insertId(await tx.insert(generators).values({ tenantId, siteId, name: generatorName, code: input.generatorCode, ratedCapacityKw: String(input.generatorCapacityKw), fuelType: input.generatorFuelType, status: "pending" }));
       if (input.ownerUserId) {
         await tx.insert(tenantMembers).values({ tenantId, userId: input.ownerUserId, role: "owner", isActive: true });
         await tx.insert(staffProfiles).values({ siteId, userId: input.ownerUserId, role: "owner", isActive: true });
@@ -472,16 +510,16 @@ export const adminRouter = router({
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         });
       }
-      return { tenantId, siteId };
+      return { tenantId, siteId, generatorId };
     });
     await db.insert(auditLogs).values({
       tenantId: result.tenantId,
       siteId: result.siteId,
       userId: ctx.user.id,
-      entityType: "tenant",
-      entityId: String(result.tenantId),
-      action: "platform_admin_create_generator_owner",
-      afterData: { tenantName: input.tenantName, ownerName: input.ownerName, plan: input.plan, subscriptionStatus: input.subscriptionStatus },
+      entityType: "generator",
+      entityId: String(result.generatorId),
+      action: "platform_admin_create_pending_generator_owner",
+      afterData: { tenantName: input.tenantName, ownerName: input.ownerName, generatorName, generatorCode: input.generatorCode, generatorStatus: "pending", plan: input.plan, subscriptionStatus: input.subscriptionStatus },
       actorPlatformRole: platformRoleOf(ctx.user),
     });
     return result;
@@ -564,6 +602,16 @@ export const adminRouter = router({
     await db.update(generators).set({ status: input.status }).where(eq(generators.id, input.id));
     await db.insert(auditLogs).values({ tenantId: generator.tenantId, siteId: generator.siteId, userId: ctx.user.id, entityType: "generator", entityId: String(generator.id), action: "platform_admin_update_generator_status", beforeData: { status: generator.status }, afterData: { status: input.status } });
     return { success: true };
+  }),
+
+  approvePendingGenerator: platformAdminProcedure.input(z.object({ generatorId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [generator] = await db.select().from(generators).where(eq(generators.id, input.generatorId)).limit(1);
+    if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود." });
+    if (generator.status !== "pending") throw new TRPCError({ code: "CONFLICT", message: "لا يمكن اعتماد مولد ليس بحالة انتظار المراجعة." });
+    await db.update(generators).set({ status: "active" }).where(eq(generators.id, generator.id));
+    await db.insert(auditLogs).values({ tenantId: generator.tenantId, siteId: generator.siteId, userId: ctx.user.id, entityType: "generator", entityId: String(generator.id), action: "platform_admin_approve_pending_generator", beforeData: { status: "pending" }, afterData: { status: "active" }, actorPlatformRole: platformRoleOf(ctx.user) });
+    return { success: true, generatorId: generator.id, status: "active" as const };
   }),
 
   listNotifications: platformAdminProcedure.input(z.object({ status: z.enum(["pending", "submitted", "delivered", "read", "failed"]).optional() }).optional()).query(async ({ input }) => {

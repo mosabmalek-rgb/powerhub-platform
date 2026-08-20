@@ -1,0 +1,1 @@
+ALTER TABLE `tenantOwnerProfiles` ADD CONSTRAINT `tenant_owner_profile_email_unique` UNIQUE(`email`);
