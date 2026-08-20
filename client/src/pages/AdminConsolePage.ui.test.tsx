@@ -45,7 +45,7 @@ vi.mock("@/lib/trpc", () => ({
       setTenantStatus: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       rolePolicies: { useQuery: () => ({ data: [] }) },
       saveRolePolicy: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      createGeneratorOwner: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
+      createGeneratorOwnerWithTemporaryPassword: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       updateSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       renewSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       attachOwnerUser: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
@@ -71,8 +71,11 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("مركز قيادة المنصة")).toBeInTheDocument();
     expect(screen.getByText("إجمالي المشتركين")).toBeInTheDocument();
     expect(screen.getAllByText("150").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "اشتراك صاحب مولد" }));
+    expect(screen.getByText("إضافة اشتراك صاحب مولد")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("رقم الهوية")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إدارة المستخدمين" }));
-    expect(screen.getByText("إضافة صاحب مولد جديد")).toBeInTheDocument();
+    expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "المالية والتحصيل" }));
     expect(screen.getByRole("button", { name: /تجديد دورة/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "التقارير" }));

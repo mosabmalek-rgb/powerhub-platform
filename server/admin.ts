@@ -3,8 +3,10 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sites, staffProfiles, subscribers, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
-import { getDb } from "./db";
-import { protectedProcedure, router } from "./_core/trpc";
+import { getDb, syncSupabaseUser } from "./db";
+import { authenticatedProcedure, router } from "./_core/trpc";
+import { encryptTenantCredential } from "./tenant-crypto";
+import { supabaseAdmin } from "./supabase-admin";
 
 const planSchema = z.enum(["starter", "professional", "enterprise"]);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
@@ -18,7 +20,7 @@ function platformRoleOf(user: { role: "user" | "admin"; platformRole: PlatformRo
 }
 
 function requirePlatformRoles(allowedRoles: PlatformRole[]) {
-  return protectedProcedure.use(({ ctx, next }) => {
+  return authenticatedProcedure.use(({ ctx, next }) => {
     if (ctx.user.role !== "admin") {
       throw new TRPCError({ code: "FORBIDDEN", message: "هذه المساحة مخصصة لإدارة منصة PowerHub." });
     }
@@ -105,6 +107,69 @@ async function ownerOverview(db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
 }
 
 export const adminRouter = router({
+  createGeneratorOwnerWithTemporaryPassword: platformAdminProcedure.input(z.object({
+    tenantName: z.string().min(2).max(160),
+    slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$/),
+    ownerName: z.string().min(2).max(180),
+    ownerPhone: z.string().min(5).max(30),
+    ownerEmail: z.string().email(),
+    identityNumber: z.string().min(4).max(50),
+    companyName: z.string().max(180).optional(),
+    temporaryPassword: z.string().min(8).max(128),
+    siteName: z.string().min(2).max(160),
+    siteCode: z.string().min(2).max(50).transform((value) => value.toUpperCase()),
+    city: z.string().max(100).optional(),
+    plan: planSchema.default("starter"),
+    subscriptionStatus: subscriptionStatusSchema.default("trial"),
+    billingCycle: billingCycleSchema.default("monthly"),
+    endsAt: z.date().optional(),
+    autoRenew: z.boolean().default(false),
+    notes: z.string().max(2000).optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const email = input.ownerEmail.trim().toLowerCase();
+    const { data: created, error: createError } = await supabaseAdmin().auth.admin.createUser({
+      email,
+      password: input.temporaryPassword,
+      email_confirm: true,
+      user_metadata: { name: input.ownerName },
+    });
+    if (createError || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء حساب صاحب المولد في Supabase. قد يكون البريد مستخدماً بالفعل." });
+
+    try {
+      const db = await dbOrThrow();
+      const ownerUser = await syncSupabaseUser({ id: created.user.id, email, name: input.ownerName });
+      const startedAt = new Date();
+      const endsAt = input.endsAt ?? addSubscriptionPeriod(startedAt, input.billingCycle);
+      const identity = encryptTenantCredential(input.identityNumber.trim());
+      const result = await db.transaction(async (tx) => {
+        const tenantId = insertId(await tx.insert(tenants).values({ name: input.tenantName, slug: input.slug, plan: input.plan, status: tenantStatusForSubscription(input.subscriptionStatus) }));
+        await tx.insert(tenantOwnerProfiles).values({
+          tenantId,
+          ownerUserId: ownerUser.id,
+          fullName: input.ownerName,
+          phone: input.ownerPhone,
+          email,
+          companyName: input.companyName,
+          identityNumberCiphertext: identity.ciphertext,
+          identityNumberIv: identity.iv,
+          identityNumberLast4: input.identityNumber.trim().slice(-4),
+          invitedAt: startedAt,
+          claimedAt: startedAt,
+        });
+        await tx.insert(tenantSubscriptions).values({ tenantId, plan: input.plan, status: input.subscriptionStatus, billingCycle: input.billingCycle, startedAt, endsAt, autoRenew: input.autoRenew, notes: input.notes });
+        const siteId = insertId(await tx.insert(sites).values({ tenantId, name: input.siteName, code: input.siteCode, city: input.city }));
+        await tx.insert(tenantMembers).values({ tenantId, userId: ownerUser.id, role: "owner", isActive: true, membershipStatus: "active", invitedByUserId: ctx.user.id });
+        await tx.insert(staffProfiles).values({ siteId, userId: ownerUser.id, role: "owner", isActive: true });
+        return { tenantId, siteId };
+      });
+      await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
+      await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "tenant", entityId: String(result.tenantId), action: "platform_admin_create_generator_owner_with_temporary_password", afterData: { tenantName: input.tenantName, ownerName: input.ownerName, ownerEmail: email, plan: input.plan }, actorPlatformRole: platformRoleOf(ctx.user) });
+      return { ...result, ownerUserId: ownerUser.id, forcePasswordChange: true };
+    } catch (error) {
+      await supabaseAdmin().auth.admin.deleteUser(created.user.id);
+      throw error;
+    }
+  }),
   overview: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive().optional() }).optional()).query(async ({ input }) => {
     const db = await dbOrThrow();
     const owners = await ownerOverview(db, input?.tenantId);

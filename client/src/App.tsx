@@ -18,12 +18,16 @@ import AuditLogPage from "./pages/AuditLogPage";
 import PublicInvoice from "./pages/PublicInvoice";
 import AdminConsolePage from "./pages/AdminConsolePage";
 import FinanceAdminPage from "./pages/FinanceAdminPage";
+import LoginPage from "./pages/LoginPage";
+import ProfileSecurityPage from "./pages/ProfileSecurityPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/login"} component={LoginPage} />
+      <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/subscribers"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="subscribers" /></RouteAccessGate>}</Route>
       <Route path={"/generators"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="generators" /></RouteAccessGate>}</Route>

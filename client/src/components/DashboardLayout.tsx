@@ -23,7 +23,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   BellRing, Bolt, ChartNoAxesCombined, Fuel, Gauge,
   LayoutDashboard, LogOut, MapPinned, PanelLeft, ReceiptText,
-  Settings2, ShieldCheck, UsersRound, WalletCards, Building2,
+  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -59,6 +59,10 @@ const menuGroups = [
       { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
       { icon: Settings2, label: "الإعدادات", path: "/settings" },
     ],
+  },
+  {
+    label: "الحساب",
+    items: [{ icon: UserRound, label: "المعلومات وبيانات الدخول", path: "/profile" }],
   },
 ];
 

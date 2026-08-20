@@ -148,4 +148,26 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function syncSupabaseUser(input: { id: string; email?: string | null; name?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const email = input.email?.trim().toLowerCase() ?? null;
+  const [byOpenId] = await db.select().from(users).where(eq(users.openId, input.id)).limit(1);
+  const [byEmail] = !byOpenId && email ? await db.select().from(users).where(eq(users.email, email)).limit(1) : [];
+
+  if (byEmail) {
+    await db.update(users).set({ openId: input.id, name: input.name ?? byEmail.name, email, loginMethod: "supabase", lastSignedIn: new Date() }).where(eq(users.id, byEmail.id));
+  } else {
+    await upsertUser({ openId: input.id, name: input.name ?? null, email, loginMethod: "supabase", lastSignedIn: new Date() });
+  }
+
+  const [user] = await db.select().from(users).where(eq(users.openId, input.id)).limit(1);
+  if (!user) throw new Error("Failed to synchronize Supabase user");
+  if (user.email) {
+    await acceptPendingPlatformInvitationsForUser(db, user);
+    await acceptPendingInvitationsForUser(db, user);
+  }
+  return user;
+}
+
 // TODO: add feature queries here as your schema grows.

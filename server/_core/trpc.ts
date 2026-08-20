@@ -22,6 +22,9 @@ const requireUser = t.middleware(async opts => {
   if (ctx.user.accountStatus === "locked" || ctx.user.accountStatus === "disabled") {
     throw new TRPCError({ code: "FORBIDDEN", message: ctx.user.accountStatus === "locked" ? "الحساب مقفل مؤقتاً. يرجى التواصل مع إدارة المنصة." : "هذا الحساب معطّل." });
   }
+  if (ctx.user.mustChangePassword && !["auth.me", "auth.updatePassword", "auth.updateProfile", "auth.logout"].includes(opts.path)) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب تغيير كلمة المرور المؤقتة قبل استخدام مساحة التشغيل." });
+  }
 
   return next({
     ctx: {
@@ -44,7 +47,8 @@ const enforceMaintenanceMode = t.middleware(async opts => {
   return opts.next();
 });
 
-export const protectedProcedure = t.procedure.use(requireUser).use(enforceMaintenanceMode);
+export const authenticatedProcedure = t.procedure.use(requireUser);
+export const protectedProcedure = authenticatedProcedure.use(enforceMaintenanceMode);
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
