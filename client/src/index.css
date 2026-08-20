@@ -361,3 +361,30 @@ html {
   background: linear-gradient(180deg, #f7c63a 0%, #b77a00 100%);
   box-shadow: 0 0 0 1px rgba(151, 100, 0, 0.15), 0 4px 12px rgba(33, 45, 60, 0.14);
 }
+
+.ph-topbar-rail::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, rgba(245, 184, 0, 0.15) 12%, #f5b800 38%, #ffe071 50%, #f5b800 62%, rgba(245, 184, 0, 0.15) 88%, transparent 100%);
+  box-shadow: 0 2px 12px rgba(245, 184, 0, 0.3);
+}
+
+.ph-topbar-rail::before {
+  position: absolute;
+  right: 50%;
+  bottom: -4px;
+  width: 8px;
+  height: 8px;
+  content: "";
+  pointer-events: none;
+  background: #f5b800;
+  border: 2px solid var(--background);
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgba(245, 184, 0, 0.12), 0 0 14px rgba(245, 184, 0, 0.5);
+  transform: translateX(50%);
+}

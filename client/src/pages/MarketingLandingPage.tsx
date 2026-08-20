@@ -76,7 +76,7 @@ export default function MarketingLandingPage() {
     <main className="min-h-screen overflow-x-hidden bg-[#0D1117] text-white" dir="rtl">
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_83%_8%,rgba(245,184,0,0.13),transparent_25%),radial-gradient(circle_at_10%_22%,rgba(33,79,115,0.2),transparent_27%),linear-gradient(rgba(255,255,255,.026)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.026)_1px,transparent_1px)] bg-[length:auto,auto,44px_44px,44px_44px]" />
 
-      <header className="sticky top-0 z-30 border-b border-white/8 bg-[#0D1117]/85 backdrop-blur-xl">
+      <header className="ph-topbar-rail sticky top-0 z-30 border-b border-white/8 bg-[#0D1117]/85 backdrop-blur-xl">
         <div className="container flex h-[92px] items-center justify-between gap-3">
           <button className="shrink-0" onClick={() => setLocation("/")} aria-label="PowerHub">
             <PowerHubLogo header />

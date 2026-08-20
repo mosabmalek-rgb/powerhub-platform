@@ -90,7 +90,7 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
 
   return (
     <div className="min-h-screen bg-[#0B1018] text-white" dir="rtl">
-      <header className="sticky top-0 z-40 border-b border-white/8 bg-[#0D1117]/95 backdrop-blur-xl">
+      <header className="ph-topbar-rail sticky top-0 z-40 border-b border-white/8 bg-[#0D1117]/95 backdrop-blur-xl">
         <div className="flex h-[92px] items-center justify-between gap-4 px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-4">
             <PowerHubLogo header />
