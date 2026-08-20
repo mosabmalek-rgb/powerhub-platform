@@ -104,7 +104,7 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
       </header>
 
       <div className="mx-auto flex min-h-[calc(100vh-76px)] max-w-[1800px]">
-        <aside className={`hidden shrink-0 border-l border-white/8 bg-[#0D1117] transition-[width] duration-200 ease-out lg:block ${sidebarCollapsed ? "w-[86px]" : "w-[306px]"}`}>
+        <aside className={`hidden shrink-0 border-l border-white/8 bg-[#0D1117] transition-[width] duration-200 ease-out md:block ${sidebarCollapsed ? "w-[86px]" : "w-[306px]"}`}>
           <div className={`sticky top-[76px] max-h-[calc(100vh-76px)] overflow-y-auto py-5 ${sidebarCollapsed ? "px-2" : "px-3"}`}>
             <div className={`mb-5 flex items-center rounded-2xl border border-[#F5B800]/15 bg-gradient-to-bl from-[#F5B800]/10 to-transparent ${sidebarCollapsed ? "justify-center p-3" : "justify-between p-4"}`}><div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#F5B800] text-[#0D1117]"><Gauge className="h-5 w-5" /></span>{!sidebarCollapsed && <div><p className="text-sm font-extrabold text-white">إدارة موحّدة</p><p className="mt-1 text-xs leading-5 text-slate-500">متابعة المنصة عبر جميع المستأجرين</p></div>}</div>{!sidebarCollapsed && <button type="button" aria-label="تصغير القائمة الجانبية" onClick={() => setSidebarCollapsed(true)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-white/8 hover:text-[#F5B800]"><PanelRightClose className="h-4 w-4" /></button>}</div>
             {sidebarCollapsed && <button type="button" aria-label="توسيع القائمة الجانبية" onClick={() => setSidebarCollapsed(false)} className="mb-4 grid h-10 w-full place-items-center rounded-xl border border-white/10 text-slate-400 transition hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]"><PanelRightOpen className="h-4 w-4" /></button>}
@@ -116,7 +116,7 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
         </aside>
 
         <main className="min-w-0 flex-1">
-          <div className="border-b border-white/8 bg-[#101722] lg:hidden"><div className="flex gap-2 overflow-x-auto px-4 py-3">{navigationGroups.flatMap((group) => group.items).map((item) => <button type="button" key={item.id} onClick={() => onTabChange(item.id)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-bold ${activeTab === item.id ? "bg-[#F5B800] text-[#0D1117]" : "border border-white/10 bg-white/[.03] text-slate-300"}`}>{item.label}</button>)}</div></div>
+          <div className="border-b border-white/8 bg-[#101722] md:hidden"><div className="flex gap-2 overflow-x-auto px-4 py-3">{navigationGroups.flatMap((group) => group.items).map((item) => <button type="button" key={item.id} onClick={() => onTabChange(item.id)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-bold ${activeTab === item.id ? "bg-[#F5B800] text-[#0D1117]" : "border border-white/10 bg-white/[.03] text-slate-300"}`}>{item.label}</button>)}</div></div>
           <div className="mx-auto max-w-[1480px] p-4 sm:p-6 xl:p-8">{children}</div>
         </main>
       </div>
