@@ -1,5 +1,12 @@
 export type PowerRole = "owner" | "manager" | "accountant" | "collector" | "technician" | "viewer";
 
+export const platformAccessRole = {
+  key: "super_admin",
+  displayName: "مدير المنصة",
+  scope: "platform",
+  implementationRole: "admin",
+} as const;
+
 export type PowerCapability =
   | "manageSubscribers"
   | "manageGenerators"
@@ -14,12 +21,21 @@ export type PowerCapability =
   | "viewAudit";
 
 export const powerRoleLabels: Record<PowerRole, string> = {
-  owner: "مالك",
+  owner: "صاحب مولد",
   manager: "مدير",
   accountant: "محاسب",
   collector: "محصل",
   technician: "فني",
   viewer: "مشاهد",
+};
+
+export const powerRoleScopes: Record<PowerRole, "tenant" | "site"> = {
+  owner: "tenant",
+  manager: "site",
+  accountant: "site",
+  collector: "site",
+  technician: "site",
+  viewer: "site",
 };
 
 const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {

@@ -224,7 +224,7 @@ function DashboardLayoutContent({
                       {displayUser.name || "-"}
                     </p>
                     <p className="text-xs text-slate-500 truncate mt-1.5">
-                      {displayUser.role === "admin" ? "مالك المنصة" : "وضع معاينة آمن"}
+                      {displayUser.role === "admin" ? "مدير المنصة" : "وضع معاينة آمن"}
                     </p>
                   </div>
                 </button>

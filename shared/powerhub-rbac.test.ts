@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { can } from "./powerhub-rbac";
+import { can, platformAccessRole, powerRoleLabels, powerRoleScopes } from "./powerhub-rbac";
 
 describe("PowerHub role capabilities", () => {
   it("keeps financial, collection, and technical capabilities separate", () => {
@@ -16,5 +16,14 @@ describe("PowerHub role capabilities", () => {
     expect(can("manager", "manageTeam")).toBe(false);
     expect(can("owner", "manageMessaging")).toBe(true);
     expect(can("accountant", "manageMessaging")).toBe(false);
+  });
+
+  it("maps the proposed platform administrator and generator-owner labels to their real scopes", () => {
+    expect(platformAccessRole).toMatchObject({ key: "super_admin", displayName: "مدير المنصة", scope: "platform", implementationRole: "admin" });
+    expect(powerRoleLabels.owner).toBe("صاحب مولد");
+    expect(powerRoleLabels.accountant).toBe("محاسب");
+    expect(powerRoleScopes.owner).toBe("tenant");
+    expect(powerRoleScopes.manager).toBe("site");
+    expect(powerRoleScopes.accountant).toBe("site");
   });
 });

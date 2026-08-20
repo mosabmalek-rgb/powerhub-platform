@@ -1,0 +1,164 @@
+import { PowerHubLogo } from "@/components/PowerHubLogo";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { startLogin } from "@/const";
+import {
+  ArrowLeft,
+  BarChart3,
+  BellRing,
+  Bolt,
+  Check,
+  ChevronLeft,
+  FileText,
+  Gauge,
+  Landmark,
+  MessageSquareText,
+  ReceiptText,
+  ShieldCheck,
+  UsersRound,
+  WalletCards,
+  Zap,
+} from "lucide-react";
+import { useLocation } from "wouter";
+
+const features = [
+  { icon: UsersRound, title: "إدارة المشتركين", text: "ملفات خدمة منظمة، عدادات مرتبطة، وسجل تشغيلي لكل نقطة توصيل." },
+  { icon: Gauge, title: "فواتير بالكيلوواط", text: "تحويل القراءات المعتمدة إلى فواتير دقيقة وفق التعرفة ومواعيد الاستحقاق." },
+  { icon: ReceiptText, title: "رابط فاتورة آمن", text: "شارك فاتورة المشترك من رابط عام مقيد بالتوكن، من دون كشف بيانات بقية الشبكة." },
+  { icon: WalletCards, title: "تحصيل منضبط", text: "دفعات وجلسات محصل وإغلاق نقدي يوضح المتوقع والفرق وسجل العملية." },
+  { icon: BarChart3, title: "تقارير تشغيلية", text: "صورة واضحة للاستهلاك والتحصيل والمتأخرات والمصروفات وأداء المحصلين." },
+  { icon: ShieldCheck, title: "صلاحيات معزولة", text: "كل مالك مولد يعمل داخل مساحة بياناته، مع أدوار محكومة بالمحطة والقدرة." },
+  { icon: BellRing, title: "تنبيهات منظمة", text: "طابور إشعارات داخلي لفواتيرك وتنبيهاتك، جاهز لربط WhatsApp وSMS عند التفعيل." },
+  { icon: Landmark, title: "عدة مولدات ومحطات", text: "تجميع آمن للمواقع والمولدات والتعرفة ضمن نموذج مستأجر واحد قابل للنمو." },
+];
+
+const plans = [
+  {
+    name: "الأساسية",
+    description: "لبداية منظمة مع محطة تشغيل واحدة.",
+    accent: "border-white/10 bg-white/[0.025]",
+    items: ["المشتركون والعدادات", "القراءات والفوترة", "روابط الفواتير", "تقارير تشغيلية أساسية"],
+    action: "ابدأ بمساحتك",
+  },
+  {
+    name: "الاحترافية",
+    description: "للتشغيل اليومي الذي يحتاج تدقيقاً وتحليلاً أعمق.",
+    accent: "border-[#F5B800]/55 bg-[#F5B800]/[0.055] shadow-[0_20px_70px_rgba(245,184,0,0.08)]",
+    highlighted: true,
+    items: ["كل ميزات الأساسية", "جلسات المحصل والإغلاق", "تقارير وتحليلات متقدمة", "إدارة فريق المحطة"],
+    action: "اختر الاحترافية",
+  },
+  {
+    name: "الشركات",
+    description: "لشبكات متعددة ومتابعة مركزية مخصصة.",
+    accent: "border-white/10 bg-white/[0.025]",
+    items: ["محطات ومولدات متعددة", "صلاحيات تشغيلية دقيقة", "مركز قيادة إداري", "تهيئة حسب نطاق العمل"],
+    action: "تحدث إلينا",
+  },
+];
+
+function SectionTitle({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+  return (
+    <div className="mx-auto max-w-3xl text-center">
+      <Badge className="border border-[#F5B800]/20 bg-[#F5B800]/10 px-3 py-1 text-xs font-bold text-[#F5B800] hover:bg-[#F5B800]/10">{eyebrow}</Badge>
+      <h2 className="mt-5 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">{title}</h2>
+      <p className="mt-4 text-base leading-8 text-slate-400 sm:text-lg">{description}</p>
+    </div>
+  );
+}
+
+export default function MarketingLandingPage() {
+  const [, setLocation] = useLocation();
+  const goToFeatures = () => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" });
+
+  return (
+    <main className="min-h-screen overflow-x-hidden bg-[#0D1117] text-white" dir="rtl">
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_83%_8%,rgba(245,184,0,0.13),transparent_25%),radial-gradient(circle_at_10%_22%,rgba(33,79,115,0.2),transparent_27%),linear-gradient(rgba(255,255,255,.026)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.026)_1px,transparent_1px)] bg-[length:auto,auto,44px_44px,44px_44px]" />
+
+      <header className="sticky top-0 z-30 border-b border-white/8 bg-[#0D1117]/85 backdrop-blur-xl">
+        <div className="container flex h-[76px] items-center justify-between gap-4">
+          <button className="shrink-0" onClick={() => setLocation("/")} aria-label="PowerHub">
+            <PowerHubLogo />
+          </button>
+          <nav className="hidden items-center gap-7 text-sm font-bold text-slate-300 lg:flex">
+            <a href="#features" className="transition hover:text-[#F5B800]">المميزات</a>
+            <a href="#how-it-works" className="transition hover:text-[#F5B800]">كيف تعمل</a>
+            <a href="#plans" className="transition hover:text-[#F5B800]">الباقات</a>
+            <a href="#contact" className="transition hover:text-[#F5B800]">تواصل</a>
+          </nav>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={startLogin} className="hidden font-bold text-slate-200 hover:bg-white/5 hover:text-white sm:inline-flex">تسجيل الدخول</Button>
+            <Button onClick={startLogin} className="bg-[#F5B800] font-extrabold text-[#0D1117] shadow-[0_10px_32px_rgba(245,184,0,.2)] hover:bg-[#FFD45A]">أنشئ مساحتك <ArrowLeft className="mr-2 h-4 w-4" /></Button>
+          </div>
+        </div>
+      </header>
+
+      <section className="container grid min-h-[650px] items-center gap-10 py-16 lg:grid-cols-[1.05fr_.95fr] lg:py-24">
+        <div className="relative z-10 text-center lg:text-right">
+          <Badge className="border border-[#F5B800]/20 bg-[#F5B800]/10 px-3 py-1.5 text-xs font-bold text-[#F5B800] hover:bg-[#F5B800]/10"><Bolt className="ml-1.5 h-3.5 w-3.5 fill-current" />منصة إدارة مولدات الكهرباء</Badge>
+          <h1 className="mt-6 max-w-3xl text-4xl font-black leading-[1.18] tracking-tight text-white sm:text-5xl lg:text-6xl">
+            كل كيلوواط <span className="text-[#F5B800]">تحت السيطرة.</span>
+          </h1>
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg lg:mx-0">PowerHub ينقل إدارة المولدات من الحسابات المبعثرة إلى تشغيل واضح: قراءة، فوترة، تحصيل، وتقارير ضمن مساحة مستقلة لكل صاحب مولد.</p>
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">
+            <Button size="lg" onClick={startLogin} className="h-12 bg-[#F5B800] px-6 text-base font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">ابدأ إدارة مولدك <ArrowLeft className="mr-2 h-5 w-5" /></Button>
+            <Button size="lg" variant="outline" onClick={goToFeatures} className="h-12 border-white/15 bg-white/[0.025] px-6 text-base font-bold text-white hover:bg-white/8 hover:text-white">استكشف المميزات <ChevronLeft className="mr-1 h-5 w-5" /></Button>
+          </div>
+          <div className="mt-10 grid max-w-2xl grid-cols-3 gap-3 text-right">
+            {[
+              ["kWh", "فواتير مبنية على الاستهلاك"],
+              ["RTL", "واجهة عربية للعمل اليومي"],
+              ["SaaS", "مساحة مستقلة لكل مالك"],
+            ].map(([value, label]) => <div key={value} className="rounded-2xl border border-white/8 bg-white/[0.025] px-3 py-3"><p className="font-display text-lg font-extrabold text-[#F5B800]" dir="ltr">{value}</p><p className="mt-1 text-xs leading-5 text-slate-400">{label}</p></div>)}
+          </div>
+        </div>
+        <div className="relative mx-auto w-full max-w-[650px]">
+          <div className="absolute -inset-8 rounded-full bg-[#F5B800]/10 blur-3xl" />
+          <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[#111823] p-2 shadow-[0_28px_110px_rgba(0,0,0,.45)]">
+            <img src="/manus-storage/powerhub-hero-generator_b14d52ab.jpg" alt="مولد كهرباء صناعي ضمن محطة طاقة حديثة" className="h-[420px] w-full rounded-[23px] object-cover object-left" />
+            <div className="absolute inset-x-5 bottom-5 rounded-2xl border border-white/10 bg-[#0D1117]/80 p-4 shadow-lg backdrop-blur-md">
+              <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-[#F5B800]">PowerHub Live</p><p className="mt-1 text-sm font-bold text-white">تشغيل منظم يبدأ من القراءة</p></div><span className="grid h-11 w-11 place-items-center rounded-xl bg-[#F5B800] text-[#0D1117]"><Zap className="h-5 w-5 fill-current" /></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" className="border-y border-white/8 bg-[#111823]/55 py-20 sm:py-24">
+        <div className="container">
+          <SectionTitle eyebrow="تشغيل أوضح" title="كل ما يحتاجه مشروع الكهرباء في مكان واحد" description="صممت PowerHub حول دورة التشغيل الفعلية للمولدات، لا حول جداول حسابية عامة." />
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {features.map(({ icon: Icon, title, text }) => <article key={title} className="group rounded-2xl border border-white/8 bg-[#0D1117]/70 p-5 transition duration-200 hover:-translate-y-1 hover:border-[#F5B800]/40 hover:bg-[#0D1117]"><span className="grid h-11 w-11 place-items-center rounded-xl bg-[#F5B800]/10 text-[#F5B800] transition group-hover:bg-[#F5B800] group-hover:text-[#0D1117]"><Icon className="h-5 w-5" /></span><h3 className="mt-5 font-bold text-white">{title}</h3><p className="mt-2 text-sm leading-7 text-slate-400">{text}</p></article>)}
+          </div>
+        </div>
+      </section>
+
+      <section id="how-it-works" className="container py-20 sm:py-28">
+        <SectionTitle eyebrow="بداية عملية" title="ثلاث خطوات لتشغيل أكثر وضوحاً" description="من إنشاء مساحة العمل إلى متابعة الدورة المالية، يظل تسلسل العمل مباشراً وآمناً." />
+        <div className="mt-12 grid gap-5 lg:grid-cols-3">
+          {[
+            ["01", "أنشئ مساحة المولد", "سجّل الدخول وأنشئ محطتك الأولى ضمن مساحة صاحب مولد مستقلة."],
+            ["02", "أضف الشبكة وابدأ القراءة", "نظّم المولدات والمشتركين والعدادات، ثم سجل القراءات ميدانياً أو من المكتب."],
+            ["03", "فوّت وحصّل بثقة", "اعتمد القراءة، أصدر الفاتورة، تابع التحصيل والمصروفات من لوحة تشغيل واحدة."],
+          ].map(([number, title, text]) => <article key={number} className="relative rounded-3xl border border-white/8 bg-[#111823] p-7"><div className="font-display text-5xl font-black text-[#F5B800]/30" dir="ltr">{number}</div><h3 className="mt-7 text-xl font-extrabold text-white">{title}</h3><p className="mt-3 text-sm leading-7 text-slate-400">{text}</p><div className="mt-7 flex h-9 w-9 items-center justify-center rounded-full border border-[#F5B800]/30 text-[#F5B800]"><Check className="h-4 w-4" /></div></article>)}
+        </div>
+      </section>
+
+      <section id="plans" className="border-y border-white/8 bg-[#111823]/55 py-20 sm:py-24">
+        <div className="container">
+          <SectionTitle eyebrow="نطاقات مرنة" title="باقة تناسب حجم تشغيلك" description="تُضبط خطة الاشتراك وفق عدد المحطات والمولدات ومتطلبات التشغيل؛ لا تعرض هذه الصفحة سعراً ثابتاً قبل تحديد نطاق العمل." />
+          <div className="mx-auto mt-12 grid max-w-6xl gap-5 lg:grid-cols-3">
+            {plans.map((plan) => <article key={plan.name} className={`relative rounded-3xl border p-6 ${plan.accent}`}>{plan.highlighted && <Badge className="absolute -top-3 right-6 bg-[#F5B800] px-3 py-1 text-[#0D1117] hover:bg-[#F5B800]">للعمليات النشطة</Badge>}<h3 className="text-2xl font-extrabold text-white">{plan.name}</h3><p className="mt-3 min-h-12 text-sm leading-6 text-slate-400">{plan.description}</p><div className="my-6 h-px bg-white/8" /><ul className="space-y-3">{plan.items.map((item) => <li key={item} className="flex items-start gap-2 text-sm text-slate-200"><Check className="mt-0.5 h-4 w-4 shrink-0 text-[#F5B800]" />{item}</li>)}</ul><Button onClick={startLogin} variant={plan.highlighted ? "default" : "outline"} className={plan.highlighted ? "mt-8 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#FFD45A]" : "mt-8 w-full border-white/15 bg-white/[0.02] font-bold text-white hover:bg-white/8 hover:text-white"}>{plan.action}</Button></article>)}
+          </div>
+        </div>
+      </section>
+
+      <section id="contact" className="container py-20 sm:py-28">
+        <div className="relative overflow-hidden rounded-[32px] border border-[#F5B800]/20 bg-gradient-to-l from-[#1c2229] to-[#111823] px-6 py-12 text-center sm:px-12"><div className="absolute left-0 top-0 h-56 w-56 rounded-full bg-[#F5B800]/10 blur-3xl" /><MessageSquareText className="relative mx-auto h-7 w-7 text-[#F5B800]" /><h2 className="relative mt-5 text-3xl font-extrabold text-white sm:text-4xl">راقب، أدر، واحسب بثقة.</h2><p className="relative mx-auto mt-4 max-w-2xl text-base leading-8 text-slate-300">ابدأ مساحة PowerHub لتجعل كل قراءة وفاتورة ودفعة جزءاً من دورة تشغيل واضحة وقابلة للمراجعة.</p><Button size="lg" onClick={startLogin} className="relative mt-8 bg-[#F5B800] px-7 font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">إنشاء حساب وإدارة مولد <ArrowLeft className="mr-2 h-5 w-5" /></Button></div>
+      </section>
+
+      <footer className="border-t border-white/8 bg-[#090d12]">
+        <div className="container flex flex-col gap-5 py-8 text-center sm:flex-row sm:items-center sm:justify-between sm:text-right"><PowerHubLogo /><p className="text-sm text-slate-500">PowerHub — إدارة الطاقة بذكاء.</p><div className="flex justify-center gap-5 text-sm font-bold text-slate-400"><a href="#features" className="hover:text-[#F5B800]">المميزات</a><a href="#plans" className="hover:text-[#F5B800]">الباقات</a><button onClick={startLogin} className="hover:text-[#F5B800]">تسجيل الدخول</button></div></div>
+      </footer>
+    </main>
+  );
+}

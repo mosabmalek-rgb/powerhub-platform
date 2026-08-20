@@ -119,6 +119,8 @@ describe("platform administration integration", () => {
     await expect(managerCaller.audit.list({ siteId: created.siteId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await caller.saveRolePolicy({ role: "owner", capability: "manageMessaging", isAllowed: false });
     await expect(ownerCaller.messaging.listConfigurations({ siteId: created.siteId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const platformCaller = powerhubRouter.createCaller({ user: admin, req: {} as never, res: {} as never });
+    await expect(platformCaller.messaging.listConfigurations({ siteId: created.siteId })).resolves.toEqual([]);
     const policies = await caller.rolePolicies();
     expect(policies.some((policy) => policy.role === "manager" && policy.capability === "manageGenerators" && !policy.isAllowed)).toBe(true);
     expect(policies.some((policy) => policy.role === "manager" && policy.capability === "manageTeam" && !policy.isAllowed)).toBe(true);

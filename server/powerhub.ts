@@ -90,6 +90,9 @@ async function enforcePlatformRolePolicy(role: PowerRole, capability?: PowerCapa
 async function requireRole(userId: number, siteId: number, allowed: PowerRole[], capability?: PowerCapability) {
   const role = await resolveRole(userId, siteId);
   if (!allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
+  const db = await dbOrThrow();
+  const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  if (user?.role === "admin") return role;
   await enforcePlatformRolePolicy(role, capability);
   return role;
 }

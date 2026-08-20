@@ -13,6 +13,7 @@ import {
   UsersRound, WalletCards, Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import MarketingLandingPage from "./MarketingLandingPage";
 
 const quickActions = [
   { label: "إضافة مشترك", detail: "أنشئ ملف عميل وربطه بنقطة التوصيل", icon: UsersRound, path: "/subscribers" },
@@ -39,6 +40,8 @@ export default function Home() {
     { label: "قيد الصيانة", value: formatNumber(summary?.generators.maintenance), hint: summary ? "تحتاج متابعة فنية" : "لا توجد أوامر صيانة مفتوحة", tone: "bg-sky-400" },
     { label: "متوقفة أو غير متصلة", value: "—", hint: summary ? "تُتابع من وحدة المولدات" : "لا توجد تنبيهات تشغيلية", tone: "bg-slate-500" },
   ];
+
+  if (!isAuthenticated) return <MarketingLandingPage />;
 
   return (
     <DashboardLayout>
