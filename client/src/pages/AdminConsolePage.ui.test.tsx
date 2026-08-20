@@ -38,7 +38,7 @@ vi.mock("@/lib/trpc", () => ({
       updateComplaint: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       listTariffPolicies: { useQuery: () => ({ data: [] }) },
       createTariffPolicy: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      platformConfiguration: { useQuery: () => ({ data: { settings: [], recoveries: [], currentTariff: null } }) },
+      platformConfiguration: { useQuery: () => ({ data: { settings: [{ id: 11, settingKey: "invoice_delivery_channels", isEnabled: true, message: "", value: { whatsappEnabled: true, smsEnabled: true } }], recoveries: [], currentTariff: null } }) },
       savePlatformSetting: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       requestOwnerAccessRecovery: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       generatorDetails: { useQuery: () => ({ data: { generator: { id: 22, name: "مولد اختبار", code: "GEN-T-01", status: "active", ratedCapacityKw: "100", operatingHours: "12", fuelLevelLiters: "50", tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", lastMaintenanceAt: null }, subscriberSummary: { total: 1, active: 1 }, subscribers: [], invoices: [], activity: [] } }) },
@@ -86,6 +86,11 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByRole("button", { name: /تجديد دورة/ })).toBeInTheDocument();
     fireEvent.click(sidebarNav("التقارير والإحصائيات"));
     expect(screen.getByRole("button", { name: /تصدير CSV/ })).toBeInTheDocument();
+    fireEvent.click(sidebarNav("إرسال الفواتير"));
+    expect(screen.getByText("إرسال فواتير المشتركين")).toBeInTheDocument();
+    expect(screen.getAllByText("بانتظار بيانات المزود")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "حفظ سياسة الإرسال" }));
+    expect(state.mutation).toHaveBeenCalledWith(expect.objectContaining({ settingKey: "invoice_delivery_channels", isEnabled: true }));
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getByText("مولدات محظورة")).toBeInTheDocument();
     fireEvent.click(sidebarNav("التنبيهات والإشعارات"));

@@ -52,6 +52,7 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { id: "finance", label: "المالية والتحصيل", icon: CircleDollarSign, detail: "الإيرادات والمتأخرات وطرق الدفع" },
       { id: "reports", label: "التقارير والإحصائيات", icon: FileBarChart, detail: "أداء المولدات والاستهلاك والنمو" },
+      { id: "invoiceDelivery", label: "إرسال الفواتير", icon: BellRing, detail: "إعداد WhatsApp وSMS للمشتركين" },
       { id: "complaints", label: "الشكاوى", icon: Ticket, detail: "المتابعة والتعيين والردود" },
     ],
   },

@@ -1,7 +1,8 @@
 import { and, asc, eq, sql } from "drizzle-orm";
-import { notificationMessages, tenantMessagingConfigurations } from "../drizzle/schema";
+import { notificationMessages, platformSettings, tenantMessagingConfigurations } from "../drizzle/schema";
 import { getDb } from "./db";
 import { decryptTenantCredential } from "./tenant-crypto";
+import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled } from "./notification-channels";
 
 type WhatsAppCredential = { accessToken: string; appSecret?: string };
 
@@ -22,6 +23,15 @@ export async function processNotificationQueue(limit = 25) {
   const result = { scanned: pending.length, submitted: 0, failed: 0, skipped: 0 };
 
   for (const message of pending) {
+    if (message.eventType === "invoice_issued") {
+      const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
+        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
+      if (!isInvoiceDeliveryChannelEnabled(message.channel, invoiceDeliveryPolicyFromSetting(setting))) {
+        await db.update(notificationMessages).set({ status: "failed", lastError: "قناة إرسال الفواتير معطلة من إعدادات آدمن PowerHub." }).where(eq(notificationMessages.id, message.id));
+        result.skipped += 1;
+        continue;
+      }
+    }
     const claimed = await db.update(notificationMessages).set({ status: "submitted", attempts: sql`${notificationMessages.attempts} + 1` })
       .where(and(eq(notificationMessages.id, message.id), eq(notificationMessages.status, "pending")));
     if (Number((claimed[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) { result.skipped += 1; continue; }

@@ -5,21 +5,50 @@ type MessagingConfiguration = {
   isActive: boolean;
 };
 
+export type InvoiceDeliveryPolicy = {
+  isEnabled: boolean;
+  whatsappEnabled: boolean;
+  smsEnabled: boolean;
+};
+
+export const defaultInvoiceDeliveryPolicy: InvoiceDeliveryPolicy = {
+  isEnabled: true,
+  whatsappEnabled: true,
+  smsEnabled: true,
+};
+
+export function invoiceDeliveryPolicyFromSetting(setting?: { isEnabled: boolean; value?: unknown } | null): InvoiceDeliveryPolicy {
+  if (!setting) return defaultInvoiceDeliveryPolicy;
+  const value = setting.value && typeof setting.value === "object" && !Array.isArray(setting.value)
+    ? setting.value as Record<string, unknown>
+    : {};
+  return {
+    isEnabled: setting.isEnabled,
+    whatsappEnabled: value.whatsappEnabled !== false,
+    smsEnabled: value.smsEnabled !== false,
+  };
+}
+
+export function isInvoiceDeliveryChannelEnabled(channel: InvoiceNotificationChannel, policy: InvoiceDeliveryPolicy = defaultInvoiceDeliveryPolicy) {
+  return policy.isEnabled && (channel === "whatsapp" ? policy.whatsappEnabled : policy.smsEnabled);
+}
+
 /**
- * Produces one queued invoice notification for every active tenant channel.
- * The WhatsApp fallback preserves the existing local queue behaviour until a
- * tenant configures one or both provider channels.
+ * Produces one queued invoice notification for every tenant channel that is
+ * enabled locally and allowed centrally by the platform administrator.
  */
 export function resolveInvoiceNotificationChannels(
   configurations: readonly MessagingConfiguration[],
+  policy: InvoiceDeliveryPolicy = defaultInvoiceDeliveryPolicy,
 ): InvoiceNotificationChannel[] {
+  if (!policy.isEnabled) return [];
   const channels = Array.from(
     new Set(
       configurations
-        .filter((configuration) => configuration.isActive)
+        .filter((configuration) => configuration.isActive && isInvoiceDeliveryChannelEnabled(configuration.channel, policy))
         .map((configuration) => configuration.channel),
     ),
   );
 
-  return channels.length ? channels : ["whatsapp"];
+  return channels.length ? channels : (isInvoiceDeliveryChannelEnabled("whatsapp", policy) ? ["whatsapp"] : []);
 }
