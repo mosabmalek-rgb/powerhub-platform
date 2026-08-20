@@ -89,7 +89,7 @@ export default function MarketingLandingPage() {
           </nav>
           <div className="flex items-center gap-2">
             <ThemeSelector compact />
-            <Button variant="ghost" onClick={startLogin} className="hidden font-bold text-slate-200 hover:bg-white/5 hover:text-white sm:inline-flex">تسجيل الدخول</Button>
+            <Button variant="ghost" onClick={startLogin} className="hidden border border-[#F5B800]/65 bg-white/35 px-4 font-bold text-[#7d5500] shadow-[0_5px_16px_rgba(151,100,0,.1)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:border-[#F5B800] hover:bg-[#F5B800]/10 hover:text-[#7d5500] hover:shadow-[0_10px_24px_rgba(191,132,0,.2)] active:translate-y-0 active:scale-[.97] motion-reduce:transform-none motion-reduce:transition-none dark:bg-white/5 dark:text-[#F5B800] dark:hover:text-[#F5B800] sm:inline-flex">تسجيل الدخول</Button>
             <Button onClick={startLogin} className="bg-[#F5B800] font-extrabold text-[#0D1117] shadow-[0_10px_32px_rgba(245,184,0,.2)] hover:bg-[#FFD45A]">أنشئ مساحتك <ArrowLeft className="mr-2 h-4 w-4" /></Button>
           </div>
         </div>
