@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { AdvancedDashboard, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, OwnerLifecyclePanel, PlatformControlPanel, PlatformRolePoliciesPanel } from "./AdminAdvancedWorkspace";
+import PlatformAccessPanel from "./PlatformAccessPanel";
 import { BarChart3, Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, Loader2, Plus, RefreshCw, ShieldAlert, Ticket, UsersRound } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -38,6 +39,7 @@ export default function AdminConsolePage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [tenantFilter, setTenantFilter] = useState<number | undefined>();
   const isPlatformAdmin = user?.role === "admin";
+  const isPlatformOwner = user?.platformRole === "platform_owner";
   const utils = trpc.useUtils();
   const overview = trpc.admin.overview.useQuery(tenantFilter ? { tenantId: tenantFilter } : undefined, { enabled: isPlatformAdmin });
   const owners = trpc.admin.listOwners.useQuery(undefined, { enabled: isPlatformAdmin });
@@ -81,7 +83,7 @@ export default function AdminConsolePage() {
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
-    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><PlatformRolePoliciesPanel /></>}
+    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
   </main></DashboardLayout>;
 }
 

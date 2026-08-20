@@ -1,7 +1,8 @@
+import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gte, inArray, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sites, staffProfiles, subscribers, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sites, staffProfiles, subscribers, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { protectedProcedure, router } from "./_core/trpc";
 
@@ -9,12 +10,29 @@ const planSchema = z.enum(["starter", "professional", "enterprise"]);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
 const billingCycleSchema = z.enum(["monthly", "yearly"]);
 
-const platformAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== "admin") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "هذه المساحة مخصصة لآدمن PowerHub فقط." });
-  }
-  return next({ ctx });
-});
+const platformRoleSchema = z.enum(["platform_owner", "platform_admin", "finance_admin"]);
+type PlatformRole = z.infer<typeof platformRoleSchema>;
+
+function platformRoleOf(user: { role: "user" | "admin"; platformRole: PlatformRole | null }) {
+  return user.platformRole ?? "platform_admin";
+}
+
+function requirePlatformRoles(allowedRoles: PlatformRole[]) {
+  return protectedProcedure.use(({ ctx, next }) => {
+    if (ctx.user.role !== "admin") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "هذه المساحة مخصصة لإدارة منصة PowerHub." });
+    }
+    const platformRole = platformRoleOf(ctx.user);
+    if (!allowedRoles.includes(platformRole)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
+    }
+    return next({ ctx });
+  });
+}
+
+const platformAdminProcedure = requirePlatformRoles(["platform_owner", "platform_admin"]);
+const platformOwnerProcedure = requirePlatformRoles(["platform_owner"]);
+const platformFinanceProcedure = requirePlatformRoles(["platform_owner", "platform_admin", "finance_admin"]);
 
 export function addSubscriptionPeriod(from: Date, cycle: "monthly" | "yearly", units = 1) {
   const result = new Date(from);
@@ -38,6 +56,18 @@ async function dbOrThrow() {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "قاعدة البيانات غير متاحة حالياً." });
   return db;
+}
+
+async function recordPlatformSecurityChange(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, actor: typeof users.$inferSelect, targetUserId: number | undefined, title: string, metadata: Record<string, unknown>) {
+  await db.insert(platformSecurityEvents).values({
+    eventType: "security_change",
+    severity: "info",
+    status: "success",
+    title,
+    metadata: { ...metadata, actorPlatformRole: platformRoleOf(actor) },
+    relatedUserId: targetUserId,
+    createdByUserId: actor.id,
+  });
 }
 
 async function ownerOverview(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, tenantId?: number) {
@@ -200,8 +230,107 @@ export const adminRouter = router({
 
   userDirectory: platformAdminProcedure.query(async () => {
     const db = await dbOrThrow();
-    return db.select({ id: users.id, name: users.name, email: users.email, role: users.role, lastSignedIn: users.lastSignedIn })
+    return db.select({ id: users.id, name: users.name, email: users.email, role: users.role, platformRole: users.platformRole, accountStatus: users.accountStatus, lastSignedIn: users.lastSignedIn })
       .from(users).orderBy(desc(users.lastSignedIn)).limit(200);
+  }),
+
+  platformAccessDirectory: platformOwnerProcedure.query(async () => {
+    const db = await dbOrThrow();
+    const [accounts, invitations] = await Promise.all([
+      db.select({ id: users.id, name: users.name, email: users.email, platformRole: users.platformRole, accountStatus: users.accountStatus, lastSignedIn: users.lastSignedIn })
+        .from(users).where(eq(users.role, "admin")).orderBy(desc(users.lastSignedIn)).limit(100),
+      db.select({ id: platformAccessInvitations.id, email: platformAccessInvitations.email, platformRole: platformAccessInvitations.platformRole, status: platformAccessInvitations.status, expiresAt: platformAccessInvitations.expiresAt, acceptedAt: platformAccessInvitations.acceptedAt, invitedByUserId: platformAccessInvitations.invitedByUserId })
+        .from(platformAccessInvitations).orderBy(desc(platformAccessInvitations.createdAt)).limit(100),
+    ]);
+    return { accounts, invitations };
+  }),
+
+  invitePlatformAccess: platformOwnerProcedure.input(z.object({
+    email: z.string().email().transform((email) => email.trim().toLowerCase()),
+    platformRole: z.enum(["platform_admin", "finance_admin"]),
+    expiresInHours: z.number().int().min(1).max(168).default(72),
+  })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
+    const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
+    const id = insertId(await db.insert(platformAccessInvitations).values({ email: input.email, platformRole: input.platformRole, tokenHash, invitedByUserId: ctx.user.id, expiresAt }));
+    await recordPlatformSecurityChange(db, ctx.user, undefined, "دعوة دور منصة", { invitationId: id, email: input.email, platformRole: input.platformRole, expiresAt });
+    return { id, email: input.email, platformRole: input.platformRole, expiresAt, status: "invited" as const };
+  }),
+
+  setPlatformAccountStatus: platformOwnerProcedure.input(z.object({ userId: z.number().int().positive(), accountStatus: z.enum(["active", "locked", "disabled"]) })).mutation(async ({ ctx, input }) => {
+    if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تغيير حالة حسابك من هذه العملية." });
+    const db = await dbOrThrow();
+    const [target] = await db.select({ id: users.id, role: users.role, platformRole: users.platformRole, accountStatus: users.accountStatus }).from(users).where(eq(users.id, input.userId)).limit(1);
+    if (!target?.id || target.role !== "admin") throw new TRPCError({ code: "NOT_FOUND", message: "حساب إدارة المنصة غير موجود." });
+    if (target.platformRole === "platform_owner") throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تغيير حالة مالك المنصة من هذا المسار." });
+    await db.update(users).set({ accountStatus: input.accountStatus }).where(eq(users.id, input.userId));
+    await recordPlatformSecurityChange(db, ctx.user, input.userId, "تغيير حالة حساب منصة", { before: target.accountStatus, after: input.accountStatus });
+    return { success: true };
+  }),
+
+  setPlatformAccessRole: platformOwnerProcedure.input(z.object({ userId: z.number().int().positive(), platformRole: z.enum(["platform_admin", "finance_admin"]) })).mutation(async ({ ctx, input }) => {
+    if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تغيير دور حسابك من هذه العملية." });
+    const db = await dbOrThrow();
+    const [target] = await db.select({ id: users.id, role: users.role, platformRole: users.platformRole }).from(users).where(eq(users.id, input.userId)).limit(1);
+    if (!target?.id || target.role !== "admin") throw new TRPCError({ code: "NOT_FOUND", message: "حساب إدارة المنصة غير موجود." });
+    if (target.platformRole === "platform_owner") throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تعديل دور مالك المنصة من هذا المسار." });
+    await db.update(users).set({ platformRole: input.platformRole, accountStatus: "active" }).where(eq(users.id, input.userId));
+    await recordPlatformSecurityChange(db, ctx.user, input.userId, "تغيير دور منصة", { before: target.platformRole, after: input.platformRole });
+    return { success: true };
+  }),
+
+  financeOverview: platformFinanceProcedure.query(async () => {
+    const db = await dbOrThrow();
+    const [subscriptionSummary, [collectionSummary]] = await Promise.all([
+      db.select({ status: tenantSubscriptions.status, count: sql<number>`count(*)` }).from(tenantSubscriptions).groupBy(tenantSubscriptions.status),
+      db.select({ amount: sql<string>`coalesce(sum(${payments.amount}), 0)`, count: sql<number>`count(*)` }).from(payments).where(eq(payments.status, "completed")),
+    ]);
+    return { subscriptions: subscriptionSummary.map((item) => ({ ...item, count: Number(item.count) })), collections: { amount: Number(collectionSummary?.amount ?? 0), count: Number(collectionSummary?.count ?? 0) } };
+  }),
+
+  inviteTenantAccess: platformAdminProcedure.input(z.object({
+    tenantId: z.number().int().positive(),
+    siteId: z.number().int().positive().optional(),
+    email: z.string().email().transform((email) => email.trim().toLowerCase()),
+    tenantRole: z.enum(["owner", "admin", "member"]).default("member"),
+    siteRole: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]).optional(),
+    expiresInHours: z.number().int().min(1).max(168).default(72),
+  })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [site] = input.siteId ? await db.select({ id: sites.id, tenantId: sites.tenantId }).from(sites).where(eq(sites.id, input.siteId)).limit(1) : [undefined];
+    if (input.siteId && (!site || site.tenantId !== input.tenantId)) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة صاحب المولد المحددة." });
+    const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
+    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+    if (input.tenantRole === "owner" && input.siteRole && input.siteRole !== "owner") throw new TRPCError({ code: "BAD_REQUEST", message: "دعوة صاحب المولد يجب أن تحمل دور مالك للمحطة أيضاً." });
+    const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
+    const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
+    const id = insertId(await db.insert(accessInvitations).values({
+      tenantId: input.tenantId,
+      siteId: input.siteId,
+      email: input.email,
+      tenantRole: input.tenantRole,
+      siteRole: input.tenantRole === "owner" ? "owner" : input.siteRole,
+      tokenHash,
+      invitedByUserId: ctx.user.id,
+      expiresAt,
+    }));
+    if (site) await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, actorPlatformRole: platformRoleOf(ctx.user), entityType: "access_invitation", entityId: String(id), action: "platform_admin_invite_tenant_access", metadata: { email: input.email, tenantRole: input.tenantRole, siteRole: input.siteRole, expiresAt } });
+    return { id, email: input.email, expiresAt, status: "invited" as const };
+  }),
+
+  setTenantMembershipStatus: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), userId: z.number().int().positive(), status: z.enum(["active", "suspended", "revoked"]) })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [membership] = await db.select().from(tenantMembers).where(and(eq(tenantMembers.tenantId, input.tenantId), eq(tenantMembers.userId, input.userId))).limit(1);
+    const [site] = await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
+    if (!membership || !site) throw new TRPCError({ code: "NOT_FOUND", message: "العضوية أو محطة المستأجر غير موجودة." });
+    const isActive = input.status === "active";
+    await db.transaction(async (tx) => {
+      await tx.update(tenantMembers).set({ membershipStatus: input.status, isActive, expiresAt: input.status === "revoked" ? new Date() : null }).where(eq(tenantMembers.id, membership.id));
+      await tx.update(staffProfiles).set({ isActive }).where(and(eq(staffProfiles.userId, input.userId), eq(staffProfiles.siteId, site.id)));
+    });
+    await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, actorPlatformRole: platformRoleOf(ctx.user), entityType: "tenant_membership", entityId: String(membership.id), action: "platform_admin_set_tenant_membership_status", beforeData: { status: membership.membershipStatus }, afterData: { status: input.status } });
+    return { success: true };
   }),
 
   createGeneratorOwner: platformAdminProcedure.input(z.object({
@@ -265,6 +394,18 @@ export const adminRouter = router({
       if (input.ownerUserId) {
         await tx.insert(tenantMembers).values({ tenantId, userId: input.ownerUserId, role: "owner", isActive: true });
         await tx.insert(staffProfiles).values({ siteId, userId: input.ownerUserId, role: "owner", isActive: true });
+      } else if (input.ownerEmail) {
+        const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
+        await tx.insert(accessInvitations).values({
+          tenantId,
+          siteId,
+          email: input.ownerEmail.trim().toLowerCase(),
+          tenantRole: "owner",
+          siteRole: "owner",
+          tokenHash,
+          invitedByUserId: ctx.user.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        });
       }
       return { tenantId, siteId };
     });
@@ -276,6 +417,7 @@ export const adminRouter = router({
       entityId: String(result.tenantId),
       action: "platform_admin_create_generator_owner",
       afterData: { tenantName: input.tenantName, ownerName: input.ownerName, plan: input.plan, subscriptionStatus: input.subscriptionStatus },
+      actorPlatformRole: platformRoleOf(ctx.user),
     });
     return result;
   }),

@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { and, eq, gte } from "drizzle-orm";
+import { accessInvitations, InsertUser, platformAccessInvitations, staffProfiles, tenantMembers, tenantOwnerProfiles, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -41,7 +41,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     const assignNullable = (field: TextField) => {
       const value = user[field];
       if (value === undefined) return;
-      const normalized = value ?? null;
+      const normalized = field === "email" && value ? value.trim().toLowerCase() : value ?? null;
       values[field] = normalized;
       updateSet[field] = normalized;
     };
@@ -58,6 +58,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     } else if (user.openId === ENV.ownerOpenId) {
       values.role = 'admin';
       updateSet.role = 'admin';
+      values.platformRole = "platform_owner";
+      updateSet.platformRole = "platform_owner";
     }
 
     if (!values.lastSignedIn) {
@@ -71,10 +73,67 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     await db.insert(users).values(values).onDuplicateKeyUpdate({
       set: updateSet,
     });
+    const [currentUser] = await db.select().from(users).where(eq(users.openId, user.openId)).limit(1);
+    if (currentUser?.email) {
+      await acceptPendingPlatformInvitationsForUser(db, currentUser);
+      await acceptPendingInvitationsForUser(db, currentUser);
+    }
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
   }
+}
+
+async function acceptPendingPlatformInvitationsForUser(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, user: typeof users.$inferSelect) {
+  const email = user.email?.trim().toLowerCase();
+  if (!email) return;
+  const now = new Date();
+  const [invitation] = await db.select().from(platformAccessInvitations).where(and(
+    eq(platformAccessInvitations.email, email),
+    eq(platformAccessInvitations.status, "invited"),
+    gte(platformAccessInvitations.expiresAt, now),
+  )).limit(1);
+  if (!invitation) return;
+
+  await db.transaction(async (tx) => {
+    await tx.update(users).set({ role: "admin", platformRole: invitation.platformRole, accountStatus: "active" }).where(eq(users.id, user.id));
+    await tx.update(platformAccessInvitations).set({ status: "accepted", acceptedByUserId: user.id, acceptedAt: now }).where(eq(platformAccessInvitations.id, invitation.id));
+  });
+}
+
+async function acceptPendingInvitationsForUser(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, user: typeof users.$inferSelect) {
+  const email = user.email?.trim().toLowerCase();
+  if (!email) return;
+  const now = new Date();
+  const invitations = await db.select().from(accessInvitations).where(and(
+    eq(accessInvitations.email, email),
+    eq(accessInvitations.status, "invited"),
+    gte(accessInvitations.expiresAt, now),
+  ));
+  if (!invitations.length) return;
+
+  await db.transaction(async (tx) => {
+    for (const invitation of invitations) {
+      await tx.insert(tenantMembers).values({
+        tenantId: invitation.tenantId,
+        userId: user.id,
+        role: invitation.tenantRole,
+        isActive: true,
+        membershipStatus: "active",
+        invitedByUserId: invitation.invitedByUserId,
+      }).onDuplicateKeyUpdate({
+        set: { role: invitation.tenantRole, isActive: true, membershipStatus: "active", invitedByUserId: invitation.invitedByUserId, expiresAt: null },
+      });
+      if (invitation.siteId && invitation.siteRole) {
+        await tx.insert(staffProfiles).values({ siteId: invitation.siteId, userId: user.id, role: invitation.siteRole, isActive: true })
+          .onDuplicateKeyUpdate({ set: { isActive: true, updatedAt: new Date() } });
+      }
+      if (invitation.tenantRole === "owner") {
+        await tx.update(tenantOwnerProfiles).set({ ownerUserId: user.id, claimedAt: now }).where(eq(tenantOwnerProfiles.tenantId, invitation.tenantId));
+      }
+      await tx.update(accessInvitations).set({ status: "accepted", acceptedByUserId: user.id, acceptedAt: now }).where(eq(accessInvitations.id, invitation.id));
+    }
+  });
 }
 
 export async function getUserByOpenId(openId: string) {

@@ -64,7 +64,7 @@ async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
   const tenantId = await getSiteTenant(siteId);
   if (tenantId) {
     const [member] = await db.select({ role: tenantMembers.role }).from(tenantMembers)
-      .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, userId), eq(tenantMembers.isActive, true))).limit(1);
+      .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, userId), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active"))).limit(1);
     if (!member) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
     if (member.role === "owner") return "owner";
   }
@@ -114,10 +114,12 @@ async function writeAudit(input: {
   const inferredSiteId = input.siteId ?? (typeof fromAfter?.siteId === "number" ? fromAfter.siteId : undefined) ?? (typeof fromMetadata?.siteId === "number" ? fromMetadata.siteId : undefined);
   const inferredTenantId = input.tenantId ?? (inferredSiteId ? await getSiteTenant(inferredSiteId) : undefined);
   if (!inferredSiteId || !inferredTenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تسجيل تدقيق بلا سياق محطة ومستأجر." });
+  const [actor] = input.userId ? await db.select({ platformRole: users.platformRole }).from(users).where(eq(users.id, input.userId)).limit(1) : [];
   await db.insert(auditLogs).values({
     tenantId: inferredTenantId,
     siteId: inferredSiteId,
     userId: input.userId,
+    actorPlatformRole: actor?.platformRole,
     entityType: input.entityType,
     entityId: input.entityId,
     action: input.action,
@@ -187,7 +189,7 @@ export const powerhubRouter = router({
           .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, input.userId))).limit(1);
         const tenantRole = existingMembership?.role === "owner" ? "owner" : "member" as const;
         await db.transaction(async (tx) => {
-          await tx.insert(tenantMembers).values({ tenantId, userId: input.userId, role: tenantRole, isActive: true }).onDuplicateKeyUpdate({ set: { role: tenantRole, isActive: true } });
+          await tx.insert(tenantMembers).values({ tenantId, userId: input.userId, role: tenantRole, isActive: true, membershipStatus: "active", expiresAt: null }).onDuplicateKeyUpdate({ set: { role: tenantRole, isActive: true, membershipStatus: "active", expiresAt: null } });
           await tx.update(staffProfiles).set({ isActive: false }).where(and(eq(staffProfiles.siteId, input.siteId), eq(staffProfiles.userId, input.userId)));
           await tx.insert(staffProfiles).values({ siteId: input.siteId, userId: input.userId, role: input.role, isActive: true }).onDuplicateKeyUpdate({ set: { isActive: true, updatedAt: new Date() } });
         });
@@ -200,13 +202,13 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       if (ctx.user.role === "admin") return db.select().from(sites).orderBy(desc(sites.createdAt));
       const memberships = await db.select({ tenantId: tenantMembers.tenantId, role: tenantMembers.role }).from(tenantMembers)
-        .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true)));
+        .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")));
       const ownerTenantIds = memberships.filter((member) => member.role === "owner").map((member) => member.tenantId);
       const [ownedSites, assignedSites] = await Promise.all([
         ownerTenantIds.length ? db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, status: sites.status }).from(sites).where(inArray(sites.tenantId, ownerTenantIds)) : Promise.resolve([]),
         db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, status: sites.status }).from(staffProfiles)
           .innerJoin(sites, eq(staffProfiles.siteId, sites.id))
-          .innerJoin(tenantMembers, and(eq(tenantMembers.tenantId, sites.tenantId), eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true)))
+          .innerJoin(tenantMembers, and(eq(tenantMembers.tenantId, sites.tenantId), eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")))
           .where(and(eq(staffProfiles.userId, ctx.user.id), eq(staffProfiles.isActive, true))),
       ]);
       return Array.from(new Map([...ownedSites, ...assignedSites].map((site) => [site.id, site])).values());

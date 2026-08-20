@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { accessRecoveryRequests, auditLogs, complaints, generators, notificationMessages, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sites, staffProfiles, tenantMembers, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, notificationMessages, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sites, staffProfiles, tenantMembers, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
 import { adminRouter } from "./admin";
-import { getDb } from "./db";
+import { getDb, upsertUser } from "./db";
 import { powerhubRouter } from "./powerhub";
 
 const enabled = process.env.RUN_ADMIN_INTEGRATION_TESTS === "1";
@@ -11,6 +11,7 @@ const suffix = `platform-admin-${Date.now()}`;
 let adminUserId: number | undefined;
 let ownerUserId: number | undefined;
 let managerUserId: number | undefined;
+let invitedUserId: number | undefined;
 let tenantId: number | undefined;
 let siteId: number | undefined;
 
@@ -128,6 +129,33 @@ describe("platform administration integration", () => {
     expect(policies.some((policy) => policy.role === "manager" && policy.capability === "viewAudit" && !policy.isAllowed)).toBe(true);
     expect(policies.some((policy) => policy.role === "owner" && policy.capability === "manageMessaging" && !policy.isAllowed)).toBe(true);
     await expect(caller.impersonationStatus()).resolves.toMatchObject({ enabled: false, confirmationRequired: true });
+    await db.update(users).set({ platformRole: "platform_owner" }).where(eq(users.id, adminUserId));
+    const [platformOwner] = await db.select().from(users).where(eq(users.id, adminUserId));
+    const platformOwnerCaller = adminRouter.createCaller({ user: platformOwner, req: {} as never, res: {} as never });
+    const tenantInvitation = await platformOwnerCaller.inviteTenantAccess({ tenantId: created.tenantId, siteId: created.siteId, email: `accountant-${suffix}@example.com`, tenantRole: "member", siteRole: "accountant", expiresInHours: 2 });
+    expect(tenantInvitation).toMatchObject({ email: `accountant-${suffix}@example.com`, status: "invited" });
+    await upsertUser({ openId: `${suffix}-accountant`, email: `accountant-${suffix}@example.com`, name: "محاسب مدعو", role: "user" });
+    const [invitedUser] = await db.select().from(users).where(eq(users.openId, `${suffix}-accountant`)).limit(1);
+    invitedUserId = invitedUser.id;
+    const invitedCaller = powerhubRouter.createCaller({ user: invitedUser, req: {} as never, res: {} as never });
+    await expect(invitedCaller.staff.myAccess({ siteId: created.siteId })).resolves.toMatchObject({ role: "accountant" });
+    await platformOwnerCaller.setTenantMembershipStatus({ tenantId: created.tenantId, userId: invitedUser.id, status: "suspended" });
+    await expect(invitedCaller.staff.myAccess({ siteId: created.siteId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const platformInvitation = await platformOwnerCaller.invitePlatformAccess({ email: `${suffix}@example.com`, platformRole: "finance_admin", expiresInHours: 2 });
+    await expect(platformOwnerCaller.platformAccessDirectory()).resolves.toMatchObject({ invitations: expect.arrayContaining([expect.objectContaining({ id: platformInvitation.id, platformRole: "finance_admin", status: "invited" })]) });
+    await db.update(users).set({ role: "admin", platformRole: "platform_admin" }).where(eq(users.id, managerUserId));
+    const [platformAdmin] = await db.select().from(users).where(eq(users.id, managerUserId));
+    const platformAdminCaller = adminRouter.createCaller({ user: platformAdmin, req: {} as never, res: {} as never });
+    await expect(platformAdminCaller.invitePlatformAccess({ email: `forbidden-${suffix}@example.com`, platformRole: "finance_admin" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await platformOwnerCaller.setPlatformAccessRole({ userId: managerUserId, platformRole: "finance_admin" });
+    const [financeAdmin] = await db.select().from(users).where(eq(users.id, managerUserId));
+    const financeAdminCaller = adminRouter.createCaller({ user: financeAdmin, req: {} as never, res: {} as never });
+    await expect(financeAdminCaller.financeOverview()).resolves.toMatchObject({ collections: expect.any(Object) });
+    await expect(financeAdminCaller.overview()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await platformOwnerCaller.setPlatformAccountStatus({ userId: managerUserId, accountStatus: "locked" });
+    const [lockedAdmin] = await db.select().from(users).where(eq(users.id, managerUserId));
+    const lockedAdminCaller = adminRouter.createCaller({ user: lockedAdmin, req: {} as never, res: {} as never });
+    await expect(lockedAdminCaller.overview()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   afterAll(async () => {
@@ -137,6 +165,7 @@ describe("platform administration integration", () => {
     await db.delete(complaints).where(eq(complaints.tenantId, tenantId));
     await db.delete(notificationMessages).where(eq(notificationMessages.tenantId, tenantId));
     await db.delete(auditLogs).where(eq(auditLogs.tenantId, tenantId));
+    await db.delete(accessInvitations).where(eq(accessInvitations.tenantId, tenantId));
     await db.delete(generators).where(eq(generators.siteId, siteId));
     await db.delete(staffProfiles).where(eq(staffProfiles.siteId, siteId));
     await db.delete(sites).where(eq(sites.id, siteId));
@@ -148,10 +177,12 @@ describe("platform administration integration", () => {
     await db.delete(platformSecurityEvents).where(eq(platformSecurityEvents.createdByUserId, adminUserId));
     await db.delete(platformSecuritySettings).where(eq(platformSecuritySettings.updatedByUserId, adminUserId));
     await db.delete(platformTariffPolicies).where(eq(platformTariffPolicies.createdByUserId, adminUserId));
+    await db.delete(platformAccessInvitations).where(eq(platformAccessInvitations.invitedByUserId, adminUserId));
     await db.delete(platformSettings).where(eq(platformSettings.updatedByUserId, adminUserId));
     await db.delete(platformRolePolicies).where(eq(platformRolePolicies.updatedByUserId, adminUserId));
     await db.delete(users).where(eq(users.id, ownerUserId));
     await db.delete(users).where(eq(users.id, managerUserId));
+    if (invitedUserId) await db.delete(users).where(eq(users.id, invitedUserId));
     await db.delete(users).where(eq(users.id, adminUserId));
   });
 });

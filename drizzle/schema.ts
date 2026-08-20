@@ -19,6 +19,8 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  platformRole: mysqlEnum("platformRole", ["platform_owner", "platform_admin", "finance_admin"]),
+  accountStatus: mysqlEnum("accountStatus", ["active", "locked", "disabled"]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -76,6 +78,9 @@ export const tenantMembers = mysqlTable("tenantMembers", {
   userId: int("userId").notNull().references(() => users.id),
   role: mysqlEnum("role", ["owner", "admin", "member"]).default("member").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
+  membershipStatus: mysqlEnum("membershipStatus", ["invited", "active", "suspended", "revoked"]).default("active").notNull(),
+  invitedByUserId: int("invitedByUserId").references(() => users.id),
+  expiresAt: timestamp("expiresAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
@@ -113,6 +118,42 @@ export const sites = mysqlTable("sites", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+export const accessInvitations = mysqlTable("accessInvitations", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").references(() => sites.id),
+  email: varchar("email", { length: 320 }).notNull(),
+  tenantRole: mysqlEnum("tenantRole", ["owner", "admin", "member"]).default("member").notNull(),
+  siteRole: mysqlEnum("siteRole", ["owner", "manager", "accountant", "collector", "technician", "viewer"]),
+  tokenHash: varchar("tokenHash", { length: 128 }).notNull().unique(),
+  status: mysqlEnum("status", ["invited", "accepted", "suspended", "revoked", "expired"]).default("invited").notNull(),
+  invitedByUserId: int("invitedByUserId").notNull().references(() => users.id),
+  acceptedByUserId: int("acceptedByUserId").references(() => users.id),
+  expiresAt: timestamp("expiresAt").notNull(),
+  acceptedAt: timestamp("acceptedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("access_invitation_tenant_email_status_idx").on(table.tenantId, table.email, table.status),
+  index("access_invitation_email_status_idx").on(table.email, table.status),
+]);
+
+export const platformAccessInvitations = mysqlTable("platformAccessInvitations", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  platformRole: mysqlEnum("platformRole", ["platform_owner", "platform_admin", "finance_admin"]).notNull(),
+  tokenHash: varchar("tokenHash", { length: 128 }).notNull().unique(),
+  status: mysqlEnum("status", ["invited", "accepted", "revoked", "expired"]).default("invited").notNull(),
+  invitedByUserId: int("invitedByUserId").notNull().references(() => users.id),
+  acceptedByUserId: int("acceptedByUserId").references(() => users.id),
+  expiresAt: timestamp("expiresAt").notNull(),
+  acceptedAt: timestamp("acceptedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("platform_access_invitation_email_status_idx").on(table.email, table.status),
+]);
 
 export const staffProfiles = mysqlTable("staffProfiles", {
   id: int("id").autoincrement().primaryKey(),
@@ -461,6 +502,8 @@ export const auditLogs = mysqlTable("auditLogs", {
   tenantId: int("tenantId").notNull().references(() => tenants.id),
   siteId: int("siteId").notNull().references(() => sites.id),
   userId: int("userId").references(() => users.id),
+  actorPlatformRole: mysqlEnum("actorPlatformRole", ["platform_owner", "platform_admin", "finance_admin"]),
+  actorTenantRole: varchar("actorTenantRole", { length: 32 }),
   entityType: varchar("entityType", { length: 80 }).notNull(),
   entityId: varchar("entityId", { length: 80 }).notNull(),
   action: varchar("action", { length: 80 }).notNull(),
