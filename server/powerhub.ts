@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
@@ -35,6 +35,13 @@ import { rolesWith, type PowerCapability, type PowerRole } from "../shared/power
 const createRoles = rolesWith("issueInvoices");
 const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
+
+export function reportDateRange(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const endExclusive = new Date(`${endDate}T00:00:00.000Z`);
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+  return { start, endExclusive };
+}
 
 async function dbOrThrow() {
   const db = await getDb();
@@ -614,6 +621,41 @@ export const powerhubRouter = router({
   }),
 
   reports: router({
+    range: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const db = await dbOrThrow();
+      const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
+      const [invoiceRows, paymentRows, expenseRows] = await Promise.all([
+        db.select({ invoice: invoices, subscriber: subscribers }).from(invoices)
+          .innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id))
+          .where(and(eq(invoices.siteId, input.siteId), gte(invoices.issueDate, start), lt(invoices.issueDate, endExclusive), sql`${invoices.status} <> 'cancelled'`)),
+        db.select({ payment: payments, collector: users }).from(payments)
+          .leftJoin(users, eq(payments.collectedByUserId, users.id))
+          .where(and(eq(payments.siteId, input.siteId), gte(payments.paidAt, start), lt(payments.paidAt, endExclusive))),
+        db.select().from(expenses)
+          .where(and(eq(expenses.siteId, input.siteId), gte(expenses.occurredAt, start), lt(expenses.occurredAt, endExclusive))),
+      ]);
+      const invoiced = invoiceRows.reduce((sum, row) => sum + Number(row.invoice.totalAmount), 0);
+      const outstanding = invoiceRows.reduce((sum, row) => sum + Number(row.invoice.balanceDue), 0);
+      const energyKwh = invoiceRows.reduce((sum, row) => sum + Number(row.invoice.consumptionKwh), 0);
+      const completedPayments = paymentRows.filter((row) => row.payment.status === "completed");
+      const collected = completedPayments.reduce((sum, row) => sum + Number(row.payment.amount), 0);
+      const expenseTotal = expenseRows.reduce((sum, row) => sum + Number(row.amount), 0);
+      const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number }>>((acc, row) => {
+        const key = String(row.payment.collectedByUserId ?? 0);
+        const entry = acc[key] ?? { name: row.collector?.name || row.collector?.email || "محصل غير محدد", count: 0, amount: 0 };
+        entry.count += 1;
+        entry.amount += Number(row.payment.amount);
+        acc[key] = entry;
+        return acc;
+      }, {})).sort((a, b) => b.amount - a.amount);
+      const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ subscriber: row.subscriber.fullName, subscriberNo: row.subscriber.subscriberNo, invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
+      return { range: { startDate: input.startDate, endDate: input.endDate }, summary: { invoiced, collected, outstanding, energyKwh, expenseTotal, operatingProfit: collected - expenseTotal }, collectors, topDebtors };
+    }),
     monthly: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), billingPeriod: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const db = await dbOrThrow();

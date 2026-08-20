@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceHome } from "./Home";
@@ -26,7 +26,7 @@ vi.mock("@/lib/trpc", () => ({
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 7, name: "محطة التقرير", code: "REPORT-01" }] }) } },
       dashboard: { summary: { useQuery: () => ({ data: { energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) } },
-      reports: { monthly: { useQuery: () => ({ data: report }) } },
+      reports: { range: { useQuery: () => ({ data: report }) } },
       invoices: {
         publicByToken: { useQuery: () => ({
           data: {
@@ -56,6 +56,10 @@ describe("supplemental PowerHub page review", () => {
     expect(screen.getByText("محطة التقرير")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("المحصل التجريبي")).toBeInTheDocument());
     expect(screen.getByText("أعلى المتأخرات")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("تاريخ بداية التقرير"), { target: { value: "2026-07-01" } });
+    fireEvent.change(screen.getByLabelText("تاريخ نهاية التقرير"), { target: { value: "2026-07-31" } });
+    expect(screen.getByLabelText("تاريخ بداية التقرير")).toHaveValue("2026-07-01");
+    expect(screen.getByLabelText("تاريخ نهاية التقرير")).toHaveValue("2026-07-31");
     expect(screen.getByRole("button", { name: "CSV" })).toBeEnabled();
   });
 
