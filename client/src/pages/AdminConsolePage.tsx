@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import PlatformAdminLayout from "@/components/PlatformAdminLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,23 +9,11 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { AdvancedDashboard, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, OwnerLifecyclePanel, PlatformControlPanel, PlatformRolePoliciesPanel } from "./AdminAdvancedWorkspace";
 import PlatformAccessPanel from "./PlatformAccessPanel";
-import { BarChart3, Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, Loader2, Plus, RefreshCw, ShieldAlert, Ticket, UsersRound } from "lucide-react";
+import { Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, Loader2, Plus, RefreshCw, ShieldAlert, UsersRound } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "finance" | "reports" | "complaints" | "notifications" | "security" | "settings";
-const tabs: Array<{ id: Tab; label: string; icon: typeof BarChart3 }> = [
-  { id: "overview", label: "لوحة التحكم", icon: BarChart3 },
-  { id: "generators", label: "إدارة المولدات", icon: Building2 },
-  { id: "ownerSubscription", label: "اشتراك صاحب مولد", icon: Plus },
-  { id: "users", label: "إدارة المستخدمين", icon: UsersRound },
-  { id: "finance", label: "المالية والتحصيل", icon: CircleDollarSign },
-  { id: "reports", label: "التقارير", icon: FileDown },
-  { id: "complaints", label: "الشكاوى", icon: Ticket },
-  { id: "notifications", label: "التنبيهات", icon: CheckCircle2 },
-  { id: "security", label: "الأمان والسجلات", icon: ShieldAlert },
-  { id: "settings", label: "إعدادات المنصة", icon: CalendarClock },
-];
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const formatNumber = (value: unknown) => new Intl.NumberFormat("ar").format(Number(value ?? 0));
 const formatDate = (value: Date | string | null | undefined) => value ? new Date(value).toLocaleDateString("ar-IQ", { year: "numeric", month: "short", day: "numeric" }) : "—";
@@ -75,7 +64,7 @@ export default function AdminConsolePage() {
   if (!isAuthenticated) return <DashboardLayout><AccessCard title="سجّل الدخول إلى إدارة المنصة" action="تسجيل الدخول" onClick={startLogin} /></DashboardLayout>;
   if (!isPlatformAdmin) return <DashboardLayout><AccessCard title="هذه الصفحة مخصصة لآدمن PowerHub" detail="لا يمكن لصاحب مولد أو عضو فريق الوصول إلى بيانات جميع المستأجرين." /></DashboardLayout>;
 
-  return <DashboardLayout><main className="space-y-6 pb-12"><header className="rounded-[26px] border border-[#F5B800]/20 bg-[#111823]/85 p-6 shadow-panel"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ShieldAlert className="h-4 w-4" />إدارة PowerHub العليا</div><h1 className="mt-2 text-2xl font-extrabold text-white">مركز قيادة المنصة</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">تحليلات مركزية للمولدات والمشتركين والتحصيل والشكاوى، مع أدوات أمن وإدارة محكومة بدور آدمن PowerHub.</p></div><Button variant="outline" onClick={() => void refresh()} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />تحديث البيانات</Button></div><div className="mt-6 flex flex-wrap gap-2 border-t border-white/8 pt-4">{tabs.map((item) => { const Icon = item.icon; return <Button key={item.id} variant="outline" onClick={() => setTab(item.id)} className={tab === item.id ? "border-[#F5B800] bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f] hover:text-[#0D1117]" : "border-white/10 text-slate-300 hover:bg-white/5 hover:text-white"}><Icon className="ml-2 h-4 w-4" />{item.label}</Button>; })}</div></header>
+  return <PlatformAdminLayout activeTab={tab} onTabChange={(nextTab) => setTab(nextTab as Tab)}><main className="space-y-6 pb-12"><header className="rounded-[26px] border border-[#F5B800]/20 bg-[#111823]/85 p-6 shadow-panel"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ShieldAlert className="h-4 w-4" />إدارة PowerHub العليا</div><h1 className="mt-2 text-2xl font-extrabold text-white">مركز قيادة المنصة</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">إشراف مركزي منظم على المولدات والمشتركين والتحصيل والشكاوى وإعدادات الحماية عبر جميع مساحات PowerHub.</p></div><Button variant="outline" onClick={() => void refresh()} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />تحديث البيانات</Button></div></header>
     {tab === "overview" && <AdvancedDashboard />}
     {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending} onStatus={setGeneratorStatus.mutate} /><GeneratorInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
     {tab === "ownerSubscription" && <OwnersTab users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} />}
@@ -86,7 +75,7 @@ export default function AdminConsolePage() {
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
     {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
-  </main></DashboardLayout>;
+  </main></PlatformAdminLayout>;
 }
 
 function AccessCard({ title, detail, action, onClick }: { title: string; detail?: string; action?: string; onClick?: () => void }) { return <div className="mx-auto mt-14 max-w-xl rounded-[28px] border border-[#F5B800]/20 bg-[#111823] p-8 text-center shadow-panel"><ShieldAlert className="mx-auto h-9 w-9 text-[#F5B800]" /><h1 className="mt-5 text-xl font-extrabold text-white">{title}</h1><p className="mt-3 leading-7 text-slate-400">{detail ?? "يلزم وجود جلسة مصادق عليها للوصول إلى مساحة الإدارة."}</p>{action && <Button onClick={onClick} className="mt-6 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{action}</Button>}</div>; }

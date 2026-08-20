@@ -69,6 +69,8 @@ describe("PowerHub platform administration UI", () => {
     state.role = "admin";
     render(<AdminConsolePage />);
     expect(screen.getByText("مركز قيادة المنصة")).toBeInTheDocument();
+    expect(screen.getByText("إدارة موحّدة")).toBeInTheDocument();
+    expect(screen.getByText("PLATFORM ADMIN")).toBeInTheDocument();
     expect(screen.getByText("إجمالي المشتركين")).toBeInTheDocument();
     expect(screen.getAllByText("150").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "اشتراك صاحب مولد" }));
@@ -78,11 +80,11 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "المالية والتحصيل" }));
     expect(screen.getByRole("button", { name: /تجديد دورة/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "التقارير" }));
+    fireEvent.click(screen.getByRole("button", { name: "التقارير والإحصائيات" }));
     expect(screen.getByRole("button", { name: /تصدير CSV/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إدارة المولدات" }));
     expect(screen.getByText("مولدات محظورة")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "التنبيهات" }));
+    fireEvent.click(screen.getByRole("button", { name: "التنبيهات والإشعارات" }));
     expect(screen.getByText("سجل الإشعارات")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "الأمان والسجلات" }));
     expect(screen.getByText("أحداث الأمان والنسخ الاحتياطي")).toBeInTheDocument();
@@ -104,7 +106,7 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "الشكاوى" }));
     expect(screen.getByText("شكوى اختبار")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "التنبيهات" }));
+    fireEvent.click(screen.getByRole("button", { name: "التنبيهات والإشعارات" }));
     expect(screen.getByText("مساحة مولد الاختبار")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "الإرسال الجماعي مؤجل" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "الأمان والسجلات" }));
