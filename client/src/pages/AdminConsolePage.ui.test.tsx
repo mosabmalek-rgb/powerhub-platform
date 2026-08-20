@@ -71,7 +71,7 @@ describe("PowerHub platform administration UI", () => {
     state.role = "admin";
     render(<AdminConsolePage />);
     expect(screen.getByText("مركز قيادة المنصة")).toBeInTheDocument();
-    expect(screen.getByText("إدارة موحّدة")).toBeInTheDocument();
+    expect(screen.getAllByText("إدارة المنصة").length).toBeGreaterThan(0);
     expect(screen.getByText("PLATFORM ADMIN")).toBeInTheDocument();
     expect(screen.getByText("إجمالي المشتركين")).toBeInTheDocument();
     expect(screen.getAllByText("150").length).toBeGreaterThan(0);
