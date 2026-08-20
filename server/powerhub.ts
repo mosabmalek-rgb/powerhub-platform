@@ -31,6 +31,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
+import { probeMessagingConnection } from "./messaging-connection";
 import { storagePut } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
@@ -190,6 +191,25 @@ export const powerhubRouter = router({
       }).onDuplicateKeyUpdate({ set: { provider: input.provider, senderId: input.senderId, phoneNumberId: input.phoneNumberId, templateName: input.templateName, credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, webhookVerifyTokenHash: input.webhookVerifyToken ? hashWebhookVerifyToken(input.webhookVerifyToken) : sql`${tenantMessagingConfigurations.webhookVerifyTokenHash}`, isActive: input.isActive } });
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_configuration", entityId: `${tenantId}:${input.channel}`, action: "upsert", metadata: { channel: input.channel, provider: input.provider, isActive: input.isActive } });
       return { success: true };
+    }),
+    testConnection: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), provider: z.string().min(2).max(80),
+      phoneNumberId: z.string().max(120).optional(), credential: z.string().min(8).max(4096),
+    })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const db = await dbOrThrow();
+      const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
+        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
+      if (!platformSetting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: "اختبار الاتصال غير متاح لقناة معطلة من آدمن المنصة." });
+      try {
+        const result = await probeMessagingConnection(input);
+        await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_configuration", entityId: `${input.siteId}:${input.channel}`, action: "connection_test", metadata: { channel: input.channel, provider: input.provider, ok: result.ok, mode: result.mode } });
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message.slice(0, 500) : "تعذر الاتصال بالمزود.";
+        await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_configuration", entityId: `${input.siteId}:${input.channel}`, action: "connection_test", metadata: { channel: input.channel, provider: input.provider, ok: false, mode: "live" } });
+        return { ok: false, mode: "live" as const, message: `تعذر إتمام اختبار الاتصال: ${message}` };
+      }
     }),
     saveInvoiceTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");

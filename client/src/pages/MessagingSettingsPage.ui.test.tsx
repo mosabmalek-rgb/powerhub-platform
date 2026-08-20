@@ -20,6 +20,7 @@ vi.mock("@/lib/trpc", () => ({
         deliveryPolicy: { useQuery: () => ({ data: state.policy }) },
         listInvoiceTemplates: { useQuery: () => ({ data: [{ channel: "whatsapp", body: "أهلاً {{subscriber_name}}، فاتورتك {{invoice_no}}", isActive: true }] }) },
         saveConfiguration: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
+        testConnection: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         saveInvoiceTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
       },
       notifications: {
@@ -45,6 +46,7 @@ describe("owner invoice messaging settings", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "معاينة الرسالة" })[0]);
     expect(screen.getByText("شكل الرسالة النهائي")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة إرسال" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "اختبار الاتصال" })).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب WhatsApp" }));
     expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, channel: "whatsapp", isActive: true }));
   });
