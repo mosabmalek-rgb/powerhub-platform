@@ -191,6 +191,38 @@ button, input, select, textarea { font: inherit; }
   }
 }
 
+/* PowerHub scrolling: quiet graphite track with a compact electrical-gold handle. */
+html {
+  scrollbar-color: rgba(245, 184, 0, 0.72) #0b1018;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #0b1018;
+  border: 3px solid #0b1018;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 3px solid #0b1018;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f9ca3f 0%, #d89c00 100%);
+  box-shadow: 0 0 0 1px rgba(245, 184, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.24);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #ffe06b 0%, #f5b800 100%);
+}
+
+*::-webkit-scrollbar-corner {
+  background: #0b1018;
+}
+
 @layer components {
   /**
    * Custom container utility that centers content and adds responsive padding.
