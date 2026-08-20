@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useOptionalTheme } from "@/contexts/ThemeContext";
 import { cn } from "@/lib/utils";
 
@@ -7,6 +8,14 @@ const DARK_POWER_OUTLINE_LOGO_SRC = "/manus-storage/powerhub-logo-dark-transpare
 export function PowerHubLogo({ compact = false, header = false, className }: { compact?: boolean; header?: boolean; className?: string }) {
   const theme = useOptionalTheme()?.theme;
   const logoSource = theme === "dark" ? DARK_POWER_OUTLINE_LOGO_SRC : LIGHT_LOGO_SRC;
+
+  useEffect(() => {
+    [LIGHT_LOGO_SRC, DARK_POWER_OUTLINE_LOGO_SRC].forEach((source) => {
+      const image = new Image();
+      image.src = source;
+      void image.decode?.().catch(() => undefined);
+    });
+  }, []);
 
   return (
     <div className={cn("flex items-center", className)}>
