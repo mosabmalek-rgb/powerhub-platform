@@ -1,5 +1,6 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { RouteAccessGate } from "@/components/RouteAccessGate";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -16,6 +17,7 @@ import MessagingSettingsPage from "./pages/MessagingSettingsPage";
 import AuditLogPage from "./pages/AuditLogPage";
 import PublicInvoice from "./pages/PublicInvoice";
 import AdminConsolePage from "./pages/AdminConsolePage";
+import FinanceAdminPage from "./pages/FinanceAdminPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -23,18 +25,19 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/invoice/:token"} component={PublicInvoice} />
-      <Route path={"/subscribers"}>{() => <NetworkDirectoryPage kind="subscribers" />}</Route>
-      <Route path={"/generators"}>{() => <NetworkDirectoryPage kind="generators" />}</Route>
-      <Route path={"/readings"} component={MeterReadingsPage} />
-      <Route path={"/invoices"} component={BillingPage} />
-      <Route path={"/collections"}>{() => <OperationsPage section="collections" />}</Route>
-      <Route path={"/expenses"}>{() => <OperationsPage section="expenses" />}</Route>
-      <Route path={"/reports"} component={ReportsPage} />
-      <Route path={"/notifications"} component={MessagingSettingsPage} />
-      <Route path={"/audit"} component={AuditLogPage} />
-      <Route path={"/map"}>{() => <FeaturePage section="map" />}</Route>
-      <Route path={"/settings"} component={SettingsPage} />
-      <Route path={"/admin"} component={AdminConsolePage} />
+      <Route path={"/subscribers"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="subscribers" /></RouteAccessGate>}</Route>
+      <Route path={"/generators"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="generators" /></RouteAccessGate>}</Route>
+      <Route path={"/readings"}>{() => <RouteAccessGate><MeterReadingsPage /></RouteAccessGate>}</Route>
+      <Route path={"/invoices"}>{() => <RouteAccessGate><BillingPage /></RouteAccessGate>}</Route>
+      <Route path={"/collections"}>{() => <RouteAccessGate><OperationsPage section="collections" /></RouteAccessGate>}</Route>
+      <Route path={"/expenses"}>{() => <RouteAccessGate><OperationsPage section="expenses" /></RouteAccessGate>}</Route>
+      <Route path={"/reports"}>{() => <RouteAccessGate><ReportsPage /></RouteAccessGate>}</Route>
+      <Route path={"/notifications"}>{() => <RouteAccessGate><MessagingSettingsPage /></RouteAccessGate>}</Route>
+      <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
+      <Route path={"/map"}>{() => <RouteAccessGate><FeaturePage section="map" /></RouteAccessGate>}</Route>
+      <Route path={"/settings"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
+      <Route path={"/admin"}>{() => <RouteAccessGate platformAdminOnly><AdminConsolePage /></RouteAccessGate>}</Route>
+      <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

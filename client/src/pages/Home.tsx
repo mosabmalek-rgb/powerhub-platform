@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { authenticatedHomePath } from "@/lib/role-routing";
 import { useLocation } from "wouter";
 import {
   ArrowUpLeft, BellRing, Bolt, CalendarDays, ChevronLeft, CircleAlert,
@@ -24,13 +25,17 @@ const quickActions = [
 
 export default function Home() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const [siteId, setSiteId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!siteId && sitesQuery.data?.[0]) setSiteId(sitesQuery.data[0].id);
   }, [siteId, sitesQuery.data]);
+
+  useEffect(() => {
+    if (!loading && isAuthenticated && user?.role === "admin") setLocation(authenticatedHomePath(user));
+  }, [isAuthenticated, loading, setLocation, user]);
 
   const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId) });
   const summary = summaryQuery.data;
@@ -42,6 +47,7 @@ export default function Home() {
   ];
 
   if (!isAuthenticated) return <MarketingLandingPage />;
+  if (user?.role === "admin") return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ فتح مساحة إدارة المنصة…</h1></div></main>;
 
   return (
     <DashboardLayout>

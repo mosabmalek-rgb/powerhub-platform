@@ -118,6 +118,8 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const platformRoleLabel = ({ platform_owner: "مالك المنصة", platform_admin: "مشرف المنصة", finance_admin: "مشرف مالي" } as const)[user?.platformRole ?? "platform_admin"];
+  const accountRoleLabel = user ? (user.role === "admin" ? platformRoleLabel : "مساحة تشغيل المولد") : "وضع معاينة آمن";
   const visibleMenuGroups = displayUser.role === "admin" ? [...menuGroups, platformAdminGroup] : menuGroups;
   const activeMenuItem = visibleMenuGroups.flatMap(group => group.items).find(item => item.path === location);
   const isMobile = useIsMobile();
@@ -224,7 +226,7 @@ function DashboardLayoutContent({
                       {displayUser.name || "-"}
                     </p>
                     <p className="text-xs text-slate-500 truncate mt-1.5">
-                      {displayUser.role === "admin" ? "مدير المنصة" : "وضع معاينة آمن"}
+                      {accountRoleLabel}
                     </p>
                   </div>
                 </button>
