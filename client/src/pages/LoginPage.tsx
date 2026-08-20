@@ -28,7 +28,7 @@ export default function LoginPage() {
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (signInError) throw signInError;
-      setLocation("/");
+      setLocation("/workspace");
     } catch (submitError) {
       setError(authMessage(submitError));
     } finally {

@@ -8,8 +8,8 @@ describe("authenticatedHomePath", () => {
     expect(authenticatedHomePath({ role: "admin", platformRole: null })).toBe("/admin");
   });
 
-  it("routes a finance admin to the limited finance center and leaves generator users at operations", () => {
+  it("routes a finance admin to the limited finance center and generator users to their workspace", () => {
     expect(authenticatedHomePath({ role: "admin", platformRole: "finance_admin" })).toBe("/finance-admin");
-    expect(authenticatedHomePath({ role: "user" })).toBe("/");
+    expect(authenticatedHomePath({ role: "user" })).toBe("/workspace");
   });
 });

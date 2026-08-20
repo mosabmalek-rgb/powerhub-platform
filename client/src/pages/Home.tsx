@@ -23,7 +23,7 @@ const quickActions = [
   { label: "تسجيل تحصيل", detail: "سجل دفعة واطبع أو شارك الإيصال", icon: WalletCards, path: "/collections" },
 ];
 
-export default function Home() {
+export function WorkspaceHome() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, loading, user } = useAuth();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword });
@@ -34,6 +34,10 @@ export default function Home() {
   }, [siteId, sitesQuery.data]);
 
   useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      setLocation("/login");
+      return;
+    }
     if (!loading && isAuthenticated && user?.mustChangePassword) {
       setLocation("/profile");
       return;
@@ -50,7 +54,7 @@ export default function Home() {
     { label: "متوقفة أو غير متصلة", value: "—", hint: summary ? "تُتابع من وحدة المولدات" : "لا توجد تنبيهات تشغيلية", tone: "bg-slate-500" },
   ];
 
-  if (!isAuthenticated) return <MarketingLandingPage />;
+  if (!isAuthenticated) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ توجيهك إلى تسجيل الدخول…</h1></div></main>;
   if (user?.mustChangePassword || user?.role === "admin") return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ فتح المساحة المصرح بها…</h1></div></main>;
 
   return (
@@ -153,4 +157,8 @@ export default function Home() {
       </div>
     </DashboardLayout>
   );
+}
+
+export default function Home() {
+  return <MarketingLandingPage />;
 }

@@ -5,7 +5,7 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+import Home, { WorkspaceHome } from "./pages/Home";
 import FeaturePage from "./pages/FeaturePage";
 import OperationsPage from "./pages/OperationsPage";
 import MeterReadingsPage from "./pages/MeterReadingsPage";
@@ -27,6 +27,7 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/login"} component={LoginPage} />
+      <Route path={"/workspace"}>{() => <RouteAccessGate><WorkspaceHome /></RouteAccessGate>}</Route>
       <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/subscribers"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="subscribers" /></RouteAccessGate>}</Route>

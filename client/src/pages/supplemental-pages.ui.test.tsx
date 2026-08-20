@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import Home from "./Home";
+import { WorkspaceHome } from "./Home";
 import PublicInvoice from "./PublicInvoice";
 import ReportsPage from "./ReportsPage";
 
@@ -55,7 +55,7 @@ describe("supplemental PowerHub page review", () => {
   });
 
   it("renders dashboard metrics for the selected tenant site", async () => {
-    render(<Home />);
+    render(<WorkspaceHome />);
     expect(screen.getByRole("combobox", { name: "اختيار المحطة" })).toHaveValue("7");
     await waitFor(() => expect(screen.getByText("إجمالي التحصيل")).toBeInTheDocument());
     expect(screen.getByText("المولدات العاملة")).toBeInTheDocument();

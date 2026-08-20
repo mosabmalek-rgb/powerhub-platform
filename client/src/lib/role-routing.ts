@@ -4,6 +4,6 @@ export type AuthenticatedRouteUser = {
 };
 
 export function authenticatedHomePath(user: AuthenticatedRouteUser | null | undefined) {
-  if (user?.role !== "admin") return "/";
+  if (user?.role !== "admin") return "/workspace";
   return user.platformRole === "finance_admin" ? "/finance-admin" : "/admin";
 }
