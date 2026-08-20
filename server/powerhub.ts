@@ -21,6 +21,7 @@ import {
   subscribers,
   tariffs,
   tenantMembers,
+  tenantInvoiceMessageTemplates,
   tenantMessagingConfigurations,
   tenants,
   users,
@@ -28,7 +29,8 @@ import {
 import { getDb } from "./db";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
-import { invoiceDeliveryPolicyFromSetting, resolveInvoiceNotificationChannels } from "./notification-channels";
+import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
+import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
 import { storagePut } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
@@ -155,6 +157,20 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       return db.select({ id: tenantMessagingConfigurations.id, channel: tenantMessagingConfigurations.channel, provider: tenantMessagingConfigurations.provider, senderId: tenantMessagingConfigurations.senderId, phoneNumberId: tenantMessagingConfigurations.phoneNumberId, templateName: tenantMessagingConfigurations.templateName, isActive: tenantMessagingConfigurations.isActive, updatedAt: tenantMessagingConfigurations.updatedAt }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, tenantId));
     }),
+    deliveryPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const db = await dbOrThrow();
+      const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value, message: platformSettings.message }).from(platformSettings)
+        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
+      return { ...invoiceDeliveryPolicyFromSetting(setting), configured: Boolean(setting), message: setting?.message ?? null };
+    }),
+    listInvoiceTemplates: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const tenantId = await getSiteTenant(input.siteId);
+      if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
+      const db = await dbOrThrow();
+      return db.select().from(tenantInvoiceMessageTemplates).where(and(eq(tenantInvoiceMessageTemplates.tenantId, tenantId), eq(tenantInvoiceMessageTemplates.eventType, "invoice_issued")));
+    }),
     saveConfiguration: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), provider: z.string().min(2).max(80),
       senderId: z.string().max(120).optional(), phoneNumberId: z.string().max(120).optional(), templateName: z.string().max(120).optional(),
@@ -164,12 +180,27 @@ export const powerhubRouter = router({
       const tenantId = await getSiteTenant(input.siteId);
       if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
       const db = await dbOrThrow();
+      const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
+        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
+      if (!platformSetting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: `ربط قناة ${input.channel === "whatsapp" ? "WhatsApp" : "SMS"} غير متاح حالياً من إعدادات آدمن المنصة.` });
       const encrypted = encryptTenantCredential(input.channel === "whatsapp" ? JSON.stringify({ accessToken: input.credential, appSecret: input.webhookAppSecret || undefined }) : input.credential);
       await db.insert(tenantMessagingConfigurations).values({
         tenantId, channel: input.channel, provider: input.provider, senderId: input.senderId, phoneNumberId: input.phoneNumberId,
         templateName: input.templateName, credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, webhookVerifyTokenHash: input.webhookVerifyToken ? hashWebhookVerifyToken(input.webhookVerifyToken) : undefined, isActive: input.isActive,
       }).onDuplicateKeyUpdate({ set: { provider: input.provider, senderId: input.senderId, phoneNumberId: input.phoneNumberId, templateName: input.templateName, credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, webhookVerifyTokenHash: input.webhookVerifyToken ? hashWebhookVerifyToken(input.webhookVerifyToken) : sql`${tenantMessagingConfigurations.webhookVerifyTokenHash}`, isActive: input.isActive } });
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_configuration", entityId: `${tenantId}:${input.channel}`, action: "upsert", metadata: { channel: input.channel, provider: input.provider, isActive: input.isActive } });
+      return { success: true };
+    }),
+    saveInvoiceTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const tenantId = await getSiteTenant(input.siteId);
+      if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
+      const db = await dbOrThrow();
+      const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
+        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
+      if (!platformSetting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب لقناة معطلة من آدمن المنصة." });
+      await db.insert(tenantInvoiceMessageTemplates).values({ tenantId, channel: input.channel, body: input.body, isActive: input.isActive }).onDuplicateKeyUpdate({ set: { body: input.body, isActive: input.isActive } });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_invoice_message_template", entityId: `${tenantId}:${input.channel}`, action: "upsert", metadata: { channel: input.channel, isActive: input.isActive } });
       return { success: true };
     }),
   }),
@@ -440,13 +471,16 @@ export const powerhubRouter = router({
       const [tariff] = await db.select().from(tariffs).where(and(eq(tariffs.id, input.tariffId), eq(tariffs.siteId, input.siteId), eq(tariffs.isActive, true))).limit(1);
       const [site] = await db.select().from(sites).where(eq(sites.id, input.siteId)).limit(1);
       if (!meter || !tariff || !site || !subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "بيانات العداد أو المشترك أو التعرفة أو المحطة غير مكتملة." });
-      const [tenantMessaging, platformDeliverySettings] = await Promise.all([
+      const [tenantMessaging, platformDeliverySettings, tenantTemplates] = await Promise.all([
         db.select({ channel: tenantMessagingConfigurations.channel, isActive: tenantMessagingConfigurations.isActive })
           .from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, site.tenantId)),
         db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
           .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1),
+        db.select({ channel: tenantInvoiceMessageTemplates.channel, body: tenantInvoiceMessageTemplates.body, isActive: tenantInvoiceMessageTemplates.isActive }).from(tenantInvoiceMessageTemplates)
+          .where(and(eq(tenantInvoiceMessageTemplates.tenantId, site.tenantId), eq(tenantInvoiceMessageTemplates.eventType, "invoice_issued"))),
       ]);
       const tenantChannels = resolveInvoiceNotificationChannels(tenantMessaging, invoiceDeliveryPolicyFromSetting(platformDeliverySettings[0]));
+      const templateByChannel = new Map(tenantTemplates.filter((template) => template.isActive).map((template) => [template.channel, template.body]));
       const countResult = await db.select({ count: sql<number>`count(*)` }).from(invoices).where(eq(invoices.siteId, input.siteId));
       const calculated = calculateInvoiceAmounts({ consumptionKwh: Number(reading.consumptionKwh ?? 0), pricePerKwh: Number(tariff.pricePerKwh), fixedFee: Number(tariff.fixedFee), taxRate: Number(tariff.taxRate), discountAmount: input.discountAmount });
       const invoiceNo = nextInvoiceNo(site.code, input.billingPeriod, Number(countResult[0]?.count ?? 0) + 1);
@@ -475,7 +509,7 @@ export const powerhubRouter = router({
         eventType: "invoice_issued" as const,
         recipient: subscriber.phone,
         status: "pending" as const,
-        payload: { invoiceNo, billingPeriod: input.billingPeriod, totalAmount: calculated.totalAmount },
+        payload: { invoiceNo, billingPeriod: input.billingPeriod, totalAmount: calculated.totalAmount, renderedText: renderInvoiceMessageTemplate(templateByChannel.get(channel) ?? defaultInvoiceMessageTemplates[channel], { subscriber_name: subscriber.fullName, invoice_no: invoiceNo, billing_period: input.billingPeriod, total_amount: String(calculated.totalAmount), due_date: input.dueDate.toLocaleDateString("ar-IQ") }) },
       })));
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "invoice", entityId: String(id), action: "issue", afterData: { invoiceNo, ...calculated } });
       return { id, invoiceNo, totalAmount: calculated.totalAmount };
@@ -694,12 +728,13 @@ export const powerhubRouter = router({
   }),
 
   notifications: router({
-    list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+    list: protectedProcedure.input(siteScoped.extend({ eventType: z.enum(["invoice_issued", "payment_reminder", "payment_received", "service_alert"]).optional() })).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const db = await dbOrThrow();
-      return db.select({ notification: notificationMessages, subscriber: subscribers }).from(notificationMessages)
+      return db.select({ notification: notificationMessages, subscriber: subscribers, invoiceNo: invoices.invoiceNo }).from(notificationMessages)
         .innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id))
-        .where(eq(subscribers.siteId, input.siteId)).orderBy(desc(notificationMessages.createdAt));
+        .leftJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
+        .where(input.eventType ? and(eq(subscribers.siteId, input.siteId), eq(notificationMessages.eventType, input.eventType)) : eq(subscribers.siteId, input.siteId)).orderBy(desc(notificationMessages.createdAt));
     }),
     retry: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");

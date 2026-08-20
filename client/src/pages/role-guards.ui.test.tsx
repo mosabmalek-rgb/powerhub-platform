@@ -25,7 +25,7 @@ vi.mock("wouter", () => ({ useLocation: () => ["/readings", vi.fn()] }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() } } } }),
     powerhub: {
       sites: { list: { useQuery: () => mocks.query([mocks.site]) }, create: { useMutation: mocks.mutation } },
       staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, assign: { useMutation: mocks.mutation } },
@@ -40,7 +40,7 @@ vi.mock("@/lib/trpc", () => ({
       dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) } },
       audit: { list: { useQuery: () => mocks.query([]) } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
-      messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation } },
+      messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation } },
       notifications: { list: { useQuery: () => mocks.query([]) }, retry: { useMutation: mocks.mutation } },
     },
   },

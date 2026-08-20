@@ -127,6 +127,13 @@
       "when": 1787243169114,
       "tag": "0017_redundant_puff_adder",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1787245744531,
+      "tag": "0018_lazy_electro",
+      "breakpoints": true
     }
   ]
 }

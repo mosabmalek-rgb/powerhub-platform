@@ -114,6 +114,19 @@ export const tenantMessagingConfigurations = mysqlTable("tenantMessagingConfigur
   uniqueIndex("tenant_channel_unique").on(table.tenantId, table.channel),
 ]);
 
+export const tenantInvoiceMessageTemplates = mysqlTable("tenantInvoiceMessageTemplates", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  channel: mysqlEnum("channel", ["whatsapp", "sms"]).notNull(),
+  eventType: mysqlEnum("eventType", ["invoice_issued"]).default("invoice_issued").notNull(),
+  body: text("body").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("tenant_invoice_template_unique").on(table.tenantId, table.channel, table.eventType),
+]);
+
 export const sites = mysqlTable("sites", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
