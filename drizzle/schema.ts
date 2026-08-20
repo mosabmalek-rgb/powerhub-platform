@@ -34,6 +34,42 @@ export const tenants = mysqlTable("tenants", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const tenantOwnerProfiles = mysqlTable("tenantOwnerProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  ownerUserId: int("ownerUserId").references(() => users.id),
+  fullName: varchar("fullName", { length: 180 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  companyName: varchar("companyName", { length: 180 }),
+  invitedAt: timestamp("invitedAt"),
+  claimedAt: timestamp("claimedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("tenant_owner_profile_tenant_unique").on(table.tenantId),
+  index("tenant_owner_profile_user_idx").on(table.ownerUserId),
+]);
+
+export const tenantSubscriptions = mysqlTable("tenantSubscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  plan: mysqlEnum("plan", ["starter", "professional", "enterprise"]).default("starter").notNull(),
+  status: mysqlEnum("status", ["trial", "active", "overdue", "suspended", "cancelled"]).default("trial").notNull(),
+  billingCycle: mysqlEnum("billingCycle", ["monthly", "yearly"]).default("monthly").notNull(),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  endsAt: timestamp("endsAt").notNull(),
+  autoRenew: boolean("autoRenew").default(false).notNull(),
+  renewalCount: int("renewalCount").default(0).notNull(),
+  lastRenewedAt: timestamp("lastRenewedAt"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("tenant_subscription_tenant_unique").on(table.tenantId),
+  index("tenant_subscription_status_end_idx").on(table.status, table.endsAt),
+]);
+
 export const tenantMembers = mysqlTable("tenantMembers", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
@@ -101,7 +137,7 @@ export const generators = mysqlTable("generators", {
   fuelType: mysqlEnum("fuelType", ["diesel", "gasoline", "gas", "other"]).default("diesel").notNull(),
   fuelLevelLiters: decimal("fuelLevelLiters", { precision: 12, scale: 2 }).default("0").notNull(),
   operatingHours: decimal("operatingHours", { precision: 12, scale: 2 }).default("0").notNull(),
-  status: mysqlEnum("status", ["active", "maintenance", "stopped", "offline"]).default("stopped").notNull(),
+  status: mysqlEnum("status", ["active", "maintenance", "stopped", "offline", "blocked"]).default("stopped").notNull(),
   lastMaintenanceAt: timestamp("lastMaintenanceAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -319,6 +355,35 @@ export const notificationMessages = mysqlTable("notificationMessages", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+export const platformSecurityEvents = mysqlTable("platformSecurityEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  eventType: mysqlEnum("eventType", ["suspicious_login", "backup", "security_change"]).notNull(),
+  severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("info").notNull(),
+  status: mysqlEnum("status", ["open", "resolved", "success", "failed"]).default("open").notNull(),
+  title: varchar("title", { length: 180 }).notNull(),
+  details: text("details"),
+  metadata: json("metadata"),
+  relatedUserId: int("relatedUserId").references(() => users.id),
+  createdByUserId: int("createdByUserId").references(() => users.id),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("platform_security_event_type_date_idx").on(table.eventType, table.createdAt),
+  index("platform_security_event_status_idx").on(table.status, table.severity),
+]);
+
+export const platformSecuritySettings = mysqlTable("platformSecuritySettings", {
+  id: int("id").autoincrement().primaryKey(),
+  settingKey: varchar("settingKey", { length: 100 }).notNull(),
+  isEnabled: boolean("isEnabled").default(false).notNull(),
+  value: text("value"),
+  updatedByUserId: int("updatedByUserId").references(() => users.id),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("platform_security_setting_key_unique").on(table.settingKey),
+]);
 
 export const auditLogs = mysqlTable("auditLogs", {
   id: int("id").autoincrement().primaryKey(),

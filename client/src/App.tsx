@@ -15,6 +15,7 @@ import ReportsPage from "./pages/ReportsPage";
 import MessagingSettingsPage from "./pages/MessagingSettingsPage";
 import AuditLogPage from "./pages/AuditLogPage";
 import PublicInvoice from "./pages/PublicInvoice";
+import AdminConsolePage from "./pages/AdminConsolePage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -33,6 +34,7 @@ function Router() {
       <Route path={"/audit"} component={AuditLogPage} />
       <Route path={"/map"}>{() => <FeaturePage section="map" />}</Route>
       <Route path={"/settings"} component={SettingsPage} />
+      <Route path={"/admin"} component={AdminConsolePage} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

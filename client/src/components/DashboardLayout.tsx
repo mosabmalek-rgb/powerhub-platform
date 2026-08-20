@@ -23,7 +23,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   BellRing, Bolt, ChartNoAxesCombined, Fuel, Gauge,
   LayoutDashboard, LogOut, MapPinned, PanelLeft, ReceiptText,
-  Settings2, ShieldCheck, UsersRound, WalletCards,
+  Settings2, ShieldCheck, UsersRound, WalletCards, Building2,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -61,6 +61,11 @@ const menuGroups = [
     ],
   },
 ];
+
+const platformAdminGroup = {
+  label: "إدارة المنصة",
+  items: [{ icon: Building2, label: "أصحاب المولدات والاشتراكات", path: "/admin" }],
+};
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
@@ -113,7 +118,8 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuGroups.flatMap(group => group.items).find(item => item.path === location);
+  const visibleMenuGroups = displayUser.role === "admin" ? [...menuGroups, platformAdminGroup] : menuGroups;
+  const activeMenuItem = visibleMenuGroups.flatMap(group => group.items).find(item => item.path === location);
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -179,7 +185,7 @@ function DashboardLayoutContent({
           </SidebarHeader>
 
           <SidebarContent className="gap-0 py-3">
-            {menuGroups.map(group => (
+            {visibleMenuGroups.map(group => (
               <div key={group.label} className="mb-3">
                 {!isCollapsed && <p className="px-4 pb-2 pt-2 text-[10px] font-bold tracking-[0.13em] text-slate-500">{group.label}</p>}
                 <SidebarMenu className="px-2 py-0">
