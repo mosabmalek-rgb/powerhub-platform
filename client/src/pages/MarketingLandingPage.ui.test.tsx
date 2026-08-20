@@ -5,14 +5,15 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import MarketingLandingPage from "./MarketingLandingPage";
 
-const oauthMocks = vi.hoisted(() => ({ startLogin: vi.fn() }));
+const oauthMocks = vi.hoisted(() => ({ startLogin: vi.fn(), setLocation: vi.fn() }));
 
 vi.mock("@/const", () => ({ startLogin: oauthMocks.startLogin }));
-vi.mock("wouter", () => ({ useLocation: () => ["/", vi.fn()] }));
+vi.mock("wouter", () => ({ useLocation: () => ["/", oauthMocks.setLocation] }));
 
 afterEach(() => {
   cleanup();
   oauthMocks.startLogin.mockClear();
+  oauthMocks.setLocation.mockClear();
 });
 
 describe("PowerHub marketing landing page", () => {
@@ -33,5 +34,14 @@ describe("PowerHub marketing landing page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "ابدأ إدارة مولدك" }));
     expect(oauthMocks.startLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns to the landing page when a header or footer logo is clicked", () => {
+    render(<MarketingLandingPage />);
+
+    screen.getAllByRole("button", { name: "العودة إلى الصفحة الرئيسية عبر شعار PowerHub" }).forEach((logo) => fireEvent.click(logo));
+
+    expect(oauthMocks.setLocation).toHaveBeenCalledTimes(2);
+    expect(oauthMocks.setLocation).toHaveBeenCalledWith("/");
   });
 });

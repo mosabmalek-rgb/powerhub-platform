@@ -30,4 +30,13 @@ describe("LoginPage", () => {
     expect(screen.queryByRole("button", { name: /إنشاء الحساب/ })).not.toBeInTheDocument();
     expect(state.signUp).not.toHaveBeenCalled();
   });
+
+  it("returns to the landing page when either visible logo variant is clicked", () => {
+    render(<LoginPage />);
+
+    screen.getAllByRole("button", { name: "العودة إلى الصفحة الرئيسية عبر شعار PowerHub" }).forEach((logo) => fireEvent.click(logo));
+
+    expect(state.setLocation).toHaveBeenCalledTimes(2);
+    expect(state.setLocation).toHaveBeenCalledWith("/");
+  });
 });

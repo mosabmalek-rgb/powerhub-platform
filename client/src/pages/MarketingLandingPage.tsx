@@ -78,7 +78,7 @@ export default function MarketingLandingPage() {
 
       <header className="ph-topbar-rail sticky top-0 z-30 border-b border-white/8 bg-[#0D1117]/85 backdrop-blur-xl">
         <div className="container flex h-[92px] items-center justify-between gap-3">
-          <button className="shrink-0" onClick={() => setLocation("/")} aria-label="PowerHub">
+          <button type="button" className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4 focus-visible:ring-offset-[#0D1117]" onClick={() => setLocation("/")} aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub">
             <PowerHubLogo header />
           </button>
           <nav className="hidden items-center gap-7 text-sm font-bold text-slate-300 lg:flex">
@@ -159,7 +159,7 @@ export default function MarketingLandingPage() {
       </section>
 
       <footer className="border-t border-white/8 bg-[#090d12]">
-        <div className="container flex flex-col gap-5 py-8 text-center sm:flex-row sm:items-center sm:justify-between sm:text-right"><PowerHubLogo /><p className="text-sm text-slate-500">PowerHub — إدارة الطاقة بذكاء.</p><div className="flex justify-center gap-5 text-sm font-bold text-slate-400"><a href="#features" className="hover:text-[#F5B800]">المميزات</a><a href="#plans" className="hover:text-[#F5B800]">الباقات</a><button onClick={startLogin} className="hover:text-[#F5B800]">تسجيل الدخول</button></div></div>
+        <div className="container flex flex-col gap-5 py-8 text-center sm:flex-row sm:items-center sm:justify-between sm:text-right"><button type="button" onClick={() => setLocation("/")} className="mx-auto rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4 focus-visible:ring-offset-[#090d12] sm:mx-0" aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub"><PowerHubLogo /></button><p className="text-sm text-slate-500">PowerHub — إدارة الطاقة بذكاء.</p><div className="flex justify-center gap-5 text-sm font-bold text-slate-400"><a href="#features" className="hover:text-[#F5B800]">المميزات</a><a href="#plans" className="hover:text-[#F5B800]">الباقات</a><button onClick={startLogin} className="hover:text-[#F5B800]">تسجيل الدخول</button></div></div>
       </footer>
     </main>
   );
