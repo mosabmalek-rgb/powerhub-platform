@@ -2,7 +2,7 @@ import { useOptionalTheme } from "@/contexts/ThemeContext";
 import { cn } from "@/lib/utils";
 
 const LIGHT_LOGO_SRC = "/manus-storage/powerhub-official-logo_0bcbb9c6.png";
-const DARK_POWER_OUTLINE_LOGO_SRC = "/manus-storage/powerhub-logo-dark-power-hollow-stroke_ed9d584d.png";
+const DARK_POWER_OUTLINE_LOGO_SRC = "/manus-storage/powerhub-logo-dark-transparent-clean_7dab96ea.png";
 
 export function PowerHubLogo({ compact = false, header = false, className }: { compact?: boolean; header?: boolean; className?: string }) {
   const theme = useOptionalTheme()?.theme;
