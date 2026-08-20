@@ -389,22 +389,6 @@ html {
   transform: translateX(50%);
 }
 
-.dark .ph-landing-logo-glow {
-  position: relative;
-  isolation: isolate;
-}
-
-.dark .ph-landing-logo-glow::before {
-  position: absolute;
-  inset: 6% -30%;
-  z-index: -1;
-  content: "";
-  pointer-events: none;
-  background: radial-gradient(ellipse at center, rgba(245, 184, 0, 0.5) 0%, rgba(245, 184, 0, 0.2) 46%, transparent 78%);
-  filter: blur(14px);
-  opacity: 0.92;
-}
-
 .dark {
   --power-orange-border: rgba(218, 137, 0, 0.5);
   --power-orange-border-soft: rgba(218, 137, 0, 0.3);
