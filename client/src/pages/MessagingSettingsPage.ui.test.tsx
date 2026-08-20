@@ -41,6 +41,9 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByText("قالب فاتورة WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة SMS")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Jawwal Bulk SMS الرسمية" })).toBeInTheDocument();
+    const smsProvider = screen.getAllByRole("combobox").find((item) => (item as HTMLSelectElement).name === "provider")!;
+    fireEvent.change(smsProvider, { target: { value: "jawwal_bulk_sms" } });
+    expect(screen.getByText("رصيد رسائل Jawwal")).toBeInTheDocument();
     expect(screen.getByText("سجل إرسال فواتير المشتركين")).toBeInTheDocument();
     expect(screen.getByText("إجمالي الرسائل المرسلة")).toBeInTheDocument();
     expect(screen.getByText("رفض المزود")).toBeInTheDocument();
