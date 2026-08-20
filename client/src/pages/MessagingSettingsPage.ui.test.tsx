@@ -40,6 +40,7 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByText("القنوات مفتوحة للتجربة")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة SMS")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Jawwal Bulk SMS الرسمية" })).toBeInTheDocument();
     expect(screen.getByText("سجل إرسال فواتير المشتركين")).toBeInTheDocument();
     expect(screen.getByText("إجمالي الرسائل المرسلة")).toBeInTheDocument();
     expect(screen.getByText("رفض المزود")).toBeInTheDocument();

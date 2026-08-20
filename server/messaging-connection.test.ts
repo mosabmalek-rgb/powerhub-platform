@@ -13,4 +13,12 @@ describe("messaging connection probes", () => {
     const result = await probeMessagingConnection({ channel: "sms", provider: "generic_sms", credential: "test-token" });
     expect(result).toMatchObject({ ok: false, mode: "configuration" });
   });
+
+  it("recognizes Jawwal Bulk SMS and does not attempt a request before its official API details are supplied", async () => {
+    const fetcher = vi.fn();
+    const result = await probeMessagingConnection({ channel: "sms", provider: "jawwal_bulk_sms", credential: "test-token" }, fetcher);
+    expect(result).toMatchObject({ ok: false, mode: "configuration" });
+    expect(result.message).toContain("Jawwal Bulk SMS");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });
