@@ -40,7 +40,11 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByText("قالب فاتورة WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة SMS")).toBeInTheDocument();
     expect(screen.getByText("سجل إرسال فواتير المشتركين")).toBeInTheDocument();
+    expect(screen.getByText("إجمالي الرسائل المرسلة")).toBeInTheDocument();
     expect(screen.getByText("رفض المزود")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "معاينة الرسالة" })[0]);
+    expect(screen.getByText("شكل الرسالة النهائي")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة إرسال" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب WhatsApp" }));
     expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, channel: "whatsapp", isActive: true }));
   });
