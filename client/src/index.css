@@ -404,3 +404,21 @@ html {
   filter: blur(14px);
   opacity: 0.92;
 }
+
+.dark {
+  --power-orange-border: rgba(218, 137, 0, 0.5);
+  --power-orange-border-soft: rgba(218, 137, 0, 0.3);
+}
+
+.dark [class*="border-white"],
+.dark [class*="border-[#dbe3ec]"] {
+  border-color: var(--power-orange-border-soft) !important;
+}
+
+.dark .ph-topbar-rail {
+  border-color: var(--power-orange-border) !important;
+}
+
+.dark [class*="rounded-"][class*="border"]:hover {
+  border-color: var(--power-orange-border) !important;
+}
