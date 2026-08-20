@@ -42,6 +42,7 @@ let invitationId: number | undefined;
     const [user] = await db.select().from(users).where(eq(users.id, synced.id)).limit(1);
     const [invitation] = await db.select().from(platformAccessInvitations).where(eq(platformAccessInvitations.id, invitationId)).limit(1);
     expect(user).toMatchObject({ email, role: "admin", platformRole: "platform_admin", accountStatus: "active" });
+    expect(synced).toMatchObject({ role: "admin", platformRole: "platform_admin", accountStatus: "active" });
     expect(invitation).toMatchObject({ status: "accepted", acceptedByUserId: synced.id });
   });
 });

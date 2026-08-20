@@ -7,15 +7,20 @@ import { WorkspaceHome } from "./Home";
 import PublicInvoice from "./PublicInvoice";
 import ReportsPage from "./ReportsPage";
 
+const state = vi.hoisted(() => ({
+  user: undefined as { role: "admin" | "user"; platformRole?: "platform_owner" | "platform_admin" | "finance_admin" | null; mustChangePassword?: boolean } | undefined,
+  setLocation: vi.fn(),
+}));
+
 const report = {
   summary: { invoiced: 125, collected: 100, outstanding: 25, energyKwh: 80, expenseTotal: 10, operatingProfit: 90 },
   collectors: [{ name: "المحصل التجريبي", count: 2, amount: 100 }],
   topDebtors: [{ subscriber: "المشترك التجريبي", invoiceNo: "PH-TEST-01", balanceDue: 25 }],
 };
 
-vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false }) }));
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false, user: state.user }) }));
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
-vi.mock("wouter", () => ({ useRoute: () => [true, { token: "1234567890123456" }], useLocation: () => ["/", vi.fn()] }));
+vi.mock("wouter", () => ({ useRoute: () => [true, { token: "1234567890123456" }], useLocation: () => ["/workspace", state.setLocation] }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
@@ -59,5 +64,14 @@ describe("supplemental PowerHub page review", () => {
     expect(screen.getByRole("combobox", { name: "اختيار المحطة" })).toHaveValue("7");
     await waitFor(() => expect(screen.getByText("إجمالي التحصيل")).toBeInTheDocument());
     expect(screen.getByText("المولدات العاملة")).toBeInTheDocument();
+  });
+
+  it("routes a platform admin away from the generator workspace to the admin center", async () => {
+    state.user = { role: "admin", platformRole: "platform_admin" };
+    render(<WorkspaceHome />);
+
+    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/admin"));
+    state.user = undefined;
+    state.setLocation.mockReset();
   });
 });

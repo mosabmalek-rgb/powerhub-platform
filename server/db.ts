@@ -167,7 +167,9 @@ export async function syncSupabaseUser(input: { id: string; email?: string | nul
     await acceptPendingPlatformInvitationsForUser(db, user);
     await acceptPendingInvitationsForUser(db, user);
   }
-  return user;
+  const [synchronizedUser] = await db.select().from(users).where(eq(users.openId, input.id)).limit(1);
+  if (!synchronizedUser) throw new Error("Failed to read synchronized Supabase user");
+  return synchronizedUser;
 }
 
 // TODO: add feature queries here as your schema grows.
