@@ -58,6 +58,8 @@ vi.mock("@/lib/trpc", () => ({
 
 afterEach(() => { document.body.innerHTML = ""; state.role = "user"; state.mutation.mockReset(); });
 
+const sidebarNav = (label: string) => screen.getAllByRole("button", { name: label })[0];
+
 describe("PowerHub platform administration UI", () => {
   it("hides the platform-wide console from a tenant user", () => {
     render(<AdminConsolePage />);
@@ -73,46 +75,56 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("PLATFORM ADMIN")).toBeInTheDocument();
     expect(screen.getByText("إجمالي المشتركين")).toBeInTheDocument();
     expect(screen.getAllByText("150").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "اشتراك صاحب مولد" }));
+    fireEvent.click(sidebarNav("اشتراك صاحب مولد"));
     expect(screen.getByText("إضافة اشتراك صاحب مولد")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("رقم الهوية")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "إدارة المستخدمين" }));
+    fireEvent.click(sidebarNav("إدارة المستخدمين"));
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "المالية والتحصيل" }));
+    fireEvent.click(sidebarNav("المالية والتحصيل"));
     expect(screen.getByRole("button", { name: /تجديد دورة/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "التقارير والإحصائيات" }));
+    fireEvent.click(sidebarNav("التقارير والإحصائيات"));
     expect(screen.getByRole("button", { name: /تصدير CSV/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "إدارة المولدات" }));
+    fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getByText("مولدات محظورة")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "التنبيهات والإشعارات" }));
+    fireEvent.click(sidebarNav("التنبيهات والإشعارات"));
     expect(screen.getByText("سجل الإشعارات")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "الأمان والسجلات" }));
+    fireEvent.click(sidebarNav("الأمان والسجلات"));
     expect(screen.getByText("أحداث الأمان والنسخ الاحتياطي")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "إعدادات المنصة" }));
+    fireEvent.click(sidebarNav("إعدادات المنصة"));
     expect(screen.getByText("وضع صيانة المنصة")).toBeInTheDocument();
+  });
+
+  it("keeps icon navigation available when the platform sidebar is collapsed", () => {
+    state.role = "admin";
+    render(<AdminConsolePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "تصغير القائمة الجانبية" }));
+    expect(screen.getByRole("button", { name: "توسيع القائمة الجانبية" })).toBeInTheDocument();
+    fireEvent.click(sidebarNav("إدارة المولدات"));
+    expect(screen.getByText("مولدات محظورة")).toBeInTheDocument();
   });
 
   it("renders central operational data and controlled states in every platform tab", () => {
     state.role = "admin";
     render(<AdminConsolePage />);
-    fireEvent.click(screen.getByRole("button", { name: "إدارة المولدات" }));
+    fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "حظر المولد" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "إدارة المستخدمين" }));
+    fireEvent.click(sidebarNav("إدارة المستخدمين"));
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
     expect(screen.getByText("مشترك تجريبي")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "المالية والتحصيل" }));
+    fireEvent.click(sidebarNav("المالية والتحصيل"));
     expect(screen.getByText("طرق الدفع الإلكتروني")).toBeInTheDocument();
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "الشكاوى" }));
+    fireEvent.click(sidebarNav("الشكاوى"));
     expect(screen.getByText("شكوى اختبار")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "التنبيهات والإشعارات" }));
+    fireEvent.click(sidebarNav("التنبيهات والإشعارات"));
     expect(screen.getByText("مساحة مولد الاختبار")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "الإرسال الجماعي مؤجل" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "الأمان والسجلات" }));
+    fireEvent.click(sidebarNav("الأمان والسجلات"));
     expect(screen.getByText("نسخة اختبار")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "تسجيل الحدث" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "إعدادات المنصة" }));
+    fireEvent.click(sidebarNav("إعدادات المنصة"));
     expect(screen.getByText("استرداد وصول صاحب المولد")).toBeInTheDocument();
     expect(screen.getAllByText("إعدادات الصفحة العامة والميزات").length).toBeGreaterThan(0);
     expect(screen.getByText("سياسات الصلاحيات الدقيقة")).toBeInTheDocument();

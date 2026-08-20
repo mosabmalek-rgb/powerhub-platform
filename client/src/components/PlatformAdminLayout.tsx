@@ -9,6 +9,8 @@ import {
   Gauge,
   LayoutDashboard,
   LogOut,
+  PanelRightClose,
+  PanelRightOpen,
   Settings2,
   ShieldCheck,
   Ticket,
@@ -16,6 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
 
 type PlatformAdminLayoutProps = {
   activeTab: string;
@@ -61,18 +64,20 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
   },
 ];
 
-function AdminNavButton({ item, active, onClick }: { item: NavItem; active: boolean; onClick: () => void }) {
+function AdminNavButton({ item, active, collapsed, onClick }: { item: NavItem; active: boolean; collapsed: boolean; onClick: () => void }) {
   const Icon = item.icon;
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-label={item.label}
       aria-current={active ? "page" : undefined}
-      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-right transition ${active ? "bg-[#F5B800] text-[#0D1117] shadow-[0_8px_22px_rgba(245,184,0,.16)]" : "text-slate-300 hover:bg-white/[.055] hover:text-white"}`}
+      title={collapsed ? item.label : undefined}
+      className={`group flex w-full items-center gap-3 rounded-xl py-3 text-right transition ${collapsed ? "justify-center px-2" : "px-3"} ${active ? "bg-[#F5B800] text-[#0D1117] shadow-[0_8px_22px_rgba(245,184,0,.16)]" : "text-slate-300 hover:bg-white/[.055] hover:text-white"}`}
     >
       <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${active ? "bg-[#0D1117]/10" : "bg-white/[.055] text-[#F5B800] group-hover:bg-[#F5B800]/10"}`}><Icon className="h-4 w-4" /></span>
-      <span className="min-w-0 flex-1"><span className="block text-sm font-extrabold">{item.label}</span><span className={`mt-0.5 block truncate text-[11px] ${active ? "text-[#0D1117]/70" : "text-slate-500"}`}>{item.detail}</span></span>
-      <ChevronLeft className={`h-4 w-4 shrink-0 transition ${active ? "opacity-100" : "opacity-0 group-hover:opacity-70"}`} />
+      <span className={collapsed ? "sr-only" : "min-w-0 flex-1"}><span className="block text-sm font-extrabold">{item.label}</span><span className={`mt-0.5 block truncate text-[11px] ${active ? "text-[#0D1117]/70" : "text-slate-500"}`}>{item.detail}</span></span>
+      {!collapsed && <ChevronLeft className={`h-4 w-4 shrink-0 transition ${active ? "opacity-100" : "opacity-0 group-hover:opacity-70"}`} />}
     </button>
   );
 }
@@ -80,6 +85,7 @@ function AdminNavButton({ item, active, onClick }: { item: NavItem; active: bool
 export default function PlatformAdminLayout({ activeTab, onTabChange, children }: PlatformAdminLayoutProps) {
   const { user, logout } = useAuth();
   const initials = (user?.name ?? user?.email ?? "P").trim().slice(0, 1).toUpperCase();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
     <div className="min-h-screen bg-[#0B1018] text-white" dir="rtl">
@@ -98,13 +104,14 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
       </header>
 
       <div className="mx-auto flex min-h-[calc(100vh-76px)] max-w-[1800px]">
-        <aside className="hidden w-[306px] shrink-0 border-l border-white/8 bg-[#0D1117] lg:block">
-          <div className="sticky top-[76px] max-h-[calc(100vh-76px)] overflow-y-auto px-3 py-5">
-            <div className="mb-5 rounded-2xl border border-[#F5B800]/15 bg-gradient-to-bl from-[#F5B800]/10 to-transparent p-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#F5B800] text-[#0D1117]"><Gauge className="h-5 w-5" /></span><div><p className="text-sm font-extrabold text-white">إدارة موحّدة</p><p className="mt-1 text-xs leading-5 text-slate-500">متابعة المنصة عبر جميع المستأجرين</p></div></div></div>
+        <aside className={`hidden shrink-0 border-l border-white/8 bg-[#0D1117] transition-[width] duration-200 ease-out lg:block ${sidebarCollapsed ? "w-[86px]" : "w-[306px]"}`}>
+          <div className={`sticky top-[76px] max-h-[calc(100vh-76px)] overflow-y-auto py-5 ${sidebarCollapsed ? "px-2" : "px-3"}`}>
+            <div className={`mb-5 flex items-center rounded-2xl border border-[#F5B800]/15 bg-gradient-to-bl from-[#F5B800]/10 to-transparent ${sidebarCollapsed ? "justify-center p-3" : "justify-between p-4"}`}><div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#F5B800] text-[#0D1117]"><Gauge className="h-5 w-5" /></span>{!sidebarCollapsed && <div><p className="text-sm font-extrabold text-white">إدارة موحّدة</p><p className="mt-1 text-xs leading-5 text-slate-500">متابعة المنصة عبر جميع المستأجرين</p></div>}</div>{!sidebarCollapsed && <button type="button" aria-label="تصغير القائمة الجانبية" onClick={() => setSidebarCollapsed(true)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-white/8 hover:text-[#F5B800]"><PanelRightClose className="h-4 w-4" /></button>}</div>
+            {sidebarCollapsed && <button type="button" aria-label="توسيع القائمة الجانبية" onClick={() => setSidebarCollapsed(false)} className="mb-4 grid h-10 w-full place-items-center rounded-xl border border-white/10 text-slate-400 transition hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]"><PanelRightOpen className="h-4 w-4" /></button>}
             <nav aria-label="تنقل مركز إدارة المنصة" className="space-y-5">
-              {navigationGroups.map((group) => <section key={group.label}><p className="mb-2 px-3 text-[10px] font-black tracking-[.16em] text-slate-500">{group.label}</p><div className="space-y-1">{group.items.map((item) => <AdminNavButton key={item.id} item={item} active={activeTab === item.id} onClick={() => onTabChange(item.id)} />)}</div></section>)}
+              {navigationGroups.map((group) => <section key={group.label}><p className={sidebarCollapsed ? "sr-only" : "mb-2 px-3 text-[10px] font-black tracking-[.16em] text-slate-500"}>{group.label}</p><div className="space-y-1">{group.items.map((item) => <AdminNavButton key={item.id} item={item} active={activeTab === item.id} collapsed={sidebarCollapsed} onClick={() => onTabChange(item.id)} />)}</div></section>)}
             </nav>
-            <div className="mt-6 rounded-2xl border border-white/8 bg-white/[.02] p-3 text-xs leading-6 text-slate-500">تعمل صلاحيات المشرف ضمن سياسات المنصة المركزية، مع بقاء بيانات كل مولد معزولة عن غيره.</div>
+            {!sidebarCollapsed && <div className="mt-6 rounded-2xl border border-white/8 bg-white/[.02] p-3 text-xs leading-6 text-slate-500">تعمل صلاحيات المشرف ضمن سياسات المنصة المركزية، مع بقاء بيانات كل مولد معزولة عن غيره.</div>}
           </div>
         </aside>
 
