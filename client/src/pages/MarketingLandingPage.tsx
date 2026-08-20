@@ -1,4 +1,5 @@
 import { PowerHubLogo } from "@/components/PowerHubLogo";
+import { ThemeSelector } from "@/components/ThemeSelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { startLogin } from "@/const";
@@ -76,9 +77,9 @@ export default function MarketingLandingPage() {
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_83%_8%,rgba(245,184,0,0.13),transparent_25%),radial-gradient(circle_at_10%_22%,rgba(33,79,115,0.2),transparent_27%),linear-gradient(rgba(255,255,255,.026)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.026)_1px,transparent_1px)] bg-[length:auto,auto,44px_44px,44px_44px]" />
 
       <header className="sticky top-0 z-30 border-b border-white/8 bg-[#0D1117]/85 backdrop-blur-xl">
-        <div className="container flex h-[76px] items-center justify-between gap-4">
+        <div className="container flex h-[92px] items-center justify-between gap-3">
           <button className="shrink-0" onClick={() => setLocation("/")} aria-label="PowerHub">
-            <PowerHubLogo />
+            <PowerHubLogo header />
           </button>
           <nav className="hidden items-center gap-7 text-sm font-bold text-slate-300 lg:flex">
             <a href="#features" className="transition hover:text-[#F5B800]">المميزات</a>
@@ -87,6 +88,7 @@ export default function MarketingLandingPage() {
             <a href="#contact" className="transition hover:text-[#F5B800]">تواصل</a>
           </nav>
           <div className="flex items-center gap-2">
+            <ThemeSelector compact />
             <Button variant="ghost" onClick={startLogin} className="hidden font-bold text-slate-200 hover:bg-white/5 hover:text-white sm:inline-flex">تسجيل الدخول</Button>
             <Button onClick={startLogin} className="bg-[#F5B800] font-extrabold text-[#0D1117] shadow-[0_10px_32px_rgba(245,184,0,.2)] hover:bg-[#FFD45A]">أنشئ مساحتك <ArrowLeft className="mr-2 h-4 w-4" /></Button>
           </div>

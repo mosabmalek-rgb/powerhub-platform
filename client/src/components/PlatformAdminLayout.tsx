@@ -1,4 +1,5 @@
 import { PowerHubLogo } from "@/components/PowerHubLogo";
+import { ThemeSelector } from "@/components/ThemeSelector";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
   BellRing,
@@ -90,12 +91,13 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
   return (
     <div className="min-h-screen bg-[#0B1018] text-white" dir="rtl">
       <header className="sticky top-0 z-40 border-b border-white/8 bg-[#0D1117]/95 backdrop-blur-xl">
-        <div className="flex h-[76px] items-center justify-between gap-4 px-4 sm:px-6">
+        <div className="flex h-[92px] items-center justify-between gap-4 px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-4">
-            <PowerHubLogo />
+            <PowerHubLogo header />
             <div className="hidden border-r border-white/10 pr-4 lg:block"><p className="text-[11px] font-bold text-[#F5B800]">PLATFORM ADMIN</p><p className="mt-0.5 text-sm font-extrabold text-white">مركز إدارة المنصة</p></div>
           </div>
           <div className="flex items-center gap-2">
+            <ThemeSelector compact />
             <button type="button" aria-label="تنبيهات المنصة" onClick={() => onTabChange("notifications")} className="relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-slate-300 transition hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]"><BellRing className="h-4 w-4" /><span className="absolute left-2 top-2 h-1.5 w-1.5 rounded-full bg-rose-400" /></button>
             <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-2.5 py-1.5 sm:flex"><span className="grid h-7 w-7 place-items-center rounded-lg bg-[#F5B800]/15 text-xs font-black text-[#F5B800]">{initials}</span><div className="max-w-32"><p className="truncate text-xs font-bold text-white">{user?.name ?? "مشرف المنصة"}</p><p className="text-[10px] text-slate-500">مشرف منصة</p></div></div>
             <button type="button" aria-label="تسجيل الخروج" onClick={() => void logout()} className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-slate-400 transition hover:border-rose-400/35 hover:bg-rose-400/10 hover:text-rose-300"><LogOut className="h-4 w-4" /></button>
@@ -103,9 +105,9 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
         </div>
       </header>
 
-      <div className="mx-auto flex min-h-[calc(100vh-76px)] max-w-[1800px]">
+      <div className="mx-auto flex min-h-[calc(100vh-92px)] max-w-[1800px]">
         <aside className={`hidden shrink-0 border-l border-white/8 bg-[#0D1117] transition-[width] duration-200 ease-out md:block ${sidebarCollapsed ? "w-[86px]" : "w-[306px]"}`}>
-          <div className={`sticky top-[76px] max-h-[calc(100vh-76px)] overflow-y-auto py-5 ${sidebarCollapsed ? "px-2" : "px-3"}`}>
+          <div className={`sticky top-[92px] max-h-[calc(100vh-92px)] overflow-y-auto py-5 ${sidebarCollapsed ? "px-2" : "px-3"}`}>
             <div className={`mb-5 flex items-center rounded-2xl border border-[#F5B800]/15 bg-gradient-to-bl from-[#F5B800]/10 to-transparent ${sidebarCollapsed ? "justify-center p-3" : "justify-between p-4"}`}><div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#F5B800] text-[#0D1117]"><Gauge className="h-5 w-5" /></span>{!sidebarCollapsed && <div><p className="text-sm font-extrabold text-white">إدارة موحّدة</p><p className="mt-1 text-xs leading-5 text-slate-500">متابعة المنصة عبر جميع المستأجرين</p></div>}</div>{!sidebarCollapsed && <button type="button" aria-label="تصغير القائمة الجانبية" onClick={() => setSidebarCollapsed(true)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-white/8 hover:text-[#F5B800]"><PanelRightClose className="h-4 w-4" /></button>}</div>
             {sidebarCollapsed && <button type="button" aria-label="توسيع القائمة الجانبية" onClick={() => setSidebarCollapsed(false)} className="mb-4 grid h-10 w-full place-items-center rounded-xl border border-white/10 text-slate-400 transition hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]"><PanelRightOpen className="h-4 w-4" /></button>}
             <nav aria-label="تنقل مركز إدارة المنصة" className="space-y-5">

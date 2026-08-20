@@ -5,6 +5,7 @@ type Theme = "light" | "dark";
 interface ThemeContextType {
   theme: Theme;
   toggleTheme?: () => void;
+  setTheme?: (theme: Theme) => void;
   switchable: boolean;
 }
 
@@ -48,8 +49,10 @@ export function ThemeProvider({
       }
     : undefined;
 
+  const selectTheme = switchable ? (nextTheme: Theme) => setTheme(nextTheme) : undefined;
+
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, switchable }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme: selectTheme, switchable }}>
       {children}
     </ThemeContext.Provider>
   );
@@ -61,4 +64,8 @@ export function useTheme() {
     throw new Error("useTheme must be used within ThemeProvider");
   }
   return context;
+}
+
+export function useOptionalTheme() {
+  return useContext(ThemeContext);
 }
