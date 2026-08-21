@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedOwnerSubaccountRoles, defaultOwnerSubaccountLimits, ownerSubaccountLimitForPlan, ownerSubaccountRoles } from "./powerhub";
+import { allowedOwnerSubaccountRoles, defaultOwnerSubaccountLimits, defaultOwnerSubscriberLimits, ownerSubaccountLimitForPlan, ownerSubaccountRoles, ownerSubscriberLimitForPlan } from "./powerhub";
 
 describe("سياسة الحسابات الفرعية لمالك المولد", () => {
   it("تتيح أدوار الحسابات الفرعية القياسية عند عدم وجود إعداد مركزي", () => {
@@ -18,5 +18,11 @@ describe("سياسة الحسابات الفرعية لمالك المولد", (
     expect(ownerSubaccountLimitForPlan("starter")).toBe(defaultOwnerSubaccountLimits.starter);
     expect(ownerSubaccountLimitForPlan("professional", { value: { limits: { professional: 8 } } })).toBe(8);
     expect(ownerSubaccountLimitForPlan("enterprise", { value: { limits: { enterprise: -1 } } })).toBe(defaultOwnerSubaccountLimits.enterprise);
+  });
+
+  it("تستخدم حصة المشتركين الافتراضية أو الحد المخصص لكل باقة", () => {
+    expect(ownerSubscriberLimitForPlan("starter")).toBe(defaultOwnerSubscriberLimits.starter);
+    expect(ownerSubscriberLimitForPlan("professional", { value: { limits: { professional: 750 } } })).toBe(750);
+    expect(ownerSubscriberLimitForPlan("enterprise", { value: { limits: { enterprise: 100001 } } })).toBe(defaultOwnerSubscriberLimits.enterprise);
   });
 });

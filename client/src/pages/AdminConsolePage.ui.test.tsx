@@ -137,6 +137,7 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("استرداد وصول صاحب المولد")).toBeInTheDocument();
     expect(screen.getAllByText("إعدادات الصفحة العامة والميزات").length).toBeGreaterThan(0);
     expect(screen.getByText("الحسابات الفرعية لمالك المولد")).toBeInTheDocument();
+    expect(screen.getByText("حد المشتركين حسب الاشتراك")).toBeInTheDocument();
     expect(screen.getByText("سياسات الصلاحيات الدقيقة")).toBeInTheDocument();
   });
 });

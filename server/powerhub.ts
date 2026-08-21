@@ -49,6 +49,7 @@ export const ownerSubaccountRoles = ["manager", "accountant", "collector", "tech
 export type OwnerSubaccountRole = typeof ownerSubaccountRoles[number];
 export type SubscriptionPlan = "starter" | "professional" | "enterprise";
 export const defaultOwnerSubaccountLimits: Record<SubscriptionPlan, number> = { starter: 2, professional: 5, enterprise: 15 };
+export const defaultOwnerSubscriberLimits: Record<SubscriptionPlan, number> = { starter: 100, professional: 500, enterprise: 2000 };
 
 export function allowedOwnerSubaccountRoles(setting?: { isEnabled: boolean; value: unknown } | null): OwnerSubaccountRole[] {
   if (!setting) return [...ownerSubaccountRoles];
@@ -69,6 +70,17 @@ export function ownerSubaccountLimitForPlan(plan: SubscriptionPlan, setting?: { 
     : undefined;
   const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 999 ? parsed : defaultOwnerSubaccountLimits[plan];
+}
+
+export function ownerSubscriberLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number {
+  const rawLimits = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
+    ? (setting.value as Record<string, unknown>).limits
+    : undefined;
+  const candidate = rawLimits && typeof rawLimits === "object" && !Array.isArray(rawLimits)
+    ? (rawLimits as Record<string, unknown>)[plan]
+    : undefined;
+  const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : defaultOwnerSubscriberLimits[plan];
 }
 
 export function reportDateRange(startDate: string, endDate: string) {
@@ -120,6 +132,19 @@ async function activeSubaccountCount(tenantId: number) {
   const [result] = await db.select({ count: sql<number>`count(*)` }).from(tenantMembers)
     .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.role, "member"), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")));
   return Number(result?.count ?? 0);
+}
+
+async function ownerSubscriberQuota(tenantId: number) {
+  const db = await dbOrThrow();
+  const [[tenant], [setting], [countResult]] = await Promise.all([
+    db.select({ plan: tenants.plan }).from(tenants).where(eq(tenants.id, tenantId)).limit(1),
+    db.select({ value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "owner_subscriber_limits")).limit(1),
+    db.select({ count: sql<number>`count(*)` }).from(subscribers).where(eq(subscribers.tenantId, tenantId)),
+  ]);
+  if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+  const limit = ownerSubscriberLimitForPlan(tenant.plan, setting);
+  const currentCount = Number(countResult?.count ?? 0);
+  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenant.plan };
 }
 
 async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
@@ -584,6 +609,10 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       return db.select().from(subscribers).where(eq(subscribers.siteId, input.siteId)).orderBy(desc(subscribers.createdAt));
     }),
+    quota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      return ownerSubscriberQuota(await getSiteTenant(input.siteId));
+    }),
     create: protectedProcedure.input(siteInput.pick({ code: true }).extend({
       siteId: z.number().int().positive(),
       fullName: z.string().min(2).max(180),
@@ -594,6 +623,8 @@ export const powerhubRouter = router({
       await requireRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
+      const quota = await ownerSubscriberQuota(tenantId);
+      if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
       const phone = normalizeInternationalPhone(input.phone);
       const [site] = await db.select({ code: sites.code }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
       if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
