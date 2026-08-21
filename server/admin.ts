@@ -25,6 +25,25 @@ function isPlatformAccount(user: { role: "user" | "admin"; platformRole: Platfor
 
 const platformAccountOwnerMessage = "لا يمكن استخدام حساب يملك صلاحيات إدارة المنصة كصاحب مولد. استخدم بريداً مختلفاً وفريداً لصاحب المولد.";
 
+async function resolveOwnerLoginAccount(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, input: { email: string; name: string; temporaryPassword: string }) {
+  const [existing] = await db.select({ id: users.id, openId: users.openId, role: users.role, platformRole: users.platformRole }).from(users).where(eq(users.email, input.email)).limit(1);
+  if (existing) {
+    if (isPlatformAccount(existing)) throw new TRPCError({ code: "FORBIDDEN", message: platformAccountOwnerMessage });
+    const { data, error } = await supabaseAdmin().auth.admin.getUserById(existing.openId);
+    if (error || !data.user) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الحساب المحلي موجود لكن مصادقة Supabase غير متاحة. استخدم إجراء إصلاح الوصول أولاً." });
+    return { ownerUser: existing, createdSupabaseUserId: null as string | null };
+  }
+  const { data: created, error: createError } = await supabaseAdmin().auth.admin.createUser({
+    email: input.email,
+    password: input.temporaryPassword,
+    email_confirm: true,
+    user_metadata: { name: input.name },
+  });
+  if (createError || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء حساب صاحب المولد في Supabase. قد يكون البريد مستخدماً بالفعل." });
+  const ownerUser = await syncSupabaseUser({ id: created.user.id, email: input.email, name: input.name });
+  return { ownerUser, createdSupabaseUserId: created.user.id };
+}
+
 function requirePlatformRoles(allowedRoles: PlatformRole[]) {
   return authenticatedProcedure.use(({ ctx, next }) => {
     if (ctx.user.role !== "admin") {
@@ -128,23 +147,13 @@ export const adminRouter = router({
     const phone = input.ownerPhone.trim();
     const whatsappNumber = input.ownerWhatsapp.trim();
     const companyName = input.companyName.trim();
-    const [[existingPhone], [existingEmail]] = await Promise.all([
+    const [[existingPhone]] = await Promise.all([
       db.select({ id: tenantOwnerProfiles.id }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.phone, phone)).limit(1),
-      db.select({ id: users.id, role: users.role, platformRole: users.platformRole }).from(users).where(eq(users.email, email)).limit(1),
     ]);
     if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم جوال صاحب المولد مستخدم بالفعل." });
-    if (existingEmail) throw new TRPCError({ code: isPlatformAccount(existingEmail) ? "FORBIDDEN" : "CONFLICT", message: isPlatformAccount(existingEmail) ? platformAccountOwnerMessage : "البريد الإلكتروني المستخدم للدخول مسجل بالفعل." });
-
-    const { data: created, error: createError } = await supabaseAdmin().auth.admin.createUser({
-      email,
-      password: input.temporaryPassword,
-      email_confirm: true,
-      user_metadata: { name: input.ownerName },
-    });
-    if (createError || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء حساب صاحب المولد في Supabase. قد يكون البريد مستخدماً بالفعل." });
+    const { ownerUser, createdSupabaseUserId } = await resolveOwnerLoginAccount(db, { email, name: input.ownerName, temporaryPassword: input.temporaryPassword });
 
     try {
-      const ownerUser = await syncSupabaseUser({ id: created.user.id, email, name: input.ownerName });
       const startedAt = new Date();
       const tenantSlug = `owner-${crypto.randomBytes(6).toString("hex")}`;
       const siteCode = `SITE-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
@@ -176,7 +185,7 @@ export const adminRouter = router({
       await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "tenant_owner_profile", entityId: String(result.tenantId), action: "platform_admin_create_generator_owner_subscription", afterData: { companyName, ownerName: input.ownerName, ownerEmail: email, plan: input.plan, generatorSetup: "deferred" }, actorPlatformRole: platformRoleOf(ctx.user) });
       return { ...result, ownerUserId: ownerUser.id, forcePasswordChange: true };
     } catch (error) {
-      await supabaseAdmin().auth.admin.deleteUser(created.user.id);
+      if (createdSupabaseUserId) await supabaseAdmin().auth.admin.deleteUser(createdSupabaseUserId);
       throw error;
     }
   }),
@@ -209,24 +218,15 @@ export const adminRouter = router({
     const whatsappNumber = input.ownerWhatsapp.trim();
     const generatorName = input.generatorName.trim();
     const db = await dbOrThrow();
-    const [[existingPhone], [existingGenerator], [existingEmail]] = await Promise.all([
+    const [[existingPhone], [existingGenerator]] = await Promise.all([
       db.select({ id: tenantOwnerProfiles.id }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.phone, phone)).limit(1),
       db.select({ id: generators.id }).from(generators).where(eq(generators.name, generatorName)).limit(1),
-      db.select({ id: users.id, role: users.role, platformRole: users.platformRole }).from(users).where(eq(users.email, email)).limit(1),
     ]);
     if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم جوال صاحب المولد مستخدم بالفعل." });
     if (existingGenerator) throw new TRPCError({ code: "CONFLICT", message: "اسم المولد مستخدم بالفعل." });
-    if (existingEmail) throw new TRPCError({ code: isPlatformAccount(existingEmail) ? "FORBIDDEN" : "CONFLICT", message: isPlatformAccount(existingEmail) ? platformAccountOwnerMessage : "البريد الإلكتروني لصاحب المولد مستخدم بالفعل." });
-    const { data: created, error: createError } = await supabaseAdmin().auth.admin.createUser({
-      email,
-      password: input.temporaryPassword,
-      email_confirm: true,
-      user_metadata: { name: input.ownerName },
-    });
-    if (createError || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء حساب صاحب المولد في Supabase. قد يكون البريد مستخدماً بالفعل." });
+    const { ownerUser, createdSupabaseUserId } = await resolveOwnerLoginAccount(db, { email, name: input.ownerName, temporaryPassword: input.temporaryPassword });
 
     try {
-      const ownerUser = await syncSupabaseUser({ id: created.user.id, email, name: input.ownerName });
       const startedAt = new Date();
       const endsAt = input.endsAt ?? addSubscriptionPeriod(startedAt, input.billingCycle);
       const identity = encryptTenantCredential(input.identityNumber.trim());
@@ -258,7 +258,7 @@ export const adminRouter = router({
       await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "generator", entityId: String(result.generatorId), action: "platform_admin_create_pending_generator_owner", afterData: { tenantName: input.tenantName, ownerName: input.ownerName, ownerEmail: email, generatorName, generatorCode: input.generatorCode, generatorStatus: "pending", plan: input.plan }, actorPlatformRole: platformRoleOf(ctx.user) });
       return { ...result, ownerUserId: ownerUser.id, forcePasswordChange: true };
     } catch (error) {
-      await supabaseAdmin().auth.admin.deleteUser(created.user.id);
+      if (createdSupabaseUserId) await supabaseAdmin().auth.admin.deleteUser(createdSupabaseUserId);
       throw error;
     }
   }),
