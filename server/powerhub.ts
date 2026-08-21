@@ -47,6 +47,8 @@ const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
 export const ownerSubaccountRoles = ["manager", "accountant", "collector", "technician", "viewer"] as const;
 export type OwnerSubaccountRole = typeof ownerSubaccountRoles[number];
+export type SubscriptionPlan = "starter" | "professional" | "enterprise";
+export const defaultOwnerSubaccountLimits: Record<SubscriptionPlan, number> = { starter: 2, professional: 5, enterprise: 15 };
 
 export function allowedOwnerSubaccountRoles(setting?: { isEnabled: boolean; value: unknown } | null): OwnerSubaccountRole[] {
   if (!setting) return [...ownerSubaccountRoles];
@@ -56,6 +58,17 @@ export function allowedOwnerSubaccountRoles(setting?: { isEnabled: boolean; valu
     : undefined;
   if (!Array.isArray(values)) return [...ownerSubaccountRoles];
   return ownerSubaccountRoles.filter((role) => values.includes(role));
+}
+
+export function ownerSubaccountLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number {
+  const rawLimits = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
+    ? (setting.value as Record<string, unknown>).limits
+    : undefined;
+  const candidate = rawLimits && typeof rawLimits === "object" && !Array.isArray(rawLimits)
+    ? (rawLimits as Record<string, unknown>)[plan]
+    : undefined;
+  const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 999 ? parsed : defaultOwnerSubaccountLimits[plan];
 }
 
 export function reportDateRange(startDate: string, endDate: string) {
@@ -90,6 +103,23 @@ async function ownerAllowedSubaccountRoles() {
   const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value })
     .from(platformSettings).where(eq(platformSettings.settingKey, "owner_subaccount_roles")).limit(1);
   return allowedOwnerSubaccountRoles(setting);
+}
+
+async function ownerSubaccountLimit(tenantId: number) {
+  const db = await dbOrThrow();
+  const [[tenant], [setting]] = await Promise.all([
+    db.select({ plan: tenants.plan }).from(tenants).where(eq(tenants.id, tenantId)).limit(1),
+    db.select({ value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "owner_subaccount_limits")).limit(1),
+  ]);
+  if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+  return ownerSubaccountLimitForPlan(tenant.plan, setting);
+}
+
+async function activeSubaccountCount(tenantId: number) {
+  const db = await dbOrThrow();
+  const [result] = await db.select({ count: sql<number>`count(*)` }).from(tenantMembers)
+    .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.role, "member"), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")));
+  return Number(result?.count ?? 0);
 }
 
 async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
@@ -342,7 +372,9 @@ export const powerhubRouter = router({
     allowedSubaccountRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const actorRole = await resolveRole(ctx.user.id, input.siteId);
       if (actorRole !== "owner" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "هذه القائمة مخصصة لمالك المولد." });
-      return { roles: await ownerAllowedSubaccountRoles() };
+      const tenantId = await getSiteTenant(input.siteId);
+      const [roles, limit, currentCount] = await Promise.all([ownerAllowedSubaccountRoles(), ownerSubaccountLimit(tenantId), activeSubaccountCount(tenantId)]);
+      return { roles, limit, currentCount, remaining: Math.max(0, limit - currentCount) };
     }),
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]) }))
       .mutation(async ({ ctx, input }) => {
@@ -355,8 +387,13 @@ export const powerhubRouter = router({
         }
         const tenantId = await getSiteTenant(input.siteId);
         if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ربط المحطة بمستأجر قبل تعيين الفريق." });
-        const [existingMembership] = await db.select({ role: tenantMembers.role }).from(tenantMembers)
+        const [existingMembership] = await db.select({ role: tenantMembers.role, isActive: tenantMembers.isActive, membershipStatus: tenantMembers.membershipStatus }).from(tenantMembers)
           .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, input.userId))).limit(1);
+        const alreadyActiveSubaccount = existingMembership?.role === "member" && existingMembership.isActive && existingMembership.membershipStatus === "active";
+        if (!alreadyActiveSubaccount) {
+          const [limit, currentCount] = await Promise.all([ownerSubaccountLimit(tenantId), activeSubaccountCount(tenantId)]);
+          if (currentCount >= limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك (${limit}).` });
+        }
         const tenantRole = existingMembership?.role === "owner" ? "owner" : "member" as const;
         await db.transaction(async (tx) => {
           await tx.insert(tenantMembers).values({ tenantId, userId: input.userId, role: tenantRole, isActive: true, membershipStatus: "active", expiresAt: null }).onDuplicateKeyUpdate({ set: { role: tenantRole, isActive: true, membershipStatus: "active", expiresAt: null } });

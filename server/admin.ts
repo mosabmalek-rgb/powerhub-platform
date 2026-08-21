@@ -831,13 +831,19 @@ export const adminRouter = router({
     const [generator] = await db.select({ id: generators.id, code: generators.code, name: generators.name, status: generators.status, ratedCapacityKw: generators.ratedCapacityKw, fuelType: generators.fuelType, fuelLevelLiters: generators.fuelLevelLiters, operatingHours: generators.operatingHours, lastMaintenanceAt: generators.lastMaintenanceAt, tenantId: generators.tenantId, tenantName: tenants.name, siteId: sites.id, siteName: sites.name })
       .from(generators).innerJoin(tenants, eq(generators.tenantId, tenants.id)).innerJoin(sites, eq(generators.siteId, sites.id)).where(eq(generators.id, input.generatorId)).limit(1);
     if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود." });
-    const [subscriberSummary] = await db.select({ total: sql<number>`count(*)`, active: sql<number>`sum(case when ${subscribers.serviceStatus} = 'active' then 1 else 0 end)` }).from(meters).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id)).where(eq(meters.generatorId, generator.id));
-    const generatorSubscribers = await db.select({ id: subscribers.id, fullName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, phone: subscribers.phone, subscriptionType: subscribers.subscriptionType, serviceStatus: subscribers.serviceStatus, meterSerial: meters.serialNumber })
-      .from(meters).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id)).where(eq(meters.generatorId, generator.id)).orderBy(desc(subscribers.createdAt)).limit(50);
-    const latestInvoices = await db.select({ id: invoices.id, invoiceNo: invoices.invoiceNo, billingPeriod: invoices.billingPeriod, totalAmount: invoices.totalAmount, balanceDue: invoices.balanceDue, status: invoices.status, subscriberName: subscribers.fullName, issueDate: invoices.issueDate })
-      .from(invoices).innerJoin(meters, eq(invoices.meterId, meters.id)).innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id)).where(eq(meters.generatorId, generator.id)).orderBy(desc(invoices.issueDate)).limit(20);
+    const [meterSummary] = await db.select({ total: sql<number>`count(*)`, active: sql<number>`sum(case when ${meters.status} = 'active' then 1 else 0 end)` }).from(meters).where(eq(meters.generatorId, generator.id));
+    const generatorMeters = await db.select({ id: meters.id, serialNumber: meters.serialNumber, meterType: meters.meterType, status: meters.status, installedAt: meters.installedAt })
+      .from(meters).where(eq(meters.generatorId, generator.id)).orderBy(desc(meters.installedAt)).limit(50);
     const activity = await db.select({ id: auditLogs.id, action: auditLogs.action, entityType: auditLogs.entityType, createdAt: auditLogs.createdAt, userName: users.name })
       .from(auditLogs).leftJoin(users, eq(auditLogs.userId, users.id)).where(eq(auditLogs.siteId, generator.siteId)).orderBy(desc(auditLogs.createdAt)).limit(30);
-    return { generator, subscriberSummary: { total: Number(subscriberSummary?.total ?? 0), active: Number(subscriberSummary?.active ?? 0) }, subscribers: generatorSubscribers, invoices: latestInvoices, activity };
+    return {
+      generator,
+      meterSummary: { total: Number(meterSummary?.total ?? 0), active: Number(meterSummary?.active ?? 0) },
+      meters: generatorMeters,
+      activity,
+      subscriberSummary: { total: 0, active: 0 },
+      subscribers: [] as Array<{ id: number; fullName: string; subscriberNo: string; phone: string; subscriptionType: "residential" | "commercial"; serviceStatus: "active" | "suspended" | "disconnected"; meterSerial: string }>,
+      invoices: [] as Array<{ id: number; invoiceNo: string; billingPeriod: string; totalAmount: string; balanceDue: string; status: "draft" | "issued" | "partially_paid" | "paid" | "overdue" | "cancelled"; subscriberName: string; issueDate: Date }>,
+    };
   }),
 });
