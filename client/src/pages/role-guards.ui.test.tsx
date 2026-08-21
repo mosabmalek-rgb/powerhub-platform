@@ -66,6 +66,8 @@ describe("role guards in administration UI", () => {
   it("renders the subscriber directory in read-only mode for the viewer", () => {
     render(<NetworkDirectoryPage kind="subscribers" />);
     expect(screen.getByText(/وضع القراءة فقط لهذه المحطة/)).toBeInTheDocument();
+    expect(screen.getByText("إرشاد بوابة الاستعلامات للمشترك")).toBeInTheDocument();
+    expect(screen.getByText(/الرقم المرجعي مع رقم هاتفه الدولي المسجل/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /إضافة المشترك/ })).not.toBeInTheDocument();
   });
 
@@ -92,6 +94,7 @@ describe("role guards in administration UI", () => {
     render(<MessagingSettingsPage />);
     expect(screen.getByText("إعداد WhatsApp Cloud API")).toBeInTheDocument();
     expect(screen.getByText("إعداد SMS")).toBeInTheDocument();
+    expect(screen.getByLabelText("اسم قالب رسالة الرقم المرجعي")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /حفظ إعداد WhatsApp/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /حفظ إعداد SMS/ })).toBeInTheDocument();
   });

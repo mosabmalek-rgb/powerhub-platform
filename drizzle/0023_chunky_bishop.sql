@@ -1,0 +1,2 @@
+ALTER TABLE `notificationMessages` MODIFY COLUMN `eventType` enum('invoice_issued','payment_reminder','payment_received','service_alert','subscriber_reference') NOT NULL;--> statement-breakpoint
+ALTER TABLE `tenantMessagingConfigurations` ADD `subscriberReferenceTemplateName` varchar(120);

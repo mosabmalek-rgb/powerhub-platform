@@ -67,6 +67,11 @@ describe("tenant isolation", () => {
     await expect(caller.sites.list()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: ids.siteA }), expect.objectContaining({ id: ids.siteA2 })]));
     const ownerSubscriber = await caller.subscribers.create({ siteId: ids.siteA, fullName: "Owner Site", phone: "+970700000003", subscriptionType: "residential" });
     expect(ownerSubscriber.subscriberNo).toMatch(/^PH-/);
+    const referenceMessages = await db.select().from(notificationMessages).where(eq(notificationMessages.subscriberId, ownerSubscriber.id));
+    expect(referenceMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: "subscriber_reference", channel: "whatsapp", recipient: "+970700000003" }),
+      expect.objectContaining({ eventType: "subscriber_reference", channel: "sms", recipient: "+970700000003" }),
+    ]));
     createdSubscriberIds.push(ownerSubscriber.id);
     await caller.staff.assign({ siteId: ids.siteA, userId: ids.userSiteOwner, role: "owner" });
     const [siteOwnerUser] = await db.select().from(users).where(eq(users.id, ids.userSiteOwner));
@@ -237,6 +242,7 @@ describe("tenant isolation", () => {
       await db.delete(invoiceLines).where(inArray(invoiceLines.invoiceId, createdInvoiceIds));
       await db.delete(invoices).where(inArray(invoices.id, createdInvoiceIds));
     }
+    if (createdSubscriberIds.length) await db.delete(notificationMessages).where(inArray(notificationMessages.subscriberId, createdSubscriberIds));
     await db.delete(meterReadings).where(inArray(meterReadings.meterId, [ids.meterA, ids.meterB]));
     if (createdMeterIds.length) await db.delete(meterReadings).where(inArray(meterReadings.meterId, createdMeterIds));
     if (createdMeterIds.length) await db.delete(meters).where(inArray(meters.id, createdMeterIds));
