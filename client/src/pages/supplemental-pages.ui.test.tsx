@@ -35,7 +35,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 7, name: "محطة التقرير", code: "REPORT-01" }] }) } },
-      dashboard: { summary: { useQuery: () => ({ data: { energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) }, allBranchesSummary: { useQuery: () => ({ data: { branchCount: 1, energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) } },
+      dashboard: { summary: { useQuery: () => ({ data: { energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) }, allBranchesSummary: { useQuery: () => ({ data: { branchCount: 1, energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) }, financialOverview: { useQuery: () => ({ data: { period: { today: "2026-08-21", month: "2026-08" }, today: { invoiced: 50, collected: 40, collectionRate: 80 }, month: { invoiced: 125, collected: 100, expenses: 10, netCash: 90, collectionRate: 80 }, outstanding: { total: 25, overdue: 15, partialInvoices: 1, accountCount: 1 }, branchSummaries: [{ id: 7, name: "محطة التقرير", activeSubscribers: 3, invoiced: 125, collected: 100, outstanding: 25, overdue: 15, partialInvoices: 1, collectionRate: 80 }], topDebtors: [{ subscriber: "المشترك التجريبي", subscriberNo: "PH-TEST", branchName: "محطة التقرير", outstanding: 25, ageDays: 4, partialInvoices: 1, isOverdue: true }] } }) } },
       subscribers: { quota: { useQuery: () => ({ data: { plan: "starter", limit: 100, currentCount: 3, remaining: 97 } }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: true } }) } },
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
@@ -85,8 +85,8 @@ describe("supplemental PowerHub page review", () => {
   it("renders dashboard metrics for the selected tenant site", async () => {
     render(<WorkspaceHome />);
     expect(screen.getByRole("combobox", { name: "اختيار الفرع أو الملخص المجمع" })).toHaveValue("7");
-    await waitFor(() => expect(screen.getByText("إجمالي التحصيل")).toBeInTheDocument());
-    expect(screen.getByText("المولدات العاملة")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("تحصيل الشهر")).toBeInTheDocument());
+    expect(screen.getByText("أولوية المتأخرات")).toBeInTheDocument();
   });
 
   it("routes a platform admin away from the generator workspace to the admin center", async () => {

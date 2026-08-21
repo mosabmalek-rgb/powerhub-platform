@@ -35,6 +35,7 @@ import {
 import { getDb } from "./db";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
+import { buildFinancialOverview } from "./financial-overview-utils";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
 import { probeMessagingConnection } from "./messaging-connection";
@@ -1199,6 +1200,47 @@ export const powerhubRouter = router({
         db.select({ failed: sql<number>`sum(case when ${notificationMessages.status} = 'failed' then 1 else 0 end)` }).from(notificationMessages).where(sql`${notificationMessages.subscriberId} in (select ${subscribers.id} from ${subscribers} where ${subscribers.tenantId} = ${tenantId})`),
       ]);
       return { branchCount: branchIds.length, subscribers: Number(subscriberCount[0]?.value ?? 0), generators: { active: Number(generatorStatus[0]?.active ?? 0), maintenance: Number(generatorStatus[0]?.maintenance ?? 0) }, financial: { invoiced: Number(invoiceTotals[0]?.invoiced ?? 0), collected: Number(invoiceTotals[0]?.paid ?? 0), outstanding: Number(invoiceTotals[0]?.outstanding ?? 0), expenses: Number(expenseTotals[0]?.amount ?? 0), operatingProfit: Number(invoiceTotals[0]?.paid ?? 0) - Number(expenseTotals[0]?.amount ?? 0) }, energyKwh: Number(invoiceTotals[0]?.energy ?? 0), failedNotifications: Number(notificationTotals[0]?.failed ?? 0) };
+    }),
+    financialOverview: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+    })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      if (input.scope === "all") await requireAllBranchRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+      const branchRows = input.scope === "all"
+        ? await db.select({ id: sites.id, name: sites.name }).from(sites).where(and(eq(sites.tenantId, tenantId), ne(sites.status, "archived"))).orderBy(desc(sites.createdAt))
+        : await db.select({ id: sites.id, name: sites.name }).from(sites).where(and(eq(sites.id, input.siteId), eq(sites.tenantId, tenantId))).limit(1);
+      const branchIds = branchRows.map((branch) => branch.id);
+      if (!branchIds.length) return buildFinancialOverview({ branches: [], invoices: [], payments: [], expenses: [] });
+      const [invoiceRows, paymentRows, expenseRows, subscriberCounts] = await Promise.all([
+        db.select({ invoice: invoices, subscriber: subscribers }).from(invoices).innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id))
+          .where(and(inArray(invoices.siteId, branchIds), sql`${invoices.status} not in ('cancelled', 'draft')`)),
+        db.select({ payment: payments }).from(payments).where(inArray(payments.siteId, branchIds)),
+        db.select().from(expenses).where(inArray(expenses.siteId, branchIds)),
+        db.select({ siteId: subscribers.siteId, count: sql<number>`count(*)` }).from(subscribers)
+          .where(and(inArray(subscribers.siteId, branchIds), eq(subscribers.serviceStatus, "active"))).groupBy(subscribers.siteId),
+      ]);
+      const subscriberCountBySite = new Map(subscriberCounts.map((row) => [row.siteId, Number(row.count ?? 0)]));
+      return buildFinancialOverview({
+        branches: branchRows.map((branch) => ({ id: branch.id, name: branch.name, activeSubscribers: subscriberCountBySite.get(branch.id) ?? 0 })),
+        invoices: invoiceRows.map((row) => ({
+          siteId: row.invoice.siteId,
+          subscriberId: row.invoice.subscriberId,
+          subscriberName: row.subscriber.fullName,
+          subscriberNo: row.subscriber.subscriberNo,
+          invoiceNo: row.invoice.invoiceNo,
+          issueDate: row.invoice.issueDate,
+          dueDate: row.invoice.dueDate,
+          totalAmount: Number(row.invoice.totalAmount),
+          paidAmount: Number(row.invoice.paidAmount),
+          balanceDue: Number(row.invoice.balanceDue),
+          status: row.invoice.status,
+        })),
+        payments: paymentRows.map((row) => ({ siteId: row.payment.siteId, subscriberId: row.payment.subscriberId, amount: Number(row.payment.amount), status: row.payment.status, paidAt: row.payment.paidAt })),
+        expenses: expenseRows.map((row) => ({ siteId: row.siteId, amount: Number(row.amount), occurredAt: row.occurredAt })),
+      });
     }),
   }),
 

@@ -51,7 +51,7 @@ vi.mock("@/lib/trpc", () => ({
       generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       payments: { list: { useQuery: () => mocks.query(mocks.payments) }, create: { useMutation: mocks.mutation } },
       expenses: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
-      dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) } },
+      dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: () => mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }) } },
       audit: { list: { useQuery: () => mocks.query([]) } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation } },
