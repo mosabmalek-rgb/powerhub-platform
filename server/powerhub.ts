@@ -23,6 +23,7 @@ import {
   tenantMembers,
   tenantInvoiceMessageTemplates,
   tenantMessagingConfigurations,
+  tenantPaymentReceiptMessageTemplates,
   tenants,
   users,
 } from "../drizzle/schema";
@@ -32,7 +33,8 @@ import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareTok
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
 import { probeMessagingConnection } from "./messaging-connection";
-import { renderPaymentReceiptMessage, paymentReceiptTemplateParameters } from "./payment-receipt-message";
+import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
+import { normalizeInternationalPhone } from "../shared/phone";
 import { processNotificationById } from "./notification-worker";
 import { storagePut } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
@@ -174,6 +176,12 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       return db.select().from(tenantInvoiceMessageTemplates).where(and(eq(tenantInvoiceMessageTemplates.tenantId, tenantId), eq(tenantInvoiceMessageTemplates.eventType, "invoice_issued")));
     }),
+    listPaymentReceiptTemplates: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      return db.select().from(tenantPaymentReceiptMessageTemplates).where(eq(tenantPaymentReceiptMessageTemplates.tenantId, tenantId));
+    }),
     saveConfiguration: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), provider: z.string().min(2).max(80),
       senderId: z.string().max(120).optional(), phoneNumberId: z.string().max(120).optional(), templateName: z.string().max(120).optional(), receiptTemplateName: z.string().max(120).optional(),
@@ -223,6 +231,17 @@ export const powerhubRouter = router({
       if (!platformSetting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب لقناة معطلة من آدمن المنصة." });
       await db.insert(tenantInvoiceMessageTemplates).values({ tenantId, channel: input.channel, body: input.body, isActive: input.isActive }).onDuplicateKeyUpdate({ set: { body: input.body, isActive: input.isActive } });
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_invoice_message_template", entityId: `${tenantId}:${input.channel}`, action: "upsert", metadata: { channel: input.channel, isActive: input.isActive } });
+      return { success: true };
+    }),
+    savePaymentReceiptTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
+        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
+      if (!platformSetting || !isInvoiceDeliveryChannelEnabled("sms", invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب إيصال SMS لقناة معطلة من آدمن المنصة." });
+      await db.insert(tenantPaymentReceiptMessageTemplates).values({ tenantId, channel: "sms", body: input.body, isActive: input.isActive }).onDuplicateKeyUpdate({ set: { body: input.body, isActive: input.isActive } });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_payment_receipt_message_template", entityId: `${tenantId}:sms`, action: "upsert", metadata: { channel: "sms", isActive: input.isActive } });
       return { success: true };
     }),
   }),
@@ -308,8 +327,9 @@ export const powerhubRouter = router({
       await requireRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
-      const id = insertId(await db.insert(subscribers).values({ ...input, tenantId }));
-      await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(id), action: "create", afterData: input });
+      const phone = normalizeInternationalPhone(input.phone);
+      const id = insertId(await db.insert(subscribers).values({ ...input, phone, tenantId }));
+      await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(id), action: "create", afterData: { ...input, phone } });
       return { id };
     }),
     update: protectedProcedure.input(z.object({
@@ -320,8 +340,9 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       const [existing] = await db.select().from(subscribers).where(and(eq(subscribers.id, input.id), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن المحطة المحددة." });
-      await db.update(subscribers).set({ fullName: input.fullName, phone: input.phone, address: input.address, subscriptionType: input.subscriptionType, serviceStatus: input.serviceStatus }).where(eq(subscribers.id, input.id));
-      await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(input.id), action: "update", beforeData: existing, afterData: input });
+      const phone = normalizeInternationalPhone(input.phone);
+      await db.update(subscribers).set({ fullName: input.fullName, phone, address: input.address, subscriptionType: input.subscriptionType, serviceStatus: input.serviceStatus }).where(eq(subscribers.id, input.id));
+      await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(input.id), action: "update", beforeData: existing, afterData: { ...input, phone } });
       return { success: true };
     }),
   }),
@@ -779,6 +800,12 @@ export const powerhubRouter = router({
         .innerJoin(sites, eq(payments.siteId, sites.id))
         .where(and(eq(payments.id, input.paymentId), eq(payments.siteId, input.siteId), eq(payments.status, "completed"))).limit(1);
       if (!scope || !scope.invoice || !scope.subscriber.phone) throw new TRPCError({ code: "NOT_FOUND", message: "لا تتوفر دفعة مكتملة مرتبطة بفاتورة ومشترك ضمن المحطة المحددة." });
+      let recipient: string;
+      try {
+        recipient = normalizeInternationalPhone(scope.subscriber.phone);
+      } catch (error) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." });
+      }
       const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
         .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
       if (!platformSetting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: `إرسال الإيصال عبر ${input.channel === "whatsapp" ? "WhatsApp" : "SMS"} معطل من إعدادات آدمن PowerHub.` });
@@ -787,10 +814,12 @@ export const powerhubRouter = router({
       if (input.channel === "whatsapp" && (configuration.provider !== "meta_whatsapp_cloud" || !configuration.phoneNumberId || !configuration.receiptTemplateName)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل Phone Number ID واسم قالب إيصال الدفع المعتمد من Meta قبل إرسال الإيصال عبر WhatsApp." });
       if (input.channel === "sms" && (configuration.provider !== "twilio" || !configuration.phoneNumberId || !configuration.senderId)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إرسال SMS الفعلي متاح حالياً عبر Twilio بعد إدخال Account SID واسم أو رقم المرسل؛ Jawwal ينتظر API الرسمي." });
       const receipt = { subscriberName: scope.subscriber.fullName, paymentNo: scope.payment.paymentNo, paymentAmount: Number(scope.payment.amount), invoiceNo: scope.invoice.invoiceNo, balanceDue: Number(scope.invoice.balanceDue) };
-      const notificationId = insertId(await db.insert(notificationMessages).values({ tenantId: scope.site.tenantId, invoiceId: scope.invoice.id, subscriberId: scope.subscriber.id, channel: input.channel, eventType: "payment_received", recipient: scope.subscriber.phone, status: "pending", payload: { renderedText: renderPaymentReceiptMessage(receipt), receiptTemplateParameters: paymentReceiptTemplateParameters(receipt), paymentNo: receipt.paymentNo, invoiceNo: receipt.invoiceNo } }));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(notificationId), action: "send_payment_receipt", metadata: { channel: input.channel, recipient: scope.subscriber.phone, paymentId: scope.payment.id, invoiceId: scope.invoice.id } });
+      const [smsTemplate] = await db.select().from(tenantPaymentReceiptMessageTemplates).where(and(eq(tenantPaymentReceiptMessageTemplates.tenantId, scope.site.tenantId), eq(tenantPaymentReceiptMessageTemplates.channel, "sms"), eq(tenantPaymentReceiptMessageTemplates.isActive, true))).limit(1);
+      const renderedSmsText = renderPaymentReceiptTemplate(smsTemplate?.body ?? defaultPaymentReceiptSmsTemplate, receipt);
+      const notificationId = insertId(await db.insert(notificationMessages).values({ tenantId: scope.site.tenantId, invoiceId: scope.invoice.id, subscriberId: scope.subscriber.id, channel: input.channel, eventType: "payment_received", recipient, status: "pending", payload: { renderedText: renderedSmsText || renderPaymentReceiptMessage(receipt), receiptTemplateParameters: paymentReceiptTemplateParameters(receipt), paymentNo: receipt.paymentNo, invoiceNo: receipt.invoiceNo } }));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(notificationId), action: "send_payment_receipt", metadata: { channel: input.channel, recipient, paymentId: scope.payment.id, invoiceId: scope.invoice.id } });
       const dispatch = await processNotificationById(notificationId);
-      return { notificationId, recipient: scope.subscriber.phone, channel: input.channel, ...dispatch };
+      return { notificationId, recipient, channel: input.channel, ...dispatch };
     }),
   }),
 

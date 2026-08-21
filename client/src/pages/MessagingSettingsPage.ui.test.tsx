@@ -11,7 +11,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { messaging: { listConfigurations: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { messaging: { listConfigurations: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } } } }),
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 3, name: "محطة الاختبار" }] }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) } },
@@ -19,9 +19,11 @@ vi.mock("@/lib/trpc", () => ({
         listConfigurations: { useQuery: () => ({ data: [{ channel: "whatsapp", provider: "meta_whatsapp_cloud", phoneNumberId: "123", templateName: "invoice_ready_ar", receiptTemplateName: "payment_receipt_ar", isActive: true }] }) },
         deliveryPolicy: { useQuery: () => ({ data: state.policy }) },
         listInvoiceTemplates: { useQuery: () => ({ data: [{ channel: "whatsapp", body: "أهلاً {{subscriber_name}}، فاتورتك {{invoice_no}}", isActive: true }] }) },
+        listPaymentReceiptTemplates: { useQuery: () => ({ data: [{ channel: "sms", body: "إيصال {{payment_no}}", isActive: true }] }) },
         saveConfiguration: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         testConnection: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         saveInvoiceTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
+        savePaymentReceiptTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
       },
       notifications: {
         list: { useQuery: () => ({ data: [{ invoiceNo: "INV-01", subscriber: { fullName: "مشترك الاختبار" }, notification: { id: 8, channel: "whatsapp", recipient: "0790000000", status: "failed", attempts: 2, lastError: "رفض المزود", createdAt: new Date("2026-08-20") } }] }) },
@@ -40,12 +42,14 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByText("القنوات مفتوحة للتجربة")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة SMS")).toBeInTheDocument();
+    expect(screen.getByText("قالب إيصال الدفع عبر SMS")).toBeInTheDocument();
     expect(screen.getByText("اسم قالب إيصال الدفع المعتمد")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Jawwal Bulk SMS الرسمية" })).toBeInTheDocument();
     const smsProvider = screen.getAllByRole("combobox").find((item) => (item as HTMLSelectElement).name === "provider")!;
     fireEvent.change(smsProvider, { target: { value: "jawwal_bulk_sms" } });
     expect(screen.getByText("رصيد رسائل Jawwal")).toBeInTheDocument();
     expect(screen.getByText("سجل إرسال فواتير المشتركين")).toBeInTheDocument();
+    expect(screen.getByText("سجل إرسال إيصالات الدفع")).toBeInTheDocument();
     expect(screen.getByText("إجمالي الرسائل المرسلة")).toBeInTheDocument();
     expect(screen.getByText("رفض المزود")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "معاينة الرسالة" })[0]);
@@ -54,6 +58,8 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getAllByRole("button", { name: "اختبار الاتصال" })).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب WhatsApp" }));
     expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, channel: "whatsapp", isActive: true }));
+    fireEvent.click(screen.getByRole("button", { name: "حفظ قالب إيصال SMS" }));
+    expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, body: "إيصال {{payment_no}}", isActive: true }));
   });
 
   it("blocks provider setup until the platform administrator explicitly opens the policy", () => {

@@ -128,6 +128,18 @@ export const tenantInvoiceMessageTemplates = mysqlTable("tenantInvoiceMessageTem
   uniqueIndex("tenant_invoice_template_unique").on(table.tenantId, table.channel, table.eventType),
 ]);
 
+export const tenantPaymentReceiptMessageTemplates = mysqlTable("tenantPaymentReceiptMessageTemplates", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  channel: mysqlEnum("channel", ["sms"]).default("sms").notNull(),
+  body: text("body").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("tenant_payment_receipt_template_unique").on(table.tenantId, table.channel),
+]);
+
 export const sites = mysqlTable("sites", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
