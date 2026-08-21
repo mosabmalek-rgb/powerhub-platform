@@ -80,6 +80,24 @@ export const tenantSubscriptions = mysqlTable("tenantSubscriptions", {
   index("tenant_subscription_status_end_idx").on(table.status, table.endsAt),
 ]);
 
+export const subscriptionUpgradeRequests = mysqlTable("subscriptionUpgradeRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  requestedByUserId: int("requestedByUserId").notNull().references(() => users.id),
+  currentPlan: mysqlEnum("currentPlan", ["starter", "professional", "enterprise"]).notNull(),
+  requestedPlan: mysqlEnum("requestedPlan", ["starter", "professional", "enterprise"]).notNull(),
+  reason: varchar("reason", { length: 80 }).default("subscriber_limit_reached").notNull(),
+  status: mysqlEnum("status", ["pending", "reviewing", "approved", "rejected", "cancelled"]).default("pending").notNull(),
+  note: text("note"),
+  reviewedByUserId: int("reviewedByUserId").references(() => users.id),
+  reviewedAt: timestamp("reviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("subscription_upgrade_request_tenant_status_idx").on(table.tenantId, table.status),
+  index("subscription_upgrade_request_status_date_idx").on(table.status, table.createdAt),
+]);
+
 export const tenantMembers = mysqlTable("tenantMembers", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
