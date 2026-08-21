@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, notificationMessages, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sites, staffProfiles, tenantMembers, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, notificationMessages, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, tenantMembers, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
 import { adminRouter } from "./admin";
 import { getDb, upsertUser } from "./db";
 import { powerhubRouter } from "./powerhub";
@@ -154,6 +154,7 @@ describe("platform administration integration", () => {
     const [platformAdmin] = await db.select().from(users).where(eq(users.id, managerUserId));
     const platformAdminCaller = adminRouter.createCaller({ user: platformAdmin, req: {} as never, res: {} as never });
     await expect(platformAdminCaller.invitePlatformAccess({ email: `forbidden-${suffix}@example.com`, platformRole: "finance_admin" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.attachOwnerUser({ tenantId: created.tenantId, userId: managerUserId, siteId: created.siteId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await platformOwnerCaller.setPlatformAccessRole({ userId: managerUserId, platformRole: "finance_admin" });
     const [financeAdmin] = await db.select().from(users).where(eq(users.id, managerUserId));
     const financeAdminCaller = adminRouter.createCaller({ user: financeAdmin, req: {} as never, res: {} as never });
@@ -163,7 +164,7 @@ describe("platform administration integration", () => {
     const [lockedAdmin] = await db.select().from(users).where(eq(users.id, managerUserId));
     const lockedAdminCaller = adminRouter.createCaller({ user: lockedAdmin, req: {} as never, res: {} as never });
     await expect(lockedAdminCaller.overview()).rejects.toMatchObject({ code: "FORBIDDEN" });
-  });
+  }, 20_000);
 
   afterAll(async () => {
     if (!enabled || !tenantId || !siteId || !adminUserId || !ownerUserId || !managerUserId) return;
@@ -175,6 +176,7 @@ describe("platform administration integration", () => {
     await db.delete(accessInvitations).where(eq(accessInvitations.tenantId, tenantId));
     await db.delete(generators).where(eq(generators.siteId, siteId));
     await db.delete(staffProfiles).where(eq(staffProfiles.siteId, siteId));
+    await db.delete(sitePortalSettings).where(eq(sitePortalSettings.siteId, siteId));
     await db.delete(sites).where(eq(sites.id, siteId));
     await db.delete(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.tenantId, tenantId));
     await db.delete(tenantSubscriptions).where(eq(tenantSubscriptions.tenantId, tenantId));

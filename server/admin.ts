@@ -19,6 +19,12 @@ function platformRoleOf(user: { role: "user" | "admin"; platformRole: PlatformRo
   return user.platformRole ?? "platform_admin";
 }
 
+function isPlatformAccount(user: { role: "user" | "admin"; platformRole: PlatformRole | null }) {
+  return user.role === "admin" || Boolean(user.platformRole);
+}
+
+const platformAccountOwnerMessage = "لا يمكن استخدام حساب يملك صلاحيات إدارة المنصة كصاحب مولد. استخدم بريداً مختلفاً وفريداً لصاحب المولد.";
+
 function requirePlatformRoles(allowedRoles: PlatformRole[]) {
   return authenticatedProcedure.use(({ ctx, next }) => {
     if (ctx.user.role !== "admin") {
@@ -124,10 +130,10 @@ export const adminRouter = router({
     const companyName = input.companyName.trim();
     const [[existingPhone], [existingEmail]] = await Promise.all([
       db.select({ id: tenantOwnerProfiles.id }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.phone, phone)).limit(1),
-      db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1),
+      db.select({ id: users.id, role: users.role, platformRole: users.platformRole }).from(users).where(eq(users.email, email)).limit(1),
     ]);
     if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم جوال صاحب المولد مستخدم بالفعل." });
-    if (existingEmail) throw new TRPCError({ code: "CONFLICT", message: "البريد الإلكتروني المستخدم للدخول مسجل بالفعل." });
+    if (existingEmail) throw new TRPCError({ code: isPlatformAccount(existingEmail) ? "FORBIDDEN" : "CONFLICT", message: isPlatformAccount(existingEmail) ? platformAccountOwnerMessage : "البريد الإلكتروني المستخدم للدخول مسجل بالفعل." });
 
     const { data: created, error: createError } = await supabaseAdmin().auth.admin.createUser({
       email,
@@ -166,7 +172,7 @@ export const adminRouter = router({
         await tx.insert(staffProfiles).values({ tenantId, siteId, userId: ownerUser.id, role: "owner", isActive: true });
         return { tenantId, siteId };
       });
-      await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
+      await db.update(users).set({ role: "user", platformRole: null, accountStatus: "active", mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
       await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "tenant_owner_profile", entityId: String(result.tenantId), action: "platform_admin_create_generator_owner_subscription", afterData: { companyName, ownerName: input.ownerName, ownerEmail: email, plan: input.plan, generatorSetup: "deferred" }, actorPlatformRole: platformRoleOf(ctx.user) });
       return { ...result, ownerUserId: ownerUser.id, forcePasswordChange: true };
     } catch (error) {
@@ -206,11 +212,11 @@ export const adminRouter = router({
     const [[existingPhone], [existingGenerator], [existingEmail]] = await Promise.all([
       db.select({ id: tenantOwnerProfiles.id }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.phone, phone)).limit(1),
       db.select({ id: generators.id }).from(generators).where(eq(generators.name, generatorName)).limit(1),
-      db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1),
+      db.select({ id: users.id, role: users.role, platformRole: users.platformRole }).from(users).where(eq(users.email, email)).limit(1),
     ]);
-    if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم هاتف صاحب المولد مستخدم بالفعل." });
+    if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم جوال صاحب المولد مستخدم بالفعل." });
     if (existingGenerator) throw new TRPCError({ code: "CONFLICT", message: "اسم المولد مستخدم بالفعل." });
-    if (existingEmail) throw new TRPCError({ code: "CONFLICT", message: "البريد الإلكتروني لصاحب المولد مستخدم بالفعل." });
+    if (existingEmail) throw new TRPCError({ code: isPlatformAccount(existingEmail) ? "FORBIDDEN" : "CONFLICT", message: isPlatformAccount(existingEmail) ? platformAccountOwnerMessage : "البريد الإلكتروني لصاحب المولد مستخدم بالفعل." });
     const { data: created, error: createError } = await supabaseAdmin().auth.admin.createUser({
       email,
       password: input.temporaryPassword,
@@ -248,7 +254,7 @@ export const adminRouter = router({
         await tx.insert(staffProfiles).values({ tenantId, siteId, userId: ownerUser.id, role: "owner", isActive: true });
         return { tenantId, siteId, generatorId };
       });
-      await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
+      await db.update(users).set({ role: "user", platformRole: null, accountStatus: "active", mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
       await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "generator", entityId: String(result.generatorId), action: "platform_admin_create_pending_generator_owner", afterData: { tenantName: input.tenantName, ownerName: input.ownerName, ownerEmail: email, generatorName, generatorCode: input.generatorCode, generatorStatus: "pending", plan: input.plan }, actorPlatformRole: platformRoleOf(ctx.user) });
       return { ...result, ownerUserId: ownerUser.id, forcePasswordChange: true };
     } catch (error) {
@@ -626,6 +632,7 @@ export const adminRouter = router({
       const [tenant] = await db.select().from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
       const [user] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
       if (!tenant || !user) throw new TRPCError({ code: "NOT_FOUND", message: "المستأجر أو حساب المالك غير موجود." });
+      if (isPlatformAccount(user)) throw new TRPCError({ code: "FORBIDDEN", message: platformAccountOwnerMessage });
       const [site] = input.siteId
         ? await db.select().from(sites).where(and(eq(sites.id, input.siteId), eq(sites.tenantId, input.tenantId))).limit(1)
         : await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
