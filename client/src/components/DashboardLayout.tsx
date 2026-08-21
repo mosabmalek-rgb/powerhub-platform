@@ -23,7 +23,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, ChartNoAxesCombined, Fuel, Gauge,
-  LayoutDashboard, LogOut, MapPinned, PanelLeft, ReceiptText,
+  LayoutDashboard, LogOut, PanelLeft, ReceiptText,
   Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -42,7 +42,6 @@ const menuGroups = [
       { icon: Store, label: "الأفرع", path: "/branches" },
       { icon: Bolt, label: "المحطات والمولدات", path: "/generators" },
       { icon: Gauge, label: "العدادات والقراءات", path: "/readings" },
-      { icon: MapPinned, label: "خريطة الشبكة", path: "/map" },
     ],
   },
   {

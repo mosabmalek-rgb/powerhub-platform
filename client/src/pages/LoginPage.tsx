@@ -42,7 +42,7 @@ export default function LoginPage() {
         <div className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "linear-gradient(rgba(245,184,0,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(245,184,0,.07) 1px, transparent 1px)", backgroundSize: "52px 52px" }} />
         <section className="relative hidden lg:block">
           <button type="button" onClick={() => setLocation("/")} className="rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4" aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub">
-            <PowerHubLogo />
+            <PowerHubLogo className="scale-[1.55] origin-right lg:scale-[1.9]" />
           </button>
           <p className="mt-14 text-sm font-bold text-[#F5B800]">إدارة الطاقة بذكاء</p>
           <h1 className="mt-4 max-w-xl text-5xl font-extrabold leading-[1.25]">مساحتك الآمنة لإدارة التشغيل والتحصيل.</h1>
@@ -51,7 +51,7 @@ export default function LoginPage() {
         </section>
         <section className="relative mx-auto w-full max-w-md rounded-[28px] border border-[#dbe3ec] bg-white p-6 shadow-2xl shadow-slate-900/15 sm:p-8">
           <button onClick={() => setLocation("/")} className="mb-8 flex items-center gap-2 text-sm font-bold text-slate-400 transition hover:text-[#F5B800]"><ArrowRight className="h-4 w-4" />العودة للصفحة الرئيسية</button>
-          <div className="lg:hidden"><button type="button" onClick={() => setLocation("/")} className="rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4" aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub"><PowerHubLogo /></button><div className="mt-8" /></div>
+          <div className="lg:hidden"><button type="button" onClick={() => setLocation("/")} className="rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4" aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub"><PowerHubLogo className="scale-[1.35] origin-right sm:scale-[1.55]" /></button><div className="mt-8" /></div>
           <p className="text-sm font-bold text-[#F5B800]">حساب PowerHub</p>
           <h2 className="mt-2 text-2xl font-extrabold">تسجيل الدخول</h2>
           <p className="mt-2 text-sm leading-6 text-slate-400">أدخل بريدك وكلمة المرور للوصول إلى المساحة المصرح بها.</p>
