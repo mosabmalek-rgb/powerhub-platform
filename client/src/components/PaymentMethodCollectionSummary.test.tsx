@@ -53,5 +53,7 @@ describe("PaymentMethodCollectionSummary", () => {
     expect(detailsSheet.getCell("C3").value).toBe("محمد أحمد");
     expect((detailsSheet.getCell("H3").value as { hyperlink: string }).hyperlink).toBe("https://powerhub.example/manus-storage/payment-receipts/PAY-1.jpg");
     expect(detailsSheet.getCell("A4").value).toBe("إجمالي فرعي — Jawwal Pay");
+    expect(detailsSheet.getCell("A5").value).toBe("الإجمالي العام");
+    expect(detailsSheet.getCell("E5").value).toBe(70);
   });
 });
