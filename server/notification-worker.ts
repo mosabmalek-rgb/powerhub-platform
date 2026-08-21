@@ -15,7 +15,7 @@ function parseWhatsAppCredential(ciphertext: string, iv: string): WhatsAppCreden
   return { accessToken: decrypted };
 }
 
-type MessagePayload = { renderedText?: string; receiptTemplateParameters?: string[]; subscriberReferenceTemplateParameters?: string[] };
+type MessagePayload = { renderedText?: string; invoiceTemplateParameters?: string[]; receiptTemplateParameters?: string[]; subscriberReferenceTemplateParameters?: string[] };
 type MessageRow = typeof notificationMessages.$inferSelect;
 type DispatchResult = { status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string };
 
@@ -24,7 +24,7 @@ function messagePayload(message: MessageRow) { return (message.payload ?? {}) as
 async function dispatchNotification(message: MessageRow): Promise<DispatchResult> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable while processing notifications.");
-  if (["invoice_issued", "payment_received", "subscriber_reference"].includes(message.eventType)) {
+  if (["invoice_issued", "payment_reminder", "payment_received", "subscriber_reference"].includes(message.eventType)) {
     const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
       .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
     if (!isInvoiceDeliveryChannelEnabled(message.channel, invoiceDeliveryPolicyFromSetting(setting))) {
@@ -50,7 +50,7 @@ async function dispatchNotification(message: MessageRow): Promise<DispatchResult
       const isSubscriberReference = message.eventType === "subscriber_reference";
       const templateName = isReceipt ? configuration.receiptTemplateName : isSubscriberReference ? configuration.subscriberReferenceTemplateName : configuration.templateName;
       if (!templateName) throw new Error(isReceipt ? "أدخل اسم قالب إيصال الدفع المعتمد من Meta أولاً." : isSubscriberReference ? "أدخل اسم قالب رسالة الرقم المرجعي المعتمد من Meta أولاً." : "أدخل اسم قالب فاتورة Meta المعتمد أولاً.");
-      const parameters = isReceipt ? payload.receiptTemplateParameters : isSubscriberReference ? payload.subscriberReferenceTemplateParameters : undefined;
+      const parameters = isReceipt ? payload.receiptTemplateParameters : isSubscriberReference ? payload.subscriberReferenceTemplateParameters : payload.invoiceTemplateParameters;
       const components = parameters ? [{ type: "body", parameters: parameters.map((text) => ({ type: "text", text })) }] : undefined;
       const response = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(configuration.phoneNumberId)}/messages`, {
         method: "POST", headers: { Authorization: `Bearer ${credential.accessToken}`, "Content-Type": "application/json" },
