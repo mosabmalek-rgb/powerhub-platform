@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { PaymentMethodCollectionSummary } from "./PaymentMethodCollectionSummary";
+import { buildPaymentMethodCsv, PaymentMethodCollectionSummary, summarizePaymentMethods } from "./PaymentMethodCollectionSummary";
 
 describe("PaymentMethodCollectionSummary", () => {
   const payments = [
@@ -17,5 +17,15 @@ describe("PaymentMethodCollectionSummary", () => {
     fireEvent.change(screen.getByLabelText("فلتر طريقة الدفع"), { target: { value: "jawwal_pay" } });
     expect(screen.getAllByText("70").length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("40")).toBeNull();
+  });
+
+  it("builds a UTF-8 CSV report that Excel can read for the active filter", () => {
+    const summary = summarizePaymentMethods(payments, "jawwal_pay");
+    const csv = buildPaymentMethodCsv(summary.groups, summary.total, "jawwal_pay");
+    expect(csv.startsWith("\uFEFF")).toBe(true);
+    expect(csv).toContain("ملخص التحصيلات حسب طريقة الدفع");
+    expect(csv).toContain("Jawwal Pay");
+    expect(csv).toContain("70.00");
+    expect(csv).not.toContain("40.00");
   });
 });
