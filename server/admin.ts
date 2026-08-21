@@ -107,11 +107,79 @@ async function ownerOverview(db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
 }
 
 export const adminRouter = router({
+  createGeneratorOwnerSubscription: platformAdminProcedure.input(z.object({
+    companyName: z.string().min(2).max(180),
+    ownerName: z.string().min(2).max(180),
+    identityNumber: z.string().min(4).max(50),
+    ownerPhone: z.string().min(5).max(30),
+    ownerWhatsapp: z.string().min(5).max(30),
+    ownerEmail: z.string().email(),
+    temporaryPassword: z.string().min(8).max(128),
+    plan: planSchema.default("starter"),
+  })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const email = input.ownerEmail.trim().toLowerCase();
+    const phone = input.ownerPhone.trim();
+    const whatsappNumber = input.ownerWhatsapp.trim();
+    const companyName = input.companyName.trim();
+    const [[existingPhone], [existingEmail]] = await Promise.all([
+      db.select({ id: tenantOwnerProfiles.id }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.phone, phone)).limit(1),
+      db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1),
+    ]);
+    if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم جوال صاحب المولد مستخدم بالفعل." });
+    if (existingEmail) throw new TRPCError({ code: "CONFLICT", message: "البريد الإلكتروني المستخدم للدخول مسجل بالفعل." });
+
+    const { data: created, error: createError } = await supabaseAdmin().auth.admin.createUser({
+      email,
+      password: input.temporaryPassword,
+      email_confirm: true,
+      user_metadata: { name: input.ownerName },
+    });
+    if (createError || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء حساب صاحب المولد في Supabase. قد يكون البريد مستخدماً بالفعل." });
+
+    try {
+      const ownerUser = await syncSupabaseUser({ id: created.user.id, email, name: input.ownerName });
+      const startedAt = new Date();
+      const tenantSlug = `owner-${crypto.randomBytes(6).toString("hex")}`;
+      const siteCode = `SITE-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
+      const identity = encryptTenantCredential(input.identityNumber.trim());
+      const result = await db.transaction(async (tx) => {
+        const tenantId = insertId(await tx.insert(tenants).values({ name: companyName, slug: tenantSlug, plan: input.plan, status: "active" }));
+        await tx.insert(tenantOwnerProfiles).values({
+          tenantId,
+          ownerUserId: ownerUser.id,
+          fullName: input.ownerName,
+          phone,
+          whatsappNumber,
+          email,
+          companyName,
+          identityNumberCiphertext: identity.ciphertext,
+          identityNumberIv: identity.iv,
+          identityNumberLast4: input.identityNumber.trim().slice(-4),
+          invitedAt: startedAt,
+          claimedAt: startedAt,
+        });
+        await tx.insert(tenantSubscriptions).values({ tenantId, plan: input.plan, status: "trial", billingCycle: "monthly", startedAt, endsAt: addSubscriptionPeriod(startedAt, "monthly") });
+        const siteId = insertId(await tx.insert(sites).values({ tenantId, name: companyName, code: siteCode }));
+        await tx.insert(sitePortalSettings).values({ tenantId, siteId, portalCode: siteCode.toLowerCase(), displayName: companyName });
+        await tx.insert(tenantMembers).values({ tenantId, userId: ownerUser.id, role: "owner", isActive: true, membershipStatus: "active", invitedByUserId: ctx.user.id });
+        await tx.insert(staffProfiles).values({ siteId, userId: ownerUser.id, role: "owner", isActive: true });
+        return { tenantId, siteId };
+      });
+      await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
+      await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "tenant_owner_profile", entityId: String(result.tenantId), action: "platform_admin_create_generator_owner_subscription", afterData: { companyName, ownerName: input.ownerName, ownerEmail: email, plan: input.plan, generatorSetup: "deferred" }, actorPlatformRole: platformRoleOf(ctx.user) });
+      return { ...result, ownerUserId: ownerUser.id, forcePasswordChange: true };
+    } catch (error) {
+      await supabaseAdmin().auth.admin.deleteUser(created.user.id);
+      throw error;
+    }
+  }),
   createGeneratorOwnerWithTemporaryPassword: platformAdminProcedure.input(z.object({
     tenantName: z.string().min(2).max(160),
     slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$/),
     ownerName: z.string().min(2).max(180),
     ownerPhone: z.string().min(5).max(30),
+    ownerWhatsapp: z.string().min(5).max(30),
     ownerEmail: z.string().email(),
     identityNumber: z.string().min(4).max(50),
     generatorName: z.string().min(2).max(160),
@@ -132,6 +200,7 @@ export const adminRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const email = input.ownerEmail.trim().toLowerCase();
     const phone = input.ownerPhone.trim();
+    const whatsappNumber = input.ownerWhatsapp.trim();
     const generatorName = input.generatorName.trim();
     const db = await dbOrThrow();
     const [[existingPhone], [existingGenerator], [existingEmail]] = await Promise.all([
@@ -162,6 +231,7 @@ export const adminRouter = router({
           ownerUserId: ownerUser.id,
           fullName: input.ownerName,
           phone,
+          whatsappNumber,
           email,
           companyName: input.companyName,
           identityNumberCiphertext: identity.ciphertext,

@@ -7,7 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { AdvancedDashboard, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OwnerLifecyclePanel, PlatformControlPanel, PlatformRolePoliciesPanel } from "./AdminAdvancedWorkspace";
+import { AdvancedDashboard, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OwnerLifecyclePanel, OwnerSubaccountPolicyPanel, PlatformControlPanel, PlatformRolePoliciesPanel } from "./AdminAdvancedWorkspace";
+import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import PlatformAccessPanel from "./PlatformAccessPanel";
 import { Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, Loader2, Plus, RefreshCw, ShieldAlert, UsersRound } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
@@ -39,6 +40,7 @@ export default function AdminConsolePage() {
   const security = trpc.admin.securityCenter.useQuery(undefined, { enabled: isPlatformAdmin });
   const refresh = async () => { await Promise.all([utils.admin.overview.invalidate(), utils.admin.listOwners.invalidate(), utils.admin.userDirectory.invalidate(), utils.admin.platformSnapshot.invalidate(), utils.admin.listNotifications.invalidate(), utils.admin.securityCenter.invalidate()]); };
   const createOwner = trpc.admin.createGeneratorOwnerWithTemporaryPassword.useMutation({ onSuccess: async () => { await refresh(); setTab("generators"); toast.success("تم إنشاء صاحب المولد ومولده بحالة انتظار المراجعة. يجب تغيير كلمة المرور عند أول دخول."); }, onError: (error) => toast.error(error.message) });
+  const createOwnerSubscription = trpc.admin.createGeneratorOwnerSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم إنشاء اشتراك صاحب المولد. يضيف المالك بيانات أول مولد بعد دخوله وتغيير كلمة المرور."); }, onError: (error) => toast.error(error.message) });
   const updateSubscription = trpc.admin.updateSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تحديث الاشتراك."); }, onError: (error) => toast.error(error.message) });
   const renewSubscription = trpc.admin.renewSubscription.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(`تم التجديد حتى ${formatDate(result.endsAt)}.`); }, onError: (error) => toast.error(error.message) });
   const attachOwner = trpc.admin.attachOwnerUser.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم ربط حساب المالك بالمساحة والمحطة."); }, onError: (error) => toast.error(error.message) });
@@ -68,7 +70,7 @@ export default function AdminConsolePage() {
   return <PlatformAdminLayout activeTab={tab} onTabChange={(nextTab) => setTab(nextTab as Tab)}><main className="space-y-6 pb-12"><header className="rounded-[26px] border border-[#F5B800]/20 bg-[#111823]/85 p-6 shadow-panel"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ShieldAlert className="h-4 w-4" />إدارة PowerHub العليا</div><h1 className="mt-2 text-2xl font-extrabold text-white">مركز قيادة المنصة</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">إشراف مركزي منظم على المولدات والمشتركين والتحصيل والشكاوى وإعدادات الحماية عبر جميع مساحات PowerHub.</p></div><Button variant="outline" onClick={() => void refresh()} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />تحديث البيانات</Button></div></header>
     {tab === "overview" && <AdvancedDashboard />}
     {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending || approvePendingGenerator.isPending} onStatus={setGeneratorStatus.mutate} onApprove={approvePendingGenerator.mutate} /><GeneratorInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
-    {tab === "ownerSubscription" && <OwnersTab users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} />}
+    {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutate} />}
     {tab === "users" && <><UsersCenter users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} userSummary={snapshot.data?.users} /><OwnerLifecyclePanel /></>}
     {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutate} />}
     {tab === "reports" && <ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} />}
@@ -76,7 +78,7 @@ export default function AdminConsolePage() {
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
-    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
+    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><OwnerSubaccountPolicyPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
   </main></PlatformAdminLayout>;
 }
 

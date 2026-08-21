@@ -44,6 +44,7 @@ export const tenantOwnerProfiles = mysqlTable("tenantOwnerProfiles", {
   ownerUserId: int("ownerUserId").references(() => users.id),
   fullName: varchar("fullName", { length: 180 }).notNull(),
   phone: varchar("phone", { length: 30 }).notNull(),
+  whatsappNumber: varchar("whatsappNumber", { length: 30 }),
   email: varchar("email", { length: 320 }),
   companyName: varchar("companyName", { length: 180 }),
   identityNumberCiphertext: text("identityNumberCiphertext"),

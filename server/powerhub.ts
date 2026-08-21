@@ -45,6 +45,18 @@ import { rolesWith, type PowerCapability, type PowerRole } from "../shared/power
 const createRoles = rolesWith("issueInvoices");
 const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
+export const ownerSubaccountRoles = ["manager", "accountant", "collector", "technician", "viewer"] as const;
+export type OwnerSubaccountRole = typeof ownerSubaccountRoles[number];
+
+export function allowedOwnerSubaccountRoles(setting?: { isEnabled: boolean; value: unknown } | null): OwnerSubaccountRole[] {
+  if (!setting) return [...ownerSubaccountRoles];
+  if (!setting.isEnabled) return [];
+  const values = setting.value && typeof setting.value === "object" && !Array.isArray(setting.value)
+    ? (setting.value as Record<string, unknown>).allowedRoles
+    : undefined;
+  if (!Array.isArray(values)) return [...ownerSubaccountRoles];
+  return ownerSubaccountRoles.filter((role) => values.includes(role));
+}
 
 export function reportDateRange(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00.000Z`);
@@ -71,6 +83,13 @@ async function getSiteTenant(siteId: number) {
   const [site] = await db.select({ id: sites.id, tenantId: sites.tenantId }).from(sites).where(eq(sites.id, siteId)).limit(1);
   if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
   return site.tenantId;
+}
+
+async function ownerAllowedSubaccountRoles() {
+  const db = await dbOrThrow();
+  const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value })
+    .from(platformSettings).where(eq(platformSettings.settingKey, "owner_subaccount_roles")).limit(1);
+  return allowedOwnerSubaccountRoles(setting);
 }
 
 async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
@@ -320,10 +339,20 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       return db.select({ id: users.id, name: users.name, email: users.email, role: users.role }).from(users).orderBy(desc(users.lastSignedIn));
     }),
+    allowedSubaccountRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const actorRole = await resolveRole(ctx.user.id, input.siteId);
+      if (actorRole !== "owner" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "هذه القائمة مخصصة لمالك المولد." });
+      return { roles: await ownerAllowedSubaccountRoles() };
+    }),
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]) }))
       .mutation(async ({ ctx, input }) => {
         await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
         const db = await dbOrThrow();
+        const actorRole = await resolveRole(ctx.user.id, input.siteId);
+        if (ctx.user.role !== "admin" && actorRole === "owner") {
+          const allowedRoles = await ownerAllowedSubaccountRoles();
+          if (!allowedRoles.includes(input.role as OwnerSubaccountRole)) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة آدمن المنصة." });
+        }
         const tenantId = await getSiteTenant(input.siteId);
         if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ربط المحطة بمستأجر قبل تعيين الفريق." });
         const [existingMembership] = await db.select({ role: tenantMembers.role }).from(tenantMembers)

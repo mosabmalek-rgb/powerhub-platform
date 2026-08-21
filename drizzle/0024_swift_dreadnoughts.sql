@@ -1,0 +1,1 @@
+ALTER TABLE `tenantOwnerProfiles` ADD `whatsappNumber` varchar(30);

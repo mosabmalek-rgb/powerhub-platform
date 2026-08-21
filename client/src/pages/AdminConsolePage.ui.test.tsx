@@ -45,6 +45,7 @@ vi.mock("@/lib/trpc", () => ({
       setTenantStatus: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       rolePolicies: { useQuery: () => ({ data: [] }) },
       saveRolePolicy: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
+      createGeneratorOwnerSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       createGeneratorOwnerWithTemporaryPassword: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       updateSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       renewSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
@@ -77,9 +78,9 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("إجمالي المشتركين")).toBeInTheDocument();
     expect(screen.getAllByText("150").length).toBeGreaterThan(0);
     fireEvent.click(sidebarNav("اشتراك صاحب مولد"));
-    expect(screen.getByText("إضافة صاحب مولد جديد")).toBeInTheDocument();
+    expect(screen.getByText("تسجيل اشتراك صاحب مولد")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("رقم الهوية")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("اسم المولد الفريد")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("رقم WhatsApp")).toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المستخدمين"));
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
     fireEvent.click(sidebarNav("المالية والتحصيل"));
@@ -135,6 +136,7 @@ describe("PowerHub platform administration UI", () => {
     fireEvent.click(sidebarNav("إعدادات المنصة"));
     expect(screen.getByText("استرداد وصول صاحب المولد")).toBeInTheDocument();
     expect(screen.getAllByText("إعدادات الصفحة العامة والميزات").length).toBeGreaterThan(0);
+    expect(screen.getByText("الحسابات الفرعية لمالك المولد")).toBeInTheDocument();
     expect(screen.getByText("سياسات الصلاحيات الدقيقة")).toBeInTheDocument();
   });
 });
