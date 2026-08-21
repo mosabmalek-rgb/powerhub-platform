@@ -624,10 +624,12 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
-      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "wallet", "bank_transfer", "card"]).default("cash"), referenceNo: z.string().max(120).optional(),
+      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
     })).mutation(async ({ ctx, input }) => {
       const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       const db = await dbOrThrow();
+      const [duplicatePayment] = await db.select({ id: payments.id }).from(payments).where(eq(payments.paymentNo, input.paymentNo)).limit(1);
+      if (duplicatePayment) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
       const [subscriber] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
       if (input.invoiceId) {
@@ -637,6 +639,17 @@ export const powerhubRouter = router({
         if (input.amount > Number(invoiceScope.balanceDue)) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الدفعة تتجاوز الرصيد المتبقي للفواتير." });
       }
       const tenantId = await getSiteTenant(input.siteId);
+      let receiptImageKey: string | undefined;
+      let receiptImageHash: string | undefined;
+      if (input.receiptImageData) {
+        if (!input.receiptImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة الإيصال." });
+        const imageBytes = Buffer.from(input.receiptImageData, "base64");
+        if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا تتجاوز صورة الإيصال 7 ميغابايت." });
+        receiptImageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
+        const extension = input.receiptImageMime === "image/png" ? "png" : input.receiptImageMime === "image/webp" ? "webp" : "jpg";
+        const stored = await storagePut(`payment-receipts/${ctx.user.id}/${input.paymentNo}-${Date.now()}.${extension}`, imageBytes, input.receiptImageMime);
+        receiptImageKey = stored.key;
+      }
       let collectorSessionId: number | undefined;
       if (role === "collector") {
         const [openSession] = await db.select({ id: collectorSessions.id }).from(collectorSessions).where(and(
@@ -645,7 +658,8 @@ export const powerhubRouter = router({
         if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
         collectorSessionId = openSession.id;
       }
-      const id = insertId(await db.insert(payments).values({ ...input, tenantId, amount: String(input.amount), collectedByUserId: ctx.user.id, collectorSessionId }));
+      const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...paymentInput } = input;
+      const id = insertId(await db.insert(payments).values({ ...paymentInput, tenantId, amount: String(input.amount), receiptImageKey, receiptImageHash, collectedByUserId: ctx.user.id, collectorSessionId }));
       if (input.invoiceId) {
         const [invoice] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
         if (invoice) {
@@ -654,7 +668,7 @@ export const powerhubRouter = router({
           await db.update(invoices).set({ paidAmount: String(paidAmount), balanceDue: String(balanceDue), status: balanceDue === 0 ? "paid" : "partially_paid" }).where(eq(invoices.id, invoice.id));
         }
       }
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "payment", entityId: String(id), action: "create", afterData: input, metadata: { collectorSessionId } });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "payment", entityId: String(id), action: "create", afterData: { ...paymentInput, receiptImageKey }, metadata: { collectorSessionId, receiptImageAttached: Boolean(receiptImageKey) } });
       return { id };
     }),
   }),

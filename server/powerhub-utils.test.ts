@@ -11,6 +11,11 @@ describe("PowerHub financial utilities", () => {
     expect(nextInvoiceNo("BAG-01", "2026-08", 12)).toBe("PH-BAG-01-202608-00012");
   });
 
+  it("keeps the invoice reference distinct for every sequence number", () => {
+    const references = [1, 2, 3].map((sequence) => nextInvoiceNo("BAG-01", "2026-08", sequence));
+    expect(new Set(references).size).toBe(3);
+  });
+
   it("hashes share tokens without returning their raw value", () => {
     expect(hashInvoiceShareToken("shared-token")).not.toContain("shared-token");
     expect(hashInvoiceShareToken("shared-token")).toBe(hashInvoiceShareToken("shared-token"));

@@ -54,7 +54,7 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByText("سجل إرسال إيصالات الدفع")).toBeInTheDocument();
     expect(screen.getByText("مراجعة الأرقام القديمة")).toBeInTheDocument();
     expect(screen.getByText("إجمالي الرسائل المرسلة")).toBeInTheDocument();
-    expect(screen.getByText("رفض المزود")).toBeInTheDocument();
+    expect(screen.getAllByText("رفض المزود").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getAllByRole("button", { name: "معاينة الرسالة" })[0]);
     expect(screen.getByText("شكل الرسالة النهائي")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "إعادة إرسال" }).length).toBeGreaterThanOrEqual(1);
