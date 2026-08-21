@@ -25,7 +25,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 7, name: "محطة التقرير", code: "REPORT-01" }] }) } },
-      dashboard: { summary: { useQuery: () => ({ data: { energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) } },
+      dashboard: { summary: { useQuery: () => ({ data: { energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) }, allBranchesSummary: { useQuery: () => ({ data: { branchCount: 1, energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) } },
       subscribers: { quota: { useQuery: () => ({ data: { plan: "starter", limit: 100, currentCount: 3, remaining: 97 } }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) } },
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
@@ -68,7 +68,7 @@ describe("supplemental PowerHub page review", () => {
 
   it("renders dashboard metrics for the selected tenant site", async () => {
     render(<WorkspaceHome />);
-    expect(screen.getByRole("combobox", { name: "اختيار المحطة" })).toHaveValue("7");
+    expect(screen.getByRole("combobox", { name: "اختيار الفرع أو الملخص المجمع" })).toHaveValue("7");
     await waitFor(() => expect(screen.getByText("إجمالي التحصيل")).toBeInTheDocument());
     expect(screen.getByText("المولدات العاملة")).toBeInTheDocument();
   });

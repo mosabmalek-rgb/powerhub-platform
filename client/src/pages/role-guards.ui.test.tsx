@@ -41,7 +41,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
     powerhub: {
-      sites: { list: { useQuery: () => mocks.query([mocks.site]) }, create: { useMutation: mocks.mutation } },
+      sites: { list: { useQuery: () => mocks.query([mocks.site]) }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, create: { useMutation: mocks.mutation } },
       staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"] }) }, assign: { useMutation: mocks.mutation } },
       meters: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       readings: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
@@ -51,7 +51,7 @@ vi.mock("@/lib/trpc", () => ({
       generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       payments: { list: { useQuery: () => mocks.query(mocks.payments) }, create: { useMutation: mocks.mutation } },
       expenses: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
-      dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) } },
+      dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) } },
       audit: { list: { useQuery: () => mocks.query([]) } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation } },

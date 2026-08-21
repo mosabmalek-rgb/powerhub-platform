@@ -22,6 +22,7 @@ import LoginPage from "./pages/LoginPage";
 import ProfileSecurityPage from "./pages/ProfileSecurityPage";
 import SubscriberPortalPage from "./pages/SubscriberPortalPage";
 import SubscriberPortalSettingsPage from "./pages/SubscriberPortalSettingsPage";
+import BranchesPage from "./pages/BranchesPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -34,6 +35,7 @@ function Router() {
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/portal"} component={SubscriberPortalPage} />
       <Route path={"/portal-settings"}>{() => <RouteAccessGate><SubscriberPortalSettingsPage /></RouteAccessGate>}</Route>
+      <Route path={"/branches"}>{() => <RouteAccessGate><BranchesPage /></RouteAccessGate>}</Route>
       <Route path={"/subscribers"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="subscribers" /></RouteAccessGate>}</Route>
       <Route path={"/generators"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="generators" /></RouteAccessGate>}</Route>
       <Route path={"/readings"}>{() => <RouteAccessGate><MeterReadingsPage /></RouteAccessGate>}</Route>

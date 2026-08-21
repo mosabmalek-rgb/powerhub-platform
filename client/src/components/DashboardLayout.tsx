@@ -20,10 +20,11 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
+import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, ChartNoAxesCombined, Fuel, Gauge,
   LayoutDashboard, LogOut, MapPinned, PanelLeft, ReceiptText,
-  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette,
+  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -38,6 +39,7 @@ const menuGroups = [
     label: "إدارة الشبكة",
     items: [
       { icon: UsersRound, label: "المشتركون", path: "/subscribers" },
+      { icon: Store, label: "الأفرع", path: "/branches" },
       { icon: Bolt, label: "المحطات والمولدات", path: "/generators" },
       { icon: Gauge, label: "العدادات والقراءات", path: "/readings" },
       { icon: MapPinned, label: "خريطة الشبكة", path: "/map" },
@@ -125,7 +127,11 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const platformRoleLabel = ({ platform_owner: "مالك المنصة", platform_admin: "مشرف المنصة", finance_admin: "مشرف مالي" } as const)[user?.platformRole ?? "platform_admin"];
   const accountRoleLabel = user ? (user.role === "admin" ? platformRoleLabel : "مساحة تشغيل المولد") : "وضع معاينة آمن";
-  const visibleMenuGroups = displayUser.role === "admin" ? [...menuGroups, platformAdminGroup] : menuGroups;
+  const workspaceSites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: Boolean(user && user.role !== "admin") });
+  const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
+  const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
+  const operationalGroups = menuGroups.map((group) => group.label === "إدارة الشبكة" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
+  const visibleMenuGroups = displayUser.role === "admin" ? [...operationalGroups, platformAdminGroup] : operationalGroups;
   const activeMenuItem = visibleMenuGroups.flatMap(group => group.items).find(item => item.path === location);
   const isMobile = useIsMobile();
 

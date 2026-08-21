@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
 import { getDb, syncSupabaseUser } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { encryptTenantCredential } from "./tenant-crypto";
@@ -163,7 +163,7 @@ export const adminRouter = router({
         const siteId = insertId(await tx.insert(sites).values({ tenantId, name: companyName, code: siteCode }));
         await tx.insert(sitePortalSettings).values({ tenantId, siteId, portalCode: siteCode.toLowerCase(), displayName: companyName });
         await tx.insert(tenantMembers).values({ tenantId, userId: ownerUser.id, role: "owner", isActive: true, membershipStatus: "active", invitedByUserId: ctx.user.id });
-        await tx.insert(staffProfiles).values({ siteId, userId: ownerUser.id, role: "owner", isActive: true });
+        await tx.insert(staffProfiles).values({ tenantId, siteId, userId: ownerUser.id, role: "owner", isActive: true });
         return { tenantId, siteId };
       });
       await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
@@ -245,7 +245,7 @@ export const adminRouter = router({
         await tx.insert(sitePortalSettings).values({ tenantId, siteId, portalCode: input.siteCode.toLowerCase(), displayName: input.siteName });
         const generatorId = insertId(await tx.insert(generators).values({ tenantId, siteId, name: generatorName, code: input.generatorCode, ratedCapacityKw: String(input.generatorCapacityKw), fuelType: input.generatorFuelType, status: "pending" }));
         await tx.insert(tenantMembers).values({ tenantId, userId: ownerUser.id, role: "owner", isActive: true, membershipStatus: "active", invitedByUserId: ctx.user.id });
-        await tx.insert(staffProfiles).values({ siteId, userId: ownerUser.id, role: "owner", isActive: true });
+        await tx.insert(staffProfiles).values({ tenantId, siteId, userId: ownerUser.id, role: "owner", isActive: true });
         return { tenantId, siteId, generatorId };
       });
       await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
@@ -591,7 +591,7 @@ export const adminRouter = router({
       const generatorId = insertId(await tx.insert(generators).values({ tenantId, siteId, name: generatorName, code: input.generatorCode, ratedCapacityKw: String(input.generatorCapacityKw), fuelType: input.generatorFuelType, status: "pending" }));
       if (input.ownerUserId) {
         await tx.insert(tenantMembers).values({ tenantId, userId: input.ownerUserId, role: "owner", isActive: true });
-        await tx.insert(staffProfiles).values({ siteId, userId: input.ownerUserId, role: "owner", isActive: true });
+        await tx.insert(staffProfiles).values({ tenantId, siteId, userId: input.ownerUserId, role: "owner", isActive: true });
       } else if (input.ownerEmail) {
         const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
         await tx.insert(accessInvitations).values({
@@ -632,7 +632,7 @@ export const adminRouter = router({
       if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد محطة لهذا المستأجر لربط مالكها." });
       await db.transaction(async (tx) => {
         await tx.insert(tenantMembers).values({ tenantId: input.tenantId, userId: input.userId, role: "owner", isActive: true }).onDuplicateKeyUpdate({ set: { role: "owner", isActive: true } });
-        await tx.insert(staffProfiles).values({ siteId: site.id, userId: input.userId, role: "owner", isActive: true }).onDuplicateKeyUpdate({ set: { isActive: true } });
+        await tx.insert(staffProfiles).values({ tenantId: input.tenantId, siteId: site.id, userId: input.userId, role: "owner", isActive: true }).onDuplicateKeyUpdate({ set: { isActive: true } });
         await tx.update(tenantOwnerProfiles).set({ ownerUserId: input.userId, claimedAt: new Date() }).where(eq(tenantOwnerProfiles.tenantId, input.tenantId));
       });
       await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "tenant_owner_profile", entityId: String(input.tenantId), action: "platform_admin_attach_owner_user", metadata: { attachedUserId: input.userId } });
@@ -822,6 +822,36 @@ export const adminRouter = router({
     }
     await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "info", status: "success", title: "تحديث التسعيرة الرسمية", createdByUserId: ctx.user.id, metadata: { ...input, notificationDeferred: input.notificationRequested } });
     return { success: true, queuedNotifications };
+  }),
+
+  listTenantBranchSettings: platformAdminProcedure.query(async () => {
+    const db = await dbOrThrow();
+    const [rows, counts] = await Promise.all([
+      db.select({ tenantId: tenants.id, tenantName: tenants.name, plan: tenants.plan, tenantStatus: tenants.status, ownerName: tenantOwnerProfiles.fullName, isEnabledOverride: tenantBranchSettings.isEnabledOverride, maxBranchesOverride: tenantBranchSettings.maxBranchesOverride, disabledBehavior: tenantBranchSettings.disabledBehavior })
+        .from(tenants)
+        .leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id))
+        .leftJoin(tenantBranchSettings, eq(tenantBranchSettings.tenantId, tenants.id))
+        .orderBy(desc(tenants.createdAt)),
+      db.select({ tenantId: sites.tenantId, count: sql<number>`count(*)` }).from(sites).where(sql`${sites.status} <> 'archived'`).groupBy(sites.tenantId),
+    ]);
+    const countByTenant = new Map(counts.map((item) => [item.tenantId, Number(item.count)]));
+    return rows.map((row) => ({ ...row, currentBranchCount: countByTenant.get(row.tenantId) ?? 0 }));
+  }),
+
+  saveTenantBranchSettings: platformAdminProcedure.input(z.object({
+    tenantId: z.number().int().positive(),
+    isEnabledOverride: z.boolean().nullable(),
+    maxBranchesOverride: z.number().int().min(1).max(1000).nullable(),
+    disabledBehavior: z.enum(["read_only", "suspended"]).default("read_only"),
+  })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
+    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
+    await db.insert(tenantBranchSettings).values(input).onDuplicateKeyUpdate({ set: { isEnabledOverride: input.isEnabledOverride, maxBranchesOverride: input.maxBranchesOverride, disabledBehavior: input.disabledBehavior, updatedAt: new Date() } });
+    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
+    if (site) await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "tenant_branch_settings", entityId: String(input.tenantId), action: "platform_admin_update_branch_settings", afterData: input, actorPlatformRole: platformRoleOf(ctx.user) });
+    await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "info", status: "success", title: "تحديث تفعيل الأفرع لصاحب مولد", createdByUserId: ctx.user.id, metadata: input });
+    return { success: true };
   }),
 
   platformConfiguration: platformAdminProcedure.query(async () => { const db = await dbOrThrow(); const [settings, recoveries, tariffPolicies] = await Promise.all([db.select().from(platformSettings).orderBy(platformSettings.settingKey), db.select({ id: accessRecoveryRequests.id, tenantName: tenants.name, ownerName: tenantOwnerProfiles.fullName, method: accessRecoveryRequests.method, status: accessRecoveryRequests.status, note: accessRecoveryRequests.note, createdAt: accessRecoveryRequests.createdAt }).from(accessRecoveryRequests).innerJoin(tenants, eq(accessRecoveryRequests.tenantId, tenants.id)).leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id)).orderBy(desc(accessRecoveryRequests.createdAt)).limit(100), db.select().from(platformTariffPolicies).orderBy(desc(platformTariffPolicies.effectiveFrom)).limit(1)]); return { settings, recoveries, currentTariff: tariffPolicies[0] ?? null }; }),

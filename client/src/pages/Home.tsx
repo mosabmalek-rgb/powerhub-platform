@@ -30,6 +30,7 @@ export function WorkspaceHome() {
   const { isAuthenticated, loading, user } = useAuth();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword });
   const [siteId, setSiteId] = useState<number | null>(null);
+  const [scope, setScope] = useState<"all" | number>("all");
 
   useEffect(() => {
     if (!siteId && sitesQuery.data?.[0]) setSiteId(sitesQuery.data[0].id);
@@ -50,12 +51,14 @@ export function WorkspaceHome() {
   const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword && accessQuery.data?.role === "owner") });
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPlan}.`); }, onError: (error) => toast.error(error.message) });
-  const summary = summaryQuery.data;
+  const showingAllBranches = scope === "all" && accessQuery.data?.role === "owner";
+  const summary = showingAllBranches ? allBranchesSummaryQuery.data : summaryQuery.data;
   const formatNumber = (value: unknown, fractionDigits = 0) => new Intl.NumberFormat("ar", { maximumFractionDigits: fractionDigits }).format(Number(value ?? 0));
   const generatorStates = [
-    { label: "المولدات العاملة", value: formatNumber(summary?.generators.active), hint: summary ? "تعمل ضمن المحطة المحددة" : "ستظهر بعد إضافة أول مولد", tone: "bg-emerald-400" },
+    { label: "المولدات العاملة", value: formatNumber(summary?.generators.active), hint: summary ? (showingAllBranches ? "تعمل عبر جميع الأفرع" : "تعمل ضمن الفرع المحدد") : "ستظهر بعد إضافة أول مولد", tone: "bg-emerald-400" },
     { label: "قيد الصيانة", value: formatNumber(summary?.generators.maintenance), hint: summary ? "تحتاج متابعة فنية" : "لا توجد أوامر صيانة مفتوحة", tone: "bg-sky-400" },
     { label: "متوقفة أو غير متصلة", value: "—", hint: summary ? "تُتابع من وحدة المولدات" : "لا توجد تنبيهات تشغيلية", tone: "bg-slate-500" },
   ];
@@ -76,7 +79,7 @@ export function WorkspaceHome() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {isAuthenticated && sitesQuery.data?.length ? <select aria-label="اختيار المحطة" value={siteId ?? ""} onChange={(event) => setSiteId(Number(event.target.value))} className="h-10 max-w-44 rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300 outline-none">{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select> : <Button variant="outline" className="border-white/10 bg-white/[0.02] text-slate-300 hover:bg-white/5 hover:text-white"><CalendarDays className="ml-2 h-4 w-4" />اليوم</Button>}
+            {isAuthenticated && sitesQuery.data?.length ? <select aria-label="اختيار الفرع أو الملخص المجمع" value={scope} onChange={(event) => { const value = event.target.value; setScope(value === "all" ? "all" : Number(value)); if (value !== "all") setSiteId(Number(value)); }} className="h-10 max-w-52 rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300 outline-none">{accessQuery.data?.role === "owner" && sitesQuery.data.length > 1 && <option className="bg-[#111823]" value="all">جميع الأفرع (ملخص مجمّع)</option>}{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select> : <Button variant="outline" className="border-white/10 bg-white/[0.02] text-slate-300 hover:bg-white/5 hover:text-white"><CalendarDays className="ml-2 h-4 w-4" />اليوم</Button>}
             <Button className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]" onClick={() => setLocation("/readings")}><FilePlus2 className="ml-2 h-4 w-4" />تسجيل قراءة</Button>
           </div>
         </header>
@@ -85,7 +88,7 @@ export function WorkspaceHome() {
           <MetricCard label="الطاقة المفوترة" value={formatNumber(summary?.energyKwh, 3)} unit="kWh" description={summary ? "إجمالي الاستهلاك من الفواتير غير الملغاة." : "تظهر بعد اعتماد أول قراءة وفاتورة."} icon={Bolt} accent="gold" />
           <MetricCard label="إجمالي التحصيل" value={formatNumber(summary?.financial.collected, 2)} unit="—" description={summary ? "إجمالي الدفعات المرتبطة بالفواتير." : "لا توجد دفعات مسجلة للفترة المحددة."} icon={CircleDollarSign} accent="emerald" />
           <MetricCard label="المتأخرات" value={formatNumber(summary?.financial.outstanding, 2)} unit="—" description={summary ? "الرصيد المتبقي في الفواتير الصادرة." : "ستُحتسب من الفواتير المستحقة."} icon={CircleAlert} accent="rose" />
-          <MetricCard label="المشتركون النشطون" value={formatNumber(summary?.subscribers)} unit="مشترك" description={summary ? "ملفات الخدمة النشطة للمحطة المحددة." : "ابدأ بإضافة ملفات المشتركين."} icon={UsersRound} accent="blue" />
+          <MetricCard label="المشتركون النشطون" value={formatNumber(summary?.subscribers)} unit="مشترك" description={summary ? (showingAllBranches ? `ملفات نشطة عبر ${allBranchesSummaryQuery.data?.branchCount ?? 0} أفرع.` : "ملفات الخدمة النشطة للفرع المحدد.") : "ابدأ بإضافة ملفات المشتركين."} icon={UsersRound} accent="blue" />
         </section>
 
         <SubscriberQuotaDashboardCard quota={subscriberQuotaQuery.data} upgradeRequest={upgradeRequestQuery.data} canRequestUpgrade={accessQuery.data?.role === "owner"} requesting={requestUpgrade.isPending} onRequestUpgrade={(requestedPlan) => requestUpgrade.mutate({ siteId: siteId!, requestedPlan })} />
@@ -98,7 +101,7 @@ export function WorkspaceHome() {
                   <h2 className="font-bold text-white">اتجاه الاستهلاك والتحصيل</h2>
                   <p className="mt-1 text-sm text-slate-400">قراءات العدادات والفواتير خلال الفترة المحددة.</p>
                 </div>
-                <Badge className="w-fit border-[#F5B800]/20 bg-[#F5B800]/10 text-[#F5B800] hover:bg-[#F5B800]/10">{summary ? "ملخص المحطة" : "بانتظار بيانات التشغيل"}</Badge>
+                <Badge className="w-fit border-[#F5B800]/20 bg-[#F5B800]/10 text-[#F5B800] hover:bg-[#F5B800]/10">{summary ? (showingAllBranches ? "ملخص جميع الأفرع" : "ملخص الفرع") : "بانتظار بيانات التشغيل"}</Badge>
               </div>
               <div className="relative flex min-h-[300px] flex-col items-center justify-center overflow-hidden px-6 text-center">
                 <div className="absolute inset-x-6 bottom-8 top-10 opacity-50" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px)", backgroundSize: "100% 52px" }} />

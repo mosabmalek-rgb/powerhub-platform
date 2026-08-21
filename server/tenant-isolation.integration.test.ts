@@ -47,7 +47,7 @@ describe("tenant isolation", () => {
       { tenantId: tenantA, siteId: siteA, portalCode: `${suffix}-a`, displayName: "بوابة A" },
       { tenantId: tenantB, siteId: siteB, portalCode: `${suffix}-b`, displayName: "بوابة B" },
     ]);
-    await db.insert(staffProfiles).values([{ siteId: siteA, userId: userManager, role: "manager" }, { siteId: siteA, userId: userAccountant, role: "accountant" }, { siteId: siteA, userId: userCollector, role: "collector" }, { siteId: siteA, userId: userTechnician, role: "technician" }, { siteId: siteA, userId: userViewer, role: "viewer" }]);
+    await db.insert(staffProfiles).values([{ tenantId: tenantA, siteId: siteA, userId: userManager, role: "manager" }, { tenantId: tenantA, siteId: siteA, userId: userAccountant, role: "accountant" }, { tenantId: tenantA, siteId: siteA, userId: userCollector, role: "collector" }, { tenantId: tenantA, siteId: siteA, userId: userTechnician, role: "technician" }, { tenantId: tenantA, siteId: siteA, userId: userViewer, role: "viewer" }]);
     const subscriberA = insertId(await db.insert(subscribers).values({ tenantId: tenantA, siteId: siteA, subscriberNo: `${suffix}-a`, fullName: "Subscriber A", phone: "+970700000010" }));
     const meterA = insertId(await db.insert(meters).values({ tenantId: tenantA, subscriberId: subscriberA, serialNumber: `${suffix}-meter-a` }));
     const baseReadingA = insertId(await db.insert(meterReadings).values({ tenantId: tenantA, meterId: meterA, readingValue: "10", status: "approved" }));
@@ -65,6 +65,7 @@ describe("tenant isolation", () => {
     const caller = powerhubRouter.createCaller({ user: ownerA, req: {} as never, res: {} as never });
     await expect(caller.staff.myAccess({ siteId: ids.siteA })).resolves.toEqual({ role: "owner" });
     await expect(caller.sites.list()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: ids.siteA }), expect.objectContaining({ id: ids.siteA2 })]));
+    await expect(caller.dashboard.allBranchesSummary({ siteId: ids.siteA })).resolves.toMatchObject({ branchCount: 2 });
     const ownerSubscriber = await caller.subscribers.create({ siteId: ids.siteA, fullName: "Owner Site", phone: "+970700000003", subscriptionType: "residential" });
     expect(ownerSubscriber.subscriberNo).toMatch(/^PH-/);
     const referenceMessages = await db.select().from(notificationMessages).where(eq(notificationMessages.subscriberId, ownerSubscriber.id));
@@ -73,7 +74,8 @@ describe("tenant isolation", () => {
       expect.objectContaining({ eventType: "subscriber_reference", channel: "sms", recipient: "+970700000003" }),
     ]));
     createdSubscriberIds.push(ownerSubscriber.id);
-    await caller.staff.assign({ siteId: ids.siteA, userId: ids.userSiteOwner, role: "owner" });
+    await db.insert(tenantMembers).values({ tenantId: ids.tenantA, userId: ids.userSiteOwner, role: "member", isActive: true, membershipStatus: "active" });
+    await db.insert(staffProfiles).values({ tenantId: ids.tenantA, siteId: ids.siteA, userId: ids.userSiteOwner, role: "owner", isActive: true });
     const [siteOwnerUser] = await db.select().from(users).where(eq(users.id, ids.userSiteOwner));
     const siteOwnerCaller = powerhubRouter.createCaller({ user: siteOwnerUser, req: {} as never, res: {} as never });
     await expect(siteOwnerCaller.staff.myAccess({ siteId: ids.siteA })).resolves.toEqual({ role: "owner" });
@@ -86,6 +88,7 @@ describe("tenant isolation", () => {
     const [manager] = await db.select().from(users).where(eq(users.id, ids.userManager));
     const managerCaller = powerhubRouter.createCaller({ user: manager, req: {} as never, res: {} as never });
     await expect(managerCaller.sites.list()).resolves.toEqual([expect.objectContaining({ id: ids.siteA })]);
+    await expect(managerCaller.dashboard.allBranchesSummary({ siteId: ids.siteA })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(managerCaller.subscribers.list({ siteId: ids.siteA2 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(managerCaller.subscribers.create({ siteId: ids.siteA2, fullName: "Cross Site", phone: "+970700000001", subscriptionType: "residential" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const managerSubscriber = await managerCaller.subscribers.create({ siteId: ids.siteA, fullName: "Manager Site", phone: "+970700000002", subscriptionType: "residential" });

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { randomBytes } from "node:crypto";
-import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
@@ -27,6 +27,7 @@ import {
   tenantInvoiceMessageTemplates,
   tenantMessagingConfigurations,
   tenantPaymentReceiptMessageTemplates,
+  tenantBranchSettings,
   tenants,
   users,
 } from "../drizzle/schema";
@@ -51,6 +52,7 @@ export type OwnerSubaccountRole = typeof ownerSubaccountRoles[number];
 export type SubscriptionPlan = "starter" | "professional" | "enterprise";
 export const defaultOwnerSubaccountLimits: Record<SubscriptionPlan, number> = { starter: 2, professional: 5, enterprise: 15 };
 export const defaultOwnerSubscriberLimits: Record<SubscriptionPlan, number> = { starter: 100, professional: 500, enterprise: 2000 };
+export const defaultBranchLimits: Record<SubscriptionPlan, number> = { starter: 1, professional: 3, enterprise: 10 };
 
 export function allowedOwnerSubaccountRoles(setting?: { isEnabled: boolean; value: unknown } | null): OwnerSubaccountRole[] {
   if (!setting) return [...ownerSubaccountRoles];
@@ -82,6 +84,39 @@ export function ownerSubscriberLimitForPlan(plan: SubscriptionPlan, setting?: { 
     : undefined;
   const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : defaultOwnerSubscriberLimits[plan];
+}
+
+export function branchLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number {
+  const rawLimits = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
+    ? (setting.value as Record<string, unknown>).defaultLimit
+    : undefined;
+  const candidate = rawLimits && typeof rawLimits === "object" && !Array.isArray(rawLimits)
+    ? (rawLimits as Record<string, unknown>)[plan]
+    : undefined;
+  const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000 ? parsed : defaultBranchLimits[plan];
+}
+
+export function resolveBranchPolicy(input: {
+  plan: SubscriptionPlan;
+  platformSetting?: { isEnabled: boolean; value: unknown } | null;
+  tenantSetting?: { isEnabledOverride: boolean | null; maxBranchesOverride: number | null; disabledBehavior: "read_only" | "suspended" } | null;
+  currentCount?: number;
+}) {
+  const planLimit = branchLimitForPlan(input.plan, input.platformSetting);
+  const overrideLimit = input.tenantSetting?.maxBranchesOverride;
+  const maxBranches = Number.isInteger(overrideLimit) && (overrideLimit ?? 0) >= 1 ? overrideLimit! : planLimit;
+  const platformEnabled = input.platformSetting?.isEnabled ?? false;
+  const isEnabled = input.tenantSetting?.isEnabledOverride ?? (platformEnabled && planLimit > 1);
+  const currentCount = input.currentCount ?? 0;
+  return {
+    isEnabled,
+    maxBranches,
+    planLimit,
+    currentCount,
+    remaining: Math.max(0, maxBranches - currentCount),
+    disabledBehavior: input.tenantSetting?.disabledBehavior ?? "read_only" as const,
+  };
 }
 
 export function reportDateRange(startDate: string, endDate: string) {
@@ -148,6 +183,18 @@ async function ownerSubscriberQuota(tenantId: number) {
   return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenant.plan };
 }
 
+async function tenantBranchPolicy(tenantId: number) {
+  const db = await dbOrThrow();
+  const [[tenant], [platformSetting], [tenantSetting], [countResult]] = await Promise.all([
+    db.select({ plan: tenants.plan }).from(tenants).where(eq(tenants.id, tenantId)).limit(1),
+    db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "branch_feature")).limit(1),
+    db.select({ isEnabledOverride: tenantBranchSettings.isEnabledOverride, maxBranchesOverride: tenantBranchSettings.maxBranchesOverride, disabledBehavior: tenantBranchSettings.disabledBehavior }).from(tenantBranchSettings).where(eq(tenantBranchSettings.tenantId, tenantId)).limit(1),
+    db.select({ count: sql<number>`count(*)` }).from(sites).where(and(eq(sites.tenantId, tenantId), ne(sites.status, "archived"))),
+  ]);
+  if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+  return resolveBranchPolicy({ plan: tenant.plan, platformSetting, tenantSetting, currentCount: Number(countResult?.count ?? 0) });
+}
+
 async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
   const db = await dbOrThrow();
   const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
@@ -164,7 +211,7 @@ async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
   const [profile] = await db
     .select({ role: staffProfiles.role })
     .from(staffProfiles)
-    .where(and(eq(staffProfiles.userId, userId), eq(staffProfiles.siteId, siteId), eq(staffProfiles.isActive, true)))
+    .where(and(eq(staffProfiles.userId, userId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, siteId), isNull(staffProfiles.siteId)), eq(staffProfiles.isActive, true)))
     .limit(1);
 
   if (profile) return profile.role;
@@ -187,6 +234,20 @@ async function requireRole(userId: number, siteId: number, allowed: PowerRole[],
   if (user?.role === "admin") return role;
   await enforcePlatformRolePolicy(role, capability);
   return role;
+}
+
+async function requireAllBranchRole(userId: number, siteId: number, allowed: PowerRole[]) {
+  const db = await dbOrThrow();
+  const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  if (user?.role === "admin") return "owner" as const;
+  const tenantId = await getSiteTenant(siteId);
+  const [membership] = await db.select({ role: tenantMembers.role }).from(tenantMembers)
+    .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, userId), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active"))).limit(1);
+  if (membership?.role === "owner") return "owner" as const;
+  const [globalProfile] = await db.select({ role: staffProfiles.role }).from(staffProfiles)
+    .where(and(eq(staffProfiles.tenantId, tenantId), eq(staffProfiles.userId, userId), isNull(staffProfiles.siteId), eq(staffProfiles.isActive, true))).limit(1);
+  if (!globalProfile || !allowed.includes(globalProfile.role)) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
+  return globalProfile.role;
 }
 
 async function writeAudit(input: {
@@ -386,9 +447,10 @@ export const powerhubRouter = router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam");
       const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
       return db.select({ profile: staffProfiles, user: users }).from(staffProfiles)
         .innerJoin(users, eq(staffProfiles.userId, users.id))
-        .where(and(eq(staffProfiles.siteId, input.siteId), eq(staffProfiles.isActive, true)));
+        .where(and(eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)), eq(staffProfiles.isActive, true)));
     }),
     directory: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
@@ -402,7 +464,7 @@ export const powerhubRouter = router({
       const [roles, limit, currentCount] = await Promise.all([ownerAllowedSubaccountRoles(), ownerSubaccountLimit(tenantId), activeSubaccountCount(tenantId)]);
       return { roles, limit, currentCount, remaining: Math.max(0, limit - currentCount) };
     }),
-    assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]) }))
+    assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) }))
       .mutation(async ({ ctx, input }) => {
         await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
         const db = await dbOrThrow();
@@ -421,12 +483,13 @@ export const powerhubRouter = router({
           if (currentCount >= limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك (${limit}).` });
         }
         const tenantRole = existingMembership?.role === "owner" ? "owner" : "member" as const;
+        const targetSiteId = input.allBranches ? null : input.siteId;
         await db.transaction(async (tx) => {
           await tx.insert(tenantMembers).values({ tenantId, userId: input.userId, role: tenantRole, isActive: true, membershipStatus: "active", expiresAt: null }).onDuplicateKeyUpdate({ set: { role: tenantRole, isActive: true, membershipStatus: "active", expiresAt: null } });
-          await tx.update(staffProfiles).set({ isActive: false }).where(and(eq(staffProfiles.siteId, input.siteId), eq(staffProfiles.userId, input.userId)));
-          await tx.insert(staffProfiles).values({ siteId: input.siteId, userId: input.userId, role: input.role, isActive: true }).onDuplicateKeyUpdate({ set: { isActive: true, updatedAt: new Date() } });
+          await tx.update(staffProfiles).set({ isActive: false }).where(and(eq(staffProfiles.tenantId, tenantId), input.allBranches ? isNull(staffProfiles.siteId) : eq(staffProfiles.siteId, input.siteId), eq(staffProfiles.userId, input.userId)));
+          await tx.insert(staffProfiles).values({ tenantId, siteId: targetSiteId, userId: input.userId, role: input.role, isActive: true }).onDuplicateKeyUpdate({ set: { isActive: true, role: input.role, updatedAt: new Date() } });
         });
-        await writeAudit({ userId: ctx.user.id, entityType: "staff_profile", entityId: `${input.siteId}:${input.userId}`, action: "assign_role", afterData: input });
+        await writeAudit({ userId: ctx.user.id, entityType: "staff_profile", entityId: `${targetSiteId ?? "all"}:${input.userId}`, action: "assign_role", afterData: { ...input, assignedSiteId: targetSiteId } });
         return { success: true };
       }),
   }),
@@ -602,20 +665,33 @@ export const powerhubRouter = router({
         .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")));
       const ownerTenantIds = memberships.filter((member) => member.role === "owner").map((member) => member.tenantId);
       const [ownedSites, assignedSites] = await Promise.all([
-        ownerTenantIds.length ? db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, status: sites.status }).from(sites).where(inArray(sites.tenantId, ownerTenantIds)) : Promise.resolve([]),
-        db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, status: sites.status }).from(staffProfiles)
+        ownerTenantIds.length ? db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, createdAt: sites.createdAt }).from(sites).where(inArray(sites.tenantId, ownerTenantIds)).orderBy(desc(sites.createdAt)) : Promise.resolve([]),
+        db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, createdAt: sites.createdAt }).from(staffProfiles)
           .innerJoin(sites, eq(staffProfiles.siteId, sites.id))
           .innerJoin(tenantMembers, and(eq(tenantMembers.tenantId, sites.tenantId), eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")))
-          .where(and(eq(staffProfiles.userId, ctx.user.id), eq(staffProfiles.isActive, true))),
+          .where(and(eq(staffProfiles.userId, ctx.user.id), eq(staffProfiles.isActive, true))).orderBy(desc(sites.createdAt)),
       ]);
       return Array.from(new Map([...ownedSites, ...assignedSites].map((site) => [site.id, site])).values());
     }),
+    branchPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"]);
+      return tenantBranchPolicy(await getSiteTenant(input.siteId));
+    }),
     create: protectedProcedure.input(siteInput).mutation(async ({ ctx, input }) => {
       const db = await dbOrThrow();
-      const existingMemberships = await db.select({ tenantId: tenantMembers.tenantId }).from(tenantMembers)
-        .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true))).limit(1);
+      const existingMemberships = await db.select({ tenantId: tenantMembers.tenantId, role: tenantMembers.role, membershipStatus: tenantMembers.membershipStatus }).from(tenantMembers)
+        .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active"))).limit(1);
+      const existingMembership = existingMemberships[0];
+      if (existingMembership && existingMembership.role !== "owner" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "إنشاء فرع جديد متاح لصاحب المولد فقط." });
+      }
+      if (existingMembership) {
+        const policy = await tenantBranchPolicy(existingMembership.tenantId);
+        if (!policy.isEnabled) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة تعدد الأفرع غير مفعّلة لحسابك من إدارة المنصة." });
+        if (policy.currentCount >= policy.maxBranches) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للأفرع في اشتراكك (${policy.maxBranches}).` });
+      }
       const id = await db.transaction(async (tx) => {
-        let tenantId = existingMemberships[0]?.tenantId;
+        let tenantId = existingMembership?.tenantId;
         if (!tenantId) {
           tenantId = insertId(await tx.insert(tenants).values({ name: input.name, slug: `${input.code.toLowerCase()}-${ctx.user.id}` }));
           await tx.insert(tenantMembers).values({ tenantId, userId: ctx.user.id, role: "owner", isActive: true });
@@ -626,6 +702,13 @@ export const powerhubRouter = router({
       });
       await writeAudit({ userId: ctx.user.id, siteId: id, entityType: "site", entityId: String(id), action: "create", afterData: input });
       return { id };
+    }),
+    updateBranch: protectedProcedure.input(siteInput.pick({ name: true, city: true, address: true }).extend({ siteId: z.number().int().positive(), status: z.enum(["active", "inactive", "archived"]) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"]);
+      const db = await dbOrThrow();
+      await db.update(sites).set({ name: input.name, city: input.city, address: input.address, status: input.status, updatedAt: new Date() }).where(eq(sites.id, input.siteId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "branch", entityId: String(input.siteId), action: "update", afterData: input });
+      return { success: true };
     }),
   }),
 
@@ -1090,6 +1173,22 @@ export const powerhubRouter = router({
       const [expenseTotals] = await db.select({ amount: sql<string>`coalesce(sum(${expenses.amount}), 0)` }).from(expenses).where(eq(expenses.siteId, input.siteId));
       const [notificationTotals] = await db.select({ failed: sql<number>`sum(case when ${notificationMessages.status} = 'failed' then 1 else 0 end)` }).from(notificationMessages).where(sql`${notificationMessages.subscriberId} in (select ${subscribers.id} from ${subscribers} where ${subscribers.siteId} = ${input.siteId})`);
       return { subscribers: Number(subscriberCount?.value ?? 0), generators: { active: Number(generatorStatus?.active ?? 0), maintenance: Number(generatorStatus?.maintenance ?? 0) }, financial: { invoiced: Number(invoiceTotals?.invoiced ?? 0), collected: Number(invoiceTotals?.paid ?? 0), outstanding: Number(invoiceTotals?.outstanding ?? 0), expenses: Number(expenseTotals?.amount ?? 0), operatingProfit: Number(invoiceTotals?.paid ?? 0) - Number(expenseTotals?.amount ?? 0) }, energyKwh: Number(invoiceTotals?.energy ?? 0), failedNotifications: Number(notificationTotals?.failed ?? 0) };
+    }),
+    allBranchesSummary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireAllBranchRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const branchRows = await db.select({ id: sites.id }).from(sites).where(and(eq(sites.tenantId, tenantId), ne(sites.status, "archived")));
+      const branchIds = branchRows.map((branch) => branch.id);
+      if (!branchIds.length) return { branchCount: 0, subscribers: 0, generators: { active: 0, maintenance: 0 }, financial: { invoiced: 0, collected: 0, outstanding: 0, expenses: 0, operatingProfit: 0 }, energyKwh: 0, failedNotifications: 0 };
+      const [subscriberCount, generatorStatus, invoiceTotals, expenseTotals, notificationTotals] = await Promise.all([
+        db.select({ value: sql<number>`count(*)` }).from(subscribers).where(and(inArray(subscribers.siteId, branchIds), eq(subscribers.serviceStatus, "active"))),
+        db.select({ active: sql<number>`sum(case when ${generators.status} = 'active' then 1 else 0 end)`, maintenance: sql<number>`sum(case when ${generators.status} = 'maintenance' then 1 else 0 end)` }).from(generators).where(inArray(generators.siteId, branchIds)),
+        db.select({ invoiced: sql<string>`coalesce(sum(${invoices.totalAmount}), 0)`, paid: sql<string>`coalesce(sum(${invoices.paidAmount}), 0)`, outstanding: sql<string>`coalesce(sum(${invoices.balanceDue}), 0)`, energy: sql<string>`coalesce(sum(${invoices.consumptionKwh}), 0)` }).from(invoices).where(and(inArray(invoices.siteId, branchIds), sql`${invoices.status} <> 'cancelled'`)),
+        db.select({ amount: sql<string>`coalesce(sum(${expenses.amount}), 0)` }).from(expenses).where(inArray(expenses.siteId, branchIds)),
+        db.select({ failed: sql<number>`sum(case when ${notificationMessages.status} = 'failed' then 1 else 0 end)` }).from(notificationMessages).where(sql`${notificationMessages.subscriberId} in (select ${subscribers.id} from ${subscribers} where ${subscribers.tenantId} = ${tenantId})`),
+      ]);
+      return { branchCount: branchIds.length, subscribers: Number(subscriberCount[0]?.value ?? 0), generators: { active: Number(generatorStatus[0]?.active ?? 0), maintenance: Number(generatorStatus[0]?.maintenance ?? 0) }, financial: { invoiced: Number(invoiceTotals[0]?.invoiced ?? 0), collected: Number(invoiceTotals[0]?.paid ?? 0), outstanding: Number(invoiceTotals[0]?.outstanding ?? 0), expenses: Number(expenseTotals[0]?.amount ?? 0), operatingProfit: Number(invoiceTotals[0]?.paid ?? 0) - Number(expenseTotals[0]?.amount ?? 0) }, energyKwh: Number(invoiceTotals[0]?.energy ?? 0), failedNotifications: Number(notificationTotals[0]?.failed ?? 0) };
     }),
   }),
 

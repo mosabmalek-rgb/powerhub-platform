@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { AdvancedDashboard, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OwnerLifecyclePanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
+import { AdvancedDashboard, BranchFeaturePolicyPanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OwnerLifecyclePanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
 import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
 import PlatformAccessPanel from "./PlatformAccessPanel";
@@ -79,7 +79,7 @@ export default function AdminConsolePage() {
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
-    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><OwnerSubaccountPolicyPanel /><OwnerSubaccountLimitPolicyPanel /><OwnerSubscriberLimitPolicyPanel /><SubscriptionUpgradeRequestsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
+    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><BranchFeaturePolicyPanel /><OwnerSubaccountPolicyPanel /><OwnerSubaccountLimitPolicyPanel /><OwnerSubscriberLimitPolicyPanel /><SubscriptionUpgradeRequestsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
   </main></PlatformAdminLayout>;
 }
 

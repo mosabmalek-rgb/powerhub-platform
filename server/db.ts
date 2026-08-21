@@ -125,7 +125,7 @@ async function acceptPendingInvitationsForUser(db: NonNullable<Awaited<ReturnTyp
         set: { role: invitation.tenantRole, isActive: true, membershipStatus: "active", invitedByUserId: invitation.invitedByUserId, expiresAt: null },
       });
       if (invitation.siteId && invitation.siteRole) {
-        await tx.insert(staffProfiles).values({ siteId: invitation.siteId, userId: user.id, role: invitation.siteRole, isActive: true })
+        await tx.insert(staffProfiles).values({ tenantId: invitation.tenantId, siteId: invitation.siteId, userId: user.id, role: invitation.siteRole, isActive: true })
           .onDuplicateKeyUpdate({ set: { isActive: true, updatedAt: new Date() } });
       }
       if (invitation.tenantRole === "owner") {

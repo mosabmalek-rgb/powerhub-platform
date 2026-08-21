@@ -55,7 +55,7 @@ describe("platform administration integration", () => {
     });
     tenantId = created.tenantId;
     siteId = created.siteId;
-    await db.insert(staffProfiles).values({ userId: managerUserId, siteId: created.siteId, role: "manager", isActive: true });
+    await db.insert(staffProfiles).values({ userId: managerUserId, tenantId: created.tenantId, siteId: created.siteId, role: "manager", isActive: true });
     const [profile] = await db.select().from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.tenantId, created.tenantId));
     const [subscription] = await db.select().from(tenantSubscriptions).where(eq(tenantSubscriptions.tenantId, created.tenantId));
     const [membership] = await db.select().from(tenantMembers).where(eq(tenantMembers.tenantId, created.tenantId));

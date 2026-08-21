@@ -80,6 +80,18 @@ export const tenantSubscriptions = mysqlTable("tenantSubscriptions", {
   index("tenant_subscription_status_end_idx").on(table.status, table.endsAt),
 ]);
 
+export const tenantBranchSettings = mysqlTable("tenantBranchSettings", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  isEnabledOverride: boolean("isEnabledOverride"),
+  maxBranchesOverride: int("maxBranchesOverride"),
+  disabledBehavior: mysqlEnum("disabledBehavior", ["read_only", "suspended"]).default("read_only").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("tenant_branch_settings_tenant_unique").on(table.tenantId),
+]);
+
 export const subscriptionUpgradeRequests = mysqlTable("subscriptionUpgradeRequests", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
@@ -167,7 +179,7 @@ export const sites = mysqlTable("sites", {
   code: varchar("code", { length: 50 }).notNull().unique(),
   city: varchar("city", { length: 100 }),
   address: text("address"),
-  status: mysqlEnum("status", ["active", "inactive"]).default("active").notNull(),
+  status: mysqlEnum("status", ["active", "inactive", "archived"]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -228,6 +240,7 @@ export const platformAccessInvitations = mysqlTable("platformAccessInvitations",
 export const staffProfiles = mysqlTable("staffProfiles", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id),
+  tenantId: int("tenantId").references(() => tenants.id),
   siteId: int("siteId").references(() => sites.id),
   role: mysqlEnum("role", ["owner", "manager", "accountant", "collector", "technician", "viewer"]).notNull(),
   isActive: boolean("isActive").default(true).notNull(),
@@ -235,6 +248,7 @@ export const staffProfiles = mysqlTable("staffProfiles", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("staff_user_site_role_unique").on(table.userId, table.siteId, table.role),
+  index("staff_tenant_site_active_idx").on(table.tenantId, table.siteId, table.isActive),
 ]);
 
 export const generators = mysqlTable("generators", {

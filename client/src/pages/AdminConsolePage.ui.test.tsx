@@ -24,7 +24,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { generatorOwners: 1, residential: 120, commercial: 30, subscribers: 150, activeSubscriptions: 1 }, owners: [ownerRow] } }) },
       listOwners: { useQuery: () => ({ data: [ownerRow] }) },
@@ -42,6 +42,8 @@ vi.mock("@/lib/trpc", () => ({
       createTariffPolicy: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       platformConfiguration: { useQuery: () => ({ data: { settings: [{ id: 11, settingKey: "invoice_delivery_channels", isEnabled: true, message: "", value: { whatsappEnabled: true, smsEnabled: true } }], recoveries: [], currentTariff: null } }) },
       savePlatformSetting: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
+      listTenantBranchSettings: { useQuery: () => ({ data: [] }) },
+      saveTenantBranchSettings: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       requestOwnerAccessRecovery: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       generatorDetails: { useQuery: () => ({ data: { generator: { id: 22, name: "مولد اختبار", code: "GEN-T-01", status: "active", ratedCapacityKw: "100", operatingHours: "12", fuelLevelLiters: "50", tenantName: "مساحة مولد الاختبار", siteName: "خدمة الاختبار", lastMaintenanceAt: null }, meterSummary: { total: 1, active: 1 }, meters: [{ id: 19, serialNumber: "MTR-TEST-01", meterType: "digital", status: "active", installedAt: new Date() }], activity: [] } }) },
       setTenantStatus: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
