@@ -15,6 +15,7 @@ vi.mock("@/lib/trpc", () => ({
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 3, name: "محطة الاختبار" }] }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) } },
+      dashboard: { financialOverview: { useQuery: () => ({ data: { month: { invoiced: 100, collectionRate: 55 }, outstanding: { overdue: 25, partialInvoices: 2 } } }) } },
       subscribers: { phoneReview: { useQuery: () => ({ data: [{ id: 11, fullName: "مشترك قديم", phone: "00970599000000", status: "ready", normalizedPhone: "+970599000000", reason: "يمكن توحيد الصيغة تلقائياً." }] }) }, applyPhoneNormalization: { useMutation: () => ({ mutate: state.mutate, isPending: false }) } },
       messaging: {
         listConfigurations: { useQuery: () => ({ data: [{ channel: "whatsapp", provider: "meta_whatsapp_cloud", phoneNumberId: "123", templateName: "invoice_ready_ar", receiptTemplateName: "payment_receipt_ar", isActive: true }] }) },
@@ -53,6 +54,8 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByText("سجل إرسال فواتير المشتركين")).toBeInTheDocument();
     expect(screen.getByText("سجل إرسال إيصالات الدفع")).toBeInTheDocument();
     expect(screen.getByText("مراجعة الأرقام القديمة")).toBeInTheDocument();
+    expect(screen.getByText("تنبيهات التحصيل والمتأخرات")).toBeInTheDocument();
+    expect(screen.getByText("متأخرات تجاوزت الاستحقاق")).toBeInTheDocument();
     expect(screen.getByText("إجمالي الرسائل المرسلة")).toBeInTheDocument();
     expect(screen.getAllByText("رفض المزود").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getAllByRole("button", { name: "معاينة الرسالة" })[0]);
