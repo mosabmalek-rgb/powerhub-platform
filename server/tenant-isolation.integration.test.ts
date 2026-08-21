@@ -65,7 +65,8 @@ describe("tenant isolation", () => {
     const caller = powerhubRouter.createCaller({ user: ownerA, req: {} as never, res: {} as never });
     await expect(caller.staff.myAccess({ siteId: ids.siteA })).resolves.toEqual({ role: "owner" });
     await expect(caller.sites.list()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: ids.siteA }), expect.objectContaining({ id: ids.siteA2 })]));
-    const ownerSubscriber = await caller.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-owner-site`, fullName: "Owner Site", phone: "+970700000003", subscriptionType: "residential" });
+    const ownerSubscriber = await caller.subscribers.create({ siteId: ids.siteA, fullName: "Owner Site", phone: "+970700000003", subscriptionType: "residential" });
+    expect(ownerSubscriber.subscriberNo).toMatch(/^PH-/);
     createdSubscriberIds.push(ownerSubscriber.id);
     await caller.staff.assign({ siteId: ids.siteA, userId: ids.userSiteOwner, role: "owner" });
     const [siteOwnerUser] = await db.select().from(users).where(eq(users.id, ids.userSiteOwner));
@@ -81,8 +82,9 @@ describe("tenant isolation", () => {
     const managerCaller = powerhubRouter.createCaller({ user: manager, req: {} as never, res: {} as never });
     await expect(managerCaller.sites.list()).resolves.toEqual([expect.objectContaining({ id: ids.siteA })]);
     await expect(managerCaller.subscribers.list({ siteId: ids.siteA2 })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(managerCaller.subscribers.create({ siteId: ids.siteA2, subscriberNo: `${suffix}-cross-site`, fullName: "Cross Site", phone: "+970700000001", subscriptionType: "residential" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    const managerSubscriber = await managerCaller.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-manager-site`, fullName: "Manager Site", phone: "+970700000002", subscriptionType: "residential" });
+    await expect(managerCaller.subscribers.create({ siteId: ids.siteA2, fullName: "Cross Site", phone: "+970700000001", subscriptionType: "residential" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const managerSubscriber = await managerCaller.subscribers.create({ siteId: ids.siteA, fullName: "Manager Site", phone: "+970700000002", subscriptionType: "residential" });
+    expect(managerSubscriber.subscriberNo).toMatch(/^PH-/);
     createdSubscriberIds.push(managerSubscriber.id);
   });
 
@@ -104,7 +106,7 @@ describe("tenant isolation", () => {
     const collector = powerhubRouter.createCaller({ user: await selectUser(ids.userCollector), req: {} as never, res: {} as never });
     const technician = powerhubRouter.createCaller({ user: await selectUser(ids.userTechnician), req: {} as never, res: {} as never });
     const viewer = powerhubRouter.createCaller({ user: await selectUser(ids.userViewer), req: {} as never, res: {} as never });
-    const accountantSubscriber = await accountant.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-accountant-site`, fullName: "Accountant Site", phone: "+970700000004", subscriptionType: "commercial" });
+    const accountantSubscriber = await accountant.subscribers.create({ siteId: ids.siteA, fullName: "Accountant Site", phone: "+970700000004", subscriptionType: "commercial" });
     createdSubscriberIds.push(accountantSubscriber.id);
     const accountantPayment = await accountant.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, paymentNo: `${suffix}-accountant`, amount: 1, paymentMethod: "cash" });
     const collectorSession = await collector.collectorSessions.open({ siteId: ids.siteA, openingCash: 5 });
@@ -168,7 +170,6 @@ describe("tenant isolation", () => {
 
     const createdSubscriber = await ownerCaller.subscribers.create({
       siteId: ids.siteA,
-      subscriberNo: `${suffix}-owner-workflow`,
       fullName: "مشترك اختبار المالك",
       phone: "+970700000099",
       subscriptionType: "residential",
@@ -177,6 +178,8 @@ describe("tenant isolation", () => {
     createdSubscriberIds.push(createdSubscriber.id);
     const [subscriber] = await db.select().from(subscribers).where(eq(subscribers.id, createdSubscriber.id));
     expect(subscriber).toMatchObject({ tenantId: ids.tenantA, siteId: ids.siteA, fullName: "مشترك اختبار المالك", serviceStatus: "active" });
+    expect(createdSubscriber.subscriberNo).toBe(subscriber.subscriberNo);
+    expect(createdSubscriber.subscriberNo).toMatch(/^PH-[A-Z0-9]+-[A-F0-9]{6}$/);
 
     const createdMeter = await ownerCaller.meters.create({
       siteId: ids.siteA,

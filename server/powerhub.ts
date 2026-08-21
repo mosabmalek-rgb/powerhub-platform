@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
+import { randomBytes } from "node:crypto";
 import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -163,6 +164,15 @@ const subscriberPortalLookupInput = z.object({
 
 function compactPhone(value: string) {
   return value.replace(/[\s\-()]/g, "");
+}
+
+export function generateSubscriberReference(siteCode: string) {
+  const compactSiteCode = siteCode.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 14) || "SITE";
+  return `PH-${compactSiteCode}-${randomBytes(3).toString("hex").toUpperCase()}`;
+}
+
+function isDuplicateKeyError(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ER_DUP_ENTRY";
 }
 
 async function getEnabledPortal(portalCode: string) {
@@ -502,7 +512,6 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(siteInput.pick({ code: true }).extend({
       siteId: z.number().int().positive(),
-      subscriberNo: z.string().min(1).max(50),
       fullName: z.string().min(2).max(180),
       phone: z.string().min(5).max(30),
       address: z.string().max(1000).optional(),
@@ -512,9 +521,19 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
       const phone = normalizeInternationalPhone(input.phone);
-      const id = insertId(await db.insert(subscribers).values({ ...input, phone, tenantId }));
-      await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(id), action: "create", afterData: { ...input, phone } });
-      return { id };
+      const [site] = await db.select({ code: sites.code }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const subscriberNo = generateSubscriberReference(site.code);
+        try {
+          const id = insertId(await db.insert(subscribers).values({ ...input, subscriberNo, phone, tenantId }));
+          await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(id), action: "create", afterData: { ...input, subscriberNo, phone } });
+          return { id, subscriberNo };
+        } catch (error) {
+          if (!isDuplicateKeyError(error) || attempt === 4) throw error;
+        }
+      }
+      throw new TRPCError({ code: "CONFLICT", message: "تعذر توليد رقم مرجعي فريد للمشترك. أعد المحاولة." });
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
