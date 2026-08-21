@@ -20,6 +20,8 @@ import AdminConsolePage from "./pages/AdminConsolePage";
 import FinanceAdminPage from "./pages/FinanceAdminPage";
 import LoginPage from "./pages/LoginPage";
 import ProfileSecurityPage from "./pages/ProfileSecurityPage";
+import SubscriberPortalPage from "./pages/SubscriberPortalPage";
+import SubscriberPortalSettingsPage from "./pages/SubscriberPortalSettingsPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -30,6 +32,8 @@ function Router() {
       <Route path={"/workspace"}>{() => <RouteAccessGate><WorkspaceHome /></RouteAccessGate>}</Route>
       <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
+      <Route path={"/portal"} component={SubscriberPortalPage} />
+      <Route path={"/portal-settings"}>{() => <RouteAccessGate><SubscriberPortalSettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/subscribers"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="subscribers" /></RouteAccessGate>}</Route>
       <Route path={"/generators"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="generators" /></RouteAccessGate>}</Route>
       <Route path={"/readings"}>{() => <RouteAccessGate><MeterReadingsPage /></RouteAccessGate>}</Route>

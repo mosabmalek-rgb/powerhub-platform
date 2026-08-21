@@ -152,6 +152,23 @@ export const sites = mysqlTable("sites", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const sitePortalSettings = mysqlTable("sitePortalSettings", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
+  portalCode: varchar("portalCode", { length: 50 }).notNull(),
+  displayName: varchar("displayName", { length: 160 }),
+  primaryColor: varchar("primaryColor", { length: 20 }).default("#0D1117").notNull(),
+  accentColor: varchar("accentColor", { length: 20 }).default("#F5B800").notNull(),
+  isEnabled: boolean("isEnabled").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("site_portal_settings_site_unique").on(table.siteId),
+  uniqueIndex("site_portal_settings_code_unique").on(table.portalCode),
+  index("site_portal_settings_tenant_idx").on(table.tenantId),
+]);
+
 export const accessInvitations = mysqlTable("accessInvitations", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { auditLogs, collectorSessions, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenantMessagingConfigurations, tenants, users } from "../drizzle/schema";
+import { auditLogs, collectorSessions, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sitePortalSettings, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenantMessagingConfigurations, tenants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { powerhubRouter } from "./powerhub";
 
@@ -43,12 +43,16 @@ describe("tenant isolation", () => {
     const siteA = insertId(await db.insert(sites).values({ tenantId: tenantA, name: "Site A", code: `${suffix}-a`.toUpperCase() }));
     const siteA2 = insertId(await db.insert(sites).values({ tenantId: tenantA, name: "Site A2", code: `${suffix}-a2`.toUpperCase() }));
     const siteB = insertId(await db.insert(sites).values({ tenantId: tenantB, name: "Site B", code: `${suffix}-b`.toUpperCase() }));
+    await db.insert(sitePortalSettings).values([
+      { tenantId: tenantA, siteId: siteA, portalCode: `${suffix}-a`, displayName: "بوابة A" },
+      { tenantId: tenantB, siteId: siteB, portalCode: `${suffix}-b`, displayName: "بوابة B" },
+    ]);
     await db.insert(staffProfiles).values([{ siteId: siteA, userId: userManager, role: "manager" }, { siteId: siteA, userId: userAccountant, role: "accountant" }, { siteId: siteA, userId: userCollector, role: "collector" }, { siteId: siteA, userId: userTechnician, role: "technician" }, { siteId: siteA, userId: userViewer, role: "viewer" }]);
-    const subscriberA = insertId(await db.insert(subscribers).values({ tenantId: tenantA, siteId: siteA, subscriberNo: `${suffix}-a`, fullName: "Subscriber A", phone: "700000010" }));
+    const subscriberA = insertId(await db.insert(subscribers).values({ tenantId: tenantA, siteId: siteA, subscriberNo: `${suffix}-a`, fullName: "Subscriber A", phone: "+970700000010" }));
     const meterA = insertId(await db.insert(meters).values({ tenantId: tenantA, subscriberId: subscriberA, serialNumber: `${suffix}-meter-a` }));
     const baseReadingA = insertId(await db.insert(meterReadings).values({ tenantId: tenantA, meterId: meterA, readingValue: "10", status: "approved" }));
     const tariffA = insertId(await db.insert(tariffs).values({ tenantId: tenantA, siteId: siteA, name: "Tariff A", code: `${suffix}-tariff`, pricePerKwh: "1.5", fixedFee: "2", taxRate: "0" }));
-    const subscriberB = insertId(await db.insert(subscribers).values({ tenantId: tenantB, siteId: siteB, subscriberNo: suffix, fullName: "Subscriber B", phone: "700000000" }));
+    const subscriberB = insertId(await db.insert(subscribers).values({ tenantId: tenantB, siteId: siteB, subscriberNo: suffix, fullName: "Subscriber B", phone: "+970700000000" }));
     const meterB = insertId(await db.insert(meters).values({ tenantId: tenantB, subscriberId: subscriberB, serialNumber: `${suffix}-meter` }));
     const readingB = insertId(await db.insert(meterReadings).values({ tenantId: tenantB, meterId: meterB, readingValue: "100", status: "approved" }));
     ids = { userA, userB, userManager, userAccountant, userCollector, userTechnician, userViewer, userSiteOwner, tenantA, tenantB, siteA, siteA2, siteB, subscriberA, meterA, baseReadingA, tariffA, subscriberB, meterB, readingB };
@@ -61,7 +65,7 @@ describe("tenant isolation", () => {
     const caller = powerhubRouter.createCaller({ user: ownerA, req: {} as never, res: {} as never });
     await expect(caller.staff.myAccess({ siteId: ids.siteA })).resolves.toEqual({ role: "owner" });
     await expect(caller.sites.list()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: ids.siteA }), expect.objectContaining({ id: ids.siteA2 })]));
-    const ownerSubscriber = await caller.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-owner-site`, fullName: "Owner Site", phone: "700000003", subscriptionType: "residential" });
+    const ownerSubscriber = await caller.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-owner-site`, fullName: "Owner Site", phone: "+970700000003", subscriptionType: "residential" });
     createdSubscriberIds.push(ownerSubscriber.id);
     await caller.staff.assign({ siteId: ids.siteA, userId: ids.userSiteOwner, role: "owner" });
     const [siteOwnerUser] = await db.select().from(users).where(eq(users.id, ids.userSiteOwner));
@@ -77,9 +81,19 @@ describe("tenant isolation", () => {
     const managerCaller = powerhubRouter.createCaller({ user: manager, req: {} as never, res: {} as never });
     await expect(managerCaller.sites.list()).resolves.toEqual([expect.objectContaining({ id: ids.siteA })]);
     await expect(managerCaller.subscribers.list({ siteId: ids.siteA2 })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(managerCaller.subscribers.create({ siteId: ids.siteA2, subscriberNo: `${suffix}-cross-site`, fullName: "Cross Site", phone: "700000001", subscriptionType: "residential" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    const managerSubscriber = await managerCaller.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-manager-site`, fullName: "Manager Site", phone: "700000002", subscriptionType: "residential" });
+    await expect(managerCaller.subscribers.create({ siteId: ids.siteA2, subscriberNo: `${suffix}-cross-site`, fullName: "Cross Site", phone: "+970700000001", subscriptionType: "residential" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const managerSubscriber = await managerCaller.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-manager-site`, fullName: "Manager Site", phone: "+970700000002", subscriptionType: "residential" });
     createdSubscriberIds.push(managerSubscriber.id);
+  });
+
+  testIfEnabled("reveals public subscriber data only when portal code, reference number, and phone all match", async () => {
+    const publicCaller = powerhubRouter.createCaller({ user: null, req: {} as never, res: {} as never } as never);
+    await expect(publicCaller.subscriberPortal.lookup({ portalCode: `${suffix}-a`, subscriberNo: `${suffix}-a`, phone: "+970700000010" })).resolves.toMatchObject({
+      portal: { portalCode: `${suffix}-a`, displayName: "بوابة A" },
+      subscriber: { fullName: "Subscriber A", subscriberNo: `${suffix}-a` },
+    });
+    await expect(publicCaller.subscriberPortal.lookup({ portalCode: `${suffix}-a`, subscriberNo: `${suffix}-a`, phone: "+970700000000" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(publicCaller.subscriberPortal.lookup({ portalCode: `${suffix}-b`, subscriberNo: `${suffix}-a`, phone: "+970700000010" })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   testIfEnabled("enforces accountant, collector, technician, and viewer boundaries", async () => {
@@ -90,7 +104,7 @@ describe("tenant isolation", () => {
     const collector = powerhubRouter.createCaller({ user: await selectUser(ids.userCollector), req: {} as never, res: {} as never });
     const technician = powerhubRouter.createCaller({ user: await selectUser(ids.userTechnician), req: {} as never, res: {} as never });
     const viewer = powerhubRouter.createCaller({ user: await selectUser(ids.userViewer), req: {} as never, res: {} as never });
-    const accountantSubscriber = await accountant.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-accountant-site`, fullName: "Accountant Site", phone: "700000004", subscriptionType: "commercial" });
+    const accountantSubscriber = await accountant.subscribers.create({ siteId: ids.siteA, subscriberNo: `${suffix}-accountant-site`, fullName: "Accountant Site", phone: "+970700000004", subscriptionType: "commercial" });
     createdSubscriberIds.push(accountantSubscriber.id);
     const accountantPayment = await accountant.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, paymentNo: `${suffix}-accountant`, amount: 1, paymentMethod: "cash" });
     const collectorSession = await collector.collectorSessions.open({ siteId: ids.siteA, openingCash: 5 });
@@ -156,7 +170,7 @@ describe("tenant isolation", () => {
       siteId: ids.siteA,
       subscriberNo: `${suffix}-owner-workflow`,
       fullName: "مشترك اختبار المالك",
-      phone: "700000099",
+      phone: "+970700000099",
       subscriptionType: "residential",
       address: "عنوان اختبار تشغيلي",
     });
@@ -231,6 +245,7 @@ describe("tenant isolation", () => {
     await db.delete(staffProfiles).where(inArray(staffProfiles.userId, [ids.userManager, ids.userAccountant, ids.userCollector, ids.userTechnician, ids.userViewer, ids.userSiteOwner]));
     await db.delete(tariffs).where(eq(tariffs.id, ids.tariffA));
     await db.delete(auditLogs).where(inArray(auditLogs.siteId, [ids.siteA, ids.siteA2, ids.siteB]));
+    await db.delete(sitePortalSettings).where(inArray(sitePortalSettings.siteId, [ids.siteA, ids.siteA2, ids.siteB]));
     await db.delete(sites).where(inArray(sites.id, [ids.siteA, ids.siteA2, ids.siteB]));
     await db.delete(tenantMessagingConfigurations).where(inArray(tenantMessagingConfigurations.tenantId, [ids.tenantA, ids.tenantB]));
     await db.delete(tenantMembers).where(inArray(tenantMembers.tenantId, [ids.tenantA, ids.tenantB]));

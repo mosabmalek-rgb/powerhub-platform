@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sites, staffProfiles, subscribers, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
 import { getDb, syncSupabaseUser } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { encryptTenantCredential } from "./tenant-crypto";
@@ -172,6 +172,7 @@ export const adminRouter = router({
         });
         await tx.insert(tenantSubscriptions).values({ tenantId, plan: input.plan, status: input.subscriptionStatus, billingCycle: input.billingCycle, startedAt, endsAt, autoRenew: input.autoRenew, notes: input.notes });
         const siteId = insertId(await tx.insert(sites).values({ tenantId, name: input.siteName, code: input.siteCode, city: input.city }));
+        await tx.insert(sitePortalSettings).values({ tenantId, siteId, portalCode: input.siteCode.toLowerCase(), displayName: input.siteName });
         const generatorId = insertId(await tx.insert(generators).values({ tenantId, siteId, name: generatorName, code: input.generatorCode, ratedCapacityKw: String(input.generatorCapacityKw), fuelType: input.generatorFuelType, status: "pending" }));
         await tx.insert(tenantMembers).values({ tenantId, userId: ownerUser.id, role: "owner", isActive: true, membershipStatus: "active", invitedByUserId: ctx.user.id });
         await tx.insert(staffProfiles).values({ siteId, userId: ownerUser.id, role: "owner", isActive: true });
@@ -493,6 +494,7 @@ export const adminRouter = router({
         code: input.siteCode,
         city: input.city,
       }));
+      await tx.insert(sitePortalSettings).values({ tenantId, siteId, portalCode: input.siteCode.toLowerCase(), displayName: input.siteName });
       const generatorId = insertId(await tx.insert(generators).values({ tenantId, siteId, name: generatorName, code: input.generatorCode, ratedCapacityKw: String(input.generatorCapacityKw), fuelType: input.generatorFuelType, status: "pending" }));
       if (input.ownerUserId) {
         await tx.insert(tenantMembers).values({ tenantId, userId: input.ownerUserId, role: "owner", isActive: true });

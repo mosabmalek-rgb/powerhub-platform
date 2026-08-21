@@ -23,7 +23,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   BellRing, Bolt, ChartNoAxesCombined, Fuel, Gauge,
   LayoutDashboard, LogOut, MapPinned, PanelLeft, ReceiptText,
-  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound,
+  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -56,6 +56,7 @@ const menuGroups = [
     label: "الرقابة",
     items: [
       { icon: BellRing, label: "الإشعارات", path: "/notifications" },
+      { icon: Palette, label: "بوابة المشتركين", path: "/portal-settings" },
       { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
       { icon: Settings2, label: "الإعدادات", path: "/settings" },
     ],

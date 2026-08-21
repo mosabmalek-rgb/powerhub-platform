@@ -16,6 +16,7 @@ import {
   payments,
   platformRolePolicies,
   platformSettings,
+  sitePortalSettings,
   sites,
   staffProfiles,
   subscribers,
@@ -153,6 +154,48 @@ const siteInput = z.object({
 
 const siteScoped = z.object({ siteId: z.number().int().positive() });
 
+const portalCodeInput = z.string().trim().min(2).max(50).transform((value) => value.toLowerCase());
+const subscriberPortalLookupInput = z.object({
+  portalCode: portalCodeInput,
+  subscriberNo: z.string().trim().min(1).max(50),
+  phone: z.string().trim().min(6).max(30),
+});
+
+function compactPhone(value: string) {
+  return value.replace(/[\s\-()]/g, "");
+}
+
+async function getEnabledPortal(portalCode: string) {
+  const db = await dbOrThrow();
+  const [portal] = await db.select({
+    id: sitePortalSettings.id,
+    tenantId: sitePortalSettings.tenantId,
+    siteId: sitePortalSettings.siteId,
+    portalCode: sitePortalSettings.portalCode,
+    displayName: sitePortalSettings.displayName,
+    primaryColor: sitePortalSettings.primaryColor,
+    accentColor: sitePortalSettings.accentColor,
+    siteName: sites.name,
+    city: sites.city,
+  }).from(sitePortalSettings)
+    .innerJoin(sites, eq(sitePortalSettings.siteId, sites.id))
+    .where(and(eq(sitePortalSettings.portalCode, portalCode), eq(sitePortalSettings.isEnabled, true), eq(sites.status, "active")))
+    .limit(1);
+  if (!portal) throw new TRPCError({ code: "NOT_FOUND", message: "رابط بوابة المشتركين غير متاح." });
+  return portal;
+}
+
+async function getVerifiedPortalSubscriber(input: z.infer<typeof subscriberPortalLookupInput>) {
+  const [portal, db] = await Promise.all([getEnabledPortal(input.portalCode), dbOrThrow()]);
+  const [subscriber] = await db.select().from(subscribers)
+    .where(and(eq(subscribers.siteId, portal.siteId), eq(subscribers.subscriberNo, input.subscriberNo)))
+    .limit(1);
+  if (!subscriber || compactPhone(subscriber.phone) !== compactPhone(input.phone)) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من بيانات المشترك. راجع الرقم المرجعي ورقم الهاتف." });
+  }
+  return { portal, subscriber };
+}
+
 export const powerhubRouter = router({
   messaging: router({
     listConfigurations: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
@@ -277,6 +320,145 @@ export const powerhubRouter = router({
         return { success: true };
       }),
   }),
+  subscriberPortal: router({
+    list: publicProcedure.query(async () => {
+      const db = await dbOrThrow();
+      return db.select({
+        portalCode: sitePortalSettings.portalCode,
+        displayName: sitePortalSettings.displayName,
+        primaryColor: sitePortalSettings.primaryColor,
+        accentColor: sitePortalSettings.accentColor,
+        siteName: sites.name,
+        city: sites.city,
+      }).from(sitePortalSettings)
+        .innerJoin(sites, eq(sitePortalSettings.siteId, sites.id))
+        .where(and(eq(sitePortalSettings.isEnabled, true), eq(sites.status, "active")))
+        .orderBy(sites.name);
+    }),
+    theme: publicProcedure.input(z.object({ portalCode: portalCodeInput })).query(async ({ input }) => {
+      const portal = await getEnabledPortal(input.portalCode);
+      return {
+        portalCode: portal.portalCode,
+        displayName: portal.displayName || portal.siteName,
+        primaryColor: portal.primaryColor,
+        accentColor: portal.accentColor,
+        city: portal.city,
+      };
+    }),
+    lookup: publicProcedure.input(subscriberPortalLookupInput).query(async ({ input }) => {
+      const { portal, subscriber } = await getVerifiedPortalSubscriber(input);
+      const db = await dbOrThrow();
+      const [rawInvoices, paymentRows] = await Promise.all([
+        db.select().from(invoices).where(and(eq(invoices.siteId, portal.siteId), eq(invoices.subscriberId, subscriber.id))).orderBy(desc(invoices.issueDate)).limit(24),
+        db.select({
+          id: payments.id,
+          paymentNo: payments.paymentNo,
+          amount: payments.amount,
+          paymentMethod: payments.paymentMethod,
+          status: payments.status,
+          paidAt: payments.paidAt,
+          invoiceNo: invoices.invoiceNo,
+        }).from(payments).leftJoin(invoices, eq(payments.invoiceId, invoices.id))
+          .where(and(eq(payments.siteId, portal.siteId), eq(payments.subscriberId, subscriber.id)))
+          .orderBy(desc(payments.paidAt)).limit(24),
+      ]);
+      const subscriberInvoices = rawInvoices.filter((invoice) => invoice.status !== "draft" && invoice.status !== "cancelled");
+      const currentPeriod = new Date().toISOString().slice(0, 7);
+      const currentInvoice = subscriberInvoices.find((invoice) => invoice.billingPeriod === currentPeriod);
+      const completedPayments = paymentRows.filter((payment) => payment.status === "completed");
+      const outstandingBalance = subscriberInvoices.reduce((total, invoice) => total + Number(invoice.balanceDue || 0), 0);
+      return {
+        portal: { portalCode: portal.portalCode, displayName: portal.displayName || portal.siteName, primaryColor: portal.primaryColor, accentColor: portal.accentColor, city: portal.city },
+        subscriber: {
+          subscriberNo: subscriber.subscriberNo,
+          fullName: subscriber.fullName,
+          phone: subscriber.phone,
+          address: subscriber.address,
+          subscriptionType: subscriber.subscriptionType,
+          serviceStatus: subscriber.serviceStatus,
+          joinedAt: subscriber.createdAt,
+        },
+        summary: {
+          outstandingBalance,
+          currentConsumptionKwh: Number(currentInvoice?.consumptionKwh || 0),
+          currentInvoiceStatus: currentInvoice?.status || null,
+          lastPayment: completedPayments[0] || null,
+        },
+        invoices: subscriberInvoices.map((invoice) => ({
+          invoiceNo: invoice.invoiceNo,
+          billingPeriod: invoice.billingPeriod,
+          issueDate: invoice.issueDate,
+          dueDate: invoice.dueDate,
+          consumptionKwh: Number(invoice.consumptionKwh),
+          totalAmount: Number(invoice.totalAmount),
+          paidAmount: Number(invoice.paidAmount),
+          balanceDue: Number(invoice.balanceDue),
+          status: invoice.status,
+        })),
+        consumptionHistory: subscriberInvoices.slice(0, 6).reverse().map((invoice) => ({ period: invoice.billingPeriod, consumptionKwh: Number(invoice.consumptionKwh) })),
+        payments: completedPayments.map((payment) => ({ ...payment, amount: Number(payment.amount) })),
+      };
+    }),
+    invoice: publicProcedure.input(subscriberPortalLookupInput.extend({ invoiceNo: z.string().trim().min(1).max(60) })).query(async ({ input }) => {
+      const { portal, subscriber } = await getVerifiedPortalSubscriber(input);
+      const db = await dbOrThrow();
+      const [invoice] = await db.select().from(invoices)
+        .where(and(eq(invoices.siteId, portal.siteId), eq(invoices.subscriberId, subscriber.id), eq(invoices.invoiceNo, input.invoiceNo)))
+        .limit(1);
+      if (!invoice || invoice.status === "draft" || invoice.status === "cancelled") throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة غير متاحة للعرض." });
+      const lines = await db.select({ description: invoiceLines.description, quantity: invoiceLines.quantity, unitPrice: invoiceLines.unitPrice, amount: invoiceLines.amount })
+        .from(invoiceLines).where(eq(invoiceLines.invoiceId, invoice.id)).orderBy(invoiceLines.displayOrder);
+      return {
+        portal: { displayName: portal.displayName || portal.siteName, primaryColor: portal.primaryColor, accentColor: portal.accentColor },
+        subscriber: { fullName: subscriber.fullName, subscriberNo: subscriber.subscriberNo, phone: subscriber.phone, address: subscriber.address },
+        invoice: {
+          invoiceNo: invoice.invoiceNo,
+          billingPeriod: invoice.billingPeriod,
+          issueDate: invoice.issueDate,
+          dueDate: invoice.dueDate,
+          previousReading: Number(invoice.previousReading || 0),
+          currentReading: Number(invoice.currentReading || 0),
+          consumptionKwh: Number(invoice.consumptionKwh),
+          pricePerKwh: Number(invoice.pricePerKwh),
+          fixedFee: Number(invoice.fixedFee),
+          taxAmount: Number(invoice.taxAmount),
+          discountAmount: Number(invoice.discountAmount),
+          totalAmount: Number(invoice.totalAmount),
+          paidAmount: Number(invoice.paidAmount),
+          balanceDue: Number(invoice.balanceDue),
+          status: invoice.status,
+        },
+        lines: lines.map((line) => ({ ...line, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), amount: Number(line.amount) })),
+      };
+    }),
+    settings: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"]);
+      const db = await dbOrThrow();
+      const [site] = await db.select({ id: sites.id, tenantId: sites.tenantId, name: sites.name, code: sites.code }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
+      const [setting] = await db.select().from(sitePortalSettings).where(eq(sitePortalSettings.siteId, input.siteId)).limit(1);
+      return setting || { siteId: site.id, tenantId: site.tenantId, portalCode: site.code.toLowerCase(), displayName: site.name, primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true };
+    }),
+    saveSettings: protectedProcedure.input(siteScoped.extend({
+      portalCode: z.string().trim().min(2).max(50).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+      displayName: z.string().trim().min(2).max(160),
+      primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      isEnabled: z.boolean(),
+    })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"]);
+      const db = await dbOrThrow();
+      const [site] = await db.select({ tenantId: sites.tenantId }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
+      const code = input.portalCode.toLowerCase();
+      const [conflict] = await db.select({ siteId: sitePortalSettings.siteId }).from(sitePortalSettings).where(eq(sitePortalSettings.portalCode, code)).limit(1);
+      if (conflict && conflict.siteId !== input.siteId) throw new TRPCError({ code: "CONFLICT", message: "رمز الرابط مستخدم لمولد آخر. اختر رمزاً مختلفاً." });
+      const values = { tenantId: site.tenantId, siteId: input.siteId, portalCode: code, displayName: input.displayName, primaryColor: input.primaryColor.toUpperCase(), accentColor: input.accentColor.toUpperCase(), isEnabled: input.isEnabled };
+      await db.insert(sitePortalSettings).values(values).onDuplicateKeyUpdate({ set: { portalCode: values.portalCode, displayName: values.displayName, primaryColor: values.primaryColor, accentColor: values.accentColor, isEnabled: values.isEnabled, updatedAt: new Date() } });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "site_portal_settings", entityId: String(input.siteId), action: "update", afterData: values });
+      return { success: true, portalCode: code };
+    }),
+  }),
   sites: router({
     list: protectedProcedure.query(async ({ ctx }) => {
       const db = await dbOrThrow();
@@ -303,7 +485,9 @@ export const powerhubRouter = router({
           tenantId = insertId(await tx.insert(tenants).values({ name: input.name, slug: `${input.code.toLowerCase()}-${ctx.user.id}` }));
           await tx.insert(tenantMembers).values({ tenantId, userId: ctx.user.id, role: "owner", isActive: true });
         }
-        return insertId(await tx.insert(sites).values({ ...input, tenantId }));
+        const siteId = insertId(await tx.insert(sites).values({ ...input, tenantId }));
+        await tx.insert(sitePortalSettings).values({ tenantId, siteId, portalCode: input.code.toLowerCase(), displayName: input.name });
+        return siteId;
       });
       await writeAudit({ userId: ctx.user.id, siteId: id, entityType: "site", entityId: String(id), action: "create", afterData: input });
       return { id };
