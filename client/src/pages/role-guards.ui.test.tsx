@@ -34,6 +34,7 @@ vi.stubGlobal("ResizeObserver", ResizeObserverMock);
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false }) }));
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/ui/switch", () => ({ Switch: ({ checked, onCheckedChange, ...props }: { checked: boolean; onCheckedChange: (value: boolean) => void; [key: string]: unknown }) => <button type="button" aria-pressed={checked} onClick={() => onCheckedChange(!checked)} {...props} /> }));
+vi.mock("qrcode.react", () => ({ QRCodeCanvas: ({ value }: { value: string }) => <canvas aria-label="رمز QR للرابط" data-value={value} /> }));
 vi.mock("wouter", () => ({ useLocation: () => ["/readings", vi.fn()] }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
@@ -118,6 +119,8 @@ describe("role guards in administration UI", () => {
     render(<SubscriberPortalSettingsPage />);
     expect(screen.getByRole("button", { name: "نسخ رابط البوابة" })).toBeInTheDocument();
     expect(screen.getByText(/انسخ الرابط ثم شاركه مع المشتركين/)).toBeInTheDocument();
+    expect(screen.getByText("رمز QR للبوابة")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تنزيل رمز QR" })).toBeInTheDocument();
   });
 
   it("shows team administration to the owner", () => {
