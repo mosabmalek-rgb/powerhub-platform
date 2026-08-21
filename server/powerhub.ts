@@ -1226,6 +1226,7 @@ export const powerhubRouter = router({
       return buildFinancialOverview({
         branches: branchRows.map((branch) => ({ id: branch.id, name: branch.name, activeSubscribers: subscriberCountBySite.get(branch.id) ?? 0 })),
         invoices: invoiceRows.map((row) => ({
+          id: row.invoice.id,
           siteId: row.invoice.siteId,
           subscriberId: row.invoice.subscriberId,
           subscriberName: row.subscriber.fullName,

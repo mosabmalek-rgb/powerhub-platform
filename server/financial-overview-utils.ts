@@ -1,4 +1,5 @@
 export type FinancialOverviewInvoice = {
+  id: number;
   siteId: number;
   subscriberId: number;
   subscriberName: string;
@@ -75,6 +76,8 @@ export function buildFinancialOverview(input: {
     outstanding: number;
     invoiceCount: number;
     partialInvoices: number;
+    invoiceId: number;
+    invoiceNo: string;
     oldestDueDate: Date;
     isOverdue: boolean;
   }>();
@@ -112,13 +115,19 @@ export function buildFinancialOverview(input: {
         outstanding: 0,
         invoiceCount: 0,
         partialInvoices: 0,
+        invoiceId: invoice.id,
+        invoiceNo: invoice.invoiceNo,
         oldestDueDate: invoice.dueDate,
         isOverdue: false,
       };
       debtor.outstanding += balance;
       debtor.invoiceCount += 1;
       if (invoice.status === "partially_paid") debtor.partialInvoices += 1;
-      if (invoice.dueDate < debtor.oldestDueDate) debtor.oldestDueDate = invoice.dueDate;
+      if (invoice.dueDate < debtor.oldestDueDate) {
+        debtor.oldestDueDate = invoice.dueDate;
+        debtor.invoiceId = invoice.id;
+        debtor.invoiceNo = invoice.invoiceNo;
+      }
       debtor.isOverdue ||= isOverdue;
       debtorMap.set(key, debtor);
     }
