@@ -16,7 +16,9 @@ describe("SubscriberQuotaDashboardCard", () => {
     const requestUpgrade = vi.fn();
     render(<SubscriberQuotaDashboardCard quota={{ plan: "starter", limit: 100, currentCount: 100, remaining: 0 }} canRequestUpgrade requesting={false} onRequestUpgrade={requestUpgrade} />);
     fireEvent.click(screen.getByRole("button", { name: "طلب ترقية الباقة" }));
-    expect(requestUpgrade).toHaveBeenCalledOnce();
+    expect(screen.getByText("اختر الباقة المطلوبة")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /باقة professional/ }));
+    expect(requestUpgrade).toHaveBeenCalledWith("professional");
     expect(screen.getByText("بلغت الحد الأقصى للمشتركين في باقتك.")).toBeInTheDocument();
   });
 });

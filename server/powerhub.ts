@@ -431,19 +431,28 @@ export const powerhubRouter = router({
       }),
   }),
   subscription: router({
-    requestUpgrade: protectedProcedure.input(siteScoped).mutation(async ({ ctx, input }) => {
+    currentUpgradeRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const [request] = await db.select({ id: subscriptionUpgradeRequests.id, currentPlan: subscriptionUpgradeRequests.currentPlan, requestedPlan: subscriptionUpgradeRequests.requestedPlan, status: subscriptionUpgradeRequests.status, note: subscriptionUpgradeRequests.note, createdAt: subscriptionUpgradeRequests.createdAt, reviewedAt: subscriptionUpgradeRequests.reviewedAt })
+        .from(subscriptionUpgradeRequests).where(eq(subscriptionUpgradeRequests.tenantId, tenantId)).orderBy(desc(subscriptionUpgradeRequests.createdAt)).limit(1);
+      return request ?? null;
+    }),
+    requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPlan: z.enum(["starter", "professional", "enterprise"]) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
       const quota = await ownerSubscriberQuota(tenantId);
       if (quota.remaining > 0) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يتاح طلب الترقية من هذا الزر عند بلوغ الحد الأقصى للمشتركين." });
+      const planRank: Record<SubscriptionPlan, number> = { starter: 1, professional: 2, enterprise: 3 };
+      if (planRank[input.requestedPlan] <= planRank[quota.plan]) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من باقتك الحالية." });
       const [pending] = await db.select({ id: subscriptionUpgradeRequests.id, requestedPlan: subscriptionUpgradeRequests.requestedPlan })
         .from(subscriptionUpgradeRequests).where(and(eq(subscriptionUpgradeRequests.tenantId, tenantId), eq(subscriptionUpgradeRequests.status, "pending"))).limit(1);
       if (pending) return { id: pending.id, requestedPlan: pending.requestedPlan, alreadyRequested: true };
-      const requestedPlan: SubscriptionPlan = quota.plan === "starter" ? "professional" : "enterprise";
-      const id = insertId(await db.insert(subscriptionUpgradeRequests).values({ tenantId, requestedByUserId: ctx.user.id, currentPlan: quota.plan, requestedPlan }));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscription_upgrade_request", entityId: String(id), action: "request_upgrade", afterData: { currentPlan: quota.plan, requestedPlan, reason: "subscriber_limit_reached" } });
-      return { id, requestedPlan, alreadyRequested: false };
+      const id = insertId(await db.insert(subscriptionUpgradeRequests).values({ tenantId, requestedByUserId: ctx.user.id, currentPlan: quota.plan, requestedPlan: input.requestedPlan }));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscription_upgrade_request", entityId: String(id), action: "request_upgrade", afterData: { currentPlan: quota.plan, requestedPlan: input.requestedPlan, reason: "subscriber_limit_reached" } });
+      return { id, requestedPlan: input.requestedPlan, alreadyRequested: false };
     }),
   }),
   subscriberPortal: router({

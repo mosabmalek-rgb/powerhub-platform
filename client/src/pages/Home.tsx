@@ -50,7 +50,8 @@ export function WorkspaceHome() {
   const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
-  const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPlan}.`), onError: (error) => toast.error(error.message) });
+  const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPlan}.`); }, onError: (error) => toast.error(error.message) });
   const summary = summaryQuery.data;
   const formatNumber = (value: unknown, fractionDigits = 0) => new Intl.NumberFormat("ar", { maximumFractionDigits: fractionDigits }).format(Number(value ?? 0));
   const generatorStates = [
@@ -87,7 +88,7 @@ export function WorkspaceHome() {
           <MetricCard label="المشتركون النشطون" value={formatNumber(summary?.subscribers)} unit="مشترك" description={summary ? "ملفات الخدمة النشطة للمحطة المحددة." : "ابدأ بإضافة ملفات المشتركين."} icon={UsersRound} accent="blue" />
         </section>
 
-        <SubscriberQuotaDashboardCard quota={subscriberQuotaQuery.data} canRequestUpgrade={accessQuery.data?.role === "owner"} requesting={requestUpgrade.isPending} onRequestUpgrade={() => requestUpgrade.mutate({ siteId: siteId! })} />
+        <SubscriberQuotaDashboardCard quota={subscriberQuotaQuery.data} upgradeRequest={upgradeRequestQuery.data} canRequestUpgrade={accessQuery.data?.role === "owner"} requesting={requestUpgrade.isPending} onRequestUpgrade={(requestedPlan) => requestUpgrade.mutate({ siteId: siteId!, requestedPlan })} />
 
         <section className="grid gap-6 xl:grid-cols-[1.55fr_0.85fr]">
           <Card className="border-white/8 bg-[#111823] shadow-panel">

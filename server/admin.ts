@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
 import { getDb, syncSupabaseUser } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { encryptTenantCredential } from "./tenant-crypto";
@@ -270,6 +270,29 @@ export const adminRouter = router({
   }),
 
   listOwners: platformAdminProcedure.query(async () => ownerOverview(await dbOrThrow())),
+
+  listSubscriptionUpgradeRequests: platformAdminProcedure.query(async () => {
+    const db = await dbOrThrow();
+    return db.select({ id: subscriptionUpgradeRequests.id, tenantId: subscriptionUpgradeRequests.tenantId, tenantName: tenants.name, ownerName: tenantOwnerProfiles.fullName, ownerEmail: tenantOwnerProfiles.email, currentPlan: subscriptionUpgradeRequests.currentPlan, requestedPlan: subscriptionUpgradeRequests.requestedPlan, status: subscriptionUpgradeRequests.status, note: subscriptionUpgradeRequests.note, createdAt: subscriptionUpgradeRequests.createdAt, reviewedAt: subscriptionUpgradeRequests.reviewedAt })
+      .from(subscriptionUpgradeRequests).innerJoin(tenants, eq(subscriptionUpgradeRequests.tenantId, tenants.id)).leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id)).orderBy(desc(subscriptionUpgradeRequests.createdAt)).limit(300);
+  }),
+
+  reviewSubscriptionUpgradeRequest: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), decision: z.enum(["approved", "rejected"]), note: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [request] = await db.select().from(subscriptionUpgradeRequests).where(eq(subscriptionUpgradeRequests.id, input.id)).limit(1);
+    if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الترقية غير موجود." });
+    if (request.status !== "pending" && request.status !== "reviewing") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تمت معالجة هذا الطلب مسبقاً." });
+    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, request.tenantId)).limit(1);
+    await db.transaction(async (tx) => {
+      await tx.update(subscriptionUpgradeRequests).set({ status: input.decision, note: input.note ?? null, reviewedByUserId: ctx.user.id, reviewedAt: new Date() }).where(eq(subscriptionUpgradeRequests.id, request.id));
+      if (input.decision === "approved") {
+        await tx.update(tenants).set({ plan: request.requestedPlan }).where(eq(tenants.id, request.tenantId));
+        await tx.update(tenantSubscriptions).set({ plan: request.requestedPlan }).where(eq(tenantSubscriptions.tenantId, request.tenantId));
+      }
+    });
+    await db.insert(auditLogs).values({ tenantId: request.tenantId, siteId: site?.id ?? null, userId: ctx.user.id, entityType: "subscription_upgrade_request", entityId: String(request.id), action: `platform_admin_${input.decision}_subscription_upgrade`, afterData: { requestedPlan: request.requestedPlan, decision: input.decision, note: input.note ?? null }, actorPlatformRole: platformRoleOf(ctx.user) });
+    return { success: true, plan: input.decision === "approved" ? request.requestedPlan : request.currentPlan };
+  }),
 
   platformSnapshot: platformAdminProcedure.query(async () => {
     const db = await dbOrThrow();

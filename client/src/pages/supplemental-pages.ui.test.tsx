@@ -26,6 +26,9 @@ vi.mock("@/lib/trpc", () => ({
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 7, name: "محطة التقرير", code: "REPORT-01" }] }) } },
       dashboard: { summary: { useQuery: () => ({ data: { energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) } },
+      subscribers: { quota: { useQuery: () => ({ data: { plan: "starter", limit: 100, currentCount: 3, remaining: 97 } }) } },
+      staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) } },
+      subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
       reports: { range: { useQuery: () => ({ data: report }) } },
       invoices: {
         publicByToken: { useQuery: () => ({

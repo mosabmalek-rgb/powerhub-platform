@@ -24,10 +24,12 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { generatorOwners: 1, residential: 120, commercial: 30, subscribers: 150, activeSubscriptions: 1 }, owners: [ownerRow] } }) },
       listOwners: { useQuery: () => ({ data: [ownerRow] }) },
+      listSubscriptionUpgradeRequests: { useQuery: () => ({ data: [{ id: 51, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerEmail: "owner@example.com", currentPlan: "starter", requestedPlan: "professional", status: "pending", note: null, createdAt: new Date(), reviewedAt: null }], isLoading: false }) },
+      reviewSubscriptionUpgradeRequest: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       userDirectory: { useQuery: () => ({ data: [{ id: 4, name: "حساب صاحب المولد", email: "owner@example.com", role: "user" }] }) },
       platformSnapshot: { useQuery: () => ({ data: { generators: { total: 2, active: 2, maintenance: 0, stopped: 0, blocked: 0, capacityKw: 200, directory: [{ id: 22, name: "مولد اختبار", code: "GEN-T-01", status: "active", ratedCapacityKw: "100", tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار" }], pendingRegistrations: [] }, users: { total: 3, platformAdmins: 1, activeStaff: 1, staffDirectory: [{ id: 7, userName: "محاسب الاختبار", userEmail: "accountant@example.com", role: "accountant", isActive: true, tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار" }], subscriberDirectory: [{ id: 6, fullName: "مشترك تجريبي", subscriberNo: "SUB-01", subscriptionType: "residential", serviceStatus: "active", tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار" }] }, finance: { overdueCount: 0, overdueAmount: 0, issuedAmount: 5000, completedAmount: 4000, completedCount: 2, paymentMethods: [{ method: "wallet", count: 2, amount: 4000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", generatorCode: "GEN-T-01", tenantName: "مساحة مولد الاختبار", count: 2, amount: 4000 }] }, reports: { approvedReadings: 0, consumptionKwh: 0, tenants: 1, subscribers: 150, complaintsEnabled: false }, notifications: { statuses: [{ status: "pending", count: 1 }] }, security: { recentAudit: [{ id: 1, action: "test_audit", tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", userName: "آدمن الاختبار", createdAt: new Date() }] } } }) },
       listNotifications: { useQuery: () => ({ data: [{ id: 1, tenantName: "مساحة مولد الاختبار", channel: "whatsapp", eventType: "invoice_issued", recipient: "0790000000", status: "pending", attempts: 0, createdAt: new Date() }] }) },
@@ -138,6 +140,8 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getAllByText("إعدادات الصفحة العامة والميزات").length).toBeGreaterThan(0);
     expect(screen.getByText("الحسابات الفرعية لمالك المولد")).toBeInTheDocument();
     expect(screen.getByText("حد المشتركين حسب الاشتراك")).toBeInTheDocument();
+    expect(screen.getByText("طلبات ترقية الباقات")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "موافقة" })).toBeInTheDocument();
     expect(screen.getByText("سياسات الصلاحيات الدقيقة")).toBeInTheDocument();
   });
 });
