@@ -47,6 +47,7 @@ export const tenantOwnerProfiles = mysqlTable("tenantOwnerProfiles", {
   whatsappNumber: varchar("whatsappNumber", { length: 30 }),
   email: varchar("email", { length: 320 }),
   companyName: varchar("companyName", { length: 180 }),
+  reportLogoKey: varchar("reportLogoKey", { length: 500 }),
   identityNumberCiphertext: text("identityNumberCiphertext"),
   identityNumberIv: varchar("identityNumberIv", { length: 64 }),
   identityNumberLast4: varchar("identityNumberLast4", { length: 4 }),

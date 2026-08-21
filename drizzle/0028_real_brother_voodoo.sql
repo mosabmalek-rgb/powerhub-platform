@@ -1,0 +1,1 @@
+ALTER TABLE `tenantOwnerProfiles` ADD `reportLogoKey` varchar(500);

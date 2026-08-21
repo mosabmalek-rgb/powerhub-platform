@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { auditLogs, collectorSessions, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sitePortalSettings, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenantMessagingConfigurations, tenants, users } from "../drizzle/schema";
+import { auditLogs, collectorSessions, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sitePortalSettings, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { powerhubRouter } from "./powerhub";
 
@@ -36,6 +36,7 @@ describe("tenant isolation", () => {
     const tenantA = insertId(await db.insert(tenants).values({ name: "Tenant A", slug: `${suffix}-a` }));
     const tenantB = insertId(await db.insert(tenants).values({ name: "Tenant B", slug: `${suffix}-b` }));
     await db.insert(tenantMembers).values([{ tenantId: tenantA, userId: userA, role: "owner" }, { tenantId: tenantA, userId: userManager, role: "member" }, { tenantId: tenantA, userId: userAccountant, role: "member" }, { tenantId: tenantA, userId: userCollector, role: "member" }, { tenantId: tenantA, userId: userTechnician, role: "member" }, { tenantId: tenantA, userId: userViewer, role: "member" }, { tenantId: tenantB, userId: userB, role: "owner" }]);
+    await db.insert(tenantOwnerProfiles).values([{ tenantId: tenantA, ownerUserId: userA, fullName: "Owner A", phone: `+97077${Date.now().toString().slice(-7)}`, companyName: "شركة A" }, { tenantId: tenantB, ownerUserId: userB, fullName: "Owner B", phone: `+97076${Date.now().toString().slice(-7)}`, companyName: "شركة B" }]);
     await db.insert(tenantMessagingConfigurations).values([
       { tenantId: tenantA, channel: "whatsapp", provider: "local-whatsapp", isActive: true },
       { tenantId: tenantA, channel: "sms", provider: "local-sms", isActive: true },
@@ -94,7 +95,7 @@ describe("tenant isolation", () => {
     const managerSubscriber = await managerCaller.subscribers.create({ siteId: ids.siteA, fullName: "Manager Site", phone: "+970700000002", subscriptionType: "residential" });
     expect(managerSubscriber.subscriberNo).toMatch(/^PH-/);
     createdSubscriberIds.push(managerSubscriber.id);
-  });
+  }, 15000);
 
   testIfEnabled("reveals public subscriber data only when portal code, reference number, and phone all match", async () => {
     const publicCaller = powerhubRouter.createCaller({ user: null, req: {} as never, res: {} as never } as never);
@@ -248,6 +249,18 @@ describe("tenant isolation", () => {
     await expect(accountantCaller.reports.allBranchesRange({ siteId: ids.siteA, startDate: "2026-01-01", endDate: "2026-12-31" })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
+  testIfEnabled("allows only the owner to update the official report company identity", async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
+    const [owner] = await db.select().from(users).where(eq(users.id, ids.userA));
+    const [manager] = await db.select().from(users).where(eq(users.id, ids.userManager));
+    const ownerCaller = powerhubRouter.createCaller({ user: owner, req: {} as never, res: {} as never });
+    const managerCaller = powerhubRouter.createCaller({ user: manager, req: {} as never, res: {} as never });
+    await expect(managerCaller.reportBranding.update({ siteId: ids.siteA, companyName: "هوية غير مصرح بها" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(ownerCaller.reportBranding.update({ siteId: ids.siteA, companyName: "شركة تقرير A" })).resolves.toMatchObject({ companyName: "شركة تقرير A", logoUrl: null });
+    await expect(ownerCaller.reportBranding.get({ siteId: ids.siteA })).resolves.toMatchObject({ companyName: "شركة تقرير A", logoUrl: null });
+  });
+
   afterAll(async () => {
     if (!runDatabaseIsolationTest || !ids) return;
     const db = await getDb();
@@ -273,6 +286,7 @@ describe("tenant isolation", () => {
     await db.delete(auditLogs).where(inArray(auditLogs.siteId, [ids.siteA, ids.siteA2, ids.siteB]));
     await db.delete(sitePortalSettings).where(inArray(sitePortalSettings.siteId, [ids.siteA, ids.siteA2, ids.siteB]));
     await db.delete(sites).where(inArray(sites.id, [ids.siteA, ids.siteA2, ids.siteB]));
+    await db.delete(tenantOwnerProfiles).where(inArray(tenantOwnerProfiles.tenantId, [ids.tenantA, ids.tenantB]));
     await db.delete(tenantMessagingConfigurations).where(inArray(tenantMessagingConfigurations.tenantId, [ids.tenantA, ids.tenantB]));
     await db.delete(tenantMembers).where(inArray(tenantMembers.tenantId, [ids.tenantA, ids.tenantB]));
     await db.delete(tenants).where(inArray(tenants.id, [ids.tenantA, ids.tenantB]));

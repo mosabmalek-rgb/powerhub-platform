@@ -26,6 +26,7 @@ import {
   tenantMembers,
   tenantInvoiceMessageTemplates,
   tenantMessagingConfigurations,
+  tenantOwnerProfiles,
   tenantPaymentReceiptMessageTemplates,
   tenantBranchSettings,
   tenants,
@@ -1308,6 +1309,42 @@ export const powerhubRouter = router({
       }, {})).sort((a, b) => b.amount - a.amount);
       const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ subscriber: row.subscriber.fullName, subscriberNo: row.subscriber.subscriberNo, invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
       return { summary: { invoiced, collected, outstanding, energyKwh, expenseTotal, operatingProfit: collected - expenseTotal }, collectors, topDebtors };
+    }),
+  }),
+
+  reportBranding: router({
+    get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await resolveRole(ctx.user.id, input.siteId);
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const [profile] = await db.select({ companyName: tenantOwnerProfiles.companyName, reportLogoKey: tenantOwnerProfiles.reportLogoKey })
+        .from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.tenantId, tenantId)).limit(1);
+      return { companyName: profile?.companyName ?? null, reportLogoKey: profile?.reportLogoKey ?? null, logoUrl: profile?.reportLogoKey ? `/manus-storage/${profile.reportLogoKey}` : null };
+    }),
+    update: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      companyName: z.string().trim().min(2).max(180).optional(),
+      logoData: z.string().min(20).max(4_500_000).optional(),
+      logoMime: z.enum(["image/png", "image/jpeg", "image/webp"]).optional(),
+    }).refine((input) => Boolean(input.companyName || (input.logoData && input.logoMime)), { message: "أدخل اسم الشركة أو اختر شعاراً صالحاً للتحديث." }).refine((input) => !input.logoData || Boolean(input.logoMime), { message: "تعذر التعرف إلى نوع ملف الشعار." })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      let reportLogoKey: string | undefined;
+      if (input.logoData && input.logoMime) {
+        const bytes = Buffer.from(input.logoData, "base64");
+        if (!bytes.length || bytes.length > 3 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ألا يتجاوز حجم شعار التقرير 3 ميغابايت." });
+        const extension = input.logoMime === "image/png" ? "png" : input.logoMime === "image/jpeg" ? "jpg" : "webp";
+        const uploaded = await storagePut(`tenant-report-branding/${tenantId}/logo-${Date.now()}.${extension}`, bytes, input.logoMime);
+        reportLogoKey = uploaded.key;
+      }
+      const update: { companyName?: string; reportLogoKey?: string } = {};
+      if (input.companyName) update.companyName = input.companyName;
+      if (reportLogoKey) update.reportLogoKey = reportLogoKey;
+      await db.update(tenantOwnerProfiles).set(update).where(eq(tenantOwnerProfiles.tenantId, tenantId));
+      await writeAudit({ tenantId, siteId: input.siteId, userId: ctx.user.id, entityType: "tenant_owner_profile", entityId: String(tenantId), action: "update_report_branding", afterData: { companyName: input.companyName, hasReportLogo: Boolean(reportLogoKey) } });
+      const [profile] = await db.select({ companyName: tenantOwnerProfiles.companyName, reportLogoKey: tenantOwnerProfiles.reportLogoKey }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.tenantId, tenantId)).limit(1);
+      return { companyName: profile?.companyName ?? null, reportLogoKey: profile?.reportLogoKey ?? null, logoUrl: profile?.reportLogoKey ? `/manus-storage/${profile.reportLogoKey}` : null };
     }),
   }),
 

@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
 }));
 
 const report = {
+  range: { startDate: "2026-08-01", endDate: "2026-08-21" },
   summary: { invoiced: 125, collected: 100, outstanding: 25, energyKwh: 80, expenseTotal: 10, operatingProfit: 90 },
   collectors: [{ name: "المحصل التجريبي", count: 2, amount: 100 }],
   topDebtors: [{ subscriber: "المشترك التجريبي", invoiceNo: "PH-TEST-01", balanceDue: 25 }],
@@ -30,6 +31,7 @@ vi.mock("@/lib/trpc", () => ({
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: true } }) } },
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
       reports: { range: { useQuery: () => ({ data: report }) }, allBranchesRange: { useQuery: () => ({ data: { ...report, scope: { branchCount: 1 }, branchSummaries: [] } }) } },
+      reportBranding: { get: { useQuery: () => ({ data: { companyName: "شركة التقرير", reportLogoKey: null, logoUrl: null } }) }, update: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
       invoices: {
         publicByToken: { useQuery: () => ({
           data: {
@@ -56,7 +58,7 @@ describe("supplemental PowerHub page review", () => {
 
   it("selects the tenant site and displays the report's operational and financial data", async () => {
     render(<ReportsPage />);
-    expect(screen.getByText("محطة التقرير")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "محطة التقرير" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("المحصل التجريبي")).toBeInTheDocument());
     expect(screen.getByText("أعلى المتأخرات")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("تاريخ بداية التقرير"), { target: { value: "2026-07-01" } });
@@ -65,6 +67,8 @@ describe("supplemental PowerHub page review", () => {
     expect(screen.getByLabelText("تاريخ نهاية التقرير")).toHaveValue("2026-07-31");
     expect(screen.getByRole("button", { name: "CSV" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Excel" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /PDF رسمي/ })).toBeEnabled();
+    expect(screen.getByText("مقارنة الأداء المالي")).toBeInTheDocument();
   });
 
   it("renders dashboard metrics for the selected tenant site", async () => {
