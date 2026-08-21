@@ -181,6 +181,7 @@ export const sites = mysqlTable("sites", {
   city: varchar("city", { length: 100 }),
   address: text("address"),
   status: mysqlEnum("status", ["active", "inactive", "archived"]).default("active").notNull(),
+  anomalyAlertPercent: int("anomalyAlertPercent").default(50).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

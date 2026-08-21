@@ -676,8 +676,8 @@ export const powerhubRouter = router({
         .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")));
       const ownerTenantIds = memberships.filter((member) => member.role === "owner").map((member) => member.tenantId);
       const [ownedSites, assignedSites] = await Promise.all([
-        ownerTenantIds.length ? db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, createdAt: sites.createdAt }).from(sites).where(inArray(sites.tenantId, ownerTenantIds)).orderBy(desc(sites.createdAt)) : Promise.resolve([]),
-        db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, createdAt: sites.createdAt }).from(staffProfiles)
+        ownerTenantIds.length ? db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, anomalyAlertPercent: sites.anomalyAlertPercent, createdAt: sites.createdAt }).from(sites).where(inArray(sites.tenantId, ownerTenantIds)).orderBy(desc(sites.createdAt)) : Promise.resolve([]),
+        db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, anomalyAlertPercent: sites.anomalyAlertPercent, createdAt: sites.createdAt }).from(staffProfiles)
           .innerJoin(sites, eq(staffProfiles.siteId, sites.id))
           .innerJoin(tenantMembers, and(eq(tenantMembers.tenantId, sites.tenantId), eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")))
           .where(and(eq(staffProfiles.userId, ctx.user.id), eq(staffProfiles.isActive, true))).orderBy(desc(sites.createdAt)),
@@ -713,6 +713,20 @@ export const powerhubRouter = router({
       });
       await writeAudit({ userId: ctx.user.id, siteId: id, entityType: "site", entityId: String(id), action: "create", afterData: input });
       return { id };
+    }),
+    anomalyAlert: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const db = await dbOrThrow();
+      const [site] = await db.select({ anomalyAlertPercent: sites.anomalyAlertPercent }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود." });
+      return site;
+    }),
+    updateAnomalyAlert: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), anomalyAlertPercent: z.number().int().min(10).max(500) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"]);
+      const db = await dbOrThrow();
+      await db.update(sites).set({ anomalyAlertPercent: input.anomalyAlertPercent, updatedAt: new Date() }).where(eq(sites.id, input.siteId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "site", entityId: String(input.siteId), action: "update_anomaly_alert", afterData: input });
+      return { success: true, anomalyAlertPercent: input.anomalyAlertPercent };
     }),
     updateBranch: protectedProcedure.input(siteInput.pick({ name: true, city: true, address: true }).extend({ siteId: z.number().int().positive(), status: z.enum(["active", "inactive", "archived"]) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"]);
@@ -951,6 +965,23 @@ export const powerhubRouter = router({
       const consumptionKwh = input.isMeterReplacement && nextValue < previousValue ? nextValue : nextValue - previousValue;
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(id), action: "create", afterData: { ...input, readingAt, consumptionKwh } });
       return { id, consumptionKwh, status: "pending_review" as const, replayed: false };
+    }),
+    updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      const db = await dbOrThrow();
+      const [existing] = await db.select({ id: meterReadings.id, meterId: meterReadings.meterId, status: meterReadings.status }).from(meterReadings)
+        .innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+        .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
+      if (existing.status !== "pending_review") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تعديل قراءة معتمدة أو مرفوضة من هذه الواجهة." });
+      const [previous] = await db.select({ readingValue: meterReadings.readingValue }).from(meterReadings)
+        .where(and(eq(meterReadings.meterId, existing.meterId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
+      const currentValue = Number(input.readingValue); const previousValue = Number(previous?.readingValue ?? 0);
+      if (currentValue < previousValue) throw new TRPCError({ code: "CONFLICT", message: "القراءة المعدلة أقل من القراءة السابقة المعتمدة." });
+      const result = await db.update(meterReadings).set({ readingValue: input.readingValue, readingAt: input.readingAt, previousReadingValue: previous?.readingValue, consumptionKwh: String(currentValue - previousValue), notes: input.notes, versionNo: sql`${meterReadings.versionNo} + 1` }).where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.versionNo, input.baseVersion), eq(meterReadings.status, "pending_review")));
+      if (Number((result[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث الصفحة ثم أعد المحاولة." });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: "update_pending", afterData: input });
+      return { success: true, consumptionKwh: currentValue - previousValue };
     }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {

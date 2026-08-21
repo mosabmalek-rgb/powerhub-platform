@@ -1,0 +1,1 @@
+ALTER TABLE `sites` ADD `anomalyAlertPercent` int DEFAULT 50 NOT NULL;
