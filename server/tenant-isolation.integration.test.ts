@@ -11,7 +11,8 @@ let ids: { userA: number; userB: number; userManager: number; userAccountant: nu
 const createdPaymentIds: number[] = [];
 let createdReadingA: number | undefined;
 const createdSubscriberIds: number[] = [];
-let createdInvoiceId: number | undefined;
+const createdMeterIds: number[] = [];
+const createdInvoiceIds: number[] = [];
 let createdCollectorSessionId: number | undefined;
 
 function insertId(result: unknown) {
@@ -125,7 +126,7 @@ describe("tenant isolation", () => {
     const [owner] = await db.select().from(users).where(eq(users.id, ids.userA));
     const ownerCaller = powerhubRouter.createCaller({ user: owner, req: {} as never, res: {} as never });
     const invoice = await ownerCaller.invoices.createFromReading({ siteId: ids.siteA, readingId: ids.baseReadingA, tariffId: ids.tariffA, billingPeriod: "2026-08", dueDate: new Date("2026-08-31"), discountAmount: 0 });
-    createdInvoiceId = invoice.id;
+    createdInvoiceIds.push(invoice.id);
     const lines = await db.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, invoice.id));
     const queuedNotifications = await db.select().from(notificationMessages).where(eq(notificationMessages.invoiceId, invoice.id));
     expect(lines).toHaveLength(3);
@@ -145,18 +146,83 @@ describe("tenant isolation", () => {
     expect(retried).toMatchObject({ status: "pending", lastError: null });
   });
 
+  testIfEnabled("executes owner subscriber, reading, and partial invoice-payment workflows", async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
+    const [owner] = await db.select().from(users).where(eq(users.id, ids.userA));
+    const ownerCaller = powerhubRouter.createCaller({ user: owner, req: {} as never, res: {} as never });
+
+    const createdSubscriber = await ownerCaller.subscribers.create({
+      siteId: ids.siteA,
+      subscriberNo: `${suffix}-owner-workflow`,
+      fullName: "مشترك اختبار المالك",
+      phone: "700000099",
+      subscriptionType: "residential",
+      address: "عنوان اختبار تشغيلي",
+    });
+    createdSubscriberIds.push(createdSubscriber.id);
+    const [subscriber] = await db.select().from(subscribers).where(eq(subscribers.id, createdSubscriber.id));
+    expect(subscriber).toMatchObject({ tenantId: ids.tenantA, siteId: ids.siteA, fullName: "مشترك اختبار المالك", serviceStatus: "active" });
+
+    const createdMeter = await ownerCaller.meters.create({
+      siteId: ids.siteA,
+      subscriberId: createdSubscriber.id,
+      serialNumber: `${suffix}-owner-workflow-meter`,
+      meterType: "manual",
+      multiplier: "1",
+    });
+    createdMeterIds.push(createdMeter.id);
+    const createdReading = await ownerCaller.readings.create({
+      siteId: ids.siteA,
+      meterId: createdMeter.id,
+      readingValue: "60",
+      captureMethod: "manual",
+      notes: "قراءة اختبارية لمسار المالك",
+    });
+    expect(createdReading).toMatchObject({ consumptionKwh: 60, status: "pending_review", replayed: false });
+    await expect(ownerCaller.readings.approve({ siteId: ids.siteA, readingId: createdReading.id, baseVersion: 1 })).resolves.toEqual({ success: true });
+
+    const invoice = await ownerCaller.invoices.createFromReading({
+      siteId: ids.siteA,
+      readingId: createdReading.id,
+      tariffId: ids.tariffA,
+      billingPeriod: "2026-09",
+      dueDate: new Date("2026-09-30"),
+      discountAmount: 0,
+    });
+    createdInvoiceIds.push(invoice.id);
+    expect(invoice.totalAmount).toBe(92);
+
+    const partialPayment = await ownerCaller.payments.create({
+      siteId: ids.siteA,
+      subscriberId: createdSubscriber.id,
+      invoiceId: invoice.id,
+      paymentNo: `${suffix}-owner-partial`,
+      amount: 40,
+      paymentMethod: "cash",
+      referenceNo: "اختبار-دفعة-جزئية",
+    });
+    createdPaymentIds.push(partialPayment.id);
+    const [updatedInvoice] = await db.select().from(invoices).where(eq(invoices.id, invoice.id));
+    const [payment] = await db.select().from(payments).where(eq(payments.id, partialPayment.id));
+    expect(updatedInvoice).toMatchObject({ paidAmount: "40.00", balanceDue: "52.00", status: "partially_paid" });
+    expect(payment).toMatchObject({ invoiceId: invoice.id, subscriberId: createdSubscriber.id, amount: "40.00", status: "completed" });
+  });
+
   afterAll(async () => {
     if (!runDatabaseIsolationTest || !ids) return;
     const db = await getDb();
     if (!db) return;
     if (createdPaymentIds.length) await db.delete(payments).where(inArray(payments.id, createdPaymentIds));
     if (createdCollectorSessionId) await db.delete(collectorSessions).where(eq(collectorSessions.id, createdCollectorSessionId));
-    if (createdInvoiceId) {
-      await db.delete(notificationMessages).where(eq(notificationMessages.invoiceId, createdInvoiceId));
-      await db.delete(invoiceLines).where(eq(invoiceLines.invoiceId, createdInvoiceId));
-      await db.delete(invoices).where(eq(invoices.id, createdInvoiceId));
+    if (createdInvoiceIds.length) {
+      await db.delete(notificationMessages).where(inArray(notificationMessages.invoiceId, createdInvoiceIds));
+      await db.delete(invoiceLines).where(inArray(invoiceLines.invoiceId, createdInvoiceIds));
+      await db.delete(invoices).where(inArray(invoices.id, createdInvoiceIds));
     }
     await db.delete(meterReadings).where(inArray(meterReadings.meterId, [ids.meterA, ids.meterB]));
+    if (createdMeterIds.length) await db.delete(meterReadings).where(inArray(meterReadings.meterId, createdMeterIds));
+    if (createdMeterIds.length) await db.delete(meters).where(inArray(meters.id, createdMeterIds));
     await db.delete(meters).where(eq(meters.id, ids.meterB));
     await db.delete(meters).where(eq(meters.id, ids.meterA));
     await db.delete(subscribers).where(eq(subscribers.id, ids.subscriberB));
