@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import * as XLSX from "xlsx";
 import { buildPaymentMethodCsv, buildPaymentMethodWorkbook, PaymentMethodCollectionSummary, summarizePaymentMethods } from "./PaymentMethodCollectionSummary";
 
 describe("PaymentMethodCollectionSummary", () => {
@@ -42,13 +41,15 @@ describe("PaymentMethodCollectionSummary", () => {
     expect(csv).not.toContain("40.00");
   });
 
-  it("builds an Excel workbook with the active filter and summary values", () => {
+  it("builds a styled Excel workbook with summary and payment-detail sheets", () => {
     const summary = summarizePaymentMethods(payments, "jawwal_pay");
-    const workbook = buildPaymentMethodWorkbook(summary.groups, summary.total, "jawwal_pay");
-    expect(workbook.SheetNames).toEqual(["ملخص التحصيل"]);
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets["ملخص التحصيل"], { header: 1 }) as unknown[][];
-    expect(rows).toContainEqual(["الفلتر", "Jawwal Pay"]);
-    expect(rows).toContainEqual(["Jawwal Pay", 1, 70]);
-    expect(rows).toContainEqual(["الإجمالي", "", 70]);
+    const workbook = buildPaymentMethodWorkbook(summary.groups, summary.total, "jawwal_pay", {}, [{ payment: { paymentNo: "PAY-1", paymentMethod: "jawwal_pay", amount: "70", paidAt: "2026-08-01" }, subscriber: { fullName: "محمد أحمد" }, invoiceNo: "INV-1" }]);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["ملخص التحصيل", "تفاصيل الدفعات"]);
+    const summarySheet = workbook.getWorksheet("ملخص التحصيل")!;
+    expect(summarySheet.getCell("A1").value).toContain("PowerHub");
+    expect(summarySheet.getCell("A5").fill).toBeTruthy();
+    const detailsSheet = workbook.getWorksheet("تفاصيل الدفعات")!;
+    expect(detailsSheet.getCell("A3").value).toBe("PAY-1");
+    expect(detailsSheet.getCell("C3").value).toBe("محمد أحمد");
   });
 });
