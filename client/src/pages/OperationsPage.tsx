@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { startLogin } from "@/const";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { invoiceStatusMeta, outstandingInvoices, summarizeOutstandingInvoices } from "@/lib/invoice-collection-presentation";
@@ -72,11 +73,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   const Icon = meta.icon;
   const utils = trpc.useUtils();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
-  const [siteId, setSiteId] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!siteId && sitesQuery.data?.[0]) setSiteId(sitesQuery.data[0].id);
-  }, [siteId, sitesQuery.data]);
+  const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
 
   const createSite = trpc.powerhub.sites.create.useMutation({
     onSuccess: async () => { await utils.powerhub.sites.list.invalidate(); toast.success("تم إنشاء المحطة بنجاح."); },
@@ -139,7 +136,7 @@ export default function OperationsPage({ section }: { section: Section }) {
     return <DashboardLayout><div className="mx-auto mt-10 max-w-2xl"><SectionCard title="ابدأ بإعداد خدمتك الأولى"><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); createSite.mutate({ name: String(data.get("name")), code: String(data.get("code")), city: String(data.get("city") || "") || undefined, address: String(data.get("address") || "") || undefined }); }}><p className="text-sm leading-6 text-slate-400">المشتركون والفواتير والعدادات تتبع للخدمة التي يقدمها صاحب المولد. أضف المولدات لاحقاً كموارد تشغيلية للخدمة.</p><div className="grid gap-4 sm:grid-cols-2"><Field label="اسم الخدمة"><input required name="name" className={inputClass} placeholder="خدمة كهرباء الحي التجاري" /></Field><Field label="رمز الخدمة"><input required name="code" className={inputClass} placeholder="SVC-01" dir="ltr" /></Field><Field label="المدينة"><input name="city" className={inputClass} placeholder="بغداد" /></Field><Field label="العنوان"><input name="address" className={inputClass} placeholder="وصف مختصر للخدمة" /></Field></div><Button disabled={createSite.isPending} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]"><Plus className="ml-2 h-4 w-4" />إنشاء الخدمة</Button></form></SectionCard></div></DashboardLayout>;
   }
 
-  const header = <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />{activeSite?.name}</div><h1 className="mt-1 text-2xl font-extrabold text-white">{meta.title}</h1><p className="mt-2 text-sm text-slate-400">{meta.subtitle}</p></div><select value={siteId ?? ""} onChange={(event) => setSiteId(Number(event.target.value))} className="h-10 min-w-44 rounded-xl border border-white/10 bg-white/[0.03] px-3 text-sm font-bold text-white outline-none">{siteOptions.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></header>;
+  const header = <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />{activeSite?.name}</div><h1 className="mt-1 text-2xl font-extrabold text-white">{meta.title}</h1><p className="mt-2 text-sm text-slate-400">{meta.subtitle}</p></div><select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => setSiteId(Number(event.target.value))} className="h-10 min-w-44 rounded-xl border border-white/10 bg-white/[0.03] px-3 text-sm font-bold text-white outline-none">{siteOptions.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></header>;
 
   if (section === "subscribers" && !canManageSubscribers) return <DashboardLayout><div className="space-y-6 pb-12">{header}<ReadOnlyCard /></div></DashboardLayout>;
   if (section === "generators" && !canManageGenerators) return <DashboardLayout><div className="space-y-6 pb-12">{header}<ReadOnlyCard /></div></DashboardLayout>;

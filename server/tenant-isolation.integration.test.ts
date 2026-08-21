@@ -234,6 +234,20 @@ describe("tenant isolation", () => {
     expect(payment).toMatchObject({ invoiceId: invoice.id, subscriberId: createdSubscriber.id, amount: "40.00", status: "completed" });
   });
 
+  testIfEnabled("exports a consolidated financial report only to an all-branches role", async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
+    const [owner] = await db.select().from(users).where(eq(users.id, ids.userA));
+    const [accountantUser] = await db.select().from(users).where(eq(users.id, ids.userAccountant));
+    const ownerCaller = powerhubRouter.createCaller({ user: owner, req: {} as never, res: {} as never });
+    const accountantCaller = powerhubRouter.createCaller({ user: accountantUser, req: {} as never, res: {} as never });
+    const report = await ownerCaller.reports.allBranchesRange({ siteId: ids.siteA, startDate: "2026-01-01", endDate: "2026-12-31" });
+    expect(report).toMatchObject({ scope: { branchCount: 2 } });
+    expect(report.branchSummaries).toEqual(expect.arrayContaining([expect.objectContaining({ siteId: ids.siteA, branchName: "Site A" })]));
+    expect(report.summary.invoiced).toBeGreaterThan(0);
+    await expect(accountantCaller.reports.allBranchesRange({ siteId: ids.siteA, startDate: "2026-01-01", endDate: "2026-12-31" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   afterAll(async () => {
     if (!runDatabaseIsolationTest || !ids) return;
     const db = await getDb();

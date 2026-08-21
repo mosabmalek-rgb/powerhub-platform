@@ -444,6 +444,15 @@ export const powerhubRouter = router({
   }),
   staff: router({
     myAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => ({ role: await resolveRole(ctx.user.id, input.siteId) })),
+    allBranchAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const role = await resolveRole(ctx.user.id, input.siteId);
+      if (ctx.user.role === "admin" || role === "owner") return { isGlobal: true };
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const [globalProfile] = await db.select({ id: staffProfiles.id }).from(staffProfiles)
+        .where(and(eq(staffProfiles.tenantId, tenantId), eq(staffProfiles.userId, ctx.user.id), isNull(staffProfiles.siteId), eq(staffProfiles.isActive, true))).limit(1);
+      return { isGlobal: Boolean(globalProfile) };
+    }),
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam");
       const db = await dbOrThrow();
@@ -1227,6 +1236,49 @@ export const powerhubRouter = router({
       }, {})).sort((a, b) => b.amount - a.amount);
       const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ subscriber: row.subscriber.fullName, subscriberNo: row.subscriber.subscriberNo, invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
       return { range: { startDate: input.startDate, endDate: input.endDate }, summary: { invoiced, collected, outstanding, energyKwh, expenseTotal, operatingProfit: collected - expenseTotal }, collectors, topDebtors };
+    }),
+    allBranchesRange: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
+      await requireAllBranchRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
+      const branchRows = await db.select({ id: sites.id, name: sites.name }).from(sites).where(and(eq(sites.tenantId, tenantId), ne(sites.status, "archived"))).orderBy(desc(sites.createdAt));
+      const branchIds = branchRows.map((branch) => branch.id);
+      if (!branchIds.length) return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: 0 }, summary: { invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 }, collectors: [], topDebtors: [], branchSummaries: [] };
+      const [invoiceRows, paymentRows, expenseRows] = await Promise.all([
+        db.select({ invoice: invoices, subscriber: subscribers }).from(invoices).innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id))
+          .where(and(inArray(invoices.siteId, branchIds), gte(invoices.issueDate, start), lt(invoices.issueDate, endExclusive), sql`${invoices.status} <> 'cancelled'`)),
+        db.select({ payment: payments, collector: users }).from(payments).leftJoin(users, eq(payments.collectedByUserId, users.id))
+          .where(and(inArray(payments.siteId, branchIds), gte(payments.paidAt, start), lt(payments.paidAt, endExclusive))),
+        db.select().from(expenses).where(and(inArray(expenses.siteId, branchIds), gte(expenses.occurredAt, start), lt(expenses.occurredAt, endExclusive))),
+      ]);
+      const branchNameById = new Map(branchRows.map((branch) => [branch.id, branch.name]));
+      const branchSummaryById = new Map(branchRows.map((branch) => [branch.id, { siteId: branch.id, branchName: branch.name, invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 }]));
+      invoiceRows.forEach((row) => {
+        const summary = branchSummaryById.get(row.invoice.siteId);
+        if (!summary) return;
+        summary.invoiced += Number(row.invoice.totalAmount);
+        summary.outstanding += Number(row.invoice.balanceDue);
+        summary.energyKwh += Number(row.invoice.consumptionKwh);
+      });
+      const completedPayments = paymentRows.filter((row) => row.payment.status === "completed");
+      completedPayments.forEach((row) => { const summary = branchSummaryById.get(row.payment.siteId); if (summary) summary.collected += Number(row.payment.amount); });
+      expenseRows.forEach((row) => { const summary = branchSummaryById.get(row.siteId); if (summary) summary.expenseTotal += Number(row.amount); });
+      const branchSummaries = Array.from(branchSummaryById.values()).map((summary) => ({ ...summary, operatingProfit: summary.collected - summary.expenseTotal }));
+      const summary = branchSummaries.reduce((total, branch) => ({ invoiced: total.invoiced + branch.invoiced, collected: total.collected + branch.collected, outstanding: total.outstanding + branch.outstanding, energyKwh: total.energyKwh + branch.energyKwh, expenseTotal: total.expenseTotal + branch.expenseTotal, operatingProfit: total.operatingProfit + branch.operatingProfit }), { invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 });
+      const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number }>>((acc, row) => {
+        const key = String(row.payment.collectedByUserId ?? 0);
+        const entry = acc[key] ?? { name: row.collector?.name || row.collector?.email || "محصل غير محدد", count: 0, amount: 0 };
+        entry.count += 1;
+        entry.amount += Number(row.payment.amount);
+        return acc;
+      }, {})).sort((a, b) => b.amount - a.amount);
+      const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ branchName: branchNameById.get(row.invoice.siteId) ?? "فرع غير محدد", subscriber: row.subscriber.fullName, subscriberNo: row.subscriber.subscriberNo, invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
+      return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: branchIds.length }, summary, collectors, topDebtors, branchSummaries };
     }),
     monthly: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), billingPeriod: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);

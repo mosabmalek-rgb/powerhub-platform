@@ -27,9 +27,9 @@ vi.mock("@/lib/trpc", () => ({
       sites: { list: { useQuery: () => ({ data: [{ id: 7, name: "محطة التقرير", code: "REPORT-01" }] }) } },
       dashboard: { summary: { useQuery: () => ({ data: { energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) }, allBranchesSummary: { useQuery: () => ({ data: { branchCount: 1, energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) } },
       subscribers: { quota: { useQuery: () => ({ data: { plan: "starter", limit: 100, currentCount: 3, remaining: 97 } }) } },
-      staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) } },
+      staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: true } }) } },
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
-      reports: { range: { useQuery: () => ({ data: report }) } },
+      reports: { range: { useQuery: () => ({ data: report }) }, allBranchesRange: { useQuery: () => ({ data: { ...report, scope: { branchCount: 1 }, branchSummaries: [] } }) } },
       invoices: {
         publicByToken: { useQuery: () => ({
           data: {
@@ -64,6 +64,7 @@ describe("supplemental PowerHub page review", () => {
     expect(screen.getByLabelText("تاريخ بداية التقرير")).toHaveValue("2026-07-01");
     expect(screen.getByLabelText("تاريخ نهاية التقرير")).toHaveValue("2026-07-31");
     expect(screen.getByRole("button", { name: "CSV" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Excel" })).toBeEnabled();
   });
 
   it("renders dashboard metrics for the selected tenant site", async () => {

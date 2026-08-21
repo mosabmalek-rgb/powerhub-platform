@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { authenticatedHomePath } from "@/lib/role-routing";
 import { useLocation } from "wouter";
@@ -29,12 +30,8 @@ export function WorkspaceHome() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, loading, user } = useAuth();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword });
-  const [siteId, setSiteId] = useState<number | null>(null);
+  const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [scope, setScope] = useState<"all" | number>("all");
-
-  useEffect(() => {
-    if (!siteId && sitesQuery.data?.[0]) setSiteId(sitesQuery.data[0].id);
-  }, [siteId, sitesQuery.data]);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
