@@ -6,7 +6,6 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home, { WorkspaceHome } from "./pages/Home";
-import FeaturePage from "./pages/FeaturePage";
 import OperationsPage from "./pages/OperationsPage";
 import MeterReadingsPage from "./pages/MeterReadingsPage";
 import BillingPage from "./pages/BillingPage";
@@ -45,7 +44,6 @@ function Router() {
       <Route path={"/reports"}>{() => <RouteAccessGate><ReportsPage /></RouteAccessGate>}</Route>
       <Route path={"/notifications"}>{() => <RouteAccessGate><MessagingSettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
-      <Route path={"/map"}>{() => <RouteAccessGate><FeaturePage section="map" /></RouteAccessGate>}</Route>
       <Route path={"/settings"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/admin"}>{() => <RouteAccessGate platformAdminOnly><AdminConsolePage /></RouteAccessGate>}</Route>
       <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
