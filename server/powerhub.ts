@@ -345,6 +345,38 @@ export const powerhubRouter = router({
       await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(input.id), action: "update", beforeData: existing, afterData: { ...input, phone } });
       return { success: true };
     }),
+    phoneReview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
+      const db = await dbOrThrow();
+      const rows = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, phone: subscribers.phone }).from(subscribers).where(eq(subscribers.siteId, input.siteId)).orderBy(subscribers.fullName);
+      return rows.map((row) => {
+        try {
+          const normalizedPhone = normalizeInternationalPhone(row.phone);
+          return normalizedPhone === row.phone ? null : { ...row, status: "ready" as const, normalizedPhone, reason: "يمكن توحيد الصيغة تلقائياً." };
+        } catch {
+          return { ...row, status: "manual" as const, normalizedPhone: null, reason: "يتطلب رمز دولة صريحاً؛ عدّل الرقم يدوياً من إدارة المشتركين." };
+        }
+      }).filter(Boolean);
+    }),
+    applyPhoneNormalization: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), subscriberIds: z.array(z.number().int().positive()).min(1).max(500) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
+      const db = await dbOrThrow();
+      const rows = await db.select().from(subscribers).where(and(eq(subscribers.siteId, input.siteId), inArray(subscribers.id, input.subscriberIds)));
+      let updated = 0;
+      for (const row of rows) {
+        try {
+          const phone = normalizeInternationalPhone(row.phone);
+          if (phone !== row.phone) {
+            await db.update(subscribers).set({ phone }).where(eq(subscribers.id, row.id));
+            updated += 1;
+            await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber", entityId: String(row.id), action: "normalize_phone", beforeData: { phone: row.phone }, afterData: { phone } });
+          }
+        } catch {
+          // لا يخمن النظام رمز الدولة للأرقام المحلية غير القابلة للتحقق.
+        }
+      }
+      return { updated, skipped: input.subscriberIds.length - updated };
+    }),
   }),
 
   meters: router({
@@ -790,6 +822,18 @@ export const powerhubRouter = router({
       await db.update(notificationMessages).set({ status: "pending", lastError: null }).where(eq(notificationMessages.id, input.notificationId));
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(input.notificationId), action: "retry", metadata: { previousStatus: "failed" } });
       return { success: true };
+    }),
+    retryPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const db = await dbOrThrow();
+      const [scope] = await db.select({ id: notificationMessages.id, status: notificationMessages.status }).from(notificationMessages)
+        .innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id))
+        .where(and(eq(notificationMessages.id, input.notificationId), eq(notificationMessages.eventType, "payment_received"), eq(subscribers.siteId, input.siteId))).limit(1);
+      if (!scope) throw new TRPCError({ code: "NOT_FOUND", message: "إيصال الدفع لا يتبع للمحطة المحددة." });
+      if (scope.status !== "failed") throw new TRPCError({ code: "BAD_REQUEST", message: "يمكن إعادة إرسال الإيصالات الفاشلة فقط." });
+      await db.update(notificationMessages).set({ status: "pending", lastError: null }).where(eq(notificationMessages.id, input.notificationId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(input.notificationId), action: "retry_payment_receipt", metadata: { previousStatus: "failed" } });
+      return { notificationId: input.notificationId, ...await processNotificationById(input.notificationId) };
     }),
     sendPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), paymentId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");

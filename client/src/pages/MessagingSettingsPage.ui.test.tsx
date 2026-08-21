@@ -11,10 +11,11 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { messaging: { listConfigurations: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { messaging: { listConfigurations: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } } } }),
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 3, name: "محطة الاختبار" }] }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) } },
+      subscribers: { phoneReview: { useQuery: () => ({ data: [{ id: 11, fullName: "مشترك قديم", phone: "00970599000000", status: "ready", normalizedPhone: "+970599000000", reason: "يمكن توحيد الصيغة تلقائياً." }] }) }, applyPhoneNormalization: { useMutation: () => ({ mutate: state.mutate, isPending: false }) } },
       messaging: {
         listConfigurations: { useQuery: () => ({ data: [{ channel: "whatsapp", provider: "meta_whatsapp_cloud", phoneNumberId: "123", templateName: "invoice_ready_ar", receiptTemplateName: "payment_receipt_ar", isActive: true }] }) },
         deliveryPolicy: { useQuery: () => ({ data: state.policy }) },
@@ -28,6 +29,7 @@ vi.mock("@/lib/trpc", () => ({
       notifications: {
         list: { useQuery: () => ({ data: [{ invoiceNo: "INV-01", subscriber: { fullName: "مشترك الاختبار" }, notification: { id: 8, channel: "whatsapp", recipient: "0790000000", status: "failed", attempts: 2, lastError: "رفض المزود", createdAt: new Date("2026-08-20") } }] }) },
         retry: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
+        retryPaymentReceipt: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
       },
     },
   },
@@ -50,11 +52,12 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByText("رصيد رسائل Jawwal")).toBeInTheDocument();
     expect(screen.getByText("سجل إرسال فواتير المشتركين")).toBeInTheDocument();
     expect(screen.getByText("سجل إرسال إيصالات الدفع")).toBeInTheDocument();
+    expect(screen.getByText("مراجعة الأرقام القديمة")).toBeInTheDocument();
     expect(screen.getByText("إجمالي الرسائل المرسلة")).toBeInTheDocument();
     expect(screen.getByText("رفض المزود")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "معاينة الرسالة" })[0]);
     expect(screen.getByText("شكل الرسالة النهائي")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "إعادة إرسال" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "إعادة إرسال" }).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByRole("button", { name: "اختبار الاتصال" })).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب WhatsApp" }));
     expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, channel: "whatsapp", isActive: true }));
