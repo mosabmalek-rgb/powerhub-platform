@@ -32,3 +32,12 @@ export function summarizeOutstandingInvoices(invoices: InvoicePresentation[]) {
     unpaidCount: open.filter((invoice) => ["issued", "overdue"].includes(invoice.status)).length,
   };
 }
+
+export type PaymentStatusFilter = "all" | "paid" | "partially_paid" | "unpaid";
+
+export function filterInvoicesByPaymentStatus<T extends InvoicePresentation>(invoices: T[], filter: PaymentStatusFilter) {
+  if (filter === "all") return invoices;
+  if (filter === "paid") return invoices.filter((invoice) => invoice.status === "paid");
+  if (filter === "partially_paid") return invoices.filter((invoice) => invoice.status === "partially_paid");
+  return invoices.filter((invoice) => ["issued", "overdue"].includes(invoice.status) && Number(invoice.balanceDue) > 0);
+}

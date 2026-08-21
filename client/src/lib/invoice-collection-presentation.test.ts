@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { invoiceStatusMeta, outstandingInvoices, summarizeOutstandingInvoices } from "./invoice-collection-presentation";
+import { filterInvoicesByPaymentStatus, invoiceStatusMeta, outstandingInvoices, summarizeOutstandingInvoices } from "./invoice-collection-presentation";
 
 describe("invoice collection presentation", () => {
   const invoices = [
@@ -17,5 +17,11 @@ describe("invoice collection presentation", () => {
   it("summarizes only invoices that still require collection", () => {
     expect(outstandingInvoices(invoices).map((invoice) => invoice.id)).toEqual([2, 3]);
     expect(summarizeOutstandingInvoices(invoices)).toEqual({ count: 2, outstanding: 140, partiallyPaidCount: 1, unpaidCount: 1 });
+  });
+
+  it("filters invoices by complete, partial, and unpaid payment status", () => {
+    expect(filterInvoicesByPaymentStatus(invoices, "paid").map((invoice) => invoice.id)).toEqual([1]);
+    expect(filterInvoicesByPaymentStatus(invoices, "partially_paid").map((invoice) => invoice.id)).toEqual([2]);
+    expect(filterInvoicesByPaymentStatus(invoices, "unpaid").map((invoice) => invoice.id)).toEqual([3]);
   });
 });

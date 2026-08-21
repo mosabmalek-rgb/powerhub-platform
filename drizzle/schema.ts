@@ -103,6 +103,7 @@ export const tenantMessagingConfigurations = mysqlTable("tenantMessagingConfigur
   senderId: varchar("senderId", { length: 120 }),
   phoneNumberId: varchar("phoneNumberId", { length: 120 }),
   templateName: varchar("templateName", { length: 120 }),
+  receiptTemplateName: varchar("receiptTemplateName", { length: 120 }),
   credentialCiphertext: text("credentialCiphertext"),
   credentialIv: varchar("credentialIv", { length: 64 }),
   credentialKeyVersion: int("credentialKeyVersion").default(1).notNull(),

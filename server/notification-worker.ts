@@ -15,45 +15,82 @@ function parseWhatsAppCredential(ciphertext: string, iv: string): WhatsAppCreden
   return { accessToken: decrypted };
 }
 
-export async function processNotificationQueue(limit = 25) {
+type MessagePayload = { renderedText?: string; receiptTemplateParameters?: string[] };
+type MessageRow = typeof notificationMessages.$inferSelect;
+type DispatchResult = { status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string };
+
+function messagePayload(message: MessageRow) { return (message.payload ?? {}) as MessagePayload; }
+
+async function dispatchNotification(message: MessageRow): Promise<DispatchResult> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable while processing notifications.");
-  const pending = await db.select().from(notificationMessages)
-    .where(eq(notificationMessages.status, "pending")).orderBy(asc(notificationMessages.createdAt)).limit(Math.min(Math.max(limit, 1), 50));
-  const result = { scanned: pending.length, submitted: 0, failed: 0, skipped: 0 };
-
-  for (const message of pending) {
-    if (message.eventType === "invoice_issued") {
-      const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
-        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
-      if (!isInvoiceDeliveryChannelEnabled(message.channel, invoiceDeliveryPolicyFromSetting(setting))) {
-        await db.update(notificationMessages).set({ status: "failed", lastError: "قناة إرسال الفواتير معطلة من إعدادات آدمن PowerHub." }).where(eq(notificationMessages.id, message.id));
-        result.skipped += 1;
-        continue;
-      }
+  if (["invoice_issued", "payment_received"].includes(message.eventType)) {
+    const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
+      .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
+    if (!isInvoiceDeliveryChannelEnabled(message.channel, invoiceDeliveryPolicyFromSetting(setting))) {
+      const error = "قناة إرسال الإيصالات والفواتير معطلة من إعدادات آدمن PowerHub.";
+      await db.update(notificationMessages).set({ status: "failed", lastError: error }).where(eq(notificationMessages.id, message.id));
+      return { status: "skipped", error };
     }
-    const claimed = await db.update(notificationMessages).set({ status: "submitted", attempts: sql`${notificationMessages.attempts} + 1` })
-      .where(and(eq(notificationMessages.id, message.id), eq(notificationMessages.status, "pending")));
-    if (Number((claimed[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) { result.skipped += 1; continue; }
-    try {
-      const [configuration] = await db.select().from(tenantMessagingConfigurations).where(and(
-        eq(tenantMessagingConfigurations.tenantId, message.tenantId), eq(tenantMessagingConfigurations.channel, message.channel), eq(tenantMessagingConfigurations.isActive, true),
-      )).limit(1);
-      if (!configuration?.credentialCiphertext || !configuration.credentialIv) throw new Error(`لا توجد قناة ${message.channel} مفعلة لهذا المستأجر.`);
-      if (message.channel !== "whatsapp" || configuration.provider !== "meta_whatsapp_cloud" || !configuration.phoneNumberId) throw new Error("قناة الإرسال أو مزودها غير مدعومين في عامل الإرسال الحالي.");
+  }
+  const claimed = await db.update(notificationMessages).set({ status: "submitted", attempts: sql`${notificationMessages.attempts} + 1` })
+    .where(and(eq(notificationMessages.id, message.id), eq(notificationMessages.status, "pending")));
+  if (Number((claimed[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) return { status: "skipped", error: "الرسالة لم تعد في انتظار الإرسال." };
+  try {
+    const [configuration] = await db.select().from(tenantMessagingConfigurations).where(and(
+      eq(tenantMessagingConfigurations.tenantId, message.tenantId), eq(tenantMessagingConfigurations.channel, message.channel), eq(tenantMessagingConfigurations.isActive, true),
+    )).limit(1);
+    if (!configuration?.credentialCiphertext || !configuration.credentialIv) throw new Error(`لا توجد قناة ${message.channel} مفعلة لهذا المستأجر.`);
+    const payload = messagePayload(message);
+    let providerMessageId: string | undefined;
+    if (message.channel === "whatsapp") {
+      if (configuration.provider !== "meta_whatsapp_cloud" || !configuration.phoneNumberId) throw new Error("إرسال WhatsApp يتطلب مزود Meta وPhone Number ID فعالين.");
       const credential = parseWhatsAppCredential(configuration.credentialCiphertext, configuration.credentialIv);
+      const isReceipt = message.eventType === "payment_received";
+      const templateName = isReceipt ? configuration.receiptTemplateName : configuration.templateName;
+      if (!templateName) throw new Error(isReceipt ? "أدخل اسم قالب إيصال الدفع المعتمد من Meta أولاً." : "أدخل اسم قالب فاتورة Meta المعتمد أولاً.");
+      const components = isReceipt ? [{ type: "body", parameters: (payload.receiptTemplateParameters ?? []).map((text) => ({ type: "text", text })) }] : undefined;
       const response = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(configuration.phoneNumberId)}/messages`, {
         method: "POST", headers: { Authorization: `Bearer ${credential.accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ messaging_product: "whatsapp", to: message.recipient, type: "template", template: { name: configuration.templateName || "invoice_ready_ar", language: { code: "ar" } } }),
+        body: JSON.stringify({ messaging_product: "whatsapp", to: message.recipient, type: "template", template: { name: templateName, language: { code: "ar" }, ...(components ? { components } : {}) } }),
       });
       const body = await response.json().catch(() => ({})) as { messages?: Array<{ id?: string }>; error?: { message?: string } };
       if (!response.ok) throw new Error(body.error?.message || `رفض مزود WhatsApp الطلب (${response.status}).`);
-      await db.update(notificationMessages).set({ status: "submitted", providerMessageId: body.messages?.[0]?.id || null, lastError: null }).where(eq(notificationMessages.id, message.id));
-      result.submitted += 1;
-    } catch (error) {
-      await db.update(notificationMessages).set({ status: "failed", lastError: error instanceof Error ? error.message.slice(0, 2000) : "فشل غير معروف" }).where(eq(notificationMessages.id, message.id));
-      result.failed += 1;
-    }
+      providerMessageId = body.messages?.[0]?.id;
+    } else if (message.channel === "sms") {
+      if (configuration.provider !== "twilio" || !configuration.phoneNumberId || !configuration.senderId) throw new Error("إرسال SMS الفعلي متاح حالياً عبر Twilio مع Account SID واسم أو رقم المرسل؛ Jawwal ينتظر API الرسمي.");
+      if (!payload.renderedText) throw new Error("نص إيصال الدفع غير متوفر للإرسال عبر SMS.");
+      const basic = Buffer.from(`${configuration.phoneNumberId}:${decryptTenantCredential(configuration.credentialCiphertext, configuration.credentialIv)}`).toString("base64");
+      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(configuration.phoneNumberId)}/Messages.json`, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ To: message.recipient, From: configuration.senderId, Body: payload.renderedText }).toString() });
+      const body = await response.json().catch(() => ({})) as { sid?: string; message?: string };
+      if (!response.ok) throw new Error(body.message || `رفض مزود SMS الطلب (${response.status}).`);
+      providerMessageId = body.sid;
+    } else throw new Error("قناة الإرسال غير مدعومة.");
+    await db.update(notificationMessages).set({ status: "submitted", providerMessageId: providerMessageId || null, lastError: null }).where(eq(notificationMessages.id, message.id));
+    return { status: "submitted", providerMessageId };
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message.slice(0, 2000) : "فشل غير معروف";
+    await db.update(notificationMessages).set({ status: "failed", lastError: messageText }).where(eq(notificationMessages.id, message.id));
+    return { status: "failed", error: messageText };
+  }
+}
+
+export async function processNotificationById(notificationId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable while processing notifications.");
+  const [message] = await db.select().from(notificationMessages).where(eq(notificationMessages.id, notificationId)).limit(1);
+  if (!message) return { status: "skipped" as const, error: "رسالة الإشعار غير موجودة." };
+  return dispatchNotification(message);
+}
+
+export async function processNotificationQueue(limit = 25) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable while processing notifications.");
+  const pending = await db.select().from(notificationMessages).where(eq(notificationMessages.status, "pending")).orderBy(asc(notificationMessages.createdAt)).limit(Math.min(Math.max(limit, 1), 50));
+  const result = { scanned: pending.length, submitted: 0, failed: 0, skipped: 0 };
+  for (const message of pending) {
+    const dispatched = await dispatchNotification(message);
+    result[dispatched.status] += 1;
   }
   return result;
 }

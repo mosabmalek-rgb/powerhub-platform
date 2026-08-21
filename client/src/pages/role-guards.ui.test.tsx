@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   activeRole: "viewer",
   site: { id: 1, name: "محطة الاختبار", code: "TEST-01" },
   invoices: [] as Array<{ id: number; invoiceNo: string; billingPeriod: string; consumptionKwh: string; balanceDue: string; status: string }>,
+  payments: [] as any[],
   createShareLink: vi.fn(),
+  sendPaymentReceipt: vi.fn(),
   mutation: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
   query: (data: unknown = []) => ({ data, isLoading: false, isFetching: false }),
 }));
@@ -35,18 +37,18 @@ vi.mock("@/lib/trpc", () => ({
       invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
       subscribers: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
-      payments: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
+      payments: { list: { useQuery: () => mocks.query(mocks.payments) }, create: { useMutation: mocks.mutation } },
       expenses: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) } },
       audit: { list: { useQuery: () => mocks.query([]) } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation } },
-      notifications: { list: { useQuery: () => mocks.query([]) }, retry: { useMutation: mocks.mutation } },
+      notifications: { list: { useQuery: () => mocks.query([]) }, retry: { useMutation: mocks.mutation }, sendPaymentReceipt: { useMutation: () => ({ mutate: mocks.sendPaymentReceipt, isPending: false }) } },
     },
   },
 }));
 
-afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; mocks.invoices = []; mocks.createShareLink.mockReset(); });
+afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; mocks.invoices = []; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendPaymentReceipt.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("hides invoice issuance and sharing controls from the viewer", () => {
@@ -133,6 +135,18 @@ describe("role guards in administration UI", () => {
     render(<OperationsPage section="collections" />);
     expect(screen.getByText(/افتح جلسة قبل تسجيل دفعاتك الميدانية/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "فتح جلسة تحصيل" })).toBeInTheDocument();
+  });
+
+  it("shows receipt print, WhatsApp, and SMS actions for a partial payment", () => {
+    mocks.activeRole = "owner";
+    mocks.invoices = [{ id: 50, invoiceNo: "INV-PARTIAL", billingPeriod: "2026-08", consumptionKwh: "5", totalAmount: "100", paidAmount: "40", balanceDue: "60", status: "partially_paid" } as any];
+    mocks.payments = [{ payment: { id: 70, invoiceId: 50, paymentNo: "PAY-PARTIAL", amount: "40", paymentMethod: "cash", paidAt: new Date("2026-08-20") }, subscriber: { fullName: "مشترك اختبار", phone: "970599000000" }, invoiceNo: "INV-PARTIAL" }];
+    render(<OperationsPage section="collections" />);
+    expect(screen.getByRole("button", { name: "طباعة" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "WhatsApp" }));
+    expect(mocks.sendPaymentReceipt).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "whatsapp" });
+    fireEvent.click(screen.getByRole("button", { name: "SMS" }));
+    expect(mocks.sendPaymentReceipt).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "sms" });
   });
 
   it("lets an accountant create a public share link from an issued invoice", () => {

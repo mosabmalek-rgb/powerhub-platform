@@ -1,0 +1,1 @@
+ALTER TABLE `tenantMessagingConfigurations` ADD `receiptTemplateName` varchar(120);
