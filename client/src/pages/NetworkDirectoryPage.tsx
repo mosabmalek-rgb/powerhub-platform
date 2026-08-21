@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { can } from "@shared/powerhub-rbac";
-import { Bolt, Loader2, Pencil, Plus, UsersRound } from "lucide-react";
+import { Bolt, Copy, Loader2, Pencil, Plus, UsersRound } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -68,7 +68,27 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
 }
 
 function SubscriberPortalGuide() {
-  return <Card className="border-sky-400/20 bg-sky-400/[.045] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-sky-100">إرشاد بوابة الاستعلامات للمشترك</p><p className="mt-1 text-sm leading-6 text-slate-300">بعد إنشاء المشترك، شاركه الرقم المرجعي المولّد تلقائياً. يفتح رابط بوابة المولد ثم يدخل الرقم المرجعي مع رقم هاتفه الدولي المسجل لعرض فواتيره واستهلاكه.</p></div><div className="shrink-0 rounded-xl border border-sky-300/20 bg-[#0D1117]/40 px-3 py-2 text-center text-xs text-sky-100"><span className="block font-bold">مفتاح البحث</span><span className="mt-1 block" dir="ltr">Reference No. + Phone</span></div></CardContent></Card>;
+  return <Card className="border-sky-400/20 bg-sky-400/[.045] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-sky-100">إرشاد بوابة الاستعلامات للمشترك</p><p className="mt-1 text-sm leading-6 text-slate-300">بعد إنشاء المشترك، استخدم زر <strong className="text-sky-100">نسخ الرقم المرجعي</strong> في بطاقته أدناه ثم شاركه معه. يفتح رابط بوابة المولد ويدخل الرقم المرجعي مع رقم هاتفه الدولي المسجل لعرض فواتيره واستهلاكه.</p></div><div className="shrink-0 rounded-xl border border-sky-300/20 bg-[#0D1117]/40 px-3 py-2 text-center text-xs text-sky-100"><span className="block font-bold">مفتاح البحث</span><span className="mt-1 block" dir="ltr">Reference No. + Phone</span></div></CardContent></Card>;
+}
+
+async function copySubscriberReference(subscriberNo: string) {
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(subscriberNo);
+    else {
+      const input = document.createElement("textarea");
+      input.value = subscriberNo;
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.appendChild(input);
+      input.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(input);
+      if (!copied) throw new Error("copy_failed");
+    }
+    toast.success(`تم نسخ الرقم المرجعي: ${subscriberNo}`);
+  } catch {
+    toast.error("تعذر نسخ الرقم المرجعي. انسخه يدوياً من السجل.");
+  }
 }
 
 function SubscriberEditor({ editing, pending, onCancel, onSubmit }: { editing: any; pending: boolean; onCancel: () => void; onSubmit: (values: Values) => void }) {
@@ -81,7 +101,7 @@ function GeneratorEditor({ editing, pending, onCancel, onSubmit }: { editing: an
 
 function RecordRow({ kind, item, canEdit, onEdit }: { kind: DirectoryKind; item: any; canEdit: boolean; onEdit: () => void }) {
   const subscriber = kind === "subscribers";
-  return <div className="flex items-center justify-between rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3"><div><p className="font-bold text-white">{subscriber ? item.fullName : item.name}</p><p className="mt-1 text-xs text-slate-500">{subscriber ? `${item.subscriberNo} · ${item.phone} · ${item.subscriptionType === "commercial" ? "تجاري" : "سكني"}` : `${item.code} · ${item.ratedCapacityKw} kW · ${item.operatingHours} ساعة`}</p></div><div className="flex items-center gap-2">{subscriber ? <Badge className={item.serviceStatus === "active" ? "bg-emerald-400/10 text-emerald-400" : "bg-rose-400/10 text-rose-400"}>{item.serviceStatus === "active" ? "نشط" : item.serviceStatus === "suspended" ? "معلق" : "مفصول"}</Badge> : <Badge className="bg-[#F5B800]/10 text-[#F5B800]">{item.status === "active" ? "يعمل" : item.status === "maintenance" ? "صيانة" : item.status}</Badge>}{canEdit && <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={onEdit}><Pencil className="h-3.5 w-3.5" /></Button>}</div></div>;
+  return <div className="flex flex-col gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-white">{subscriber ? item.fullName : item.name}</p><p className="mt-1 text-xs text-slate-500">{subscriber ? `${item.subscriberNo} · ${item.phone} · ${item.subscriptionType === "commercial" ? "تجاري" : "سكني"}` : `${item.code} · ${item.ratedCapacityKw} kW · ${item.operatingHours} ساعة`}</p></div><div className="flex flex-wrap items-center gap-2">{subscriber ? <><Badge className={item.serviceStatus === "active" ? "bg-emerald-400/10 text-emerald-400" : "bg-rose-400/10 text-rose-400"}>{item.serviceStatus === "active" ? "نشط" : item.serviceStatus === "suspended" ? "معلق" : "مفصول"}</Badge><Button size="sm" variant="outline" className="border-sky-300/25 text-sky-100 hover:bg-sky-300/10 hover:text-sky-50" onClick={() => void copySubscriberReference(item.subscriberNo)}><Copy className="ml-1.5 h-3.5 w-3.5" />نسخ الرقم المرجعي</Button></> : <Badge className="bg-[#F5B800]/10 text-[#F5B800]">{item.status === "active" ? "يعمل" : item.status === "maintenance" ? "صيانة" : item.status}</Badge>}{canEdit && <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={onEdit}><Pencil className="h-3.5 w-3.5" /></Button>}</div></div>;
 }
 
 function EditorTitle({ text, editing, onCancel }: { text: string; editing: boolean; onCancel: () => void }) { return <div className="flex items-center justify-between"><h2 className="font-bold text-white">{text}</h2>{editing && <Button size="sm" variant="ghost" className="text-slate-400" onClick={onCancel}>إلغاء</Button>}</div>; }

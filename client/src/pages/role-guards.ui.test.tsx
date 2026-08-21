@@ -13,6 +13,7 @@ import SettingsPage from "./SettingsPage";
 const mocks = vi.hoisted(() => ({
   activeRole: "viewer",
   site: { id: 1, name: "محطة الاختبار", code: "TEST-01" },
+  subscribers: [] as any[],
   invoices: [] as Array<{ id: number; invoiceNo: string; billingPeriod: string; consumptionKwh: string; balanceDue: string; status: string }>,
   payments: [] as any[],
   createShareLink: vi.fn(),
@@ -35,7 +36,7 @@ vi.mock("@/lib/trpc", () => ({
       readings: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
-      subscribers: { list: { useQuery: () => mocks.query([]) }, phoneReview: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation } },
+      subscribers: { list: { useQuery: () => mocks.query(mocks.subscribers) }, phoneReview: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation } },
       generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       payments: { list: { useQuery: () => mocks.query(mocks.payments) }, create: { useMutation: mocks.mutation } },
       expenses: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
@@ -48,7 +49,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; mocks.invoices = []; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendPaymentReceipt.mockReset(); });
+afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; mocks.subscribers = []; mocks.invoices = []; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendPaymentReceipt.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("hides invoice issuance and sharing controls from the viewer", () => {
@@ -64,10 +65,12 @@ describe("role guards in administration UI", () => {
   });
 
   it("renders the subscriber directory in read-only mode for the viewer", () => {
+    mocks.subscribers = [{ id: 101, fullName: "مشترك الاختبار", subscriberNo: "PH-TEST-ABC123", phone: "+970700000000", subscriptionType: "residential", serviceStatus: "active" }];
     render(<NetworkDirectoryPage kind="subscribers" />);
     expect(screen.getByText(/وضع القراءة فقط لهذه المحطة/)).toBeInTheDocument();
     expect(screen.getByText("إرشاد بوابة الاستعلامات للمشترك")).toBeInTheDocument();
     expect(screen.getByText(/الرقم المرجعي مع رقم هاتفه الدولي المسجل/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "نسخ الرقم المرجعي" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /إضافة المشترك/ })).not.toBeInTheDocument();
   });
 
