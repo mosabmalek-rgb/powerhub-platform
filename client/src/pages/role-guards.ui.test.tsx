@@ -9,10 +9,12 @@ import MeterReadingsPage from "./MeterReadingsPage";
 import NetworkDirectoryPage from "./NetworkDirectoryPage";
 import OperationsPage from "./OperationsPage";
 import SettingsPage from "./SettingsPage";
+import SubscriberPortalSettingsPage from "./SubscriberPortalSettingsPage";
 
 const mocks = vi.hoisted(() => ({
   activeRole: "viewer",
   site: { id: 1, name: "محطة الاختبار", code: "TEST-01" },
+  portalSettings: { portalCode: "test-portal", displayName: "بوابة الاختبار", primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true },
   subscribers: [] as any[],
   invoices: [] as Array<{ id: number; invoiceNo: string; billingPeriod: string; consumptionKwh: string; balanceDue: string; status: string }>,
   payments: [] as any[],
@@ -22,13 +24,21 @@ const mocks = vi.hoisted(() => ({
   query: (data: unknown = []) => ({ data, isLoading: false, isFetching: false }),
 }));
 
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false }) }));
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock("@/components/ui/switch", () => ({ Switch: ({ checked, onCheckedChange, ...props }: { checked: boolean; onCheckedChange: (value: boolean) => void; [key: string]: unknown }) => <button type="button" aria-pressed={checked} onClick={() => onCheckedChange(!checked)} {...props} /> }));
 vi.mock("wouter", () => ({ useLocation: () => ["/readings", vi.fn()] }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
     powerhub: {
       sites: { list: { useQuery: () => mocks.query([mocks.site]) }, create: { useMutation: mocks.mutation } },
       staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, assign: { useMutation: mocks.mutation } },
@@ -44,6 +54,7 @@ vi.mock("@/lib/trpc", () => ({
       audit: { list: { useQuery: () => mocks.query([]) } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation } },
+      subscriberPortal: { settings: { useQuery: () => mocks.query(mocks.portalSettings) }, saveSettings: { useMutation: mocks.mutation } },
       notifications: { list: { useQuery: () => mocks.query([]) }, retry: { useMutation: mocks.mutation }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceipt: { useMutation: () => ({ mutate: mocks.sendPaymentReceipt, isPending: false }) } },
     },
   },
@@ -100,6 +111,13 @@ describe("role guards in administration UI", () => {
     expect(screen.getByLabelText("اسم قالب رسالة الرقم المرجعي")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /حفظ إعداد WhatsApp/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /حفظ إعداد SMS/ })).toBeInTheDocument();
+  });
+
+  it("shows a clear portal URL copy action to the owner", () => {
+    mocks.activeRole = "owner";
+    render(<SubscriberPortalSettingsPage />);
+    expect(screen.getByRole("button", { name: "نسخ رابط البوابة" })).toBeInTheDocument();
+    expect(screen.getByText(/انسخ الرابط ثم شاركه مع المشتركين/)).toBeInTheDocument();
   });
 
   it("shows team administration to the owner", () => {
