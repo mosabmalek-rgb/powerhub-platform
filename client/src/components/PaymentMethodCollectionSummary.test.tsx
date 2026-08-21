@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { buildPaymentMethodCsv, PaymentMethodCollectionSummary, summarizePaymentMethods } from "./PaymentMethodCollectionSummary";
+import * as XLSX from "xlsx";
+import { buildPaymentMethodCsv, buildPaymentMethodWorkbook, PaymentMethodCollectionSummary, summarizePaymentMethods } from "./PaymentMethodCollectionSummary";
 
 describe("PaymentMethodCollectionSummary", () => {
   const payments = [
@@ -39,5 +40,15 @@ describe("PaymentMethodCollectionSummary", () => {
     const csv = buildPaymentMethodCsv(summary.groups, summary.total, "all", { from: "2026-09-01", to: "2026-09-30" });
     expect(csv).toContain("2026-09-01 إلى 2026-09-30");
     expect(csv).not.toContain("40.00");
+  });
+
+  it("builds an Excel workbook with the active filter and summary values", () => {
+    const summary = summarizePaymentMethods(payments, "jawwal_pay");
+    const workbook = buildPaymentMethodWorkbook(summary.groups, summary.total, "jawwal_pay");
+    expect(workbook.SheetNames).toEqual(["ملخص التحصيل"]);
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets["ملخص التحصيل"], { header: 1 }) as unknown[][];
+    expect(rows).toContainEqual(["الفلتر", "Jawwal Pay"]);
+    expect(rows).toContainEqual(["Jawwal Pay", 1, 70]);
+    expect(rows).toContainEqual(["الإجمالي", "", 70]);
   });
 });
