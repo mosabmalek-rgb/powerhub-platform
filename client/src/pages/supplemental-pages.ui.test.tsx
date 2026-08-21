@@ -7,6 +7,15 @@ import { WorkspaceHome } from "./Home";
 import PublicInvoice from "./PublicInvoice";
 import ReportsPage from "./ReportsPage";
 
+if (!globalThis.ResizeObserver) {
+  class ResizeObserverMock {
+    observe() { /* jsdom does not calculate layout dimensions. */ }
+    unobserve() { /* no-op test shim */ }
+    disconnect() { /* no-op test shim */ }
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", { value: ResizeObserverMock, writable: true });
+}
+
 const state = vi.hoisted(() => ({
   user: undefined as { role: "admin" | "user"; platformRole?: "platform_owner" | "platform_admin" | "finance_admin" | null; mustChangePassword?: boolean } | undefined,
   setLocation: vi.fn(),
@@ -69,6 +78,8 @@ describe("supplemental PowerHub page review", () => {
     expect(screen.getByRole("button", { name: "Excel" })).toBeEnabled();
     expect(screen.getByRole("button", { name: /PDF رسمي/ })).toBeEnabled();
     expect(screen.getByText("مقارنة الأداء المالي")).toBeInTheDocument();
+    expect(screen.getByLabelText("رسم أعمدة المقارنة المالية")).toBeInTheDocument();
+    expect(screen.getByLabelText("رسم نسبة التغير المالي")).toBeInTheDocument();
   });
 
   it("renders dashboard metrics for the selected tenant site", async () => {
