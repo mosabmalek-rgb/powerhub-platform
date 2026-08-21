@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Download } from "lucide-react";
+import { CalendarDays, Download, RotateCcw } from "lucide-react";
 import { useState } from "react";
 
 const labels: Record<string, string> = {
@@ -12,13 +12,23 @@ const labels: Record<string, string> = {
   bank_transfer: "تحويل بنكي",
   card: "بطاقة",
 };
-
+const chartColors = ["#F5B800", "#34d399", "#38bdf8", "#a78bfa", "#fb7185", "#f97316", "#94a3b8"];
 const format = (value: number) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(value);
 
 type MethodGroup = { method: string; count: number; amount: number };
+export type PaymentDateRange = { from?: string; to?: string };
 
-export function summarizePaymentMethods(payments: any[], selectedMethod = "all") {
-  const completed = payments.filter((row) => row.payment.status === "completed");
+function isWithinDateRange(value: unknown, range: PaymentDateRange) {
+  if (!range.from && !range.to) return true;
+  const paidAt = new Date(String(value));
+  if (Number.isNaN(paidAt.getTime())) return false;
+  const from = range.from ? new Date(`${range.from}T00:00:00`) : undefined;
+  const to = range.to ? new Date(`${range.to}T23:59:59.999`) : undefined;
+  return (!from || paidAt >= from) && (!to || paidAt <= to);
+}
+
+export function summarizePaymentMethods(payments: any[], selectedMethod = "all", range: PaymentDateRange = {}) {
+  const completed = payments.filter((row) => row.payment.status === "completed" && isWithinDateRange(row.payment.paidAt, range));
   const filtered = selectedMethod === "all" ? completed : completed.filter((row) => row.payment.paymentMethod === selectedMethod);
   const groups = Object.entries(filtered.reduce((acc: Record<string, Omit<MethodGroup, "method">>, row) => {
     const key = row.payment.paymentMethod;
@@ -26,19 +36,19 @@ export function summarizePaymentMethods(payments: any[], selectedMethod = "all")
     acc[key].count += 1;
     acc[key].amount += Number(row.payment.amount);
     return acc;
-  }, {})).map(([method, value]) => ({ method, ...value }));
+  }, {})).map(([method, value]) => ({ method, ...value })).sort((a, b) => b.amount - a.amount);
   return { completed, filtered, groups, total: filtered.reduce((sum, row) => sum + Number(row.payment.amount), 0) };
 }
 
-function escapeCsv(value: unknown) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
-}
+function escapeCsv(value: unknown) { return `"${String(value ?? "").replace(/"/g, '""')}"`; }
+function dateLabel(range: PaymentDateRange) { return range.from || range.to ? `${range.from || "بداية السجل"} إلى ${range.to || "اليوم"}` : "كامل الفترة"; }
 
-export function buildPaymentMethodCsv(groups: MethodGroup[], total: number, selectedMethod: string) {
+export function buildPaymentMethodCsv(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange = {}) {
   const filterLabel = selectedMethod === "all" ? "كل طرق الدفع" : labels[selectedMethod] ?? selectedMethod;
   const lines = [
     ["تقرير ملخص التحصيلات حسب طريقة الدفع"],
     ["الفلتر", filterLabel],
+    ["النطاق الزمني", dateLabel(range)],
     ["طريقة الدفع", "عدد الدفعات المكتملة", "إجمالي المبلغ"],
     ...groups.map((group) => [labels[group.method] ?? group.method, group.count, group.amount.toFixed(2)]),
     ["الإجمالي", "", total.toFixed(2)],
@@ -46,24 +56,31 @@ export function buildPaymentMethodCsv(groups: MethodGroup[], total: number, sele
   return `\uFEFF${lines.map((line) => line.map(escapeCsv).join(",")).join("\r\n")}`;
 }
 
-function downloadPaymentMethodCsv(groups: MethodGroup[], total: number, selectedMethod: string) {
-  const csv = buildPaymentMethodCsv(groups, total, selectedMethod);
-  const fileLabel = selectedMethod === "all" ? "all-methods" : selectedMethod;
+function downloadPaymentMethodCsv(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange) {
+  const csv = buildPaymentMethodCsv(groups, total, selectedMethod, range);
+  const methodLabel = selectedMethod === "all" ? "all-methods" : selectedMethod;
+  const dateSuffix = range.from || range.to ? `-${range.from || "start"}-${range.to || "end"}` : "";
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `powerhub-payment-method-summary-${fileLabel}.csv`;
+  link.download = `powerhub-payment-method-summary-${methodLabel}${dateSuffix}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
 }
 
+function PaymentMethodChart({ groups, total }: { groups: MethodGroup[]; total: number }) {
+  return <div className="rounded-2xl border border-white/8 bg-[#0D1117]/45 p-4"><div className="flex items-center justify-between"><div><p className="font-bold text-white">توزيع التحصيلات حسب الطريقة</p><p className="mt-1 text-xs text-slate-500">نسبة كل طريقة من إجمالي الفترة المفلترة.</p></div><span className="font-display text-sm text-[#F5B800]">100%</span></div>{groups.length ? <div className="mt-5"><div aria-label="رسم أعمدة توزيع طرق الدفع" className="flex h-44 items-end gap-3 border-b border-white/10 px-2 pb-2">{groups.map((group, index) => { const percentage = total ? Math.round((group.amount / total) * 100) : 0; return <div key={group.method} className="flex h-full min-w-14 flex-1 flex-col items-center justify-end gap-2"><span className="text-xs font-bold text-white">{percentage}%</span><div title={`${labels[group.method] ?? group.method}: ${percentage}%`} className="w-full max-w-14 rounded-t-lg transition-[height] duration-200" style={{ height: `${Math.max(8, percentage)}%`, backgroundColor: chartColors[index % chartColors.length] }} /><span className="max-w-16 truncate text-[10px] text-slate-400">{labels[group.method] ?? group.method}</span></div>; })}</div><div className="mt-4 grid gap-2 sm:grid-cols-2">{groups.map((group, index) => <div key={group.method} className="flex items-center justify-between rounded-lg bg-white/[.025] px-3 py-2 text-xs"><span className="flex items-center gap-2 text-slate-300"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: chartColors[index % chartColors.length] }} />{labels[group.method] ?? group.method}</span><span className="font-bold text-white">{format(group.amount)}</span></div>)}</div></div> : <p className="mt-5 text-sm text-slate-500">لا توجد بيانات مكتملة ضمن الفترة المختارة لعرض الرسم.</p>}</div>;
+}
+
 export function PaymentMethodCollectionSummary({ payments }: { payments: any[] }) {
   const [method, setMethod] = useState("all");
-  const { completed, groups, total } = summarizePaymentMethods(payments, method);
-  const methods = Array.from(new Set(payments.filter((row) => row.payment.status === "completed").map((row) => row.payment.paymentMethod)));
+  const [range, setRange] = useState<PaymentDateRange>({});
+  const { completed, groups, total } = summarizePaymentMethods(payments, method, range);
+  const methods = Array.from(new Set(summarizePaymentMethods(payments, "all", range).completed.map((row) => row.payment.paymentMethod)));
+  const clearRange = () => setRange({});
 
-  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="font-bold text-white">ملخص التحصيل حسب طريقة الدفع</h2><p className="mt-1 text-sm text-slate-400">اعرض الدفعات المكتملة ضمن طريقة الدفع المطلوبة لتسهيل الجرد المالي.</p><p className="mt-3 font-display text-3xl font-extrabold text-emerald-300">{format(total)}</p></div><div className="flex flex-col gap-2 sm:items-end"><label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">فلتر طريقة الدفع</span><select value={method} onChange={(event) => setMethod(event.target.value)} className="h-10 min-w-48 rounded-xl border border-white/10 bg-white/[.025] px-3 text-sm text-white outline-none focus:border-[#F5B800]/70"><option className="bg-[#111823]" value="all">كل الطرق</option>{methods.map((item) => <option className="bg-[#111823]" key={item} value={item}>{labels[item] ?? item}</option>)}</select></label><Button type="button" size="sm" variant="outline" disabled={!completed.length} onClick={() => downloadPaymentMethodCsv(groups, total, method)} className="border-[#F5B800]/40 text-[#F5B800] hover:bg-[#F5B800]/10 hover:text-[#ffd23f]"><Download className="ml-1 h-3.5 w-3.5" />تصدير CSV لـ Excel</Button></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{groups.map((group) => <div key={group.method} className="rounded-xl border border-white/8 bg-white/[.025] p-4"><p className="text-xs font-bold text-slate-400">{labels[group.method] ?? group.method}</p><p className="mt-2 font-display text-xl font-extrabold text-[#F5B800]">{format(group.amount)}</p><p className="mt-1 text-xs text-slate-500">{group.count} دفعة مكتملة</p></div>)}{!groups.length ? <p className="text-sm text-slate-500">لا توجد دفعات مكتملة ضمن الفلتر المحدد.</p> : null}</div></CardContent></Card>;
+  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><h2 className="font-bold text-white">ملخص التحصيل حسب طريقة الدفع</h2><p className="mt-1 text-sm text-slate-400">اعرض الدفعات المكتملة ضمن نطاق زمني وطريقة دفع محددين لتسهيل الجرد المالي.</p><p className="mt-3 font-display text-3xl font-extrabold text-emerald-300">{format(total)}</p><p className="mt-1 text-xs text-slate-500">النطاق: {dateLabel(range)}</p></div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">من تاريخ</span><input type="date" value={range.from ?? ""} onChange={(event) => setRange((current) => ({ ...current, from: event.target.value || undefined }))} className="h-10 w-full rounded-xl border border-white/10 bg-white/[.025] px-3 text-sm text-white outline-none focus:border-[#F5B800]/70" /></label><label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">إلى تاريخ</span><input type="date" value={range.to ?? ""} onChange={(event) => setRange((current) => ({ ...current, to: event.target.value || undefined }))} className="h-10 w-full rounded-xl border border-white/10 bg-white/[.025] px-3 text-sm text-white outline-none focus:border-[#F5B800]/70" /></label><label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">طريقة الدفع</span><select value={method} onChange={(event) => setMethod(event.target.value)} className="h-10 w-full rounded-xl border border-white/10 bg-white/[.025] px-3 text-sm text-white outline-none focus:border-[#F5B800]/70"><option className="bg-[#111823]" value="all">كل الطرق</option>{methods.map((item) => <option className="bg-[#111823]" key={item} value={item}>{labels[item] ?? item}</option>)}</select></label><div className="flex flex-col gap-2"><span className="mb-2 block text-xs font-bold text-slate-400">التقرير</span><Button type="button" size="sm" variant="outline" disabled={!completed.length} onClick={() => downloadPaymentMethodCsv(groups, total, method, range)} className="border-[#F5B800]/40 text-[#F5B800] hover:bg-[#F5B800]/10 hover:text-[#ffd23f]"><Download className="ml-1 h-3.5 w-3.5" />تصدير CSV</Button><Button type="button" size="sm" variant="ghost" onClick={clearRange} className="text-slate-400 hover:bg-white/5 hover:text-white"><RotateCcw className="ml-1 h-3.5 w-3.5" />مسح الفترة</Button></div></div></div><div className="mt-6 grid gap-5 xl:grid-cols-[1.15fr_.85fr]"><div className="grid gap-3 sm:grid-cols-2">{groups.map((group) => <div key={group.method} className="rounded-xl border border-white/8 bg-white/[.025] p-4"><p className="text-xs font-bold text-slate-400">{labels[group.method] ?? group.method}</p><p className="mt-2 font-display text-xl font-extrabold text-[#F5B800]">{format(group.amount)}</p><p className="mt-1 text-xs text-slate-500">{group.count} دفعة مكتملة</p></div>)}{!groups.length ? <div className="rounded-xl border border-dashed border-white/10 p-5 text-sm text-slate-500">لا توجد دفعات مكتملة ضمن الفترة أو الفلتر المحدد.</div> : null}</div><PaymentMethodChart groups={groups} total={total} /></div></CardContent></Card>;
 }
