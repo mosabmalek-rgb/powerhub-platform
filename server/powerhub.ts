@@ -1266,7 +1266,10 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
-      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
+      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), transferToAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المستقبِل يجب أن يكون رقم جوال صحيحاً.").optional(), transferToType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
+    }).superRefine((input, ctx) => {
+      const electronic = input.paymentMethod !== "cash";
+      if (electronic && (!input.transferFromAccount || !input.transferFromType || !input.transferToAccount || !input.transferToType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "للدفعات الإلكترونية يجب إدخال حساب التحويل المحوِّل والمستقبِل ونوع كل حساب." });
     })).mutation(async ({ ctx, input }) => {
       const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       const db = await dbOrThrow();
