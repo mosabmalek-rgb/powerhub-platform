@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { randomBytes } from "node:crypto";
-import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
@@ -1696,7 +1696,7 @@ export const powerhubRouter = router({
   }),
 
   companyAccounts: router({
-    list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+    list: protectedProcedure.input(siteScoped.extend({ branchId: z.number().int().positive().optional(), fromDate: z.string().optional(), toDate: z.string().optional() })).query(async ({ ctx, input }) => {
       const role = await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
       void role;
       const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);
@@ -1706,9 +1706,14 @@ export const powerhubRouter = router({
         for (const [name, accountType, color] of defaults) await db.insert(companyAccounts).values({ tenantId, name, accountType, color });
         accounts = await db.select().from(companyAccounts).where(and(eq(companyAccounts.tenantId, tenantId), eq(companyAccounts.isActive, true))).orderBy(companyAccounts.id);
       }
-      const rows = await db.select().from(accountTransactions).where(eq(accountTransactions.tenantId, tenantId)).orderBy(desc(accountTransactions.occurredAt)).limit(500);
       const accountSiteRows = await db.select({ accountId: companyAccountSites.accountId, siteId: companyAccountSites.siteId, siteName: sites.name }).from(companyAccountSites).innerJoin(sites, eq(companyAccountSites.siteId, sites.id)).where(eq(companyAccountSites.tenantId, tenantId));
-      return accounts.map((account) => ({ ...account, linkedSites: accountSiteRows.filter((row) => row.accountId === account.id), balance: rows.filter((row) => row.accountId === account.id).reduce((sum, row) => sum + (row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? -Number(row.amount) : Number(row.amount)), 0), transactions: rows.filter((row) => row.accountId === account.id).slice(0, 20) }));
+      const visibleAccountIds = input.branchId ? new Set(accountSiteRows.filter((row) => row.siteId === input.branchId).map((row) => row.accountId)) : null;
+      const from = input.fromDate ? new Date(input.fromDate) : null; const to = input.toDate ? new Date(input.toDate) : null;
+      if (from && Number.isNaN(from.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية غير صحيح." });
+      if (to && Number.isNaN(to.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ النهاية غير صحيح." });
+      if (from && to && from > to) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب أن يسبق تاريخ النهاية." });
+      const rows = await db.select().from(accountTransactions).where(and(eq(accountTransactions.tenantId, tenantId), ...(from ? [gte(accountTransactions.occurredAt, from)] : []), ...(to ? [lte(accountTransactions.occurredAt, to)] : []))).orderBy(desc(accountTransactions.occurredAt)).limit(1000);
+      return accounts.filter((account) => !visibleAccountIds || visibleAccountIds.has(account.id)).map((account) => ({ ...account, linkedSites: accountSiteRows.filter((row) => row.accountId === account.id), balance: rows.filter((row) => row.accountId === account.id).reduce((sum, row) => sum + (row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? -Number(row.amount) : Number(row.amount)), 0), transactions: rows.filter((row) => row.accountId === account.id) }));
     }),
     create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), name: z.string().trim().min(2).max(120), accountType: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]), phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً."), color: z.string().trim().max(20).optional(), siteIds: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageExpenses"); const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);
@@ -1718,6 +1723,16 @@ export const powerhubRouter = router({
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "company_account", entityId: String(id), action: "create", afterData: input }); return { id };
     }),
     updatePhone: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), accountId: z.number().int().positive(), phoneNumber: z.string().trim().regex(/^\\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً بصيغة دولية أو محلية.") })).mutation(async ({ ctx, input }) => { await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses"); const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId); const [account] = await db.select({ id: companyAccounts.id }).from(companyAccounts).where(and(eq(companyAccounts.id, input.accountId), eq(companyAccounts.tenantId, tenantId))).limit(1); if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب غير موجود ضمن مساحة الشركة." }); await db.update(companyAccounts).set({ phoneNumber: input.phoneNumber }).where(eq(companyAccounts.id, input.accountId)); await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "company_account", entityId: String(input.accountId), action: "update_phone", afterData: { phoneNumber: input.phoneNumber } }); return { success: true }; }),
+    updateSites: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), accountId: z.number().int().positive(), siteIds: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageExpenses"); const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);
+      const [account] = await db.select({ id: companyAccounts.id }).from(companyAccounts).where(and(eq(companyAccounts.id, input.accountId), eq(companyAccounts.tenantId, tenantId))).limit(1);
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب غير موجود ضمن مساحة الشركة." });
+      const validSites = await db.select({ id: sites.id }).from(sites).where(and(eq(sites.tenantId, tenantId), inArray(sites.id, input.siteIds)));
+      if (validSites.length !== input.siteIds.length) throw new TRPCError({ code: "FORBIDDEN", message: "أحد الفروع المحددة لا يتبع مساحة الشركة." });
+      await db.delete(companyAccountSites).where(and(eq(companyAccountSites.accountId, input.accountId), eq(companyAccountSites.tenantId, tenantId)));
+      await db.insert(companyAccountSites).values(input.siteIds.map((siteId) => ({ tenantId, accountId: input.accountId, siteId })));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "company_account", entityId: String(input.accountId), action: "update_sites", afterData: { siteIds: input.siteIds } }); return { success: true };
+    }),
     addMovement: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), accountId: z.number().int().positive(), transactionType: z.enum(["deposit", "withdrawal"]), amount: z.number().positive(), description: z.string().trim().min(2).max(255), referenceNo: z.string().trim().max(120).optional() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses"); const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);
       const [account] = await db.select({ id: companyAccounts.id }).from(companyAccounts).where(and(eq(companyAccounts.id, input.accountId), eq(companyAccounts.tenantId, tenantId))).limit(1); if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب غير موجود ضمن مساحة الشركة." });
