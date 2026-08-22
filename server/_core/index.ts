@@ -10,7 +10,7 @@ import { serveStatic, setupVite } from "./vite";
 import { sdk } from "./sdk";
 import { processNotificationQueue, processNotificationQueueForTenant } from "../notification-worker";
 import { getDb } from "../db";
-import { tenantMessagingConfigurations } from "../../drizzle/schema";
+import { messagingScheduleRuns, tenantMessagingConfigurations } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "../messaging-webhooks";
 
@@ -43,16 +43,26 @@ async function startServer() {
   app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
   app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);
   app.post("/api/scheduled/send-invoice-sms", async (req, res) => {
+    const startedAt = new Date();
+    let runConfig: { id: number; tenantId: number } | undefined;
     try {
       const user = await sdk.authenticateRequest(req);
       if (!user.isCron || !user.taskUid) return res.status(403).json({ error: "cron_only" });
       const db = await getDb();
       if (!db) return res.status(500).json({ error: "database_unavailable" });
-      const [config] = await db.select({ tenantId: tenantMessagingConfigurations.tenantId }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.scheduleCronTaskUid, user.taskUid)).limit(1);
+      const [config] = await db.select({ id: tenantMessagingConfigurations.id, tenantId: tenantMessagingConfigurations.tenantId }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.scheduleCronTaskUid, user.taskUid)).limit(1);
       if (!config) return res.json({ ok: true, skipped: "orphan" });
-      return res.json({ ok: true, ...(await processNotificationQueueForTenant(config.tenantId, 50)) });
+      runConfig = config;
+      const result = await processNotificationQueueForTenant(config.tenantId, 50);
+      await db.insert(messagingScheduleRuns).values({ tenantId: config.tenantId, configurationId: config.id, taskUid: user.taskUid, status: "success", scanned: result.scanned, submitted: result.submitted, failed: result.failed, skipped: result.skipped, startedAt, finishedAt: new Date() });
+      return res.json({ ok: true, ...result });
     } catch (error) {
-      return res.status(500).json({ error: error instanceof Error ? error.message : "invoice_sms_schedule_failed", timestamp: new Date().toISOString() });
+      const message = error instanceof Error ? error.message.slice(0, 2000) : "invoice_sms_schedule_failed";
+      if (runConfig) {
+        const db = await getDb();
+        if (db) await db.insert(messagingScheduleRuns).values({ tenantId: runConfig.tenantId, configurationId: runConfig.id, status: "failed", error: message, startedAt, finishedAt: new Date() });
+      }
+      return res.status(500).json({ error: message, timestamp: new Date().toISOString() });
     }
   });
   app.post("/api/scheduled/process-notifications", async (req, res) => {

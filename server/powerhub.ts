@@ -19,6 +19,7 @@ import {
   meterReadings,
   meters,
   notificationMessages,
+  messagingScheduleRuns,
   payments,
   platformRolePolicies,
   platformSettings,
@@ -402,6 +403,14 @@ export const powerhubRouter = router({
       if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
       const db = await dbOrThrow();
       return db.select({ id: tenantMessagingConfigurations.id, channel: tenantMessagingConfigurations.channel, provider: tenantMessagingConfigurations.provider, senderId: tenantMessagingConfigurations.senderId, phoneNumberId: tenantMessagingConfigurations.phoneNumberId, templateName: tenantMessagingConfigurations.templateName, receiptTemplateName: tenantMessagingConfigurations.receiptTemplateName, subscriberReferenceTemplateName: tenantMessagingConfigurations.subscriberReferenceTemplateName, isActive: tenantMessagingConfigurations.isActive, autoSendAfterApproval: tenantMessagingConfigurations.autoSendAfterApproval, autoSendCron: tenantMessagingConfigurations.autoSendCron, scheduleCronTaskUid: tenantMessagingConfigurations.scheduleCronTaskUid, updatedAt: tenantMessagingConfigurations.updatedAt }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, tenantId));
+    }),
+    listScheduleRuns: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(50).default(20) })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      const [config] = await db.select({ id: tenantMessagingConfigurations.id }).from(tenantMessagingConfigurations).where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.channel, "sms"))).limit(1);
+      if (!config) return [];
+      return db.select({ id: messagingScheduleRuns.id, status: messagingScheduleRuns.status, scanned: messagingScheduleRuns.scanned, submitted: messagingScheduleRuns.submitted, failed: messagingScheduleRuns.failed, skipped: messagingScheduleRuns.skipped, error: messagingScheduleRuns.error, taskUid: messagingScheduleRuns.taskUid, startedAt: messagingScheduleRuns.startedAt, finishedAt: messagingScheduleRuns.finishedAt }).from(messagingScheduleRuns).where(and(eq(messagingScheduleRuns.tenantId, tenantId), eq(messagingScheduleRuns.configurationId, config.id))).orderBy(desc(messagingScheduleRuns.startedAt)).limit(input.limit);
     }),
     deliveryPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");

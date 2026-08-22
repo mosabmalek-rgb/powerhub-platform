@@ -570,6 +570,24 @@ export const notificationMessages = mysqlTable("notificationMessages", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const messagingScheduleRuns = mysqlTable("messagingScheduleRuns", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  configurationId: int("configurationId").notNull().references(() => tenantMessagingConfigurations.id),
+  taskUid: varchar("taskUid", { length: 65 }),
+  status: mysqlEnum("status", ["success", "failed"]).default("success").notNull(),
+  scanned: int("scanned").default(0).notNull(),
+  submitted: int("submitted").default(0).notNull(),
+  failed: int("failed").default(0).notNull(),
+  skipped: int("skipped").default(0).notNull(),
+  error: text("error"),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  finishedAt: timestamp("finishedAt"),
+}, (table) => [
+  index("messaging_schedule_runs_tenant_date_idx").on(table.tenantId, table.startedAt),
+  index("messaging_schedule_runs_config_date_idx").on(table.configurationId, table.startedAt),
+]);
+
 export const platformSecurityEvents = mysqlTable("platformSecurityEvents", {
   id: int("id").autoincrement().primaryKey(),
   eventType: mysqlEnum("eventType", ["suspicious_login", "backup", "security_change"]).notNull(),

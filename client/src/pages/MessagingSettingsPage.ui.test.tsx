@@ -19,6 +19,7 @@ vi.mock("@/lib/trpc", () => ({
       subscribers: { phoneReview: { useQuery: () => ({ data: [{ id: 11, fullName: "مشترك قديم", phone: "00970599000000", status: "ready", normalizedPhone: "+970599000000", reason: "يمكن توحيد الصيغة تلقائياً." }] }) }, applyPhoneNormalization: { useMutation: () => ({ mutate: state.mutate, isPending: false }) } },
       messaging: {
         listConfigurations: { useQuery: () => ({ data: [{ channel: "whatsapp", provider: "meta_whatsapp_cloud", phoneNumberId: "123", templateName: "invoice_ready_ar", receiptTemplateName: "payment_receipt_ar", isActive: true }] }) },
+        listScheduleRuns: { useQuery: () => ({ data: [], isLoading: false }) },
         deliveryPolicy: { useQuery: () => ({ data: state.policy }) },
         listInvoiceTemplates: { useQuery: () => ({ data: [{ channel: "whatsapp", body: "أهلاً {{subscriber_name}}، فاتورتك {{invoice_no}}", isActive: true }] }) },
         listPaymentReceiptTemplates: { useQuery: () => ({ data: [{ channel: "sms", body: "إيصال {{payment_no}}", isActive: true }] }) },
