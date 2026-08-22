@@ -324,6 +324,14 @@ const siteInput = z.object({
 
 const siteScoped = z.object({ siteId: z.number().int().positive() });
 
+async function assertFinancialPeriodOpen(db: Awaited<ReturnType<typeof dbOrThrow>>, tenantId: number, siteId: number, occurredAt: Date, userId: number, entityType: string) {
+  const [locked] = await db.select({ id: financialSettlements.id, periodStart: financialSettlements.periodStart, periodEnd: financialSettlements.periodEnd }).from(financialSettlements).where(and(eq(financialSettlements.tenantId, tenantId), eq(financialSettlements.siteId, siteId), eq(financialSettlements.status, "locked"), lte(financialSettlements.periodStart, occurredAt), gte(financialSettlements.periodEnd, occurredAt))).limit(1);
+  if (locked) {
+    await writeAudit({ userId, siteId, entityType, entityId: "period-lock", action: "blocked_by_locked_period", metadata: { settlementId: locked.id, occurredAt: occurredAt.toISOString(), periodStart: locked.periodStart.toISOString(), periodEnd: locked.periodEnd.toISOString() } });
+    throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تعديل أو إضافة بيانات مالية داخلها." });
+  }
+}
+
 const portalCodeInput = z.string().trim().min(2).max(50).transform((value) => value.toLowerCase());
 const subscriberPortalLookupInput = z.object({
   portalCode: portalCodeInput,
@@ -1192,6 +1200,7 @@ export const powerhubRouter = router({
       const [tariff] = await db.select().from(tariffs).where(and(eq(tariffs.id, input.tariffId), eq(tariffs.siteId, input.siteId), eq(tariffs.isActive, true))).limit(1);
       const [site] = await db.select().from(sites).where(eq(sites.id, input.siteId)).limit(1);
       if (!meter || !tariff || !site || !subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "بيانات العداد أو المشترك أو التعرفة أو المحطة غير مكتملة." });
+      await assertFinancialPeriodOpen(db, site.tenantId, input.siteId, input.dueDate, ctx.user.id, "invoice");
       const [tenantMessaging, platformDeliverySettings, tenantTemplates] = await Promise.all([
         db.select({ channel: tenantMessagingConfigurations.channel, isActive: tenantMessagingConfigurations.isActive })
           .from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, site.tenantId)),
@@ -1288,6 +1297,7 @@ export const powerhubRouter = router({
         if (input.amount > Number(invoiceScope.balanceDue)) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الدفعة تتجاوز الرصيد المتبقي للفواتير." });
       }
       const tenantId = await getSiteTenant(input.siteId);
+      await assertFinancialPeriodOpen(db, tenantId, input.siteId, new Date(), ctx.user.id, "payment");
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
       if (input.receiptImageData) {
@@ -1381,6 +1391,7 @@ export const powerhubRouter = router({
         if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
       }
       const tenantId = await getSiteTenant(input.siteId);
+      await assertFinancialPeriodOpen(db, tenantId, input.siteId, new Date(), ctx.user.id, "expense");
       const id = insertId(await db.insert(expenses).values({ ...input, tenantId, amount: String(input.amount), createdByUserId: ctx.user.id }));
       await writeAudit({ userId: ctx.user.id, entityType: "expense", entityId: String(id), action: "create", afterData: input });
       return { id };
