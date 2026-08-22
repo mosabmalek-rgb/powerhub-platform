@@ -29,6 +29,7 @@ import {
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { PowerHubLogo } from "./PowerHubLogo";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const menuGroups = [
   {
@@ -182,13 +183,18 @@ function DashboardLayoutContent({
         >
           <SidebarHeader className="h-[88px] justify-center border-b border-white/8">
             <div className="flex items-center gap-3 px-2 transition-all w-full">
-              <button
-                onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-[#F5B800] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] shrink-0"
-                aria-label="Toggle navigation"
-              >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={toggleSidebar}
+                    className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-[#F5B800] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] shrink-0"
+                    aria-label={isCollapsed ? "توسيع القائمة الجانبية" : "طي القائمة الجانبية"}
+                  >
+                    <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{isCollapsed ? "توسيع القائمة الجانبية" : "طي القائمة الجانبية"}</TooltipContent>
+              </Tooltip>
               {!isCollapsed ? (
                 <div className="flex items-center gap-2 min-w-0">
                   <PowerHubLogo className="scale-90 origin-right" />
@@ -226,7 +232,9 @@ function DashboardLayoutContent({
           <SidebarFooter className="border-t border-white/8 p-3">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex w-full items-center gap-3 rounded-lg px-1 py-1 text-right hover:bg-white/5 transition-colors group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800]">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button aria-label="فتح قائمة الحساب الشخصي" className="flex w-full items-center gap-3 rounded-lg px-1 py-1 text-right hover:bg-white/5 transition-colors group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800]">
                   <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
                     <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
                       {displayUser.name?.charAt(0).toUpperCase()}
@@ -240,7 +248,10 @@ function DashboardLayoutContent({
                       {accountRoleLabel}
                     </p>
                   </div>
-                </button>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">فتح قائمة الحساب الشخصي</TooltipContent>
+                </Tooltip>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48 border-white/10 bg-[#1b222c] text-white">
                 <DropdownMenuItem
