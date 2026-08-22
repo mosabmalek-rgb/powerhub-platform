@@ -473,6 +473,13 @@ export const powerhubRouter = router({
         .where(and(eq(staffProfiles.tenantId, tenantId), eq(staffProfiles.userId, ctx.user.id), isNull(staffProfiles.siteId), eq(staffProfiles.isActive, true))).limit(1);
       return { isGlobal: Boolean(globalProfile) };
     }),
+    permissionChanges: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive().optional() })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "viewAudit");
+      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const conditions = [eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), inArray(auditLogs.action, ["update_permissions", "create", "update"])];
+      if (input.userId) conditions.push(eq(auditLogs.userId, input.userId));
+      return db.select({ id: auditLogs.id, userId: auditLogs.userId, action: auditLogs.action, createdAt: auditLogs.createdAt, afterData: auditLogs.afterData, metadata: auditLogs.metadata }).from(auditLogs).where(and(...conditions)).orderBy(desc(auditLogs.createdAt)).limit(100);
+    }),
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam");
       const db = await dbOrThrow();
@@ -511,6 +518,17 @@ export const powerhubRouter = router({
       if (input.id) await db.update(customPermissionRoles).set({ name: input.name, description: input.description || null, permissions: input.permissions, updatedAt: new Date() }).where(and(eq(customPermissionRoles.id, input.id), eq(customPermissionRoles.tenantId, tenantId)));
       else await db.insert(customPermissionRoles).values({ tenantId, name: input.name, description: input.description || null, permissions: input.permissions, createdByUserId: ctx.user.id, isActive: true });
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "custom_permission_role", entityId: input.id ? String(input.id) : "new", action: input.id ? "update" : "create", afterData: { name: input.name, permissions: input.permissions } });
+      return { success: true };
+    }),
+    deleteCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), roleId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const [linked] = await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.tenantId, tenantId), eq(staffProfiles.customRoleId, input.roleId), eq(staffProfiles.isActive, true))).limit(1);
+      if (linked) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن حذف دور مرتبط بحساب فعال. أعد تعيين الحساب أولاً." });
+      const [role] = await db.select({ id: customPermissionRoles.id }).from(customPermissionRoles).where(and(eq(customPermissionRoles.id, input.roleId), eq(customPermissionRoles.tenantId, tenantId))).limit(1);
+      if (!role) throw new TRPCError({ code: "NOT_FOUND", message: "الدور المخصص غير موجود ضمن مساحة المستأجر." });
+      await db.update(customPermissionRoles).set({ isActive: false, updatedAt: new Date() }).where(eq(customPermissionRoles.id, input.roleId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "custom_permission_role", entityId: String(input.roleId), action: "delete", afterData: { isActive: false } });
       return { success: true };
     }),
     updatePermissions: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), customRoleId: z.number().int().positive().nullable().optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
