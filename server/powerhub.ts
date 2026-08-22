@@ -424,6 +424,7 @@ export const powerhubRouter = router({
       const included = Number(subscription?.included ?? 0); const additional = Number(extra?.additional ?? 0); const total = included + additional; const used = messages.filter((message) => ["submitted", "delivered", "read"].includes(message.status)).length;
       return { points, included, additional, total, used, remaining: Math.max(0, total - used) };
     }),
+    currentSmsPackageRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => { const tenantId = await getSiteTenant(input.siteId); await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging"); const db = await dbOrThrow(); const [request] = await db.select({ id: smsPackageRequests.id, status: smsPackageRequests.status, requestedMessages: smsPackageRequests.requestedMessages, approvedMessages: smsPackageRequests.approvedMessages, note: smsPackageRequests.note, createdAt: smsPackageRequests.createdAt, reviewedAt: smsPackageRequests.reviewedAt }).from(smsPackageRequests).where(eq(smsPackageRequests.tenantId, tenantId)).orderBy(desc(smsPackageRequests.createdAt)).limit(1); return request ?? null; }),
     requestSmsPackage: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestedMessages: z.number().int().min(1).max(100000000), note: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const tenantId = await getSiteTenant(input.siteId);
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
