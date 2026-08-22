@@ -1486,7 +1486,8 @@ export const powerhubRouter = router({
         return acc;
       }, {})).sort((a, b) => b.amount - a.amount);
       const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ subscriber: row.subscriber.fullName, subscriberNo: row.subscriber.subscriberNo, invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
-      return { range: { startDate: input.startDate, endDate: input.endDate }, summary: { invoiced, collected, outstanding, energyKwh, expenseTotal, operatingProfit: collected - expenseTotal }, collectors, topDebtors };
+      const paymentDetails = completedPayments.map((row) => ({ paymentNo: row.payment.paymentNo, amount: Number(row.payment.amount), paymentMethod: row.payment.paymentMethod, paidAt: row.payment.paidAt, transferFromAccount: row.payment.transferFromAccount, transferFromType: row.payment.transferFromType, transferToAccount: row.payment.transferToAccount, transferToType: row.payment.transferToType }));
+      return { range: { startDate: input.startDate, endDate: input.endDate }, summary: { invoiced, collected, outstanding, energyKwh, expenseTotal, operatingProfit: collected - expenseTotal }, collectors, topDebtors, paymentDetails };
     }),
     allBranchesRange: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
@@ -1529,7 +1530,8 @@ export const powerhubRouter = router({
         return acc;
       }, {})).sort((a, b) => b.amount - a.amount);
       const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ branchName: branchNameById.get(row.invoice.siteId) ?? "فرع غير محدد", subscriber: row.subscriber.fullName, subscriberNo: row.subscriber.subscriberNo, invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
-      return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: branchIds.length }, summary, collectors, topDebtors, branchSummaries };
+      const paymentDetails = completedPayments.map((row) => ({ siteId: row.payment.siteId, paymentNo: row.payment.paymentNo, amount: Number(row.payment.amount), paymentMethod: row.payment.paymentMethod, paidAt: row.payment.paidAt, transferFromAccount: row.payment.transferFromAccount, transferFromType: row.payment.transferFromType, transferToAccount: row.payment.transferToAccount, transferToType: row.payment.transferToType }));
+      return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: branchIds.length }, summary, collectors, topDebtors, branchSummaries, paymentDetails };
     }),
     monthly: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), billingPeriod: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
