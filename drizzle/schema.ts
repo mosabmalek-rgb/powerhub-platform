@@ -480,6 +480,7 @@ export const companyAccounts = mysqlTable("companyAccounts", {
   tenantId: int("tenantId").notNull().references(() => tenants.id),
   name: varchar("name", { length: 120 }).notNull(),
   accountType: mysqlEnum("accountType", ["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]).notNull(),
+  // يمكن استخدام الرقم نفسه لحسابات من أنواع مختلفة؛ لا يوجد قيد تفرد على phoneNumber.
   phoneNumber: varchar("phoneNumber", { length: 30 }),
   color: varchar("color", { length: 20 }).default("#64748b").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
