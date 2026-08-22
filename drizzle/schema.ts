@@ -483,6 +483,7 @@ export const companyAccounts = mysqlTable("companyAccounts", {
   // يمكن استخدام الرقم نفسه لحسابات من أنواع مختلفة؛ لا يوجد قيد تفرد على phoneNumber.
   phoneNumber: varchar("phoneNumber", { length: 30 }),
   color: varchar("color", { length: 20 }).default("#64748b").notNull(),
+  openingBalance: decimal("openingBalance", { precision: 14, scale: 2 }).default("0").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

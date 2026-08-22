@@ -1,0 +1,1 @@
+ALTER TABLE `companyAccounts` ADD `openingBalance` decimal(14,2) DEFAULT '0' NOT NULL;

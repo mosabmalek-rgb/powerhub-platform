@@ -253,6 +253,13 @@
       "when": 1787396791556,
       "tag": "0035_polite_justin_hammer",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1787397371470,
+      "tag": "0036_soft_rockslide",
+      "breakpoints": true
     }
   ]
 }
