@@ -1,5 +1,5 @@
-import { and, asc, eq, sql } from "drizzle-orm";
-import { notificationMessages, platformSettings, tenantMessagingConfigurations } from "../drizzle/schema";
+import { and, asc, eq, gte, sql } from "drizzle-orm";
+import { auditLogs, notificationMessages, platformSettings, platformSmsPlans, smsPackageRequests, subscribers, tenantMessagingConfigurations, tenantSubscriptions } from "../drizzle/schema";
 import { getDb } from "./db";
 import { decryptTenantCredential } from "./tenant-crypto";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled } from "./notification-channels";
@@ -20,6 +20,20 @@ type MessageRow = typeof notificationMessages.$inferSelect;
 type DispatchResult = { status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string };
 
 function messagePayload(message: MessageRow) { return (message.payload ?? {}) as MessagePayload; }
+
+async function recordSmsQuotaAlert(message: MessageRow, db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
+  if (message.channel !== "sms" || !message.subscriberId) return;
+  const [subscriber] = await db.select({ siteId: subscribers.siteId }).from(subscribers).where(eq(subscribers.id, message.subscriberId)).limit(1);
+  if (!subscriber) return;
+  const [subscription] = await db.select({ included: platformSmsPlans.includedMessages }).from(tenantSubscriptions).leftJoin(platformSmsPlans, eq(tenantSubscriptions.smsPlanId, platformSmsPlans.id)).where(eq(tenantSubscriptions.tenantId, message.tenantId)).limit(1);
+  const [extra] = await db.select({ approved: sql<number>`coalesce(sum(${smsPackageRequests.approvedMessages}), 0)` }).from(smsPackageRequests).where(and(eq(smsPackageRequests.tenantId, message.tenantId), eq(smsPackageRequests.status, "approved")));
+  const [usage] = await db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, message.tenantId), eq(notificationMessages.channel, "sms"), sql`${notificationMessages.status} in ('submitted','delivered','read')`));
+  const total = Number(subscription?.included ?? 0) + Number(extra?.approved ?? 0); const used = Number(usage?.used ?? 0); if (!total) return;
+  const threshold = used >= total ? 100 : used / total >= 0.8 ? 80 : 0; if (!threshold) return;
+  const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0); const action = `sms_quota_alert_${threshold}`;
+  const [existing] = await db.select({ id: auditLogs.id }).from(auditLogs).where(and(eq(auditLogs.tenantId, message.tenantId), eq(auditLogs.action, action), gte(auditLogs.createdAt, start))).limit(1);
+  if (!existing) await db.insert(auditLogs).values({ tenantId: message.tenantId, siteId: subscriber.siteId, entityType: "sms_quota", entityId: String(message.tenantId), action, metadata: { threshold, used, total, remaining: Math.max(0, total - used), automatic: true } });
+}
 
 async function dispatchNotification(message: MessageRow): Promise<DispatchResult> {
   const db = await getDb();
@@ -66,6 +80,7 @@ async function dispatchNotification(message: MessageRow): Promise<DispatchResult
 
     } else throw new Error("قناة الإرسال غير مدعومة.");
     await db.update(notificationMessages).set({ status: "submitted", providerMessageId: providerMessageId || null, lastError: null }).where(eq(notificationMessages.id, message.id));
+    await recordSmsQuotaAlert(message, db);
     return { status: "submitted", providerMessageId };
   } catch (error) {
     const messageText = error instanceof Error ? error.message.slice(0, 2000) : "فشل غير معروف";
