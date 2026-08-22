@@ -512,6 +512,26 @@ export const accountTransactions = mysqlTable("accountTransactions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("account_transactions_tenant_account_date_idx").on(table.tenantId, table.accountId, table.occurredAt)]);
 
+export const financialSettlements = mysqlTable("financialSettlements", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
+  periodStart: timestamp("periodStart").notNull(),
+  periodEnd: timestamp("periodEnd").notNull(),
+  totalCollected: decimal("totalCollected", { precision: 14, scale: 2 }).default("0").notNull(),
+  totalExpenses: decimal("totalExpenses", { precision: 14, scale: 2 }).default("0").notNull(),
+  bookProfit: decimal("bookProfit", { precision: 14, scale: 2 }).default("0").notNull(),
+  actualCash: decimal("actualCash", { precision: 14, scale: 2 }),
+  difference: decimal("difference", { precision: 14, scale: 2 }),
+  notes: text("notes"),
+  status: mysqlEnum("status", ["draft", "submitted", "approved", "locked"]).default("draft").notNull(),
+  createdByUserId: int("createdByUserId").notNull().references(() => users.id),
+  approvedByUserId: int("approvedByUserId").references(() => users.id),
+  lockedAt: timestamp("lockedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("financial_settlements_tenant_site_period_idx").on(table.tenantId, table.siteId, table.periodStart, table.periodEnd)]);
+
 export const expenses = mysqlTable("expenses", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),

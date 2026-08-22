@@ -12,6 +12,8 @@ import BillingPage from "./pages/BillingPage";
 import SettingsPage from "./pages/SettingsPage";
 import NetworkDirectoryPage from "./pages/NetworkDirectoryPage";
 import ReportsPage from "./pages/ReportsPage";
+import FinancialDashboardPage from "./pages/FinancialDashboardPage";
+import FinancialSettlementsPage from "./pages/FinancialSettlementsPage";
 import CompanyAccountsPage from "./pages/CompanyAccountsPage";
 import MessagingSettingsPage from "./pages/MessagingSettingsPage";
 import AuditLogPage from "./pages/AuditLogPage";
@@ -43,6 +45,8 @@ function Router() {
       <Route path={"/collections"}>{() => <RouteAccessGate><OperationsPage section="collections" /></RouteAccessGate>}</Route>
       <Route path={"/expenses"}>{() => <RouteAccessGate><OperationsPage section="expenses" /></RouteAccessGate>}</Route>
       <Route path={"/reports"}>{() => <RouteAccessGate><ReportsPage /></RouteAccessGate>}</Route>
+      <Route path={"/financial-dashboard"}>{() => <RouteAccessGate><FinancialDashboardPage /></RouteAccessGate>}</Route>
+      <Route path={"/financial-settlements"}>{() => <RouteAccessGate><FinancialSettlementsPage /></RouteAccessGate>}</Route>
       <Route path={"/company-accounts"}>{() => <RouteAccessGate><CompanyAccountsPage /></RouteAccessGate>}</Route>
       <Route path={"/notifications"}>{() => <RouteAccessGate><MessagingSettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>

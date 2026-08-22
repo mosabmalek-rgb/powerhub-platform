@@ -8,6 +8,7 @@ import {
   companyAccounts,
   companyAccountSites,
   accountTransactions,
+  financialSettlements,
   collectorSessions,
   customPermissionRoles,
   expenses,
@@ -1457,6 +1458,11 @@ export const powerhubRouter = router({
     }),
   }),
 
+  settlements: router({
+    list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => { await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]); const db=await dbOrThrow(); const tenantId=await getSiteTenant(input.siteId); return db.select().from(financialSettlements).where(and(eq(financialSettlements.tenantId, tenantId), eq(financialSettlements.siteId, input.siteId))).orderBy(desc(financialSettlements.periodStart)).limit(100); }),
+    create: protectedProcedure.input(z.object({ siteId:z.number().int().positive(), periodStart:z.string().datetime(), periodEnd:z.string().datetime(), totalCollected:z.number().nonnegative(), totalExpenses:z.number().nonnegative(), actualCash:z.number().nonnegative().optional(), notes:z.string().max(2000).optional() })).mutation(async ({ctx,input})=>{ await requireRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses"); const db=await dbOrThrow(); const tenantId=await getSiteTenant(input.siteId); const start=new Date(input.periodStart), end=new Date(input.periodEnd); if(start>=end) throw new TRPCError({code:"BAD_REQUEST",message:"بداية الفترة يجب أن تسبق نهايتها."}); const bookProfit=input.totalCollected-input.totalExpenses; const difference=input.actualCash===undefined?null:input.actualCash-bookProfit; const id=insertId(await db.insert(financialSettlements).values({tenantId,siteId:input.siteId,periodStart:start,periodEnd:end,totalCollected:String(input.totalCollected),totalExpenses:String(input.totalExpenses),bookProfit:String(bookProfit),actualCash:input.actualCash===undefined?null:String(input.actualCash),difference:difference===null?null:String(difference),notes:input.notes??null,status:"draft",createdByUserId:ctx.user.id})); await writeAudit({userId:ctx.user.id,siteId:input.siteId,entityType:"financial_settlement",entityId:String(id),action:"create",afterData:input}); return {id}; }),
+    setStatus: protectedProcedure.input(z.object({ siteId:z.number().int().positive(), settlementId:z.number().int().positive(), status:z.enum(["submitted","approved","locked"]) })).mutation(async({ctx,input})=>{ const role=await requireRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses"); void role; const db=await dbOrThrow(); const tenantId=await getSiteTenant(input.siteId); const [row]=await db.select().from(financialSettlements).where(and(eq(financialSettlements.id,input.settlementId),eq(financialSettlements.tenantId,tenantId),eq(financialSettlements.siteId,input.siteId))).limit(1); if(!row) throw new TRPCError({code:"NOT_FOUND",message:"التسوية غير موجودة."}); if(row.status==="locked") throw new TRPCError({code:"BAD_REQUEST",message:"التسوية مقفلة ولا يمكن تعديلها."}); const patch=input.status==="approved"?{status:input.status,approvedByUserId:ctx.user.id}:{status:input.status}; if(input.status==="locked") Object.assign(patch,{status:input.status,lockedAt:new Date(),approvedByUserId:ctx.user.id}); await db.update(financialSettlements).set(patch).where(eq(financialSettlements.id,row.id)); await writeAudit({userId:ctx.user.id,siteId:input.siteId,entityType:"financial_settlement",entityId:String(row.id),action:"status_change",afterData:{status:input.status}}); return {success:true}; }),
+  }),
   reports: router({
     range: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
