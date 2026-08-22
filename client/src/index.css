@@ -452,3 +452,40 @@ html,
 :root:not(.dark) *::-webkit-scrollbar-thumb:hover {
   background: #b77a00;
 }
+
+/* Consistent status colors: readable solid surfaces for light and dark workspaces. */
+:root:not(.dark) [class*="bg-emerald-"] { background-color: #dcfce7 !important; }
+:root:not(.dark) [class*="bg-amber-"] { background-color: #fef3c7 !important; }
+:root:not(.dark) [class*="bg-rose-"] { background-color: #ffe4e6 !important; }
+:root:not(.dark) [class*="bg-sky-"] { background-color: #e0f2fe !important; }
+:root:not(.dark) [class*="text-emerald-"] { color: #166534 !important; }
+:root:not(.dark) [class*="text-amber-"] { color: #92400e !important; }
+:root:not(.dark) [class*="text-rose-"] { color: #be123c !important; }
+:root:not(.dark) [class*="text-sky-"] { color: #075985 !important; }
+.dark [class*="bg-emerald-"] { background-color: #123524 !important; }
+.dark [class*="bg-amber-"] { background-color: #3b2b0b !important; }
+.dark [class*="bg-rose-"] { background-color: #3b1820 !important; }
+.dark [class*="bg-sky-"] { background-color: #102d43 !important; }
+.dark [class*="text-emerald-"] { color: #86efac !important; }
+.dark [class*="text-amber-"] { color: #fde68a !important; }
+.dark [class*="text-rose-"] { color: #fda4af !important; }
+.dark [class*="text-sky-"] { color: #7dd3fc !important; }
+
+/* Calm, solid interaction states for side navigation, tables, and controls. */
+[data-sidebar="menu-button"] {
+  transition: background-color 160ms cubic-bezier(.23,1,.32,1), color 160ms cubic-bezier(.23,1,.32,1), transform 120ms cubic-bezier(.23,1,.32,1);
+}
+[data-sidebar="menu-button"]:hover { background-color: #f5f7fb !important; color: #17212b !important; }
+[data-sidebar="menu-button"]:active { transform: scale(.98); }
+.dark [data-sidebar="menu-button"]:hover { background-color: #253140 !important; color: #f8fafc !important; }
+.dark [data-sidebar="menu-button"][data-active="true"],
+[data-sidebar="menu-button"][data-active="true"] { background-color: #f5b800 !important; color: #0d1117 !important; }
+table tbody tr { transition: background-color 160ms cubic-bezier(.23,1,.32,1); }
+table tbody tr:hover { background-color: #f8fafc !important; }
+table tbody tr:active { background-color: #fff7dd !important; }
+.dark table tbody tr:hover { background-color: #202b38 !important; }
+.dark table tbody tr:active { background-color: #2f2a18 !important; }
+button:focus-visible, [role="button"]:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid rgba(184, 132, 0, .45);
+  outline-offset: 2px;
+}
