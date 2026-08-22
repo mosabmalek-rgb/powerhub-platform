@@ -327,6 +327,21 @@ export const employees = mysqlTable("employees", {
   index("employees_tenant_phone_idx").on(table.tenantId, table.phone),
 ]);
 
+export const employeeAttendance = mysqlTable("employeeAttendance", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  employeeId: int("employeeId").notNull().references(() => employees.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
+  workDate: timestamp("workDate").notNull(),
+  regularHours: decimal("regularHours", { precision: 5, scale: 2 }).default("0").notNull(),
+  overtimeHours: decimal("overtimeHours", { precision: 5, scale: 2 }).default("0").notNull(),
+  absentDays: decimal("absentDays", { precision: 4, scale: 2 }).default("0").notNull(),
+  notes: varchar("notes", { length: 500 }),
+  createdByUserId: int("createdByUserId").notNull().references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("employee_attendance_employee_date_unique").on(table.employeeId, table.workDate), index("employee_attendance_tenant_site_date_idx").on(table.tenantId, table.siteId, table.workDate)]);
+
 export const employeeAdjustments = mysqlTable("employeeAdjustments", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),

@@ -27,6 +27,7 @@ import SubscriberPortalSettingsPage from "./pages/SubscriberPortalSettingsPage";
 import BranchesPage from "./pages/BranchesPage";
 import HumanResourcesPage from "./pages/HumanResourcesPage";
 import PayrollPage from "./pages/PayrollPage";
+import AttendancePage from "./pages/AttendancePage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -56,6 +57,7 @@ function Router() {
       <Route path={"/staff"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/human-resources"}>{() => <RouteAccessGate><HumanResourcesPage /></RouteAccessGate>}</Route>
       <Route path={"/payroll"}>{() => <RouteAccessGate><PayrollPage /></RouteAccessGate>}</Route>
+      <Route path={"/attendance"}>{() => <RouteAccessGate><AttendancePage /></RouteAccessGate>}</Route>
       <Route path={"/admin"}>{() => <RouteAccessGate platformAdminOnly><AdminConsolePage /></RouteAccessGate>}</Route>
       <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
       <Route path={"/404"} component={NotFound} />
