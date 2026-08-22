@@ -64,7 +64,8 @@ const menuGroups = [
   },
   {
     label: "الحساب",
-    items: [{ icon: UserRound, label: "المعلومات وبيانات الدخول", path: "/profile" }],
+    items: [      { icon: UserRound, label: "المعلومات وبيانات الدخول", path: "/profile" },
+      { icon: UsersRound, label: "الحسابات الفرعية", path: "/staff" }],
   },
 ];
 

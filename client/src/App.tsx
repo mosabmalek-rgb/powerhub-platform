@@ -45,6 +45,7 @@ function Router() {
       <Route path={"/notifications"}>{() => <RouteAccessGate><MessagingSettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
       <Route path={"/settings"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
+      <Route path={"/staff"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/admin"}>{() => <RouteAccessGate platformAdminOnly><AdminConsolePage /></RouteAccessGate>}</Route>
       <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
       <Route path={"/404"} component={NotFound} />
