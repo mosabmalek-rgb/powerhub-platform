@@ -525,6 +525,26 @@ export const powerhubRouter = router({
         return { success: true, userId: user.id };
       } catch (error) { await supabaseAdmin().auth.admin.deleteUser(created.user.id); throw error; }
     }),
+    activity: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      return db.select({ id: auditLogs.id, action: auditLogs.action, entityType: auditLogs.entityType, createdAt: auditLogs.createdAt, metadata: auditLogs.metadata, afterData: auditLogs.afterData }).from(auditLogs)
+        .where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.userId, input.userId))).orderBy(desc(auditLogs.createdAt)).limit(15);
+    }),
+    resetPassword: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const [profile] = await db.select({ userId: staffProfiles.userId, siteId: staffProfiles.siteId, email: users.email }).from(staffProfiles).innerJoin(users, eq(staffProfiles.userId, users.id))
+        .where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
+      if (!profile?.email) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود أو لا يملك بريداً صالحاً." });
+      const temporaryPassword = randomBytes(12).toString("base64url") + "A1!";
+      const { error } = await supabaseAdmin().auth.admin.updateUserById((await db.select({ openId: users.openId }).from(users).where(eq(users.id, profile.userId)).limit(1))[0]?.openId ?? "", { password: temporaryPassword });
+      if (error) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إعادة تعيين كلمة المرور في نظام المصادقة." });
+      await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: new Date() }).where(eq(users.id, profile.userId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: "reset_temporary_password", afterData: { targetUserId: profile.userId } });
+      return { success: true, temporaryPassword };
+    }),
     setActive: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const db = await dbOrThrow();
