@@ -461,7 +461,7 @@ export const powerhubRouter = router({
       const tenantId = await getSiteTenant(input.siteId);
       return db.select({ profile: staffProfiles, user: users }).from(staffProfiles)
         .innerJoin(users, eq(staffProfiles.userId, users.id))
-        .where(and(eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)), eq(staffProfiles.isActive, true)));
+        .where(and(eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId))));
     }),
     directory: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
@@ -503,6 +503,17 @@ export const powerhubRouter = router({
         await writeAudit({ userId: ctx.user.id, entityType: "staff_profile", entityId: `${targetSiteId ?? "all"}:${input.userId}`, action: "assign_role", afterData: { ...input, assignedSiteId: targetSiteId } });
         return { success: true };
       }),
+    setActive: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const [profile] = await db.select({ id: staffProfiles.id, userId: staffProfiles.userId, siteId: staffProfiles.siteId }).from(staffProfiles)
+        .where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
+      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+      await db.update(staffProfiles).set({ isActive: input.isActive, updatedAt: new Date() }).where(eq(staffProfiles.id, input.profileId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: input.isActive ? "activate" : "deactivate", afterData: { isActive: input.isActive, userId: profile.userId, profileSiteId: profile.siteId } });
+      return { success: true, isActive: input.isActive };
+    }),
   }),
   subscription: router({
     currentUpgradeRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
