@@ -196,16 +196,18 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("heading", { name: "سجل التدقيق" })).toBeInTheDocument();
   });
 
-  it("hides meter installation and reading entry from the viewer in the field page", () => {
+    it("shows the focused add-reading page without legacy meter forms to the viewer", () => {
     render(<MeterReadingsPage />);
+    expect(screen.getByRole("heading", { name: "إضافة قراءة" })).toBeInTheDocument();
     expect(screen.queryByText("إضافة عداد")).not.toBeInTheDocument();
     expect(screen.queryByText("تسجيل قراءة جديدة")).not.toBeInTheDocument();
   });
-
-  it("shows field meter and reading forms to the technician", () => {
+  it("shows direct reading registration to the technician", () => {
     mocks.activeRole = "technician";
     render(<MeterReadingsPage />);
-    expect(screen.getByText("إضافة عداد")).toBeInTheDocument();
-    expect(screen.getByText("تسجيل قراءة جديدة")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "إضافة قراءة" })).toBeInTheDocument();
+    expect(screen.getByText("تسجيل قراءة")).toBeInTheDocument();
+    expect(screen.queryByText("إضافة عداد")).not.toBeInTheDocument();
+    expect(screen.queryByText("تسجيل قراءة جديدة")).not.toBeInTheDocument();
   });
 });
