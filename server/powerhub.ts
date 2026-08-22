@@ -1667,6 +1667,34 @@ export const powerhubRouter = router({
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(input.notificationId), action: "retry_payment_receipt", metadata: { previousStatus: "failed" } });
       return { notificationId: input.notificationId, ...await processNotificationById(input.notificationId) };
     }),
+    sendBulkInvoiceSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceIds: z.array(z.number().int().positive()).min(1).max(200) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const db = await dbOrThrow();
+      const ids = Array.from(new Set(input.invoiceIds));
+      const [site] = await db.select({ id: sites.id, tenantId: sites.tenantId }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
+      const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
+      if (!platformSetting || !isInvoiceDeliveryChannelEnabled("sms", invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: "إرسال SMS معطل من إعدادات آدمن PowerHub." });
+      const [configuration] = await db.select({ id: tenantMessagingConfigurations.id, provider: tenantMessagingConfigurations.provider, isActive: tenantMessagingConfigurations.isActive }).from(tenantMessagingConfigurations).where(and(eq(tenantMessagingConfigurations.tenantId, site.tenantId), eq(tenantMessagingConfigurations.channel, "sms"), eq(tenantMessagingConfigurations.isActive, true))).limit(1);
+      if (!configuration || configuration.provider !== "jawwal_bulk_sms") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "احفظ إعداد SMS لشركة جوال أولاً قبل الإرسال الجماعي." });
+      const rows = await db.select({ invoice: invoices, subscriber: subscribers }).from(invoices).innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id)).where(and(eq(invoices.siteId, input.siteId), inArray(invoices.id, ids))).limit(200);
+      const results = await Promise.all(rows.map(async ({ invoice, subscriber }) => {
+        if (!subscriber.phone) return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, status: "failed" as const, message: "لا يوجد رقم هاتف مسجل للمشترك." };
+        if (["draft", "cancelled"].includes(invoice.status)) return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, status: "skipped" as const, message: "الفاتورة غير صالحة للإرسال." };
+        let recipient: string;
+        try { recipient = normalizeInternationalPhone(subscriber.phone); } catch (error) { return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, status: "failed" as const, message: error instanceof Error ? `رقم الهاتف غير صالح: ${error.message}` : "رقم الهاتف غير صالح." }; }
+        const [existing] = await db.select({ id: notificationMessages.id, status: notificationMessages.status }).from(notificationMessages).where(and(eq(notificationMessages.invoiceId, invoice.id), eq(notificationMessages.channel, "sms"), eq(notificationMessages.eventType, "invoice_issued"))).orderBy(desc(notificationMessages.createdAt)).limit(1);
+        let notificationId = existing?.id;
+        if (notificationId) await db.update(notificationMessages).set({ status: "pending", lastError: null, recipient }).where(eq(notificationMessages.id, notificationId));
+        else notificationId = insertId(await db.insert(notificationMessages).values({ tenantId: site.tenantId, invoiceId: invoice.id, subscriberId: subscriber.id, channel: "sms", eventType: "invoice_issued", recipient, status: "pending", payload: { invoiceNo: invoice.invoiceNo, billingPeriod: invoice.billingPeriod, totalAmount: invoice.totalAmount, bulkRequested: true } }));
+        try {
+          const dispatch = await processNotificationById(notificationId);
+          return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, notificationId, status: dispatch.status === "failed" ? "failed" as const : "submitted" as const, message: dispatch.error ?? "تمت معالجة الرسالة." };
+        } catch (error) { return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, notificationId, status: "failed" as const, message: error instanceof Error ? error.message : "تعذر إرسال الرسالة." }; }
+      }));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_batch", entityId: ids.join(","), action: "send_invoice_sms_batch", metadata: { requested: ids.length, processed: results.length, successful: results.filter((item) => item.status === "submitted").length, failed: results.filter((item) => item.status === "failed").length } });
+      return { requested: ids.length, processed: results.length, successful: results.filter((item) => item.status === "submitted").length, failed: results.filter((item) => item.status === "failed").length, skipped: ids.length - results.length, results };
+    }),
     sendPaymentReminder: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();

@@ -16,7 +16,7 @@ import ExcelJS from "exceljs";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { can } from "@shared/powerhub-rbac";
-import { Camera, CloudOff, Download, FileSpreadsheet, Gauge, ImagePlus, Loader2, RotateCw, UploadCloud, Wifi, X } from "lucide-react";
+import { Camera, CloudOff, Download, FileSpreadsheet, Gauge, ImagePlus, Loader2, RotateCw, Send, UploadCloud, Wifi, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -71,6 +71,7 @@ export default function MeterReadingsPage() {
   const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const metersQuery = trpc.powerhub.meters.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const readingsQuery = trpc.powerhub.readings.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
+  const invoicesQuery = trpc.powerhub.invoices.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const anomalyQuery = trpc.powerhub.sites.anomalyAlert.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const currentSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
@@ -102,6 +103,9 @@ export default function MeterReadingsPage() {
   const clearSelectedImage = () => { setSelectedFile(null); if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(null); };
   const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: async () => { await refresh(); clearSelectedImage(); toast.success("تم حفظ القراءة بانتظار المراجعة."); }, onError: (error) => toast.error(error.message) });
   const approveReading = trpc.powerhub.readings.approve.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم اعتماد القراءة وأصبحت جاهزة للفوترة."); }, onError: (error) => toast.error(error.message) });
+  const sendBulkInvoiceSms = trpc.powerhub.notifications.sendBulkInvoiceSms.useMutation({ onSuccess: (result) => { void utils.powerhub.notifications.list.invalidate(); toast.success(`تمت معالجة ${result.processed} فاتورة: ${result.successful} ناجحة و${result.failed} فاشلة.`); }, onError: (error) => toast.error(error.message) });
+  const readyInvoiceIds = useMemo(() => { const approvedReadingIds = new Set((readingsQuery.data ?? []).filter((row) => row.reading.status === "approved").map((row) => row.reading.id)); return (invoicesQuery.data ?? []).filter((invoice) => invoice.readingId && approvedReadingIds.has(invoice.readingId) && !["draft", "cancelled"].includes(invoice.status)).map((invoice) => invoice.id); }, [invoicesQuery.data, readingsQuery.data]);
+  const sendBulkInvoices = () => { if (!siteId || !readyInvoiceIds.length) { toast.message("لا توجد فواتير لقراءات معتمدة جاهزة للإرسال."); return; } if (!window.confirm(`سيتم تجهيز ${readyInvoiceIds.length} فاتورة لإرسالها عبر SMS إلى الأرقام المسجلة. هل تريد المتابعة؟`)) return; sendBulkInvoiceSms.mutate({ siteId, invoiceIds: readyInvoiceIds }); };
 
   const takeFile = (file: File | undefined) => {
     if (!file) return;
@@ -145,6 +149,7 @@ export default function MeterReadingsPage() {
 
   return <DashboardLayout><div className="space-y-6 pb-12"><header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Gauge className="h-4 w-4" />القياس الميداني</div><h1 className="mt-1 text-2xl font-extrabold text-white">إضافة قراءة</h1><p className="mt-2 text-sm text-slate-400">أدخل القراءة، التقط صورة العداد عند الحاجة، ثم أرسلها للمراجعة.</p></div><div className="flex items-center gap-3"><span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${isOnline ? "bg-emerald-400/10 text-emerald-300" : "bg-amber-400/10 text-amber-300"}`}>{isOnline ? <Wifi className="h-3.5 w-3.5" /> : <CloudOff className="h-3.5 w-3.5" />}{isOnline ? "متصل" : "دون اتصال"}</span><select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => setSiteId(Number(event.target.value))} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" key={site.id} value={site.id}>{site.name}</option>)}</select></div></header>
     <BranchAnomalySettings siteId={siteId!} canEdit={role === "owner"} currentPercent={anomalyQuery.data?.anomalyAlertPercent ?? 50} />
+    {canApproveReading && <Panel title="إرسال فواتير القراءات عبر SMS"><div className="flex flex-col gap-4 rounded-xl border border-sky-400/20 bg-sky-400/[.05] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-white">إرسال جماعي إلى أرقام المشتركين المسجلة</p><p className="mt-1 text-xs leading-6 text-slate-400">بعد اعتماد القراءات وإصدار الفواتير، سيستخدم النظام الرقم الدولي المحفوظ لكل مشترك ويضيف كل نتيجة إلى سجل إشعارات الفواتير.</p><p className="mt-2 text-sm font-bold text-sky-200">{readyInvoiceIds.length} فاتورة جاهزة للإرسال</p></div><Button type="button" disabled={!readyInvoiceIds.length || sendBulkInvoiceSms.isPending} onClick={sendBulkInvoices} className="shrink-0 bg-sky-400 text-[#0D1117] hover:bg-sky-300">{sendBulkInvoiceSms.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Send className="ml-2 h-4 w-4" />}إرسال فواتير SMS جماعياً</Button></div></Panel>}
     <div className="grid gap-6 xl:grid-cols-2">
       </div>
     {canApproveReading && <PendingReadingsReview siteId={siteId!} rows={readingsQuery.data ?? []} canReview={canApproveReading} onUpdated={refresh} />}
