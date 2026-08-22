@@ -1,0 +1,27 @@
+import DashboardLayout from "@/components/DashboardLayout";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { trpc } from "@/lib/trpc";
+import { CheckCircle2, CircleDollarSign, FilePlus2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+
+const statusLabels: Record<string, string> = { draft: "مسودة", approved: "معتمد", paid: "مصروف", cancelled: "ملغى" };
+const money = (value: unknown) => new Intl.NumberFormat("ar-PS", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
+
+export default function PayrollPage() {
+  const utils = trpc.useUtils();
+  const sites = trpc.powerhub.sites.list.useQuery(undefined);
+  const { branchId: siteId } = useBranchFilter(sites.data);
+  const period = useMemo(() => new Date().toISOString().slice(0, 7), []);
+  const employees = trpc.powerhub.hr.listEmployees.useQuery({ siteId: siteId ?? 0, employmentStatus: "active" }, { enabled: Boolean(siteId) });
+  const runs = trpc.powerhub.hr.listPayrollRuns.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId) });
+  const accounts = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId) });
+  const [accountId, setAccountId] = useState("");
+  const create = trpc.powerhub.hr.createPayrollDraft.useMutation({ onSuccess: () => { void runs.refetch(); toast.success("تم إنشاء مسودة كشف الرواتب."); }, onError: (error) => toast.error(error.message) });
+  const approve = trpc.powerhub.hr.approvePayroll.useMutation({ onSuccess: () => { void runs.refetch(); toast.success("تم اعتماد كشف الرواتب."); }, onError: (error) => toast.error(error.message) });
+  const pay = trpc.powerhub.hr.payPayroll.useMutation({ onSuccess: () => { void utils.powerhub.hr.listPayrollRuns.invalidate(); toast.success("تم صرف الرواتب وتسجيل المصروف وحركة الحساب."); }, onError: (error) => toast.error(error.message) });
+  const makeDraft = () => { if (!siteId || !employees.data?.length) return toast.error("أضف موظفين نشطين أولاً."); create.mutate({ siteId, period, items: employees.data.map((employee) => ({ employeeId: employee.id, extraAmount: 0, advanceDeduction: 0, otherDeduction: 0 })) }); };
+  return <DashboardLayout><div className="space-y-6" dir="rtl"><header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-[#111823] p-5"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><CircleDollarSign className="h-4 w-4" />الرواتب والأجور</div><h1 className="mt-2 text-2xl font-extrabold text-white">كشف الرواتب الشهري</h1><p className="mt-1 text-sm text-slate-400">العملة المعتمدة: الشيكل. لا يتحول الكشف إلى مصروف إلا بعد الاعتماد والصرف.</p></div><Button onClick={makeDraft} disabled={create.isPending || !siteId} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]"><FilePlus2 className="ml-2 h-4 w-4" />إنشاء مسودة {period}</Button></header><Card className="border-white/8 bg-[#111823]"><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="px-5 py-3">الفترة</th><th className="px-4 py-3">الإجمالي</th><th className="px-4 py-3">الخصومات</th><th className="px-4 py-3">الصافي</th><th className="px-4 py-3">الحالة</th><th className="px-4 py-3">الإجراء</th></tr></thead><tbody>{runs.data?.map((run) => <tr key={run.id} className="border-t border-white/8"><td className="px-5 py-4 font-bold text-white">{run.period}</td><td className="px-4 py-4 text-slate-300">{money(run.totalGross)} ش</td><td className="px-4 py-4 text-rose-300">{money(run.totalDeductions)} ش</td><td className="px-4 py-4 font-bold text-[#F5B800]">{money(run.totalNet)} ش</td><td className="px-4 py-4"><span className="rounded-full bg-white/8 px-2.5 py-1 text-xs font-bold text-slate-200">{statusLabels[run.status]}</span></td><td className="px-4 py-4"><div className="flex flex-wrap gap-2">{run.status === "draft" ? <Button size="sm" onClick={() => approve.mutate({ siteId: siteId!, payrollRunId: run.id })} className="bg-emerald-600 text-white"><CheckCircle2 className="ml-1 h-3.5 w-3.5" />اعتماد</Button> : null}{run.status === "approved" ? <div className="flex gap-2"><select aria-label="حساب صرف الراتب" value={accountId} onChange={(event) => setAccountId(event.target.value)} className="h-8 rounded-md border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">حساب الصرف</option>{accounts.data?.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select><Button size="sm" disabled={!accountId || pay.isPending} onClick={() => pay.mutate({ siteId: siteId!, payrollRunId: run.id, accountId: Number(accountId) })} className="bg-[#F5B800] text-[#0D1117]">صرف</Button></div> : null}</div></td></tr>)}</tbody></table>{!runs.isLoading && !runs.data?.length ? <div className="p-10 text-center text-sm text-slate-500">لا توجد كشوف رواتب بعد.</div> : null}</div></CardContent></Card></div></DashboardLayout>;
+}
