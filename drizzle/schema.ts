@@ -262,6 +262,8 @@ export const staffProfiles = mysqlTable("staffProfiles", {
   role: mysqlEnum("role", ["owner", "manager", "accountant", "collector", "technician", "viewer"]).notNull(),
   customRoleId: int("customRoleId").references(() => customPermissionRoles.id),
   permissions: json("permissions").$type<string[] | null>(),
+  suspensionStartedAt: timestamp("suspensionStartedAt"),
+  suspensionEndsAt: timestamp("suspensionEndsAt"),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

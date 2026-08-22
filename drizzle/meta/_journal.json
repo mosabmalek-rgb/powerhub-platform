@@ -218,6 +218,13 @@
       "when": 1787388837434,
       "tag": "0030_steep_expediter",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1787391482759,
+      "tag": "0031_aspiring_archangel",
+      "breakpoints": true
     }
   ]
 }

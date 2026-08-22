@@ -199,6 +199,10 @@ async function tenantBranchPolicy(tenantId: number) {
   return resolveBranchPolicy({ plan: tenant.plan, platformSetting, tenantSetting, currentCount: Number(countResult?.count ?? 0) });
 }
 
+export function isStaffSuspended(now: Date, startsAt: Date | null, endsAt: Date | null) {
+  return Boolean(startsAt && endsAt && now >= startsAt && now < endsAt);
+}
+
 async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
   return (await resolveAccess(userId, siteId)).role;
 }
@@ -216,12 +220,17 @@ async function resolveAccess(userId: number, siteId: number): Promise<{ role: Po
   }
 
   const [profile] = await db
-    .select({ role: staffProfiles.role, permissions: staffProfiles.permissions, customRoleId: staffProfiles.customRoleId })
+    .select({ role: staffProfiles.role, permissions: staffProfiles.permissions, customRoleId: staffProfiles.customRoleId, suspensionStartedAt: staffProfiles.suspensionStartedAt, suspensionEndsAt: staffProfiles.suspensionEndsAt })
     .from(staffProfiles)
     .where(and(eq(staffProfiles.userId, userId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, siteId), isNull(staffProfiles.siteId)), eq(staffProfiles.isActive, true)))
     .limit(1);
 
   if (profile) {
+    const startsAt = profile.suspensionStartedAt;
+    const endsAt = profile.suspensionEndsAt;
+    if (isStaffSuspended(new Date(), startsAt, endsAt)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: `تم توقيف حسابك مؤقتاً حتى ${profile.suspensionEndsAt!.toLocaleString("ar-IQ")}.` });
+    }
     let permissions = Array.isArray(profile.permissions) ? profile.permissions : [];
     if (!permissions.length && profile.customRoleId) {
       const [customRole] = await db.select({ permissions: customPermissionRoles.permissions }).from(customPermissionRoles)
@@ -614,6 +623,26 @@ export const powerhubRouter = router({
       await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: new Date() }).where(eq(users.id, profile.userId));
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: "reset_temporary_password", afterData: { targetUserId: profile.userId } });
       return { success: true, temporaryPassword };
+    }),
+    suspend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), startsAt: z.string().datetime(), endsAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const startsAt = new Date(input.startsAt); const endsAt = new Date(input.endsAt);
+      if (endsAt <= startsAt) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب أن يكون تاريخ نهاية التوقيف بعد تاريخ البداية." });
+      const [profile] = await db.select({ id: staffProfiles.id, userId: staffProfiles.userId, siteId: staffProfiles.siteId }).from(staffProfiles).where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
+      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+      await db.update(staffProfiles).set({ suspensionStartedAt: startsAt, suspensionEndsAt: endsAt, updatedAt: new Date() }).where(eq(staffProfiles.id, input.profileId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: "suspend_until", afterData: { targetUserId: profile.userId, suspensionStartedAt: startsAt.toISOString(), suspensionEndsAt: endsAt.toISOString() } });
+      return { success: true, suspensionEndsAt: endsAt };
+    }),
+    clearSuspension: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const [profile] = await db.select({ id: staffProfiles.id, userId: staffProfiles.userId }).from(staffProfiles).where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
+      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+      await db.update(staffProfiles).set({ suspensionStartedAt: null, suspensionEndsAt: null, updatedAt: new Date() }).where(eq(staffProfiles.id, input.profileId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: "clear_suspension", afterData: { targetUserId: profile.userId } });
+      return { success: true };
     }),
     setActive: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
