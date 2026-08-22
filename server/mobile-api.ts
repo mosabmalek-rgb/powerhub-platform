@@ -7,6 +7,7 @@ import { getDb, syncSupabaseUser } from "./db";
 import { auditLogs, meterReadings, meters, mobileApiSessions, sites, staffProfiles, subscribers, tenantMembers, tenants, users } from "../drizzle/schema";
 import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import crypto from "node:crypto";
+import { storagePut } from "./storage";
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
@@ -36,6 +37,8 @@ const readingSchema = z.object({
   fieldVerified: z.boolean().default(false),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
+  imageData: z.string().max(9_500_000).optional(),
+  imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
   notes: z.string().trim().max(1000).optional(),
 });
 
@@ -243,7 +246,17 @@ export function registerMobileApi(app: Express) {
     if (nextValue < previousValue && !input.isMeterReplacement) return sendError(res, 409, "READING_BELOW_PREVIOUS", "القراءة الحالية أقل من القراءة المعتمدة السابقة.");
     if (nextValue < previousValue && !input.notes) return sendError(res, 400, "METER_REPLACEMENT_NOTE_REQUIRED", "أدخل ملاحظة تشرح استبدال العداد.");
     const consumptionKwh = input.isMeterReplacement && nextValue < previousValue ? nextValue : nextValue - previousValue;
-    const inserted = await db.insert(meterReadings).values({ tenantId: context.scope.tenantId, meterId: input.meterId, clientOperationId: input.clientOperationId, readingAt, readingValue: input.readingValue, previousReadingValue: previous?.readingValue, consumptionKwh: String(consumptionKwh), captureMethod: input.captureMethod, enteredByUserId: context.scope.userId, notes: [input.isMeterReplacement ? "[استبدال عداد]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ") });
+    let imageKey: string | undefined;
+    let imageHash: string | undefined;
+    if (input.imageData) {
+      if (!input.imageMime) return sendError(res, 400, "IMAGE_MIME_REQUIRED", "حدد نوع صورة العداد.");
+      const imageBytes = Buffer.from(input.imageData, "base64");
+      if (!imageBytes.byteLength || imageBytes.byteLength > 7 * 1024 * 1024) return sendError(res, 413, "IMAGE_TOO_LARGE", "يجب ألا يتجاوز حجم صورة العداد 7 ميغابايت.");
+      imageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
+      const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
+      imageKey = (await storagePut(`meter-readings/mobile/${context.scope.userId}/${input.meterId}-${Date.now()}.${extension}`, imageBytes, input.imageMime)).key;
+    }
+    const inserted = await db.insert(meterReadings).values({ tenantId: context.scope.tenantId, meterId: input.meterId, clientOperationId: input.clientOperationId, readingAt, readingValue: input.readingValue, previousReadingValue: previous?.readingValue, consumptionKwh: String(consumptionKwh), captureMethod: input.captureMethod, imageKey, imageHash, enteredByUserId: context.scope.userId, notes: [input.isMeterReplacement ? "[استبدال عداد]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ") });
     const id = Number(inserted[0].insertId);
     await db.insert(auditLogs).values({ tenantId: context.scope.tenantId, siteId: input.branchId, userId: context.scope.userId, actorTenantRole: context.scope.role, entityType: "meter_reading", entityId: String(id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, meterId: input.meterId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
     return res.status(201).json({ id, status: "pending_review", consumptionKwh: String(consumptionKwh), replayed: false });
