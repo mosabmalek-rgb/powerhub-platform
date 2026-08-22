@@ -47,7 +47,7 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByText("قالب فاتورة SMS")).toBeInTheDocument();
     expect(screen.getByText("قالب إيصال الدفع عبر SMS")).toBeInTheDocument();
     expect(screen.getByText("اسم قالب إيصال الدفع المعتمد")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Jawwal Bulk SMS الرسمية" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "شركة جوال — Jawwal Bulk SMS" })).toBeInTheDocument();
     const smsProvider = screen.getAllByRole("combobox").find((item) => (item as HTMLSelectElement).name === "provider")!;
     fireEvent.change(smsProvider, { target: { value: "jawwal_bulk_sms" } });
     expect(screen.getByText("رصيد رسائل Jawwal")).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe("owner invoice messaging settings", () => {
   it("blocks provider setup until the platform administrator explicitly opens the policy", () => {
     state.policy = { configured: false, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" };
     render(<MessagingSettingsPage />);
-    expect(screen.getAllByText(/قناة .* غير متاحة/).length).toBe(2);
+    expect(screen.getAllByText(/قناة .* غير متاحة/).length).toBe(1);
     expect(screen.queryByText("قالب فاتورة WhatsApp")).not.toBeInTheDocument();
   });
 });
