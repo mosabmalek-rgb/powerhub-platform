@@ -406,3 +406,49 @@ html {
 .dark [class*="rounded-"][class*="border"]:hover {
   border-color: var(--power-orange-border) !important;
 }
+
+/* Daily-use contrast pass: solid, readable controls in both themes. */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  color: #17202b !important;
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+input:not([type="checkbox"]):not([type="radio"])::placeholder,
+textarea::placeholder {
+  color: #64748b !important;
+  opacity: 1;
+}
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+  border-color: #b88400 !important;
+  box-shadow: 0 0 0 3px rgba(245, 184, 0, 0.2) !important;
+}
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  color: #f8fafc !important;
+  background-color: #1b222c !important;
+  border-color: #64748b !important;
+}
+.dark input:not([type="checkbox"]):not([type="radio"])::placeholder,
+.dark textarea::placeholder {
+  color: #cbd5e1 !important;
+}
+html,
+* {
+  scrollbar-color: #d89c00 #0b1018;
+}
+*::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb:hover {
+  background: #d89c00;
+}
+:root:not(.dark) html {
+  scrollbar-color: #b77a00 #edf1f6;
+}
+:root:not(.dark) *::-webkit-scrollbar-thumb,
+:root:not(.dark) *::-webkit-scrollbar-thumb:hover {
+  background: #b77a00;
+}
