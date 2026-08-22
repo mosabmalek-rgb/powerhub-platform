@@ -486,7 +486,15 @@ export const companyAccounts = mysqlTable("companyAccounts", {
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => [uniqueIndex("company_accounts_tenant_type_unique").on(table.tenantId, table.accountType), index("company_accounts_tenant_idx").on(table.tenantId)]);
+}, (table) => [uniqueIndex("company_accounts_tenant_type_phone_unique").on(table.tenantId, table.accountType, table.phoneNumber), index("company_accounts_tenant_idx").on(table.tenantId)]);
+
+export const companyAccountSites = mysqlTable("companyAccountSites", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  accountId: int("accountId").notNull().references(() => companyAccounts.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [uniqueIndex("company_account_sites_unique").on(table.accountId, table.siteId), index("company_account_sites_tenant_idx").on(table.tenantId)]);
 
 export const accountTransactions = mysqlTable("accountTransactions", {
   id: int("id").autoincrement().primaryKey(),
