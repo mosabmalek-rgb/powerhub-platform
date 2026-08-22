@@ -413,6 +413,17 @@ export const powerhubRouter = router({
       const used = Number(usage?.used ?? 0);
       return { plan: subscription?.plan ?? "starter", planName: subscription?.planName ?? null, included, additional, total: included + additional, used, remaining: Math.max(0, included + additional - used) };
     }),
+    smsDailyUsage: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const [subscription] = await db.select({ included: platformSmsPlans.includedMessages }).from(tenantSubscriptions).leftJoin(platformSmsPlans, eq(tenantSubscriptions.smsPlanId, platformSmsPlans.id)).where(eq(tenantSubscriptions.tenantId, tenantId)).limit(1);
+      const [extra] = await db.select({ additional: sql<number>`coalesce(sum(${smsPackageRequests.approvedMessages}), 0)` }).from(smsPackageRequests).where(and(eq(smsPackageRequests.tenantId, tenantId), eq(smsPackageRequests.status, "approved")));
+      const messages = await db.select({ createdAt: notificationMessages.createdAt, status: notificationMessages.status }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.channel, "sms"))).orderBy(desc(notificationMessages.createdAt)).limit(5000);
+      const daily = new Map<string, number>(); for (const message of messages) { if (!["submitted", "delivered", "read"].includes(message.status)) continue; const key = new Date(message.createdAt).toISOString().slice(0, 10); daily.set(key, (daily.get(key) ?? 0) + 1); }
+      const today = new Date(); const points = Array.from({ length: 14 }, (_, index) => { const date = new Date(today); date.setDate(today.getDate() - (13 - index)); const key = date.toISOString().slice(0, 10); return { date: key, count: daily.get(key) ?? 0 }; });
+      const included = Number(subscription?.included ?? 0); const additional = Number(extra?.additional ?? 0); const total = included + additional; const used = messages.filter((message) => ["submitted", "delivered", "read"].includes(message.status)).length;
+      return { points, included, additional, total, used, remaining: Math.max(0, total - used) };
+    }),
     requestSmsPackage: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestedMessages: z.number().int().min(1).max(100000000), note: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const tenantId = await getSiteTenant(input.siteId);
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");

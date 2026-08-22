@@ -11,7 +11,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { messaging: { listConfigurations: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } } } }),
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 3, name: "محطة الاختبار" }] }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) } },
@@ -21,6 +21,7 @@ vi.mock("@/lib/trpc", () => ({
         listConfigurations: { useQuery: () => ({ data: [{ channel: "whatsapp", provider: "meta_whatsapp_cloud", phoneNumberId: "123", templateName: "invoice_ready_ar", receiptTemplateName: "payment_receipt_ar", isActive: true }] }) },
         listScheduleRuns: { useQuery: () => ({ data: [], isLoading: false }) },
         smsQuota: { useQuery: () => ({ data: { total: 100, used: 10, remaining: 90 } }) },
+        smsDailyUsage: { useQuery: () => ({ data: { points: [{ date: "2026-08-20", count: 3 }, { date: "2026-08-21", count: 4 }], total: 100, used: 10, remaining: 90 }, isLoading: false }) },
         deliveryPolicy: { useQuery: () => ({ data: state.policy }) },
         listInvoiceTemplates: { useQuery: () => ({ data: [{ channel: "whatsapp", body: "أهلاً {{subscriber_name}}، فاتورتك {{invoice_no}}", isActive: true }] }) },
         listPaymentReceiptTemplates: { useQuery: () => ({ data: [{ channel: "sms", body: "إيصال {{payment_no}}", isActive: true }] }) },
