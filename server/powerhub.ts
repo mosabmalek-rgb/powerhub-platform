@@ -32,7 +32,8 @@ import {
   tenants,
   users,
 } from "../drizzle/schema";
-import { getDb } from "./db";
+import { getDb, syncSupabaseUser } from "./db";
+import { supabaseAdmin } from "./supabase-admin";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { buildFinancialOverview } from "./financial-overview-utils";
@@ -503,6 +504,27 @@ export const powerhubRouter = router({
         await writeAudit({ userId: ctx.user.id, entityType: "staff_profile", entityId: `${targetSiteId ?? "all"}:${input.userId}`, action: "assign_role", afterData: { ...input, assignedSiteId: targetSiteId } });
         return { success: true };
       }),
+    create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), email: z.string().email(), name: z.string().trim().min(2).max(160), temporaryPassword: z.string().min(8).max(128), role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, input.email.trim().toLowerCase())).limit(1);
+      if (existing.length) throw new TRPCError({ code: "CONFLICT", message: "يوجد حساب بهذا البريد. استخدم خيار تعيين مستخدم موجود." });
+      const allowedRoles = await ownerAllowedSubaccountRoles();
+      if (!allowedRoles.includes(input.role as OwnerSubaccountRole)) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة آدمن المنصة." });
+      const [limit, currentCount] = await Promise.all([ownerSubaccountLimit(tenantId), activeSubaccountCount(tenantId)]);
+      if (currentCount >= limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك (" + limit + ")." });
+      const { data: created, error } = await supabaseAdmin().auth.admin.createUser({ email: input.email.trim().toLowerCase(), password: input.temporaryPassword, email_confirm: true, user_metadata: { name: input.name } });
+      if (error || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء الحساب في نظام المصادقة. قد يكون البريد مستخدماً بالفعل." });
+      try {
+        const user = await syncSupabaseUser({ id: created.user.id, email: input.email.trim().toLowerCase(), name: input.name });
+        await db.update(users).set({ role: "user", platformRole: null, mustChangePassword: true, temporaryPasswordIssuedAt: new Date(), accountStatus: "active" }).where(eq(users.id, user.id));
+        await db.insert(tenantMembers).values({ tenantId, userId: user.id, role: "member", isActive: true, membershipStatus: "active", invitedByUserId: ctx.user.id });
+        await db.insert(staffProfiles).values({ tenantId, siteId: input.allBranches ? null : input.siteId, userId: user.id, role: input.role, isActive: true });
+        await writeAudit({ userId: ctx.user.id, entityType: "staff_profile", entityId: "new:" + user.id, action: "create_subaccount", afterData: { userId: user.id, email: input.email.trim().toLowerCase(), role: input.role, allBranches: input.allBranches } });
+        return { success: true, userId: user.id };
+      } catch (error) { await supabaseAdmin().auth.admin.deleteUser(created.user.id); throw error; }
+    }),
     setActive: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const db = await dbOrThrow();
