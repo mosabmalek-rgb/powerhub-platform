@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -23,7 +24,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, ChartNoAxesCombined, Fuel, Gauge,
-  LayoutDashboard, LogOut, PanelLeft, ReceiptText,
+  LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon,
   Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -120,6 +121,7 @@ function DashboardLayoutContent({
   setSidebarWidth,
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const displayUser = user ?? { name: "معاينة PowerHub", email: "واجهة تصميمية", role: "user" as const };
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
@@ -254,6 +256,13 @@ function DashboardLayoutContent({
                 </Tooltip>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48 border-white/10 bg-[#1b222c] text-white">
+                <DropdownMenuItem
+                  onClick={() => toggleTheme?.()}
+                  className="cursor-pointer text-slate-200 focus:text-white"
+                >
+                  {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#F5B800]" /> : <Moon className="mr-2 h-4 w-4 text-[#F5B800]" />}
+                  <span>{theme === "dark" ? "التبديل إلى الوضع النهاري" : "التبديل إلى الوضع الليلي"}</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
                     if (user) logout();
