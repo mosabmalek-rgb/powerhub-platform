@@ -26,6 +26,7 @@ vi.mock("@/lib/trpc", () => ({
         testConnection: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         saveInvoiceTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         savePaymentReceiptTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
+        configureInvoiceAutoSend: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
       },
       notifications: {
         list: { useQuery: () => ({ data: [{ invoiceNo: "INV-01", subscriber: { fullName: "مشترك الاختبار" }, notification: { id: 8, channel: "whatsapp", recipient: "0790000000", status: "failed", attempts: 2, lastError: "رفض المزود", createdAt: new Date("2026-08-20") } }] }) },

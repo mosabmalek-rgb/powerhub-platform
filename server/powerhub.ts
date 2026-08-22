@@ -51,8 +51,11 @@ import { processNotificationById } from "./notification-worker";
 import { storagePut } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { createHeartbeatJob, deleteHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
+import { COOKIE_NAME } from "../shared/const";
 
 const createRoles = rolesWith("issueInvoices");
+function sessionCookie(req: { headers?: { cookie?: string } }) { return (req.headers?.cookie ?? "").split(";").map((part) => part.trim()).find((part) => part.startsWith(`${COOKIE_NAME}=`))?.slice(COOKIE_NAME.length + 1) ?? ""; }
 const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
 export const ownerSubaccountRoles = ["manager", "accountant", "collector", "technician", "viewer"] as const;
@@ -398,7 +401,7 @@ export const powerhubRouter = router({
       const tenantId = await getSiteTenant(input.siteId);
       if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
       const db = await dbOrThrow();
-      return db.select({ id: tenantMessagingConfigurations.id, channel: tenantMessagingConfigurations.channel, provider: tenantMessagingConfigurations.provider, senderId: tenantMessagingConfigurations.senderId, phoneNumberId: tenantMessagingConfigurations.phoneNumberId, templateName: tenantMessagingConfigurations.templateName, receiptTemplateName: tenantMessagingConfigurations.receiptTemplateName, subscriberReferenceTemplateName: tenantMessagingConfigurations.subscriberReferenceTemplateName, isActive: tenantMessagingConfigurations.isActive, updatedAt: tenantMessagingConfigurations.updatedAt }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, tenantId));
+      return db.select({ id: tenantMessagingConfigurations.id, channel: tenantMessagingConfigurations.channel, provider: tenantMessagingConfigurations.provider, senderId: tenantMessagingConfigurations.senderId, phoneNumberId: tenantMessagingConfigurations.phoneNumberId, templateName: tenantMessagingConfigurations.templateName, receiptTemplateName: tenantMessagingConfigurations.receiptTemplateName, subscriberReferenceTemplateName: tenantMessagingConfigurations.subscriberReferenceTemplateName, isActive: tenantMessagingConfigurations.isActive, autoSendAfterApproval: tenantMessagingConfigurations.autoSendAfterApproval, autoSendCron: tenantMessagingConfigurations.autoSendCron, scheduleCronTaskUid: tenantMessagingConfigurations.scheduleCronTaskUid, updatedAt: tenantMessagingConfigurations.updatedAt }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, tenantId));
     }),
     deliveryPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
@@ -458,6 +461,25 @@ export const powerhubRouter = router({
         await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_configuration", entityId: `${input.siteId}:${input.channel}`, action: "connection_test", metadata: { channel: input.channel, provider: input.provider, ok: false, mode: "live" } });
         return { ok: false, mode: "live" as const, message: `تعذر إتمام اختبار الاتصال: ${message}` };
       }
+    }),
+    configureInvoiceAutoSend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), enabled: z.boolean(), cron: z.string().min(11).max(40).default("0 0/15 * * * *") })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      const [config] = await db.select({ id: tenantMessagingConfigurations.id, scheduleCronTaskUid: tenantMessagingConfigurations.scheduleCronTaskUid, provider: tenantMessagingConfigurations.provider }).from(tenantMessagingConfigurations).where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.channel, "sms"))).limit(1);
+      if (!config) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "احفظ إعداد SMS لشركة جوال أولاً." });
+      const userSession = sessionCookie(ctx.req);
+      if (!input.enabled) {
+        if (config.scheduleCronTaskUid) await deleteHeartbeatJob(config.scheduleCronTaskUid, userSession);
+        await db.update(tenantMessagingConfigurations).set({ autoSendAfterApproval: false, autoSendCron: input.cron, scheduleCronTaskUid: null }).where(eq(tenantMessagingConfigurations.id, config.id));
+        await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_schedule", entityId: String(config.id), action: "disable" });
+        return { enabled: false, cron: input.cron };
+      }
+      if (config.provider !== "jawwal_bulk_sms") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اختر شركة جوال كمزود SMS قبل تفعيل الجدولة." });
+      const job = config.scheduleCronTaskUid ? await updateHeartbeatJob(config.scheduleCronTaskUid, { cron: input.cron, path: "/api/scheduled/send-invoice-sms", enable: true, description: "إرسال فواتير القراءات المعتمدة عبر SMS" }, userSession).then((result) => ({ taskUid: config.scheduleCronTaskUid!, nextExecutionAt: result.nextExecutionAt })) : await createHeartbeatJob({ name: `tenant-${tenantId}-invoice-sms`, cron: input.cron, path: "/api/scheduled/send-invoice-sms", description: "إرسال فواتير القراءات المعتمدة عبر SMS" }, userSession);
+      await db.update(tenantMessagingConfigurations).set({ autoSendAfterApproval: true, autoSendCron: input.cron, scheduleCronTaskUid: job.taskUid }).where(eq(tenantMessagingConfigurations.id, config.id));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_schedule", entityId: String(config.id), action: "enable", metadata: { cron: input.cron, taskUid: job.taskUid } });
+      return { enabled: true, cron: input.cron, nextExecutionAt: job.nextExecutionAt ?? null };
     }),
     saveInvoiceTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
@@ -1483,7 +1505,7 @@ export const powerhubRouter = router({
       if(!Object.keys(allowed).length) throw new TRPCError({code:"BAD_REQUEST",message:"الحقول المسموح تعديلها لهذا النوع غير موجودة."});
       if(input.entityType==="invoice") await db.update(invoices).set(allowed).where(eq(invoices.id,input.entityId)); else if(input.entityType==="payment") await db.update(payments).set(allowed).where(eq(payments.id,input.entityId)); else await db.update(expenses).set(allowed).where(eq(expenses.id,input.entityId));
       const [after]=input.entityType==="invoice"?await db.select().from(invoices).where(eq(invoices.id,input.entityId)).limit(1):input.entityType==="payment"?await db.select().from(payments).where(eq(payments.id,input.entityId)).limit(1):await db.select().from(expenses).where(eq(expenses.id,input.entityId)).limit(1);
-      await writeAudit({userId:ctx.user.id,siteId:input.siteId,tenantId,entityType:input.entityType,entityId:String(input.entityId),action:"exceptional_edit_locked",beforeData:before,afterData:after,metadata:{reason:input.reason,settlementId:locked.id,allowedChanges:allowed}}); return {success:true, before, after}; }),
+      await writeAudit({userId:ctx.user.id,siteId:input.siteId,tenantId,entityType:input.entityType,entityId:String(input.entityId),action:"exceptional_edit_locked",beforeData:before,afterData:after,metadata:{reason:input.reason,reasonCode:input.reason.startsWith("تراجع سريع") ? "Reversal" : "Correction",settlementId:locked.id,allowedChanges:allowed}}); return {success:true, before, after}; }),
     setStatus: protectedProcedure.input(z.object({ siteId:z.number().int().positive(), settlementId:z.number().int().positive(), status:z.enum(["submitted","approved","locked"]) })).mutation(async({ctx,input})=>{ const role=await requireRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses"); void role; const db=await dbOrThrow(); const tenantId=await getSiteTenant(input.siteId); const [row]=await db.select().from(financialSettlements).where(and(eq(financialSettlements.id,input.settlementId),eq(financialSettlements.tenantId,tenantId),eq(financialSettlements.siteId,input.siteId))).limit(1); if(!row) throw new TRPCError({code:"NOT_FOUND",message:"التسوية غير موجودة."}); if(row.status==="locked") throw new TRPCError({code:"BAD_REQUEST",message:"التسوية مقفلة ولا يمكن تعديلها."}); const patch=input.status==="approved"?{status:input.status,approvedByUserId:ctx.user.id}:{status:input.status}; if(input.status==="locked") Object.assign(patch,{status:input.status,lockedAt:new Date(),approvedByUserId:ctx.user.id}); await db.update(financialSettlements).set(patch).where(eq(financialSettlements.id,row.id)); await writeAudit({userId:ctx.user.id,siteId:input.siteId,entityType:"financial_settlement",entityId:String(row.id),action:"status_change",afterData:{status:input.status}}); return {success:true}; }),
   }),
   reports: router({

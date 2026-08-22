@@ -142,10 +142,14 @@ export const tenantMessagingConfigurations = mysqlTable("tenantMessagingConfigur
   credentialKeyVersion: int("credentialKeyVersion").default(1).notNull(),
   webhookVerifyTokenHash: varchar("webhookVerifyTokenHash", { length: 128 }),
   isActive: boolean("isActive").default(false).notNull(),
+  autoSendAfterApproval: boolean("autoSendAfterApproval").default(false).notNull(),
+  autoSendCron: varchar("autoSendCron", { length: 40 }),
+  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("tenant_channel_unique").on(table.tenantId, table.channel),
+  index("tenant_messaging_schedule_task_idx").on(table.scheduleCronTaskUid),
 ]);
 
 export const tenantInvoiceMessageTemplates = mysqlTable("tenantInvoiceMessageTemplates", {

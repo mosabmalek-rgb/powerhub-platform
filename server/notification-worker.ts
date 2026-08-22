@@ -60,13 +60,10 @@ async function dispatchNotification(message: MessageRow): Promise<DispatchResult
       if (!response.ok) throw new Error(body.error?.message || `رفض مزود WhatsApp الطلب (${response.status}).`);
       providerMessageId = body.messages?.[0]?.id;
     } else if (message.channel === "sms") {
-      if (configuration.provider !== "twilio" || !configuration.phoneNumberId || !configuration.senderId) throw new Error("إرسال SMS الفعلي متاح حالياً عبر Twilio مع Account SID واسم أو رقم المرسل؛ Jawwal ينتظر API الرسمي.");
-      if (!payload.renderedText) throw new Error("نص إيصال الدفع غير متوفر للإرسال عبر SMS.");
-      const basic = Buffer.from(`${configuration.phoneNumberId}:${decryptTenantCredential(configuration.credentialCiphertext, configuration.credentialIv)}`).toString("base64");
-      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(configuration.phoneNumberId)}/Messages.json`, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ To: message.recipient, From: configuration.senderId, Body: payload.renderedText }).toString() });
-      const body = await response.json().catch(() => ({})) as { sid?: string; message?: string };
-      if (!response.ok) throw new Error(body.message || `رفض مزود SMS الطلب (${response.status}).`);
-      providerMessageId = body.sid;
+      if (configuration.provider !== "jawwal_bulk_sms" || !configuration.phoneNumberId || !configuration.senderId) throw new Error("إعداد SMS لشركة جوال غير مكتمل؛ أدخل Client ID واسم المرسل وبيانات API الرسمية.");
+      if (!payload.renderedText) throw new Error("نص الفاتورة غير متوفر للإرسال عبر SMS.");
+      throw new Error("إرسال SMS لشركة جوال ينتظر تفعيل API الرسمي وتزويد بيانات العقد.");
+
     } else throw new Error("قناة الإرسال غير مدعومة.");
     await db.update(notificationMessages).set({ status: "submitted", providerMessageId: providerMessageId || null, lastError: null }).where(eq(notificationMessages.id, message.id));
     return { status: "submitted", providerMessageId };
@@ -83,6 +80,15 @@ export async function processNotificationById(notificationId: number) {
   const [message] = await db.select().from(notificationMessages).where(eq(notificationMessages.id, notificationId)).limit(1);
   if (!message) return { status: "skipped" as const, error: "رسالة الإشعار غير موجودة." };
   return dispatchNotification(message);
+}
+
+export async function processNotificationQueueForTenant(tenantId: number, limit = 25) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable while processing notifications.");
+  const pending = await db.select().from(notificationMessages).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.channel, "sms"), eq(notificationMessages.eventType, "invoice_issued"), eq(notificationMessages.status, "pending"))).orderBy(asc(notificationMessages.createdAt)).limit(Math.min(Math.max(limit, 1), 50));
+  const result = { scanned: pending.length, submitted: 0, failed: 0, skipped: 0 };
+  for (const message of pending) { const dispatched = await dispatchNotification(message); result[dispatched.status] += 1; }
+  return result;
 }
 
 export async function processNotificationQueue(limit = 25) {
