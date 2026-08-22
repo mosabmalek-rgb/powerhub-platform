@@ -1,0 +1,1 @@
+ALTER TABLE `companyAccounts` ADD `phoneNumber` varchar(30);
