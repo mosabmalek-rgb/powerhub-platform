@@ -20,6 +20,7 @@ vi.mock("@/lib/trpc", () => ({
       messaging: {
         listConfigurations: { useQuery: () => ({ data: [{ channel: "whatsapp", provider: "meta_whatsapp_cloud", phoneNumberId: "123", templateName: "invoice_ready_ar", receiptTemplateName: "payment_receipt_ar", isActive: true }] }) },
         listScheduleRuns: { useQuery: () => ({ data: [], isLoading: false }) },
+        smsQuota: { useQuery: () => ({ data: { total: 100, used: 10, remaining: 90 } }) },
         deliveryPolicy: { useQuery: () => ({ data: state.policy }) },
         listInvoiceTemplates: { useQuery: () => ({ data: [{ channel: "whatsapp", body: "أهلاً {{subscriber_name}}، فاتورتك {{invoice_no}}", isActive: true }] }) },
         listPaymentReceiptTemplates: { useQuery: () => ({ data: [{ channel: "sms", body: "إيصال {{payment_no}}", isActive: true }] }) },
@@ -28,6 +29,7 @@ vi.mock("@/lib/trpc", () => ({
         saveInvoiceTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         savePaymentReceiptTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         configureInvoiceAutoSend: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
+        requestSmsPackage: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
       },
       notifications: {
         list: { useQuery: () => ({ data: [{ invoiceNo: "INV-01", subscriber: { fullName: "مشترك الاختبار" }, notification: { id: 8, channel: "whatsapp", recipient: "0790000000", status: "failed", attempts: 2, lastError: "رفض المزود", createdAt: new Date("2026-08-20") } }] }) },

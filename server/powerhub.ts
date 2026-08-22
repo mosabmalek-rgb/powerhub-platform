@@ -20,6 +20,8 @@ import {
   meters,
   notificationMessages,
   messagingScheduleRuns,
+  platformSmsPlans,
+  smsPackageRequests,
   payments,
   platformRolePolicies,
   platformSettings,
@@ -33,6 +35,7 @@ import {
   tenantInvoiceMessageTemplates,
   tenantMessagingConfigurations,
   tenantOwnerProfiles,
+  tenantSubscriptions,
   tenantPaymentReceiptMessageTemplates,
   tenantBranchSettings,
   tenants,
@@ -397,6 +400,29 @@ async function getVerifiedPortalSubscriber(input: z.infer<typeof subscriberPorta
 
 export const powerhubRouter = router({
   messaging: router({
+    smsQuota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const role = await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      void role;
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      const [subscription] = await db.select({ plan: tenantSubscriptions.plan, smsPlanId: tenantSubscriptions.smsPlanId, includedMessages: platformSmsPlans.includedMessages, planName: platformSmsPlans.name }).from(tenantSubscriptions).leftJoin(platformSmsPlans, eq(tenantSubscriptions.smsPlanId, platformSmsPlans.id)).where(eq(tenantSubscriptions.tenantId, tenantId)).limit(1);
+      const [usage] = await db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.channel, "sms")));
+      const [extra] = await db.select({ messages: sql<number>`coalesce(sum(${smsPackageRequests.approvedMessages}), 0)` }).from(smsPackageRequests).where(and(eq(smsPackageRequests.tenantId, tenantId), eq(smsPackageRequests.status, "approved")));
+      const included = Number(subscription?.includedMessages ?? 0);
+      const additional = Number(extra?.messages ?? 0);
+      const used = Number(usage?.used ?? 0);
+      return { plan: subscription?.plan ?? "starter", planName: subscription?.planName ?? null, included, additional, total: included + additional, used, remaining: Math.max(0, included + additional - used) };
+    }),
+    requestSmsPackage: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestedMessages: z.number().int().min(1).max(100000000), note: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+      const tenantId = await getSiteTenant(input.siteId);
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const db = await dbOrThrow();
+      const [pending] = await db.select({ id: smsPackageRequests.id }).from(smsPackageRequests).where(and(eq(smsPackageRequests.tenantId, tenantId), eq(smsPackageRequests.status, "pending"))).limit(1);
+      if (pending) throw new TRPCError({ code: "CONFLICT", message: "لديك طلب حزمة قيد المراجعة بالفعل." });
+      const id = insertId(await db.insert(smsPackageRequests).values({ tenantId, requestedByUserId: ctx.user.id, requestedMessages: input.requestedMessages, note: input.note }));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "sms_package_request", entityId: String(id), action: "request_sms_package", metadata: { requestedMessages: input.requestedMessages } });
+      return { id, status: "pending" as const };
+    }),
     listConfigurations: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const tenantId = await getSiteTenant(input.siteId);
@@ -1709,6 +1735,13 @@ export const powerhubRouter = router({
       const [configuration] = await db.select({ id: tenantMessagingConfigurations.id, provider: tenantMessagingConfigurations.provider, isActive: tenantMessagingConfigurations.isActive }).from(tenantMessagingConfigurations).where(and(eq(tenantMessagingConfigurations.tenantId, site.tenantId), eq(tenantMessagingConfigurations.channel, "sms"), eq(tenantMessagingConfigurations.isActive, true))).limit(1);
       if (!configuration || configuration.provider !== "jawwal_bulk_sms") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "احفظ إعداد SMS لشركة جوال أولاً قبل الإرسال الجماعي." });
       const rows = await db.select({ invoice: invoices, subscriber: subscribers }).from(invoices).innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id)).where(and(eq(invoices.siteId, input.siteId), inArray(invoices.id, ids))).limit(200);
+      const [[quota], [usage], [extra]] = await Promise.all([
+        db.select({ included: platformSmsPlans.includedMessages }).from(tenantSubscriptions).leftJoin(platformSmsPlans, eq(tenantSubscriptions.smsPlanId, platformSmsPlans.id)).where(eq(tenantSubscriptions.tenantId, site.tenantId)).limit(1),
+        db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, site.tenantId), eq(notificationMessages.channel, "sms"))),
+        db.select({ approved: sql<number>`coalesce(sum(${smsPackageRequests.approvedMessages}), 0)` }).from(smsPackageRequests).where(and(eq(smsPackageRequests.tenantId, site.tenantId), eq(smsPackageRequests.status, "approved"))),
+      ]);
+      const remainingSms = Number(quota?.included ?? 0) + Number(extra?.approved ?? 0) - Number(usage?.used ?? 0);
+      if (remainingSms < rows.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `لا يكفي رصيد SMS لإرسال ${rows.length} فاتورة. المتبقي: ${Math.max(0, remainingSms)} رسالة. اطلب حزمة إضافية من إعدادات المراسلة.` });
       const results = await Promise.all(rows.map(async ({ invoice, subscriber }) => {
         if (!subscriber.phone) return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, status: "failed" as const, message: "لا يوجد رقم هاتف مسجل للمشترك." };
         if (["draft", "cancelled"].includes(invoice.status)) return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, status: "skipped" as const, message: "الفاتورة غير صالحة للإرسال." };

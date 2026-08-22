@@ -74,11 +74,40 @@ export const tenantSubscriptions = mysqlTable("tenantSubscriptions", {
   renewalCount: int("renewalCount").default(0).notNull(),
   lastRenewedAt: timestamp("lastRenewedAt"),
   notes: text("notes"),
+  smsPlanId: int("smsPlanId").references(() => platformSmsPlans.id),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("tenant_subscription_tenant_unique").on(table.tenantId),
   index("tenant_subscription_status_end_idx").on(table.status, table.endsAt),
+]);
+
+export const platformSmsPlans = mysqlTable("platformSmsPlans", {
+  id: int("id").autoincrement().primaryKey(),
+  code: varchar("code", { length: 80 }).notNull().unique(),
+  name: varchar("name", { length: 160 }).notNull(),
+  description: text("description"),
+  includedMessages: int("includedMessages").default(0).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const smsPackageRequests = mysqlTable("smsPackageRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  requestedByUserId: int("requestedByUserId").notNull().references(() => users.id),
+  requestedMessages: int("requestedMessages").notNull(),
+  approvedMessages: int("approvedMessages").default(0).notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected", "cancelled"]).default("pending").notNull(),
+  note: text("note"),
+  reviewedByUserId: int("reviewedByUserId").references(() => users.id),
+  reviewedAt: timestamp("reviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("sms_package_requests_tenant_status_idx").on(table.tenantId, table.status),
+  index("sms_package_requests_status_date_idx").on(table.status, table.createdAt),
 ]);
 
 export const tenantBranchSettings = mysqlTable("tenantBranchSettings", {

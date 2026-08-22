@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
 import { getDb, syncSupabaseUser } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { encryptTenantCredential } from "./tenant-crypto";
@@ -654,20 +654,53 @@ export const adminRouter = router({
     endsAt: z.date(),
     autoRenew: z.boolean(),
     notes: z.string().max(2000).optional(),
+    smsPlanId: z.number().int().positive().nullable().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();
+    if (input.smsPlanId) {
+      const [plan] = await db.select({ id: platformSmsPlans.id, isActive: platformSmsPlans.isActive }).from(platformSmsPlans).where(eq(platformSmsPlans.id, input.smsPlanId)).limit(1);
+      if (!plan || !plan.isActive) throw new TRPCError({ code: "BAD_REQUEST", message: "خطة رسائل SMS غير موجودة أو متوقفة." });
+    }
     const [subscription] = await db.select().from(tenantSubscriptions).where(eq(tenantSubscriptions.tenantId, input.tenantId)).limit(1);
     if (!subscription) throw new TRPCError({ code: "NOT_FOUND", message: "اشتراك المستأجر غير موجود." });
     const [site] = await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
     if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد محطة مرتبطة بالمستأجر." });
     await db.transaction(async (tx) => {
-      await tx.update(tenantSubscriptions).set({ plan: input.plan, status: input.status, billingCycle: input.billingCycle, endsAt: input.endsAt, autoRenew: input.autoRenew, notes: input.notes }).where(eq(tenantSubscriptions.tenantId, input.tenantId));
+      await tx.update(tenantSubscriptions).set({ plan: input.plan, status: input.status, billingCycle: input.billingCycle, endsAt: input.endsAt, autoRenew: input.autoRenew, notes: input.notes, smsPlanId: input.smsPlanId ?? null }).where(eq(tenantSubscriptions.tenantId, input.tenantId));
       await tx.update(tenants).set({ plan: input.plan, status: tenantStatusForSubscription(input.status) }).where(eq(tenants.id, input.tenantId));
     });
     await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "tenant_subscription", entityId: String(subscription.id), action: "platform_admin_update_subscription", afterData: input });
     return { success: true };
   }),
 
+  listSmsPlans: platformAdminProcedure.query(async () => (await dbOrThrow()).select().from(platformSmsPlans).orderBy(desc(platformSmsPlans.createdAt))),
+  createSmsPlan: platformAdminProcedure.input(z.object({ code: z.string().trim().min(2).max(80).regex(/^[a-z0-9_-]+$/), name: z.string().trim().min(2).max(160), description: z.string().max(1000).optional(), includedMessages: z.number().int().min(0).max(100000000), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const id = insertId(await db.insert(platformSmsPlans).values(input));
+    await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "info", status: "success", title: "إنشاء باقة رسائل SMS", createdByUserId: ctx.user.id, metadata: { planId: id, code: input.code, includedMessages: input.includedMessages } });
+    return { id };
+  }),
+  updateSmsPlan: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(160).optional(), description: z.string().max(1000).optional(), includedMessages: z.number().int().min(0).max(100000000).optional(), isActive: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const { id, ...changes } = input;
+    await db.update(platformSmsPlans).set(changes).where(eq(platformSmsPlans.id, id));
+    await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "info", status: "success", title: "تحديث باقة رسائل SMS", createdByUserId: ctx.user.id, metadata: { planId: id, changes } });
+    return { success: true };
+  }),
+  listSmsPackageRequests: platformAdminProcedure.query(async () => {
+    const db = await dbOrThrow();
+    return db.select({ request: smsPackageRequests, tenantName: tenants.name, ownerName: tenantOwnerProfiles.fullName }).from(smsPackageRequests).innerJoin(tenants, eq(smsPackageRequests.tenantId, tenants.id)).leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id)).orderBy(desc(smsPackageRequests.createdAt)).limit(100);
+  }),
+  reviewSmsPackageRequest: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected"]), approvedMessages: z.number().int().min(0).max(100000000), note: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [request] = await db.select().from(smsPackageRequests).where(and(eq(smsPackageRequests.id, input.id), eq(smsPackageRequests.status, "pending"))).limit(1);
+    if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الحزمة غير موجود أو تمت مراجعته سابقاً." });
+    if (input.status === "approved" && input.approvedMessages < 1) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل كمية رسائل موجبة عند اعتماد الطلب." });
+    await db.update(smsPackageRequests).set({ status: input.status, approvedMessages: input.status === "approved" ? input.approvedMessages : 0, note: input.note, reviewedByUserId: ctx.user.id, reviewedAt: new Date() }).where(eq(smsPackageRequests.id, input.id));
+    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, request.tenantId)).limit(1);
+    if (site) await db.insert(auditLogs).values({ tenantId: request.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "sms_package_request", entityId: String(input.id), action: `platform_admin_${input.status}_sms_package_request`, metadata: { requestedMessages: request.requestedMessages, approvedMessages: input.approvedMessages, note: input.note } });
+    return { success: true };
+  }),
   renewSubscription: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), periods: z.number().int().min(1).max(24).default(1) })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();
     const [subscription] = await db.select().from(tenantSubscriptions).where(eq(tenantSubscriptions.tenantId, input.tenantId)).limit(1);
