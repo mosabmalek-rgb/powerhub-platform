@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   auditLogs,
   collectorSessions,
+  customPermissionRoles,
   expenses,
   invoiceLines,
   generators,
@@ -199,25 +200,36 @@ async function tenantBranchPolicy(tenantId: number) {
 }
 
 async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
+  return (await resolveAccess(userId, siteId)).role;
+}
+async function resolveAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[] }> {
   const db = await dbOrThrow();
   const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
-  if (user?.role === "admin") return "owner";
+  if (user?.role === "admin") return { role: "owner", permissions: ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"] };
 
   const tenantId = await getSiteTenant(siteId);
   if (tenantId) {
     const [member] = await db.select({ role: tenantMembers.role }).from(tenantMembers)
       .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, userId), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active"))).limit(1);
     if (!member) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
-    if (member.role === "owner") return "owner";
+    if (member.role === "owner") return { role: "owner", permissions: ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"] };
   }
 
   const [profile] = await db
-    .select({ role: staffProfiles.role })
+    .select({ role: staffProfiles.role, permissions: staffProfiles.permissions, customRoleId: staffProfiles.customRoleId })
     .from(staffProfiles)
     .where(and(eq(staffProfiles.userId, userId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, siteId), isNull(staffProfiles.siteId)), eq(staffProfiles.isActive, true)))
     .limit(1);
 
-  if (profile) return profile.role;
+  if (profile) {
+    let permissions = Array.isArray(profile.permissions) ? profile.permissions : [];
+    if (!permissions.length && profile.customRoleId) {
+      const [customRole] = await db.select({ permissions: customPermissionRoles.permissions }).from(customPermissionRoles)
+        .where(and(eq(customPermissionRoles.id, profile.customRoleId), eq(customPermissionRoles.tenantId, tenantId), eq(customPermissionRoles.isActive, true))).limit(1);
+      permissions = customRole?.permissions ?? [];
+    }
+    return { role: profile.role, permissions: permissions as PowerCapability[] };
+  }
   throw new TRPCError({ code: "FORBIDDEN", message: "لا يوجد تعيين فعال لك في هذه المحطة." });
 }
 
@@ -230,13 +242,18 @@ async function enforcePlatformRolePolicy(role: PowerRole, capability?: PowerCapa
 }
 
 async function requireRole(userId: number, siteId: number, allowed: PowerRole[], capability?: PowerCapability) {
-  const role = await resolveRole(userId, siteId);
-  if (!allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
+  const access = await resolveAccess(userId, siteId);
   const db = await dbOrThrow();
   const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
-  if (user?.role === "admin") return role;
-  await enforcePlatformRolePolicy(role, capability);
-  return role;
+  if (user?.role !== "admin" && !allowed.includes(access.role) && (!capability || !access.permissions.includes(capability))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
+  }
+  if (user?.role === "admin") return access.role;
+  if (capability && access.permissions.length > 0 && !access.permissions.includes(capability)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذه العملية غير موجودة ضمن الصلاحيات الممنوحة لهذا الحساب." });
+  }
+  await enforcePlatformRolePolicy(access.role, capability);
+  return access.role;
 }
 
 async function requireAllBranchRole(userId: number, siteId: number, allowed: PowerRole[]) {
@@ -446,7 +463,7 @@ export const powerhubRouter = router({
     }),
   }),
   staff: router({
-    myAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => ({ role: await resolveRole(ctx.user.id, input.siteId) })),
+    myAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => resolveAccess(ctx.user.id, input.siteId)),
     allBranchAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const role = await resolveRole(ctx.user.id, input.siteId);
       if (ctx.user.role === "admin" || role === "owner") return { isGlobal: true };
@@ -475,6 +492,41 @@ export const powerhubRouter = router({
       const tenantId = await getSiteTenant(input.siteId);
       const [roles, limit, currentCount] = await Promise.all([ownerAllowedSubaccountRoles(), ownerSubaccountLimit(tenantId), activeSubaccountCount(tenantId)]);
       return { roles, limit, currentCount, remaining: Math.max(0, limit - currentCount) };
+    }),
+    permissionCatalog: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const capabilities: PowerCapability[] = ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"];
+      return capabilities;
+    }),
+    customRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      return db.select({ id: customPermissionRoles.id, name: customPermissionRoles.name, description: customPermissionRoles.description, permissions: customPermissionRoles.permissions, isActive: customPermissionRoles.isActive }).from(customPermissionRoles).where(and(eq(customPermissionRoles.tenantId, tenantId), eq(customPermissionRoles.isActive, true))).orderBy(customPermissionRoles.name);
+    }),
+    saveCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), description: z.string().trim().max(255).optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      if (input.id) await db.update(customPermissionRoles).set({ name: input.name, description: input.description || null, permissions: input.permissions, updatedAt: new Date() }).where(and(eq(customPermissionRoles.id, input.id), eq(customPermissionRoles.tenantId, tenantId)));
+      else await db.insert(customPermissionRoles).values({ tenantId, name: input.name, description: input.description || null, permissions: input.permissions, createdByUserId: ctx.user.id, isActive: true });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "custom_permission_role", entityId: input.id ? String(input.id) : "new", action: input.id ? "update" : "create", afterData: { name: input.name, permissions: input.permissions } });
+      return { success: true };
+    }),
+    updatePermissions: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), customRoleId: z.number().int().positive().nullable().optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      const roleId = input.customRoleId ?? null;
+      if (roleId) {
+        const [role] = await db.select({ id: customPermissionRoles.id }).from(customPermissionRoles).where(and(eq(customPermissionRoles.id, roleId), eq(customPermissionRoles.tenantId, tenantId), eq(customPermissionRoles.isActive, true))).limit(1);
+        if (!role) throw new TRPCError({ code: "NOT_FOUND", message: "الدور المخصص غير موجود ضمن مساحة المستأجر." });
+      }
+      const [profile] = await db.select({ id: staffProfiles.id, userId: staffProfiles.userId, siteId: staffProfiles.siteId }).from(staffProfiles).where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
+      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+      await db.update(staffProfiles).set({ customRoleId: roleId, permissions: input.permissions, updatedAt: new Date() }).where(eq(staffProfiles.id, input.profileId));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: "update_permissions", afterData: { customRoleId: roleId, permissions: input.permissions, targetUserId: profile.userId } });
+      return { success: true };
     }),
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) }))
       .mutation(async ({ ctx, input }) => {

@@ -35,7 +35,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 const menuGroups = [
   {
     label: "نظرة عامة",
-    items: [{ icon: LayoutDashboard, label: "لوحة التحكم", path: "/" }],
+    items: [{ icon: LayoutDashboard, label: "لوحة التحكم", path: "/workspace" }],
   },
   {
     label: "إدارة الشبكة",

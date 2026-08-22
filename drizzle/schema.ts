@@ -239,12 +239,29 @@ export const platformAccessInvitations = mysqlTable("platformAccessInvitations",
   index("platform_access_invitation_email_status_idx").on(table.email, table.status),
 ]);
 
+export const customPermissionRoles = mysqlTable("customPermissionRoles", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  name: varchar("name", { length: 120 }).notNull(),
+  description: varchar("description", { length: 255 }),
+  permissions: json("permissions").$type<string[]>().notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdByUserId: int("createdByUserId").notNull().references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("custom_permission_role_tenant_name_unique").on(table.tenantId, table.name),
+  index("custom_permission_role_tenant_active_idx").on(table.tenantId, table.isActive),
+]);
+
 export const staffProfiles = mysqlTable("staffProfiles", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id),
   tenantId: int("tenantId").references(() => tenants.id),
   siteId: int("siteId").references(() => sites.id),
   role: mysqlEnum("role", ["owner", "manager", "accountant", "collector", "technician", "viewer"]).notNull(),
+  customRoleId: int("customRoleId").references(() => customPermissionRoles.id),
+  permissions: json("permissions").$type<string[] | null>(),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

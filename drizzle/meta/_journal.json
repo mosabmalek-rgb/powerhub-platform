@@ -211,6 +211,13 @@
       "when": 1787334392371,
       "tag": "0029_windy_karnak",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1787388837434,
+      "tag": "0030_steep_expediter",
+      "breakpoints": true
     }
   ]
 }

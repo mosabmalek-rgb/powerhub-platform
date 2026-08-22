@@ -52,7 +52,22 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   viewAudit: ["owner", "manager", "accountant", "viewer"],
 };
 
-export function can(role: PowerRole | undefined | null, capability: PowerCapability) {
+export const powerCapabilityLabels: Record<PowerCapability, string> = {
+  manageSubscribers: "إدارة المشتركين",
+  manageGenerators: "إدارة المولدات",
+  recordReadings: "تسجيل القراءات",
+  approveReadings: "اعتماد القراءات",
+  manageTariffs: "إدارة التعرفات",
+  issueInvoices: "إصدار الفواتير",
+  collectPayments: "تسجيل التحصيلات",
+  manageExpenses: "إدارة المصروفات",
+  manageTeam: "إدارة الحسابات الفرعية",
+  manageMessaging: "إدارة الإشعارات والقوالب",
+  viewAudit: "عرض سجل التدقيق",
+};
+
+export function can(role: PowerRole | undefined | null, capability: PowerCapability, permissions?: readonly PowerCapability[] | null) {
+  if (permissions?.length) return permissions.includes(capability);
   return Boolean(role && capabilityRoles[capability].includes(role));
 }
 
