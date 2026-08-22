@@ -24,12 +24,13 @@ import { useIsMobile } from "@/hooks/useMobile";
 import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, ChartNoAxesCombined, Fuel, Gauge,
-  LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon,
+  LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X,
   Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { PowerHubLogo } from "./PowerHubLogo";
+import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const menuGroups = [
@@ -135,11 +136,16 @@ function DashboardLayoutContent({
   const accountRoleLabel = user ? (user.role === "admin" ? platformRoleLabel : "مساحة تشغيل المولد") : "وضع معاينة آمن";
   const workspaceSites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: Boolean(user && user.role !== "admin") });
   const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
+  const smsAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
+  const smsApprovalQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && smsAccess.data?.role === "owner"), refetchInterval: 15000 });
+  const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
   const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const operationalGroups = menuGroups.map((group) => group.label === "إدارة الشبكة" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
   const visibleMenuGroups = displayUser.role === "admin" ? [...operationalGroups, platformAdminGroup] : operationalGroups;
   const activeMenuItem = visibleMenuGroups.flatMap(group => group.items).find(item => item.path === location);
   const isMobile = useIsMobile();
+  const approvedSmsRequest = smsApprovalQuery.data?.status === "approved" ? smsApprovalQuery.data : null;
+  useEffect(() => { if (approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId) toast.success(`تم اعتماد حزمة الرسائل وإضافة ${Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيدك.`); }, [approvedSmsRequest, dismissedSmsApprovalId]);
 
   useEffect(() => {
     if (isCollapsed) {
@@ -304,6 +310,7 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
+        {approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId ? <div className="sticky top-0 z-30 border-b border-emerald-300/25 bg-emerald-400/[.10] px-4 py-3 text-emerald-100 shadow-lg sm:px-6"><div className="mx-auto flex max-w-7xl items-center justify-between gap-3" dir="rtl"><div className="flex min-w-0 items-center gap-3"><CircleCheck className="h-5 w-5 shrink-0 text-emerald-300" /><p className="text-sm font-bold">تم اعتماد طلب شحن الرسائل وإضافة {Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيد SMS.</p></div><button type="button" aria-label="إغلاق إشعار اعتماد الرسائل" onClick={() => { const id = String(approvedSmsRequest.id); setDismissedSmsApprovalId(id); localStorage.setItem("powerhub.sms-approval-notice-dismissed", id); }} className="rounded-lg p-1 text-emerald-200 transition hover:bg-emerald-300/15 hover:text-white"><X className="h-4 w-4" /></button></div></div> : null}
         <main className="ph-grid-bg min-h-screen flex-1 bg-[#0D1117] p-4 sm:p-6">{children}</main>
       </SidebarInset>
     </>
