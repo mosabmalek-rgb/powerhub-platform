@@ -1,0 +1,1 @@
+ALTER TABLE `platformRolePolicies` MODIFY COLUMN `capability` enum('manageSubscribers','manageGenerators','recordReadings','approveReadings','manageTariffs','issueInvoices','collectPayments','manageExpenses','managePayroll','manageTeam','manageMessaging','viewAudit') NOT NULL;

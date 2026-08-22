@@ -12,6 +12,10 @@ import {
   collectorSessions,
   customPermissionRoles,
   expenses,
+  employees,
+  employeeAdjustments,
+  payrollRuns,
+  payrollItems,
   invoiceLines,
   generators,
   invoiceShareLinks,
@@ -220,14 +224,14 @@ async function resolveRole(userId: number, siteId: number): Promise<PowerRole> {
 async function resolveAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[] }> {
   const db = await dbOrThrow();
   const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
-  if (user?.role === "admin") return { role: "owner", permissions: ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"] };
+  if (user?.role === "admin") return { role: "owner", permissions: ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"] };
 
   const tenantId = await getSiteTenant(siteId);
   if (tenantId) {
     const [member] = await db.select({ role: tenantMembers.role }).from(tenantMembers)
       .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, userId), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active"))).limit(1);
     if (!member) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
-    if (member.role === "owner") return { role: "owner", permissions: ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"] };
+    if (member.role === "owner") return { role: "owner", permissions: ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"] };
   }
 
   const [profile] = await db
@@ -592,7 +596,7 @@ export const powerhubRouter = router({
     }),
     permissionCatalog: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const capabilities: PowerCapability[] = ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"];
+      const capabilities: PowerCapability[] = ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"];
       return capabilities;
     }),
     customRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
@@ -601,7 +605,7 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       return db.select({ id: customPermissionRoles.id, name: customPermissionRoles.name, description: customPermissionRoles.description, permissions: customPermissionRoles.permissions, isActive: customPermissionRoles.isActive }).from(customPermissionRoles).where(and(eq(customPermissionRoles.tenantId, tenantId), eq(customPermissionRoles.isActive, true))).orderBy(customPermissionRoles.name);
     }),
-    saveCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), description: z.string().trim().max(255).optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
+    saveCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), description: z.string().trim().max(255).optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const tenantId = await getSiteTenant(input.siteId);
       const db = await dbOrThrow();
@@ -621,7 +625,7 @@ export const powerhubRouter = router({
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "custom_permission_role", entityId: String(input.roleId), action: "delete", afterData: { isActive: false } });
       return { success: true };
     }),
-    updatePermissions: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), customRoleId: z.number().int().positive().nullable().optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
+    updatePermissions: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), customRoleId: z.number().int().positive().nullable().optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const tenantId = await getSiteTenant(input.siteId);
       const db = await dbOrThrow();
@@ -1883,6 +1887,43 @@ export const powerhubRouter = router({
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses"); if (input.fromAccountId === input.toAccountId) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن التحويل إلى الحساب نفسه." }); const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);
       const accounts = await db.select({ id: companyAccounts.id }).from(companyAccounts).where(and(eq(companyAccounts.tenantId, tenantId), inArray(companyAccounts.id, [input.fromAccountId, input.toAccountId]))); if (accounts.length !== 2) throw new TRPCError({ code: "NOT_FOUND", message: "حساب التحويل غير موجود ضمن مساحة الشركة." });
       await db.insert(accountTransactions).values([{ tenantId, accountId: input.fromAccountId, relatedAccountId: input.toAccountId, transactionType: "transfer_out", amount: String(input.amount), description: input.description, createdByUserId: ctx.user.id }, { tenantId, accountId: input.toAccountId, relatedAccountId: input.fromAccountId, transactionType: "transfer_in", amount: String(input.amount), description: input.description, createdByUserId: ctx.user.id }]); await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "company_account", entityId: String(input.fromAccountId), action: "transfer", afterData: input }); return { success: true };
+    }),
+  }),
+  hr: router({
+    listEmployees: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), search: z.string().trim().max(120).optional(), employmentStatus: z.enum(["active", "suspended", "ended"]).optional(), jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]).optional() })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam"); const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const conditions = [eq(employees.tenantId, tenantId), or(eq(employees.siteId, input.siteId), isNull(employees.siteId))];
+      if (input.employmentStatus) conditions.push(eq(employees.employmentStatus, input.employmentStatus));
+      if (input.jobTitle) conditions.push(eq(employees.jobTitle, input.jobTitle));
+      if (input.search) conditions.push(or(sql`${employees.fullName} like ${`%${input.search}%`}`, sql`${employees.phone} like ${`%${input.search}%`}`));
+      return db.select().from(employees).where(and(...conditions)).orderBy(desc(employees.createdAt)).limit(500);
+    }),
+    createEmployee: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), fullName: z.string().trim().min(2).max(180), identityNo: z.string().trim().max(80).optional(), phone: z.string().trim().max(40).optional(), jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]), employmentStatus: z.enum(["active", "suspended", "ended"]).default("active"), contractType: z.enum(["daily", "monthly", "collection_percentage"]), baseWage: z.number().min(0).max(100000000), hireDate: z.string().optional(), notes: z.string().trim().max(2000).optional() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam"); const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const [site] = await db.select({ id: sites.id }).from(sites).where(and(eq(sites.id, input.siteId), eq(sites.tenantId, tenantId))).limit(1); if (!site) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
+      const id = insertId(await db.insert(employees).values({ tenantId, siteId: input.siteId, fullName: input.fullName, identityNo: input.identityNo || null, phone: input.phone || null, jobTitle: input.jobTitle, employmentStatus: input.employmentStatus, contractType: input.contractType, baseWage: String(input.baseWage), hireDate: input.hireDate ? new Date(input.hireDate) : null, notes: input.notes || null }));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "employee", entityId: String(id), action: "create", afterData: input }); return { id };
+    }),
+    listAdjustments: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), employeeId: z.number().int().positive().optional(), status: z.enum(["open", "settled", "cancelled"]).optional() })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses"); const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const conditions = [eq(employeeAdjustments.tenantId, tenantId), or(eq(employeeAdjustments.siteId, input.siteId), isNull(employeeAdjustments.siteId))]; if (input.employeeId) conditions.push(eq(employeeAdjustments.employeeId, input.employeeId)); if (input.status) conditions.push(eq(employeeAdjustments.status, input.status));
+      return db.select({ adjustment: employeeAdjustments, employee: employees }).from(employeeAdjustments).innerJoin(employees, eq(employeeAdjustments.employeeId, employees.id)).where(and(...conditions)).orderBy(desc(employeeAdjustments.createdAt)).limit(500);
+    }),
+    createAdjustment: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), employeeId: z.number().int().positive(), adjustmentType: z.enum(["advance", "deduction"]), amount: z.number().positive().max(100000000), reason: z.string().trim().min(3).max(255) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "accountant"], "manageExpenses"); const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow(); const [employee] = await db.select({ id: employees.id }).from(employees).where(and(eq(employees.id, input.employeeId), eq(employees.tenantId, tenantId), or(eq(employees.siteId, input.siteId), isNull(employees.siteId)))).limit(1); if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير موجود ضمن نطاقك." });
+      const id = insertId(await db.insert(employeeAdjustments).values({ tenantId, employeeId: input.employeeId, siteId: input.siteId, adjustmentType: input.adjustmentType, amount: String(input.amount), remainingAmount: String(input.amount), reason: input.reason, createdByUserId: ctx.user.id })); await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "employee_adjustment", entityId: String(id), action: "create", afterData: input }); return { id };
+    }),
+    listPayrollRuns: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), period: z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/).optional() })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll"); const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow(); const conditions = [eq(payrollRuns.tenantId, tenantId), or(eq(payrollRuns.siteId, input.siteId), isNull(payrollRuns.siteId))]; if (input.period) conditions.push(eq(payrollRuns.period, input.period)); return db.select().from(payrollRuns).where(and(...conditions)).orderBy(desc(payrollRuns.period)).limit(120);
+    }),
+    createPayrollDraft: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), period: z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/), items: z.array(z.object({ employeeId: z.number().int().positive(), extraAmount: z.number().min(0).default(0), advanceDeduction: z.number().min(0).default(0), otherDeduction: z.number().min(0).default(0), notes: z.string().trim().max(500).optional() })).min(1) })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll"); const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow(); const employeeIds = input.items.map((item) => item.employeeId); const people = await db.select({ id: employees.id, baseWage: employees.baseWage }).from(employees).where(and(eq(employees.tenantId, tenantId), or(eq(employees.siteId, input.siteId), isNull(employees.siteId)), eq(employees.employmentStatus, "active"), inArray(employees.id, employeeIds))); if (people.length !== employeeIds.length) throw new TRPCError({ code: "BAD_REQUEST", message: "توجد موظفة أو موظف غير نشط أو خارج الفرع المحدد." }); const wages = new Map(people.map((person) => [person.id, Number(person.baseWage)])); const rows = input.items.map((item) => { const baseAmount = wages.get(item.employeeId) ?? 0; const netAmount = baseAmount + item.extraAmount - item.advanceDeduction - item.otherDeduction; if (netAmount < 0) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن أن يكون صافي راتب الموظف سالباً." }); return { employeeId: item.employeeId, baseAmount, extraAmount: item.extraAmount, advanceDeduction: item.advanceDeduction, otherDeduction: item.otherDeduction, netAmount, notes: item.notes }; }); const totalGross = rows.reduce((sum, row) => sum + row.baseAmount + row.extraAmount, 0); const totalDeductions = rows.reduce((sum, row) => sum + row.advanceDeduction + row.otherDeduction, 0); const totalNet = rows.reduce((sum, row) => sum + row.netAmount, 0); const id = insertId(await db.insert(payrollRuns).values({ tenantId, siteId: input.siteId, period: input.period, status: "draft", totalGross: String(totalGross), totalDeductions: String(totalDeductions), totalNet: String(totalNet), createdByUserId: ctx.user.id })); await db.insert(payrollItems).values(rows.map((row) => ({ payrollRunId: id, employeeId: row.employeeId, baseAmount: String(row.baseAmount), extraAmount: String(row.extraAmount), advanceDeduction: String(row.advanceDeduction), otherDeduction: String(row.otherDeduction), netAmount: String(row.netAmount), notes: row.notes || null }))); await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "payroll_run", entityId: String(id), action: "create", afterData: { period: input.period, totalNet } }); return { id, totalNet };
+    }),
+    updateEmployee: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), employeeId: z.number().int().positive(), fullName: z.string().trim().min(2).max(180).optional(), identityNo: z.string().trim().max(80).nullable().optional(), phone: z.string().trim().max(40).nullable().optional(), jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]).optional(), employmentStatus: z.enum(["active", "suspended", "ended"]).optional(), contractType: z.enum(["daily", "monthly", "collection_percentage"]).optional(), baseWage: z.number().min(0).max(100000000).optional(), hireDate: z.string().nullable().optional(), notes: z.string().trim().max(2000).nullable().optional() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam"); const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const [existing] = await db.select({ id: employees.id }).from(employees).where(and(eq(employees.id, input.employeeId), eq(employees.tenantId, tenantId), or(eq(employees.siteId, input.siteId), isNull(employees.siteId)))).limit(1); if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير موجود ضمن نطاقك." });
+      const patch = { ...(input.fullName === undefined ? {} : { fullName: input.fullName }), ...(input.identityNo === undefined ? {} : { identityNo: input.identityNo }), ...(input.phone === undefined ? {} : { phone: input.phone }), ...(input.jobTitle === undefined ? {} : { jobTitle: input.jobTitle }), ...(input.employmentStatus === undefined ? {} : { employmentStatus: input.employmentStatus }), ...(input.contractType === undefined ? {} : { contractType: input.contractType }), ...(input.baseWage === undefined ? {} : { baseWage: String(input.baseWage) }), ...(input.hireDate === undefined ? {} : { hireDate: input.hireDate ? new Date(input.hireDate) : null }), ...(input.notes === undefined ? {} : { notes: input.notes }), updatedAt: new Date() };
+      await db.update(employees).set(patch).where(eq(employees.id, input.employeeId)); await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "employee", entityId: String(input.employeeId), action: "update", afterData: input }); return { success: true };
     }),
   }),
   audit: router({

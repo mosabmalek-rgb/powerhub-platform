@@ -171,7 +171,7 @@ export function InvoiceDeliverySettingsPanel() {
 }
 
 const policyCapabilities: Array<{ id: PowerCapability; label: string }> = [
-  { id: "manageSubscribers", label: "إدارة المشتركين" }, { id: "manageGenerators", label: "إدارة المولدات" }, { id: "recordReadings", label: "تسجيل القراءات" }, { id: "approveReadings", label: "اعتماد القراءات" }, { id: "manageTariffs", label: "إدارة التعرفات" }, { id: "issueInvoices", label: "إصدار الفواتير" }, { id: "collectPayments", label: "التحصيل والدفعات" }, { id: "manageExpenses", label: "المصروفات" }, { id: "manageTeam", label: "إدارة الفريق" }, { id: "manageMessaging", label: "المراسلات" }, { id: "viewAudit", label: "سجل التدقيق" },
+  { id: "manageSubscribers", label: "إدارة المشتركين" }, { id: "manageGenerators", label: "إدارة المولدات" }, { id: "recordReadings", label: "تسجيل القراءات" }, { id: "approveReadings", label: "اعتماد القراءات" }, { id: "manageTariffs", label: "إدارة التعرفات" }, { id: "issueInvoices", label: "إصدار الفواتير" }, { id: "collectPayments", label: "التحصيل والدفعات" }, { id: "manageExpenses", label: "المصروفات" }, { id: "managePayroll", label: "اعتماد وصرف الرواتب" }, { id: "manageTeam", label: "إدارة الفريق" }, { id: "manageMessaging", label: "المراسلات" }, { id: "viewAudit", label: "سجل التدقيق" },
 ];
 
 export function PlatformRolePoliciesPanel() {

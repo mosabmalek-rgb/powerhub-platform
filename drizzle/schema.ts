@@ -305,6 +305,72 @@ export const staffProfiles = mysqlTable("staffProfiles", {
   index("staff_tenant_site_active_idx").on(table.tenantId, table.siteId, table.isActive),
 ]);
 
+export const employees = mysqlTable("employees", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").references(() => sites.id),
+  linkedUserId: int("linkedUserId").references(() => users.id),
+  fullName: varchar("fullName", { length: 180 }).notNull(),
+  identityNo: varchar("identityNo", { length: 80 }),
+  phone: varchar("phone", { length: 40 }),
+  jobTitle: mysqlEnum("jobTitle", ["accountant", "collector", "technician", "worker", "supervisor", "other"]).notNull(),
+  employmentStatus: mysqlEnum("employmentStatus", ["active", "suspended", "ended"]).default("active").notNull(),
+  contractType: mysqlEnum("contractType", ["daily", "monthly", "collection_percentage"]).notNull(),
+  baseWage: decimal("baseWage", { precision: 12, scale: 2 }).notNull(),
+  hireDate: timestamp("hireDate"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("employees_tenant_status_idx").on(table.tenantId, table.employmentStatus),
+  index("employees_tenant_site_idx").on(table.tenantId, table.siteId),
+  index("employees_tenant_phone_idx").on(table.tenantId, table.phone),
+]);
+
+export const employeeAdjustments = mysqlTable("employeeAdjustments", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  employeeId: int("employeeId").notNull().references(() => employees.id),
+  siteId: int("siteId").references(() => sites.id),
+  adjustmentType: mysqlEnum("adjustmentType", ["advance", "deduction"]).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  remainingAmount: decimal("remainingAmount", { precision: 12, scale: 2 }).notNull(),
+  reason: varchar("reason", { length: 255 }).notNull(),
+  status: mysqlEnum("status", ["open", "settled", "cancelled"]).default("open").notNull(),
+  createdByUserId: int("createdByUserId").notNull().references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("employee_adjustments_tenant_employee_idx").on(table.tenantId, table.employeeId), index("employee_adjustments_tenant_status_idx").on(table.tenantId, table.status)]);
+
+export const payrollRuns = mysqlTable("payrollRuns", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").references(() => sites.id),
+  period: varchar("period", { length: 7 }).notNull(),
+  status: mysqlEnum("status", ["draft", "approved", "paid", "cancelled"]).default("draft").notNull(),
+  totalGross: decimal("totalGross", { precision: 14, scale: 2 }).default("0").notNull(),
+  totalDeductions: decimal("totalDeductions", { precision: 14, scale: 2 }).default("0").notNull(),
+  totalNet: decimal("totalNet", { precision: 14, scale: 2 }).default("0").notNull(),
+  paidFromAccountId: int("paidFromAccountId").references(() => companyAccounts.id),
+  approvedByUserId: int("approvedByUserId").references(() => users.id),
+  paidAt: timestamp("paidAt"),
+  createdByUserId: int("createdByUserId").notNull().references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("payroll_runs_tenant_site_period_unique").on(table.tenantId, table.siteId, table.period), index("payroll_runs_tenant_status_idx").on(table.tenantId, table.status)]);
+
+export const payrollItems = mysqlTable("payrollItems", {
+  id: int("id").autoincrement().primaryKey(),
+  payrollRunId: int("payrollRunId").notNull().references(() => payrollRuns.id),
+  employeeId: int("employeeId").notNull().references(() => employees.id),
+  baseAmount: decimal("baseAmount", { precision: 12, scale: 2 }).notNull(),
+  extraAmount: decimal("extraAmount", { precision: 12, scale: 2 }).default("0").notNull(),
+  advanceDeduction: decimal("advanceDeduction", { precision: 12, scale: 2 }).default("0").notNull(),
+  otherDeduction: decimal("otherDeduction", { precision: 12, scale: 2 }).default("0").notNull(),
+  netAmount: decimal("netAmount", { precision: 12, scale: 2 }).notNull(),
+  notes: text("notes"),
+}, (table) => [uniqueIndex("payroll_items_run_employee_unique").on(table.payrollRunId, table.employeeId)]);
+
 export const generators = mysqlTable("generators", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
@@ -694,7 +760,7 @@ export const platformSettings = mysqlTable("platformSettings", {
 export const platformRolePolicies = mysqlTable("platformRolePolicies", {
   id: int("id").autoincrement().primaryKey(),
   role: mysqlEnum("role", ["owner", "manager", "accountant", "collector", "technician", "viewer"]).notNull(),
-  capability: mysqlEnum("capability", ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "manageTeam", "manageMessaging", "viewAudit"]).notNull(),
+  capability: mysqlEnum("capability", ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"]).notNull(),
   isAllowed: boolean("isAllowed").default(true).notNull(),
   updatedByUserId: int("updatedByUserId").references(() => users.id),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

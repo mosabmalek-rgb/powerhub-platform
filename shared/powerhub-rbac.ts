@@ -16,6 +16,7 @@ export type PowerCapability =
   | "issueInvoices"
   | "collectPayments"
   | "manageExpenses"
+  | "managePayroll"
   | "manageTeam"
   | "manageMessaging"
   | "viewAudit";
@@ -47,6 +48,7 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   issueInvoices: ["owner", "manager", "accountant"],
   collectPayments: ["owner", "manager", "accountant", "collector"],
   manageExpenses: ["owner", "manager", "accountant"],
+  managePayroll: ["owner", "accountant"],
   manageTeam: ["owner"],
   manageMessaging: ["owner"],
   viewAudit: ["owner", "manager", "accountant", "viewer"],
@@ -61,6 +63,7 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   issueInvoices: "إصدار الفواتير",
   collectPayments: "تسجيل التحصيلات",
   manageExpenses: "إدارة المصروفات",
+  managePayroll: "اعتماد وصرف الرواتب",
   manageTeam: "إدارة الحسابات الفرعية",
   manageMessaging: "إدارة الإشعارات والقوالب",
   viewAudit: "عرض سجل التدقيق",

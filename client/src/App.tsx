@@ -25,6 +25,7 @@ import ProfileSecurityPage from "./pages/ProfileSecurityPage";
 import SubscriberPortalPage from "./pages/SubscriberPortalPage";
 import SubscriberPortalSettingsPage from "./pages/SubscriberPortalSettingsPage";
 import BranchesPage from "./pages/BranchesPage";
+import HumanResourcesPage from "./pages/HumanResourcesPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -52,6 +53,7 @@ function Router() {
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
       <Route path={"/settings"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/staff"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
+      <Route path={"/human-resources"}>{() => <RouteAccessGate><HumanResourcesPage /></RouteAccessGate>}</Route>
       <Route path={"/admin"}>{() => <RouteAccessGate platformAdminOnly><AdminConsolePage /></RouteAccessGate>}</Route>
       <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
       <Route path={"/404"} component={NotFound} />

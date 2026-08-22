@@ -23,7 +23,7 @@ import {
 import { useIsMobile } from "@/hooks/useMobile";
 import { trpc } from "@/lib/trpc";
 import {
-  BellRing, Bolt, ChartNoAxesCombined, Fuel, Gauge,
+  BellRing, Bolt, BriefcaseBusiness, ChartNoAxesCombined, Fuel, Gauge,
   LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X,
   Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store,
 } from "lucide-react";
@@ -71,7 +71,8 @@ const menuGroups = [
   {
     label: "الحساب",
     items: [      { icon: UserRound, label: "المعلومات وبيانات الدخول", path: "/profile" },
-      { icon: UsersRound, label: "الحسابات الفرعية", path: "/staff" }],
+      { icon: UsersRound, label: "الحسابات الفرعية", path: "/staff" },
+      { icon: BriefcaseBusiness, label: "الموارد البشرية", path: "/human-resources" }],
   },
 ];
 
