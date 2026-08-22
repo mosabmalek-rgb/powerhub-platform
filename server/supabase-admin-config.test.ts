@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-describe("Supabase administrative credentials", () => {
+const runSupabaseIntegration = process.env.SUPABASE_INTEGRATION_TESTS === "true";
+
+describe.skipIf(!runSupabaseIntegration)("Supabase administrative credentials", () => {
   it("accepts the configured service role at the Auth users endpoint", async () => {
     const projectUrl = process.env.VITE_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

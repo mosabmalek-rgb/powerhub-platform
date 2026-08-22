@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-describe("Supabase Auth configuration", () => {
+const runSupabaseIntegration = process.env.SUPABASE_INTEGRATION_TESTS === "true";
+
+describe.skipIf(!runSupabaseIntegration)("Supabase Auth configuration", () => {
   it("accepts the configured public API credentials at the Auth health endpoint", async () => {
     const projectUrl = process.env.VITE_SUPABASE_URL;
     const publishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;

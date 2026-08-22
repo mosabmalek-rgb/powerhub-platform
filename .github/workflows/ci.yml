@@ -18,6 +18,9 @@ jobs:
     name: TypeScript, tests, and production build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
 
     steps:
       - name: Checkout
