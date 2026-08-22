@@ -28,6 +28,21 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const mobileApiSessions = mysqlTable("mobileApiSessions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  refreshTokenHash: varchar("refreshTokenHash", { length: 128 }).notNull().unique(),
+  deviceLabel: varchar("deviceLabel", { length: 160 }),
+  expiresAt: timestamp("expiresAt").notNull(),
+  revokedAt: timestamp("revokedAt"),
+  lastUsedAt: timestamp("lastUsedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("mobile_api_sessions_user_tenant_idx").on(table.userId, table.tenantId, table.revokedAt),
+  index("mobile_api_sessions_expiry_idx").on(table.expiresAt),
+]);
+
 export const tenants = mysqlTable("tenants", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 160 }).notNull(),

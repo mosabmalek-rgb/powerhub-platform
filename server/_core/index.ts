@@ -13,6 +13,7 @@ import { getDb } from "../db";
 import { messagingScheduleRuns, tenantMessagingConfigurations } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "../messaging-webhooks";
+import { registerMobileApi } from "../mobile-api";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -40,6 +41,7 @@ async function startServer() {
   app.use(express.json({ limit: "50mb", verify: (req, _res, buffer) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buffer; } }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
+  registerMobileApi(app);
   app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
   app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);
   app.post("/api/scheduled/send-invoice-sms", async (req, res) => {
