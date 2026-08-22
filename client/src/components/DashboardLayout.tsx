@@ -51,6 +51,7 @@ const menuGroups = [
     items: [
       { icon: ReceiptText, label: "الفواتير والتعرفات", path: "/invoices" },
       { icon: WalletCards, label: "التحصيلات", path: "/collections" },
+      { icon: WalletCards, label: "حسابات الشركة", path: "/company-accounts" },
       { icon: Fuel, label: "المصروفات والربحية", path: "/expenses" },
       { icon: ChartNoAxesCombined, label: "التقارير", path: "/reports" },
     ],

@@ -475,6 +475,32 @@ export const payments = mysqlTable("payments", {
   index("payments_site_date_idx").on(table.siteId, table.paidAt),
 ]);
 
+export const companyAccounts = mysqlTable("companyAccounts", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  name: varchar("name", { length: 120 }).notNull(),
+  accountType: mysqlEnum("accountType", ["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]).notNull(),
+  color: varchar("color", { length: 20 }).default("#64748b").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("company_accounts_tenant_type_unique").on(table.tenantId, table.accountType), index("company_accounts_tenant_idx").on(table.tenantId)]);
+
+export const accountTransactions = mysqlTable("accountTransactions", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  accountId: int("accountId").notNull().references(() => companyAccounts.id),
+  transactionType: mysqlEnum("transactionType", ["deposit", "withdrawal", "transfer_in", "transfer_out", "collection"]).notNull(),
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+  description: varchar("description", { length: 255 }).notNull(),
+  referenceNo: varchar("referenceNo", { length: 120 }),
+  relatedPaymentId: int("relatedPaymentId").references(() => payments.id),
+  relatedAccountId: int("relatedAccountId").references(() => companyAccounts.id),
+  createdByUserId: int("createdByUserId").references(() => users.id),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("account_transactions_tenant_account_date_idx").on(table.tenantId, table.accountId, table.occurredAt)]);
+
 export const expenses = mysqlTable("expenses", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
