@@ -44,7 +44,7 @@ vi.mock("@/lib/trpc", () => ({
       sites: { list: { useQuery: () => mocks.query([mocks.site]) }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, anomalyAlert: { useQuery: () => mocks.query({ anomalyAlertPercent: 50 }) }, create: { useMutation: mocks.mutation }, updateAnomalyAlert: { useMutation: mocks.mutation } },
       staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"] }) }, assign: { useMutation: mocks.mutation } },
       meters: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
-      readings: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
+      readings: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
       subscribers: { list: { useQuery: () => mocks.query(mocks.subscribers) }, quota: { useQuery: () => mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "starter" }) }, phoneReview: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation } },
@@ -207,6 +207,9 @@ describe("role guards in administration UI", () => {
     render(<MeterReadingsPage />);
     expect(screen.getByRole("heading", { name: "إضافة قراءة" })).toBeInTheDocument();
     expect(screen.getByText("تسجيل قراءة")).toBeInTheDocument();
+    expect(screen.getByText("آخر القراءات المسجلة")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "بحث في القراءات" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "فلترة حالة القراءة" })).toBeInTheDocument();
     expect(screen.queryByText("إضافة عداد")).not.toBeInTheDocument();
     expect(screen.queryByText("تسجيل قراءة جديدة")).not.toBeInTheDocument();
   });

@@ -983,6 +983,19 @@ export const powerhubRouter = router({
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: "update_pending", afterData: input });
       return { success: true, consumptionKwh: currentValue - previousValue };
     }),
+    deletePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "recordReadings");
+      const db = await dbOrThrow();
+      const [existing] = await db.select({ id: meterReadings.id, status: meterReadings.status, versionNo: meterReadings.versionNo }).from(meterReadings)
+        .innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+        .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
+      if (existing.status !== "pending_review") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن حذف القراءات بانتظار المراجعة فقط." });
+      if (existing.versionNo !== input.baseVersion) throw new TRPCError({ code: "CONFLICT", message: "تم تحديث القراءة من جهة أخرى؛ حدّث الصفحة ثم أعد المحاولة." });
+      await db.delete(meterReadings).where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.versionNo, input.baseVersion), eq(meterReadings.status, "pending_review")));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: "delete_pending" });
+      return { success: true };
+    }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");

@@ -41,7 +41,7 @@ const menuGroups = [
       { icon: UsersRound, label: "المشتركون", path: "/subscribers" },
       { icon: Store, label: "الأفرع", path: "/branches" },
       { icon: Bolt, label: "المحطات والمولدات", path: "/generators" },
-      { icon: Gauge, label: "العدادات والقراءات", path: "/readings" },
+      { icon: Gauge, label: "إضافة قراءة", path: "/readings" },
     ],
   },
   {
