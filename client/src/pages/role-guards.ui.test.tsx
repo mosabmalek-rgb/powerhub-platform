@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   createShareLink: vi.fn(),
   sendDeferredInvoices: vi.fn(),
   retryFailedInvoiceNotification: vi.fn(),
+  retryFailedInvoiceNotifications: vi.fn(),
   sendPaymentReceipt: vi.fn(),
   mutation: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
   query: (data: unknown = []) => ({ data, isLoading: false, isFetching: false }),
@@ -62,12 +63,12 @@ vi.mock("@/lib/trpc", () => ({
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, listScheduleRuns: { useQuery: () => mocks.query([]) }, smsQuota: { useQuery: () => mocks.query({ total: 0, used: 0, remaining: 0 }) }, smsDailyUsage: { useQuery: () => mocks.query({ points: [], total: 0, used: 0, remaining: 0 }) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation }, configureInvoiceAutoSend: { useMutation: mocks.mutation }, requestSmsPackage: { useMutation: mocks.mutation } },
       subscriberPortal: { settings: { useQuery: () => mocks.query(mocks.portalSettings) }, saveSettings: { useMutation: mocks.mutation } },
-      notifications: { list: { useQuery: () => mocks.query(mocks.notifications) }, listBulkInvoiceSends: { useQuery: () => mocks.query(mocks.bulkInvoiceSends) }, bulkInvoiceSendDetails: { useQuery: () => mocks.query(mocks.bulkInvoiceSendDetails) }, retry: { useMutation: mocks.mutation }, retryFailedInvoiceNotification: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotification, isPending: false }) }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceipt: { useMutation: () => ({ mutate: mocks.sendPaymentReceipt, isPending: false }) }, sendPaymentReminder: { useMutation: mocks.mutation }, sendBulkInvoiceSms: { useMutation: mocks.mutation }, sendDeferredInvoices: { useMutation: () => ({ mutate: mocks.sendDeferredInvoices, isPending: false }) } },
+      notifications: { list: { useQuery: () => mocks.query(mocks.notifications) }, listBulkInvoiceSends: { useQuery: () => mocks.query(mocks.bulkInvoiceSends) }, bulkInvoiceSendDetails: { useQuery: () => mocks.query(mocks.bulkInvoiceSendDetails) }, retry: { useMutation: mocks.mutation }, retryFailedInvoiceNotification: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotification, isPending: false }) }, retryFailedInvoiceNotifications: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotifications, isPending: false }) }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceipt: { useMutation: () => ({ mutate: mocks.sendPaymentReceipt, isPending: false }) }, sendPaymentReminder: { useMutation: mocks.mutation }, sendBulkInvoiceSms: { useMutation: mocks.mutation }, sendDeferredInvoices: { useMutation: () => ({ mutate: mocks.sendDeferredInvoices, isPending: false }) } },
     },
   },
 }));
 
-afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.sendPaymentReceipt.mockReset(); });
+afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceipt.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("hides invoice issuance and sharing controls from the viewer", () => {
@@ -110,7 +111,7 @@ describe("role guards in administration UI", () => {
   it("opens the bulk delivery details and exposes the date-range filter", () => {
     mocks.activeRole = "owner";
     mocks.bulkInvoiceSends = [{ id: 9, action: "send_deferred_invoice_notifications", createdAt: new Date("2026-08-23T09:30:00.000Z"), metadata: { requested: 1, submitted: 1, failed: 0 }, executorId: 12, executorName: "محاسب الفرع", executorEmail: "accountant@example.com" }];
-    mocks.bulkInvoiceSendDetails = { items: [{ notificationId: 101, invoiceId: 81, invoiceNo: "PH-TEST-0081", totalAmount: "60", subscriberName: "أحمد المشترك", channel: "sms", status: "failed", lastError: "تعذر اتصال المزود", recipient: "+970599000000" }] };
+    mocks.bulkInvoiceSendDetails = { items: [{ notificationId: 101, invoiceId: 81, invoiceNo: "PH-TEST-0081", totalAmount: "60", subscriberName: "أحمد المشترك", channel: "sms", status: "failed", lastError: "تعذر اتصال المزود", recipient: "+970599000000" }, { notificationId: 102, invoiceId: 82, invoiceNo: "PH-TEST-0082", totalAmount: "90", subscriberName: "سارة المشترك", channel: "whatsapp", status: "delivered", lastError: null, recipient: "+970599000001" }] };
     render(<BillingPage />);
     expect(screen.getByLabelText("بداية نطاق سجل الإرسال")).toBeInTheDocument();
     expect(screen.getByLabelText("نهاية نطاق سجل الإرسال")).toBeInTheDocument();
@@ -119,10 +120,16 @@ describe("role guards in administration UI", () => {
     expect(screen.getByText("PH-TEST-0081")).toBeInTheDocument();
     expect(screen.getByText("أحمد المشترك")).toBeInTheDocument();
     expect(screen.getByText("تعذر")).toBeInTheDocument();
+    expect(screen.getByText("نسبة النجاح: 50%")).toBeInTheDocument();
+    expect(screen.getByText("نسبة التعذر: 50%")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "تقدم نجاح وفشل عملية الإرسال" })).toHaveAttribute("aria-valuenow", "50");
     fireEvent.click(screen.getByRole("button", { name: /PH-TEST-0081/ }));
     expect(mocks.createShareLink).toHaveBeenCalledWith({ siteId: 1, invoiceId: 81 });
     fireEvent.click(screen.getByRole("button", { name: "إعادة الإرسال" }));
     expect(mocks.retryFailedInvoiceNotification).toHaveBeenCalledWith({ siteId: 1, notificationId: 101 });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "إعادة إرسال الفاشل (1)" }));
+    expect(mocks.retryFailedInvoiceNotifications).toHaveBeenCalledWith({ siteId: 1, notificationIds: [101] });
   });
 
   it("renders the subscriber directory in read-only mode for the viewer", () => {
