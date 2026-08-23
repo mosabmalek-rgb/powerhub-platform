@@ -55,6 +55,7 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
       { id: "reports", label: "التقارير والإحصائيات", icon: FileBarChart, detail: "أداء المولدات والاستهلاك والنمو" },
       { id: "invoiceDelivery", label: "إرسال الفواتير", icon: BellRing, detail: "إعداد WhatsApp وSMS للمشتركين" },
       { id: "tweetSms", label: "حسابات TweetSMS", icon: MessageSquareText, detail: "ربط الحسابات الفرعية وحصص الرسائل" },
+      { id: "tweetSmsReport", label: "رصيد وتقارير TweetSMS", icon: FileBarChart, detail: "رصيد حساب المنصة واستهلاك الرسائل" },
       { id: "complaints", label: "الشكاوى", icon: Ticket, detail: "المتابعة والتعيين والردود" },
     ],
   },

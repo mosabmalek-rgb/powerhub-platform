@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenantTweetSmsAccounts, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, platformTweetSmsAccounts, platformTweetSmsBalanceAlerts, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenantTweetSmsAccounts, tenants, users } from "../drizzle/schema";
 import { getDb, syncSupabaseUser } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
@@ -19,6 +19,15 @@ const tweetSmsAccountInput = z.object({
   apiSecret: z.string().trim().max(4096).optional(),
   senderName: z.string().trim().min(1).max(120),
   monthlyLimit: z.number().int().min(0).max(10_000_000),
+  isActive: z.boolean(),
+});
+
+const platformTweetSmsAccountInput = z.object({
+  apiEndpoint: z.string().trim().url().max(500),
+  apiKey: z.string().trim().min(8).max(4096).optional(),
+  apiSecret: z.string().trim().max(4096).optional(),
+  senderName: z.string().trim().min(1).max(120).optional(),
+  lowBalanceThreshold: z.number().int().min(0).max(10_000_000),
   isActive: z.boolean(),
 });
 
@@ -332,16 +341,102 @@ export const adminRouter = router({
     });
   }),
 
+  getPlatformTweetSmsAccount: platformAdminProcedure.query(async () => {
+    const db = await dbOrThrow();
+    const [account] = await db.select().from(platformTweetSmsAccounts).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
+    if (!account) return null;
+    return {
+      id: account.id,
+      apiEndpoint: account.apiEndpoint,
+      senderName: account.senderName,
+      lowBalanceThreshold: account.lowBalanceThreshold,
+      lastProviderBalance: account.lastProviderBalance,
+      lastBalanceCheckedAt: account.lastBalanceCheckedAt,
+      lastTestedAt: account.lastTestedAt,
+      lastError: account.lastError,
+      isActive: account.isActive,
+      configured: Boolean(account.credentialCiphertext && account.credentialIv),
+    };
+  }),
+
+  savePlatformTweetSmsAccount: platformAdminProcedure.input(platformTweetSmsAccountInput).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [existing] = await db.select().from(platformTweetSmsAccounts).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
+    const credentialsProvided = Boolean(input.apiKey);
+    if (input.isActive && !credentialsProvided && !existing?.credentialCiphertext) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل مفتاح API لحساب TweetSMS المركزي قبل تفعيل الإرسال." });
+    }
+    const encrypted = credentialsProvided ? encryptTenantCredential(JSON.stringify({ apiKey: input.apiKey, apiSecret: input.apiSecret || undefined })) : null;
+    const values = {
+      apiEndpoint: input.apiEndpoint,
+      senderName: input.senderName || null,
+      lowBalanceThreshold: input.lowBalanceThreshold,
+      isActive: input.isActive,
+      updatedByUserId: ctx.user.id,
+      ...(encrypted ? { credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, credentialKeyVersion: 1 } : {}),
+    };
+    if (existing) await db.update(platformTweetSmsAccounts).set(values).where(eq(platformTweetSmsAccounts.id, existing.id));
+    else if (!encrypted) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل مفتاح API لإنشاء حساب TweetSMS المركزي." });
+    else await db.insert(platformTweetSmsAccounts).values({ ...values, credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, credentialKeyVersion: 1, createdByUserId: ctx.user.id });
+    await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "info", status: "success", title: "تم تحديث حساب TweetSMS المركزي", details: "تم حفظ بيانات الربط المشفرة دون إظهار مفتاح API.", createdByUserId: ctx.user.id, metadata: { isActive: input.isActive, apiKeyUpdated: credentialsProvided, lowBalanceThreshold: input.lowBalanceThreshold } });
+    return { success: true };
+  }),
+
+  testPlatformTweetSmsAccount: platformAdminProcedure.mutation(async ({ ctx }) => {
+    const db = await dbOrThrow();
+    const [account] = await db.select().from(platformTweetSmsAccounts).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
+    if (!account?.credentialCiphertext || !account.credentialIv) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل بيانات حساب TweetSMS المركزي أولاً." });
+    let credentials: TweetSmsCredentials;
+    try { credentials = JSON.parse(decryptTenantCredential(account.credentialCiphertext, account.credentialIv)) as TweetSmsCredentials; }
+    catch { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر قراءة بيانات TweetSMS المشفرة. احفظ الحساب مرة أخرى." }); }
+    const accountResult = await checkTweetSmsAccount({ endpoint: account.apiEndpoint, credentials });
+    const senderResult = accountResult.ok && account.senderName ? await checkTweetSmsSender({ endpoint: account.apiEndpoint, credentials, sender: account.senderName }) : null;
+    const balanceResult = accountResult.ok && (!account.senderName || senderResult?.ok) ? await checkTweetSmsBalance({ endpoint: account.apiEndpoint, credentials }) : null;
+    const result = senderResult && !senderResult.ok ? senderResult : balanceResult && balanceResult.code !== null && !balanceResult.ok ? balanceResult : accountResult;
+    const balance = balanceResult?.balance;
+    await db.update(platformTweetSmsAccounts).set({ lastTestedAt: new Date(), lastBalanceCheckedAt: balance !== undefined ? new Date() : account.lastBalanceCheckedAt, lastProviderBalance: balance ?? account.lastProviderBalance, lastError: result.ok ? null : result.message, updatedByUserId: ctx.user.id }).where(eq(platformTweetSmsAccounts.id, account.id));
+    if (balance !== undefined) {
+      const [openAlert] = await db.select().from(platformTweetSmsBalanceAlerts).where(and(eq(platformTweetSmsBalanceAlerts.accountId, account.id), eq(platformTweetSmsBalanceAlerts.status, "open"))).orderBy(desc(platformTweetSmsBalanceAlerts.createdAt)).limit(1);
+      if (balance <= account.lowBalanceThreshold && !openAlert) {
+        await db.insert(platformTweetSmsBalanceAlerts).values({ accountId: account.id, balance, threshold: account.lowBalanceThreshold });
+        await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "warning", status: "open", title: "تنبيه رصيد TweetSMS منخفض", details: `الرصيد المتاح ${balance} أقل من أو يساوي حد التنبيه ${account.lowBalanceThreshold}.`, createdByUserId: ctx.user.id, metadata: { accountId: account.id, balance, threshold: account.lowBalanceThreshold } });
+      } else if (balance > account.lowBalanceThreshold && openAlert) {
+        await db.update(platformTweetSmsBalanceAlerts).set({ status: "resolved", resolvedAt: new Date() }).where(eq(platformTweetSmsBalanceAlerts.accountId, account.id));
+      }
+    }
+    await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: result.ok ? "info" : "warning", status: result.ok ? "success" : "failed", title: "فحص حساب TweetSMS المركزي", details: result.message, createdByUserId: ctx.user.id, metadata: { code: result.code, senderCode: senderResult?.code ?? null, balance: balance ?? null } });
+    return { ok: result.ok, message: result.message, balance: balance ?? null };
+  }),
+
+  platformTweetSmsReport: platformAdminProcedure.input(z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() }).optional()).query(async ({ input }) => {
+    const db = await dbOrThrow();
+    const [account] = await db.select().from(platformTweetSmsAccounts).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
+    const filters = [eq(notificationMessages.channel, "sms")];
+    if (input?.from) filters.push(gte(notificationMessages.createdAt, input.from));
+    if (input?.to) filters.push(lte(notificationMessages.createdAt, input.to));
+    const usageRows = await db.select({ tenantId: notificationMessages.tenantId, tenantName: tenants.name, total: sql<number>`count(*)`, submitted: sql<number>`sum(case when ${notificationMessages.status} = 'submitted' then 1 else 0 end)`, failed: sql<number>`sum(case when ${notificationMessages.status} = 'failed' then 1 else 0 end)` }).from(notificationMessages).innerJoin(tenants, eq(tenants.id, notificationMessages.tenantId)).where(and(...filters)).groupBy(notificationMessages.tenantId, tenants.name).orderBy(desc(sql`count(*)`)).limit(250);
+    const alerts = account ? await db.select().from(platformTweetSmsBalanceAlerts).where(eq(platformTweetSmsBalanceAlerts.accountId, account.id)).orderBy(desc(platformTweetSmsBalanceAlerts.createdAt)).limit(30) : [];
+    const total = usageRows.reduce((sum, row) => sum + Number(row.total ?? 0), 0);
+    return {
+      account: account ? { id: account.id, isActive: account.isActive, senderName: account.senderName, lowBalanceThreshold: account.lowBalanceThreshold, lastProviderBalance: account.lastProviderBalance, lastBalanceCheckedAt: account.lastBalanceCheckedAt, lastError: account.lastError, configured: Boolean(account.credentialCiphertext && account.credentialIv) } : null,
+      total,
+      usageRows: usageRows.map((row) => ({ ...row, total: Number(row.total ?? 0), submitted: Number(row.submitted ?? 0), failed: Number(row.failed ?? 0) })),
+      alerts,
+    };
+  }),
+
   saveTweetSmsAccount: platformAdminProcedure.input(tweetSmsAccountInput).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();
     const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
     if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
     const [existing] = await db.select().from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, input.tenantId)).limit(1);
+    const [centralAccount] = await db.select({ credentialCiphertext: platformTweetSmsAccounts.credentialCiphertext, credentialIv: platformTweetSmsAccounts.credentialIv, isActive: platformTweetSmsAccounts.isActive }).from(platformTweetSmsAccounts).where(eq(platformTweetSmsAccounts.isActive, true)).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
+    const centralAccountAvailable = Boolean(centralAccount?.isActive && centralAccount.credentialCiphertext && centralAccount.credentialIv);
     const endpoint = input.apiEndpoint?.trim() || existing?.apiEndpoint || null;
     if (endpoint && !/^https:\/\//i.test(endpoint)) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب أن يكون رابط TweetSMS آمناً ويبدأ بـ https://" });
     const credentialsProvided = Boolean(input.apiKey);
-    if (input.isActive && (!endpoint || (!existing?.credentialCiphertext && !credentialsProvided))) {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "فعّل الحساب بعد إدخال رابط API الرسمي ومفتاح API لحساب TweetSMS الفرعي." });
+    if (input.isActive && !centralAccountAvailable && (!endpoint || (!existing?.credentialCiphertext && !credentialsProvided))) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "فعّل الحساب بعد إدخال بيانات TweetSMS الفرعية، أو فعّل حساب TweetSMS المركزي للمنصة أولاً." });
     }
     const encrypted = credentialsProvided ? encryptTenantCredential(JSON.stringify({ apiKey: input.apiKey, apiSecret: input.apiSecret || undefined })) : null;
     const values = {

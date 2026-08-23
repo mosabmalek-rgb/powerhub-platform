@@ -1,5 +1,5 @@
-import { and, asc, eq, gte, sql } from "drizzle-orm";
-import { auditLogs, notificationMessages, platformSettings, subscribers, tenantMessagingConfigurations, tenantTweetSmsAccounts } from "../drizzle/schema";
+import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { auditLogs, notificationMessages, platformSettings, platformTweetSmsAccounts, subscribers, tenantMessagingConfigurations, tenantTweetSmsAccounts } from "../drizzle/schema";
 import { getDb } from "./db";
 import { decryptTenantCredential } from "./tenant-crypto";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled } from "./notification-channels";
@@ -26,6 +26,10 @@ function parseTweetSmsCredential(ciphertext: string, iv: string): TweetSmsCreden
 type MessagePayload = { renderedText?: string; invoiceTemplateParameters?: string[]; receiptTemplateParameters?: string[]; subscriberReferenceTemplateParameters?: string[] };
 type MessageRow = typeof notificationMessages.$inferSelect;
 type DispatchResult = { status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string };
+
+export function tweetSmsProviderStatus(ok: boolean): "submitted" | "failed" {
+  return ok ? "submitted" : "failed";
+}
 
 function messagePayload(message: MessageRow) { return (message.payload ?? {}) as MessagePayload; }
 
@@ -83,19 +87,23 @@ async function dispatchNotification(message: MessageRow): Promise<DispatchResult
       if (!response.ok) throw new Error(body.error?.message || `رفض مزود WhatsApp الطلب (${response.status}).`);
       providerMessageId = body.messages?.[0]?.id;
     } else if (message.channel === "sms") {
+      const [platformTweetSmsAccount] = await db.select().from(platformTweetSmsAccounts).where(eq(platformTweetSmsAccounts.isActive, true)).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
       const [tweetSmsAccount] = await db.select().from(tenantTweetSmsAccounts).where(and(eq(tenantTweetSmsAccounts.tenantId, message.tenantId), eq(tenantTweetSmsAccounts.isActive, true))).limit(1);
-      if (!tweetSmsAccount?.credentialCiphertext || !tweetSmsAccount.credentialIv || !tweetSmsAccount.senderName) throw new Error("لا يوجد حساب TweetSMS نشط ومهيأ لهذا صاحب المولد. راجع آدمن PowerHub.");
+      const account = platformTweetSmsAccount?.credentialCiphertext && platformTweetSmsAccount.credentialIv ? platformTweetSmsAccount : tweetSmsAccount;
+      const senderName = tweetSmsAccount?.senderName || platformTweetSmsAccount?.senderName;
+      if (!tweetSmsAccount) throw new Error("لم تُضبط حصة TweetSMS لهذا صاحب المولد. راجع آدمن PowerHub.");
+      if (!account?.credentialCiphertext || !account.credentialIv || !senderName) throw new Error("لا يوجد حساب TweetSMS نشط واسم مرسل مهيأ. راجع آدمن PowerHub.");
       if (!payload.renderedText) throw new Error("نص الفاتورة غير متوفر للإرسال عبر SMS.");
       const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
       const [usage] = await db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, message.tenantId), eq(notificationMessages.channel, "sms"), gte(notificationMessages.createdAt, monthStart), sql`${notificationMessages.status} in ('submitted','delivered','read')`));
-      if (Number(usage?.used ?? 0) > tweetSmsAccount.monthlyLimit) throw new Error("انتهى حد رسائل TweetSMS الشهري لهذا صاحب المولد. راجع آدمن PowerHub.");
-      if (!tweetSmsAccount.apiEndpoint) throw new Error("بيانات TweetSMS موجودة لكن رابط API الرسمي غير مضاف من آدمن PowerHub.");
-      const providerResult = await sendTweetSms({ endpoint: tweetSmsAccount.apiEndpoint, credentials: parseTweetSmsCredential(tweetSmsAccount.credentialCiphertext, tweetSmsAccount.credentialIv), sender: tweetSmsAccount.senderName, message: payload.renderedText, recipient: message.recipient });
+      if (Number(usage?.used ?? 0) >= tweetSmsAccount.monthlyLimit) throw new Error("انتهى حد رسائل TweetSMS الشهري لهذا صاحب المولد. راجع آدمن PowerHub.");
+      if (!account.apiEndpoint) throw new Error("بيانات TweetSMS موجودة لكن رابط API الرسمي غير مضاف من آدمن PowerHub.");
+      const providerResult = await sendTweetSms({ endpoint: account.apiEndpoint, credentials: parseTweetSmsCredential(account.credentialCiphertext, account.credentialIv), sender: senderName, message: payload.renderedText, recipient: message.recipient });
       if (!providerResult.ok) throw new Error(providerResult.message);
       providerMessageId = providerResult.providerMessageId;
 
     } else throw new Error("قناة الإرسال غير مدعومة.");
-    await db.update(notificationMessages).set({ status: "submitted", providerMessageId: providerMessageId || null, lastError: null }).where(eq(notificationMessages.id, message.id));
+    await db.update(notificationMessages).set({ status: tweetSmsProviderStatus(true), providerMessageId: providerMessageId || null, lastError: null }).where(eq(notificationMessages.id, message.id));
     await recordSmsQuotaAlert(message, db);
     return { status: "submitted", providerMessageId };
   } catch (error) {

@@ -243,6 +243,41 @@ export const tenantTweetSmsAccounts = mysqlTable("tenantTweetSmsAccounts", {
   index("tenant_tweetsms_account_active_idx").on(table.isActive),
 ]);
 
+export const platformTweetSmsAccounts = mysqlTable("platformTweetSmsAccounts", {
+  id: int("id").autoincrement().primaryKey(),
+  apiEndpoint: varchar("apiEndpoint", { length: 500 }).notNull(),
+  credentialCiphertext: text("credentialCiphertext").notNull(),
+  credentialIv: varchar("credentialIv", { length: 64 }).notNull(),
+  credentialKeyVersion: int("credentialKeyVersion").default(1).notNull(),
+  senderName: varchar("senderName", { length: 120 }),
+  lowBalanceThreshold: int("lowBalanceThreshold").default(100).notNull(),
+  lastProviderBalance: int("lastProviderBalance"),
+  lastBalanceCheckedAt: timestamp("lastBalanceCheckedAt"),
+  lastTestedAt: timestamp("lastTestedAt"),
+  lastError: text("lastError"),
+  isActive: boolean("isActive").default(false).notNull(),
+  createdByUserId: int("createdByUserId").references(() => users.id),
+  updatedByUserId: int("updatedByUserId").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("platform_tweetsms_account_active_idx").on(table.isActive),
+]);
+
+export const platformTweetSmsBalanceAlerts = mysqlTable("platformTweetSmsBalanceAlerts", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull().references(() => platformTweetSmsAccounts.id),
+  balance: int("balance").notNull(),
+  threshold: int("threshold").notNull(),
+  status: mysqlEnum("status", ["open", "resolved"]).default("open").notNull(),
+  notifiedAt: timestamp("notifiedAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("platform_tweetsms_alert_account_status_idx").on(table.accountId, table.status),
+]);
+
 export const tenantInvoiceMessageTemplates = mysqlTable("tenantInvoiceMessageTemplates", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
