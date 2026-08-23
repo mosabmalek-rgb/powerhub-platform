@@ -25,7 +25,7 @@ import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, BriefcaseBusiness, ClipboardCheck, ChartNoAxesCombined, Fuel, Gauge,
   LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X,
-  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store,
+  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store, RadioTower,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -68,6 +68,7 @@ const menuGroups = [
       { icon: BellRing, label: "الإشعارات", path: "/notifications" },
       { icon: Palette, label: "بوابة المشتركين", path: "/portal-settings" },
       { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
+      { icon: RadioTower, label: "الميدان والمزامنة", path: "/mobile-sync" },
       { icon: Settings2, label: "الإعدادات", path: "/settings" },
     ],
   },

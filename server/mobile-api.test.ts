@@ -23,4 +23,22 @@ describe("Mobile API v1 contract", () => {
     expect(hashMobileToken("refresh-token-example")).toBe(hashMobileToken("refresh-token-example"));
     expect(hashMobileToken("refresh-token-example")).not.toBe(hashMobileToken("different-token"));
   });
+
+  it("accepts bounded sync telemetry and rejects invalid event identity, branch, and counts", () => {
+    const event = {
+      eventKey: "7f2d7c9e-3921-4cc5-9dc2-53a79f998b8e",
+      branchId: 12,
+      eventType: "sync_cycle",
+      status: "partial",
+      syncedCount: 8,
+      retryableCount: 1,
+      needsReviewCount: 0,
+      occurredAt: "2026-08-23T10:15:00.000Z",
+    };
+    expect(mobileApiSchemas.syncEvent.safeParse(event).success).toBe(true);
+    expect(mobileApiSchemas.syncEvent.safeParse({ ...event, eventKey: "not-a-uuid" }).success).toBe(false);
+    expect(mobileApiSchemas.syncEvent.safeParse({ ...event, branchId: 0 }).success).toBe(false);
+    expect(mobileApiSchemas.syncEvent.safeParse({ ...event, retryableCount: -1 }).success).toBe(false);
+    expect(mobileApiSchemas.syncEvent.safeParse({ ...event, syncedCount: 10_001 }).success).toBe(false);
+  });
 });

@@ -43,6 +43,32 @@ export const mobileApiSessions = mysqlTable("mobileApiSessions", {
   index("mobile_api_sessions_expiry_idx").on(table.expiresAt),
 ]);
 
+export const mobileSyncEvents = mysqlTable("mobileSyncEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
+  userId: int("userId").notNull().references(() => users.id),
+  sessionId: int("sessionId").references(() => mobileApiSessions.id),
+  eventKey: varchar("eventKey", { length: 128 }).notNull(),
+  eventType: mysqlEnum("eventType", ["sync_cycle", "sync_error"]).notNull(),
+  status: mysqlEnum("status", ["success", "partial", "retryable", "needs_review", "failed"]).notNull(),
+  syncedCount: int("syncedCount").default(0).notNull(),
+  retryableCount: int("retryableCount").default(0).notNull(),
+  needsReviewCount: int("needsReviewCount").default(0).notNull(),
+  errorCode: varchar("errorCode", { length: 100 }),
+  errorMessage: text("errorMessage"),
+  appVersion: varchar("appVersion", { length: 64 }),
+  deviceLabel: varchar("deviceLabel", { length: 160 }),
+  metadata: json("metadata"),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("mobile_sync_events_tenant_event_key_unique").on(table.tenantId, table.eventKey),
+  index("mobile_sync_events_tenant_site_date_idx").on(table.tenantId, table.siteId, table.occurredAt),
+  index("mobile_sync_events_tenant_user_date_idx").on(table.tenantId, table.userId, table.occurredAt),
+  index("mobile_sync_events_site_status_date_idx").on(table.siteId, table.status, table.occurredAt),
+]);
+
 export const tenants = mysqlTable("tenants", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 160 }).notNull(),

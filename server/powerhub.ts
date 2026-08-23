@@ -23,6 +23,7 @@ import {
   invoices,
   meterReadings,
   meters,
+  mobileSyncEvents,
   notificationMessages,
   messagingScheduleRuns,
   platformSmsPlans,
@@ -1949,6 +1950,43 @@ export const powerhubRouter = router({
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
       const db = await dbOrThrow();
       return db.select().from(auditLogs).where(eq(auditLogs.siteId, input.siteId)).orderBy(desc(auditLogs.createdAt)).limit(100);
+    }),
+  }),
+  mobileSync: router({
+    summary: protectedProcedure.input(siteScoped.extend({ from: z.string().datetime().optional(), to: z.string().datetime().optional() })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      const from = input.from ? new Date(input.from) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const to = input.to ? new Date(input.to) : new Date();
+      const [row] = await db.select({
+        cycles: sql<number>`count(*)`,
+        syncedReadings: sql<number>`coalesce(sum(${mobileSyncEvents.syncedCount}), 0)`,
+        retryableReadings: sql<number>`coalesce(sum(${mobileSyncEvents.retryableCount}), 0)`,
+        needsReviewReadings: sql<number>`coalesce(sum(${mobileSyncEvents.needsReviewCount}), 0)`,
+        failedEvents: sql<number>`coalesce(sum(case when ${mobileSyncEvents.status} in ('failed', 'needs_review') then 1 else 0 end), 0)`,
+        activeTechnicians: sql<number>`count(distinct ${mobileSyncEvents.userId})`,
+        lastEventAt: sql<Date | null>`max(${mobileSyncEvents.occurredAt})`,
+      }).from(mobileSyncEvents).where(and(eq(mobileSyncEvents.tenantId, tenantId), eq(mobileSyncEvents.siteId, input.siteId), gte(mobileSyncEvents.occurredAt, from), lte(mobileSyncEvents.occurredAt, to)));
+      return { cycles: Number(row?.cycles ?? 0), syncedReadings: Number(row?.syncedReadings ?? 0), retryableReadings: Number(row?.retryableReadings ?? 0), needsReviewReadings: Number(row?.needsReviewReadings ?? 0), failedEvents: Number(row?.failedEvents ?? 0), activeTechnicians: Number(row?.activeTechnicians ?? 0), lastEventAt: row?.lastEventAt ?? null };
+    }),
+    list: protectedProcedure.input(siteScoped.extend({ status: z.enum(["success", "partial", "retryable", "needs_review", "failed"]).optional(), userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) })).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      const conditions = [eq(mobileSyncEvents.tenantId, tenantId), eq(mobileSyncEvents.siteId, input.siteId)];
+      if (input.status) conditions.push(eq(mobileSyncEvents.status, input.status));
+      if (input.userId) conditions.push(eq(mobileSyncEvents.userId, input.userId));
+      if (input.from) conditions.push(gte(mobileSyncEvents.occurredAt, new Date(input.from)));
+      if (input.to) conditions.push(lte(mobileSyncEvents.occurredAt, new Date(input.to)));
+      const rows = await db.select({ id: mobileSyncEvents.id, eventType: mobileSyncEvents.eventType, status: mobileSyncEvents.status, syncedCount: mobileSyncEvents.syncedCount, retryableCount: mobileSyncEvents.retryableCount, needsReviewCount: mobileSyncEvents.needsReviewCount, errorCode: mobileSyncEvents.errorCode, errorMessage: mobileSyncEvents.errorMessage, appVersion: mobileSyncEvents.appVersion, deviceLabel: mobileSyncEvents.deviceLabel, occurredAt: mobileSyncEvents.occurredAt, userId: users.id, userName: users.name, userEmail: users.email }).from(mobileSyncEvents).innerJoin(users, eq(users.id, mobileSyncEvents.userId)).where(and(...conditions)).orderBy(desc(mobileSyncEvents.occurredAt)).limit(input.pageSize).offset((input.page - 1) * input.pageSize);
+      return rows;
+    }),
+    technicians: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      return db.select({ id: users.id, name: users.name, email: users.email }).from(staffProfiles).innerJoin(users, eq(users.id, staffProfiles.userId)).where(and(eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)), eq(staffProfiles.isActive, true)));
     }),
   }),
 });

@@ -4,7 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { and, desc, eq, gt, gte, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, syncSupabaseUser } from "./db";
-import { auditLogs, meterReadings, meters, mobileApiSessions, sites, staffProfiles, subscribers, tenantMembers, tenants, users } from "../drizzle/schema";
+import { auditLogs, meterReadings, meters, mobileApiSessions, mobileSyncEvents, sites, staffProfiles, subscribers, tenantMembers, tenants, users } from "../drizzle/schema";
 import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import crypto from "node:crypto";
 import { storagePut } from "./storage";
@@ -40,6 +40,21 @@ const readingSchema = z.object({
   imageData: z.string().max(9_500_000).optional(),
   imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
   notes: z.string().trim().max(1000).optional(),
+});
+const syncEventSchema = z.object({
+  eventKey: z.string().uuid(),
+  branchId: z.number().int().positive(),
+  eventType: z.enum(["sync_cycle", "sync_error"]),
+  status: z.enum(["success", "partial", "retryable", "needs_review", "failed"]),
+  syncedCount: z.number().int().min(0).max(10_000).default(0),
+  retryableCount: z.number().int().min(0).max(10_000).default(0),
+  needsReviewCount: z.number().int().min(0).max(10_000).default(0),
+  errorCode: z.string().trim().max(100).optional(),
+  errorMessage: z.string().trim().max(1500).optional(),
+  appVersion: z.string().trim().max(64).optional(),
+  deviceLabel: z.string().trim().max(160).optional(),
+  occurredAt: z.string().datetime().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 type MobileScope = {
@@ -261,6 +276,41 @@ export function registerMobileApi(app: Express) {
     await db.insert(auditLogs).values({ tenantId: context.scope.tenantId, siteId: input.branchId, userId: context.scope.userId, actorTenantRole: context.scope.role, entityType: "meter_reading", entityId: String(id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, meterId: input.meterId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
     return res.status(201).json({ id, status: "pending_review", consumptionKwh: String(consumptionKwh), replayed: false });
   });
+
+  app.post("/api/mobile/v1/sync-events", async (req, res) => {
+    const context = await authenticateMobile(req);
+    if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const parsed = syncEventSchema.safeParse(req.body);
+    if (!parsed.success) return sendError(res, 400, "INVALID_SYNC_EVENT", "بيانات حدث المزامنة غير صالحة.");
+    const input = parsed.data;
+    if (!context.scope.branchIds.includes(input.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية تسجيل حدث لهذا الفرع.");
+    const db = await getDb();
+    if (!db) return sendError(res, 503, "DATABASE_UNAVAILABLE", "تعذر الوصول إلى قاعدة البيانات.", true);
+    const [existing] = await db.select({ id: mobileSyncEvents.id }).from(mobileSyncEvents)
+      .where(and(eq(mobileSyncEvents.tenantId, context.scope.tenantId), eq(mobileSyncEvents.eventKey, input.eventKey))).limit(1);
+    if (existing) return res.status(200).json({ id: existing.id, replayed: true });
+    const result = await db.insert(mobileSyncEvents).values({
+      tenantId: context.scope.tenantId,
+      siteId: input.branchId,
+      userId: context.scope.userId,
+      sessionId: context.sessionId,
+      eventKey: input.eventKey,
+      eventType: input.eventType,
+      status: input.status,
+      syncedCount: input.syncedCount,
+      retryableCount: input.retryableCount,
+      needsReviewCount: input.needsReviewCount,
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+      appVersion: input.appVersion,
+      deviceLabel: input.deviceLabel,
+      metadata: input.metadata,
+      occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date(),
+    });
+    const id = Number(result[0].insertId);
+    await db.insert(auditLogs).values({ tenantId: context.scope.tenantId, siteId: input.branchId, userId: context.scope.userId, actorTenantRole: context.scope.role, entityType: "mobile_sync_event", entityId: String(id), action: input.eventType, afterData: { status: input.status, syncedCount: input.syncedCount, retryableCount: input.retryableCount, needsReviewCount: input.needsReviewCount, errorCode: input.errorCode } });
+    return res.status(201).json({ id, replayed: false });
+  });
 }
 
-export const mobileApiSchemas = { login: mobileLoginSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, reading: readingSchema };
+export const mobileApiSchemas = { login: mobileLoginSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
