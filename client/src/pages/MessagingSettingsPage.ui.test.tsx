@@ -20,7 +20,7 @@ vi.mock("@/lib/trpc", () => ({
       messaging: {
         listConfigurations: { useQuery: () => ({ data: [{ channel: "whatsapp", provider: "meta_whatsapp_cloud", phoneNumberId: "123", templateName: "invoice_ready_ar", receiptTemplateName: "payment_receipt_ar", isActive: true }] }) },
         listScheduleRuns: { useQuery: () => ({ data: [], isLoading: false }) },
-        smsQuota: { useQuery: () => ({ data: { total: 100, used: 10, remaining: 90 } }) },
+        smsQuota: { useQuery: () => ({ data: { total: 100, used: 10, remaining: 90, senderName: "MouldNorth", isActive: true, configured: true, lastError: null } }) },
         smsDailyUsage: { useQuery: () => ({ data: { points: [{ date: "2026-08-20", count: 3 }, { date: "2026-08-21", count: 4 }], total: 100, used: 10, remaining: 90 }, isLoading: false }) },
         deliveryPolicy: { useQuery: () => ({ data: state.policy }) },
         listInvoiceTemplates: { useQuery: () => ({ data: [{ channel: "whatsapp", body: "أهلاً {{subscriber_name}}، فاتورتك {{invoice_no}}", isActive: true }] }) },
@@ -46,16 +46,16 @@ afterEach(() => { document.body.innerHTML = ""; state.mutate.mockReset(); state.
 describe("owner invoice messaging settings", () => {
   it("shows admin-gated channels, editable templates, and the invoice delivery log", () => {
     render(<MessagingSettingsPage />);
-    expect(screen.getByText("ربط WhatsApp وSMS وقوالب الفاتورة")).toBeInTheDocument();
+    expect(screen.getByText("قوالب الفاتورة وحالة الإرسال")).toBeInTheDocument();
     expect(screen.getByText("القنوات مفتوحة للتجربة")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة SMS")).toBeInTheDocument();
     expect(screen.getByText("قالب إيصال الدفع عبر SMS")).toBeInTheDocument();
     expect(screen.getByText("اسم قالب إيصال الدفع المعتمد")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "شركة جوال — Jawwal Bulk SMS" })).toBeInTheDocument();
-    const smsProvider = screen.getAllByRole("combobox").find((item) => (item as HTMLSelectElement).name === "provider")!;
-    fireEvent.change(smsProvider, { target: { value: "jawwal_bulk_sms" } });
-    expect(screen.getByText("رصيد رسائل Jawwal")).toBeInTheDocument();
+    expect(screen.getByText("حساب TweetSMS")).toBeInTheDocument();
+    expect(screen.getByText("رصيد رسائل TweetSMS")).toBeInTheDocument();
+    expect(screen.getByText("MouldNorth")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Jawwal Bulk SMS/ })).not.toBeInTheDocument();
     expect(screen.getByText("سجل إرسال فواتير المشتركين")).toBeInTheDocument();
     expect(screen.getByText("سجل إرسال إيصالات الدفع")).toBeInTheDocument();
     expect(screen.getByText("مراجعة الأرقام القديمة")).toBeInTheDocument();
@@ -72,7 +72,7 @@ describe("owner invoice messaging settings", () => {
     fireEvent.change(document.querySelectorAll("textarea")[0], { target: { value: "مرحباً {{subscriber_name}}" } });
     expect(screen.getAllByText(/مرحباً أحمد علي/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByRole("button", { name: "إعادة إرسال" }).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByRole("button", { name: "اختبار الاتصال" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "اختبار الاتصال" })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب WhatsApp" }));
     expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, channel: "whatsapp", isActive: true }));
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب إيصال SMS" }));
@@ -82,7 +82,8 @@ describe("owner invoice messaging settings", () => {
   it("blocks provider setup until the platform administrator explicitly opens the policy", () => {
     state.policy = { configured: false, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" };
     render(<MessagingSettingsPage />);
-    expect(screen.getAllByText(/قناة .* غير متاحة/).length).toBe(1);
+    expect(screen.getByText("حساب TweetSMS")).toBeInTheDocument();
+    expect(screen.getByText("بانتظار تهيئة الآدمن")).toBeInTheDocument();
     expect(screen.queryByText("قالب فاتورة WhatsApp")).not.toBeInTheDocument();
   });
 });

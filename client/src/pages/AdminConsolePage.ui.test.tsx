@@ -24,7 +24,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, listTweetSmsAccounts: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { generatorOwners: 1, residential: 120, commercial: 30, subscribers: 150, activeSubscriptions: 1 }, owners: [ownerRow] } }) },
       listOwners: { useQuery: () => ({ data: [ownerRow] }) },
@@ -36,6 +36,7 @@ vi.mock("@/lib/trpc", () => ({
       securityCenter: { useQuery: () => ({ data: { events: [{ id: 1, eventType: "backup", severity: "info", status: "success", title: "نسخة اختبار", details: "تمت بنجاح", createdAt: new Date() }], settings: [{ id: 1, settingKey: "platform_audit_guard", isEnabled: true, value: null }] } }) },
       listSmsPlans: { useQuery: () => ({ data: [{ id: 1, code: "starter-sms", name: "باقة جوال الأساسية", includedMessages: 100, isActive: true, description: "اختبار" }] }) },
       listSmsPackageRequests: { useQuery: () => ({ data: [] }) },
+      listTweetSmsAccounts: { useQuery: () => ({ data: [{ id: 7, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerPhone: "0790000000", apiEndpoint: "https://api.example.test", senderName: "MouldNorth", monthlyLimit: 500, usedThisMonth: 42, remaining: 458, isActive: true, configured: true, lastTestedAt: null, lastError: null, updatedAt: new Date() }] }) },
       advancedDashboard: { useQuery: () => ({ data: { kpis: { activeGenerators: 2, subscribers: 150, dailyConsumption: 50, monthlyConsumption: 1000, monthlyCollections: 4000, openComplaints: 1, generatorsToReview: 0, collectionRate: 80 }, monthlyGrowth: [{ month: "2026-08", count: 150 }], consumptionByRegion: [{ region: "بغداد", consumptionKwh: 1000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", code: "GEN-T-01", tenantName: "مساحة مولد الاختبار", amount: 4000 }], latestGenerators: [], recentComplaints: [], expiringSubscriptions: [] } }) },
       globalSearch: { useQuery: () => ({ data: [] }) },
       listComplaints: { useQuery: () => ({ data: [{ id: 4, title: "شكوى اختبار", description: "تفاصيل الشكوى", priority: "high", status: "open", response: null, openedAt: new Date(), resolvedAt: null, tenantId: 1, tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", subscriberName: "مشترك تجريبي", assignedUserId: null, assignedUserName: null }] }) },
@@ -63,6 +64,8 @@ vi.mock("@/lib/trpc", () => ({
       createSmsPlan: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       updateSmsPlan: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       reviewSmsPackageRequest: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
+      saveTweetSmsAccount: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
+      testTweetSmsAccount: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
     },
   },
 }));
@@ -98,7 +101,8 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByRole("button", { name: /تصدير CSV/ })).toBeInTheDocument();
     fireEvent.click(sidebarNav("إرسال الفواتير"));
     expect(screen.getByText("إرسال فواتير المشتركين")).toBeInTheDocument();
-    expect(screen.getAllByText("بانتظار بيانات المزود")).toHaveLength(2);
+    expect(screen.getAllByText("بانتظار بيانات المزود")).toHaveLength(1);
+    expect(screen.getAllByText("حسابات TweetSMS").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "حفظ سياسة الإرسال" }));
     expect(state.mutation).toHaveBeenCalledWith(expect.objectContaining({ settingKey: "invoice_delivery_channels", isEnabled: true }));
     fireEvent.click(sidebarNav("إدارة المولدات"));

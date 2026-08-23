@@ -29,8 +29,8 @@ export async function probeMessagingConnection(input: MessagingConnectionInput, 
     return { ok: true, mode: "live", message: "تم التحقق من Access Token وPhone Number ID لدى Meta بنجاح." };
   }
 
-  if (input.provider === "jawwal_bulk_sms") {
-    return { ok: false, mode: "configuration", message: "تم اختيار Jawwal Bulk SMS الرسمية. تحتاج بيانات API ونقطة الاختبار الرسمية من حساب جوال لتشغيل اختبار حي؛ لم يُحفظ أي مفتاح." };
+  if (input.provider === "tweetsms") {
+    return { ok: false, mode: "configuration", message: "يتطلب TweetSMS مسار فحص الرصيد أو وثائق API الرسمية لتشغيل اختبار حي. لا تُرسل أي رسالة أثناء فحص الجاهزية." };
   }
 
   if (input.provider !== "twilio") return { ok: false, mode: "configuration", message: "اختبار SMS الحي متاح حالياً لمزود Twilio. اختر Twilio وأدخل Account SID في حقل المعرّف، أو احفظ الإعداد لحين إضافة موفر SMS آخر." };

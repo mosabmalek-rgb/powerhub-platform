@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenantTweetSmsAccounts, tenants, users } from "../drizzle/schema";
 import { getDb, syncSupabaseUser } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { encryptTenantCredential } from "./tenant-crypto";
@@ -11,6 +11,15 @@ import { supabaseAdmin } from "./supabase-admin";
 const planSchema = z.enum(["starter", "professional", "enterprise"]);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
 const billingCycleSchema = z.enum(["monthly", "yearly"]);
+const tweetSmsAccountInput = z.object({
+  tenantId: z.number().int().positive(),
+  apiEndpoint: z.string().trim().max(500).optional(),
+  apiKey: z.string().trim().min(8).max(4096).optional(),
+  apiSecret: z.string().trim().max(4096).optional(),
+  senderName: z.string().trim().min(1).max(120),
+  monthlyLimit: z.number().int().min(0).max(10_000_000),
+  isActive: z.boolean(),
+});
 
 const platformRoleSchema = z.enum(["platform_owner", "platform_admin", "finance_admin"]);
 type PlatformRole = z.infer<typeof platformRoleSchema>;
@@ -276,6 +285,107 @@ export const adminRouter = router({
   }),
 
   listOwners: platformAdminProcedure.query(async () => ownerOverview(await dbOrThrow())),
+
+  listTweetSmsAccounts: platformAdminProcedure.query(async () => {
+    const db = await dbOrThrow();
+    const monthStart = new Date();
+    monthStart.setUTCDate(1);
+    monthStart.setUTCHours(0, 0, 0, 0);
+    const [accounts, usage] = await Promise.all([
+      db.select({
+        account: tenantTweetSmsAccounts,
+        ownerTenantId: tenantOwnerProfiles.tenantId,
+        tenantName: tenants.name,
+        ownerName: tenantOwnerProfiles.fullName,
+        ownerPhone: tenantOwnerProfiles.phone,
+      }).from(tenantOwnerProfiles)
+        .innerJoin(tenants, eq(tenantOwnerProfiles.tenantId, tenants.id))
+        .leftJoin(tenantTweetSmsAccounts, eq(tenantTweetSmsAccounts.tenantId, tenants.id))
+        .orderBy(tenants.name),
+      db.select({ tenantId: notificationMessages.tenantId, used: sql<number>`count(*)` }).from(notificationMessages)
+        .where(and(eq(notificationMessages.channel, "sms"), gte(notificationMessages.createdAt, monthStart), inArray(notificationMessages.status, ["submitted", "delivered", "read"])))
+        .groupBy(notificationMessages.tenantId),
+    ]);
+    const usageByTenant = new Map(usage.map((row) => [row.tenantId, Number(row.used ?? 0)]));
+    return accounts.map(({ account, ownerTenantId, tenantName, ownerName, ownerPhone }) => {
+      const tenantId = account?.tenantId ?? ownerTenantId;
+      const usedThisMonth = usageByTenant.get(tenantId) ?? 0;
+      const monthlyLimit = account?.monthlyLimit ?? 0;
+      return {
+        id: account?.id ?? null,
+        tenantId,
+        tenantName,
+        ownerName,
+        ownerPhone,
+        apiEndpoint: account?.apiEndpoint ?? null,
+        senderName: account?.senderName ?? null,
+        monthlyLimit,
+        usedThisMonth,
+        remaining: Math.max(0, monthlyLimit - usedThisMonth),
+        isActive: account?.isActive ?? false,
+        configured: Boolean(account?.credentialCiphertext && account?.credentialIv),
+        lastTestedAt: account?.lastTestedAt ?? null,
+        lastError: account?.lastError ?? null,
+        updatedAt: account?.updatedAt ?? null,
+      };
+    });
+  }),
+
+  saveTweetSmsAccount: platformAdminProcedure.input(tweetSmsAccountInput).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
+    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
+    const [existing] = await db.select().from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, input.tenantId)).limit(1);
+    const endpoint = input.apiEndpoint?.trim() || existing?.apiEndpoint || null;
+    if (endpoint && !/^https:\/\//i.test(endpoint)) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب أن يكون رابط TweetSMS آمناً ويبدأ بـ https://" });
+    const credentialsProvided = Boolean(input.apiKey);
+    if (input.isActive && (!endpoint || (!existing?.credentialCiphertext && !credentialsProvided))) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "فعّل الحساب بعد إدخال رابط API الرسمي ومفتاح API لحساب TweetSMS الفرعي." });
+    }
+    const encrypted = credentialsProvided ? encryptTenantCredential(JSON.stringify({ apiKey: input.apiKey, apiSecret: input.apiSecret || undefined })) : null;
+    const values = {
+      apiEndpoint: endpoint,
+      senderName: input.senderName,
+      monthlyLimit: input.monthlyLimit,
+      isActive: input.isActive,
+      updatedByUserId: ctx.user.id,
+      ...(encrypted ? { credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, credentialKeyVersion: 1 } : {}),
+    };
+    if (existing) await db.update(tenantTweetSmsAccounts).set(values).where(eq(tenantTweetSmsAccounts.id, existing.id));
+    else await db.insert(tenantTweetSmsAccounts).values({ tenantId: input.tenantId, createdByUserId: ctx.user.id, ...values });
+    await db.insert(tenantMessagingConfigurations).values({
+      tenantId: input.tenantId,
+      channel: "sms",
+      provider: "tweetsms",
+      senderId: input.senderName,
+      isActive: input.isActive,
+    }).onDuplicateKeyUpdate({
+      set: { provider: "tweetsms", senderId: input.senderName, phoneNumberId: null, credentialCiphertext: null, credentialIv: null, isActive: input.isActive },
+    });
+    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
+    await db.insert(auditLogs).values({
+      tenantId: input.tenantId,
+      siteId: site?.id ?? null,
+      userId: ctx.user.id,
+      entityType: "tweetsms_account",
+      entityId: String(existing?.id ?? input.tenantId),
+      action: "platform_admin_save_tweetsms_account",
+      afterData: { senderName: input.senderName, monthlyLimit: input.monthlyLimit, isActive: input.isActive, apiEndpointConfigured: Boolean(endpoint), apiKeyUpdated: credentialsProvided },
+      actorPlatformRole: platformRoleOf(ctx.user),
+    });
+    return { success: true };
+  }),
+
+  testTweetSmsAccount: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [account] = await db.select().from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, input.tenantId)).limit(1);
+    if (!account?.credentialCiphertext || !account.credentialIv || !account.apiEndpoint) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل رابط API الرسمي وبيانات حساب TweetSMS أولاً." });
+    }
+    const message = "تحتاج TweetSMS إلى تزويد مسار فحص الرصيد أو توثيق API الرسمي لتشغيل اختبار حي آمن. لم تُرسل أي رسالة ولم تُكشف بيانات الاعتماد.";
+    await db.update(tenantTweetSmsAccounts).set({ lastTestedAt: new Date(), lastError: message, updatedByUserId: ctx.user.id }).where(eq(tenantTweetSmsAccounts.id, account.id));
+    return { ok: false, mode: "configuration" as const, message };
+  }),
 
   listSubscriptionUpgradeRequests: platformAdminProcedure.query(async () => {
     const db = await dbOrThrow();

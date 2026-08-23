@@ -156,18 +156,18 @@ describe("role guards in administration UI", () => {
   it("hides tenant messaging configuration from every non-owner role", () => {
     mocks.activeRole = "manager";
     render(<MessagingSettingsPage />);
-    expect(screen.getByText(/تحتاج إلى دور/)).toBeInTheDocument();
+    expect(screen.getByText(/تحتاج إلى صلاحية/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /حفظ إعداد WhatsApp/ })).not.toBeInTheDocument();
   });
 
-  it("shows separate WhatsApp and SMS configuration forms to the owner", () => {
+  it("shows WhatsApp setup and a read-only TweetSMS status to the owner", () => {
     mocks.activeRole = "owner";
     render(<MessagingSettingsPage />);
     expect(screen.getByText("إعداد WhatsApp Cloud API")).toBeInTheDocument();
-    expect(screen.getByText("إعداد SMS")).toBeInTheDocument();
+    expect(screen.getByText("حساب TweetSMS")).toBeInTheDocument();
     expect(screen.getByLabelText("اسم قالب رسالة الرقم المرجعي")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /حفظ إعداد WhatsApp/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /حفظ إعداد SMS/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /حفظ إعداد SMS/ })).not.toBeInTheDocument();
   });
 
   it("shows a clear portal URL copy action to the owner", () => {

@@ -222,6 +222,27 @@ export const tenantMessagingConfigurations = mysqlTable("tenantMessagingConfigur
   index("tenant_messaging_schedule_task_idx").on(table.scheduleCronTaskUid),
 ]);
 
+export const tenantTweetSmsAccounts = mysqlTable("tenantTweetSmsAccounts", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  apiEndpoint: varchar("apiEndpoint", { length: 500 }),
+  credentialCiphertext: text("credentialCiphertext"),
+  credentialIv: varchar("credentialIv", { length: 64 }),
+  credentialKeyVersion: int("credentialKeyVersion").default(1).notNull(),
+  senderName: varchar("senderName", { length: 120 }),
+  monthlyLimit: int("monthlyLimit").default(0).notNull(),
+  isActive: boolean("isActive").default(false).notNull(),
+  lastTestedAt: timestamp("lastTestedAt"),
+  lastError: text("lastError"),
+  createdByUserId: int("createdByUserId").references(() => users.id),
+  updatedByUserId: int("updatedByUserId").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("tenant_tweetsms_account_unique").on(table.tenantId),
+  index("tenant_tweetsms_account_active_idx").on(table.isActive),
+]);
+
 export const tenantInvoiceMessageTemplates = mysqlTable("tenantInvoiceMessageTemplates", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),

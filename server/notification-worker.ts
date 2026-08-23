@@ -1,5 +1,5 @@
 import { and, asc, eq, gte, sql } from "drizzle-orm";
-import { auditLogs, notificationMessages, platformSettings, platformSmsPlans, smsPackageRequests, subscribers, tenantMessagingConfigurations, tenantSubscriptions } from "../drizzle/schema";
+import { auditLogs, notificationMessages, platformSettings, subscribers, tenantMessagingConfigurations, tenantTweetSmsAccounts } from "../drizzle/schema";
 import { getDb } from "./db";
 import { decryptTenantCredential } from "./tenant-crypto";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled } from "./notification-channels";
@@ -25,10 +25,10 @@ async function recordSmsQuotaAlert(message: MessageRow, db: NonNullable<Awaited<
   if (message.channel !== "sms" || !message.subscriberId) return;
   const [subscriber] = await db.select({ siteId: subscribers.siteId }).from(subscribers).where(eq(subscribers.id, message.subscriberId)).limit(1);
   if (!subscriber) return;
-  const [subscription] = await db.select({ included: platformSmsPlans.includedMessages }).from(tenantSubscriptions).leftJoin(platformSmsPlans, eq(tenantSubscriptions.smsPlanId, platformSmsPlans.id)).where(eq(tenantSubscriptions.tenantId, message.tenantId)).limit(1);
-  const [extra] = await db.select({ approved: sql<number>`coalesce(sum(${smsPackageRequests.approvedMessages}), 0)` }).from(smsPackageRequests).where(and(eq(smsPackageRequests.tenantId, message.tenantId), eq(smsPackageRequests.status, "approved")));
-  const [usage] = await db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, message.tenantId), eq(notificationMessages.channel, "sms"), sql`${notificationMessages.status} in ('submitted','delivered','read')`));
-  const total = Number(subscription?.included ?? 0) + Number(extra?.approved ?? 0); const used = Number(usage?.used ?? 0); if (!total) return;
+  const [account] = await db.select({ monthlyLimit: tenantTweetSmsAccounts.monthlyLimit }).from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, message.tenantId)).limit(1);
+  const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
+  const [usage] = await db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, message.tenantId), eq(notificationMessages.channel, "sms"), gte(notificationMessages.createdAt, monthStart), sql`${notificationMessages.status} in ('submitted','delivered','read')`));
+  const total = Number(account?.monthlyLimit ?? 0); const used = Number(usage?.used ?? 0); if (!total) return;
   const threshold = used >= total ? 100 : used / total >= 0.8 ? 80 : 0; if (!threshold) return;
   const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0); const action = `sms_quota_alert_${threshold}`;
   const [existing] = await db.select({ id: auditLogs.id }).from(auditLogs).where(and(eq(auditLogs.tenantId, message.tenantId), eq(auditLogs.action, action), gte(auditLogs.createdAt, start))).limit(1);
@@ -74,9 +74,14 @@ async function dispatchNotification(message: MessageRow): Promise<DispatchResult
       if (!response.ok) throw new Error(body.error?.message || `رفض مزود WhatsApp الطلب (${response.status}).`);
       providerMessageId = body.messages?.[0]?.id;
     } else if (message.channel === "sms") {
-      if (configuration.provider !== "jawwal_bulk_sms" || !configuration.phoneNumberId || !configuration.senderId) throw new Error("إعداد SMS لشركة جوال غير مكتمل؛ أدخل Client ID واسم المرسل وبيانات API الرسمية.");
+      const [tweetSmsAccount] = await db.select().from(tenantTweetSmsAccounts).where(and(eq(tenantTweetSmsAccounts.tenantId, message.tenantId), eq(tenantTweetSmsAccounts.isActive, true))).limit(1);
+      if (!tweetSmsAccount?.credentialCiphertext || !tweetSmsAccount.credentialIv || !tweetSmsAccount.senderName) throw new Error("لا يوجد حساب TweetSMS نشط ومهيأ لهذا صاحب المولد. راجع آدمن PowerHub.");
       if (!payload.renderedText) throw new Error("نص الفاتورة غير متوفر للإرسال عبر SMS.");
-      throw new Error("إرسال SMS لشركة جوال ينتظر تفعيل API الرسمي وتزويد بيانات العقد.");
+      const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
+      const [usage] = await db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, message.tenantId), eq(notificationMessages.channel, "sms"), gte(notificationMessages.createdAt, monthStart), sql`${notificationMessages.status} in ('submitted','delivered','read')`));
+      if (Number(usage?.used ?? 0) >= tweetSmsAccount.monthlyLimit) throw new Error("انتهى حد رسائل TweetSMS الشهري لهذا صاحب المولد. راجع آدمن PowerHub.");
+      if (!tweetSmsAccount.apiEndpoint) throw new Error("بيانات TweetSMS موجودة لكن رابط API الرسمي غير مضاف من آدمن PowerHub.");
+      throw new Error("تحتاج TweetSMS إلى تزويد وثائق مسار الإرسال وشكل المصادقة لتفعيل الإرسال الحي بأمان.");
 
     } else throw new Error("قناة الإرسال غير مدعومة.");
     await db.update(notificationMessages).set({ status: "submitted", providerMessageId: providerMessageId || null, lastError: null }).where(eq(notificationMessages.id, message.id));

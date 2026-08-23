@@ -14,11 +14,11 @@ describe("messaging connection probes", () => {
     expect(result).toMatchObject({ ok: false, mode: "configuration" });
   });
 
-  it("recognizes Jawwal Bulk SMS and does not attempt a request before its official API details are supplied", async () => {
+  it("recognizes TweetSMS and does not attempt a request before its official API details are supplied", async () => {
     const fetcher = vi.fn();
-    const result = await probeMessagingConnection({ channel: "sms", provider: "jawwal_bulk_sms", credential: "test-token" }, fetcher);
+    const result = await probeMessagingConnection({ channel: "sms", provider: "tweetsms", credential: "test-token" }, fetcher);
     expect(result).toMatchObject({ ok: false, mode: "configuration" });
-    expect(result.message).toContain("Jawwal Bulk SMS");
+    expect(result.message).toContain("TweetSMS");
     expect(fetcher).not.toHaveBeenCalled();
   });
 });

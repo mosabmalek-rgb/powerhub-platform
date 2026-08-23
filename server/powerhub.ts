@@ -40,6 +40,7 @@ import {
   tenantMembers,
   tenantInvoiceMessageTemplates,
   tenantMessagingConfigurations,
+  tenantTweetSmsAccounts,
   tenantOwnerProfiles,
   tenantSubscriptions,
   tenantPaymentReceiptMessageTemplates,
@@ -516,27 +517,30 @@ async function getVerifiedPortalSubscriber(input: z.infer<typeof subscriberPorta
 export const powerhubRouter = router({
   messaging: router({
     smsQuota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const role = await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");
       void role;
       const tenantId = await getSiteTenant(input.siteId);
       const db = await dbOrThrow();
-      const [subscription] = await db.select({ plan: tenantSubscriptions.plan, smsPlanId: tenantSubscriptions.smsPlanId, includedMessages: platformSmsPlans.includedMessages, planName: platformSmsPlans.name }).from(tenantSubscriptions).leftJoin(platformSmsPlans, eq(tenantSubscriptions.smsPlanId, platformSmsPlans.id)).where(eq(tenantSubscriptions.tenantId, tenantId)).limit(1);
-      const [usage] = await db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.channel, "sms")));
-      const [extra] = await db.select({ messages: sql<number>`coalesce(sum(${smsPackageRequests.approvedMessages}), 0)` }).from(smsPackageRequests).where(and(eq(smsPackageRequests.tenantId, tenantId), eq(smsPackageRequests.status, "approved")));
-      const included = Number(subscription?.includedMessages ?? 0);
-      const additional = Number(extra?.messages ?? 0);
+      const monthStart = new Date();
+      monthStart.setUTCDate(1);
+      monthStart.setUTCHours(0, 0, 0, 0);
+      const [[account], [usage]] = await Promise.all([
+        db.select({ senderName: tenantTweetSmsAccounts.senderName, monthlyLimit: tenantTweetSmsAccounts.monthlyLimit, isActive: tenantTweetSmsAccounts.isActive, configured: tenantTweetSmsAccounts.credentialCiphertext, lastError: tenantTweetSmsAccounts.lastError }).from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, tenantId)).limit(1),
+        db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.channel, "sms"), gte(notificationMessages.createdAt, monthStart), inArray(notificationMessages.status, ["submitted", "delivered", "read"]))),
+      ]);
+      const included = Number(account?.monthlyLimit ?? 0);
+      const additional = 0;
       const used = Number(usage?.used ?? 0);
-      return { plan: subscription?.plan ?? "starter", planName: subscription?.planName ?? null, included, additional, total: included + additional, used, remaining: Math.max(0, included + additional - used) };
+      return { plan: "tweetsms", planName: "TweetSMS", senderName: account?.senderName ?? null, isActive: account?.isActive ?? false, configured: Boolean(account?.configured), lastError: account?.lastError ?? null, included, additional, total: included, used, remaining: Math.max(0, included - used) };
     }),
     smsDailyUsage: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");
       const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
-      const [subscription] = await db.select({ included: platformSmsPlans.includedMessages }).from(tenantSubscriptions).leftJoin(platformSmsPlans, eq(tenantSubscriptions.smsPlanId, platformSmsPlans.id)).where(eq(tenantSubscriptions.tenantId, tenantId)).limit(1);
-      const [extra] = await db.select({ additional: sql<number>`coalesce(sum(${smsPackageRequests.approvedMessages}), 0)` }).from(smsPackageRequests).where(and(eq(smsPackageRequests.tenantId, tenantId), eq(smsPackageRequests.status, "approved")));
+      const [account] = await db.select({ monthlyLimit: tenantTweetSmsAccounts.monthlyLimit }).from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, tenantId)).limit(1);
       const messages = await db.select({ createdAt: notificationMessages.createdAt, status: notificationMessages.status }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.channel, "sms"))).orderBy(desc(notificationMessages.createdAt)).limit(5000);
       const daily = new Map<string, number>(); for (const message of messages) { if (!["submitted", "delivered", "read"].includes(message.status)) continue; const key = new Date(message.createdAt).toISOString().slice(0, 10); daily.set(key, (daily.get(key) ?? 0) + 1); }
       const today = new Date(); const points = Array.from({ length: 14 }, (_, index) => { const date = new Date(today); date.setDate(today.getDate() - (13 - index)); const key = date.toISOString().slice(0, 10); return { date: key, count: daily.get(key) ?? 0 }; });
-      const included = Number(subscription?.included ?? 0); const additional = Number(extra?.additional ?? 0); const total = included + additional; const used = messages.filter((message) => ["submitted", "delivered", "read"].includes(message.status)).length;
+      const included = Number(account?.monthlyLimit ?? 0); const additional = 0; const total = included; const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0); const used = messages.filter((message) => ["submitted", "delivered", "read"].includes(message.status) && message.createdAt >= monthStart).length;
       return { points, included, additional, total, used, remaining: Math.max(0, total - used) };
     }),
     currentSmsPackageRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => { const tenantId = await getSiteTenant(input.siteId); await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging"); const db = await dbOrThrow(); const [request] = await db.select({ id: smsPackageRequests.id, status: smsPackageRequests.status, requestedMessages: smsPackageRequests.requestedMessages, approvedMessages: smsPackageRequests.approvedMessages, note: smsPackageRequests.note, createdAt: smsPackageRequests.createdAt, reviewedAt: smsPackageRequests.reviewedAt }).from(smsPackageRequests).where(eq(smsPackageRequests.tenantId, tenantId)).orderBy(desc(smsPackageRequests.createdAt)).limit(1); return request ?? null; }),
@@ -629,7 +633,7 @@ export const powerhubRouter = router({
       const tenantId = await getSiteTenant(input.siteId);
       const db = await dbOrThrow();
       const [config] = await db.select({ id: tenantMessagingConfigurations.id, scheduleCronTaskUid: tenantMessagingConfigurations.scheduleCronTaskUid, provider: tenantMessagingConfigurations.provider }).from(tenantMessagingConfigurations).where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.channel, "sms"))).limit(1);
-      if (!config) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "احفظ إعداد SMS لشركة جوال أولاً." });
+      if (!config) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب أن يربط آدمن PowerHub حساب TweetSMS لهذا صاحب المولد أولاً." });
       const userSession = sessionCookie(ctx.req);
       if (!input.enabled) {
         if (config.scheduleCronTaskUid) await deleteHeartbeatJob(config.scheduleCronTaskUid, userSession);
@@ -637,7 +641,7 @@ export const powerhubRouter = router({
         await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_schedule", entityId: String(config.id), action: "disable" });
         return { enabled: false, cron: input.cron };
       }
-      if (config.provider !== "jawwal_bulk_sms") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اختر شركة جوال كمزود SMS قبل تفعيل الجدولة." });
+      if (config.provider !== "tweetsms") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذه الجدولة متاحة لحساب TweetSMS الذي يديره آدمن PowerHub فقط." });
       const job = config.scheduleCronTaskUid ? await updateHeartbeatJob(config.scheduleCronTaskUid, { cron: input.cron, path: "/api/scheduled/send-invoice-sms", enable: true, description: "إرسال فواتير القراءات المعتمدة عبر SMS" }, userSession).then((result) => ({ taskUid: config.scheduleCronTaskUid!, nextExecutionAt: result.nextExecutionAt })) : await createHeartbeatJob({ name: `tenant-${tenantId}-invoice-sms`, cron: input.cron, path: "/api/scheduled/send-invoice-sms", description: "إرسال فواتير القراءات المعتمدة عبر SMS" }, userSession);
       await db.update(tenantMessagingConfigurations).set({ autoSendAfterApproval: true, autoSendCron: input.cron, scheduleCronTaskUid: job.taskUid }).where(eq(tenantMessagingConfigurations.id, config.id));
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_schedule", entityId: String(config.id), action: "enable", metadata: { cron: input.cron, taskUid: job.taskUid } });
