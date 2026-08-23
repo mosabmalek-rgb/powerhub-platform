@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bulkInvoiceSendAuditActions, sendDeferredInvoiceNotificationsInput } from "./powerhub";
+import { bulkInvoiceSendAuditActions, bulkInvoiceSendDetailsInput, bulkInvoiceSendLogInput, sendDeferredInvoiceNotificationsInput } from "./powerhub";
 
 describe("deferred invoice notification input", () => {
   it("uses a bounded batch that remains scoped to one branch", () => {
@@ -11,5 +11,11 @@ describe("deferred invoice notification input", () => {
 
   it("recognizes both supported invoice bulk-delivery audit actions", () => {
     expect(bulkInvoiceSendAuditActions).toEqual(["send_deferred_invoice_notifications", "send_invoice_sms_batch"]);
+  });
+
+  it("accepts a branch-scoped date range and rejects an inverted one", () => {
+    expect(bulkInvoiceSendLogInput.parse({ siteId: 22, from: "2026-08-01", to: "2026-08-31" })).toMatchObject({ siteId: 22, from: "2026-08-01", to: "2026-08-31" });
+    expect(bulkInvoiceSendLogInput.safeParse({ siteId: 22, from: "2026-08-31", to: "2026-08-01" }).success).toBe(false);
+    expect(bulkInvoiceSendDetailsInput.safeParse({ siteId: 22, auditLogId: 8 }).success).toBe(true);
   });
 });

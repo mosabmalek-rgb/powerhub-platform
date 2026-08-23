@@ -440,6 +440,9 @@ export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.num
 export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) });
 export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100), sendNow: z.boolean().default(true) });
 export const sendDeferredInvoiceNotificationsInput = z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(200), invoiceIds: z.array(z.number().int().positive()).min(1).max(200).optional() });
+const bulkInvoiceSendDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "صيغة التاريخ يجب أن تكون YYYY-MM-DD.");
+export const bulkInvoiceSendLogInput = siteScoped.extend({ from: bulkInvoiceSendDate.optional(), to: bulkInvoiceSendDate.optional() }).refine((input) => !input.from || !input.to || input.from <= input.to, { message: "تاريخ البداية يجب أن يسبق أو يساوي تاريخ النهاية.", path: ["to"] });
+export const bulkInvoiceSendDetailsInput = siteScoped.extend({ auditLogId: z.number().int().positive() });
 
 async function assertFinancialPeriodOpen(db: Awaited<ReturnType<typeof dbOrThrow>>, tenantId: number, siteId: number, occurredAt: Date, userId: number, entityType: string) {
   const [locked] = await db.select({ id: financialSettlements.id, periodStart: financialSettlements.periodStart, periodEnd: financialSettlements.periodEnd }).from(financialSettlements).where(and(eq(financialSettlements.tenantId, tenantId), eq(financialSettlements.siteId, siteId), eq(financialSettlements.status, "locked"), lte(financialSettlements.periodStart, occurredAt), gte(financialSettlements.periodEnd, occurredAt))).limit(1);
@@ -1829,10 +1832,21 @@ export const powerhubRouter = router({
         .leftJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
         .where(input.eventType ? and(eq(subscribers.siteId, input.siteId), eq(notificationMessages.eventType, input.eventType)) : eq(subscribers.siteId, input.siteId)).orderBy(desc(notificationMessages.createdAt));
     }),
-    listBulkInvoiceSends: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+    listBulkInvoiceSends: protectedProcedure.input(bulkInvoiceSendLogInput).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
+      const start = input.from ? new Date(`${input.from}T00:00:00.000Z`) : undefined;
+      const endExclusive = input.to ? new Date(`${input.to}T00:00:00.000Z`) : undefined;
+      if (endExclusive) endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+      const conditions = [
+        eq(auditLogs.tenantId, tenantId),
+        eq(auditLogs.siteId, input.siteId),
+        eq(auditLogs.entityType, "notification_batch"),
+        inArray(auditLogs.action, [...bulkInvoiceSendAuditActions]),
+      ];
+      if (start) conditions.push(gte(auditLogs.createdAt, start));
+      if (endExclusive) conditions.push(lt(auditLogs.createdAt, endExclusive));
       return db.select({
         id: auditLogs.id,
         action: auditLogs.action,
@@ -1843,14 +1857,40 @@ export const powerhubRouter = router({
         executorEmail: users.email,
       }).from(auditLogs)
         .leftJoin(users, eq(auditLogs.userId, users.id))
-        .where(and(
-          eq(auditLogs.tenantId, tenantId),
-          eq(auditLogs.siteId, input.siteId),
-          eq(auditLogs.entityType, "notification_batch"),
-          inArray(auditLogs.action, [...bulkInvoiceSendAuditActions]),
-        ))
+        .where(and(...conditions))
         .orderBy(desc(auditLogs.createdAt))
         .limit(20);
+    }),
+    bulkInvoiceSendDetails: protectedProcedure.input(bulkInvoiceSendDetailsInput).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const [operation] = await db.select({ id: auditLogs.id, action: auditLogs.action, entityId: auditLogs.entityId, metadata: auditLogs.metadata, createdAt: auditLogs.createdAt })
+        .from(auditLogs)
+        .where(and(eq(auditLogs.id, input.auditLogId), eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "notification_batch"), inArray(auditLogs.action, [...bulkInvoiceSendAuditActions])))
+        .limit(1);
+      if (!operation) throw new TRPCError({ code: "NOT_FOUND", message: "عملية الإرسال الجماعي لا تتبع للفرع المحدد." });
+      const metadata = operation.metadata && typeof operation.metadata === "object" && !Array.isArray(operation.metadata) ? operation.metadata as Record<string, unknown> : {};
+      const notificationIds = Array.isArray(metadata.notificationIds) ? metadata.notificationIds.filter((value): value is number => typeof value === "number" && Number.isInteger(value) && value > 0) : operation.action === "send_deferred_invoice_notifications" ? operation.entityId.split(",").map(Number).filter((value) => Number.isInteger(value) && value > 0) : [];
+      const invoiceIds = notificationIds.length ? [] : operation.entityId.split(",").map(Number).filter((value) => Number.isInteger(value) && value > 0);
+      if (!notificationIds.length && !invoiceIds.length) return { operation, items: [] as Array<never> };
+      const scope = notificationIds.length ? inArray(notificationMessages.id, notificationIds) : inArray(notificationMessages.invoiceId, invoiceIds);
+      const rows = await db.select({
+        notificationId: notificationMessages.id,
+        status: notificationMessages.status,
+        channel: notificationMessages.channel,
+        lastError: notificationMessages.lastError,
+        recipient: notificationMessages.recipient,
+        invoiceId: invoices.id,
+        invoiceNo: invoices.invoiceNo,
+        totalAmount: invoices.totalAmount,
+        subscriberName: subscribers.fullName,
+      }).from(notificationMessages)
+        .innerJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
+        .innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id))
+        .where(and(eq(notificationMessages.tenantId, tenantId), eq(invoices.siteId, input.siteId), scope))
+        .orderBy(invoices.invoiceNo, notificationMessages.id);
+      return { operation, items: rows };
     }),
     retry: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
@@ -1889,7 +1929,7 @@ export const powerhubRouter = router({
         try { const dispatch = await processNotificationById(row.notificationId); return { ...row, status: dispatch.status === "failed" ? "failed" as const : "submitted" as const, message: dispatch.error ?? "تمت معالجة الإشعار." }; }
         catch (error) { return { ...row, status: "failed" as const, message: error instanceof Error ? error.message : "تعذر إرسال الإشعار." }; }
       }));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_batch", entityId: rows.map((row) => row.notificationId).join(",") || "none", action: "send_deferred_invoice_notifications", metadata: { selectedInvoiceIds: selectedIds, requested: rows.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length } });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_batch", entityId: rows.map((row) => row.notificationId).join(",") || "none", action: "send_deferred_invoice_notifications", metadata: { selectedInvoiceIds: selectedIds, notificationIds: rows.map((row) => row.notificationId), requested: rows.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length } });
       return { requested: rows.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length, results };
     }),
     sendBulkInvoiceSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceIds: z.array(z.number().int().positive()).min(1).max(200) })).mutation(async ({ ctx, input }) => {
@@ -1924,7 +1964,7 @@ export const powerhubRouter = router({
           return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, notificationId, status: dispatch.status === "failed" ? "failed" as const : "submitted" as const, message: dispatch.error ?? "تمت معالجة الرسالة." };
         } catch (error) { return { invoiceId: invoice.id, invoiceNo: invoice.invoiceNo, notificationId, status: "failed" as const, message: error instanceof Error ? error.message : "تعذر إرسال الرسالة." }; }
       }));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_batch", entityId: ids.join(","), action: "send_invoice_sms_batch", metadata: { requested: ids.length, processed: results.length, successful: results.filter((item) => item.status === "submitted").length, failed: results.filter((item) => item.status === "failed").length } });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_batch", entityId: ids.join(","), action: "send_invoice_sms_batch", metadata: { notificationIds: results.flatMap((item) => typeof item.notificationId === "number" ? [item.notificationId] : []), requested: ids.length, processed: results.length, successful: results.filter((item) => item.status === "submitted").length, failed: results.filter((item) => item.status === "failed").length } });
       return { requested: ids.length, processed: results.length, successful: results.filter((item) => item.status === "submitted").length, failed: results.filter((item) => item.status === "failed").length, skipped: ids.length - results.length, results };
     }),
     sendPaymentReminder: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
