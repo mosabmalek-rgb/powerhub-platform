@@ -65,6 +65,8 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByRole("button", { name: "تسجيل تحصيل" })).toBeInTheDocument();
     expect(screen.getByText("إجمالي الرسائل المرسلة")).toBeInTheDocument();
     expect(screen.getAllByText("رفض المزود").length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getAllByRole("button", { name: /قيمة الفاتورة/ })[0]);
+    expect((document.querySelectorAll("textarea")[0] as HTMLTextAreaElement).value).toContain("{{total_amount}}");
     fireEvent.click(screen.getAllByRole("button", { name: "معاينة الرسالة" })[0]);
     expect(screen.getByText("شكل الرسالة النهائي")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "إعادة إرسال" }).length).toBeGreaterThanOrEqual(1);

@@ -212,6 +212,33 @@ async function dispatchInvoiceNotifications(notificationIds: number[]) {
   }));
 }
 
+async function queueInvoiceNotificationsForSelection(db: any, input: { siteId: number; invoiceIds: number[] }) {
+  const [site] = await db.select({ id: sites.id, tenantId: sites.tenantId }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
+  if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
+  const [[platformDeliverySetting], tenantMessaging, tenantTemplates] = await Promise.all([
+    db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1),
+    db.select({ channel: tenantMessagingConfigurations.channel, isActive: tenantMessagingConfigurations.isActive }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, site.tenantId)),
+    db.select({ channel: tenantInvoiceMessageTemplates.channel, body: tenantInvoiceMessageTemplates.body, isActive: tenantInvoiceMessageTemplates.isActive }).from(tenantInvoiceMessageTemplates).where(and(eq(tenantInvoiceMessageTemplates.tenantId, site.tenantId), eq(tenantInvoiceMessageTemplates.eventType, "invoice_issued"))),
+  ]);
+  const channels = resolveInvoiceNotificationChannels(tenantMessaging, invoiceDeliveryPolicyFromSetting(platformDeliverySetting));
+  const templates = new Map<"sms" | "whatsapp", string>(tenantTemplates.filter((template: { isActive: boolean }) => template.isActive).map((template: { channel: "sms" | "whatsapp"; body: string }) => [template.channel, template.body] as ["sms" | "whatsapp", string]));
+  const rows = await db.select({ invoice: invoices, subscriber: subscribers }).from(invoices).innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id))
+    .where(and(eq(invoices.siteId, input.siteId), inArray(invoices.id, input.invoiceIds))).limit(input.invoiceIds.length);
+  const queued: Array<{ notificationId: number; invoiceId: number; invoiceNo: string }> = [];
+  for (const { invoice, subscriber } of rows) {
+    if (["draft", "cancelled"].includes(invoice.status)) continue;
+    for (const channel of channels as Array<"sms" | "whatsapp">) {
+      const payload = { invoiceNo: invoice.invoiceNo, billingPeriod: invoice.billingPeriod, totalAmount: invoice.totalAmount, renderedText: renderInvoiceMessageTemplate(templates.get(channel) ?? defaultInvoiceMessageTemplates[channel], { subscriber_name: subscriber.fullName, invoice_no: invoice.invoiceNo, billing_period: invoice.billingPeriod, total_amount: String(invoice.totalAmount), due_date: new Date(invoice.dueDate).toLocaleDateString("ar-IQ") }) };
+      const [existing] = await db.select({ id: notificationMessages.id, status: notificationMessages.status }).from(notificationMessages).where(and(eq(notificationMessages.invoiceId, invoice.id), eq(notificationMessages.channel, channel), eq(notificationMessages.eventType, "invoice_issued"))).orderBy(desc(notificationMessages.createdAt)).limit(1);
+      if (existing && ["sent", "delivered", "read"].includes(existing.status)) continue;
+      const notificationId = existing?.id ?? insertId(await db.insert(notificationMessages).values({ tenantId: site.tenantId, invoiceId: invoice.id, subscriberId: subscriber.id, channel, eventType: "invoice_issued", recipient: subscriber.phone, status: "pending", payload }));
+      if (existing) await db.update(notificationMessages).set({ status: "pending", lastError: null, recipient: subscriber.phone, payload }).where(eq(notificationMessages.id, notificationId));
+      queued.push({ notificationId, invoiceId: invoice.id, invoiceNo: invoice.invoiceNo });
+    }
+  }
+  return queued;
+}
+
 async function approveAndIssueMobileReading(input: { siteId: number; readingId: number; userId: number; baseVersion?: number; sendNow?: boolean }) {
   const tenantId = await getSiteTenant(input.siteId);
   const db = await dbOrThrow();
@@ -411,7 +438,7 @@ export const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().in
 export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.number().int().positive() });
 export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) });
 export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100), sendNow: z.boolean().default(true) });
-export const sendDeferredInvoiceNotificationsInput = z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(200) });
+export const sendDeferredInvoiceNotificationsInput = z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(200), invoiceIds: z.array(z.number().int().positive()).min(1).max(200).optional() });
 
 async function assertFinancialPeriodOpen(db: Awaited<ReturnType<typeof dbOrThrow>>, tenantId: number, siteId: number, occurredAt: Date, userId: number, entityType: string) {
   const [locked] = await db.select({ id: financialSettlements.id, periodStart: financialSettlements.periodStart, periodEnd: financialSettlements.periodEnd }).from(financialSettlements).where(and(eq(financialSettlements.tenantId, tenantId), eq(financialSettlements.siteId, siteId), eq(financialSettlements.status, "locked"), lte(financialSettlements.periodStart, occurredAt), gte(financialSettlements.periodEnd, occurredAt))).limit(1);
@@ -1828,14 +1855,17 @@ export const powerhubRouter = router({
     sendDeferredInvoices: protectedProcedure.input(sendDeferredInvoiceNotificationsInput).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
-      const rows = await db.select({ notificationId: notificationMessages.id, invoiceId: invoices.id, invoiceNo: invoices.invoiceNo })
-        .from(notificationMessages).innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id)).innerJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
-        .where(and(eq(subscribers.siteId, input.siteId), eq(notificationMessages.eventType, "invoice_issued"), eq(notificationMessages.status, "pending"))).orderBy(notificationMessages.createdAt).limit(input.limit);
+      const selectedIds = input.invoiceIds ? Array.from(new Set(input.invoiceIds)) : undefined;
+      const rows = selectedIds
+        ? await queueInvoiceNotificationsForSelection(db, { siteId: input.siteId, invoiceIds: selectedIds })
+        : await db.select({ notificationId: notificationMessages.id, invoiceId: invoices.id, invoiceNo: invoices.invoiceNo })
+          .from(notificationMessages).innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id)).innerJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
+          .where(and(eq(subscribers.siteId, input.siteId), eq(notificationMessages.eventType, "invoice_issued"), eq(notificationMessages.status, "pending"))).orderBy(notificationMessages.createdAt).limit(input.limit);
       const results = await Promise.all(rows.map(async (row) => {
         try { const dispatch = await processNotificationById(row.notificationId); return { ...row, status: dispatch.status === "failed" ? "failed" as const : "submitted" as const, message: dispatch.error ?? "تمت معالجة الإشعار." }; }
         catch (error) { return { ...row, status: "failed" as const, message: error instanceof Error ? error.message : "تعذر إرسال الإشعار." }; }
       }));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_batch", entityId: rows.map((row) => row.notificationId).join(",") || "none", action: "send_deferred_invoice_notifications", metadata: { requested: rows.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length } });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_batch", entityId: rows.map((row) => row.notificationId).join(",") || "none", action: "send_deferred_invoice_notifications", metadata: { selectedInvoiceIds: selectedIds, requested: rows.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length } });
       return { requested: rows.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length, results };
     }),
     sendBulkInvoiceSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceIds: z.array(z.number().int().positive()).min(1).max(200) })).mutation(async ({ ctx, input }) => {

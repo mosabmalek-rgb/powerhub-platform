@@ -17,8 +17,10 @@ const mocks = vi.hoisted(() => ({
   portalSettings: { portalCode: "test-portal", displayName: "بوابة الاختبار", primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true },
   subscribers: [] as any[],
   invoices: [] as Array<{ id: number; invoiceNo: string; billingPeriod: string; consumptionKwh: string; balanceDue: string; status: string }>,
+  notifications: [] as any[],
   payments: [] as any[],
   createShareLink: vi.fn(),
+  sendDeferredInvoices: vi.fn(),
   sendPaymentReceipt: vi.fn(),
   mutation: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
   query: (data: unknown = []) => ({ data, isLoading: false, isFetching: false }),
@@ -57,12 +59,12 @@ vi.mock("@/lib/trpc", () => ({
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, listScheduleRuns: { useQuery: () => mocks.query([]) }, smsQuota: { useQuery: () => mocks.query({ total: 0, used: 0, remaining: 0 }) }, smsDailyUsage: { useQuery: () => mocks.query({ points: [], total: 0, used: 0, remaining: 0 }) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation }, configureInvoiceAutoSend: { useMutation: mocks.mutation }, requestSmsPackage: { useMutation: mocks.mutation } },
       subscriberPortal: { settings: { useQuery: () => mocks.query(mocks.portalSettings) }, saveSettings: { useMutation: mocks.mutation } },
-      notifications: { list: { useQuery: () => mocks.query([]) }, retry: { useMutation: mocks.mutation }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceipt: { useMutation: () => ({ mutate: mocks.sendPaymentReceipt, isPending: false }) }, sendPaymentReminder: { useMutation: mocks.mutation }, sendBulkInvoiceSms: { useMutation: mocks.mutation }, sendDeferredInvoices: { useMutation: mocks.mutation } },
+      notifications: { list: { useQuery: () => mocks.query(mocks.notifications) }, retry: { useMutation: mocks.mutation }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceipt: { useMutation: () => ({ mutate: mocks.sendPaymentReceipt, isPending: false }) }, sendPaymentReminder: { useMutation: mocks.mutation }, sendBulkInvoiceSms: { useMutation: mocks.mutation }, sendDeferredInvoices: { useMutation: () => ({ mutate: mocks.sendDeferredInvoices, isPending: false }) } },
     },
   },
 }));
 
-afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; mocks.subscribers = []; mocks.invoices = []; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendPaymentReceipt.mockReset(); });
+afterEach(() => { document.body.innerHTML = ""; mocks.activeRole = "viewer"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPaymentReceipt.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("hides invoice issuance and sharing controls from the viewer", () => {
@@ -75,6 +77,16 @@ describe("role guards in administration UI", () => {
     mocks.activeRole = "accountant";
     render(<BillingPage />);
     expect(screen.getByRole("button", { name: /إصدار الفاتورة/ })).toBeInTheDocument();
+  });
+
+  it("lets the owner select an unsent invoice and send only that selection", () => {
+    mocks.activeRole = "owner";
+    mocks.invoices = [{ id: 81, invoiceNo: "PH-TEST-0081", billingPeriod: "2026-08", consumptionKwh: "12", totalAmount: "60", paidAmount: "0", balanceDue: "60", status: "issued" } as any];
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<BillingPage />);
+    fireEvent.click(screen.getByLabelText("تحديد الفاتورة PH-TEST-0081"));
+    fireEvent.click(screen.getByRole("button", { name: /إرسال المحددة/ }));
+    expect(mocks.sendDeferredInvoices).toHaveBeenCalledWith({ siteId: 1, invoiceIds: [81], limit: 200 });
   });
 
   it("renders the subscriber directory in read-only mode for the viewer", () => {
