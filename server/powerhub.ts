@@ -337,6 +337,7 @@ const siteInput = z.object({
 
 const siteScoped = z.object({ siteId: z.number().int().positive() });
 export const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) });
+export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.number().int().positive() });
 
 async function assertFinancialPeriodOpen(db: Awaited<ReturnType<typeof dbOrThrow>>, tenantId: number, siteId: number, occurredAt: Date, userId: number, entityType: string) {
   const [locked] = await db.select({ id: financialSettlements.id, periodStart: financialSettlements.periodStart, periodEnd: financialSettlements.periodEnd }).from(financialSettlements).where(and(eq(financialSettlements.tenantId, tenantId), eq(financialSettlements.siteId, siteId), eq(financialSettlements.status, "locked"), lte(financialSettlements.periodStart, occurredAt), gte(financialSettlements.periodEnd, occurredAt))).limit(1);
@@ -2008,6 +2009,21 @@ export const powerhubRouter = router({
         .orderBy(desc(auditLogs.createdAt))
         .limit(input.pageSize)
         .offset((input.page - 1) * input.pageSize);
+    }),
+    readingDetail: protectedProcedure.input(mobileSyncReadingDetailInput).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      const [row] = await db.select({ id: meterReadings.id, subscriberId: subscribers.id, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, consumptionKwh: meterReadings.consumptionKwh, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, captureMethod: meterReadings.captureMethod, notes: meterReadings.notes, technicianName: users.name, technicianEmail: users.email })
+        .from(meterReadings)
+        .innerJoin(meters, eq(meterReadings.meterId, meters.id))
+        .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+        .innerJoin(auditLogs, and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.action, "mobile_create"), sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`))
+        .innerJoin(users, eq(users.id, auditLogs.userId))
+        .where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.tenantId, tenantId), eq(subscribers.tenantId, tenantId), eq(subscribers.siteId, input.siteId)))
+        .limit(1);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
+      return row;
     }),
     technicians: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
