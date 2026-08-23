@@ -5,8 +5,9 @@ import { z } from "zod";
 import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenantTweetSmsAccounts, tenants, users } from "../drizzle/schema";
 import { getDb, syncSupabaseUser } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
-import { encryptTenantCredential } from "./tenant-crypto";
+import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
 import { supabaseAdmin } from "./supabase-admin";
+import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 
 const planSchema = z.enum(["starter", "professional", "enterprise"]);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
@@ -382,9 +383,24 @@ export const adminRouter = router({
     if (!account?.credentialCiphertext || !account.credentialIv || !account.apiEndpoint) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل رابط API الرسمي وبيانات حساب TweetSMS أولاً." });
     }
-    const message = "تحتاج TweetSMS إلى تزويد مسار فحص الرصيد أو توثيق API الرسمي لتشغيل اختبار حي آمن. لم تُرسل أي رسالة ولم تُكشف بيانات الاعتماد.";
-    await db.update(tenantTweetSmsAccounts).set({ lastTestedAt: new Date(), lastError: message, updatedByUserId: ctx.user.id }).where(eq(tenantTweetSmsAccounts.id, account.id));
-    return { ok: false, mode: "configuration" as const, message };
+    let credentials: TweetSmsCredentials;
+    try {
+      credentials = JSON.parse(decryptTenantCredential(account.credentialCiphertext, account.credentialIv)) as TweetSmsCredentials;
+    } catch {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر قراءة بيانات TweetSMS المشفرة. احفظ بيانات الحساب مرة أخرى." });
+    }
+    if (!credentials.apiKey?.trim()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "مفتاح API الخاص بـ TweetSMS غير صالح." });
+    const accountResult = await checkTweetSmsAccount({ endpoint: account.apiEndpoint, credentials });
+    const senderResult = accountResult.ok ? await checkTweetSmsSender({ endpoint: account.apiEndpoint, credentials, sender: account.senderName ?? "" }) : null;
+    const balanceResult = accountResult.ok && senderResult?.ok ? await checkTweetSmsBalance({ endpoint: account.apiEndpoint, credentials }) : null;
+    const result = senderResult && !senderResult.ok ? senderResult : balanceResult && balanceResult.code !== null && !balanceResult.ok ? balanceResult : accountResult;
+    const balanceNote = balanceResult?.balance !== undefined ? ` الرصيد المتاح لدى المزود: ${balanceResult.balance}.` : balanceResult && balanceResult.code === null ? " نجح التحقق من الحساب؛ لم يُرجع المزود رصيداً رقمياً قابلاً للعرض." : "";
+    const message = `${result.message}${balanceNote}`;
+    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, account.tenantId)).limit(1);
+    if (!site) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد محطة مرتبطة بصاحب المولد لتسجيل نتيجة اختبار TweetSMS." });
+    await db.update(tenantTweetSmsAccounts).set({ lastTestedAt: new Date(), lastError: result.ok ? null : message, updatedByUserId: ctx.user.id }).where(eq(tenantTweetSmsAccounts.id, account.id));
+    await db.insert(auditLogs).values({ tenantId: account.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "tweetsms_account", entityId: String(account.id), action: "platform_admin_test_tweetsms_account", afterData: { ok: result.ok, code: result.code, senderCode: senderResult?.code ?? null, balance: balanceResult?.balance ?? null }, actorPlatformRole: platformRoleOf(ctx.user) });
+    return { ok: result.ok, mode: "live" as const, message, balance: balanceResult?.balance ?? null };
   }),
 
   listSubscriptionUpgradeRequests: platformAdminProcedure.query(async () => {
