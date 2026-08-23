@@ -167,6 +167,76 @@ async function getSiteTenant(siteId: number) {
   return site.tenantId;
 }
 
+type InvoiceIssueResult = { id: number; invoiceNo: string; totalAmount: number; notificationIds: number[]; alreadyIssued: boolean };
+
+async function issueInvoiceForApprovedReading(db: any, input: { siteId: number; readingId: number; userId: number; billingPeriod: string; dueDate: Date; tariffId?: number; discountAmount?: number }): Promise<InvoiceIssueResult> {
+  const [readingScope] = await db.select({ reading: meterReadings, meter: meters, subscriber: subscribers, site: sites })
+    .from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id)).innerJoin(sites, eq(sites.id, subscribers.siteId))
+    .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
+  const reading = readingScope?.reading; const meter = readingScope?.meter; const subscriber = readingScope?.subscriber; const site = readingScope?.site;
+  if (!reading || reading.status !== "approved" || !meter || !subscriber || !site) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن فوترة قراءة غير معتمدة أو لا تتبع للمحطة المحددة." });
+  const [existing] = await db.select({ id: invoices.id, invoiceNo: invoices.invoiceNo, totalAmount: invoices.totalAmount }).from(invoices).where(eq(invoices.readingId, reading.id)).limit(1);
+  if (existing) return { id: existing.id, invoiceNo: existing.invoiceNo, totalAmount: Number(existing.totalAmount), notificationIds: [], alreadyIssued: true };
+  const tariffConditions = [eq(tariffs.siteId, input.siteId), eq(tariffs.isActive, true)];
+  if (input.tariffId) tariffConditions.push(eq(tariffs.id, input.tariffId));
+  const [tariff] = await db.select().from(tariffs).where(and(...tariffConditions)).orderBy(desc(tariffs.effectiveFrom)).limit(1);
+  if (!tariff) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد تعرفة فعالة يمكن استخدامها لإصدار الفاتورة." });
+  await assertFinancialPeriodOpen(db, site.tenantId, input.siteId, input.dueDate, input.userId, "invoice");
+  const [tenantMessaging, platformDeliverySettings, tenantTemplates] = await Promise.all([
+    db.select({ channel: tenantMessagingConfigurations.channel, isActive: tenantMessagingConfigurations.isActive }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, site.tenantId)),
+    db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1),
+    db.select({ channel: tenantInvoiceMessageTemplates.channel, body: tenantInvoiceMessageTemplates.body, isActive: tenantInvoiceMessageTemplates.isActive }).from(tenantInvoiceMessageTemplates).where(and(eq(tenantInvoiceMessageTemplates.tenantId, site.tenantId), eq(tenantInvoiceMessageTemplates.eventType, "invoice_issued"))),
+  ]);
+  const tenantChannels = resolveInvoiceNotificationChannels(tenantMessaging, invoiceDeliveryPolicyFromSetting(platformDeliverySettings[0]));
+  const templateByChannel = new Map<"sms" | "whatsapp", string>(tenantTemplates.filter((template: { isActive: boolean }) => template.isActive).map((template: { channel: "sms" | "whatsapp"; body: string }) => [template.channel, template.body] as ["sms" | "whatsapp", string]));
+  const countResult = await db.select({ count: sql<number>`count(*)` }).from(invoices).where(eq(invoices.siteId, input.siteId));
+  const calculated = calculateInvoiceAmounts({ consumptionKwh: Number(reading.consumptionKwh ?? 0), pricePerKwh: Number(tariff.pricePerKwh), fixedFee: Number(tariff.fixedFee), taxRate: Number(tariff.taxRate), discountAmount: input.discountAmount ?? 0 });
+  const invoiceNo = nextInvoiceNo(site.code, input.billingPeriod, Number(countResult[0]?.count ?? 0) + 1);
+  const invoiceId = insertId(await db.insert(invoices).values({ tenantId: site.tenantId, siteId: input.siteId, subscriberId: meter.subscriberId, meterId: meter.id, readingId: reading.id, tariffId: tariff.id, invoiceNo, billingPeriod: input.billingPeriod, dueDate: input.dueDate, previousReading: reading.previousReadingValue, currentReading: reading.readingValue, consumptionKwh: reading.consumptionKwh ?? "0", pricePerKwh: tariff.pricePerKwh, fixedFee: tariff.fixedFee, taxAmount: String(calculated.taxAmount), discountAmount: String(input.discountAmount ?? 0), totalAmount: String(calculated.totalAmount), balanceDue: String(calculated.totalAmount), status: "issued", createdByUserId: input.userId }));
+  const lines: Array<{ lineType: "energy" | "fixed_fee" | "tax" | "discount"; description: string; quantity: string; unitPrice: string; amount: string; displayOrder: number }> = [
+    { lineType: "energy", description: "استهلاك الكهرباء", quantity: String(reading.consumptionKwh ?? 0), unitPrice: tariff.pricePerKwh, amount: String(calculated.energyAmount), displayOrder: 1 },
+    { lineType: "fixed_fee", description: "رسم ثابت", quantity: "1", unitPrice: tariff.fixedFee, amount: tariff.fixedFee, displayOrder: 2 },
+    { lineType: "tax", description: "الضريبة", quantity: "1", unitPrice: String(tariff.taxRate), amount: String(calculated.taxAmount), displayOrder: 3 },
+  ];
+  if ((input.discountAmount ?? 0) > 0) lines.push({ lineType: "discount", description: "خصم", quantity: "1", unitPrice: String(input.discountAmount), amount: String(input.discountAmount), displayOrder: 4 });
+  await db.insert(invoiceLines).values(lines.map((line) => ({ ...line, tenantId: site.tenantId, invoiceId })));
+  const notificationIds: number[] = [];
+  for (const channel of tenantChannels as Array<"sms" | "whatsapp">) notificationIds.push(insertId(await db.insert(notificationMessages).values({ tenantId: site.tenantId, invoiceId, subscriberId: subscriber.id, channel, eventType: "invoice_issued", recipient: subscriber.phone, status: "pending", payload: { invoiceNo, billingPeriod: input.billingPeriod, totalAmount: calculated.totalAmount, renderedText: renderInvoiceMessageTemplate(templateByChannel.get(channel) ?? defaultInvoiceMessageTemplates[channel], { subscriber_name: subscriber.fullName, invoice_no: invoiceNo, billing_period: input.billingPeriod, total_amount: String(calculated.totalAmount), due_date: input.dueDate.toLocaleDateString("ar-IQ") }) } })));
+  return { id: invoiceId, invoiceNo, totalAmount: calculated.totalAmount, notificationIds, alreadyIssued: false };
+}
+
+async function dispatchInvoiceNotifications(notificationIds: number[]) {
+  return Promise.all(notificationIds.map(async (notificationId) => {
+    try { return { notificationId, ...await processNotificationById(notificationId) }; }
+    catch (error) { return { notificationId, status: "failed" as const, error: error instanceof Error ? error.message : "تعذر بدء إرسال الفاتورة." }; }
+  }));
+}
+
+async function approveAndIssueMobileReading(input: { siteId: number; readingId: number; userId: number; baseVersion?: number }) {
+  const tenantId = await getSiteTenant(input.siteId);
+  const db = await dbOrThrow();
+  const result = await db.transaction(async (tx) => {
+    const [scope] = await tx.select({ id: meterReadings.id, status: meterReadings.status, versionNo: meterReadings.versionNo, readingAt: meterReadings.readingAt, invoiceId: invoices.id, invoiceNo: invoices.invoiceNo, invoiceTotal: invoices.totalAmount })
+      .from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+      .innerJoin(auditLogs, and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.action, "mobile_create"), sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`))
+      .leftJoin(invoices, eq(invoices.readingId, meterReadings.id))
+      .where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.tenantId, tenantId), eq(subscribers.siteId, input.siteId))).limit(1);
+    if (!scope) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
+    if (scope.status === "approved" && scope.invoiceId) return { invoice: { id: scope.invoiceId, invoiceNo: scope.invoiceNo!, totalAmount: Number(scope.invoiceTotal) }, notificationIds: [] as number[], alreadyProcessed: true };
+    if (scope.status !== "pending_review") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن اعتماد القراءات الميدانية بانتظار المراجعة فقط." });
+    if (input.baseVersion !== undefined && scope.versionNo !== input.baseVersion) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث الصفحة ثم أعد المحاولة." });
+    const approval = await tx.update(meterReadings).set({ status: "approved", reviewedByUserId: input.userId, reviewedAt: new Date(), versionNo: sql`${meterReadings.versionNo} + 1` }).where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.status, "pending_review"), eq(meterReadings.versionNo, scope.versionNo)));
+    if (Number((approval[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث البيانات ثم أعد المحاولة." });
+    const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 14);
+    const issued = await issueInvoiceForApprovedReading(tx as any, { siteId: input.siteId, readingId: input.readingId, userId: input.userId, billingPeriod: scope.readingAt.toISOString().slice(0, 7), dueDate });
+    return { invoice: { id: issued.id, invoiceNo: issued.invoiceNo, totalAmount: issued.totalAmount }, notificationIds: issued.notificationIds, alreadyProcessed: issued.alreadyIssued };
+  });
+  const deliveries = await dispatchInvoiceNotifications(result.notificationIds);
+  await writeAudit({ userId: input.userId, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: result.alreadyProcessed ? "mobile_approve_replay" : "mobile_approve_and_issue", metadata: { invoiceId: result.invoice.id, invoiceNo: result.invoice.invoiceNo, automaticInvoice: true, deliveryCount: deliveries.length } });
+  await writeAudit({ userId: input.userId, siteId: input.siteId, entityType: "invoice", entityId: String(result.invoice.id), action: result.alreadyProcessed ? "auto_issue_replay" : "auto_issue_after_mobile_approval", metadata: { readingId: input.readingId, deliveryCount: deliveries.length } });
+  return { ...result.invoice, alreadyProcessed: result.alreadyProcessed, deliveries };
+}
+
 async function ownerAllowedSubaccountRoles() {
   const db = await dbOrThrow();
   const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value })
@@ -338,6 +408,8 @@ const siteInput = z.object({
 const siteScoped = z.object({ siteId: z.number().int().positive() });
 export const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) });
 export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.number().int().positive() });
+export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() });
+export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100) });
 
 async function assertFinancialPeriodOpen(db: Awaited<ReturnType<typeof dbOrThrow>>, tenantId: number, siteId: number, occurredAt: Date, userId: number, entityType: string) {
   const [locked] = await db.select({ id: financialSettlements.id, periodStart: financialSettlements.periodStart, periodEnd: financialSettlements.periodEnd }).from(financialSettlements).where(and(eq(financialSettlements.tenantId, tenantId), eq(financialSettlements.siteId, siteId), eq(financialSettlements.status, "locked"), lte(financialSettlements.periodStart, occurredAt), gte(financialSettlements.periodEnd, occurredAt))).limit(1);
@@ -1246,6 +1318,13 @@ export const powerhubRouter = router({
           .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
           .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
         if (!readingScope) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
+        const tenantId = await getSiteTenant(input.siteId);
+        const [mobileAudit] = await db.select({ id: auditLogs.id }).from(auditLogs).where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.entityId, String(input.readingId)), eq(auditLogs.action, "mobile_create"))).limit(1);
+        if (mobileAudit) {
+          await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+          const issued = await approveAndIssueMobileReading({ ...input, userId: ctx.user.id });
+          return { success: true, automaticInvoice: issued };
+        }
         const result = await db.update(meterReadings).set({ status: "approved", reviewedByUserId: ctx.user.id, reviewedAt: new Date(), versionNo: sql`${meterReadings.versionNo} + 1` })
           .where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.versionNo, input.baseVersion)));
         if (Number((result[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث البيانات ثم أعد المحاولة." });
@@ -2001,7 +2080,7 @@ export const powerhubRouter = router({
       if (input.userId) conditions.push(eq(auditLogs.userId, input.userId));
       if (input.from) conditions.push(gte(auditLogs.createdAt, new Date(input.from)));
       if (input.to) conditions.push(lte(auditLogs.createdAt, new Date(input.to)));
-      return db.select({ id: meterReadings.id, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, userId: auditLogs.userId })
+      return db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, userId: auditLogs.userId })
         .from(meterReadings)
         .innerJoin(meters, eq(meterReadings.meterId, meters.id))
         .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
@@ -2014,7 +2093,7 @@ export const powerhubRouter = router({
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
       const tenantId = await getSiteTenant(input.siteId);
       const db = await dbOrThrow();
-      const [row] = await db.select({ id: meterReadings.id, subscriberId: subscribers.id, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, consumptionKwh: meterReadings.consumptionKwh, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, captureMethod: meterReadings.captureMethod, notes: meterReadings.notes, technicianName: users.name, technicianEmail: users.email })
+      const [row] = await db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo, subscriberId: subscribers.id, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, consumptionKwh: meterReadings.consumptionKwh, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, captureMethod: meterReadings.captureMethod, notes: meterReadings.notes, technicianName: users.name, technicianEmail: users.email })
         .from(meterReadings)
         .innerJoin(meters, eq(meterReadings.meterId, meters.id))
         .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
@@ -2024,6 +2103,28 @@ export const powerhubRouter = router({
         .limit(1);
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
       return row;
+    }),
+    approveAndIssue: protectedProcedure.input(mobileSyncApproveInput).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+      return approveAndIssueMobileReading({ ...input, userId: ctx.user.id });
+    }),
+    approveAllAndIssue: protectedProcedure.input(mobileSyncBulkApprovalInput).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
+      const conditions = [eq(meterReadings.tenantId, tenantId), eq(subscribers.siteId, input.siteId), eq(meterReadings.status, "pending_review"), eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.action, "mobile_create"), sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`];
+      if (input.userId) conditions.push(eq(auditLogs.userId, input.userId));
+      if (input.from) conditions.push(gte(auditLogs.createdAt, new Date(input.from)));
+      if (input.to) conditions.push(lte(auditLogs.createdAt, new Date(input.to)));
+      const rows = await db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo }).from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id)).innerJoin(auditLogs, and(...conditions)).orderBy(desc(auditLogs.createdAt)).limit(input.limit);
+      const results: Array<{ readingId: number; status: "issued" | "failed"; invoiceNo?: string; message?: string }> = [];
+      for (const row of rows) {
+        try { const issued = await approveAndIssueMobileReading({ siteId: input.siteId, readingId: row.id, baseVersion: row.versionNo, userId: ctx.user.id }); results.push({ readingId: row.id, status: "issued", invoiceNo: issued.invoiceNo }); }
+        catch (error) { results.push({ readingId: row.id, status: "failed", message: error instanceof Error ? error.message : "تعذر اعتماد القراءة وإصدار فاتورتها." }); }
+      }
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "mobile_reading_batch", entityId: rows.map((row) => row.id).join(",") || "none", action: "approve_and_auto_issue", metadata: { requested: rows.length, issued: results.filter((row) => row.status === "issued").length, failed: results.filter((row) => row.status === "failed").length, userId: input.userId, from: input.from, to: input.to } });
+      return { requested: rows.length, issued: results.filter((row) => row.status === "issued").length, failed: results.filter((row) => row.status === "failed").length, results };
     }),
     technicians: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");

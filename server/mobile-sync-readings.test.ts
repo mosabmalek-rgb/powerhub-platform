@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mobileSyncReadingDetailInput, mobileSyncReadingsInput } from "./powerhub";
+import { mobileSyncApproveInput, mobileSyncBulkApprovalInput, mobileSyncReadingDetailInput, mobileSyncReadingsInput } from "./powerhub";
 
 describe("mobile sync reading details input", () => {
   it("accepts a scoped reading-details request and supplies safe pagination defaults", () => {
@@ -18,5 +18,12 @@ describe("mobile sync reading details input", () => {
     expect(mobileSyncReadingDetailInput.safeParse({ siteId: 12, readingId: 4 }).success).toBe(true);
     expect(mobileSyncReadingDetailInput.safeParse({ siteId: 0, readingId: 4 }).success).toBe(false);
     expect(mobileSyncReadingDetailInput.safeParse({ siteId: 12, readingId: 0 }).success).toBe(false);
+  });
+
+  it("limits individual and bulk approvals to a scoped, bounded request", () => {
+    expect(mobileSyncApproveInput.safeParse({ siteId: 12, readingId: 4, baseVersion: 2 }).success).toBe(true);
+    expect(mobileSyncApproveInput.safeParse({ siteId: 12, readingId: 4, baseVersion: 0 }).success).toBe(false);
+    expect(mobileSyncBulkApprovalInput.parse({ siteId: 12 })).toMatchObject({ siteId: 12, limit: 100 });
+    expect(mobileSyncBulkApprovalInput.safeParse({ siteId: 12, limit: 101 }).success).toBe(false);
   });
 });
