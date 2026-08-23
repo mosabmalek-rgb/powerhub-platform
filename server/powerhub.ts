@@ -65,6 +65,7 @@ import { createHeartbeatJob, deleteHeartbeatJob, updateHeartbeatJob } from "./_c
 import { COOKIE_NAME } from "../shared/const";
 
 const createRoles = rolesWith("issueInvoices");
+export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
 function sessionCookie(req: { headers?: { cookie?: string } }) { return (req.headers?.cookie ?? "").split(";").map((part) => part.trim()).find((part) => part.startsWith(`${COOKIE_NAME}=`))?.slice(COOKIE_NAME.length + 1) ?? ""; }
 const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
@@ -1827,6 +1828,29 @@ export const powerhubRouter = router({
         .innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id))
         .leftJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
         .where(input.eventType ? and(eq(subscribers.siteId, input.siteId), eq(notificationMessages.eventType, input.eventType)) : eq(subscribers.siteId, input.siteId)).orderBy(desc(notificationMessages.createdAt));
+    }),
+    listBulkInvoiceSends: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      return db.select({
+        id: auditLogs.id,
+        action: auditLogs.action,
+        createdAt: auditLogs.createdAt,
+        metadata: auditLogs.metadata,
+        executorId: auditLogs.userId,
+        executorName: users.name,
+        executorEmail: users.email,
+      }).from(auditLogs)
+        .leftJoin(users, eq(auditLogs.userId, users.id))
+        .where(and(
+          eq(auditLogs.tenantId, tenantId),
+          eq(auditLogs.siteId, input.siteId),
+          eq(auditLogs.entityType, "notification_batch"),
+          inArray(auditLogs.action, [...bulkInvoiceSendAuditActions]),
+        ))
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(20);
     }),
     retry: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
