@@ -336,6 +336,7 @@ const siteInput = z.object({
 });
 
 const siteScoped = z.object({ siteId: z.number().int().positive() });
+export const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) });
 
 async function assertFinancialPeriodOpen(db: Awaited<ReturnType<typeof dbOrThrow>>, tenantId: number, siteId: number, occurredAt: Date, userId: number, entityType: string) {
   const [locked] = await db.select({ id: financialSettlements.id, periodStart: financialSettlements.periodStart, periodEnd: financialSettlements.periodEnd }).from(financialSettlements).where(and(eq(financialSettlements.tenantId, tenantId), eq(financialSettlements.siteId, siteId), eq(financialSettlements.status, "locked"), lte(financialSettlements.periodStart, occurredAt), gte(financialSettlements.periodEnd, occurredAt))).limit(1);
@@ -1981,6 +1982,32 @@ export const powerhubRouter = router({
       if (input.to) conditions.push(lte(mobileSyncEvents.occurredAt, new Date(input.to)));
       const rows = await db.select({ id: mobileSyncEvents.id, eventType: mobileSyncEvents.eventType, status: mobileSyncEvents.status, syncedCount: mobileSyncEvents.syncedCount, retryableCount: mobileSyncEvents.retryableCount, needsReviewCount: mobileSyncEvents.needsReviewCount, errorCode: mobileSyncEvents.errorCode, errorMessage: mobileSyncEvents.errorMessage, appVersion: mobileSyncEvents.appVersion, deviceLabel: mobileSyncEvents.deviceLabel, occurredAt: mobileSyncEvents.occurredAt, userId: users.id, userName: users.name, userEmail: users.email }).from(mobileSyncEvents).innerJoin(users, eq(users.id, mobileSyncEvents.userId)).where(and(...conditions)).orderBy(desc(mobileSyncEvents.occurredAt)).limit(input.pageSize).offset((input.page - 1) * input.pageSize);
       return rows;
+    }),
+    readings: protectedProcedure.input(mobileSyncReadingsInput).query(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      const tenantId = await getSiteTenant(input.siteId);
+      const db = await dbOrThrow();
+      const conditions = [
+        eq(meterReadings.tenantId, tenantId),
+        eq(subscribers.tenantId, tenantId),
+        eq(subscribers.siteId, input.siteId),
+        eq(auditLogs.tenantId, tenantId),
+        eq(auditLogs.siteId, input.siteId),
+        eq(auditLogs.entityType, "meter_reading"),
+        eq(auditLogs.action, "mobile_create"),
+        sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`,
+      ];
+      if (input.userId) conditions.push(eq(auditLogs.userId, input.userId));
+      if (input.from) conditions.push(gte(auditLogs.createdAt, new Date(input.from)));
+      if (input.to) conditions.push(lte(auditLogs.createdAt, new Date(input.to)));
+      return db.select({ id: meterReadings.id, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, userId: auditLogs.userId })
+        .from(meterReadings)
+        .innerJoin(meters, eq(meterReadings.meterId, meters.id))
+        .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+        .innerJoin(auditLogs, and(...conditions))
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(input.pageSize)
+        .offset((input.page - 1) * input.pageSize);
     }),
     technicians: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
