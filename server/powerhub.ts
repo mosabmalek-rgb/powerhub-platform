@@ -440,6 +440,7 @@ export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.num
 export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) });
 export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100), sendNow: z.boolean().default(true) });
 export const sendDeferredInvoiceNotificationsInput = z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(200), invoiceIds: z.array(z.number().int().positive()).min(1).max(200).optional() });
+export const retryFailedInvoiceNotificationInput = siteScoped.extend({ notificationId: z.number().int().positive() });
 const bulkInvoiceSendDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "صيغة التاريخ يجب أن تكون YYYY-MM-DD.");
 export const bulkInvoiceSendLogInput = siteScoped.extend({ from: bulkInvoiceSendDate.optional(), to: bulkInvoiceSendDate.optional() }).refine((input) => !input.from || !input.to || input.from <= input.to, { message: "تاريخ البداية يجب أن يسبق أو يساوي تاريخ النهاية.", path: ["to"] });
 export const bulkInvoiceSendDetailsInput = siteScoped.extend({ auditLogId: z.number().int().positive() });
@@ -1903,6 +1904,23 @@ export const powerhubRouter = router({
       await db.update(notificationMessages).set({ status: "pending", lastError: null }).where(eq(notificationMessages.id, input.notificationId));
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(input.notificationId), action: "retry", metadata: { previousStatus: "failed" } });
       return { success: true };
+    }),
+    retryFailedInvoiceNotification: protectedProcedure.input(retryFailedInvoiceNotificationInput).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const db = await dbOrThrow();
+      const [scope] = await db.select({ id: notificationMessages.id, status: notificationMessages.status, invoiceId: notificationMessages.invoiceId, invoiceNo: invoices.invoiceNo })
+        .from(notificationMessages)
+        .innerJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
+        .innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id))
+        .where(and(eq(notificationMessages.id, input.notificationId), eq(notificationMessages.eventType, "invoice_issued"), eq(notificationMessages.status, "failed"), eq(subscribers.siteId, input.siteId)))
+        .limit(1);
+      if (!scope) throw new TRPCError({ code: "NOT_FOUND", message: "لا يوجد إشعار فاتورة فاشل يتبع للفرع المحدد." });
+      await db.update(notificationMessages).set({ status: "pending", lastError: null }).where(eq(notificationMessages.id, input.notificationId));
+      let dispatch: { status: string; error?: string | null };
+      try { dispatch = await processNotificationById(input.notificationId); }
+      catch (error) { dispatch = { status: "failed", error: error instanceof Error ? error.message : "تعذر إعادة إرسال إشعار الفاتورة." }; }
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(input.notificationId), action: "retry_failed_invoice_notification", metadata: { invoiceId: scope.invoiceId, invoiceNo: scope.invoiceNo, dispatchStatus: dispatch.status, error: dispatch.error ?? null, source: "bulk_invoice_send_details" } });
+      return { notificationId: input.notificationId, status: dispatch.status, error: dispatch.error ?? null };
     }),
     retryPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bulkInvoiceSendAuditActions, bulkInvoiceSendDetailsInput, bulkInvoiceSendLogInput, sendDeferredInvoiceNotificationsInput } from "./powerhub";
+import { bulkInvoiceSendAuditActions, bulkInvoiceSendDetailsInput, bulkInvoiceSendLogInput, retryFailedInvoiceNotificationInput, sendDeferredInvoiceNotificationsInput } from "./powerhub";
 
 describe("deferred invoice notification input", () => {
   it("uses a bounded batch that remains scoped to one branch", () => {
@@ -17,5 +17,7 @@ describe("deferred invoice notification input", () => {
     expect(bulkInvoiceSendLogInput.parse({ siteId: 22, from: "2026-08-01", to: "2026-08-31" })).toMatchObject({ siteId: 22, from: "2026-08-01", to: "2026-08-31" });
     expect(bulkInvoiceSendLogInput.safeParse({ siteId: 22, from: "2026-08-31", to: "2026-08-01" }).success).toBe(false);
     expect(bulkInvoiceSendDetailsInput.safeParse({ siteId: 22, auditLogId: 8 }).success).toBe(true);
+    expect(retryFailedInvoiceNotificationInput.safeParse({ siteId: 22, notificationId: 81 }).success).toBe(true);
+    expect(retryFailedInvoiceNotificationInput.safeParse({ siteId: 22, notificationId: 0 }).success).toBe(false);
   });
 });
