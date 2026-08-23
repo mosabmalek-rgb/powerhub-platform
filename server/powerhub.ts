@@ -411,6 +411,7 @@ export const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().in
 export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.number().int().positive() });
 export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) });
 export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100), sendNow: z.boolean().default(true) });
+export const sendDeferredInvoiceNotificationsInput = z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(200) });
 
 async function assertFinancialPeriodOpen(db: Awaited<ReturnType<typeof dbOrThrow>>, tenantId: number, siteId: number, occurredAt: Date, userId: number, entityType: string) {
   const [locked] = await db.select({ id: financialSettlements.id, periodStart: financialSettlements.periodStart, periodEnd: financialSettlements.periodEnd }).from(financialSettlements).where(and(eq(financialSettlements.tenantId, tenantId), eq(financialSettlements.siteId, siteId), eq(financialSettlements.status, "locked"), lte(financialSettlements.periodStart, occurredAt), gte(financialSettlements.periodEnd, occurredAt))).limit(1);
@@ -1823,6 +1824,19 @@ export const powerhubRouter = router({
       await db.update(notificationMessages).set({ status: "pending", lastError: null }).where(eq(notificationMessages.id, input.notificationId));
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(input.notificationId), action: "retry_payment_receipt", metadata: { previousStatus: "failed" } });
       return { notificationId: input.notificationId, ...await processNotificationById(input.notificationId) };
+    }),
+    sendDeferredInvoices: protectedProcedure.input(sendDeferredInvoiceNotificationsInput).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const db = await dbOrThrow();
+      const rows = await db.select({ notificationId: notificationMessages.id, invoiceId: invoices.id, invoiceNo: invoices.invoiceNo })
+        .from(notificationMessages).innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id)).innerJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
+        .where(and(eq(subscribers.siteId, input.siteId), eq(notificationMessages.eventType, "invoice_issued"), eq(notificationMessages.status, "pending"))).orderBy(notificationMessages.createdAt).limit(input.limit);
+      const results = await Promise.all(rows.map(async (row) => {
+        try { const dispatch = await processNotificationById(row.notificationId); return { ...row, status: dispatch.status === "failed" ? "failed" as const : "submitted" as const, message: dispatch.error ?? "تمت معالجة الإشعار." }; }
+        catch (error) { return { ...row, status: "failed" as const, message: error instanceof Error ? error.message : "تعذر إرسال الإشعار." }; }
+      }));
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_batch", entityId: rows.map((row) => row.notificationId).join(",") || "none", action: "send_deferred_invoice_notifications", metadata: { requested: rows.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length } });
+      return { requested: rows.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length, results };
     }),
     sendBulkInvoiceSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceIds: z.array(z.number().int().positive()).min(1).max(200) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
