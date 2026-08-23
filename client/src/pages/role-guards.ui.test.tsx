@@ -81,12 +81,17 @@ describe("role guards in administration UI", () => {
 
   it("lets the owner select an unsent invoice and send only that selection", () => {
     mocks.activeRole = "owner";
-    mocks.invoices = [{ id: 81, invoiceNo: "PH-TEST-0081", billingPeriod: "2026-08", consumptionKwh: "12", totalAmount: "60", paidAmount: "0", balanceDue: "60", status: "issued" } as any];
+    mocks.invoices = [
+      { id: 81, invoiceNo: "PH-TEST-0081", billingPeriod: "2026-08", consumptionKwh: "12", totalAmount: "60", paidAmount: "0", balanceDue: "60", status: "issued" } as any,
+      { id: 82, invoiceNo: "PH-TEST-0082", billingPeriod: "2026-08", consumptionKwh: "18", totalAmount: "90", paidAmount: "0", balanceDue: "90", status: "issued" } as any,
+    ];
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<BillingPage />);
-    fireEvent.click(screen.getByLabelText("تحديد الفاتورة PH-TEST-0081"));
+    fireEvent.click(screen.getByLabelText("تحديد كل الفواتير غير المرسلة في الصفحة"));
+    expect(screen.getByLabelText("تحديد الفاتورة PH-TEST-0081")).toBeChecked();
+    expect(screen.getByLabelText("تحديد الفاتورة PH-TEST-0082")).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: /إرسال المحددة/ }));
-    expect(mocks.sendDeferredInvoices).toHaveBeenCalledWith({ siteId: 1, invoiceIds: [81], limit: 200 });
+    expect(mocks.sendDeferredInvoices).toHaveBeenCalledWith({ siteId: 1, invoiceIds: [81, 82], limit: 200 });
   });
 
   it("renders the subscriber directory in read-only mode for the viewer", () => {

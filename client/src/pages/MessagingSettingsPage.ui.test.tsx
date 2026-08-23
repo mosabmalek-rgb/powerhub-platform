@@ -67,8 +67,10 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getAllByText("رفض المزود").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getAllByRole("button", { name: /قيمة الفاتورة/ })[0]);
     expect((document.querySelectorAll("textarea")[0] as HTMLTextAreaElement).value).toContain("{{total_amount}}");
-    fireEvent.click(screen.getAllByRole("button", { name: "معاينة الرسالة" })[0]);
-    expect(screen.getByText("شكل الرسالة النهائي")).toBeInTheDocument();
+    expect(screen.getAllByText("معاينة حية للرسالة النهائية")).toHaveLength(2);
+    expect(screen.getByText(/رسالة SMS/)).toBeInTheDocument();
+    fireEvent.change(document.querySelectorAll("textarea")[0], { target: { value: "مرحباً {{subscriber_name}}" } });
+    expect(screen.getAllByText(/مرحباً أحمد علي/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByRole("button", { name: "إعادة إرسال" }).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByRole("button", { name: "اختبار الاتصال" })).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب WhatsApp" }));
