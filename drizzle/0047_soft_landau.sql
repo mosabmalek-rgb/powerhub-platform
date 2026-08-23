@@ -1,0 +1,1 @@
+ALTER TABLE `sites` ADD `invoiceDueDays` int DEFAULT 14 NOT NULL;

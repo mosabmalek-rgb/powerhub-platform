@@ -21,9 +21,10 @@ describe("mobile sync reading details input", () => {
   });
 
   it("limits individual and bulk approvals to a scoped, bounded request", () => {
-    expect(mobileSyncApproveInput.safeParse({ siteId: 12, readingId: 4, baseVersion: 2 }).success).toBe(true);
+    expect(mobileSyncApproveInput.parse({ siteId: 12, readingId: 4, baseVersion: 2 })).toMatchObject({ sendNow: true });
+    expect(mobileSyncApproveInput.parse({ siteId: 12, readingId: 4, baseVersion: 2, sendNow: false })).toMatchObject({ sendNow: false });
     expect(mobileSyncApproveInput.safeParse({ siteId: 12, readingId: 4, baseVersion: 0 }).success).toBe(false);
-    expect(mobileSyncBulkApprovalInput.parse({ siteId: 12 })).toMatchObject({ siteId: 12, limit: 100 });
+    expect(mobileSyncBulkApprovalInput.parse({ siteId: 12 })).toMatchObject({ siteId: 12, limit: 100, sendNow: true });
     expect(mobileSyncBulkApprovalInput.safeParse({ siteId: 12, limit: 101 }).success).toBe(false);
   });
 });

@@ -212,12 +212,12 @@ async function dispatchInvoiceNotifications(notificationIds: number[]) {
   }));
 }
 
-async function approveAndIssueMobileReading(input: { siteId: number; readingId: number; userId: number; baseVersion?: number }) {
+async function approveAndIssueMobileReading(input: { siteId: number; readingId: number; userId: number; baseVersion?: number; sendNow?: boolean }) {
   const tenantId = await getSiteTenant(input.siteId);
   const db = await dbOrThrow();
   const result = await db.transaction(async (tx) => {
-    const [scope] = await tx.select({ id: meterReadings.id, status: meterReadings.status, versionNo: meterReadings.versionNo, readingAt: meterReadings.readingAt, invoiceId: invoices.id, invoiceNo: invoices.invoiceNo, invoiceTotal: invoices.totalAmount })
-      .from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+    const [scope] = await tx.select({ id: meterReadings.id, status: meterReadings.status, versionNo: meterReadings.versionNo, readingAt: meterReadings.readingAt, invoiceDueDays: sites.invoiceDueDays, invoiceId: invoices.id, invoiceNo: invoices.invoiceNo, invoiceTotal: invoices.totalAmount })
+      .from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id)).innerJoin(sites, eq(sites.id, subscribers.siteId))
       .innerJoin(auditLogs, and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.action, "mobile_create"), sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`))
       .leftJoin(invoices, eq(invoices.readingId, meterReadings.id))
       .where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.tenantId, tenantId), eq(subscribers.siteId, input.siteId))).limit(1);
@@ -227,14 +227,15 @@ async function approveAndIssueMobileReading(input: { siteId: number; readingId: 
     if (input.baseVersion !== undefined && scope.versionNo !== input.baseVersion) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث الصفحة ثم أعد المحاولة." });
     const approval = await tx.update(meterReadings).set({ status: "approved", reviewedByUserId: input.userId, reviewedAt: new Date(), versionNo: sql`${meterReadings.versionNo} + 1` }).where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.status, "pending_review"), eq(meterReadings.versionNo, scope.versionNo)));
     if (Number((approval[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث البيانات ثم أعد المحاولة." });
-    const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 14);
+    const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, scope.invoiceDueDays ?? 14)));
     const issued = await issueInvoiceForApprovedReading(tx as any, { siteId: input.siteId, readingId: input.readingId, userId: input.userId, billingPeriod: scope.readingAt.toISOString().slice(0, 7), dueDate });
     return { invoice: { id: issued.id, invoiceNo: issued.invoiceNo, totalAmount: issued.totalAmount }, notificationIds: issued.notificationIds, alreadyProcessed: issued.alreadyIssued };
   });
-  const deliveries = await dispatchInvoiceNotifications(result.notificationIds);
-  await writeAudit({ userId: input.userId, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: result.alreadyProcessed ? "mobile_approve_replay" : "mobile_approve_and_issue", metadata: { invoiceId: result.invoice.id, invoiceNo: result.invoice.invoiceNo, automaticInvoice: true, deliveryCount: deliveries.length } });
-  await writeAudit({ userId: input.userId, siteId: input.siteId, entityType: "invoice", entityId: String(result.invoice.id), action: result.alreadyProcessed ? "auto_issue_replay" : "auto_issue_after_mobile_approval", metadata: { readingId: input.readingId, deliveryCount: deliveries.length } });
-  return { ...result.invoice, alreadyProcessed: result.alreadyProcessed, deliveries };
+  const deliveries = input.sendNow === false ? [] : await dispatchInvoiceNotifications(result.notificationIds);
+  const notificationMode = input.sendNow === false ? "deferred" : "immediate";
+  await writeAudit({ userId: input.userId, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: result.alreadyProcessed ? "mobile_approve_replay" : "mobile_approve_and_issue", metadata: { invoiceId: result.invoice.id, invoiceNo: result.invoice.invoiceNo, automaticInvoice: true, notificationMode, deliveryCount: deliveries.length } });
+  await writeAudit({ userId: input.userId, siteId: input.siteId, entityType: "invoice", entityId: String(result.invoice.id), action: result.alreadyProcessed ? "auto_issue_replay" : "auto_issue_after_mobile_approval", metadata: { readingId: input.readingId, notificationMode, deliveryCount: deliveries.length } });
+  return { ...result.invoice, alreadyProcessed: result.alreadyProcessed, notificationMode, deliveries };
 }
 
 async function ownerAllowedSubaccountRoles() {
@@ -408,8 +409,8 @@ const siteInput = z.object({
 const siteScoped = z.object({ siteId: z.number().int().positive() });
 export const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) });
 export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.number().int().positive() });
-export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() });
-export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100) });
+export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) });
+export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100), sendNow: z.boolean().default(true) });
 
 async function assertFinancialPeriodOpen(db: Awaited<ReturnType<typeof dbOrThrow>>, tenantId: number, siteId: number, occurredAt: Date, userId: number, entityType: string) {
   const [locked] = await db.select({ id: financialSettlements.id, periodStart: financialSettlements.periodStart, periodEnd: financialSettlements.periodEnd }).from(financialSettlements).where(and(eq(financialSettlements.tenantId, tenantId), eq(financialSettlements.siteId, siteId), eq(financialSettlements.status, "locked"), lte(financialSettlements.periodStart, occurredAt), gte(financialSettlements.periodEnd, occurredAt))).limit(1);
@@ -989,8 +990,8 @@ export const powerhubRouter = router({
         .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")));
       const ownerTenantIds = memberships.filter((member) => member.role === "owner").map((member) => member.tenantId);
       const [ownedSites, assignedSites] = await Promise.all([
-        ownerTenantIds.length ? db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, anomalyAlertPercent: sites.anomalyAlertPercent, createdAt: sites.createdAt }).from(sites).where(inArray(sites.tenantId, ownerTenantIds)).orderBy(desc(sites.createdAt)) : Promise.resolve([]),
-        db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, anomalyAlertPercent: sites.anomalyAlertPercent, createdAt: sites.createdAt }).from(staffProfiles)
+        ownerTenantIds.length ? db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, anomalyAlertPercent: sites.anomalyAlertPercent, invoiceDueDays: sites.invoiceDueDays, createdAt: sites.createdAt }).from(sites).where(inArray(sites.tenantId, ownerTenantIds)).orderBy(desc(sites.createdAt)) : Promise.resolve([]),
+        db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, anomalyAlertPercent: sites.anomalyAlertPercent, invoiceDueDays: sites.invoiceDueDays, createdAt: sites.createdAt }).from(staffProfiles)
           .innerJoin(sites, eq(staffProfiles.siteId, sites.id))
           .innerJoin(tenantMembers, and(eq(tenantMembers.tenantId, sites.tenantId), eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")))
           .where(and(eq(staffProfiles.userId, ctx.user.id), eq(staffProfiles.isActive, true))).orderBy(desc(sites.createdAt)),
@@ -1041,10 +1042,10 @@ export const powerhubRouter = router({
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "site", entityId: String(input.siteId), action: "update_anomaly_alert", afterData: input });
       return { success: true, anomalyAlertPercent: input.anomalyAlertPercent };
     }),
-    updateBranch: protectedProcedure.input(siteInput.pick({ name: true, city: true, address: true }).extend({ siteId: z.number().int().positive(), status: z.enum(["active", "inactive", "archived"]) })).mutation(async ({ ctx, input }) => {
+    updateBranch: protectedProcedure.input(siteInput.pick({ name: true, city: true, address: true }).extend({ siteId: z.number().int().positive(), status: z.enum(["active", "inactive", "archived"]), invoiceDueDays: z.number().int().min(1).max(90) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"]);
       const db = await dbOrThrow();
-      await db.update(sites).set({ name: input.name, city: input.city, address: input.address, status: input.status, updatedAt: new Date() }).where(eq(sites.id, input.siteId));
+      await db.update(sites).set({ name: input.name, city: input.city, address: input.address, status: input.status, invoiceDueDays: input.invoiceDueDays, updatedAt: new Date() }).where(eq(sites.id, input.siteId));
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "branch", entityId: String(input.siteId), action: "update", afterData: input });
       return { success: true };
     }),
@@ -1309,7 +1310,7 @@ export const powerhubRouter = router({
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: "delete_pending" });
       return { success: true };
     }),
-    approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() }))
+    approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) }))
       .mutation(async ({ ctx, input }) => {
         await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
         const db = await dbOrThrow();
@@ -2120,7 +2121,7 @@ export const powerhubRouter = router({
       const rows = await db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo }).from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id)).innerJoin(auditLogs, and(...conditions)).orderBy(desc(auditLogs.createdAt)).limit(input.limit);
       const results: Array<{ readingId: number; status: "issued" | "failed"; invoiceNo?: string; message?: string }> = [];
       for (const row of rows) {
-        try { const issued = await approveAndIssueMobileReading({ siteId: input.siteId, readingId: row.id, baseVersion: row.versionNo, userId: ctx.user.id }); results.push({ readingId: row.id, status: "issued", invoiceNo: issued.invoiceNo }); }
+        try { const issued = await approveAndIssueMobileReading({ siteId: input.siteId, readingId: row.id, baseVersion: row.versionNo, userId: ctx.user.id, sendNow: input.sendNow }); results.push({ readingId: row.id, status: "issued", invoiceNo: issued.invoiceNo }); }
         catch (error) { results.push({ readingId: row.id, status: "failed", message: error instanceof Error ? error.message : "تعذر اعتماد القراءة وإصدار فاتورتها." }); }
       }
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "mobile_reading_batch", entityId: rows.map((row) => row.id).join(",") || "none", action: "approve_and_auto_issue", metadata: { requested: rows.length, issued: results.filter((row) => row.status === "issued").length, failed: results.filter((row) => row.status === "failed").length, userId: input.userId, from: input.from, to: input.to } });

@@ -256,6 +256,7 @@ export const sites = mysqlTable("sites", {
   address: text("address"),
   status: mysqlEnum("status", ["active", "inactive", "archived"]).default("active").notNull(),
   anomalyAlertPercent: int("anomalyAlertPercent").default(50).notNull(),
+  invoiceDueDays: int("invoiceDueDays").default(14).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
