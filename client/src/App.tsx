@@ -31,6 +31,7 @@ import AttendancePage from "./pages/AttendancePage";
 import MobileSyncPage from "./pages/MobileSyncPage";
 import MobileReadingDetailPage from "./pages/MobileReadingDetailPage";
 import QuickActionsPage from "./pages/QuickActionsPage";
+import OfflineSyncPage from "./pages/OfflineSyncPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -59,6 +60,7 @@ function Router() {
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync/readings/:readingId"}>{() => <RouteAccessGate><MobileReadingDetailPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync"}>{() => <RouteAccessGate><MobileSyncPage /></RouteAccessGate>}</Route>
+      <Route path={"/offline-sync"}>{() => <RouteAccessGate><OfflineSyncPage /></RouteAccessGate>}</Route>
       <Route path={"/settings"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/staff"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/human-resources"}>{() => <RouteAccessGate><HumanResourcesPage /></RouteAccessGate>}</Route>

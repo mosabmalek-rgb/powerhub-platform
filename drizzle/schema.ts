@@ -545,6 +545,7 @@ export const subscribers = mysqlTable("subscribers", {
   tenantId: int("tenantId").notNull().references(() => tenants.id),
   siteId: int("siteId").notNull().references(() => sites.id),
   subscriberNo: varchar("subscriberNo", { length: 50 }).notNull(),
+  clientOperationId: varchar("clientOperationId", { length: 80 }),
   fullName: varchar("fullName", { length: 180 }).notNull(),
   phone: varchar("phone", { length: 30 }).notNull(),
   address: text("address"),
@@ -554,6 +555,7 @@ export const subscribers = mysqlTable("subscribers", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("subscriber_site_number_unique").on(table.siteId, table.subscriberNo),
+  uniqueIndex("subscriber_client_operation_unique").on(table.clientOperationId),
   index("subscribers_tenant_site_idx").on(table.tenantId, table.siteId),
   index("subscribers_site_status_idx").on(table.siteId, table.serviceStatus),
 ]);
@@ -622,6 +624,7 @@ export const invoices = mysqlTable("invoices", {
   readingId: int("readingId").references(() => meterReadings.id),
   tariffId: int("tariffId").references(() => tariffs.id),
   invoiceNo: varchar("invoiceNo", { length: 60 }).notNull().unique(),
+  clientOperationId: varchar("clientOperationId", { length: 80 }),
   billingPeriod: varchar("billingPeriod", { length: 7 }).notNull(),
   issueDate: timestamp("issueDate").defaultNow().notNull(),
   dueDate: timestamp("dueDate").notNull(),
@@ -641,8 +644,29 @@ export const invoices = mysqlTable("invoices", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   uniqueIndex("invoice_subscriber_period_unique").on(table.subscriberId, table.billingPeriod),
+  uniqueIndex("invoice_client_operation_unique").on(table.clientOperationId),
   index("invoices_tenant_site_idx").on(table.tenantId, table.siteId),
   index("invoices_site_status_idx").on(table.siteId, table.status),
+]);
+
+/**
+ * تثبت نتيجة كل عملية تشغيلية قادمة من طابور محلي مرة واحدة فقط. لا تخزن
+ * مدفوعات أو أرصدة هنا؛ السجل مخصص للمسودات الآمنة مثل المشترك والفاتورة.
+ */
+export const offlineSyncOperations = mysqlTable("offlineSyncOperations", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
+  userId: int("userId").notNull().references(() => users.id),
+  clientOperationId: varchar("clientOperationId", { length: 80 }).notNull(),
+  operationType: mysqlEnum("operationType", ["subscriber_create", "subscriber_update", "invoice_issue"]).notNull(),
+  entityType: varchar("entityType", { length: 80 }).notNull(),
+  entityId: int("entityId").notNull(),
+  response: json("response").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("offline_sync_actor_operation_unique").on(table.userId, table.clientOperationId),
+  index("offline_sync_tenant_site_created_idx").on(table.tenantId, table.siteId, table.createdAt),
 ]);
 
 export const invoiceLines = mysqlTable("invoiceLines", {

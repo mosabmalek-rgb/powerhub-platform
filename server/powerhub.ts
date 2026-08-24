@@ -24,6 +24,7 @@ import {
   meterReadings,
   mobileSyncEvents,
   notificationMessages,
+  offlineSyncOperations,
   messagingScheduleRuns,
   platformSmsPlans,
   smsPackageRequests,
@@ -1135,10 +1136,19 @@ export const powerhubRouter = router({
       phone: z.string().min(5).max(30),
       address: z.string().max(1000).optional(),
       subscriptionType: z.enum(["residential", "commercial"]).default("residential"),
+      clientOperationId: z.string().uuid().optional(),
     }).omit({ code: true })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
+      if (input.clientOperationId) {
+        const [applied] = await db.select({ operationType: offlineSyncOperations.operationType, response: offlineSyncOperations.response }).from(offlineSyncOperations)
+          .where(and(eq(offlineSyncOperations.userId, ctx.user.id), eq(offlineSyncOperations.clientOperationId, input.clientOperationId))).limit(1);
+        if (applied) {
+          if (applied.operationType !== "subscriber_create") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
+          return applied.response as { id: number; subscriberNo: string; referenceNotifications: Array<{ notificationId: number; status: string; error?: string }> };
+        }
+      }
       const quota = await ownerSubscriberQuota(tenantId);
       if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
       const phone = normalizeInternationalPhone(input.phone);
@@ -1149,7 +1159,7 @@ export const powerhubRouter = router({
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const subscriberNo = generateSubscriberReference(site.code);
         try {
-          const id = insertId(await db.insert(subscribers).values({ ...input, subscriberNo, phone, tenantId }));
+          const id = insertId(await db.insert(subscribers).values({ siteId: input.siteId, fullName: input.fullName, phone, address: input.address, subscriptionType: input.subscriptionType, subscriberNo, clientOperationId: input.clientOperationId, tenantId }));
           await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(id), action: "create", afterData: { ...input, subscriberNo, phone } });
           const channels = await db.select({ channel: tenantMessagingConfigurations.channel }).from(tenantMessagingConfigurations)
             .where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.isActive, true)));
@@ -1159,8 +1169,15 @@ export const powerhubRouter = router({
             payload: { renderedText, subscriberReferenceTemplateParameters: subscriberReferenceTemplateParameters({ subscriberName: input.fullName, subscriberNo, portalCode }), subscriberNo, portalCode },
           }))));
           const deliveries = await Promise.all(notificationIds.map(async (notificationId) => ({ notificationId, ...await processNotificationById(notificationId).catch((error) => ({ status: "failed" as const, error: error instanceof Error ? error.message : "تعذر بدء إرسال الرسالة." })) })));
-          return { id, subscriberNo, referenceNotifications: deliveries };
+          const response = { id, subscriberNo, referenceNotifications: deliveries };
+          if (input.clientOperationId) await db.insert(offlineSyncOperations).values({ tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "subscriber_create", entityType: "subscriber", entityId: id, response });
+          return response;
         } catch (error) {
+          if (input.clientOperationId && isDuplicateKeyError(error)) {
+            const [appliedSubscriber] = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo }).from(subscribers)
+              .where(eq(subscribers.clientOperationId, input.clientOperationId)).limit(1);
+            if (appliedSubscriber) return { id: appliedSubscriber.id, subscriberNo: appliedSubscriber.subscriberNo, referenceNotifications: [] };
+          }
           if (!isDuplicateKeyError(error) || attempt === 4) throw error;
         }
       }
@@ -1245,15 +1262,29 @@ export const powerhubRouter = router({
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
       address: z.string().max(1000).optional(), subscriptionType: z.enum(["residential", "commercial"]), serviceStatus: z.enum(["active", "suspended", "disconnected"]),
+      clientOperationId: z.string().uuid().optional(), expectedUpdatedAt: z.date().optional(),
     })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageSubscribers");
       const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      if (input.clientOperationId) {
+        const [applied] = await db.select({ operationType: offlineSyncOperations.operationType, response: offlineSyncOperations.response }).from(offlineSyncOperations)
+          .where(and(eq(offlineSyncOperations.userId, ctx.user.id), eq(offlineSyncOperations.clientOperationId, input.clientOperationId))).limit(1);
+        if (applied) {
+          if (applied.operationType !== "subscriber_update") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
+          return applied.response as { success: true; updatedAt: Date };
+        }
+      }
       const [existing] = await db.select().from(subscribers).where(and(eq(subscribers.id, input.id), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن المحطة المحددة." });
+      if (input.expectedUpdatedAt && existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) throw new TRPCError({ code: "CONFLICT", message: "تغيرت بيانات المشترك على الخادم منذ حفظ هذه المسودة. راجع التعارض ثم أعد المحاولة." });
       const phone = normalizeInternationalPhone(input.phone);
-      await db.update(subscribers).set({ fullName: input.fullName, phone, address: input.address, subscriptionType: input.subscriptionType, serviceStatus: input.serviceStatus }).where(eq(subscribers.id, input.id));
+      const updatedAt = new Date();
+      await db.update(subscribers).set({ fullName: input.fullName, phone, address: input.address, subscriptionType: input.subscriptionType, serviceStatus: input.serviceStatus, updatedAt }).where(eq(subscribers.id, input.id));
       await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(input.id), action: "update", beforeData: existing, afterData: { ...input, phone } });
-      return { success: true };
+      const response = { success: true as const, updatedAt };
+      if (input.clientOperationId) await db.insert(offlineSyncOperations).values({ tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "subscriber_update", entityType: "subscriber", entityId: input.id, response });
+      return response;
     }),
     phoneReview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
@@ -1456,10 +1487,18 @@ export const powerhubRouter = router({
     }),
     createFromReading: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), readingId: z.number().int().positive(), tariffId: z.number().int().positive(),
-      billingPeriod: z.string().regex(/^\d{4}-\d{2}$/), dueDate: z.date(), discountAmount: z.number().min(0).default(0),
+      billingPeriod: z.string().regex(/^\d{4}-\d{2}$/), dueDate: z.date(), discountAmount: z.number().min(0).default(0), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
       const db = await dbOrThrow();
+      if (input.clientOperationId) {
+        const [applied] = await db.select({ operationType: offlineSyncOperations.operationType, response: offlineSyncOperations.response }).from(offlineSyncOperations)
+          .where(and(eq(offlineSyncOperations.userId, ctx.user.id), eq(offlineSyncOperations.clientOperationId, input.clientOperationId))).limit(1);
+        if (applied) {
+          if (applied.operationType !== "invoice_issue") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
+          return applied.response as { id: number; invoiceNo: string; totalAmount: number };
+        }
+      }
       const [readingScope] = await db.select({ reading: meterReadings, subscriber: subscribers }).from(meterReadings)
         .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
         .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
@@ -1483,10 +1522,10 @@ export const powerhubRouter = router({
       const countResult = await db.select({ count: sql<number>`count(*)` }).from(invoices).where(eq(invoices.siteId, input.siteId));
       const calculated = calculateInvoiceAmounts({ consumptionKwh: Number(reading.consumptionKwh ?? 0), pricePerKwh: Number(tariff.pricePerKwh), fixedFee: Number(tariff.fixedFee), taxRate: Number(tariff.taxRate), discountAmount: input.discountAmount });
       const invoiceNo = nextInvoiceNo(site.code, input.billingPeriod, Number(countResult[0]?.count ?? 0) + 1);
-      const id = await db.transaction(async (tx) => {
+      const response = await db.transaction(async (tx) => {
         const invoiceId = insertId(await tx.insert(invoices).values({
           tenantId: site.tenantId, siteId: input.siteId, subscriberId: subscriber.id, readingId: reading.id, tariffId: tariff.id,
-          invoiceNo, billingPeriod: input.billingPeriod, dueDate: input.dueDate, previousReading: reading.previousReadingValue,
+          invoiceNo, clientOperationId: input.clientOperationId, billingPeriod: input.billingPeriod, dueDate: input.dueDate, previousReading: reading.previousReadingValue,
           currentReading: reading.readingValue, consumptionKwh: reading.consumptionKwh ?? "0", pricePerKwh: tariff.pricePerKwh,
           fixedFee: tariff.fixedFee, taxAmount: String(calculated.taxAmount), discountAmount: String(input.discountAmount),
           totalAmount: String(calculated.totalAmount), balanceDue: String(calculated.totalAmount), status: "issued", createdByUserId: ctx.user.id,
@@ -1498,11 +1537,13 @@ export const powerhubRouter = router({
         ];
         if (input.discountAmount > 0) lines.push({ lineType: "discount" as const, description: "خصم", quantity: "1", unitPrice: String(input.discountAmount), amount: String(input.discountAmount), displayOrder: 4 });
         await tx.insert(invoiceLines).values(lines.map((line) => ({ ...line, tenantId: site.tenantId, invoiceId })));
-        return invoiceId;
+        const result = { id: invoiceId, invoiceNo, totalAmount: calculated.totalAmount };
+        if (input.clientOperationId) await tx.insert(offlineSyncOperations).values({ tenantId: site.tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "invoice_issue", entityType: "invoice", entityId: invoiceId, response: result });
+        return result;
       });
       if (tenantChannels.length) await db.insert(notificationMessages).values(tenantChannels.map((channel) => ({
         tenantId: site.tenantId,
-        invoiceId: id,
+        invoiceId: response.id,
         subscriberId: subscriber.id,
         channel,
         eventType: "invoice_issued" as const,
@@ -1510,8 +1551,8 @@ export const powerhubRouter = router({
         status: "pending" as const,
         payload: { invoiceNo, billingPeriod: input.billingPeriod, totalAmount: calculated.totalAmount, renderedText: renderInvoiceMessageTemplate(templateByChannel.get(channel) ?? defaultInvoiceMessageTemplates[channel], { subscriber_name: subscriber.fullName, invoice_no: invoiceNo, billing_period: input.billingPeriod, total_amount: String(calculated.totalAmount), due_date: input.dueDate.toLocaleDateString("ar-IQ") }) },
       })));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "invoice", entityId: String(id), action: "issue", afterData: { invoiceNo, ...calculated } });
-      return { id, invoiceNo, totalAmount: calculated.totalAmount };
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "invoice", entityId: String(response.id), action: "issue", afterData: { invoiceNo, ...calculated, clientOperationId: input.clientOperationId } });
+      return response;
     }),
     createShareLink: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive(), expiresAt: z.date().optional() }))
       .mutation(async ({ ctx, input }) => {
