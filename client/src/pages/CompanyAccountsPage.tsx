@@ -7,15 +7,19 @@ import { trpc } from "@/lib/trpc";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards } from "lucide-react";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
-import { useMemo, useState } from "react";
+import { type ElementType, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const labels: Record<string, string> = { cash: "كاش", jawwal_pay: "جوال بي", palpay: "بال بي", bank_of_palestine: "بنك فلسطين", other: "حساب آخر" };
-const accountTheme: Record<string, { card: string; icon: typeof WalletCards; badge: string; shortLabel: string }> = {
+const JawwalPayIcon = ({ className }: { className?: string }) => <img src="/manus-storage/jawwal-pay-icon_edd6d11a.jpg" alt="أيقونة جوال بي" className={`rounded bg-white/90 object-contain p-0.5 ${className ?? ""}`} />;
+const PalPayIcon = ({ className }: { className?: string }) => <img src="/manus-storage/palpay-icon_11c57bc1.jpg" alt="أيقونة بال بي" className={`rounded bg-white/90 object-contain p-0.5 ${className ?? ""}`} />;
+const BankOfPalestineIcon = ({ className }: { className?: string }) => <img src="/manus-storage/bank-of-palestine-icon_52efe085.png" alt="أيقونة بنك فلسطين" className={`rounded bg-white/90 object-contain p-0.5 ${className ?? ""}`} />;
+
+const accountTheme: Record<string, { card: string; icon: ElementType; badge: string; shortLabel: string }> = {
   cash: { card: "border-slate-300/40 bg-slate-300/40", icon: Banknote, badge: "bg-slate-950/40 text-white", shortLabel: "CASH" },
-  jawwal_pay: { card: "border-emerald-300/40 bg-emerald-500/40", icon: WalletCards, badge: "bg-emerald-950/45 text-emerald-50", shortLabel: "JPay" },
-  palpay: { card: "border-violet-300/40 bg-violet-500/40", icon: CircleDollarSign, badge: "bg-violet-950/45 text-violet-50", shortLabel: "PalPay" },
-  bank_of_palestine: { card: "border-cyan-300/40 bg-cyan-500/40", icon: Landmark, badge: "bg-cyan-950/45 text-cyan-50", shortLabel: "BOP" },
+  jawwal_pay: { card: "border-emerald-300/40 bg-emerald-500/40", icon: JawwalPayIcon, badge: "bg-emerald-950/45 text-emerald-50", shortLabel: "JPay" },
+  palpay: { card: "border-violet-300/40 bg-violet-500/40", icon: PalPayIcon, badge: "bg-violet-950/45 text-violet-50", shortLabel: "PalPay" },
+  bank_of_palestine: { card: "border-cyan-300/40 bg-cyan-500/40", icon: BankOfPalestineIcon, badge: "bg-cyan-950/45 text-cyan-50", shortLabel: "BOP" },
   other: { card: "border-amber-300/40 bg-amber-500/40", icon: WalletCards, badge: "bg-amber-950/45 text-amber-50", shortLabel: "حساب" },
 };
 
