@@ -24,7 +24,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, listTweetSmsAccounts: { invalidate: vi.fn() }, getPlatformTweetSmsAccount: { invalidate: vi.fn() }, platformTweetSmsReport: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, listTweetSmsAccounts: { invalidate: vi.fn() }, getPlatformTweetSmsAccount: { invalidate: vi.fn() }, platformTweetSmsReport: { invalidate: vi.fn() }, listPlatformSmsFallbackProviders: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { generatorOwners: 1, residential: 120, commercial: 30, subscribers: 150, activeSubscriptions: 1 }, owners: [ownerRow] } }) },
       listOwners: { useQuery: () => ({ data: [ownerRow] }) },
@@ -39,6 +39,7 @@ vi.mock("@/lib/trpc", () => ({
       listTweetSmsAccounts: { useQuery: () => ({ data: [{ id: 7, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerPhone: "0790000000", apiEndpoint: "https://api.example.test", senderName: "MouldNorth", monthlyLimit: 500, usedThisMonth: 42, remaining: 458, isActive: true, configured: true, lastTestedAt: null, lastError: null, updatedAt: new Date() }] }) },
       getPlatformTweetSmsAccount: { useQuery: () => ({ data: { id: 1, apiEndpoint: "https://tweetsms.ps", senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: new Date(), lastTestedAt: new Date(), lastError: null, isActive: true, configured: true } }) },
       platformTweetSmsReport: { useQuery: () => ({ data: { account: null, total: 42, usageRows: [{ tenantId: 9, tenantName: "مساحة مولد الاختبار", total: 42, submitted: 40, failed: 2 }], alerts: [{ id: 1, balance: 80, threshold: 100, status: "open", notifiedAt: new Date() }] } }) },
+      listPlatformSmsFallbackProviders: { useQuery: () => ({ data: [{ id: 13, name: "مزود بديل تجريبي", providerKey: "backup-sms", apiEndpoint: "https://backup.example.test", senderName: "PowerHub", priority: 10, integrationStatus: "pending_contract", isActive: true, configured: true, lastTestedAt: null, lastError: null, updatedAt: new Date() }] }) },
       advancedDashboard: { useQuery: () => ({ data: { kpis: { activeGenerators: 2, subscribers: 150, dailyConsumption: 50, monthlyConsumption: 1000, monthlyCollections: 4000, openComplaints: 1, generatorsToReview: 0, collectionRate: 80 }, monthlyGrowth: [{ month: "2026-08", count: 150 }], consumptionByRegion: [{ region: "بغداد", consumptionKwh: 1000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", code: "GEN-T-01", tenantName: "مساحة مولد الاختبار", amount: 4000 }], latestGenerators: [], recentComplaints: [], expiringSubscriptions: [] } }) },
       globalSearch: { useQuery: () => ({ data: [] }) },
       listComplaints: { useQuery: () => ({ data: [{ id: 4, title: "شكوى اختبار", description: "تفاصيل الشكوى", priority: "high", status: "open", response: null, openedAt: new Date(), resolvedAt: null, tenantId: 1, tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", subscriberName: "مشترك تجريبي", assignedUserId: null, assignedUserName: null }] }) },
@@ -70,6 +71,7 @@ vi.mock("@/lib/trpc", () => ({
       testTweetSmsAccount: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       savePlatformTweetSmsAccount: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       testPlatformTweetSmsAccount: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
+      savePlatformSmsFallbackProvider: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
     },
   },
 }));
@@ -113,6 +115,10 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("حساب TweetSMS المركزي للمنصة")).toBeInTheDocument();
     expect(screen.getByText("استهلاك الرسائل حسب صاحب المولد")).toBeInTheDocument();
     expect(screen.getByText("تنبيهات رصيد TweetSMS")).toBeInTheDocument();
+    fireEvent.click(sidebarNav("مزود SMS احتياطي"));
+    expect(screen.getByText("مزود SMS احتياطي — تهيئة آمنة")).toBeInTheDocument();
+    expect(screen.getByText("بانتظار عقد API")).toBeInTheDocument();
+    expect(screen.queryByText("encrypted-secret")).not.toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getByText("مولدات محظورة")).toBeInTheDocument();
     fireEvent.click(sidebarNav("التنبيهات والإشعارات"));

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, platformTweetSmsAccounts, platformTweetSmsBalanceAlerts, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenantTweetSmsAccounts, tenants, users } from "../drizzle/schema";
+import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, platformSmsFallbackProviders, platformTweetSmsAccounts, platformTweetSmsBalanceAlerts, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenantTweetSmsAccounts, tenants, users } from "../drizzle/schema";
 import { getDb, syncSupabaseUser } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
@@ -30,6 +30,48 @@ const platformTweetSmsAccountInput = z.object({
   lowBalanceThreshold: z.number().int().min(0).max(10_000_000),
   isActive: z.boolean(),
 });
+
+const platformSmsFallbackProviderInput = z.object({
+  id: z.number().int().positive().optional(),
+  name: z.string().trim().min(2).max(160),
+  providerKey: z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9_-]{1,79}$/, "استخدم رمزاً لاتينياً فريداً من أحرف وأرقام وشرطات فقط."),
+  apiEndpoint: z.string().trim().url().max(500).optional().or(z.literal("")),
+  credentials: z.string().trim().min(8).max(4096).optional(),
+  senderName: z.string().trim().max(120).optional(),
+  priority: z.number().int().min(1).max(10_000),
+  isActive: z.boolean(),
+});
+
+export function platformSmsFallbackProviderSummary(provider: {
+  id: number;
+  name: string;
+  providerKey: string;
+  apiEndpoint: string | null;
+  senderName: string | null;
+  priority: number;
+  integrationStatus: "pending_contract" | "ready";
+  isActive: boolean;
+  credentialCiphertext: string | null;
+  credentialIv: string | null;
+  lastTestedAt: Date | null;
+  lastError: string | null;
+  updatedAt: Date;
+}) {
+  return {
+    id: provider.id,
+    name: provider.name,
+    providerKey: provider.providerKey,
+    apiEndpoint: provider.apiEndpoint,
+    senderName: provider.senderName,
+    priority: provider.priority,
+    integrationStatus: provider.integrationStatus,
+    isActive: provider.isActive,
+    configured: Boolean(provider.credentialCiphertext && provider.credentialIv),
+    lastTestedAt: provider.lastTestedAt,
+    lastError: provider.lastError,
+    updatedAt: provider.updatedAt,
+  };
+}
 
 const platformRoleSchema = z.enum(["platform_owner", "platform_admin", "finance_admin"]);
 type PlatformRole = z.infer<typeof platformRoleSchema>;
@@ -357,6 +399,52 @@ export const adminRouter = router({
       isActive: account.isActive,
       configured: Boolean(account.credentialCiphertext && account.credentialIv),
     };
+  }),
+
+  listPlatformSmsFallbackProviders: platformAdminProcedure.query(async () => {
+    const db = await dbOrThrow();
+    const providers = await db.select().from(platformSmsFallbackProviders).orderBy(platformSmsFallbackProviders.priority, desc(platformSmsFallbackProviders.updatedAt));
+    return providers.map(platformSmsFallbackProviderSummary);
+  }),
+
+  savePlatformSmsFallbackProvider: platformAdminProcedure.input(platformSmsFallbackProviderInput).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow();
+    const [existing] = input.id
+      ? await db.select().from(platformSmsFallbackProviders).where(eq(platformSmsFallbackProviders.id, input.id)).limit(1)
+      : [];
+    if (input.id && !existing) throw new TRPCError({ code: "NOT_FOUND", message: "مزود الرسائل الاحتياطي غير موجود." });
+    const endpoint = input.apiEndpoint?.trim() || null;
+    if (endpoint && !/^https:\/\//i.test(endpoint)) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب أن يبدأ رابط API الآمن بـ https://" });
+    const credentialsProvided = Boolean(input.credentials?.trim());
+    const encrypted = credentialsProvided ? encryptTenantCredential(input.credentials!.trim()) : null;
+    const values = {
+      name: input.name,
+      providerKey: input.providerKey,
+      apiEndpoint: endpoint,
+      senderName: input.senderName?.trim() || null,
+      priority: input.priority,
+      isActive: input.isActive,
+      integrationStatus: "pending_contract" as const,
+      updatedByUserId: ctx.user.id,
+      ...(encrypted ? { credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, credentialKeyVersion: 1 } : {}),
+    };
+    let providerId = existing?.id;
+    if (existing) {
+      await db.update(platformSmsFallbackProviders).set(values).where(eq(platformSmsFallbackProviders.id, existing.id));
+    } else {
+      const result = await db.insert(platformSmsFallbackProviders).values({ ...values, createdByUserId: ctx.user.id });
+      providerId = Number(result[0].insertId);
+    }
+    await db.insert(platformSecurityEvents).values({
+      eventType: "security_change",
+      severity: "info",
+      status: "success",
+      title: "تم تحديث مزود SMS الاحتياطي",
+      details: "تم حفظ إعداد احتياطي مشفر. لن يُستخدم للإرسال حتى إضافة عقد API موثق ومحول إرسال معتمد.",
+      createdByUserId: ctx.user.id,
+      metadata: { providerId, providerKey: input.providerKey, isActive: input.isActive, priority: input.priority, credentialsUpdated: credentialsProvided, integrationStatus: "pending_contract" },
+    });
+    return { success: true, id: providerId, configured: credentialsProvided || Boolean(existing?.credentialCiphertext && existing.credentialIv), integrationStatus: "pending_contract" as const };
   }),
 
   savePlatformTweetSmsAccount: platformAdminProcedure.input(platformTweetSmsAccountInput).mutation(async ({ ctx, input }) => {

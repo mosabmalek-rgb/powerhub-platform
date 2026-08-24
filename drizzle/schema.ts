@@ -278,6 +278,28 @@ export const platformTweetSmsBalanceAlerts = mysqlTable("platformTweetSmsBalance
   index("platform_tweetsms_alert_account_status_idx").on(table.accountId, table.status),
 ]);
 
+export const platformSmsFallbackProviders = mysqlTable("platformSmsFallbackProviders", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  providerKey: varchar("providerKey", { length: 80 }).notNull().unique(),
+  apiEndpoint: varchar("apiEndpoint", { length: 500 }),
+  credentialCiphertext: text("credentialCiphertext"),
+  credentialIv: varchar("credentialIv", { length: 64 }),
+  credentialKeyVersion: int("credentialKeyVersion").default(1).notNull(),
+  senderName: varchar("senderName", { length: 120 }),
+  priority: int("priority").default(100).notNull(),
+  integrationStatus: mysqlEnum("integrationStatus", ["pending_contract", "ready"]).default("pending_contract").notNull(),
+  isActive: boolean("isActive").default(false).notNull(),
+  lastTestedAt: timestamp("lastTestedAt"),
+  lastError: text("lastError"),
+  createdByUserId: int("createdByUserId").references(() => users.id),
+  updatedByUserId: int("updatedByUserId").references(() => users.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("platform_sms_fallback_active_priority_idx").on(table.isActive, table.priority),
+]);
+
 export const tenantInvoiceMessageTemplates = mysqlTable("tenantInvoiceMessageTemplates", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
