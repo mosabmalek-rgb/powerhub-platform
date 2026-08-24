@@ -1167,6 +1167,66 @@ export const powerhubRouter = router({
       }
       throw new TRPCError({ code: "CONFLICT", message: "تعذر توليد رقم مرجعي فريد للمشترك. أعد المحاولة." });
     }),
+    bulkImport: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      rows: z.array(z.object({
+        sourceRow: z.number().int().min(2),
+        fullName: z.string().trim().max(300),
+        phone: z.string().trim().max(60),
+        address: z.string().trim().max(1500).optional(),
+        subscriptionType: z.enum(["residential", "commercial"]),
+      })).min(1).max(300),
+    })).mutation(async ({ ctx, input }) => {
+      await requireRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
+      const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      const quota = await ownerSubscriberQuota(tenantId);
+      if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}).` });
+      const [site] = await db.select({ code: sites.code }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
+      const failureRows: Array<{ sourceRow: number; fullName: string; reason: string }> = [];
+      const seenPhones = new Set<string>();
+      const accepted: Array<{ sourceRow: number; fullName: string; phone: string; address?: string; subscriptionType: "residential" | "commercial" }> = [];
+      for (const row of input.rows) {
+        if (row.fullName.trim().length < 2) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الاسم الكامل قصير جداً." }); continue; }
+        let phone: string;
+        try { phone = normalizeInternationalPhone(row.phone); }
+        catch { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال غير صالح؛ استخدم رمز الدولة مثل +970." }); continue; }
+        if (seenPhones.has(phone)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال مكرر داخل ملف الاستيراد." }); continue; }
+        seenPhones.add(phone);
+        accepted.push({ sourceRow: row.sourceRow, fullName: row.fullName.trim(), phone, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType });
+      }
+      const existing = await db.select({ fullName: subscribers.fullName, phone: subscribers.phone }).from(subscribers).where(eq(subscribers.siteId, input.siteId));
+      const existingKeys = new Set(existing.map((row) => `${row.fullName.trim().toLocaleLowerCase("ar")}:${row.phone}`));
+      const uniqueRows = accepted.filter((row) => {
+        const key = `${row.fullName.toLocaleLowerCase("ar")}:${row.phone}`;
+        if (!existingKeys.has(key)) return true;
+        failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "يوجد مشترك بالاسم ورقم الجوال نفسيهما في هذا الفرع." });
+        return false;
+      });
+      const remainingCapacity = quota.limit === Infinity ? uniqueRows.length : Math.max(0, quota.limit - quota.currentCount);
+      const rowsToCreate = uniqueRows.slice(0, remainingCapacity);
+      uniqueRows.slice(remainingCapacity).forEach((row) => failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "يتجاوز هذا الصف الحد المتاح للمشتركين في الباقة." }));
+      const created: Array<{ id: number; sourceRow: number; fullName: string; subscriberNo: string }> = [];
+      for (const row of rowsToCreate) {
+        let createdRow: { id: number; sourceRow: number; fullName: string; subscriberNo: string } | null = null;
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          const subscriberNo = generateSubscriberReference(site.code);
+          try {
+            const id = insertId(await db.insert(subscribers).values({ tenantId, siteId: input.siteId, subscriberNo, fullName: row.fullName, phone: row.phone, address: row.address, subscriptionType: row.subscriptionType }));
+            await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber", entityId: String(id), action: "bulk_import_create", afterData: { fullName: row.fullName, phone: row.phone, subscriberNo, sourceRow: row.sourceRow } });
+            createdRow = { id, sourceRow: row.sourceRow, fullName: row.fullName, subscriberNo };
+            break;
+          } catch (error) {
+            if (!isDuplicateKeyError(error) || attempt === 4) throw error;
+          }
+        }
+        if (createdRow) created.push(createdRow);
+        else failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "تعذر توليد رقم مرجعي فريد للمشترك." });
+      }
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber_import", entityId: `bulk-${Date.now()}`, action: "bulk_import", afterData: { requested: input.rows.length, created: created.length, failed: failureRows.length } });
+      return { created, failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لم تُرسل رسائل الأرقام المرجعية تلقائياً ضمن الاستيراد الجماعي لحماية رصيد الرسائل؛ استخدم إرسال الإشعارات بعد المراجعة." };
+    }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
       address: z.string().max(1000).optional(), subscriptionType: z.enum(["residential", "commercial"]), serviceStatus: z.enum(["active", "suspended", "disconnected"]),
