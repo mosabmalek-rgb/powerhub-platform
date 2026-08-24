@@ -30,6 +30,7 @@ import PayrollPage from "./pages/PayrollPage";
 import AttendancePage from "./pages/AttendancePage";
 import MobileSyncPage from "./pages/MobileSyncPage";
 import MobileReadingDetailPage from "./pages/MobileReadingDetailPage";
+import QuickActionsPage from "./pages/QuickActionsPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -38,6 +39,7 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path={"/login"} component={LoginPage} />
       <Route path={"/workspace"}>{() => <RouteAccessGate><WorkspaceHome /></RouteAccessGate>}</Route>
+      <Route path={"/quick-actions"}>{() => <RouteAccessGate><QuickActionsPage /></RouteAccessGate>}</Route>
       <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/portal"} component={SubscriberPortalPage} />

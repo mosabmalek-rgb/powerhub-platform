@@ -25,7 +25,7 @@ import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, BriefcaseBusiness, ClipboardCheck, ChartNoAxesCombined, Fuel, Gauge,
   LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X,
-  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store, RadioTower,
+  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store, RadioTower, Zap,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -36,7 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 const menuGroups = [
   {
     label: "نظرة عامة",
-    items: [{ icon: LayoutDashboard, label: "لوحة التحكم", path: "/workspace" }],
+    items: [{ icon: LayoutDashboard, label: "لوحة التحكم", path: "/workspace" }, { icon: Zap, label: "الإجراءات السريعة", path: "/quick-actions" }],
   },
   {
     label: "إدارة الشبكة",
