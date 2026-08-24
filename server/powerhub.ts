@@ -46,6 +46,7 @@ import {
   tenantPaymentReceiptMessageTemplates,
   tenantBranchSettings,
   tenants,
+  userQuickActionPreferences,
   users,
 } from "../drizzle/schema";
 import { getDb, syncSupabaseUser } from "./db";
@@ -67,6 +68,16 @@ import { COOKIE_NAME } from "../shared/const";
 
 const createRoles = rolesWith("issueInvoices");
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
+export const quickActionCapabilityById = {
+  add_subscriber: "manageSubscribers",
+  record_reading: "recordReadings",
+  create_invoice: "issueInvoices",
+  collect_payment: "collectPayments",
+  record_expense: "manageExpenses",
+  send_notification: "manageMessaging",
+} as const satisfies Record<string, PowerCapability>;
+export const quickActionIds = Object.keys(quickActionCapabilityById) as Array<keyof typeof quickActionCapabilityById>;
+const quickActionIdSchema = z.enum(["add_subscriber", "record_reading", "create_invoice", "collect_payment", "record_expense", "send_notification"]);
 function sessionCookie(req: { headers?: { cookie?: string } }) { return (req.headers?.cookie ?? "").split(";").map((part) => part.trim()).find((part) => part.startsWith(`${COOKIE_NAME}=`))?.slice(COOKIE_NAME.length + 1) ?? ""; }
 const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
@@ -669,6 +680,26 @@ export const powerhubRouter = router({
       await db.insert(tenantPaymentReceiptMessageTemplates).values({ tenantId, channel: "sms", body: input.body, isActive: input.isActive }).onDuplicateKeyUpdate({ set: { body: input.body, isActive: input.isActive } });
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_payment_receipt_message_template", entityId: `${tenantId}:sms`, action: "upsert", metadata: { channel: "sms", isActive: input.isActive } });
       return { success: true };
+    }),
+  }),
+  quickActions: router({
+    preferences: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      await resolveAccess(ctx.user.id, input.siteId);
+      const db = await dbOrThrow();
+      const [preference] = await db.select({ actionIds: userQuickActionPreferences.actionIds, updatedAt: userQuickActionPreferences.updatedAt })
+        .from(userQuickActionPreferences)
+        .where(and(eq(userQuickActionPreferences.userId, ctx.user.id), eq(userQuickActionPreferences.siteId, input.siteId)))
+        .limit(1);
+      const actionIds = Array.isArray(preference?.actionIds) ? preference.actionIds.filter((actionId): actionId is keyof typeof quickActionCapabilityById => typeof actionId === "string" && actionId in quickActionCapabilityById) : [];
+      return { actionIds, updatedAt: preference?.updatedAt ?? null };
+    }),
+    savePreferences: protectedProcedure.input(siteScoped.extend({ actionIds: z.array(quickActionIdSchema).min(1).max(6).refine((actionIds) => new Set(actionIds).size === actionIds.length, "لا يمكن تكرار الإجراء المختار.") })).mutation(async ({ ctx, input }) => {
+      const access = await resolveAccess(ctx.user.id, input.siteId);
+      const unavailable = input.actionIds.find((actionId) => access.role !== "owner" && !access.permissions.includes(quickActionCapabilityById[actionId]));
+      if (unavailable) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك حفظ إجراء لا تملك صلاحيته في هذا الفرع." });
+      const db = await dbOrThrow();
+      await db.insert(userQuickActionPreferences).values({ userId: ctx.user.id, siteId: input.siteId, actionIds: input.actionIds }).onDuplicateKeyUpdate({ set: { actionIds: input.actionIds, updatedAt: new Date() } });
+      return { success: true, actionIds: input.actionIds };
     }),
   }),
   staff: router({

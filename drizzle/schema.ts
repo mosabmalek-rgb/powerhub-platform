@@ -28,6 +28,18 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const userQuickActionPreferences = mysqlTable("userQuickActionPreferences", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  siteId: int("siteId").notNull().references(() => sites.id),
+  actionIds: json("actionIds").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("user_quick_actions_user_site_unique").on(table.userId, table.siteId),
+  index("user_quick_actions_site_idx").on(table.siteId),
+]);
+
 export const mobileApiSessions = mysqlTable("mobileApiSessions", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id),
