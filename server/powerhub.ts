@@ -22,7 +22,6 @@ import {
   invoiceShareLinks,
   invoices,
   meterReadings,
-  meters,
   mobileSyncEvents,
   notificationMessages,
   messagingScheduleRuns,
@@ -183,11 +182,11 @@ async function getSiteTenant(siteId: number) {
 type InvoiceIssueResult = { id: number; invoiceNo: string; totalAmount: number; notificationIds: number[]; alreadyIssued: boolean };
 
 async function issueInvoiceForApprovedReading(db: any, input: { siteId: number; readingId: number; userId: number; billingPeriod: string; dueDate: Date; tariffId?: number; discountAmount?: number }): Promise<InvoiceIssueResult> {
-  const [readingScope] = await db.select({ reading: meterReadings, meter: meters, subscriber: subscribers, site: sites })
-    .from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id)).innerJoin(sites, eq(sites.id, subscribers.siteId))
+  const [readingScope] = await db.select({ reading: meterReadings, subscriber: subscribers, site: sites })
+    .from(meterReadings).innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id)).innerJoin(sites, eq(sites.id, subscribers.siteId))
     .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
-  const reading = readingScope?.reading; const meter = readingScope?.meter; const subscriber = readingScope?.subscriber; const site = readingScope?.site;
-  if (!reading || reading.status !== "approved" || !meter || !subscriber || !site) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن فوترة قراءة غير معتمدة أو لا تتبع للمحطة المحددة." });
+  const reading = readingScope?.reading; const subscriber = readingScope?.subscriber; const site = readingScope?.site;
+  if (!reading || reading.status !== "approved" || !subscriber || !site) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن فوترة قراءة غير معتمدة أو لا تتبع للمحطة المحددة." });
   const [existing] = await db.select({ id: invoices.id, invoiceNo: invoices.invoiceNo, totalAmount: invoices.totalAmount }).from(invoices).where(eq(invoices.readingId, reading.id)).limit(1);
   if (existing) return { id: existing.id, invoiceNo: existing.invoiceNo, totalAmount: Number(existing.totalAmount), notificationIds: [], alreadyIssued: true };
   const tariffConditions = [eq(tariffs.siteId, input.siteId), eq(tariffs.isActive, true)];
@@ -205,7 +204,7 @@ async function issueInvoiceForApprovedReading(db: any, input: { siteId: number; 
   const countResult = await db.select({ count: sql<number>`count(*)` }).from(invoices).where(eq(invoices.siteId, input.siteId));
   const calculated = calculateInvoiceAmounts({ consumptionKwh: Number(reading.consumptionKwh ?? 0), pricePerKwh: Number(tariff.pricePerKwh), fixedFee: Number(tariff.fixedFee), taxRate: Number(tariff.taxRate), discountAmount: input.discountAmount ?? 0 });
   const invoiceNo = nextInvoiceNo(site.code, input.billingPeriod, Number(countResult[0]?.count ?? 0) + 1);
-  const invoiceId = insertId(await db.insert(invoices).values({ tenantId: site.tenantId, siteId: input.siteId, subscriberId: meter.subscriberId, meterId: meter.id, readingId: reading.id, tariffId: tariff.id, invoiceNo, billingPeriod: input.billingPeriod, dueDate: input.dueDate, previousReading: reading.previousReadingValue, currentReading: reading.readingValue, consumptionKwh: reading.consumptionKwh ?? "0", pricePerKwh: tariff.pricePerKwh, fixedFee: tariff.fixedFee, taxAmount: String(calculated.taxAmount), discountAmount: String(input.discountAmount ?? 0), totalAmount: String(calculated.totalAmount), balanceDue: String(calculated.totalAmount), status: "issued", createdByUserId: input.userId }));
+  const invoiceId = insertId(await db.insert(invoices).values({ tenantId: site.tenantId, siteId: input.siteId, subscriberId: subscriber.id, readingId: reading.id, tariffId: tariff.id, invoiceNo, billingPeriod: input.billingPeriod, dueDate: input.dueDate, previousReading: reading.previousReadingValue, currentReading: reading.readingValue, consumptionKwh: reading.consumptionKwh ?? "0", pricePerKwh: tariff.pricePerKwh, fixedFee: tariff.fixedFee, taxAmount: String(calculated.taxAmount), discountAmount: String(input.discountAmount ?? 0), totalAmount: String(calculated.totalAmount), balanceDue: String(calculated.totalAmount), status: "issued", createdByUserId: input.userId }));
   const lines: Array<{ lineType: "energy" | "fixed_fee" | "tax" | "discount"; description: string; quantity: string; unitPrice: string; amount: string; displayOrder: number }> = [
     { lineType: "energy", description: "استهلاك الكهرباء", quantity: String(reading.consumptionKwh ?? 0), unitPrice: tariff.pricePerKwh, amount: String(calculated.energyAmount), displayOrder: 1 },
     { lineType: "fixed_fee", description: "رسم ثابت", quantity: "1", unitPrice: tariff.fixedFee, amount: tariff.fixedFee, displayOrder: 2 },
@@ -257,7 +256,7 @@ async function approveAndIssueMobileReading(input: { siteId: number; readingId: 
   const db = await dbOrThrow();
   const result = await db.transaction(async (tx) => {
     const [scope] = await tx.select({ id: meterReadings.id, status: meterReadings.status, versionNo: meterReadings.versionNo, readingAt: meterReadings.readingAt, invoiceDueDays: sites.invoiceDueDays, invoiceId: invoices.id, invoiceNo: invoices.invoiceNo, invoiceTotal: invoices.totalAmount })
-      .from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id)).innerJoin(sites, eq(sites.id, subscribers.siteId))
+      .from(meterReadings).innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id)).innerJoin(sites, eq(sites.id, subscribers.siteId))
       .innerJoin(auditLogs, and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.action, "mobile_create"), sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`))
       .leftJoin(invoices, eq(invoices.readingId, meterReadings.id))
       .where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.tenantId, tenantId), eq(subscribers.siteId, input.siteId))).limit(1);
@@ -1169,8 +1168,10 @@ export const powerhubRouter = router({
     }),
     bulkImport: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
+      updateExisting: z.boolean().default(false),
       rows: z.array(z.object({
         sourceRow: z.number().int().min(2),
+        subscriberNo: z.string().trim().max(80).optional(),
         fullName: z.string().trim().max(300),
         phone: z.string().trim().max(60),
         address: z.string().trim().max(1500).optional(),
@@ -1181,12 +1182,12 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
       const quota = await ownerSubscriberQuota(tenantId);
-      if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}).` });
       const [site] = await db.select({ code: sites.code }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
       if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
       const failureRows: Array<{ sourceRow: number; fullName: string; reason: string }> = [];
       const seenPhones = new Set<string>();
-      const accepted: Array<{ sourceRow: number; fullName: string; phone: string; address?: string; subscriptionType: "residential" | "commercial" }> = [];
+      const seenReferences = new Set<string>();
+      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; address?: string; subscriptionType: "residential" | "commercial" }> = [];
       for (const row of input.rows) {
         if (row.fullName.trim().length < 2) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الاسم الكامل قصير جداً." }); continue; }
         let phone: string;
@@ -1194,16 +1195,30 @@ export const powerhubRouter = router({
         catch { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال غير صالح؛ استخدم رمز الدولة مثل +970." }); continue; }
         if (seenPhones.has(phone)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال مكرر داخل ملف الاستيراد." }); continue; }
         seenPhones.add(phone);
-        accepted.push({ sourceRow: row.sourceRow, fullName: row.fullName.trim(), phone, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType });
+        const subscriberNo = row.subscriberNo?.replace(/\s+/g, "").toUpperCase();
+        if (subscriberNo && !/^[A-Z0-9][A-Z0-9_-]{1,79}$/.test(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي غير صالح." }); continue; }
+        if (subscriberNo && seenReferences.has(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي مكرر داخل ملف الاستيراد." }); continue; }
+        if (subscriberNo) seenReferences.add(subscriberNo);
+        accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType });
       }
-      const existing = await db.select({ fullName: subscribers.fullName, phone: subscribers.phone }).from(subscribers).where(eq(subscribers.siteId, input.siteId));
-      const existingKeys = new Set(existing.map((row) => `${row.fullName.trim().toLocaleLowerCase("ar")}:${row.phone}`));
-      const uniqueRows = accepted.filter((row) => {
-        const key = `${row.fullName.toLocaleLowerCase("ar")}:${row.phone}`;
-        if (!existingKeys.has(key)) return true;
-        failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "يوجد مشترك بالاسم ورقم الجوال نفسيهما في هذا الفرع." });
-        return false;
-      });
+      const existing = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, phone: subscribers.phone, address: subscribers.address, subscriptionType: subscribers.subscriptionType }).from(subscribers).where(eq(subscribers.siteId, input.siteId));
+      const existingByReference = new Map(existing.map((row) => [row.subscriberNo.replace(/\s+/g, "").toUpperCase(), row]));
+      const existingByKey = new Map(existing.map((row) => [`${row.fullName.trim().replace(/\s+/g, " ").toLocaleLowerCase("ar")}:${row.phone}`, row]));
+      const updated: Array<{ id: number; sourceRow: number; fullName: string; subscriberNo: string }> = [];
+      const uniqueRows: typeof accepted = [];
+      for (const row of accepted) {
+        const key = `${row.fullName.replace(/\s+/g, " ").toLocaleLowerCase("ar")}:${row.phone}`;
+        const matched = row.subscriberNo ? existingByReference.get(row.subscriberNo) : existingByKey.get(key);
+        if (row.subscriberNo && !matched) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي لا يطابق مشتركاً في هذا الفرع؛ اتركه فارغاً لإضافة مشترك جديد." }); continue; }
+        if (!matched) { uniqueRows.push(row); continue; }
+        if (input.updateExisting) {
+          await db.update(subscribers).set({ fullName: row.fullName, phone: row.phone, address: row.address, subscriptionType: row.subscriptionType }).where(eq(subscribers.id, matched.id));
+          await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber", entityId: String(matched.id), action: "bulk_import_update", beforeData: matched, afterData: { ...row, matchMethod: row.subscriberNo ? "subscriber_no" : "full_name_and_phone" } });
+          updated.push({ id: matched.id, sourceRow: row.sourceRow, fullName: row.fullName, subscriberNo: matched.subscriberNo });
+          continue;
+        }
+        failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: row.subscriberNo ? "الرقم المرجعي يعود لمشترك موجود؛ فعّل خيار تحديث المشتركين المطابقين لتعديل بياناته." : "يوجد مشترك بالاسم ورقم الجوال نفسيهما في هذا الفرع." });
+      }
       const remainingCapacity = quota.limit === Infinity ? uniqueRows.length : Math.max(0, quota.limit - quota.currentCount);
       const rowsToCreate = uniqueRows.slice(0, remainingCapacity);
       uniqueRows.slice(remainingCapacity).forEach((row) => failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "يتجاوز هذا الصف الحد المتاح للمشتركين في الباقة." }));
@@ -1224,8 +1239,8 @@ export const powerhubRouter = router({
         if (createdRow) created.push(createdRow);
         else failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "تعذر توليد رقم مرجعي فريد للمشترك." });
       }
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber_import", entityId: `bulk-${Date.now()}`, action: "bulk_import", afterData: { requested: input.rows.length, created: created.length, failed: failureRows.length } });
-      return { created, failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لم تُرسل رسائل الأرقام المرجعية تلقائياً ضمن الاستيراد الجماعي لحماية رصيد الرسائل؛ استخدم إرسال الإشعارات بعد المراجعة." };
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber_import", entityId: `bulk-${Date.now()}`, action: "bulk_import", afterData: { requested: input.rows.length, created: created.length, updated: updated.length, failed: failureRows.length, updateExisting: input.updateExisting } });
+      return { created, updated, failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لم تُرسل رسائل الأرقام المرجعية تلقائياً ضمن الاستيراد الجماعي لحماية رصيد الرسائل؛ استخدم إرسال الإشعارات بعد المراجعة." };
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
@@ -1271,33 +1286,6 @@ export const powerhubRouter = router({
         }
       }
       return { updated, skipped: input.subscriberIds.length - updated };
-    }),
-  }),
-
-  meters: router({
-    list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
-      const db = await dbOrThrow();
-      return db.select({ meter: meters, subscriber: subscribers }).from(meters)
-        .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
-        .where(eq(subscribers.siteId, input.siteId)).orderBy(desc(meters.createdAt));
-    }),
-    create: protectedProcedure.input(z.object({
-      siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), generatorId: z.number().int().positive().optional(),
-      serialNumber: z.string().min(2).max(100), meterType: z.enum(["manual", "digital", "smart"]).default("manual"), multiplier: z.string().regex(/^\d+(\.\d{1,3})?$/).default("1"),
-    })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageSubscribers");
-      const db = await dbOrThrow();
-      const [subscriber] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId))).limit(1);
-      if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
-      if (input.generatorId) {
-        const [generator] = await db.select({ id: generators.id }).from(generators).where(and(eq(generators.id, input.generatorId), eq(generators.siteId, input.siteId))).limit(1);
-        if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
-      }
-      const tenantId = await getSiteTenant(input.siteId);
-      const id = insertId(await db.insert(meters).values({ tenantId, subscriberId: input.subscriberId, generatorId: input.generatorId, serialNumber: input.serialNumber, meterType: input.meterType, multiplier: input.multiplier }));
-      await writeAudit({ userId: ctx.user.id, entityType: "meter", entityId: String(id), action: "create", afterData: input });
-      return { id };
     }),
   }),
 
@@ -1356,21 +1344,19 @@ export const powerhubRouter = router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
       const db = await dbOrThrow();
-      return db.select({ reading: meterReadings, meter: meters, subscriber: subscribers }).from(meterReadings)
-        .innerJoin(meters, eq(meterReadings.meterId, meters.id))
-        .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+      return db.select({ reading: meterReadings, subscriber: subscribers }).from(meterReadings)
+        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
         .where(eq(subscribers.siteId, input.siteId)).orderBy(desc(meterReadings.readingAt));
     }),
     create: protectedProcedure.input(z.object({
-      siteId: z.number().int().positive(), meterId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date().optional(),
-      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isMeterReplacement: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
+      siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date().optional(),
+      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       const actorRole = await requireRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
       const db = await dbOrThrow();
-      const [meterScope] = await db.select({ id: meters.id }).from(meters).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
-        .where(and(eq(meters.id, input.meterId), eq(subscribers.siteId, input.siteId))).limit(1);
-      if (!meterScope) throw new TRPCError({ code: "NOT_FOUND", message: "العداد لا يتبع للمحطة المحددة." });
       const tenantId = await getSiteTenant(input.siteId);
+      const [subscriberScope] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId), eq(subscribers.serviceStatus, "active"))).limit(1);
+      if (!subscriberScope) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
       if (input.clientOperationId) {
         const [existing] = await db.select({ id: meterReadings.id, consumptionKwh: meterReadings.consumptionKwh, status: meterReadings.status }).from(meterReadings)
           .where(and(eq(meterReadings.tenantId, tenantId), eq(meterReadings.clientOperationId, input.clientOperationId))).limit(1);
@@ -1380,45 +1366,45 @@ export const powerhubRouter = router({
       const dayStart = new Date(readingAt); dayStart.setHours(0, 0, 0, 0);
       const nextDay = new Date(dayStart); nextDay.setDate(nextDay.getDate() + 1);
       const [sameDayReading] = await db.select({ id: meterReadings.id }).from(meterReadings)
-        .where(and(eq(meterReadings.meterId, input.meterId), gte(meterReadings.readingAt, dayStart), lt(meterReadings.readingAt, nextDay), ne(meterReadings.status, "rejected"))).limit(1);
-      if (sameDayReading && (!input.overrideSameDay || !["owner", "manager", "accountant"].includes(actorRole))) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا العداد في اليوم نفسه. يقتصر تجاوز ذلك على المالك أو المدير أو المحاسب مع تأكيد صريح." });
+        .where(and(eq(meterReadings.subscriberId, subscriberScope.id), gte(meterReadings.readingAt, dayStart), lt(meterReadings.readingAt, nextDay), ne(meterReadings.status, "rejected"))).limit(1);
+      if (sameDayReading && (!input.overrideSameDay || !["owner", "manager", "accountant"].includes(actorRole))) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا المشترك في اليوم نفسه. يقتصر تجاوز ذلك على المالك أو المدير أو المحاسب مع تأكيد صريح." });
       const [previous] = await db.select({ readingValue: meterReadings.readingValue }).from(meterReadings)
-        .where(and(eq(meterReadings.meterId, input.meterId), eq(meterReadings.status, "approved")))
+        .where(and(eq(meterReadings.subscriberId, subscriberScope.id), eq(meterReadings.status, "approved")))
         .orderBy(desc(meterReadings.readingAt)).limit(1);
       const previousValue = previous ? Number(previous.readingValue) : 0;
       const nextValue = Number(input.readingValue);
-      if (nextValue < previousValue && !input.isMeterReplacement) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة. فعّل خيار استبدال العداد وسجل ملاحظة للتأكيد." });
-      if (nextValue < previousValue && !input.notes?.trim()) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح استبدال العداد قبل حفظ القراءة الجديدة." });
+      if (nextValue < previousValue && !input.isReadingReset) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة. فعّل خيار إعادة ضبط سجل القراءة وسجل ملاحظة للتأكيد." });
+      if (nextValue < previousValue && !input.notes?.trim()) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة قبل حفظها." });
       let imageKey: string | undefined;
       let imageHash: string | undefined;
       if (input.imageData) {
-        if (!input.imageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "نوع صورة العداد غير مدعوم." });
+        if (!input.imageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "نوع صورة القراءة غير مدعوم." });
         const imageBytes = Buffer.from(input.imageData, "base64");
-        if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا يتجاوز حجم صورة العداد 7 ميغابايت." });
+        if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت." });
         imageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
         const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-        const stored = await storagePut(`meter-readings/${ctx.user.id}/${input.meterId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
+        const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${subscriberScope.id}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
         imageKey = stored.key;
       }
       const id = insertId(await db.insert(meterReadings).values({
-        tenantId, meterId: input.meterId, clientOperationId: input.clientOperationId, readingAt, readingValue: input.readingValue, previousReadingValue: previous?.readingValue,
-        consumptionKwh: String(input.isMeterReplacement && nextValue < previousValue ? nextValue : nextValue - previousValue), captureMethod: input.captureMethod, imageKey, imageHash,
-        notes: [input.isMeterReplacement ? "[استبدال عداد]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes?.trim() ?? ""].filter(Boolean).join(" "), enteredByUserId: ctx.user.id,
+        tenantId, subscriberId: subscriberScope.id, clientOperationId: input.clientOperationId, readingAt, readingValue: input.readingValue, previousReadingValue: previous?.readingValue,
+        consumptionKwh: String(input.isReadingReset && nextValue < previousValue ? nextValue : nextValue - previousValue), captureMethod: input.captureMethod, imageKey, imageHash,
+        notes: [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes?.trim() ?? ""].filter(Boolean).join(" "), enteredByUserId: ctx.user.id,
       }));
-      const consumptionKwh = input.isMeterReplacement && nextValue < previousValue ? nextValue : nextValue - previousValue;
+      const consumptionKwh = input.isReadingReset && nextValue < previousValue ? nextValue : nextValue - previousValue;
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(id), action: "create", afterData: { ...input, readingAt, consumptionKwh } });
       return { id, consumptionKwh, status: "pending_review" as const, replayed: false };
     }),
     updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       const db = await dbOrThrow();
-      const [existing] = await db.select({ id: meterReadings.id, meterId: meterReadings.meterId, status: meterReadings.status }).from(meterReadings)
-        .innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+      const [existing] = await db.select({ id: meterReadings.id, subscriberId: meterReadings.subscriberId, status: meterReadings.status }).from(meterReadings)
+        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
         .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
       if (existing.status !== "pending_review") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تعديل قراءة معتمدة أو مرفوضة من هذه الواجهة." });
       const [previous] = await db.select({ readingValue: meterReadings.readingValue }).from(meterReadings)
-        .where(and(eq(meterReadings.meterId, existing.meterId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
+        .where(and(eq(meterReadings.subscriberId, existing.subscriberId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
       const currentValue = Number(input.readingValue); const previousValue = Number(previous?.readingValue ?? 0);
       if (currentValue < previousValue) throw new TRPCError({ code: "CONFLICT", message: "القراءة المعدلة أقل من القراءة السابقة المعتمدة." });
       const result = await db.update(meterReadings).set({ readingValue: input.readingValue, readingAt: input.readingAt, previousReadingValue: previous?.readingValue, consumptionKwh: String(currentValue - previousValue), notes: input.notes, versionNo: sql`${meterReadings.versionNo} + 1` }).where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.versionNo, input.baseVersion), eq(meterReadings.status, "pending_review")));
@@ -1430,7 +1416,7 @@ export const powerhubRouter = router({
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "recordReadings");
       const db = await dbOrThrow();
       const [existing] = await db.select({ id: meterReadings.id, status: meterReadings.status, versionNo: meterReadings.versionNo }).from(meterReadings)
-        .innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
         .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
       if (existing.status !== "pending_review") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن حذف القراءات بانتظار المراجعة فقط." });
@@ -1444,8 +1430,7 @@ export const powerhubRouter = router({
         await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
         const db = await dbOrThrow();
         const [readingScope] = await db.select({ id: meterReadings.id }).from(meterReadings)
-          .innerJoin(meters, eq(meterReadings.meterId, meters.id))
-          .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+          .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
           .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
         if (!readingScope) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
         const tenantId = await getSiteTenant(input.siteId);
@@ -1475,17 +1460,15 @@ export const powerhubRouter = router({
     })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
       const db = await dbOrThrow();
-      const [readingScope] = await db.select({ reading: meterReadings, meter: meters, subscriber: subscribers }).from(meterReadings)
-        .innerJoin(meters, eq(meterReadings.meterId, meters.id))
-        .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+      const [readingScope] = await db.select({ reading: meterReadings, subscriber: subscribers }).from(meterReadings)
+        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
         .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
       const reading = readingScope?.reading;
-      const meter = readingScope?.meter;
       const subscriber = readingScope?.subscriber;
-      if (!reading || reading.status !== "approved" || !meter || !subscriber) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن فوترة قراءة غير معتمدة أو لا تتبع للمحطة المحددة." });
+      if (!reading || reading.status !== "approved" || !subscriber) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن فوترة قراءة غير معتمدة أو لا تتبع للمحطة المحددة." });
       const [tariff] = await db.select().from(tariffs).where(and(eq(tariffs.id, input.tariffId), eq(tariffs.siteId, input.siteId), eq(tariffs.isActive, true))).limit(1);
       const [site] = await db.select().from(sites).where(eq(sites.id, input.siteId)).limit(1);
-      if (!meter || !tariff || !site || !subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "بيانات العداد أو المشترك أو التعرفة أو المحطة غير مكتملة." });
+      if (!tariff || !site || !subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "بيانات المشترك أو التعرفة أو المحطة غير مكتملة." });
       await assertFinancialPeriodOpen(db, site.tenantId, input.siteId, input.dueDate, ctx.user.id, "invoice");
       const [tenantMessaging, platformDeliverySettings, tenantTemplates] = await Promise.all([
         db.select({ channel: tenantMessagingConfigurations.channel, isActive: tenantMessagingConfigurations.isActive })
@@ -1502,7 +1485,7 @@ export const powerhubRouter = router({
       const invoiceNo = nextInvoiceNo(site.code, input.billingPeriod, Number(countResult[0]?.count ?? 0) + 1);
       const id = await db.transaction(async (tx) => {
         const invoiceId = insertId(await tx.insert(invoices).values({
-          tenantId: site.tenantId, siteId: input.siteId, subscriberId: meter.subscriberId, meterId: meter.id, readingId: reading.id, tariffId: tariff.id,
+          tenantId: site.tenantId, siteId: input.siteId, subscriberId: subscriber.id, readingId: reading.id, tariffId: tariff.id,
           invoiceNo, billingPeriod: input.billingPeriod, dueDate: input.dueDate, previousReading: reading.previousReadingValue,
           currentReading: reading.readingValue, consumptionKwh: reading.consumptionKwh ?? "0", pricePerKwh: tariff.pricePerKwh,
           fixedFee: tariff.fixedFee, taxAmount: String(calculated.taxAmount), discountAmount: String(input.discountAmount),
@@ -2326,8 +2309,7 @@ export const powerhubRouter = router({
       if (input.to) conditions.push(lte(auditLogs.createdAt, new Date(input.to)));
       return db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, userId: auditLogs.userId })
         .from(meterReadings)
-        .innerJoin(meters, eq(meterReadings.meterId, meters.id))
-        .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
         .innerJoin(auditLogs, and(...conditions))
         .orderBy(desc(auditLogs.createdAt))
         .limit(input.pageSize)
@@ -2339,8 +2321,7 @@ export const powerhubRouter = router({
       const db = await dbOrThrow();
       const [row] = await db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo, subscriberId: subscribers.id, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, consumptionKwh: meterReadings.consumptionKwh, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, captureMethod: meterReadings.captureMethod, notes: meterReadings.notes, technicianName: users.name, technicianEmail: users.email })
         .from(meterReadings)
-        .innerJoin(meters, eq(meterReadings.meterId, meters.id))
-        .innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
+        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
         .innerJoin(auditLogs, and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.action, "mobile_create"), sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`))
         .innerJoin(users, eq(users.id, auditLogs.userId))
         .where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.tenantId, tenantId), eq(subscribers.tenantId, tenantId), eq(subscribers.siteId, input.siteId)))
@@ -2361,7 +2342,7 @@ export const powerhubRouter = router({
       if (input.userId) conditions.push(eq(auditLogs.userId, input.userId));
       if (input.from) conditions.push(gte(auditLogs.createdAt, new Date(input.from)));
       if (input.to) conditions.push(lte(auditLogs.createdAt, new Date(input.to)));
-      const rows = await db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo }).from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id)).innerJoin(auditLogs, and(...conditions)).orderBy(desc(auditLogs.createdAt)).limit(input.limit);
+      const rows = await db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo }).from(meterReadings).innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id)).innerJoin(auditLogs, and(...conditions)).orderBy(desc(auditLogs.createdAt)).limit(input.limit);
       const results: Array<{ readingId: number; status: "issued" | "failed"; invoiceNo?: string; message?: string }> = [];
       for (const row of rows) {
         try { const issued = await approveAndIssueMobileReading({ siteId: input.siteId, readingId: row.id, baseVersion: row.versionNo, userId: ctx.user.id, sendNow: input.sendNow }); results.push({ readingId: row.id, status: "issued", invoiceNo: issued.invoiceNo }); }

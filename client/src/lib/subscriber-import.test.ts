@@ -15,4 +15,15 @@ describe("تحضير استيراد المشتركين", () => {
     expect(rows.every((row) => row.status === "error")).toBe(true);
     expect(rows[0].errors.join(" ")).toContain("مكرر");
   });
+
+  it("يقبل الرقم المرجعي الاختياري ويمنع تكراره أو إدخال صيغة غير آمنة", () => {
+    const rows = prepareSubscriberImport([
+      { subscriberNo: "sub-north-001", fullName: "أحمد العلي", phone: "+970599000001", address: "", subscriptionType: "سكني" },
+      { subscriberNo: "SUB-NORTH-001", fullName: "محمد علي", phone: "+970599000002", address: "", subscriptionType: "تجاري" },
+      { subscriberNo: "مرجع غير صالح", fullName: "خالد سالم", phone: "+970599000003", address: "", subscriptionType: "سكني" },
+    ]);
+    expect(rows[0]).toMatchObject({ subscriberNo: "SUB-NORTH-001", status: "error" });
+    expect(rows[1].errors.join(" ")).toContain("الرقم المرجعي مكرر");
+    expect(rows[2].errors.join(" ")).toContain("الرقم المرجعي يجب");
+  });
 });

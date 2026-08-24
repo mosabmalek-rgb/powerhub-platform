@@ -9,7 +9,7 @@ import { toast } from "sonner";
 const inputClass = "h-9 w-full rounded-lg border border-white/10 bg-white/[0.025] px-2.5 text-sm text-white outline-none focus:border-[#F5B800]/70";
 const dateValue = (date: Date | string) => new Date(date).toISOString().slice(0, 10);
 
-type Row = { reading: any; meter: any; subscriber: any };
+type Row = { reading: any; subscriber: any };
 export default function PendingReadingsReview({ siteId, rows, canReview, onUpdated }: { siteId: number; rows: Row[]; canReview: boolean; onUpdated: () => Promise<void> }) {
   const pendingRows = useMemo(() => rows.filter((row) => row.reading.status === "pending_review"), [rows]);
   const [editing, setEditing] = useState<number | null>(null);

@@ -4,7 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { and, desc, eq, gt, gte, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, syncSupabaseUser } from "./db";
-import { auditLogs, meterReadings, meters, mobileApiSessions, mobileSyncEvents, sites, staffProfiles, subscribers, tenantMembers, tenants, users } from "../drizzle/schema";
+import { auditLogs, meterReadings, mobileApiSessions, mobileSyncEvents, sites, staffProfiles, subscribers, tenantMembers, tenants, users } from "../drizzle/schema";
 import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import crypto from "node:crypto";
 import { storagePut } from "./storage";
@@ -29,18 +29,17 @@ const readingSchema = z.object({
   clientOperationId: z.string().uuid(),
   branchId: z.number().int().positive(),
   subscriberId: z.number().int().positive(),
-  meterId: z.number().int().positive(),
   readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/),
   readingAt: z.string().datetime(),
   captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"),
-  isMeterReplacement: z.boolean().default(false),
+  isReadingReset: z.boolean().default(false),
   fieldVerified: z.boolean().default(false),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
   imageData: z.string().max(9_500_000).optional(),
   imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
   notes: z.string().trim().max(1000).optional(),
-});
+}).strict();
 const syncEventSchema = z.object({
   eventKey: z.string().uuid(),
   branchId: z.number().int().positive(),
@@ -223,13 +222,13 @@ export function registerMobileApi(app: Express) {
     if (!context.scope.branchIds.includes(parsed.data.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
     const db = await getDb();
     if (!db) return sendError(res, 503, "DATABASE_UNAVAILABLE", "تعذر الوصول إلى قاعدة البيانات.", true);
-    const rows = await db.select({ subscriberId: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, phone: subscribers.phone, address: subscribers.address, branchId: subscribers.siteId, meterId: meters.id, serialNumber: meters.serialNumber })
-      .from(subscribers).innerJoin(meters, eq(meters.subscriberId, subscribers.id))
-      .where(and(eq(subscribers.tenantId, context.scope.tenantId), eq(subscribers.siteId, parsed.data.branchId), eq(subscribers.serviceStatus, "active"), eq(meters.status, "active"))).limit(parsed.data.limit);
+    const rows = await db.select({ subscriberId: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, phone: subscribers.phone, address: subscribers.address, branchId: subscribers.siteId })
+      .from(subscribers)
+      .where(and(eq(subscribers.tenantId, context.scope.tenantId), eq(subscribers.siteId, parsed.data.branchId), eq(subscribers.serviceStatus, "active"))).limit(parsed.data.limit);
     const items = await Promise.all(rows.map(async (row) => {
       const [last] = await db.select({ readingValue: meterReadings.readingValue, readingAt: meterReadings.readingAt }).from(meterReadings)
-        .where(and(eq(meterReadings.meterId, row.meterId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
-      return { id: row.subscriberId, subscriberNo: row.subscriberNo, fullName: row.fullName, phone: row.phone, address: row.address, branchId: row.branchId, meterId: row.meterId, meterSerial: row.serialNumber, lastReading: last?.readingValue ?? null, lastReadingAt: last?.readingAt?.toISOString() ?? null };
+        .where(and(eq(meterReadings.subscriberId, row.subscriberId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
+      return { id: row.subscriberId, subscriberNo: row.subscriberNo, fullName: row.fullName, phone: row.phone, address: row.address, branchId: row.branchId, lastReading: last?.readingValue ?? null, lastReadingAt: last?.readingAt?.toISOString() ?? null };
     }));
     return res.json({ items, nextCursor: null });
   });
@@ -246,34 +245,34 @@ export function registerMobileApi(app: Express) {
     const [existing] = await db.select({ id: meterReadings.id, status: meterReadings.status, consumptionKwh: meterReadings.consumptionKwh }).from(meterReadings)
       .where(and(eq(meterReadings.tenantId, context.scope.tenantId), eq(meterReadings.clientOperationId, input.clientOperationId))).limit(1);
     if (existing) return res.status(200).json({ id: existing.id, status: existing.status, consumptionKwh: existing.consumptionKwh, replayed: true });
-    const [scope] = await db.select({ meterId: meters.id }).from(meters).innerJoin(subscribers, eq(meters.subscriberId, subscribers.id))
-      .where(and(eq(meters.id, input.meterId), eq(subscribers.id, input.subscriberId), eq(subscribers.tenantId, context.scope.tenantId), eq(subscribers.siteId, input.branchId), eq(subscribers.serviceStatus, "active"), eq(meters.status, "active"))).limit(1);
-    if (!scope) return sendError(res, 404, "METER_NOT_FOUND", "العداد أو المشترك لا يتبعان للفرع المحدد.");
+    const [scope] = await db.select({ subscriberId: subscribers.id }).from(subscribers)
+      .where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.tenantId, context.scope.tenantId), eq(subscribers.siteId, input.branchId), eq(subscribers.serviceStatus, "active"))).limit(1);
+    if (!scope) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
     const readingAt = new Date(input.readingAt);
     const dayStart = new Date(readingAt); dayStart.setHours(0, 0, 0, 0);
     const nextDay = new Date(dayStart); nextDay.setDate(nextDay.getDate() + 1);
     const [sameDayReading] = await db.select({ id: meterReadings.id }).from(meterReadings)
-      .where(and(eq(meterReadings.meterId, input.meterId), gte(meterReadings.readingAt, dayStart), lt(meterReadings.readingAt, nextDay), ne(meterReadings.status, "rejected"))).limit(1);
-    if (sameDayReading) return sendError(res, 409, "READING_ALREADY_EXISTS_TODAY", "توجد قراءة غير مرفوضة لهذا العداد في اليوم نفسه.");
-    const [previous] = await db.select({ readingValue: meterReadings.readingValue }).from(meterReadings).where(and(eq(meterReadings.meterId, input.meterId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
+      .where(and(eq(meterReadings.subscriberId, scope.subscriberId), gte(meterReadings.readingAt, dayStart), lt(meterReadings.readingAt, nextDay), ne(meterReadings.status, "rejected"))).limit(1);
+    if (sameDayReading) return sendError(res, 409, "READING_ALREADY_EXISTS_TODAY", "توجد قراءة غير مرفوضة لهذا المشترك في اليوم نفسه.");
+    const [previous] = await db.select({ readingValue: meterReadings.readingValue }).from(meterReadings).where(and(eq(meterReadings.subscriberId, scope.subscriberId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
     const previousValue = Number(previous?.readingValue ?? 0);
     const nextValue = Number(input.readingValue);
-    if (nextValue < previousValue && !input.isMeterReplacement) return sendError(res, 409, "READING_BELOW_PREVIOUS", "القراءة الحالية أقل من القراءة المعتمدة السابقة.");
-    if (nextValue < previousValue && !input.notes) return sendError(res, 400, "METER_REPLACEMENT_NOTE_REQUIRED", "أدخل ملاحظة تشرح استبدال العداد.");
-    const consumptionKwh = input.isMeterReplacement && nextValue < previousValue ? nextValue : nextValue - previousValue;
+    if (nextValue < previousValue && !input.isReadingReset) return sendError(res, 409, "READING_BELOW_PREVIOUS", "القراءة الحالية أقل من القراءة المعتمدة السابقة.");
+    if (nextValue < previousValue && !input.notes) return sendError(res, 400, "READING_RESET_NOTE_REQUIRED", "أدخل ملاحظة تشرح إعادة ضبط سجل القراءة.");
+    const consumptionKwh = input.isReadingReset && nextValue < previousValue ? nextValue : nextValue - previousValue;
     let imageKey: string | undefined;
     let imageHash: string | undefined;
     if (input.imageData) {
-      if (!input.imageMime) return sendError(res, 400, "IMAGE_MIME_REQUIRED", "حدد نوع صورة العداد.");
+      if (!input.imageMime) return sendError(res, 400, "IMAGE_MIME_REQUIRED", "حدد نوع صورة القراءة.");
       const imageBytes = Buffer.from(input.imageData, "base64");
-      if (!imageBytes.byteLength || imageBytes.byteLength > 7 * 1024 * 1024) return sendError(res, 413, "IMAGE_TOO_LARGE", "يجب ألا يتجاوز حجم صورة العداد 7 ميغابايت.");
+      if (!imageBytes.byteLength || imageBytes.byteLength > 7 * 1024 * 1024) return sendError(res, 413, "IMAGE_TOO_LARGE", "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت.");
       imageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
       const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-      imageKey = (await storagePut(`meter-readings/mobile/${context.scope.userId}/${input.meterId}-${Date.now()}.${extension}`, imageBytes, input.imageMime)).key;
+      imageKey = (await storagePut(`subscriber-readings/mobile/${context.scope.userId}/${scope.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime)).key;
     }
-    const inserted = await db.insert(meterReadings).values({ tenantId: context.scope.tenantId, meterId: input.meterId, clientOperationId: input.clientOperationId, readingAt, readingValue: input.readingValue, previousReadingValue: previous?.readingValue, consumptionKwh: String(consumptionKwh), captureMethod: input.captureMethod, imageKey, imageHash, enteredByUserId: context.scope.userId, notes: [input.isMeterReplacement ? "[استبدال عداد]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ") });
+    const inserted = await db.insert(meterReadings).values({ tenantId: context.scope.tenantId, subscriberId: scope.subscriberId, clientOperationId: input.clientOperationId, readingAt, readingValue: input.readingValue, previousReadingValue: previous?.readingValue, consumptionKwh: String(consumptionKwh), captureMethod: input.captureMethod, imageKey, imageHash, enteredByUserId: context.scope.userId, notes: [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ") });
     const id = Number(inserted[0].insertId);
-    await db.insert(auditLogs).values({ tenantId: context.scope.tenantId, siteId: input.branchId, userId: context.scope.userId, actorTenantRole: context.scope.role, entityType: "meter_reading", entityId: String(id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, meterId: input.meterId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
+    await db.insert(auditLogs).values({ tenantId: context.scope.tenantId, siteId: input.branchId, userId: context.scope.userId, actorTenantRole: context.scope.role, entityType: "subscriber_reading", entityId: String(id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: scope.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
     return res.status(201).json({ id, status: "pending_review", consumptionKwh: String(consumptionKwh), replayed: false });
   });
 

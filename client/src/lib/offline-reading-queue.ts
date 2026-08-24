@@ -4,12 +4,16 @@ export type QueuedReading = {
   id: string;
   clientOperationId: string;
   siteId: number;
-  meterId: number;
+  subscriberId: number;
   readingValue: string;
+  readingAt: string;
   captureMethod: "manual" | "photo" | "smart_meter";
   imageData?: string;
   imageMime?: "image/jpeg" | "image/png" | "image/webp";
   notes?: string;
+  isReadingReset?: boolean;
+  overrideSameDay?: boolean;
+  fieldVerified?: boolean;
   createdAt: number;
   status: QueuedReadingStatus;
   error?: string;
@@ -27,10 +31,28 @@ export function assertOfflineQueueAvailable() {
 function openQueueDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
     assertOfflineQueueAvailable();
-    const request = indexedDB.open(databaseName, 1);
-    request.onupgradeneeded = () => {
+    const request = indexedDB.open(databaseName, 2);
+    request.onupgradeneeded = (event) => {
       const database = request.result;
-      if (!database.objectStoreNames.contains(storeName)) database.createObjectStore(storeName, { keyPath: "id" });
+      const store = database.objectStoreNames.contains(storeName)
+        ? request.transaction!.objectStore(storeName)
+        : database.createObjectStore(storeName, { keyPath: "id" });
+      if ((event as IDBVersionChangeEvent).oldVersion < 2) {
+        const cursorRequest = store.openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const legacy = cursor.value as Partial<QueuedReading> & { meterId?: number };
+          // السجل القديم لا يمكن ربطه بأمان بالمشترك بعد إلغاء مفهوم العداد، لذلك لا يُعاد إرساله تلقائياً.
+          if (!legacy.subscriberId) cursor.delete();
+          else {
+            const { meterId: _meterId, ...subscriberReading } = legacy;
+            void _meterId;
+            cursor.update(subscriberReading);
+          }
+          cursor.continue();
+        };
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("تعذر فتح طابور العمل دون اتصال."));

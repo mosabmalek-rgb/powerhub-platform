@@ -11,11 +11,11 @@ const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.02
 const today = () => new Date().toISOString().slice(0, 10);
 const blankRow = (): BulkReadingDraft => ({ reference: "", readingValue: "", readingDate: today(), notes: "" });
 
-export default function BulkReadingEntry({ siteId, meters, readings, onSaved }: { siteId: number; meters: any[]; readings: any[]; onSaved: () => Promise<void> }) {
+export default function BulkReadingEntry({ siteId, subscribers, readings, onSaved }: { siteId: number; subscribers: any[]; readings: any[]; onSaved: () => Promise<void> }) {
   const [rows, setRows] = useState<BulkReadingDraft[]>([blankRow(), blankRow(), blankRow()]);
   const [isParsing, setIsParsing] = useState(false);
   const create = trpc.powerhub.readings.create.useMutation();
-  const prepared = useMemo(() => prepareBulkReadings(rows.filter((row) => row.reference || row.readingValue || row.notes), meters, readings), [rows, meters, readings]);
+  const prepared = useMemo(() => prepareBulkReadings(rows.filter((row) => row.reference || row.readingValue || row.notes), subscribers, readings), [rows, subscribers, readings]);
   const validRows = prepared.filter((row) => row.status === "ready");
   const setRow = (index: number, key: keyof BulkReadingDraft, value: string) => setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row));
   const loadWorkbook = async (file: File | undefined) => {
@@ -57,7 +57,7 @@ export default function BulkReadingEntry({ siteId, meters, readings, onSaved }: 
       header.alignment = { horizontal: "right" };
       const buffer = await workbook.xlsx.writeBuffer();
       const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-      const link = document.createElement("a"); link.href = url; link.download = "powerhub-meter-readings-template.xlsx"; link.click(); URL.revokeObjectURL(url);
+      const link = document.createElement("a"); link.href = url; link.download = "powerhub-subscriber-readings-template.xlsx"; link.click(); URL.revokeObjectURL(url);
       toast.success("تم تنزيل قالب القراءات الجماعية.");
     } catch { toast.error("تعذر تجهيز قالب Excel."); }
   };
@@ -65,7 +65,7 @@ export default function BulkReadingEntry({ siteId, meters, readings, onSaved }: 
     if (!validRows.length) { toast.error("لا توجد قراءات سليمة للحفظ."); return; }
     let saved = 0;
     for (const row of validRows) {
-      try { await create.mutateAsync({ siteId, meterId: row.meterId!, readingValue: row.readingValue, readingAt: new Date(`${row.readingDate}T12:00:00`), captureMethod: "manual", notes: row.notes || undefined, clientOperationId: crypto.randomUUID() }); saved += 1; }
+      try { await create.mutateAsync({ siteId, subscriberId: row.subscriberId!, readingValue: row.readingValue, readingAt: new Date(`${row.readingDate}T12:00:00`), captureMethod: "manual", notes: row.notes || undefined, clientOperationId: crypto.randomUUID() }); saved += 1; }
       catch (error) { toast.error(`${row.subscriberName ?? row.reference}: ${error instanceof Error ? error.message : "تعذر الحفظ."}`); }
     }
     await onSaved();

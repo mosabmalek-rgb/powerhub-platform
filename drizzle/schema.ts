@@ -592,7 +592,7 @@ export const tariffs = mysqlTable("tariffs", {
 export const meterReadings = mysqlTable("meterReadings", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenantId").notNull().references(() => tenants.id),
-  meterId: int("meterId").notNull().references(() => meters.id),
+  subscriberId: int("subscriberId").notNull().references(() => subscribers.id),
   clientOperationId: varchar("clientOperationId", { length: 80 }).unique(),
   readingAt: timestamp("readingAt").defaultNow().notNull(),
   readingValue: decimal("readingValue", { precision: 15, scale: 3 }).notNull(),
@@ -610,7 +610,7 @@ export const meterReadings = mysqlTable("meterReadings", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
-  index("readings_meter_date_idx").on(table.meterId, table.readingAt),
+  index("readings_subscriber_date_idx").on(table.subscriberId, table.readingAt),
   index("readings_status_idx").on(table.status),
 ]);
 
@@ -619,7 +619,6 @@ export const invoices = mysqlTable("invoices", {
   tenantId: int("tenantId").notNull().references(() => tenants.id),
   siteId: int("siteId").notNull().references(() => sites.id),
   subscriberId: int("subscriberId").notNull().references(() => subscribers.id),
-  meterId: int("meterId").notNull().references(() => meters.id),
   readingId: int("readingId").references(() => meterReadings.id),
   tariffId: int("tariffId").references(() => tariffs.id),
   invoiceNo: varchar("invoiceNo", { length: 60 }).notNull().unique(),
@@ -641,7 +640,7 @@ export const invoices = mysqlTable("invoices", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
-  uniqueIndex("invoice_meter_period_unique").on(table.meterId, table.billingPeriod),
+  uniqueIndex("invoice_subscriber_period_unique").on(table.subscriberId, table.billingPeriod),
   index("invoices_tenant_site_idx").on(table.tenantId, table.siteId),
   index("invoices_site_status_idx").on(table.siteId, table.status),
 ]);

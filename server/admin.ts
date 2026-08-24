@@ -647,21 +647,8 @@ export const adminRouter = router({
       count: sql<number>`count(*)`,
       amount: sql<number>`sum(${payments.amount})`,
     }).from(payments).where(eq(payments.status, "completed")).groupBy(payments.paymentMethod);
-    const collectionsByGenerator = await db.select({
-      generatorId: generators.id,
-      generatorName: generators.name,
-      generatorCode: generators.code,
-      tenantName: tenants.name,
-      count: sql<number>`count(${payments.id})`,
-      amount: sql<number>`sum(${payments.amount})`,
-    }).from(payments)
-      .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
-      .innerJoin(meters, eq(invoices.meterId, meters.id))
-      .innerJoin(generators, eq(meters.generatorId, generators.id))
-      .innerJoin(tenants, eq(generators.tenantId, tenants.id))
-      .where(eq(payments.status, "completed"))
-      .groupBy(generators.id, generators.name, generators.code, tenants.name)
-      .orderBy(desc(sql`sum(${payments.amount})`));
+    // لا يوجد ربط مالي بالمولد بعد نقل الفواتير إلى المشترك؛ يبقى الأداء المالي على مستوى الفرع فقط.
+    const collectionsByGenerator: Array<{ generatorId: number; generatorName: string; generatorCode: string; tenantName: string; count: number; amount: number }> = [];
     const notificationStatuses = await db.select({
       status: notificationMessages.status,
       count: sql<number>`count(*)`,
@@ -1110,11 +1097,9 @@ export const adminRouter = router({
     const monthlyGrowth = await db.select({ month: growthMonth, count: sql<number>`count(*)` })
       .from(subscribers).where(gte(subscribers.createdAt, new Date(now.getFullYear(), now.getMonth() - 11, 1))).groupBy(sql`1`).orderBy(sql`1`);
     const consumptionByRegion = await db.select({ region: sites.city, consumptionKwh: sql<number>`sum(${meterReadings.consumptionKwh})` })
-      .from(meterReadings).innerJoin(meters, eq(meterReadings.meterId, meters.id)).innerJoin(generators, eq(meters.generatorId, generators.id)).innerJoin(sites, eq(generators.siteId, sites.id))
+      .from(meterReadings).innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id)).innerJoin(sites, eq(subscribers.siteId, sites.id))
       .where(eq(meterReadings.status, "approved")).groupBy(sites.city).orderBy(desc(sql`sum(${meterReadings.consumptionKwh})`)).limit(12);
-    const collectionsByGenerator = await db.select({ generatorId: generators.id, generatorName: generators.name, code: generators.code, tenantName: tenants.name, amount: sql<number>`sum(${payments.amount})` })
-      .from(payments).innerJoin(invoices, eq(payments.invoiceId, invoices.id)).innerJoin(meters, eq(invoices.meterId, meters.id)).innerJoin(generators, eq(meters.generatorId, generators.id)).innerJoin(tenants, eq(generators.tenantId, tenants.id))
-      .where(eq(payments.status, "completed")).groupBy(generators.id, generators.name, generators.code, tenants.name).orderBy(desc(sql`sum(${payments.amount})`)).limit(10);
+    const collectionsByGenerator: Array<{ generatorId: number; generatorName: string; code: string; tenantName: string; amount: number }> = [];
     const latestGenerators = await db.select({ id: generators.id, name: generators.name, code: generators.code, status: generators.status, createdAt: generators.createdAt, tenantName: tenants.name })
       .from(generators).innerJoin(tenants, eq(generators.tenantId, tenants.id)).orderBy(desc(generators.createdAt)).limit(8);
     const recentComplaints = await db.select({ id: complaints.id, title: complaints.title, priority: complaints.priority, status: complaints.status, tenantName: tenants.name, siteName: sites.name, openedAt: complaints.openedAt })
@@ -1233,18 +1218,13 @@ export const adminRouter = router({
     const [generator] = await db.select({ id: generators.id, code: generators.code, name: generators.name, status: generators.status, ratedCapacityKw: generators.ratedCapacityKw, fuelType: generators.fuelType, fuelLevelLiters: generators.fuelLevelLiters, operatingHours: generators.operatingHours, lastMaintenanceAt: generators.lastMaintenanceAt, tenantId: generators.tenantId, tenantName: tenants.name, siteId: sites.id, siteName: sites.name })
       .from(generators).innerJoin(tenants, eq(generators.tenantId, tenants.id)).innerJoin(sites, eq(generators.siteId, sites.id)).where(eq(generators.id, input.generatorId)).limit(1);
     if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود." });
-    const [meterSummary] = await db.select({ total: sql<number>`count(*)`, active: sql<number>`sum(case when ${meters.status} = 'active' then 1 else 0 end)` }).from(meters).where(eq(meters.generatorId, generator.id));
-    const generatorMeters = await db.select({ id: meters.id, serialNumber: meters.serialNumber, meterType: meters.meterType, status: meters.status, installedAt: meters.installedAt })
-      .from(meters).where(eq(meters.generatorId, generator.id)).orderBy(desc(meters.installedAt)).limit(50);
     const activity = await db.select({ id: auditLogs.id, action: auditLogs.action, entityType: auditLogs.entityType, createdAt: auditLogs.createdAt, userName: users.name })
       .from(auditLogs).leftJoin(users, eq(auditLogs.userId, users.id)).where(eq(auditLogs.siteId, generator.siteId)).orderBy(desc(auditLogs.createdAt)).limit(30);
     return {
       generator,
-      meterSummary: { total: Number(meterSummary?.total ?? 0), active: Number(meterSummary?.active ?? 0) },
-      meters: generatorMeters,
       activity,
       subscriberSummary: { total: 0, active: 0 },
-      subscribers: [] as Array<{ id: number; fullName: string; subscriberNo: string; phone: string; subscriptionType: "residential" | "commercial"; serviceStatus: "active" | "suspended" | "disconnected"; meterSerial: string }>,
+      subscribers: [] as Array<{ id: number; fullName: string; subscriberNo: string; phone: string; subscriptionType: "residential" | "commercial"; serviceStatus: "active" | "suspended" | "disconnected" }>,
       invoices: [] as Array<{ id: number; invoiceNo: string; billingPeriod: string; totalAmount: string; balanceDue: string; status: "draft" | "issued" | "partially_paid" | "paid" | "overdue" | "cancelled"; subscriberName: string; issueDate: Date }>,
     };
   }),

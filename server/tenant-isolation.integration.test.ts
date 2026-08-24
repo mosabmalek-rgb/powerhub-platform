@@ -1,17 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { auditLogs, collectorSessions, invoiceLines, invoices, meterReadings, meters, notificationMessages, payments, sitePortalSettings, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenants, users } from "../drizzle/schema";
+import { auditLogs, collectorSessions, invoiceLines, invoices, meterReadings, notificationMessages, payments, sitePortalSettings, sites, staffProfiles, subscribers, tariffs, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { powerhubRouter } from "./powerhub";
 
 const runDatabaseIsolationTest = process.env.RUN_TENANT_ISOLATION_TESTS === "1";
 const testIfEnabled = runDatabaseIsolationTest ? it : it.skip;
 const suffix = `isolation-${Date.now()}`;
-let ids: { userA: number; userB: number; userManager: number; userAccountant: number; userCollector: number; userTechnician: number; userViewer: number; userSiteOwner: number; tenantA: number; tenantB: number; siteA: number; siteA2: number; siteB: number; subscriberA: number; meterA: number; baseReadingA: number; tariffA: number; subscriberB: number; meterB: number; readingB: number };
+let ids: { userA: number; userB: number; userManager: number; userAccountant: number; userCollector: number; userTechnician: number; userViewer: number; userSiteOwner: number; tenantA: number; tenantB: number; siteA: number; siteA2: number; siteB: number; subscriberA: number; baseReadingA: number; tariffA: number; subscriberB: number; readingB: number };
 const createdPaymentIds: number[] = [];
 let createdReadingA: number | undefined;
 const createdSubscriberIds: number[] = [];
-const createdMeterIds: number[] = [];
 const createdInvoiceIds: number[] = [];
 let createdCollectorSessionId: number | undefined;
 
@@ -50,13 +49,11 @@ describe("tenant isolation", () => {
     ]);
     await db.insert(staffProfiles).values([{ tenantId: tenantA, siteId: siteA, userId: userManager, role: "manager" }, { tenantId: tenantA, siteId: siteA, userId: userAccountant, role: "accountant" }, { tenantId: tenantA, siteId: siteA, userId: userCollector, role: "collector" }, { tenantId: tenantA, siteId: siteA, userId: userTechnician, role: "technician" }, { tenantId: tenantA, siteId: siteA, userId: userViewer, role: "viewer" }]);
     const subscriberA = insertId(await db.insert(subscribers).values({ tenantId: tenantA, siteId: siteA, subscriberNo: `${suffix}-a`, fullName: "Subscriber A", phone: "+970700000010" }));
-    const meterA = insertId(await db.insert(meters).values({ tenantId: tenantA, subscriberId: subscriberA, serialNumber: `${suffix}-meter-a` }));
-    const baseReadingA = insertId(await db.insert(meterReadings).values({ tenantId: tenantA, meterId: meterA, readingValue: "10", status: "approved" }));
+    const baseReadingA = insertId(await db.insert(meterReadings).values({ tenantId: tenantA, subscriberId: subscriberA, readingValue: "10", status: "approved" }));
     const tariffA = insertId(await db.insert(tariffs).values({ tenantId: tenantA, siteId: siteA, name: "Tariff A", code: `${suffix}-tariff`, pricePerKwh: "1.5", fixedFee: "2", taxRate: "0" }));
     const subscriberB = insertId(await db.insert(subscribers).values({ tenantId: tenantB, siteId: siteB, subscriberNo: suffix, fullName: "Subscriber B", phone: "+970700000000" }));
-    const meterB = insertId(await db.insert(meters).values({ tenantId: tenantB, subscriberId: subscriberB, serialNumber: `${suffix}-meter` }));
-    const readingB = insertId(await db.insert(meterReadings).values({ tenantId: tenantB, meterId: meterB, readingValue: "100", status: "approved" }));
-    ids = { userA, userB, userManager, userAccountant, userCollector, userTechnician, userViewer, userSiteOwner, tenantA, tenantB, siteA, siteA2, siteB, subscriberA, meterA, baseReadingA, tariffA, subscriberB, meterB, readingB };
+    const readingB = insertId(await db.insert(meterReadings).values({ tenantId: tenantB, subscriberId: subscriberB, readingValue: "100", status: "approved" }));
+    ids = { userA, userB, userManager, userAccountant, userCollector, userTechnician, userViewer, userSiteOwner, tenantA, tenantB, siteA, siteA2, siteB, subscriberA, baseReadingA, tariffA, subscriberB, readingB };
   });
 
   testIfEnabled("rejects cross-tenant identifiers and cross-site manager access", async () => {
@@ -123,21 +120,21 @@ describe("tenant isolation", () => {
     const collectorPayment = await collector.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, paymentNo: `${suffix}-collector`, amount: 1, paymentMethod: "cash" });
     createdPaymentIds.push(accountantPayment.id, collectorPayment.id);
     await expect(collector.collectorSessions.close({ siteId: ids.siteA, sessionId: collectorSession.id, declaredCash: 6 })).resolves.toMatchObject({ expectedCash: 6, varianceAmount: 0 });
-    const reading = await technician.readings.create({ siteId: ids.siteA, meterId: ids.meterA, readingValue: "12", captureMethod: "manual" });
+    const reading = await technician.readings.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, readingValue: "12", captureMethod: "manual" });
     createdReadingA = reading.id;
     await expect(technician.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, paymentNo: `${suffix}-technician`, amount: 1, paymentMethod: "cash" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(collector.readings.create({ siteId: ids.siteA, meterId: ids.meterA, readingValue: "13", captureMethod: "manual" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(viewer.readings.create({ siteId: ids.siteA, meterId: ids.meterA, readingValue: "13", captureMethod: "manual" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(collector.readings.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, readingValue: "13", captureMethod: "manual" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(viewer.readings.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, readingValue: "13", captureMethod: "manual" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(viewer.payments.create({ siteId: ids.siteA, subscriberId: ids.subscriberA, paymentNo: `${suffix}-viewer`, amount: 1, paymentMethod: "cash" })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  testIfEnabled("replays one offline operation without duplicating its meter reading", async () => {
+  testIfEnabled("replays one offline operation without duplicating its subscriber reading", async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
     const [owner] = await db.select().from(users).where(eq(users.id, ids.userA));
     const ownerCaller = powerhubRouter.createCaller({ user: owner, req: {} as never, res: {} as never });
     const clientOperationId = crypto.randomUUID();
-    const input = { siteId: ids.siteA, meterId: ids.meterA, readingValue: "15", captureMethod: "manual" as const, clientOperationId };
+    const input = { siteId: ids.siteA, subscriberId: ids.subscriberA, readingValue: "15", captureMethod: "manual" as const, clientOperationId };
     const first = await ownerCaller.readings.create(input);
     const second = await ownerCaller.readings.create(input);
     expect(second.id).toBe(first.id);
@@ -273,11 +270,7 @@ describe("tenant isolation", () => {
       await db.delete(invoices).where(inArray(invoices.id, createdInvoiceIds));
     }
     if (createdSubscriberIds.length) await db.delete(notificationMessages).where(inArray(notificationMessages.subscriberId, createdSubscriberIds));
-    await db.delete(meterReadings).where(inArray(meterReadings.meterId, [ids.meterA, ids.meterB]));
-    if (createdMeterIds.length) await db.delete(meterReadings).where(inArray(meterReadings.meterId, createdMeterIds));
-    if (createdMeterIds.length) await db.delete(meters).where(inArray(meters.id, createdMeterIds));
-    await db.delete(meters).where(eq(meters.id, ids.meterB));
-    await db.delete(meters).where(eq(meters.id, ids.meterA));
+    await db.delete(meterReadings).where(inArray(meterReadings.subscriberId, [ids.subscriberA, ids.subscriberB, ...createdSubscriberIds]));
     await db.delete(subscribers).where(eq(subscribers.id, ids.subscriberB));
     await db.delete(subscribers).where(eq(subscribers.id, ids.subscriberA));
     if (createdSubscriberIds.length) await db.delete(subscribers).where(inArray(subscribers.id, createdSubscriberIds));
