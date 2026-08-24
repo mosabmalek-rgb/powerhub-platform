@@ -17,9 +17,9 @@ const BankOfPalestineIcon = ({ className }: { className?: string }) => <img src=
 
 const accountTheme: Record<string, { card: string; icon: ElementType; badge: string; shortLabel: string }> = {
   cash: { card: "border-slate-300/40 bg-slate-300/40", icon: Banknote, badge: "bg-slate-950/40 text-white", shortLabel: "CASH" },
-  jawwal_pay: { card: "border-emerald-300/40 bg-emerald-500/40", icon: JawwalPayIcon, badge: "bg-emerald-950/45 text-emerald-50", shortLabel: "JPay" },
-  palpay: { card: "border-violet-300/40 bg-violet-500/40", icon: PalPayIcon, badge: "bg-violet-950/45 text-violet-50", shortLabel: "PalPay" },
-  bank_of_palestine: { card: "border-cyan-300/40 bg-cyan-500/40", icon: BankOfPalestineIcon, badge: "bg-cyan-950/45 text-cyan-50", shortLabel: "BOP" },
+  jawwal_pay: { card: "border-lime-300/40 bg-lime-500/40", icon: JawwalPayIcon, badge: "bg-lime-950/55 text-lime-50", shortLabel: "JPay" },
+  palpay: { card: "border-fuchsia-300/40 bg-fuchsia-500/40", icon: PalPayIcon, badge: "bg-fuchsia-950/55 text-fuchsia-50", shortLabel: "PalPay" },
+  bank_of_palestine: { card: "border-rose-400/40 bg-rose-900/40", icon: BankOfPalestineIcon, badge: "bg-rose-950/60 text-rose-50", shortLabel: "BOP" },
   other: { card: "border-amber-300/40 bg-amber-500/40", icon: WalletCards, badge: "bg-amber-950/45 text-amber-50", shortLabel: "حساب" },
 };
 
