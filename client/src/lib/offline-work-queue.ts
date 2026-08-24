@@ -1,4 +1,4 @@
-export type OfflineWorkKind = "subscriber_create" | "subscriber_update" | "invoice_issue";
+export type OfflineWorkKind = "subscriber_create" | "subscriber_update" | "invoice_issue" | "payment_create";
 export type OfflineWorkStatus = "pending" | "conflict" | "failed" | "applied";
 
 export type SubscriberCreateDraft = {
@@ -22,7 +22,20 @@ export type InvoiceIssueDraft = {
   discountAmount: number;
 };
 
-export type OfflineWorkPayload = SubscriberCreateDraft | SubscriberUpdateDraft | InvoiceIssueDraft;
+export type PaymentDraft = {
+  subscriberId: number;
+  invoiceId?: number;
+  paymentNo: string;
+  amount: number;
+  paymentMethod: "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "wallet" | "bank_transfer" | "card";
+  transferFromAccount?: string;
+  transferFromType?: "jawwal_pay" | "palpay" | "bank_of_palestine";
+  transferToAccount?: string;
+  transferToType?: "jawwal_pay" | "palpay" | "bank_of_palestine";
+  referenceNo?: string;
+};
+
+export type OfflineWorkPayload = SubscriberCreateDraft | SubscriberUpdateDraft | InvoiceIssueDraft | PaymentDraft;
 
 export type QueuedOfflineWork = {
   id: string;

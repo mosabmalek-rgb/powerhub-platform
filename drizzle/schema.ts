@@ -659,7 +659,7 @@ export const offlineSyncOperations = mysqlTable("offlineSyncOperations", {
   siteId: int("siteId").notNull().references(() => sites.id),
   userId: int("userId").notNull().references(() => users.id),
   clientOperationId: varchar("clientOperationId", { length: 80 }).notNull(),
-  operationType: mysqlEnum("operationType", ["subscriber_create", "subscriber_update", "invoice_issue"]).notNull(),
+  operationType: mysqlEnum("operationType", ["subscriber_create", "subscriber_update", "invoice_issue", "payment_create"]).notNull(),
   entityType: varchar("entityType", { length: 80 }).notNull(),
   entityId: int("entityId").notNull(),
   response: json("response").notNull(),
@@ -725,6 +725,7 @@ export const payments = mysqlTable("payments", {
   subscriberId: int("subscriberId").notNull().references(() => subscribers.id),
   invoiceId: int("invoiceId").references(() => invoices.id),
   paymentNo: varchar("paymentNo", { length: 60 }).notNull().unique(),
+  clientOperationId: varchar("clientOperationId", { length: 80 }),
   amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
   paymentMethod: mysqlEnum("paymentMethod", ["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash").notNull(),
   transferFromAccount: varchar("transferFromAccount", { length: 30 }),
@@ -740,6 +741,7 @@ export const payments = mysqlTable("payments", {
   paidAt: timestamp("paidAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
+  uniqueIndex("payment_client_operation_unique").on(table.clientOperationId),
   index("payments_tenant_site_idx").on(table.tenantId, table.siteId),
   index("payments_site_date_idx").on(table.siteId, table.paidAt),
 ]);

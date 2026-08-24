@@ -1589,13 +1589,27 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
-      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), transferToAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المستقبِل يجب أن يكون رقم جوال صحيحاً.").optional(), transferToType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
+      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), transferToAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المستقبِل يجب أن يكون رقم جوال صحيحاً.").optional(), transferToType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
     }).superRefine((input, ctx) => {
       const electronic = input.paymentMethod !== "cash";
       if (electronic && (!input.transferFromAccount || !input.transferFromType || !input.transferToAccount || !input.transferToType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "للدفعات الإلكترونية يجب إدخال حساب التحويل المحوِّل والمستقبِل ونوع كل حساب." });
     })).mutation(async ({ ctx, input }) => {
       const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       const db = await dbOrThrow();
+      const tenantId = await getSiteTenant(input.siteId);
+      if (input.clientOperationId) {
+        const [applied] = await db.select({ operationType: offlineSyncOperations.operationType, response: offlineSyncOperations.response }).from(offlineSyncOperations)
+          .where(and(eq(offlineSyncOperations.userId, ctx.user.id), eq(offlineSyncOperations.clientOperationId, input.clientOperationId))).limit(1);
+        if (applied) {
+          if (applied.operationType !== "payment_create") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
+          return applied.response as { id: number };
+        }
+        const [existingByOperation] = await db.select({ id: payments.id, collectedByUserId: payments.collectedByUserId }).from(payments).where(eq(payments.clientOperationId, input.clientOperationId)).limit(1);
+        if (existingByOperation) {
+          if (existingByOperation.collectedByUserId !== ctx.user.id) throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم بالفعل." });
+          return { id: existingByOperation.id };
+        }
+      }
       const [duplicatePayment] = await db.select({ id: payments.id }).from(payments).where(eq(payments.paymentNo, input.paymentNo)).limit(1);
       if (duplicatePayment) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
       const [subscriber] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId))).limit(1);
@@ -1604,9 +1618,8 @@ export const powerhubRouter = router({
         const [invoiceScope] = await db.select({ id: invoices.id, balanceDue: invoices.balanceDue, status: invoices.status }).from(invoices).where(and(eq(invoices.id, input.invoiceId), eq(invoices.siteId, input.siteId), eq(invoices.subscriberId, input.subscriberId))).limit(1);
         if (!invoiceScope) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للمشترك والمحطة المحددين." });
         if (invoiceScope.status === "cancelled" || invoiceScope.status === "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تسجيل دفعة على فاتورة ملغاة أو مسودة." });
-        if (input.amount > Number(invoiceScope.balanceDue)) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الدفعة تتجاوز الرصيد المتبقي للفواتير." });
+        if (input.amount > Number(invoiceScope.balanceDue)) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد الفاتورة منذ حفظ المسودة؛ قيمة الدفعة تتجاوز الرصيد المتبقي الحالي." });
       }
-      const tenantId = await getSiteTenant(input.siteId);
       await assertFinancialPeriodOpen(db, tenantId, input.siteId, new Date(), ctx.user.id, "payment");
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
@@ -1628,19 +1641,29 @@ export const powerhubRouter = router({
         collectorSessionId = openSession.id;
       }
       const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...paymentInput } = input;
-      const id = insertId(await db.insert(payments).values({ ...paymentInput, tenantId, amount: String(input.amount), receiptImageKey, receiptImageHash, collectedByUserId: ctx.user.id, collectorSessionId }));
-      if (input.invoiceId) {
-        const [invoice] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
-        if (invoice) {
+      const id = await db.transaction(async (tx) => {
+        if (input.invoiceId) {
+          const [invoice] = await tx.select({ id: invoices.id, paidAmount: invoices.paidAmount, totalAmount: invoices.totalAmount, balanceDue: invoices.balanceDue })
+            .from(invoices).where(and(eq(invoices.id, input.invoiceId), eq(invoices.siteId, input.siteId), eq(invoices.subscriberId, input.subscriberId))).limit(1);
+          if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للمشترك والمحطة المحددين." });
           const paidAmount = Number(invoice.paidAmount) + input.amount;
           const balanceDue = Math.max(0, Number(invoice.totalAmount) - paidAmount);
-          await db.update(invoices).set({ paidAmount: String(paidAmount), balanceDue: String(balanceDue), status: balanceDue === 0 ? "paid" : "partially_paid" }).where(eq(invoices.id, invoice.id));
+          const updated = await tx.update(invoices).set({ paidAmount: String(paidAmount), balanceDue: String(balanceDue), status: balanceDue === 0 ? "paid" : "partially_paid" })
+            .where(and(eq(invoices.id, invoice.id), eq(invoices.balanceDue, invoice.balanceDue), gte(invoices.balanceDue, String(input.amount))));
+          if (Number((updated[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد الفاتورة أثناء المزامنة؛ راجع المسودة ثم أعد المحاولة." });
         }
-      }
+        const paymentId = insertId(await tx.insert(payments).values({ ...paymentInput, tenantId, amount: String(input.amount), receiptImageKey, receiptImageHash, collectedByUserId: ctx.user.id, collectorSessionId }));
+        const accountType = input.paymentMethod === "cash" ? "cash" : input.paymentMethod === "jawwal_pay" ? "jawwal_pay" : input.paymentMethod === "palpay" ? "palpay" : input.paymentMethod === "bank_of_palestine" ? "bank_of_palestine" : null;
+        if (accountType) {
+          const [account] = await tx.select({ id: companyAccounts.id }).from(companyAccounts).where(and(eq(companyAccounts.tenantId, tenantId), eq(companyAccounts.accountType, accountType))).limit(1);
+          if (account) await tx.insert(accountTransactions).values({ tenantId, accountId: account.id, transactionType: "collection", amount: String(input.amount), description: `تحصيل الفاتورة ${input.paymentNo}`, referenceNo: input.referenceNo, relatedPaymentId: paymentId, createdByUserId: ctx.user.id });
+        }
+        if (input.clientOperationId) await tx.insert(offlineSyncOperations).values({ tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "payment_create", entityType: "payment", entityId: paymentId, response: { id: paymentId } });
+        return paymentId;
+      });
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "payment", entityId: String(id), action: "create", afterData: { ...paymentInput, receiptImageKey }, metadata: { collectorSessionId, receiptImageAttached: Boolean(receiptImageKey) } });
-      const accountType = input.paymentMethod === "cash" ? "cash" : input.paymentMethod === "jawwal_pay" ? "jawwal_pay" : input.paymentMethod === "palpay" ? "palpay" : input.paymentMethod === "bank_of_palestine" ? "bank_of_palestine" : null;
-      if (accountType) { const [account] = await db.select({ id: companyAccounts.id }).from(companyAccounts).where(and(eq(companyAccounts.tenantId, tenantId), eq(companyAccounts.accountType, accountType))).limit(1); if (account) await db.insert(accountTransactions).values({ tenantId, accountId: account.id, transactionType: "collection", amount: String(input.amount), description: `تحصيل الفاتورة ${input.paymentNo}`, referenceNo: input.referenceNo, relatedPaymentId: id, createdByUserId: ctx.user.id }); }
-      return { id };
+      const response = { id };
+      return response;
     }),
   }),
 
