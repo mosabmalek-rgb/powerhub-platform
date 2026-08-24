@@ -12,7 +12,7 @@ describe("طابور المسودات دون اتصال", () => {
   });
 
   it("يحفظ التحصيل كمسودة معلقة من دون تمثيلها كدفعة مكتملة", () => {
-    const draft = createOfflineWork({ userId: 7, siteId: 3, kind: "payment_create", payload: { subscriberId: 31, invoiceId: 41, paymentNo: "PAY-OFF-001", amount: 75, paymentMethod: "cash" } });
-    expect(draft).toMatchObject({ kind: "payment_create", status: "pending", payload: { invoiceId: 41, amount: 75 } });
+    const draft = createOfflineWork({ userId: 7, siteId: 3, kind: "payment_create", payload: { subscriberId: 31, invoiceId: 41, paymentNo: "PAY-OFF-001", amount: 75, paymentMethod: "cash", receiptImageData: "aGVsbG8=", receiptImageMime: "image/png" } });
+    expect(draft).toMatchObject({ kind: "payment_create", status: "pending", payload: { invoiceId: 41, amount: 75, receiptImageMime: "image/png" } });
   });
 });

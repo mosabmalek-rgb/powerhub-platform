@@ -55,12 +55,14 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       } else {
         const payload = item.payload as import("@/lib/offline-work-queue").PaymentDraft;
         const result = await createPayment.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
-        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: payload.paymentNo });
+        const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...sanitizedPayload } = payload;
+        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: payload.paymentNo, payload: sanitizedPayload });
       }
       await refresh();
     } catch (error) {
       const code = (error as { data?: { code?: string } }).data?.code;
       await updateOfflineWork(item.id, { status: code === "CONFLICT" ? "conflict" : "failed", error: error instanceof Error ? error.message : "تعذر مزامنة المسودة." });
+      if (code === "CONFLICT" && item.kind === "payment_create") toast.error("حدث تعارض في مسودة تحصيل مالية. لم يتغير الرصيد ولم يُصدر إيصال رسمي.", { duration: Infinity, action: { label: "فتح مركز المزامنة", onClick: () => window.location.assign("/offline-sync") } });
     } finally { setSyncing(null); await load(); }
   };
 

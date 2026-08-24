@@ -33,6 +33,8 @@ export type PaymentDraft = {
   transferToAccount?: string;
   transferToType?: "jawwal_pay" | "palpay" | "bank_of_palestine";
   referenceNo?: string;
+  receiptImageData?: string;
+  receiptImageMime?: "image/jpeg" | "image/png" | "image/webp";
 };
 
 export type OfflineWorkPayload = SubscriberCreateDraft | SubscriberUpdateDraft | InvoiceIssueDraft | PaymentDraft;
@@ -102,7 +104,7 @@ export async function enqueueOfflineWork(input: Omit<QueuedOfflineWork, "id" | "
   return record;
 }
 
-export async function updateOfflineWork(id: string, patch: Partial<Pick<QueuedOfflineWork, "status" | "error" | "appliedEntityId" | "appliedLabel">>) {
+export async function updateOfflineWork(id: string, patch: Partial<Pick<QueuedOfflineWork, "status" | "error" | "appliedEntityId" | "appliedLabel" | "payload">>) {
   const existing = await transact<QueuedOfflineWork | undefined>("readonly", (store) => store.get(id));
   if (!existing) return;
   await transact("readwrite", (store) => store.put({ ...existing, ...patch, updatedAt: Date.now() }));
