@@ -73,7 +73,12 @@ export default function MeterReadingsPage() {
   const invoiceCandidates = useMemo(() => (invoicesQuery.data ?? []).filter((invoice) => invoice.readingId && (readingsQuery.data ?? []).some((row) => row.reading.id === invoice.readingId && row.reading.status === "approved") && !["draft", "cancelled"].includes(invoice.status)), [invoicesQuery.data, readingsQuery.data]);
   const filteredInvoiceCandidates = useMemo(() => invoiceCandidates.filter((invoice) => invoiceSendStatus === "all" || (invoiceSendStatus === "sent" ? ["sent", "delivered"].includes(smsStatusByInvoiceId.get(invoice.id) ?? "") : !["sent", "delivered"].includes(smsStatusByInvoiceId.get(invoice.id) ?? ""))), [invoiceCandidates, invoiceSendStatus, smsStatusByInvoiceId]);
   const readyInvoiceIds = useMemo(() => filteredInvoiceCandidates.map((invoice) => invoice.id), [filteredInvoiceCandidates]);
-  useEffect(() => { setSelectedInvoiceIds((current) => current.filter((id) => readyInvoiceIds.includes(id))); }, [readyInvoiceIds]);
+  useEffect(() => {
+    setSelectedInvoiceIds((current) => {
+      const retained = current.filter((id) => readyInvoiceIds.includes(id));
+      return retained.length === current.length ? current : retained;
+    });
+  }, [readyInvoiceIds]);
 
   const filteredReadings = useMemo(() => {
     const term = readingSearch.trim().toLocaleLowerCase();
