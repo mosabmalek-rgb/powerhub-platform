@@ -16,7 +16,7 @@ vi.mock("wouter", () => ({ useLocation: () => ["/workspace", vi.fn()] }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
-      sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }] }) } },
+      sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }] }) }, branchPolicy: { useQuery: () => ({ data: { isEnabled: true, maxBranches: 3, currentCount: 1, remaining: 2 }, isLoading: false }) } },
       dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 } }) }, financialOverview: { useQuery: () => ({ data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [] } }) } },
       companyAccounts: { list: { useQuery: () => ({ data: [] }) } },
       subscribers: { quota: { useQuery: () => ({ data: {} }) } },

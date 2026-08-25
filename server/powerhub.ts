@@ -334,6 +334,18 @@ async function ownerSubscriberQuota(tenantId: number) {
   return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenant.plan };
 }
 
+async function recordSubscriberQuotaAlert({ tenantId, siteId, userId, quota }: { tenantId: number; siteId: number; userId: number; quota: { limit: number; currentCount: number; remaining: number; plan: string } }) {
+  if (!Number.isFinite(quota.limit) || quota.limit <= 0 || quota.currentCount <= 0) return;
+  const percentage = Math.min(100, Math.round((quota.currentCount / quota.limit) * 100));
+  const threshold = percentage >= 100 ? 100 : percentage >= 80 ? 80 : 0;
+  if (!threshold) return;
+  const db = await dbOrThrow();
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const action = `subscriber_quota_alert_${threshold}`;
+  const [existing] = await db.select({ id: auditLogs.id }).from(auditLogs).where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.action, action), gte(auditLogs.createdAt, monthStart))).limit(1);
+  if (!existing) await writeAudit({ userId, siteId, entityType: "owner_quota_alert", entityId: String(tenantId), action, metadata: { threshold, percentage, current: quota.currentCount, limit: quota.limit, remaining: quota.remaining, plan: quota.plan, automatic: true } });
+}
+
 async function tenantBranchPolicy(tenantId: number) {
   const db = await dbOrThrow();
   const [[tenant], [platformSetting], [tenantSetting], [countResult]] = await Promise.all([
@@ -1192,6 +1204,7 @@ export const powerhubRouter = router({
           const deliveries = await Promise.all(notificationIds.map(async (notificationId) => ({ notificationId, ...await processNotificationById(notificationId).catch((error) => ({ status: "failed" as const, error: error instanceof Error ? error.message : "تعذر بدء إرسال الرسالة." })) })));
           const response = { id, subscriberNo, referenceNotifications: deliveries };
           if (input.clientOperationId) await db.insert(offlineSyncOperations).values({ tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "subscriber_create", entityType: "subscriber", entityId: id, response });
+          await recordSubscriberQuotaAlert({ tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } });
           return response;
         } catch (error) {
           if (input.clientOperationId && isDuplicateKeyError(error)) {
@@ -1282,6 +1295,7 @@ export const powerhubRouter = router({
         else failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "تعذر توليد رقم مرجعي فريد للمشترك." });
       }
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber_import", entityId: `bulk-${Date.now()}`, action: "bulk_import", afterData: { requested: input.rows.length, created: created.length, updated: updated.length, failed: failureRows.length, updateExisting: input.updateExisting } });
+      await recordSubscriberQuotaAlert({ tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + created.length, remaining: Math.max(0, quota.remaining - created.length) } });
       return { created, updated, failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لم تُرسل رسائل الأرقام المرجعية تلقائياً ضمن الاستيراد الجماعي لحماية رصيد الرسائل؛ استخدم إرسال الإشعارات بعد المراجعة." };
     }),
     update: protectedProcedure.input(z.object({
