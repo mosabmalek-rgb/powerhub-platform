@@ -66,7 +66,7 @@ import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { createHeartbeatJob, deleteHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { COOKIE_NAME } from "../shared/const";
-import { getSupabaseDashboardSummary, listSupabaseAccessibleSites, listSupabaseGenerators, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, requireSupabaseSiteRole } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseGenerators, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
@@ -1158,50 +1158,40 @@ export const powerhubRouter = router({
       subscriptionType: z.enum(["residential", "commercial"]).default("residential"),
       clientOperationId: z.string().uuid().optional(),
     }).omit({ code: true })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
+      const admin = supabaseAdmin();
       if (input.clientOperationId) {
-        const [applied] = await db.select({ operationType: offlineSyncOperations.operationType, response: offlineSyncOperations.response }).from(offlineSyncOperations)
-          .where(and(eq(offlineSyncOperations.userId, ctx.user.id), eq(offlineSyncOperations.clientOperationId, input.clientOperationId))).limit(1);
+        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
+          .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
+        if (appliedError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مفتاح المزامنة في Supabase." });
         if (applied) {
-          if (applied.operationType !== "subscriber_create") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
+          if (applied.operation_type !== "subscriber_create") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
           return applied.response as { id: number; subscriberNo: string; referenceNotifications: Array<{ notificationId: number; status: string; error?: string }> };
         }
       }
-      const quota = await ownerSubscriberQuota(tenantId);
+      const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
       if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
       const phone = normalizeInternationalPhone(input.phone);
       const whatsappNumber = input.whatsappNumber ? normalizeInternationalPhone(input.whatsappNumber) : undefined;
-      const [site] = await db.select({ code: sites.code }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
-      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
-      const [portalSetting] = await db.select({ portalCode: sitePortalSettings.portalCode }).from(sitePortalSettings).where(eq(sitePortalSettings.siteId, input.siteId)).limit(1);
-      const portalCode = portalSetting?.portalCode ?? site.code.toLowerCase();
+      const site = await getSupabaseSite(input.siteId);
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const subscriberNo = generateSubscriberReference(site.code);
-        try {
-          const id = insertId(await db.insert(subscribers).values({ siteId: input.siteId, fullName: input.fullName, phone, whatsappNumber, address: input.address, subscriptionType: input.subscriptionType, subscriberNo, clientOperationId: input.clientOperationId, tenantId }));
-          await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(id), action: "create", afterData: { ...input, subscriberNo, phone, whatsappNumber } });
-          const channels = await db.select({ channel: tenantMessagingConfigurations.channel }).from(tenantMessagingConfigurations)
-            .where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.isActive, true)));
-          const renderedText = renderSubscriberReferenceMessage({ subscriberName: input.fullName, subscriberNo, portalCode });
-          const notificationIds = await Promise.all(channels.map(async ({ channel }) => insertId(await db.insert(notificationMessages).values({
-            tenantId, subscriberId: id, channel, eventType: "subscriber_reference", recipient: channel === "whatsapp" && whatsappNumber ? whatsappNumber : phone, status: "pending",
-            payload: { renderedText, subscriberReferenceTemplateParameters: subscriberReferenceTemplateParameters({ subscriberName: input.fullName, subscriberNo, portalCode }), subscriberNo, portalCode },
-          }))));
-          const deliveries = await Promise.all(notificationIds.map(async (notificationId) => ({ notificationId, ...await processNotificationById(notificationId).catch((error) => ({ status: "failed" as const, error: error instanceof Error ? error.message : "تعذر بدء إرسال الرسالة." })) })));
-          const response = { id, subscriberNo, referenceNotifications: deliveries };
-          if (input.clientOperationId) await db.insert(offlineSyncOperations).values({ tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "subscriber_create", entityType: "subscriber", entityId: id, response });
-          await recordSubscriberQuotaAlert({ tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } });
+        const requestedSubscriberNo = generateSubscriberReference(site.code);
+        const { data, error } = await admin.rpc("powerhub_create_subscriber", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_no: requestedSubscriberNo,
+          p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
+          p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
+        });
+        if (!error && data?.[0]) {
+          const row = data[0] as { subscriber_id: number | string; subscriber_no: string; replayed: boolean };
+          const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
+          if (!row.replayed) await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } });
           return response;
-        } catch (error) {
-          if (input.clientOperationId && isDuplicateKeyError(error)) {
-            const [appliedSubscriber] = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo }).from(subscribers)
-              .where(eq(subscribers.clientOperationId, input.clientOperationId)).limit(1);
-            if (appliedSubscriber) return { id: appliedSubscriber.id, subscriberNo: appliedSubscriber.subscriberNo, referenceNotifications: [] };
-          }
-          if (!isDuplicateKeyError(error) || attempt === 4) throw error;
         }
+        const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (errorText.includes("SUBSCRIBER_QUOTA_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
+        if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة لا تتبع لمساحة صاحب المولد الحالية." });
+        if (error?.code === "23505" && attempt < 4) continue;
+        throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "تعذر توليد رقم مرجعي فريد للمشترك. أعد المحاولة." : "تعذر إنشاء المشترك في Supabase." });
       }
       throw new TRPCError({ code: "CONFLICT", message: "تعذر توليد رقم مرجعي فريد للمشترك. أعد المحاولة." });
     }),
@@ -1291,27 +1281,33 @@ export const powerhubRouter = router({
       address: z.string().max(1000).optional(), subscriptionType: z.enum(["residential", "commercial"]), serviceStatus: z.enum(["active", "suspended", "disconnected"]),
       clientOperationId: z.string().uuid().optional(), expectedUpdatedAt: z.date().optional(),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageSubscribers");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageSubscribers");
+      const admin = supabaseAdmin();
       if (input.clientOperationId) {
-        const [applied] = await db.select({ operationType: offlineSyncOperations.operationType, response: offlineSyncOperations.response }).from(offlineSyncOperations)
-          .where(and(eq(offlineSyncOperations.userId, ctx.user.id), eq(offlineSyncOperations.clientOperationId, input.clientOperationId))).limit(1);
+        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
+          .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
+        if (appliedError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مفتاح المزامنة في Supabase." });
         if (applied) {
-          if (applied.operationType !== "subscriber_update") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
-          return applied.response as { success: true; updatedAt: Date };
+          if (applied.operation_type !== "subscriber_update") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
+          const response = applied.response as { success: true; updatedAt: string | Date };
+          return { success: true as const, updatedAt: new Date(response.updatedAt) };
         }
       }
-      const [existing] = await db.select().from(subscribers).where(and(eq(subscribers.id, input.id), eq(subscribers.siteId, input.siteId))).limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن المحطة المحددة." });
-      if (input.expectedUpdatedAt && existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) throw new TRPCError({ code: "CONFLICT", message: "تغيرت بيانات المشترك على الخادم منذ حفظ هذه المسودة. راجع التعارض ثم أعد المحاولة." });
       const phone = normalizeInternationalPhone(input.phone);
-      const updatedAt = new Date();
-      await db.update(subscribers).set({ fullName: input.fullName, phone, address: input.address, subscriptionType: input.subscriptionType, serviceStatus: input.serviceStatus, updatedAt }).where(eq(subscribers.id, input.id));
-      await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(input.id), action: "update", beforeData: existing, afterData: { ...input, phone } });
-      const response = { success: true as const, updatedAt };
-      if (input.clientOperationId) await db.insert(offlineSyncOperations).values({ tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "subscriber_update", entityType: "subscriber", entityId: input.id, response });
-      return response;
+      const { data, error } = await admin.rpc("powerhub_update_subscriber", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.id,
+        p_full_name: input.fullName.trim(), p_phone: phone, p_address: input.address?.trim() ?? "", p_subscription_type: input.subscriptionType,
+        p_service_status: input.serviceStatus, p_expected_updated_at: input.expectedUpdatedAt?.toISOString() ?? null,
+        p_client_operation_id: input.clientOperationId ?? null,
+      });
+      if (!error && data?.[0]) {
+        const row = data[0] as { updated_at: string; replayed: boolean };
+        return { success: true as const, updatedAt: new Date(row.updated_at) };
+      }
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن المحطة المحددة." });
+      if (errorText.includes("SUBSCRIBER_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيرت بيانات المشترك على الخادم منذ حفظ هذه المسودة. راجع التعارض ثم أعد المحاولة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث المشترك في Supabase." });
     }),
     phoneReview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
@@ -1356,11 +1352,14 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), name: z.string().min(2).max(160), code: z.string().min(2).max(50),
       pricePerKwh: z.number().min(0), fixedFee: z.number().min(0).default(0), taxRate: z.number().min(0).max(100).default(0),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, createRoles, "manageTariffs");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const id = insertId(await db.insert(tariffs).values({ ...input, tenantId, pricePerKwh: String(input.pricePerKwh), fixedFee: String(input.fixedFee), taxRate: String(input.taxRate) }));
-      await writeAudit({ userId: ctx.user.id, entityType: "tariff", entityId: String(id), action: "create", afterData: input });
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageTariffs");
+      const { data, error } = await supabaseAdmin().from("tariffs").insert({
+        tenant_id: access.tenantId, site_id: input.siteId, name: input.name.trim(), code: input.code.trim().toUpperCase(),
+        price_per_kwh: input.pricePerKwh, fixed_fee: input.fixedFee, tax_rate: input.taxRate,
+      }).select("id").single();
+      if (error || !data) throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "رمز التعرفة مستخدم بالفعل في هذا الفرع." : "تعذر إنشاء التعرفة في Supabase." });
+      const id = Number(data.id);
+      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "tariff", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),
   }),
@@ -1375,23 +1374,33 @@ export const powerhubRouter = router({
       serialNumber: z.string().max(100).optional(), ratedCapacityKw: z.string().regex(/^\d+(\.\d{1,3})?$/),
       fuelType: z.enum(["diesel", "gasoline", "gas", "other"]).default("diesel"),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const id = insertId(await db.insert(generators).values({ ...input, tenantId }));
-      await writeAudit({ userId: ctx.user.id, entityType: "generator", entityId: String(id), action: "create", afterData: input });
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
+      const { data, error } = await supabaseAdmin().from("generators").insert({
+        tenant_id: access.tenantId, site_id: input.siteId, code: input.code.trim().toUpperCase(), name: input.name.trim(),
+        serial_number: input.serialNumber?.trim() || null, rated_capacity_kw: input.ratedCapacityKw, fuel_type: input.fuelType,
+      }).select("id").single();
+      if (error || !data) throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "رمز أو اسم المولد مستخدم بالفعل." : "تعذر إنشاء المولد في Supabase." });
+      const id = Number(data.id);
+      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "generator", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), name: z.string().min(2).max(160), ratedCapacityKw: z.string().regex(/^\d+(\.\d{1,3})?$/),
       fuelLevelLiters: z.string().regex(/^\d+(\.\d{1,2})?$/), operatingHours: z.string().regex(/^\d+(\.\d{1,2})?$/), status: z.enum(["active", "maintenance", "stopped", "offline"]),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
-      const db = await dbOrThrow();
-      const [existing] = await db.select().from(generators).where(and(eq(generators.id, input.id), eq(generators.siteId, input.siteId))).limit(1);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
+      const admin = supabaseAdmin();
+      const { data: existing, error: existingError } = await admin.from("generators")
+        .select("id, tenant_id, site_id, name, rated_capacity_kw, fuel_level_liters, operating_hours, status")
+        .eq("id", input.id).eq("site_id", input.siteId).maybeSingle();
+      if (existingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المولد من Supabase." });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود ضمن المحطة المحددة." });
-      await db.update(generators).set({ name: input.name, ratedCapacityKw: input.ratedCapacityKw, fuelLevelLiters: input.fuelLevelLiters, operatingHours: input.operatingHours, status: input.status }).where(eq(generators.id, input.id));
-      await writeAudit({ userId: ctx.user.id, entityType: "generator", entityId: String(input.id), action: "update", beforeData: existing, afterData: input });
+      const { error: updateError } = await admin.from("generators").update({
+        name: input.name.trim(), rated_capacity_kw: input.ratedCapacityKw, fuel_level_liters: input.fuelLevelLiters,
+        operating_hours: input.operatingHours, status: input.status,
+      }).eq("id", input.id).eq("site_id", input.siteId);
+      if (updateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث المولد في Supabase." });
+      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "generator", entityId: String(input.id), action: "update", beforeData: existing, afterData: input });
       return { success: true };
     }),
   }),

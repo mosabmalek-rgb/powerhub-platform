@@ -229,6 +229,58 @@ export async function getSupabaseDashboardSummary(siteId: number) {
   };
 }
 
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function configuredSubscriberLimit(plan: string, value: unknown) {
+  const defaults: Record<string, number> = { starter: 100, professional: 500, enterprise: 2000 };
+  const limits = objectValue(objectValue(value).limits);
+  const candidate = limits[plan];
+  const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : (defaults[plan] ?? defaults.starter);
+}
+
+function subscriberOverride(tenantId: number, value: unknown) {
+  const override = objectValue(objectValue(objectValue(value).overrides)[String(tenantId)]);
+  const candidate = override.subscriberLimit;
+  return typeof candidate === "number" && Number.isInteger(candidate) && candidate >= 0 ? candidate : undefined;
+}
+
+export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
+  const admin = supabaseAdmin();
+  const [tenantResult, limitsResult, overridesResult, countResult] = await Promise.all([
+    admin.from("tenants").select("plan").eq("id", tenantId).maybeSingle(),
+    admin.from("platform_settings").select("value").eq("setting_key", "owner_subscriber_limits").maybeSingle(),
+    admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
+    admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
+  ]);
+  if (tenantResult.error || limitsResult.error || overridesResult.error || countResult.error) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
+  }
+  if (!tenantResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+  const plan = tenantResult.data.plan;
+  const limit = subscriberOverride(tenantId, overridesResult.data?.value) ?? configuredSubscriberLimit(plan, limitsResult.data?.value);
+  const currentCount = countResult.count ?? 0;
+  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
+}
+
+export async function recordSupabaseSubscriberQuotaAlert(input: { tenantId: number; siteId: number; userId: number; quota: { limit: number; currentCount: number; remaining: number; plan: string } }) {
+  if (!Number.isFinite(input.quota.limit) || input.quota.limit <= 0 || input.quota.currentCount <= 0) return;
+  const percentage = Math.min(100, Math.round((input.quota.currentCount / input.quota.limit) * 100));
+  const threshold = percentage >= 100 ? 100 : percentage >= 80 ? 80 : 0;
+  if (!threshold) return;
+  const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
+  const action = `subscriber_quota_alert_${threshold}`;
+  const { data: existing, error } = await supabaseAdmin().from("audit_logs").select("id")
+    .eq("tenant_id", input.tenantId).eq("action", action).gte("created_at", monthStart.toISOString()).maybeSingle();
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تنبيه حصة المشتركين في Supabase." });
+  if (!existing) await writeSupabaseAudit({
+    userId: input.userId, tenantId: input.tenantId, siteId: input.siteId, entityType: "owner_quota_alert", entityId: String(input.tenantId), action,
+    metadata: { threshold, percentage, current: input.quota.currentCount, limit: input.quota.limit, remaining: input.quota.remaining, plan: input.quota.plan, automatic: true },
+  });
+}
+
 export async function writeSupabaseAudit(input: { userId?: number; tenantId: number; siteId: number; entityType: string; entityId: string; action: string; beforeData?: unknown; afterData?: unknown; metadata?: unknown }) {
   const admin = supabaseAdmin();
   const { data: actor, error: actorError } = input.userId ? await admin.from("users").select("platform_role").eq("id", input.userId).maybeSingle() : { data: null, error: null };

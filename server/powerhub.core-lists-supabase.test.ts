@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => {
+  const inserts: Array<{ table: string; values: unknown }> = [];
+  const updates: Array<{ table: string; values: unknown }> = [];
+  const rpcCalls: Array<{ name: string; args: unknown }> = [];
   const site = { id: 10, tenant_id: 20, name: "الفرع الرئيسي", code: "MAIN", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
   const subscriber = { id: 30, tenant_id: 20, site_id: 10, subscriber_no: "MAIN-001", client_operation_id: null, full_name: "مشترك الاختبار", phone: "+970595000000", whatsapp_number: null, address: null, subscription_type: "residential", service_status: "active", created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" };
   const tables: Record<string, unknown[]> = {
@@ -12,6 +15,7 @@ const state = vi.hoisted(() => {
     expenses: [{ id: 80, site_id: 10, amount: 15 }],
     notification_messages: [{ id: 90, subscriber_id: 30, status: "failed" }],
     users: [{ id: 1, role: "admin" }],
+    tenants: [{ id: 20, plan: "starter" }],
   };
   const resolved = (data: unknown) => Promise.resolve({ data, error: null });
   const client = {
@@ -29,10 +33,36 @@ const state = vi.hoisted(() => {
           onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
         ) => resolved(rows).then(onfulfilled, onrejected),
       };
-      return query;
+      const updateQuery = {
+        eq: () => updateQuery,
+        then: <TResult1 = { data: null; error: null }, TResult2 = never>(
+          onfulfilled?: ((value: { data: null; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
+          onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+        ) => resolved(null).then(onfulfilled, onrejected),
+      };
+      return {
+        ...query,
+        insert(values: unknown) {
+          inserts.push({ table, values });
+          const id = table === "tariffs" ? 41 : table === "generators" ? 51 : 91;
+          return {
+            select: () => ({ single: () => resolved({ id }) }),
+            then: <TResult1 = { data: null; error: null }, TResult2 = never>(
+              onfulfilled?: ((value: { data: null; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
+              onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+            ) => resolved(null).then(onfulfilled, onrejected),
+          };
+        },
+        update(values: unknown) { updates.push({ table, values }); return updateQuery; },
+      };
+    },
+    rpc(name: string, args: unknown) {
+      rpcCalls.push({ name, args });
+      if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
+      return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
-  return { client, tables };
+  return { client, tables, inserts, updates, rpcCalls };
 });
 
 vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => state.client }));
@@ -43,6 +73,9 @@ import { powerhubRouter } from "./powerhub";
 describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   beforeEach(() => {
     state.tables.users = [{ id: 1, role: "admin" }];
+    state.inserts.splice(0);
+    state.updates.splice(0);
+    state.rpcCalls.splice(0);
   });
 
   it("يعرض الفروع والمشتركين والتعرفة والمولدات والقراءات دون استدعاء MySQL", async () => {
@@ -60,5 +93,29 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.tables.tenant_members = [];
     const caller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.list({ siteId: 10 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("ينشئ تعرفة ومولداً ويحدّث المولد عبر Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.tariffs.create({ siteId: 10, name: "تعرفة جديدة", code: "NEW", pricePerKwh: 1.5, fixedFee: 0, taxRate: 0 })).resolves.toEqual({ id: 41 });
+    await expect(caller.generators.create({ siteId: 10, code: "GEN-2", name: "مولد جديد", ratedCapacityKw: "200", fuelType: "diesel" })).resolves.toEqual({ id: 51 });
+    await expect(caller.generators.update({ siteId: 10, id: 50, name: "مولد محدث", ratedCapacityKw: "160", fuelLevelLiters: "20", operatingHours: "10", status: "maintenance" })).resolves.toEqual({ success: true });
+    expect(state.inserts).toEqual(expect.arrayContaining([expect.objectContaining({ table: "tariffs" }), expect.objectContaining({ table: "generators" }), expect.objectContaining({ table: "audit_logs" })]));
+    expect(state.updates).toEqual(expect.arrayContaining([expect.objectContaining({ table: "generators", values: expect.objectContaining({ status: "maintenance" }) })]));
+  });
+
+  it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))
+      .resolves.toEqual({ id: 31, subscriberNo: "MAIN-NEW", referenceNotifications: [] });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_quota_limit: 100 }) })]);
+    expect(state.inserts.some((entry) => entry.table === "notification_messages")).toBe(false);
+  });
+
+  it("يحدّث المشترك بالدالة الذرية في Supabase من دون استدعاء MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscribers.update({ siteId: 10, id: 30, fullName: "مشترك محدث", phone: "+970595123456", address: "غزة", subscriptionType: "commercial", serviceStatus: "active", clientOperationId: "22222222-2222-4222-8222-222222222222", expectedUpdatedAt: new Date("2026-08-01T00:00:00.000Z") }))
+      .resolves.toEqual({ success: true, updatedAt: new Date("2026-08-03T00:00:00.000Z") });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_service_status: "active" }) })]);
   });
 });
