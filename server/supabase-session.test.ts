@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ getUser: vi.fn(), syncUser: vi.fn() }));
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ auth: { getUser: state.getUser } }) }));
-vi.mock("./db", () => ({ syncSupabaseUser: state.syncUser }));
+vi.mock("./supabase-profile", () => ({ syncSupabaseProfile: state.syncUser }));
 
 import { sdk } from "./_core/sdk";
 

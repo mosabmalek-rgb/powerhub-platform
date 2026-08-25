@@ -611,3 +611,4 @@
 - [x] نقل أصول الواجهة وروابط صور الإيصالات المتبقية من `/manus-storage` إلى Supabase Storage أو أصول Vercel.
 - [ ] إزالة قالب التحليلات غير المهيأ والتحقق من تضمين متغيرات Supabase العامة في حزمة Vercel الإنتاجية.
 - [x] تحويل Mobile API للقراءات والمزامنة والجلسات إلى Supabase Auth وPostgres Storage مع فرض accessFieldApp وrecordReadings خادمياً.
+- [x] تحويل التحقق من JWT ومسارات ملف الحساب وكلمة المرور في الويب إلى Supabase مباشرةً دون مزامنة MySQL.
