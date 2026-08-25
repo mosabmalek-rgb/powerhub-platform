@@ -343,47 +343,66 @@ export const adminRouter = router({
     const phone = input.ownerPhone.trim();
     const whatsappNumber = input.ownerWhatsapp.trim();
     const generatorName = input.generatorName.trim();
-    const db = await dbOrThrow();
-    const [[existingPhone], [existingGenerator]] = await Promise.all([
-      db.select({ id: tenantOwnerProfiles.id }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.phone, phone)).limit(1),
-      db.select({ id: generators.id }).from(generators).where(eq(generators.name, generatorName)).limit(1),
+    const admin = supabaseAdmin();
+    const [{ data: existingPhone, error: phoneError }, { data: existingGenerator, error: generatorError }] = await Promise.all([
+      admin.from("tenant_owner_profiles").select("id").eq("phone", phone).maybeSingle(),
+      admin.from("generators").select("id").eq("name", generatorName).maybeSingle(),
     ]);
+    if (phoneError || generatorError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تكرار بيانات صاحب المولد في Supabase." });
     if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم جوال صاحب المولد مستخدم بالفعل." });
     if (existingGenerator) throw new TRPCError({ code: "CONFLICT", message: "اسم المولد مستخدم بالفعل." });
-    const { ownerUser, createdSupabaseUserId } = await resolveOwnerLoginAccount(db, { email, name: input.ownerName, temporaryPassword: input.temporaryPassword });
+    const { ownerUser, createdSupabaseUserId } = await resolveOwnerLoginAccountFromSupabase({ email, name: input.ownerName, temporaryPassword: input.temporaryPassword });
 
+    let tenantId: number | null = null;
     try {
       const startedAt = new Date();
       const endsAt = input.endsAt ?? addSubscriptionPeriod(startedAt, input.billingCycle);
       const identity = encryptTenantCredential(input.identityNumber.trim());
-      const result = await db.transaction(async (tx) => {
-        const tenantId = insertId(await tx.insert(tenants).values({ name: input.tenantName, slug: input.slug, plan: input.plan, status: tenantStatusForSubscription(input.subscriptionStatus) }));
-        await tx.insert(tenantOwnerProfiles).values({
-          tenantId,
-          ownerUserId: ownerUser.id,
-          fullName: input.ownerName,
-          phone,
-          whatsappNumber,
-          email,
-          companyName: input.companyName,
-          identityNumberCiphertext: identity.ciphertext,
-          identityNumberIv: identity.iv,
-          identityNumberLast4: input.identityNumber.trim().slice(-4),
-          invitedAt: startedAt,
-          claimedAt: startedAt,
-        });
-        await tx.insert(tenantSubscriptions).values({ tenantId, plan: input.plan, status: input.subscriptionStatus, billingCycle: input.billingCycle, startedAt, endsAt, autoRenew: input.autoRenew, notes: input.notes });
-        const siteId = insertId(await tx.insert(sites).values({ tenantId, name: input.siteName, code: input.siteCode, city: input.city }));
-        await tx.insert(sitePortalSettings).values({ tenantId, siteId, portalCode: input.siteCode.toLowerCase(), displayName: input.siteName });
-        const generatorId = insertId(await tx.insert(generators).values({ tenantId, siteId, name: generatorName, code: input.generatorCode, ratedCapacityKw: String(input.generatorCapacityKw), fuelType: input.generatorFuelType, status: "pending" }));
-        await tx.insert(tenantMembers).values({ tenantId, userId: ownerUser.id, role: "owner", isActive: true, membershipStatus: "active", invitedByUserId: ctx.user.id });
-        await tx.insert(staffProfiles).values({ tenantId, siteId, userId: ownerUser.id, role: "owner", isActive: true });
-        return { tenantId, siteId, generatorId };
+      const { data: tenant, error: tenantError } = await admin.from("tenants")
+        .insert({ name: input.tenantName.trim(), slug: input.slug, plan: input.plan, status: tenantStatusForSubscription(input.subscriptionStatus) })
+        .select("id").single();
+      if (tenantError || !tenant) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء مساحة صاحب المولد في Supabase." });
+      tenantId = Number(tenant.id);
+      const { error: profileError } = await admin.from("tenant_owner_profiles").insert({
+        tenant_id: tenantId, owner_user_id: ownerUser.id, full_name: input.ownerName.trim(), phone, whatsapp_number: whatsappNumber,
+        email, company_name: input.companyName?.trim() || null, identity_number_ciphertext: identity.ciphertext,
+        identity_number_iv: identity.iv, identity_number_last4: input.identityNumber.trim().slice(-4),
+        invited_at: startedAt.toISOString(), claimed_at: startedAt.toISOString(),
       });
-      await db.update(users).set({ role: "user", platformRole: null, accountStatus: "active", mustChangePassword: true, temporaryPasswordIssuedAt: startedAt }).where(eq(users.id, ownerUser.id));
-      await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "generator", entityId: String(result.generatorId), action: "platform_admin_create_pending_generator_owner", afterData: { tenantName: input.tenantName, ownerName: input.ownerName, ownerEmail: email, generatorName, generatorCode: input.generatorCode, generatorStatus: "pending", plan: input.plan }, actorPlatformRole: platformRoleOf(ctx.user) });
-      return { ...result, ownerUserId: ownerUser.id, forcePasswordChange: true };
+      if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ ملف صاحب المولد في Supabase." });
+      const { error: subscriptionError } = await admin.from("tenant_subscriptions").insert({
+        tenant_id: tenantId, plan: input.plan, status: input.subscriptionStatus, billing_cycle: input.billingCycle,
+        started_at: startedAt.toISOString(), ends_at: endsAt.toISOString(), auto_renew: input.autoRenew, notes: input.notes?.trim() || null,
+      });
+      if (subscriptionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء اشتراك صاحب المولد في Supabase." });
+      const { data: site, error: siteError } = await admin.from("sites")
+        .insert({ tenant_id: tenantId, name: input.siteName.trim(), code: input.siteCode, city: input.city?.trim() || null })
+        .select("id").single();
+      if (siteError || !site) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء الفرع الرئيسي في Supabase." });
+      const siteId = Number(site.id);
+      const { data: generator, error: generatorInsertError } = await admin.from("generators").insert({
+        tenant_id: tenantId, site_id: siteId, name: generatorName, code: input.generatorCode,
+        rated_capacity_kw: input.generatorCapacityKw, fuel_type: input.generatorFuelType, status: "pending",
+      }).select("id").single();
+      if (generatorInsertError || !generator) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء المولد الأول في Supabase." });
+      const generatorId = Number(generator.id);
+      const setupResults = await Promise.all([
+        admin.from("site_portal_settings").insert({ tenant_id: tenantId, site_id: siteId, portal_code: input.siteCode.toLowerCase(), display_name: input.siteName.trim() }),
+        admin.from("tenant_members").insert({ tenant_id: tenantId, user_id: ownerUser.id, role: "owner", is_active: true, membership_status: "active", invited_by_user_id: ctx.user.id }),
+        admin.from("staff_profiles").insert({ tenant_id: tenantId, site_id: siteId, user_id: ownerUser.id, role: "owner", is_active: true }),
+        admin.from("users").update({ role: "user", platform_role: null, account_status: "active", must_change_password: true, temporary_password_issued_at: startedAt.toISOString() }).eq("id", ownerUser.id),
+      ]);
+      if (setupResults.some((result) => result.error)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إكمال تهيئة مساحة صاحب المولد في Supabase." });
+      const { error: auditError } = await admin.from("audit_logs").insert({
+        tenant_id: tenantId, site_id: siteId, user_id: ctx.user.id, entity_type: "generator", entity_id: String(generatorId),
+        action: "platform_admin_create_pending_generator_owner",
+        after_data: { tenantName: input.tenantName, ownerName: input.ownerName, ownerEmail: email, generatorName, generatorCode: input.generatorCode, generatorStatus: "pending", plan: input.plan },
+        actor_platform_role: platformRoleOf(ctx.user),
+      });
+      if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم إنشاء المساحة لكن تعذر تسجيل التدقيق في Supabase." });
+      return { tenantId, siteId, generatorId, ownerUserId: ownerUser.id, forcePasswordChange: true };
     } catch (error) {
+      if (tenantId) await admin.from("tenants").delete().eq("id", tenantId);
       if (createdSupabaseUserId) await supabaseAdmin().auth.admin.deleteUser(createdSupabaseUserId);
       throw error;
     }
@@ -1053,35 +1072,53 @@ export const adminRouter = router({
   }),
 
   setTenantStatus: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), status: z.enum(["active", "suspended"]) })).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow();
-    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
+    const admin = supabaseAdmin();
+    const [{ data: tenant, error: tenantError }, { data: site, error: siteError }] = await Promise.all([
+      admin.from("tenants").select("id, status").eq("id", input.tenantId).maybeSingle(),
+      admin.from("sites").select("id").eq("tenant_id", input.tenantId).order("id", { ascending: true }).limit(1).maybeSingle(),
+    ]);
+    if (tenantError || siteError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حالة مساحة صاحب المولد من Supabase." });
     if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-    const [site] = await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
-    await db.transaction(async (tx) => {
-      await tx.update(tenants).set({ status: input.status }).where(eq(tenants.id, input.tenantId));
-      if (input.status === "suspended") await tx.update(tenantSubscriptions).set({ status: "suspended" }).where(eq(tenantSubscriptions.tenantId, input.tenantId));
-    });
-    if (site) await db.insert(auditLogs).values({ tenantId: tenant.id, siteId: site.id, userId: ctx.user.id, entityType: "tenant", entityId: String(tenant.id), action: "platform_admin_set_tenant_status", beforeData: { status: tenant.status }, afterData: { status: input.status } });
+    const { error: statusError } = await admin.from("tenants").update({ status: input.status }).eq("id", input.tenantId);
+    if (statusError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالة مساحة صاحب المولد في Supabase." });
+    if (input.status === "suspended") {
+      const { error: subscriptionError } = await admin.from("tenant_subscriptions").update({ status: "suspended" }).eq("tenant_id", input.tenantId);
+      if (subscriptionError) {
+        await admin.from("tenants").update({ status: tenant.status }).eq("id", input.tenantId);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إيقاف الاشتراك المرتبط بالمساحة؛ أُعيدت حالة المساحة السابقة." });
+      }
+    }
+    if (site) {
+      const { error: auditError } = await admin.from("audit_logs").insert({ tenant_id: Number(tenant.id), site_id: Number(site.id), user_id: ctx.user.id, entity_type: "tenant", entity_id: String(tenant.id), action: "platform_admin_set_tenant_status", before_data: { status: tenant.status }, after_data: { status: input.status }, actor_platform_role: platformRoleOf(ctx.user) });
+      if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث الحالة لكن تعذر تسجيل التدقيق في Supabase." });
+    }
     return { success: true };
   }),
 
   setGeneratorStatus: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["active", "maintenance", "stopped", "offline", "blocked"]) })).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow();
-    const [generator] = await db.select().from(generators).where(eq(generators.id, input.id)).limit(1);
+    const admin = supabaseAdmin();
+    const { data: generator, error: generatorError } = await admin.from("generators").select("id, tenant_id, site_id, status").eq("id", input.id).maybeSingle();
+    if (generatorError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المولد من Supabase." });
     if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود." });
-    await db.update(generators).set({ status: input.status }).where(eq(generators.id, input.id));
-    await db.insert(auditLogs).values({ tenantId: generator.tenantId, siteId: generator.siteId, userId: ctx.user.id, entityType: "generator", entityId: String(generator.id), action: "platform_admin_update_generator_status", beforeData: { status: generator.status }, afterData: { status: input.status } });
+    const { error: statusError } = await admin.from("generators").update({ status: input.status }).eq("id", input.id);
+    if (statusError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالة المولد في Supabase." });
+    const { error: auditError } = await admin.from("audit_logs").insert({ tenant_id: Number(generator.tenant_id), site_id: Number(generator.site_id), user_id: ctx.user.id, entity_type: "generator", entity_id: String(generator.id), action: "platform_admin_update_generator_status", before_data: { status: generator.status }, after_data: { status: input.status }, actor_platform_role: platformRoleOf(ctx.user) });
+    if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث حالة المولد لكن تعذر تسجيل التدقيق في Supabase." });
     return { success: true };
   }),
 
   approvePendingGenerator: platformAdminProcedure.input(z.object({ generatorId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow();
-    const [generator] = await db.select().from(generators).where(eq(generators.id, input.generatorId)).limit(1);
+    const admin = supabaseAdmin();
+    const { data: generator, error: generatorError } = await admin.from("generators").select("id, tenant_id, site_id, status").eq("id", input.generatorId).maybeSingle();
+    if (generatorError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المولد من Supabase." });
     if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود." });
     if (generator.status !== "pending") throw new TRPCError({ code: "CONFLICT", message: "لا يمكن اعتماد مولد ليس بحالة انتظار المراجعة." });
-    await db.update(generators).set({ status: "active" }).where(eq(generators.id, generator.id));
-    await db.insert(auditLogs).values({ tenantId: generator.tenantId, siteId: generator.siteId, userId: ctx.user.id, entityType: "generator", entityId: String(generator.id), action: "platform_admin_approve_pending_generator", beforeData: { status: "pending" }, afterData: { status: "active" }, actorPlatformRole: platformRoleOf(ctx.user) });
-    return { success: true, generatorId: generator.id, status: "active" as const };
+    const { data: approved, error: approvalError } = await admin.from("generators").update({ status: "active" }).eq("id", input.generatorId).eq("status", "pending").select("id").maybeSingle();
+    if (approvalError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد المولد في Supabase." });
+    if (!approved) throw new TRPCError({ code: "CONFLICT", message: "تغيرت حالة المولد قبل الاعتماد، أعد تحميل الصفحة." });
+    const { error: auditError } = await admin.from("audit_logs").insert({ tenant_id: Number(generator.tenant_id), site_id: Number(generator.site_id), user_id: ctx.user.id, entity_type: "generator", entity_id: String(generator.id), action: "platform_admin_approve_pending_generator", before_data: { status: "pending" }, after_data: { status: "active" }, actor_platform_role: platformRoleOf(ctx.user) });
+    if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم اعتماد المولد لكن تعذر تسجيل التدقيق في Supabase." });
+    return { success: true, generatorId: Number(generator.id), status: "active" as const };
   }),
 
   listNotifications: platformAdminProcedure.input(z.object({ status: z.enum(["pending", "submitted", "delivered", "read", "failed"]).optional() }).optional()).query(async ({ input }) => {

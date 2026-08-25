@@ -5,7 +5,7 @@ const state = vi.hoisted(() => ({ getUser: vi.fn(), syncUser: vi.fn() }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ auth: { getUser: state.getUser } }) }));
 vi.mock("./supabase-profile", () => ({ syncSupabaseProfile: state.syncUser }));
 
-import { sdk } from "./_core/sdk";
+import { authenticateSupabaseRequest } from "./_core/supabase-auth";
 
 describe("Supabase session authentication", () => {
   beforeEach(() => {
@@ -16,7 +16,7 @@ describe("Supabase session authentication", () => {
   });
 
   it("rejects a request without a Supabase bearer token", async () => {
-    await expect(sdk.authenticateRequest({ headers: {} } as never)).rejects.toThrow("Missing Supabase access token");
+    await expect(authenticateSupabaseRequest({ headers: {} } as never)).rejects.toThrow("Missing Supabase access token");
   });
 
   it("verifies the Supabase token then synchronizes the user by Supabase id and email", async () => {
@@ -24,7 +24,7 @@ describe("Supabase session authentication", () => {
     state.getUser.mockResolvedValue({ data: { user: { id: "supabase-user-id", email: "admin@powerhub.test", user_metadata: { name: "مدير المنصة" } } }, error: null });
     state.syncUser.mockResolvedValue(synchronizedUser);
 
-    await expect(sdk.authenticateRequest({ headers: { authorization: "Bearer supabase-token" } } as never)).resolves.toEqual(synchronizedUser);
+    await expect(authenticateSupabaseRequest({ headers: { authorization: "Bearer supabase-token" } } as never)).resolves.toEqual(synchronizedUser);
     expect(state.syncUser).toHaveBeenCalledWith({ id: "supabase-user-id", email: "admin@powerhub.test", name: "مدير المنصة" });
   });
 });
