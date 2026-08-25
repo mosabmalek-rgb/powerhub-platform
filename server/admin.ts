@@ -1003,23 +1003,45 @@ export const adminRouter = router({
   }),
 
   securityCenter: platformAdminProcedure.query(async () => {
-    const db = await dbOrThrow();
-    const events = await db.select({ id: platformSecurityEvents.id, eventType: platformSecurityEvents.eventType, severity: platformSecurityEvents.severity, status: platformSecurityEvents.status, title: platformSecurityEvents.title, details: platformSecurityEvents.details, createdAt: platformSecurityEvents.createdAt, resolvedAt: platformSecurityEvents.resolvedAt, userName: users.name })
-      .from(platformSecurityEvents).leftJoin(users, eq(platformSecurityEvents.relatedUserId, users.id)).orderBy(desc(platformSecurityEvents.createdAt)).limit(300);
-    const settings = await db.select().from(platformSecuritySettings).orderBy(platformSecuritySettings.settingKey);
-    return { events, settings };
+    const admin = supabaseAdmin();
+    const [eventsResult, settingsResult] = await Promise.all([
+      admin.from("platform_security_events").select("id, event_type, severity, status, title, details, created_at, resolved_at, related_user_id").order("created_at", { ascending: false }).limit(300),
+      admin.from("platform_security_settings").select("id, setting_key, is_enabled, value, updated_by_user_id, updated_at").order("setting_key", { ascending: true }),
+    ]);
+    if (eventsResult.error || settingsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مركز الأمان من Supabase." });
+    const relatedIds = Array.from(new Set((eventsResult.data ?? []).flatMap((event) => event.related_user_id ? [Number(event.related_user_id)] : [])));
+    const { data: relatedUsers, error: relatedUsersError } = relatedIds.length
+      ? await admin.from("users").select("id, name").in("id", relatedIds)
+      : { data: [], error: null };
+    if (relatedUsersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مستخدمي مركز الأمان من Supabase." });
+    const names = new Map((relatedUsers ?? []).map((user) => [Number(user.id), user.name]));
+    return {
+      events: (eventsResult.data ?? []).map((event) => ({ id: Number(event.id), eventType: event.event_type, severity: event.severity, status: event.status, title: event.title, details: event.details, createdAt: event.created_at, resolvedAt: event.resolved_at, userName: event.related_user_id ? names.get(Number(event.related_user_id)) ?? null : null })),
+      settings: (settingsResult.data ?? []).map((setting) => ({ id: Number(setting.id), settingKey: setting.setting_key, isEnabled: setting.is_enabled, value: setting.value, updatedByUserId: setting.updated_by_user_id ? Number(setting.updated_by_user_id) : null, updatedAt: setting.updated_at })),
+    };
   }),
 
   recordSecurityEvent: platformAdminProcedure.input(z.object({ eventType: z.enum(["suspicious_login", "backup", "security_change"]), severity: z.enum(["info", "warning", "critical"]), status: z.enum(["open", "resolved", "success", "failed"]), title: z.string().min(3).max(180), details: z.string().max(4000).optional(), relatedUserId: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow();
-    await db.insert(platformSecurityEvents).values({ ...input, createdByUserId: ctx.user.id, resolvedAt: input.status === "resolved" || input.status === "success" ? new Date() : undefined });
+    const { error } = await supabaseAdmin().from("platform_security_events").insert({
+      event_type: input.eventType, severity: input.severity, status: input.status, title: input.title, details: input.details ?? null,
+      related_user_id: input.relatedUserId ?? null, created_by_user_id: ctx.user.id,
+      resolved_at: input.status === "resolved" || input.status === "success" ? new Date().toISOString() : null,
+    });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل حدث الأمان في Supabase." });
     return { success: true };
   }),
 
   saveSecuritySetting: platformAdminProcedure.input(z.object({ settingKey: z.string().min(2).max(100), isEnabled: z.boolean(), value: z.string().max(4000).optional() })).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow();
-    await db.insert(platformSecuritySettings).values({ ...input, updatedByUserId: ctx.user.id }).onDuplicateKeyUpdate({ set: { isEnabled: input.isEnabled, value: input.value, updatedByUserId: ctx.user.id } });
-    await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "info", status: "success", title: `تحديث إعداد الحماية: ${input.settingKey}`, createdByUserId: ctx.user.id, metadata: { isEnabled: input.isEnabled } });
+    const admin = supabaseAdmin();
+    const { error: settingError } = await admin.from("platform_security_settings").upsert({
+      setting_key: input.settingKey, is_enabled: input.isEnabled, value: input.value ?? null, updated_by_user_id: ctx.user.id, updated_at: new Date().toISOString(),
+    }, { onConflict: "setting_key" });
+    if (settingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ إعداد الحماية في Supabase." });
+    const { error: eventError } = await admin.from("platform_security_events").insert({
+      event_type: "security_change", severity: "info", status: "success", title: `تحديث إعداد الحماية: ${input.settingKey}`,
+      created_by_user_id: ctx.user.id, metadata: { isEnabled: input.isEnabled },
+    });
+    if (eventError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم حفظ الإعداد لكن تعذر تدوين حدث الأمان." });
     return { success: true };
   }),
 
