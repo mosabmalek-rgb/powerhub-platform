@@ -3,10 +3,11 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, mobileSyncEvents, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, platformSmsFallbackProviders, platformTweetSmsAccounts, platformTweetSmsBalanceAlerts, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenantTweetSmsAccounts, tenants, users } from "../drizzle/schema";
-import { getDb, syncSupabaseUser } from "./db";
+import { getDb } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
 import { supabaseAdmin } from "./supabase-admin";
+import { syncSupabaseProfile } from "./supabase-profile";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 import { processNotificationById } from "./notification-worker";
 
@@ -102,7 +103,7 @@ async function resolveOwnerLoginAccount(db: NonNullable<Awaited<ReturnType<typeo
     user_metadata: { name: input.name },
   });
   if (createError || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء حساب صاحب المولد في Supabase. قد يكون البريد مستخدماً بالفعل." });
-  const ownerUser = await syncSupabaseUser({ id: created.user.id, email: input.email, name: input.name });
+  const ownerUser = await syncSupabaseProfile({ id: created.user.id, email: input.email, name: input.name });
   return { ownerUser, createdSupabaseUserId: created.user.id };
 }
 

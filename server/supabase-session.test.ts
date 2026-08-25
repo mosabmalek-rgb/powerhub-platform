@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ getUser: vi.fn(), syncUser: vi.fn() }));
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ auth: { getUser: state.getUser } }) }));
-vi.mock("./db", () => ({ syncSupabaseUser: state.syncUser }));
+vi.mock("./supabase-profile", () => ({ syncSupabaseProfile: state.syncUser }));
 
 import { sdk } from "./_core/sdk";
 
@@ -19,8 +19,8 @@ describe("Supabase session authentication", () => {
     await expect(sdk.authenticateRequest({ headers: {} } as never)).rejects.toThrow("Missing Supabase access token");
   });
 
-  it("verifies the Supabase token then synchronizes the user by Supabase id and email", async () => {
-    const synchronizedUser = { id: 4, openId: "supabase-user-id", email: "admin@powerhub.test", role: "admin" };
+  it("verifies the Supabase token then synchronizes the profile by Supabase id and email", async () => {
+    const synchronizedUser = { id: 4, openId: "supabase-user-id", email: "admin@powerhub.test", role: "admin", platformRole: "platform_owner", accountStatus: "active", mustChangePassword: false };
     state.getUser.mockResolvedValue({ data: { user: { id: "supabase-user-id", email: "admin@powerhub.test", user_metadata: { name: "مدير المنصة" } } }, error: null });
     state.syncUser.mockResolvedValue(synchronizedUser);
 

@@ -5,8 +5,7 @@ import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import { createClient } from "@supabase/supabase-js";
-import type { User } from "../../drizzle/schema";
-import * as db from "../db";
+import { syncSupabaseProfile, type PowerHubUser } from "../supabase-profile";
 import { ENV } from "./env";
 import type {
   ExchangeTokenRequest,
@@ -267,14 +266,14 @@ class SDKServer {
     const supabase = createClient(projectUrl, publishableKey, { auth: { persistSession: false, autoRefreshToken: false } });
     const { data, error } = await supabase.auth.getUser(authHeader.slice(7));
     if (error || !data.user?.email) throw ForbiddenError("Invalid Supabase access token");
-    return db.syncSupabaseUser({ id: data.user.id, email: data.user.email, name: (data.user.user_metadata?.name as string | undefined) ?? data.user.email.split("@")[0] });
+    return syncSupabaseProfile({ id: data.user.id, email: data.user.email, name: (data.user.user_metadata?.name as string | undefined) ?? data.user.email.split("@")[0] });
   }
 }
 
 const CRON_OPEN_ID_PREFIX = "cron_";
 
 /** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `/home/ubuntu/skills/webdev-periodic-updates/SKILL.md`. */
-export type AuthenticatedUser = User & {
+export type AuthenticatedUser = PowerHubUser & {
   taskUid?: string;
   isCron?: boolean;
 };
