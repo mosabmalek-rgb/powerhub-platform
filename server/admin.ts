@@ -9,7 +9,7 @@ import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypt
 import { supabaseAdmin } from "./supabase-admin";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 import { processNotificationById } from "./notification-worker";
-import { ownerOverviewFromSupabase } from "./admin-supabase";
+import { ownerOverviewFromSupabase, platformSnapshotFromSupabase } from "./admin-supabase";
 
 const planSchema = z.enum(["starter", "professional", "enterprise"]);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
@@ -631,112 +631,18 @@ export const adminRouter = router({
   }),
 
   platformSnapshot: platformAdminProcedure.query(async () => {
-    const db = await dbOrThrow();
-    const [generatorTotals] = await db.select({
-      total: sql<number>`count(*)`,
-      active: sql<number>`sum(case when ${generators.status} = 'active' then 1 else 0 end)`,
-      pending: sql<number>`sum(case when ${generators.status} = 'pending' then 1 else 0 end)`,
-      maintenance: sql<number>`sum(case when ${generators.status} = 'maintenance' then 1 else 0 end)`,
-      stopped: sql<number>`sum(case when ${generators.status} in ('stopped', 'offline') then 1 else 0 end)`,
-      blocked: sql<number>`sum(case when ${generators.status} = 'blocked' then 1 else 0 end)`,
-      capacityKw: sql<number>`sum(${generators.ratedCapacityKw})`,
-    }).from(generators);
-    const [userTotals] = await db.select({
-      total: sql<number>`count(*)`,
-      platformAdmins: sql<number>`sum(case when ${users.role} = 'admin' then 1 else 0 end)`,
-    }).from(users);
-    const [staffTotal] = await db.select({ total: sql<number>`count(*)` }).from(staffProfiles).where(eq(staffProfiles.isActive, true));
-    const [invoiceTotals] = await db.select({
-      overdueCount: sql<number>`sum(case when ${invoices.status} = 'overdue' then 1 else 0 end)`,
-      overdueAmount: sql<number>`sum(case when ${invoices.status} = 'overdue' then ${invoices.balanceDue} else 0 end)`,
-      issuedAmount: sql<number>`sum(case when ${invoices.status} in ('issued', 'partially_paid', 'paid', 'overdue') then ${invoices.totalAmount} else 0 end)`,
-    }).from(invoices);
-    const [paymentTotals] = await db.select({
-      completedAmount: sql<number>`sum(case when ${payments.status} = 'completed' then ${payments.amount} else 0 end)`,
-      completedCount: sql<number>`sum(case when ${payments.status} = 'completed' then 1 else 0 end)`,
-    }).from(payments);
-    const [readingTotals] = await db.select({
-      approvedReadings: sql<number>`sum(case when ${meterReadings.status} = 'approved' then 1 else 0 end)`,
-      consumptionKwh: sql<number>`sum(case when ${meterReadings.status} = 'approved' then ${meterReadings.consumptionKwh} else 0 end)`,
-    }).from(meterReadings);
-    const [growthTotals] = await db.select({
-      tenants: sql<number>`count(*)`,
-      subscribers: sql<number>`(select count(*) from ${subscribers})`,
-    }).from(tenants);
-    const paymentMethods = await db.select({
-      method: payments.paymentMethod,
-      count: sql<number>`count(*)`,
-      amount: sql<number>`sum(${payments.amount})`,
-    }).from(payments).where(eq(payments.status, "completed")).groupBy(payments.paymentMethod);
-    // لا يوجد ربط مالي بالمولد بعد نقل الفواتير إلى المشترك؛ يبقى الأداء المالي على مستوى الفرع فقط.
-    const collectionsByGenerator: Array<{ generatorId: number; generatorName: string; generatorCode: string; tenantName: string; count: number; amount: number }> = [];
-    const notificationStatuses = await db.select({
-      status: notificationMessages.status,
-      count: sql<number>`count(*)`,
-    }).from(notificationMessages).groupBy(notificationMessages.status);
-    const recentAudit = await db.select({
-      id: auditLogs.id,
-      action: auditLogs.action,
-      entityType: auditLogs.entityType,
-      createdAt: auditLogs.createdAt,
-      tenantName: tenants.name,
-      siteName: sites.name,
-      userName: users.name,
-    }).from(auditLogs)
-      .leftJoin(tenants, eq(auditLogs.tenantId, tenants.id))
-      .leftJoin(sites, eq(auditLogs.siteId, sites.id))
-      .leftJoin(users, eq(auditLogs.userId, users.id))
-      .orderBy(desc(auditLogs.createdAt)).limit(30);
-    const generatorDirectory = await db.select({
-      id: generators.id,
-      code: generators.code,
-      name: generators.name,
-      status: generators.status,
-      ratedCapacityKw: generators.ratedCapacityKw,
-      tenantId: generators.tenantId,
-      tenantName: tenants.name,
-      siteName: sites.name,
-    }).from(generators)
-      .innerJoin(tenants, eq(generators.tenantId, tenants.id))
-      .innerJoin(sites, eq(generators.siteId, sites.id))
-      .orderBy(desc(generators.createdAt)).limit(200);
-    const pendingRegistrations = await db.select({
-      generatorId: generators.id,
-      generatorName: generators.name,
-      generatorCode: generators.code,
-      ratedCapacityKw: generators.ratedCapacityKw,
-      tenantId: tenantOwnerProfiles.tenantId,
-      ownerName: tenantOwnerProfiles.fullName,
-      phone: tenantOwnerProfiles.phone,
-      tenantName: tenants.name,
-      siteName: sites.name,
-      createdAt: generators.createdAt,
-    }).from(generators)
-      .innerJoin(tenantOwnerProfiles, eq(generators.tenantId, tenantOwnerProfiles.tenantId))
-      .innerJoin(tenants, eq(generators.tenantId, tenants.id))
-      .innerJoin(sites, eq(generators.siteId, sites.id))
-      .where(eq(generators.status, "pending"))
-      .orderBy(desc(generators.createdAt));
-    const staffDirectory = await db.select({ id: staffProfiles.id, role: staffProfiles.role, isActive: staffProfiles.isActive, userName: users.name, userEmail: users.email, tenantName: tenants.name, siteName: sites.name })
-      .from(staffProfiles).innerJoin(users, eq(staffProfiles.userId, users.id)).leftJoin(sites, eq(staffProfiles.siteId, sites.id)).leftJoin(tenants, eq(sites.tenantId, tenants.id)).orderBy(desc(staffProfiles.updatedAt)).limit(300);
-    const subscriberDirectory = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, subscriptionType: subscribers.subscriptionType, serviceStatus: subscribers.serviceStatus, tenantName: tenants.name, siteName: sites.name })
-      .from(subscribers).innerJoin(tenants, eq(subscribers.tenantId, tenants.id)).innerJoin(sites, eq(subscribers.siteId, sites.id)).orderBy(desc(subscribers.createdAt)).limit(300);
-    return {
-      generators: {
-        total: Number(generatorTotals?.total ?? 0), active: Number(generatorTotals?.active ?? 0), pending: Number(generatorTotals?.pending ?? 0), maintenance: Number(generatorTotals?.maintenance ?? 0), stopped: Number(generatorTotals?.stopped ?? 0), blocked: Number(generatorTotals?.blocked ?? 0), capacityKw: Number(generatorTotals?.capacityKw ?? 0), directory: generatorDirectory, pendingRegistrations,
-      },
-      users: { total: Number(userTotals?.total ?? 0), platformAdmins: Number(userTotals?.platformAdmins ?? 0), activeStaff: Number(staffTotal?.total ?? 0), staffDirectory, subscriberDirectory },
-      finance: { overdueCount: Number(invoiceTotals?.overdueCount ?? 0), overdueAmount: Number(invoiceTotals?.overdueAmount ?? 0), issuedAmount: Number(invoiceTotals?.issuedAmount ?? 0), completedPayments: Number(paymentTotals?.completedCount ?? 0), completedAmount: Number(paymentTotals?.completedAmount ?? 0), paymentMethods: paymentMethods.map((item) => ({ ...item, count: Number(item.count), amount: Number(item.amount) })), collectionsByGenerator: collectionsByGenerator.map((item) => ({ ...item, count: Number(item.count), amount: Number(item.amount) })) },
-      reports: { approvedReadings: Number(readingTotals?.approvedReadings ?? 0), consumptionKwh: Number(readingTotals?.consumptionKwh ?? 0), tenants: Number(growthTotals?.tenants ?? 0), subscribers: Number(growthTotals?.subscribers ?? 0), complaintsEnabled: false },
-      notifications: { statuses: notificationStatuses.map((item) => ({ ...item, count: Number(item.count) })) },
-      security: { recentAudit },
-    };
+    return platformSnapshotFromSupabase();
   }),
 
   userDirectory: platformAdminProcedure.query(async () => {
-    const db = await dbOrThrow();
-    return db.select({ id: users.id, name: users.name, email: users.email, role: users.role, platformRole: users.platformRole, accountStatus: users.accountStatus, lastSignedIn: users.lastSignedIn })
-      .from(users).orderBy(desc(users.lastSignedIn)).limit(200);
+    const { data, error } = await supabaseAdmin().from("users")
+      .select("id, name, email, role, platform_role, account_status, last_signed_in")
+      .order("last_signed_in", { ascending: false }).limit(200);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دليل المستخدمين من Supabase." });
+    return (data ?? []).map((user) => ({
+      id: Number(user.id), name: user.name, email: user.email, role: user.role,
+      platformRole: user.platform_role, accountStatus: user.account_status, lastSignedIn: user.last_signed_in,
+    }));
   }),
 
   platformAccessDirectory: platformOwnerProcedure.query(async () => {

@@ -65,3 +65,94 @@ export async function ownerOverviewFromSupabase(tenantId?: number) {
     };
   });
 }
+
+type EntityRow = Record<string, unknown>;
+
+function requireData<T>(result: { data: T[] | null; error: { message: string } | null }) {
+  if (result.error) unavailable(result.error);
+  return result.data ?? [];
+}
+
+const numeric = (value: unknown) => Number(value ?? 0);
+
+export async function platformSnapshotFromSupabase() {
+  const admin = supabaseAdmin();
+  const [generatorsResult, usersResult, staffResult, invoicesResult, paymentsResult, readingsResult, tenantsResult, subscribersResult, notificationsResult, auditResult, sitesResult] = await Promise.all([
+    admin.from("generators").select("id, code, name, status, rated_capacity_kw, tenant_id, site_id, created_at").order("created_at", { ascending: false }).limit(200),
+    admin.from("users").select("id, name, email, role, platform_role").limit(300),
+    admin.from("staff_profiles").select("id, user_id, tenant_id, site_id, role, is_active, updated_at").order("updated_at", { ascending: false }).limit(300),
+    admin.from("invoices").select("status, balance_due, total_amount").limit(5000),
+    admin.from("payments").select("status, amount, payment_method").limit(5000),
+    admin.from("meter_readings").select("status, consumption_kwh").limit(5000),
+    admin.from("tenants").select("id, name").limit(500),
+    admin.from("subscribers").select("id, subscriber_no, full_name, subscription_type, service_status, tenant_id, site_id, created_at").order("created_at", { ascending: false }).limit(300),
+    admin.from("notification_messages").select("status").limit(5000),
+    admin.from("audit_logs").select("id, action, entity_type, created_at, tenant_id, site_id, user_id").order("created_at", { ascending: false }).limit(30),
+    admin.from("sites").select("id, name, tenant_id").limit(500),
+  ]);
+
+  const generators = requireData(generatorsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const users = requireData(usersResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const staff = requireData(staffResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const invoices = requireData(invoicesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const payments = requireData(paymentsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const readings = requireData(readingsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const tenants = requireData(tenantsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const subscribers = requireData(subscribersResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const notifications = requireData(notificationsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const audit = requireData(auditResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const sites = requireData(sitesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+
+  const tenantById = new Map(tenants.map((tenant) => [numeric(tenant.id), String(tenant.name)]));
+  const siteById = new Map(sites.map((site) => [numeric(site.id), String(site.name)]));
+  const userById = new Map(users.map((user) => [numeric(user.id), user]));
+  const generatorStatuses = new Map<string, number>();
+  let capacityKw = 0;
+  for (const generator of generators) {
+    const status = String(generator.status);
+    generatorStatuses.set(status, (generatorStatuses.get(status) ?? 0) + 1);
+    capacityKw += numeric(generator.rated_capacity_kw);
+  }
+  const finance = { overdueCount: 0, overdueAmount: 0, issuedAmount: 0, completedPayments: 0, completedAmount: 0 };
+  for (const invoice of invoices) {
+    const status = String(invoice.status);
+    if (status === "overdue") { finance.overdueCount += 1; finance.overdueAmount += numeric(invoice.balance_due); }
+    if (["issued", "partially_paid", "paid", "overdue"].includes(status)) finance.issuedAmount += numeric(invoice.total_amount);
+  }
+  const paymentMethods = new Map<string, { method: string; count: number; amount: number }>();
+  for (const payment of payments) {
+    if (payment.status !== "completed") continue;
+    finance.completedPayments += 1;
+    finance.completedAmount += numeric(payment.amount);
+    const method = String(payment.payment_method);
+    const item = paymentMethods.get(method) ?? { method, count: 0, amount: 0 };
+    item.count += 1; item.amount += numeric(payment.amount); paymentMethods.set(method, item);
+  }
+  let approvedReadings = 0;
+  let consumptionKwh = 0;
+  for (const reading of readings) if (reading.status === "approved") { approvedReadings += 1; consumptionKwh += numeric(reading.consumption_kwh); }
+  const notificationStatuses = new Map<string, number>();
+  for (const notification of notifications) {
+    const status = String(notification.status);
+    notificationStatuses.set(status, (notificationStatuses.get(status) ?? 0) + 1);
+  }
+
+  return {
+    generators: {
+      total: generators.length, active: generatorStatuses.get("active") ?? 0, pending: generatorStatuses.get("pending") ?? 0,
+      maintenance: generatorStatuses.get("maintenance") ?? 0, stopped: (generatorStatuses.get("stopped") ?? 0) + (generatorStatuses.get("offline") ?? 0),
+      blocked: generatorStatuses.get("blocked") ?? 0, capacityKw,
+      directory: generators.map((generator) => ({ id: numeric(generator.id), code: String(generator.code), name: String(generator.name), status: String(generator.status), ratedCapacityKw: String(generator.rated_capacity_kw ?? 0), tenantId: numeric(generator.tenant_id), tenantName: tenantById.get(numeric(generator.tenant_id)) ?? "—", siteName: siteById.get(numeric(generator.site_id)) ?? "—" })),
+      pendingRegistrations: generators.filter((generator) => generator.status === "pending").map((generator) => ({ generatorId: numeric(generator.id), generatorName: String(generator.name), generatorCode: String(generator.code), ratedCapacityKw: numeric(generator.rated_capacity_kw), tenantId: numeric(generator.tenant_id), ownerName: "—", phone: "—", tenantName: tenantById.get(numeric(generator.tenant_id)) ?? "—", siteName: siteById.get(numeric(generator.site_id)) ?? "—", createdAt: generator.created_at })),
+    },
+    users: {
+      total: users.length, platformAdmins: users.filter((user) => user.role === "admin").length, activeStaff: staff.filter((item) => item.is_active === true).length,
+      staffDirectory: staff.map((item) => { const user = userById.get(numeric(item.user_id)); return { id: numeric(item.id), role: item.role, isActive: item.is_active, userName: user?.name ?? null, userEmail: user?.email ?? null, tenantName: tenantById.get(numeric(item.tenant_id)) ?? "—", siteName: siteById.get(numeric(item.site_id)) ?? "—" }; }),
+      subscriberDirectory: subscribers.map((item) => ({ id: numeric(item.id), subscriberNo: item.subscriber_no, fullName: item.full_name, subscriptionType: item.subscription_type, serviceStatus: item.service_status, tenantName: tenantById.get(numeric(item.tenant_id)) ?? "—", siteName: siteById.get(numeric(item.site_id)) ?? "—" })),
+    },
+    finance: { ...finance, paymentMethods: Array.from(paymentMethods.values()), collectionsByGenerator: [] as Array<{ generatorId: number; generatorName: string; generatorCode: string; tenantName: string; count: number; amount: number }> },
+    reports: { approvedReadings, consumptionKwh, tenants: tenants.length, subscribers: subscribers.length, complaintsEnabled: false },
+    notifications: { statuses: Array.from(notificationStatuses.entries()).map(([status, count]) => ({ status, count })) },
+    security: { recentAudit: audit.map((item) => ({ id: numeric(item.id), action: item.action, entityType: item.entity_type, createdAt: item.created_at, tenantName: tenantById.get(numeric(item.tenant_id)) ?? null, siteName: siteById.get(numeric(item.site_id)) ?? null, userName: userById.get(numeric(item.user_id))?.name ?? null })) },
+  };
+}
