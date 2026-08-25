@@ -44,13 +44,15 @@ button, input, select, textarea { font: inherit; }
 .shadow-panel { box-shadow: 0 18px 50px rgba(0,0,0,.22); }
 
 .ph-grid-bg {
-  background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
-  background-size: 28px 28px;
+  background-color: #0d1117;
+  background-image: radial-gradient(ellipse at 86% -14%, rgba(245, 184, 0, .13), transparent 38%), radial-gradient(ellipse at 7% 108%, rgba(245, 184, 0, .045), transparent 44%);
+  background-repeat: no-repeat;
 }
 
 .ph-hero-grid {
-  background-image: radial-gradient(circle at 86% 10%, rgba(245,184,0,.17), transparent 31%), linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
-  background-size: auto, 28px 28px, 28px 28px;
+  background-color: #0d1117;
+  background-image: radial-gradient(ellipse at 86% 7%, rgba(245, 184, 0, .17), transparent 34%), radial-gradient(ellipse at 12% 100%, rgba(245, 184, 0, .06), transparent 42%);
+  background-repeat: no-repeat;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -343,7 +345,9 @@ html {
 
 :root:not(.dark) .ph-grid-bg,
 :root:not(.dark) .ph-hero-grid {
-  background-image: radial-gradient(circle at 86% 10%, rgba(245, 184, 0, 0.14), transparent 29%), linear-gradient(rgba(23, 33, 43, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(23, 33, 43, 0.035) 1px, transparent 1px);
+  background-color: #f5f7fb;
+  background-image: radial-gradient(ellipse at 86% -12%, rgba(245, 184, 0, .14), transparent 36%), radial-gradient(ellipse at 10% 108%, rgba(245, 184, 0, .045), transparent 44%);
+  background-repeat: no-repeat;
 }
 
 :root:not(.dark) html {
