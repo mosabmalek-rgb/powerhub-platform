@@ -20,15 +20,11 @@ const labels: Record<string, string> = {
   other: "حساب آخر",
 };
 
-const JawwalPayIcon = ({ className }: { className?: string }) => <img src="/manus-storage/jawwal-pay-icon_edd6d11a.jpg" alt="أيقونة جوال بي" className={`rounded bg-white/90 object-contain p-0.5 ${className ?? ""}`} />;
-const PalPayIcon = ({ className }: { className?: string }) => <img src="/manus-storage/palpay-icon_11c57bc1.jpg" alt="أيقونة بال بي" className={`rounded bg-white/90 object-contain p-0.5 ${className ?? ""}`} />;
-const BankOfPalestineIcon = ({ className }: { className?: string }) => <img src="/manus-storage/bank-of-palestine-icon_52efe085.png" alt="أيقونة بنك فلسطين" className={`rounded bg-white/90 object-contain p-0.5 ${className ?? ""}`} />;
-
 const accountTheme: Record<string, { card: string; icon: ElementType; badge: string; shortLabel: string }> = {
   cash: { card: "border-slate-300/40 bg-slate-300/40", icon: Banknote, badge: "bg-slate-950/40 text-white", shortLabel: "CASH" },
-  jawwal_pay: { card: "border-lime-300/40 bg-lime-500/40", icon: JawwalPayIcon, badge: "bg-lime-950/55 text-lime-50", shortLabel: "JPay" },
-  palpay: { card: "border-fuchsia-300/40 bg-fuchsia-500/40", icon: PalPayIcon, badge: "bg-fuchsia-950/55 text-fuchsia-50", shortLabel: "PalPay" },
-  bank_of_palestine: { card: "border-rose-400/40 bg-rose-900/40", icon: BankOfPalestineIcon, badge: "bg-rose-950/60 text-rose-50", shortLabel: "BOP" },
+  jawwal_pay: { card: "border-lime-300/40 bg-lime-500/40", icon: CircleDollarSign, badge: "bg-lime-950/55 text-lime-50", shortLabel: "JPay" },
+  palpay: { card: "border-fuchsia-300/40 bg-fuchsia-500/40", icon: WalletCards, badge: "bg-fuchsia-950/55 text-fuchsia-50", shortLabel: "PalPay" },
+  bank_of_palestine: { card: "border-rose-400/40 bg-rose-900/40", icon: Landmark, badge: "bg-rose-950/60 text-rose-50", shortLabel: "BOP" },
   other: { card: "border-amber-300/40 bg-amber-500/40", icon: WalletCards, badge: "bg-amber-950/45 text-amber-50", shortLabel: "حساب" },
 };
 

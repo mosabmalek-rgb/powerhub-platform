@@ -8,7 +8,6 @@ import { toast } from "sonner";
 const labels: Record<string, string> = { cash: "كاش", jawwal_pay: "Jawwal Pay", palpay: "PalPay", bank_of_palestine: "بنك فلسطين", wallet: "محفظة", bank_transfer: "تحويل بنكي", card: "بطاقة" };
 const chartColors = ["#F5B800", "#34d399", "#38bdf8", "#a78bfa", "#fb7185", "#f97316", "#94a3b8"];
 const format = (value: number) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(value);
-const POWERHUB_LOGO_URL = "/manus-storage/powerhub-official-logo_0bcbb9c6.png";
 const thinBorder = { top: { style: "thin" as const, color: { argb: "FFCAD1DC" } }, left: { style: "thin" as const, color: { argb: "FFCAD1DC" } }, bottom: { style: "thin" as const, color: { argb: "FFCAD1DC" } }, right: { style: "thin" as const, color: { argb: "FFCAD1DC" } } };
 
 type MethodGroup = { method: string; count: number; amount: number };
@@ -69,8 +68,7 @@ function receiptLink(row: any, baseUrl: string) {
   const value = row.receiptImageUrl ?? row.payment?.receiptImageUrl ?? row.payment?.receiptImageKey;
   if (!value) return "";
   if (String(value).startsWith("http")) return String(value);
-  const path = String(value).startsWith("/") ? String(value) : `/manus-storage/${value}`;
-  return `${baseUrl.replace(/\/$/, "")}${path}`;
+  return "";
 }
 
 function styleSubtotalRow(row: ExcelJS.Row, columns: number) {
@@ -144,18 +142,8 @@ export function buildPaymentMethodWorkbook(groups: MethodGroup[], total: number,
   return workbook;
 }
 
-async function addPowerHubLogo(workbook: ExcelJS.Workbook) {
-  try {
-    const response = await fetch(POWERHUB_LOGO_URL);
-    if (!response.ok) return;
-    const imageId = workbook.addImage({ buffer: await response.arrayBuffer(), extension: "png" });
-    workbook.getWorksheet("ملخص التحصيل")?.addImage(imageId, { tl: { col: 3, row: 0 }, ext: { width: 105, height: 36 } });
-    workbook.getWorksheet("تفاصيل الدفعات")?.addImage(imageId, { tl: { col: 6, row: 0 }, ext: { width: 105, height: 36 } });
-  } catch { /* يستمر التصدير بترويسة PowerHub النصية إذا تعذر تحميل الشعار. */ }
-}
-
 function downloadPaymentMethodCsv(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange) { const methodLabel = selectedMethod === "all" ? "all-methods" : selectedMethod; const dateSuffix = range.from || range.to ? `-${range.from || "start"}-${range.to || "end"}` : ""; const blob = new Blob([buildPaymentMethodCsv(groups, total, selectedMethod, range)], { type: "text/csv;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `powerhub-payment-method-summary-${methodLabel}${dateSuffix}.csv`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); }
-async function downloadPaymentMethodExcel(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange, paymentRows: any[]) { const methodLabel = selectedMethod === "all" ? "all-methods" : selectedMethod; const dateSuffix = range.from || range.to ? `-${range.from || "start"}-${range.to || "end"}` : ""; const workbook = buildPaymentMethodWorkbook(groups, total, selectedMethod, range, paymentRows, window.location.origin); await addPowerHubLogo(workbook); const buffer = await workbook.xlsx.writeBuffer(); const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `powerhub-payment-method-summary-${methodLabel}${dateSuffix}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); }
+async function downloadPaymentMethodExcel(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange, paymentRows: any[]) { const methodLabel = selectedMethod === "all" ? "all-methods" : selectedMethod; const dateSuffix = range.from || range.to ? `-${range.from || "start"}-${range.to || "end"}` : ""; const workbook = buildPaymentMethodWorkbook(groups, total, selectedMethod, range, paymentRows, window.location.origin); const buffer = await workbook.xlsx.writeBuffer(); const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `powerhub-payment-method-summary-${methodLabel}${dateSuffix}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); }
 
 function PaymentMethodChart({ groups, total }: { groups: MethodGroup[]; total: number }) { return <div className="rounded-2xl border border-white/8 bg-[#0D1117]/45 p-4"><div className="flex items-center justify-between"><div><p className="font-bold text-white">توزيع التحصيلات حسب الطريقة</p><p className="mt-1 text-xs text-slate-500">نسبة كل طريقة من إجمالي الفترة المفلترة.</p></div><span className="font-display text-sm text-[#F5B800]">100%</span></div>{groups.length ? <div className="mt-5"><div aria-label="رسم أعمدة توزيع طرق الدفع" className="flex h-44 items-end gap-3 border-b border-white/10 px-2 pb-2">{groups.map((group, index) => { const percentage = total ? Math.round((group.amount / total) * 100) : 0; return <div key={group.method} className="flex h-full min-w-14 flex-1 flex-col items-center justify-end gap-2"><span className="text-xs font-bold text-white">{percentage}%</span><div title={`${labels[group.method] ?? group.method}: ${percentage}%`} className="w-full max-w-14 rounded-t-lg transition-[height] duration-200" style={{ height: `${Math.max(8, percentage)}%`, backgroundColor: chartColors[index % chartColors.length] }} /><span className="max-w-16 truncate text-[10px] text-slate-400">{labels[group.method] ?? group.method}</span></div>; })}</div><div className="mt-4 grid gap-2 sm:grid-cols-2">{groups.map((group, index) => <div key={group.method} className="flex items-center justify-between rounded-lg bg-white/[.025] px-3 py-2 text-xs"><span className="flex items-center gap-2 text-slate-300"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: chartColors[index % chartColors.length] }} />{labels[group.method] ?? group.method}</span><span className="font-bold text-white">{format(group.amount)}</span></div>)}</div></div> : <p className="mt-5 text-sm text-slate-500">لا توجد بيانات مكتملة ضمن الفترة المختارة لعرض الرسم.</p>}</div>; }
 

@@ -114,10 +114,20 @@ export default function MarketingLandingPage() {
             ].map(([value, label]) => <div key={value} className="rounded-2xl border border-white/8 bg-white/[0.025] px-3 py-3"><p className="font-display text-lg font-extrabold text-[#F5B800]" dir="ltr">{value}</p><p className="mt-1 text-xs leading-5 text-slate-400">{label}</p></div>)}
           </div>
         </div>
-        <div className="relative mx-auto w-full max-w-[650px]">
+          <div className="relative mx-auto w-full max-w-[650px]">
           <div className="absolute -inset-8 rounded-full bg-[#F5B800]/10 blur-3xl" />
           <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[#111823] p-2 shadow-[0_28px_110px_rgba(0,0,0,.45)]">
-            <img src="/manus-storage/powerhub-hero-generator_b14d52ab.jpg" alt="مولد كهرباء صناعي ضمن محطة طاقة حديثة" className="h-[420px] w-full rounded-[23px] object-cover object-left" />
+            <div className="flex h-[420px] flex-col rounded-[23px] bg-[#0B1018] p-6" aria-label="لوحة تشغيل PowerHub">
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[#F5B800] text-[#0D1117]"><Bolt className="size-5 fill-current" /></span><div><p className="text-xs text-slate-400">المحطة الرئيسية</p><p className="text-sm font-black text-white">حالة التشغيل اليوم</p></div></div>
+                <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-bold text-emerald-300">مستقرة</span>
+              </div>
+              <div className="grid flex-1 grid-cols-2 gap-3 py-5">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-xs font-bold text-slate-400">استهلاك اليوم</p><p className="mt-2 font-display text-3xl font-black text-[#F5B800]" dir="ltr">1,842 <span className="text-sm">kWh</span></p><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full w-[71%] rounded-full bg-[#F5B800]" /></div></div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-xs font-bold text-slate-400">تحصيل اليوم</p><p className="mt-2 font-display text-3xl font-black text-white" dir="ltr">₪ 6,420</p><div className="mt-5 flex items-end gap-1.5" aria-hidden="true"><i className="h-4 flex-1 rounded-t bg-[#F5B800]/35" /><i className="h-7 flex-1 rounded-t bg-[#F5B800]/55" /><i className="h-5 flex-1 rounded-t bg-[#F5B800]/45" /><i className="h-10 flex-1 rounded-t bg-[#F5B800]" /><i className="h-8 flex-1 rounded-t bg-[#F5B800]/70" /></div></div>
+                <div className="col-span-2 flex items-center justify-between rounded-2xl border border-[#F5B800]/20 bg-[#F5B800]/[0.06] px-4 py-3"><div className="flex items-center gap-3"><Gauge className="size-5 text-[#F5B800]" /><div><p className="text-xs text-slate-400">آخر قراءة معتمدة</p><p className="mt-0.5 text-sm font-bold text-white">تمت المراجعة قبل 12 دقيقة</p></div></div><span className="font-display text-sm font-black text-[#F5B800]" dir="ltr">+ 328 kWh</span></div>
+              </div>
+            </div>
             <div className="absolute inset-x-5 bottom-5 rounded-2xl border border-white/10 bg-[#0D1117]/80 p-4 shadow-lg backdrop-blur-md">
               <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-[#F5B800]">PowerHub Live</p><p className="mt-1 text-sm font-bold text-white">تشغيل منظم يبدأ من القراءة</p></div><span className="grid h-11 w-11 place-items-center rounded-xl bg-[#F5B800] text-[#0D1117]"><Zap className="h-5 w-5 fill-current" /></span></div>
             </div>

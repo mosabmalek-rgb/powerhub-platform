@@ -43,7 +43,7 @@ describe("PaymentMethodCollectionSummary", () => {
 
   it("builds a styled Excel workbook with summary and payment-detail sheets", () => {
     const summary = summarizePaymentMethods(payments, "jawwal_pay");
-    const workbook = buildPaymentMethodWorkbook(summary.groups, summary.total, "jawwal_pay", {}, [{ payment: { paymentNo: "PAY-1", paymentMethod: "jawwal_pay", amount: "70", paidAt: "2026-08-01", receiptImageKey: "payment-receipts/PAY-1.jpg" }, subscriber: { fullName: "محمد أحمد" }, invoiceNo: "INV-1" }], "https://powerhub.example");
+    const workbook = buildPaymentMethodWorkbook(summary.groups, summary.total, "jawwal_pay", {}, [{ payment: { paymentNo: "PAY-1", paymentMethod: "jawwal_pay", amount: "70", paidAt: "2026-08-01", receiptImageUrl: "https://storage.example.test/signed-receipt" }, subscriber: { fullName: "محمد أحمد" }, invoiceNo: "INV-1" }], "https://powerhub.example");
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["ملخص التحصيل", "تفاصيل الدفعات"]);
     const summarySheet = workbook.getWorksheet("ملخص التحصيل")!;
     expect(summarySheet.getCell("A1").value).toContain("PowerHub");
@@ -51,7 +51,7 @@ describe("PaymentMethodCollectionSummary", () => {
     const detailsSheet = workbook.getWorksheet("تفاصيل الدفعات")!;
     expect(detailsSheet.getCell("A3").value).toBe("PAY-1");
     expect(detailsSheet.getCell("C3").value).toBe("محمد أحمد");
-    expect((detailsSheet.getCell("H3").value as { hyperlink: string }).hyperlink).toBe("https://powerhub.example/manus-storage/payment-receipts/PAY-1.jpg");
+    expect((detailsSheet.getCell("H3").value as { hyperlink: string }).hyperlink).toBe("https://storage.example.test/signed-receipt");
     expect(detailsSheet.getCell("A4").value).toBe("إجمالي فرعي — Jawwal Pay");
     expect(detailsSheet.getCell("A5").value).toBe("الإجمالي العام");
     expect(detailsSheet.getCell("E5").value).toBe(70);

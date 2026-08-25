@@ -61,7 +61,7 @@ import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
 import { normalizeInternationalPhone } from "../shared/phone";
 import { processNotificationById } from "./notification-worker";
-import { storagePut } from "./storage";
+import { storageGet, storagePut } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { createHeartbeatJob, deleteHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
@@ -1621,10 +1621,17 @@ export const powerhubRouter = router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       const db = await dbOrThrow();
-      return db.select({ payment: payments, subscriber: subscribers, invoiceNo: invoices.invoiceNo }).from(payments)
+      const rows = await db.select({ payment: payments, subscriber: subscribers, invoiceNo: invoices.invoiceNo }).from(payments)
         .innerJoin(subscribers, eq(payments.subscriberId, subscribers.id))
         .leftJoin(invoices, eq(payments.invoiceId, invoices.id))
         .where(eq(payments.siteId, input.siteId)).orderBy(desc(payments.paidAt));
+      return Promise.all(rows.map(async (row) => ({
+        ...row,
+        payment: {
+          ...row.payment,
+          receiptImageUrl: row.payment.receiptImageKey ? (await storageGet(row.payment.receiptImageKey)).url : null,
+        },
+      })));
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
@@ -1977,7 +1984,8 @@ export const powerhubRouter = router({
       const tenantId = await getSiteTenant(input.siteId);
       const [profile] = await db.select({ companyName: tenantOwnerProfiles.companyName, reportLogoKey: tenantOwnerProfiles.reportLogoKey })
         .from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.tenantId, tenantId)).limit(1);
-      return { companyName: profile?.companyName ?? null, reportLogoKey: profile?.reportLogoKey ?? null, logoUrl: profile?.reportLogoKey ? `/manus-storage/${profile.reportLogoKey}` : null };
+      const logoUrl = profile?.reportLogoKey ? (await storageGet(profile.reportLogoKey)).url : null;
+      return { companyName: profile?.companyName ?? null, reportLogoKey: profile?.reportLogoKey ?? null, logoUrl };
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
@@ -2002,7 +2010,8 @@ export const powerhubRouter = router({
       await db.update(tenantOwnerProfiles).set(update).where(eq(tenantOwnerProfiles.tenantId, tenantId));
       await writeAudit({ tenantId, siteId: input.siteId, userId: ctx.user.id, entityType: "tenant_owner_profile", entityId: String(tenantId), action: "update_report_branding", afterData: { companyName: input.companyName, hasReportLogo: Boolean(reportLogoKey) } });
       const [profile] = await db.select({ companyName: tenantOwnerProfiles.companyName, reportLogoKey: tenantOwnerProfiles.reportLogoKey }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.tenantId, tenantId)).limit(1);
-      return { companyName: profile?.companyName ?? null, reportLogoKey: profile?.reportLogoKey ?? null, logoUrl: profile?.reportLogoKey ? `/manus-storage/${profile.reportLogoKey}` : null };
+      const logoUrl = profile?.reportLogoKey ? (await storageGet(profile.reportLogoKey)).url : null;
+      return { companyName: profile?.companyName ?? null, reportLogoKey: profile?.reportLogoKey ?? null, logoUrl };
     }),
   }),
 
