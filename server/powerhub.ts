@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -1414,48 +1414,36 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date().optional(),
       captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
-      const actorRole = await requireRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const [subscriberScope] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId), eq(subscribers.serviceStatus, "active"))).limit(1);
-      if (!subscriberScope) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
-      if (input.clientOperationId) {
-        const [existing] = await db.select({ id: meterReadings.id, consumptionKwh: meterReadings.consumptionKwh, status: meterReadings.status }).from(meterReadings)
-          .where(and(eq(meterReadings.tenantId, tenantId), eq(meterReadings.clientOperationId, input.clientOperationId))).limit(1);
-        if (existing) return { id: existing.id, consumptionKwh: Number(existing.consumptionKwh ?? 0), status: existing.status, replayed: true };
-      }
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
       const readingAt = input.readingAt ?? new Date();
-      const dayStart = new Date(readingAt); dayStart.setHours(0, 0, 0, 0);
-      const nextDay = new Date(dayStart); nextDay.setDate(nextDay.getDate() + 1);
-      const [sameDayReading] = await db.select({ id: meterReadings.id }).from(meterReadings)
-        .where(and(eq(meterReadings.subscriberId, subscriberScope.id), gte(meterReadings.readingAt, dayStart), lt(meterReadings.readingAt, nextDay), ne(meterReadings.status, "rejected"))).limit(1);
-      if (sameDayReading && (!input.overrideSameDay || !["owner", "manager", "accountant"].includes(actorRole))) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا المشترك في اليوم نفسه. يقتصر تجاوز ذلك على المالك أو المدير أو المحاسب مع تأكيد صريح." });
-      const [previous] = await db.select({ readingValue: meterReadings.readingValue }).from(meterReadings)
-        .where(and(eq(meterReadings.subscriberId, subscriberScope.id), eq(meterReadings.status, "approved")))
-        .orderBy(desc(meterReadings.readingAt)).limit(1);
-      const previousValue = previous ? Number(previous.readingValue) : 0;
-      const nextValue = Number(input.readingValue);
-      if (nextValue < previousValue && !input.isReadingReset) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة. فعّل خيار إعادة ضبط سجل القراءة وسجل ملاحظة للتأكيد." });
-      if (nextValue < previousValue && !input.notes?.trim()) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة قبل حفظها." });
       let imageKey: string | undefined;
       let imageHash: string | undefined;
       if (input.imageData) {
         if (!input.imageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "نوع صورة القراءة غير مدعوم." });
         const imageBytes = Buffer.from(input.imageData, "base64");
         if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت." });
-        imageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
+        imageHash = createHash("sha256").update(imageBytes).digest("hex");
         const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-        const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${subscriberScope.id}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
+        const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${input.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
         imageKey = stored.key;
       }
-      const id = insertId(await db.insert(meterReadings).values({
-        tenantId, subscriberId: subscriberScope.id, clientOperationId: input.clientOperationId, readingAt, readingValue: input.readingValue, previousReadingValue: previous?.readingValue,
-        consumptionKwh: String(input.isReadingReset && nextValue < previousValue ? nextValue : nextValue - previousValue), captureMethod: input.captureMethod, imageKey, imageHash,
-        notes: [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes?.trim() ?? ""].filter(Boolean).join(" "), enteredByUserId: ctx.user.id,
-      }));
-      const consumptionKwh = input.isReadingReset && nextValue < previousValue ? nextValue : nextValue - previousValue;
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(id), action: "create", afterData: { ...input, readingAt, consumptionKwh } });
-      return { id, consumptionKwh, status: "pending_review" as const, replayed: false };
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
+        p_client_operation_id: input.clientOperationId ?? null, p_reading_at: readingAt.toISOString(), p_reading_value: input.readingValue,
+        p_capture_method: input.captureMethod, p_image_key: imageKey ?? "", p_image_hash: imageHash ?? "", p_notes: input.notes?.trim() ?? "",
+        p_is_reading_reset: input.isReadingReset, p_field_verified: input.fieldVerified,
+        p_can_override_same_day: input.overrideSameDay && ["owner", "manager", "accountant"].includes(access.role),
+      });
+      if (!error && data?.[0]) {
+        const row = data[0] as { reading_id: number | string; consumption_kwh: number | string; status: "pending_review"; replayed: boolean };
+        return { id: Number(row.reading_id), consumptionKwh: Number(row.consumption_kwh), status: row.status, replayed: row.replayed };
+      }
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
+      if (errorText.includes("SAME_DAY_READING_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا المشترك في اليوم نفسه. يقتصر تجاوز ذلك على المالك أو المدير أو المحاسب مع تأكيد صريح." });
+      if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة. فعّل خيار إعادة ضبط سجل القراءة وسجل ملاحظة للتأكيد." });
+      if (errorText.includes("READING_RESET_NOTES_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة قبل حفظها." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل القراءة في Supabase." });
     }),
     updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");

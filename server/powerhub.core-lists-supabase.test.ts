@@ -59,6 +59,7 @@ const state = vi.hoisted(() => {
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
+      if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -117,5 +118,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.subscribers.update({ siteId: 10, id: 30, fullName: "مشترك محدث", phone: "+970595123456", address: "غزة", subscriptionType: "commercial", serviceStatus: "active", clientOperationId: "22222222-2222-4222-8222-222222222222", expectedUpdatedAt: new Date("2026-08-01T00:00:00.000Z") }))
       .resolves.toEqual({ success: true, updatedAt: new Date("2026-08-03T00:00:00.000Z") });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_service_status: "active" }) })]);
+  });
+
+  it("يسجل قراءة يدوية بالدالة الذرية في Supabase من دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.readings.create({ siteId: 10, subscriberId: 30, readingValue: "115", captureMethod: "manual", clientOperationId: "33333333-3333-4333-8333-333333333333", notes: "قراءة دورية" }))
+      .resolves.toEqual({ id: 61, consumptionKwh: 15, status: "pending_review", replayed: false });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_reading", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_reading_value: "115", p_can_override_same_day: false }) })]);
   });
 });
