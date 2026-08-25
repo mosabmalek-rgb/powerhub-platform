@@ -1,17 +1,17 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import type { PowerHubUser } from "../supabase-profile";
+import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
-  user: PowerHubUser | null;
+  user: User | null;
 };
 
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
-  let user: PowerHubUser | null = null;
+  let user: User | null = null;
 
   try {
     user = await sdk.authenticateRequest(opts.req);
