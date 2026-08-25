@@ -7,6 +7,7 @@ import { getDb, syncSupabaseUser } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
 import { supabaseAdmin } from "./supabase-admin";
+import { syncSupabaseProfile } from "./supabase-profile";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 import { processNotificationById } from "./notification-worker";
 import { ownerOverviewFromSupabase, platformSnapshotFromSupabase } from "./admin-supabase";
@@ -104,6 +105,25 @@ async function resolveOwnerLoginAccount(db: NonNullable<Awaited<ReturnType<typeo
   });
   if (createError || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء حساب صاحب المولد في Supabase. قد يكون البريد مستخدماً بالفعل." });
   const ownerUser = await syncSupabaseUser({ id: created.user.id, email: input.email, name: input.name });
+  return { ownerUser, createdSupabaseUserId: created.user.id };
+}
+
+async function resolveOwnerLoginAccountFromSupabase(input: { email: string; name: string; temporaryPassword: string }) {
+  const admin = supabaseAdmin();
+  const { data: existing, error: existingError } = await admin.from("users")
+    .select("id, auth_user_id, role, platform_role").eq("email", input.email).maybeSingle();
+  if (existingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر فحص حساب صاحب المولد في Supabase." });
+  if (existing) {
+    if (existing.role === "admin" || existing.platform_role) throw new TRPCError({ code: "FORBIDDEN", message: platformAccountOwnerMessage });
+    const { data, error } = await admin.auth.admin.getUserById(existing.auth_user_id);
+    if (error || !data.user) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "ملف الحساب موجود لكن مستخدم Supabase غير متاح. استخدم إجراء إصلاح الوصول أولاً." });
+    return { ownerUser: { id: Number(existing.id) }, createdSupabaseUserId: null as string | null };
+  }
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email: input.email, password: input.temporaryPassword, email_confirm: true, user_metadata: { name: input.name },
+  });
+  if (createError || !created.user) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إنشاء حساب صاحب المولد في Supabase. قد يكون البريد مستخدماً بالفعل." });
+  const ownerUser = await syncSupabaseProfile({ id: created.user.id, email: input.email, name: input.name });
   return { ownerUser, createdSupabaseUserId: created.user.id };
 }
 
@@ -205,6 +225,48 @@ export const adminRouter = router({
     temporaryPassword: z.string().min(8).max(128),
     plan: planSchema.default("starter"),
   })).mutation(async ({ ctx, input }) => {
+    {
+      const admin = supabaseAdmin();
+      const email = input.ownerEmail.trim().toLowerCase();
+      const phone = input.ownerPhone.trim();
+      const whatsappNumber = input.ownerWhatsapp.trim();
+      const companyName = input.companyName.trim();
+      const { data: existingPhone, error: phoneError } = await admin.from("tenant_owner_profiles").select("id").eq("phone", phone).maybeSingle();
+      if (phoneError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر فحص رقم جوال صاحب المولد في Supabase." });
+      if (existingPhone) throw new TRPCError({ code: "CONFLICT", message: "رقم جوال صاحب المولد مستخدم بالفعل." });
+      const { ownerUser, createdSupabaseUserId } = await resolveOwnerLoginAccountFromSupabase({ email, name: input.ownerName, temporaryPassword: input.temporaryPassword });
+      let tenantId: number | null = null;
+      try {
+        const startedAt = new Date();
+        const tenantSlug = `owner-${crypto.randomBytes(6).toString("hex")}`;
+        const siteCode = `SITE-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
+        const identity = encryptTenantCredential(input.identityNumber.trim());
+        const { data: tenant, error: tenantError } = await admin.from("tenants").insert({ name: companyName, slug: tenantSlug, plan: input.plan, status: "active" }).select("id").single();
+        if (tenantError || !tenant) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء مساحة صاحب المولد في Supabase." });
+        tenantId = Number(tenant.id);
+        const { error: profileError } = await admin.from("tenant_owner_profiles").insert({ tenant_id: tenantId, owner_user_id: ownerUser.id, full_name: input.ownerName, phone, whatsapp_number: whatsappNumber, email, company_name: companyName, identity_number_ciphertext: identity.ciphertext, identity_number_iv: identity.iv, identity_number_last4: input.identityNumber.trim().slice(-4), invited_at: startedAt.toISOString(), claimed_at: startedAt.toISOString() });
+        if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ ملف صاحب المولد في Supabase." });
+        const { error: subscriptionError } = await admin.from("tenant_subscriptions").insert({ tenant_id: tenantId, plan: input.plan, status: "trial", billing_cycle: "monthly", started_at: startedAt.toISOString(), ends_at: addSubscriptionPeriod(startedAt, "monthly").toISOString() });
+        if (subscriptionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء اشتراك صاحب المولد في Supabase." });
+        const { data: site, error: siteError } = await admin.from("sites").insert({ tenant_id: tenantId, name: companyName, code: siteCode }).select("id").single();
+        if (siteError || !site) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء الفرع الرئيسي في Supabase." });
+        const siteId = Number(site.id);
+        const setupResults = await Promise.all([
+          admin.from("site_portal_settings").insert({ tenant_id: tenantId, site_id: siteId, portal_code: siteCode.toLowerCase(), display_name: companyName }),
+          admin.from("tenant_members").insert({ tenant_id: tenantId, user_id: ownerUser.id, role: "owner", is_active: true, membership_status: "active", invited_by_user_id: ctx.user.id }),
+          admin.from("staff_profiles").insert({ tenant_id: tenantId, site_id: siteId, user_id: ownerUser.id, role: "owner", is_active: true }),
+          admin.from("users").update({ role: "user", platform_role: null, account_status: "active", must_change_password: true, temporary_password_issued_at: startedAt.toISOString() }).eq("id", ownerUser.id),
+        ]);
+        if (setupResults.some((result) => result.error)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إكمال تهيئة مساحة صاحب المولد في Supabase." });
+        const { error: auditError } = await admin.from("audit_logs").insert({ tenant_id: tenantId, site_id: siteId, user_id: ctx.user.id, entity_type: "tenant_owner_profile", entity_id: String(tenantId), action: "platform_admin_create_generator_owner_subscription", after_data: { companyName, ownerName: input.ownerName, ownerEmail: email, plan: input.plan, generatorSetup: "deferred" }, actor_platform_role: platformRoleOf(ctx.user) });
+        if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم إنشاء المساحة لكن تعذر تسجيل التدقيق في Supabase." });
+        return { tenantId, siteId, ownerUserId: ownerUser.id, forcePasswordChange: true };
+      } catch (error) {
+        if (tenantId) await admin.from("tenants").delete().eq("id", tenantId);
+        if (createdSupabaseUserId !== null) await supabaseAdmin().auth.admin.deleteUser(createdSupabaseUserId);
+        throw error;
+      }
+    }
     const db = await dbOrThrow();
     const email = input.ownerEmail.trim().toLowerCase();
     const phone = input.ownerPhone.trim();
@@ -248,7 +310,8 @@ export const adminRouter = router({
       await db.insert(auditLogs).values({ tenantId: result.tenantId, siteId: result.siteId, userId: ctx.user.id, entityType: "tenant_owner_profile", entityId: String(result.tenantId), action: "platform_admin_create_generator_owner_subscription", afterData: { companyName, ownerName: input.ownerName, ownerEmail: email, plan: input.plan, generatorSetup: "deferred" }, actorPlatformRole: platformRoleOf(ctx.user) });
       return { ...result, ownerUserId: ownerUser.id, forcePasswordChange: true };
     } catch (error) {
-      if (createdSupabaseUserId) await supabaseAdmin().auth.admin.deleteUser(createdSupabaseUserId);
+      const userIdToDelete = createdSupabaseUserId;
+      if (typeof userIdToDelete === "string") await supabaseAdmin().auth.admin.deleteUser(userIdToDelete as string);
       throw error;
     }
   }),
