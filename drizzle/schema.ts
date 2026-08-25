@@ -548,6 +548,7 @@ export const subscribers = mysqlTable("subscribers", {
   clientOperationId: varchar("clientOperationId", { length: 80 }),
   fullName: varchar("fullName", { length: 180 }).notNull(),
   phone: varchar("phone", { length: 30 }).notNull(),
+  whatsappNumber: varchar("whatsappNumber", { length: 30 }),
   address: text("address"),
   subscriptionType: mysqlEnum("subscriptionType", ["residential", "commercial"]).default("residential").notNull(),
   serviceStatus: mysqlEnum("serviceStatus", ["active", "suspended", "disconnected"]).default("active").notNull(),

@@ -57,6 +57,7 @@ vi.mock("@/lib/trpc", () => ({
       subscribers: { list: { useQuery: () => mocks.query(mocks.subscribers) }, quota: { useQuery: () => mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "starter" }) }, phoneReview: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation } },
       generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       payments: { list: { useQuery: () => mocks.query(mocks.payments) }, create: { useMutation: mocks.mutation } },
+      companyAccounts: { list: { useQuery: () => mocks.query([]) } },
       expenses: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: () => mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }) } },
       audit: { list: { useQuery: () => mocks.query([]) } },

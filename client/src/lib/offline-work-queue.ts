@@ -28,10 +28,9 @@ export type PaymentDraft = {
   paymentNo: string;
   amount: number;
   paymentMethod: "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "wallet" | "bank_transfer" | "card";
+  companyAccountId: number;
   transferFromAccount?: string;
   transferFromType?: "jawwal_pay" | "palpay" | "bank_of_palestine";
-  transferToAccount?: string;
-  transferToType?: "jawwal_pay" | "palpay" | "bank_of_palestine";
   referenceNo?: string;
   receiptImageData?: string;
   receiptImageMime?: "image/jpeg" | "image/png" | "image/webp";

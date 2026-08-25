@@ -1135,6 +1135,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(),
       fullName: z.string().min(2).max(180),
       phone: z.string().min(5).max(30),
+      whatsappNumber: z.string().min(5).max(30).optional(),
       address: z.string().max(1000).optional(),
       subscriptionType: z.enum(["residential", "commercial"]).default("residential"),
       clientOperationId: z.string().uuid().optional(),
@@ -1153,6 +1154,7 @@ export const powerhubRouter = router({
       const quota = await ownerSubscriberQuota(tenantId);
       if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
       const phone = normalizeInternationalPhone(input.phone);
+      const whatsappNumber = input.whatsappNumber ? normalizeInternationalPhone(input.whatsappNumber) : undefined;
       const [site] = await db.select({ code: sites.code }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
       if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
       const [portalSetting] = await db.select({ portalCode: sitePortalSettings.portalCode }).from(sitePortalSettings).where(eq(sitePortalSettings.siteId, input.siteId)).limit(1);
@@ -1160,13 +1162,13 @@ export const powerhubRouter = router({
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const subscriberNo = generateSubscriberReference(site.code);
         try {
-          const id = insertId(await db.insert(subscribers).values({ siteId: input.siteId, fullName: input.fullName, phone, address: input.address, subscriptionType: input.subscriptionType, subscriberNo, clientOperationId: input.clientOperationId, tenantId }));
-          await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(id), action: "create", afterData: { ...input, subscriberNo, phone } });
+          const id = insertId(await db.insert(subscribers).values({ siteId: input.siteId, fullName: input.fullName, phone, whatsappNumber, address: input.address, subscriptionType: input.subscriptionType, subscriberNo, clientOperationId: input.clientOperationId, tenantId }));
+          await writeAudit({ userId: ctx.user.id, entityType: "subscriber", entityId: String(id), action: "create", afterData: { ...input, subscriberNo, phone, whatsappNumber } });
           const channels = await db.select({ channel: tenantMessagingConfigurations.channel }).from(tenantMessagingConfigurations)
             .where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.isActive, true)));
           const renderedText = renderSubscriberReferenceMessage({ subscriberName: input.fullName, subscriberNo, portalCode });
           const notificationIds = await Promise.all(channels.map(async ({ channel }) => insertId(await db.insert(notificationMessages).values({
-            tenantId, subscriberId: id, channel, eventType: "subscriber_reference", recipient: phone, status: "pending",
+            tenantId, subscriberId: id, channel, eventType: "subscriber_reference", recipient: channel === "whatsapp" && whatsappNumber ? whatsappNumber : phone, status: "pending",
             payload: { renderedText, subscriberReferenceTemplateParameters: subscriberReferenceTemplateParameters({ subscriberName: input.fullName, subscriberNo, portalCode }), subscriberNo, portalCode },
           }))));
           const deliveries = await Promise.all(notificationIds.map(async (notificationId) => ({ notificationId, ...await processNotificationById(notificationId).catch((error) => ({ status: "failed" as const, error: error instanceof Error ? error.message : "تعذر بدء إرسال الرسالة." })) })));
@@ -1192,6 +1194,7 @@ export const powerhubRouter = router({
         subscriberNo: z.string().trim().max(80).optional(),
         fullName: z.string().trim().max(300),
         phone: z.string().trim().max(60),
+        whatsappNumber: z.string().trim().max(60).optional(),
         address: z.string().trim().max(1500).optional(),
         subscriptionType: z.enum(["residential", "commercial"]),
       })).min(1).max(300),
@@ -1205,21 +1208,24 @@ export const powerhubRouter = router({
       const failureRows: Array<{ sourceRow: number; fullName: string; reason: string }> = [];
       const seenPhones = new Set<string>();
       const seenReferences = new Set<string>();
-      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; address?: string; subscriptionType: "residential" | "commercial" }> = [];
+      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial" }> = [];
       for (const row of input.rows) {
         if (row.fullName.trim().length < 2) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الاسم الكامل قصير جداً." }); continue; }
         let phone: string;
         try { phone = normalizeInternationalPhone(row.phone); }
         catch { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال غير صالح؛ استخدم رمز الدولة مثل +970." }); continue; }
+        let whatsappNumber: string | undefined;
+        try { whatsappNumber = row.whatsappNumber ? normalizeInternationalPhone(row.whatsappNumber) : undefined; }
+        catch { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم واتساب غير صالح؛ اتركه فارغاً أو استخدم رمز الدولة مثل +970." }); continue; }
         if (seenPhones.has(phone)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال مكرر داخل ملف الاستيراد." }); continue; }
         seenPhones.add(phone);
         const subscriberNo = row.subscriberNo?.replace(/\s+/g, "").toUpperCase();
         if (subscriberNo && !/^[A-Z0-9][A-Z0-9_-]{1,79}$/.test(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي غير صالح." }); continue; }
         if (subscriberNo && seenReferences.has(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي مكرر داخل ملف الاستيراد." }); continue; }
         if (subscriberNo) seenReferences.add(subscriberNo);
-        accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType });
+        accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, whatsappNumber, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType });
       }
-      const existing = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, phone: subscribers.phone, address: subscribers.address, subscriptionType: subscribers.subscriptionType }).from(subscribers).where(eq(subscribers.siteId, input.siteId));
+      const existing = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, phone: subscribers.phone, whatsappNumber: subscribers.whatsappNumber, address: subscribers.address, subscriptionType: subscribers.subscriptionType }).from(subscribers).where(eq(subscribers.siteId, input.siteId));
       const existingByReference = new Map(existing.map((row) => [row.subscriberNo.replace(/\s+/g, "").toUpperCase(), row]));
       const existingByKey = new Map(existing.map((row) => [`${row.fullName.trim().replace(/\s+/g, " ").toLocaleLowerCase("ar")}:${row.phone}`, row]));
       const updated: Array<{ id: number; sourceRow: number; fullName: string; subscriberNo: string }> = [];
@@ -1230,7 +1236,7 @@ export const powerhubRouter = router({
         if (row.subscriberNo && !matched) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي لا يطابق مشتركاً في هذا الفرع؛ اتركه فارغاً لإضافة مشترك جديد." }); continue; }
         if (!matched) { uniqueRows.push(row); continue; }
         if (input.updateExisting) {
-          await db.update(subscribers).set({ fullName: row.fullName, phone: row.phone, address: row.address, subscriptionType: row.subscriptionType }).where(eq(subscribers.id, matched.id));
+          await db.update(subscribers).set({ fullName: row.fullName, phone: row.phone, whatsappNumber: row.whatsappNumber, address: row.address, subscriptionType: row.subscriptionType }).where(eq(subscribers.id, matched.id));
           await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber", entityId: String(matched.id), action: "bulk_import_update", beforeData: matched, afterData: { ...row, matchMethod: row.subscriberNo ? "subscriber_no" : "full_name_and_phone" } });
           updated.push({ id: matched.id, sourceRow: row.sourceRow, fullName: row.fullName, subscriberNo: matched.subscriberNo });
           continue;
@@ -1246,8 +1252,8 @@ export const powerhubRouter = router({
         for (let attempt = 0; attempt < 5; attempt += 1) {
           const subscriberNo = generateSubscriberReference(site.code);
           try {
-            const id = insertId(await db.insert(subscribers).values({ tenantId, siteId: input.siteId, subscriberNo, fullName: row.fullName, phone: row.phone, address: row.address, subscriptionType: row.subscriptionType }));
-            await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber", entityId: String(id), action: "bulk_import_create", afterData: { fullName: row.fullName, phone: row.phone, subscriberNo, sourceRow: row.sourceRow } });
+            const id = insertId(await db.insert(subscribers).values({ tenantId, siteId: input.siteId, subscriberNo, fullName: row.fullName, phone: row.phone, whatsappNumber: row.whatsappNumber, address: row.address, subscriptionType: row.subscriptionType }));
+            await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber", entityId: String(id), action: "bulk_import_create", afterData: { fullName: row.fullName, phone: row.phone, whatsappNumber: row.whatsappNumber, subscriberNo, sourceRow: row.sourceRow } });
             createdRow = { id, sourceRow: row.sourceRow, fullName: row.fullName, subscriberNo };
             break;
           } catch (error) {
@@ -1590,10 +1596,10 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
-      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), transferToAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المستقبِل يجب أن يكون رقم جوال صحيحاً.").optional(), transferToType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
+      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
     }).superRefine((input, ctx) => {
-      const electronic = input.paymentMethod !== "cash";
-      if (electronic && (!input.transferFromAccount || !input.transferFromType || !input.transferToAccount || !input.transferToType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "للدفعات الإلكترونية يجب إدخال حساب التحويل المحوِّل والمستقبِل ونوع كل حساب." });
+      const hasTransferSource = Boolean(input.transferFromAccount);
+      if ((hasTransferSource && !input.transferFromType) || (!hasTransferSource && input.transferFromType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "حدد نوع الحساب المحوِّل فقط عند إدخال رقمه." });
     })).mutation(async ({ ctx, input }) => {
       const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       const db = await dbOrThrow();
@@ -1615,6 +1621,9 @@ export const powerhubRouter = router({
       if (duplicatePayment) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
       const [subscriber] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId))).limit(1);
       if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
+      const [companyAccount] = await db.select({ id: companyAccounts.id, accountType: companyAccounts.accountType, phoneNumber: companyAccounts.phoneNumber, isActive: companyAccounts.isActive }).from(companyAccounts).where(and(eq(companyAccounts.id, input.companyAccountId), eq(companyAccounts.tenantId, tenantId))).limit(1);
+      if (!companyAccount || !companyAccount.isActive) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب المستقبِل غير متاح ضمن حسابات الشركة." });
+      if (companyAccount.accountType !== input.paymentMethod) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة الدفع يجب أن تطابق نوع الحساب المستقبِل المختار." });
       if (input.invoiceId) {
         const [invoiceScope] = await db.select({ id: invoices.id, balanceDue: invoices.balanceDue, status: invoices.status }).from(invoices).where(and(eq(invoices.id, input.invoiceId), eq(invoices.siteId, input.siteId), eq(invoices.subscriberId, input.subscriberId))).limit(1);
         if (!invoiceScope) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للمشترك والمحطة المحددين." });
@@ -1641,7 +1650,8 @@ export const powerhubRouter = router({
         if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
         collectorSessionId = openSession.id;
       }
-      const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...paymentInput } = input;
+      const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, companyAccountId: _companyAccountId, ...paymentInput } = input;
+      const resolvedPaymentInput = { ...paymentInput, transferToAccount: companyAccount.phoneNumber, transferToType: companyAccount.accountType === "jawwal_pay" || companyAccount.accountType === "palpay" || companyAccount.accountType === "bank_of_palestine" ? companyAccount.accountType : undefined };
       const id = await db.transaction(async (tx) => {
         if (input.invoiceId) {
           const [invoice] = await tx.select({ id: invoices.id, paidAmount: invoices.paidAmount, totalAmount: invoices.totalAmount, balanceDue: invoices.balanceDue })
@@ -1653,16 +1663,12 @@ export const powerhubRouter = router({
             .where(and(eq(invoices.id, invoice.id), eq(invoices.balanceDue, invoice.balanceDue), gte(invoices.balanceDue, String(input.amount))));
           if (Number((updated[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد الفاتورة أثناء المزامنة؛ راجع المسودة ثم أعد المحاولة." });
         }
-        const paymentId = insertId(await tx.insert(payments).values({ ...paymentInput, tenantId, amount: String(input.amount), receiptImageKey, receiptImageHash, collectedByUserId: ctx.user.id, collectorSessionId }));
-        const accountType = input.paymentMethod === "cash" ? "cash" : input.paymentMethod === "jawwal_pay" ? "jawwal_pay" : input.paymentMethod === "palpay" ? "palpay" : input.paymentMethod === "bank_of_palestine" ? "bank_of_palestine" : null;
-        if (accountType) {
-          const [account] = await tx.select({ id: companyAccounts.id }).from(companyAccounts).where(and(eq(companyAccounts.tenantId, tenantId), eq(companyAccounts.accountType, accountType))).limit(1);
-          if (account) await tx.insert(accountTransactions).values({ tenantId, accountId: account.id, transactionType: "collection", amount: String(input.amount), description: `تحصيل الفاتورة ${input.paymentNo}`, referenceNo: input.referenceNo, relatedPaymentId: paymentId, createdByUserId: ctx.user.id });
-        }
+        const paymentId = insertId(await tx.insert(payments).values({ ...resolvedPaymentInput, tenantId, amount: String(input.amount), receiptImageKey, receiptImageHash, collectedByUserId: ctx.user.id, collectorSessionId }));
+        await tx.insert(accountTransactions).values({ tenantId, accountId: companyAccount.id, transactionType: "collection", amount: String(input.amount), description: `تحصيل الفاتورة ${input.paymentNo}`, referenceNo: input.referenceNo, relatedPaymentId: paymentId, createdByUserId: ctx.user.id });
         if (input.clientOperationId) await tx.insert(offlineSyncOperations).values({ tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "payment_create", entityType: "payment", entityId: paymentId, response: { id: paymentId } });
         return paymentId;
       });
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "payment", entityId: String(id), action: "create", afterData: { ...paymentInput, receiptImageKey }, metadata: { collectorSessionId, receiptImageAttached: Boolean(receiptImageKey) } });
+      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "payment", entityId: String(id), action: "create", afterData: { ...resolvedPaymentInput, companyAccountId: companyAccount.id, receiptImageKey }, metadata: { collectorSessionId, receiptImageAttached: Boolean(receiptImageKey) } });
       const response = { id };
       return response;
     }),

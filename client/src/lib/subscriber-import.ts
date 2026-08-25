@@ -3,6 +3,7 @@ export type SubscriberImportDraft = {
   subscriberNo?: string;
   fullName: string;
   phone: string;
+  whatsappNumber?: string;
   address: string;
   subscriptionType: string;
 };
@@ -43,10 +44,12 @@ export function prepareSubscriberImport(rows: SubscriberImportDraft[]): Prepared
     const errors: string[] = [];
     const name = row.fullName.trim();
     const phone = phoneKey(row.phone);
+    const whatsappNumber = phoneKey(row.whatsappNumber ?? "");
     const subscriberNo = subscriberReferenceKey(row.subscriberNo);
     const normalizedSubscriptionType = subscriptionType(row.subscriptionType);
     if (name.length < 2) errors.push("أدخل الاسم الكامل (حرفان على الأقل).");
     if (!/^\+?[0-9]{5,30}$/.test(phone)) errors.push("أدخل رقم جوال بأرقام واضحة مع رمز الدولة، مثل +970….");
+    if (whatsappNumber && !/^\+?[0-9]{5,30}$/.test(whatsappNumber)) errors.push("رقم واتساب اختياري، لكن يجب أن يكون رقماً صحيحاً عند إدخاله.");
     if (!normalizedSubscriptionType) errors.push("نوع الاشتراك يجب أن يكون سكني أو تجاري.");
     if (phone && (phones.get(phone) ?? 0) > 1) errors.push("رقم الجوال مكرر داخل الملف.");
     if (subscriberNo && !/^[A-Z0-9][A-Z0-9_-]{1,79}$/.test(subscriberNo)) errors.push("الرقم المرجعي يجب أن يحتوي أحرفاً أو أرقاماً وشرطات فقط.");

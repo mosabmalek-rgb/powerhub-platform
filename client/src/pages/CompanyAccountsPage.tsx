@@ -2,12 +2,14 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards } from "lucide-react";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
 import { type ElementType, useMemo, useState } from "react";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
 const labels: Record<string, string> = {
@@ -32,6 +34,13 @@ const accountTheme: Record<string, { card: string; icon: ElementType; badge: str
 
 const money = (value: number) => value.toLocaleString("ar", { maximumFractionDigits: 2 });
 
+type PendingAccountAction = {
+  kind: "withdrawal" | "transfer";
+  amount: number;
+  description: string;
+  targetAccountId?: number;
+};
+
 export default function CompanyAccountsPage() {
   const { isAuthenticated, loading } = useAuth();
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
@@ -54,6 +63,7 @@ export default function CompanyAccountsPage() {
   const [description, setDescription] = useState("");
   const [mode, setMode] = useState<"deposit" | "withdrawal" | "transfer">("deposit");
   const [target, setTarget] = useState("");
+  const [pendingAction, setPendingAction] = useState<PendingAccountAction | null>(null);
 
   const accounts = trpc.powerhub.companyAccounts.list.useQuery(
     { siteId, branchId: branchFilter ? Number(branchFilter) : undefined, fromDate: fromDate || undefined, toDate: toDate || undefined },
@@ -87,6 +97,16 @@ export default function CompanyAccountsPage() {
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(transactionRows.length / pageSize));
   const visibleTransactions = transactionRows.slice((transactionPage - 1) * pageSize, transactionPage * pageSize);
+  const balanceTimeline = useMemo(() => {
+    if (!selectedAccount) return [];
+    let running = Number(selectedAccount.openingBalance ?? 0);
+    const rows = [{ label: "الرصيد الافتتاحي", balance: running }];
+    [...selectedAccount.transactions].reverse().forEach((row) => {
+      running += row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? -Number(row.amount) : Number(row.amount);
+      rows.push({ label: new Date(row.occurredAt).toLocaleDateString("ar", { month: "short", day: "numeric" }), balance: running });
+    });
+    return rows;
+  }, [selectedAccount]);
   const cumulativeById = (() => {
     if (!selectedAccount) return new Map<number, number>();
     let running = Number(selectedAccount.openingBalance ?? 0);
@@ -132,10 +152,24 @@ export default function CompanyAccountsPage() {
     if ((mode === "withdrawal" || mode === "transfer") && value > Number(selectedAccount.balance)) return toast.error("المبلغ يتجاوز الرصيد المتاح في الحساب.");
     if (mode === "transfer") {
       if (!target) return toast.error("اختر الحساب المستقبِل للتحويل.");
-      transfer.mutate({ siteId, fromAccountId: selectedAccount.id, toAccountId: Number(target), amount: value, description: description.trim() });
+      setPendingAction({ kind: "transfer", amount: value, description: description.trim(), targetAccountId: Number(target) });
+      return;
+    }
+    if (mode === "withdrawal") {
+      setPendingAction({ kind: "withdrawal", amount: value, description: description.trim() });
       return;
     }
     movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: mode, amount: value, description: description.trim() });
+  };
+
+  const confirmPendingAction = () => {
+    if (!selectedAccount || !pendingAction) return;
+    if (pendingAction.kind === "transfer" && pendingAction.targetAccountId) {
+      transfer.mutate({ siteId, fromAccountId: selectedAccount.id, toAccountId: pendingAction.targetAccountId, amount: pendingAction.amount, description: pendingAction.description });
+    } else {
+      movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: "withdrawal", amount: pendingAction.amount, description: pendingAction.description });
+    }
+    setPendingAction(null);
   };
 
   const exportCsv = () => {
@@ -183,6 +217,47 @@ export default function CompanyAccountsPage() {
     });
     pdf.save("كشف-حسابات-الشركة.pdf");
     toast.success("تم تصدير كشف الحساب إلى PDF.");
+  };
+
+  const exportTransactionsExcel = async () => {
+    if (!selectedAccount) return;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("حركات الحساب", { views: [{ rightToLeft: true }] });
+    sheet.addRow(["الحساب", selectedAccount.name]);
+    sheet.addRow(["الرصيد الافتتاحي", Number(selectedAccount.openingBalance ?? 0)]);
+    sheet.addRow([]);
+    sheet.addRow(["التاريخ", "النوع", "المبلغ", "الرصيد التراكمي", "الوصف", "المرجع"]);
+    transactionRows.forEach((row) => sheet.addRow([new Date(row.occurredAt).toLocaleString("ar"), row.transactionType, Number(row.amount), Number(cumulativeById.get(row.id) ?? 0), row.description, row.referenceNo ?? "—"]));
+    sheet.getRow(4).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    sheet.getRow(4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
+    sheet.columns = [{ width: 23 }, { width: 18 }, { width: 16 }, { width: 18 }, { width: 42 }, { width: 22 }];
+    const url = URL.createObjectURL(new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `حركات-${selectedAccount.name}.xlsx`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success("تم تصدير حركات الحساب إلى Excel.");
+  };
+
+  const exportTransactionsPdf = () => {
+    if (!selectedAccount) return;
+    const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+    pdf.setFontSize(16);
+    pdf.text(`PowerHub - ${selectedAccount.name}`, 770, 35, { align: "right" });
+    pdf.setFontSize(9);
+    pdf.text(`Opening balance: ${Number(selectedAccount.openingBalance ?? 0).toLocaleString("en-US")}`, 770, 52, { align: "right" });
+    let y = 80;
+    pdf.text("Date | Type | Amount | Running balance | Description | Reference", 770, y, { align: "right" });
+    y += 18;
+    transactionRows.forEach((row) => {
+      if (y > 540) { pdf.addPage(); y = 40; }
+      const line = [new Date(row.occurredAt).toLocaleDateString("en-US"), row.transactionType, Number(row.amount).toFixed(2), Number(cumulativeById.get(row.id) ?? 0).toFixed(2), row.description, row.referenceNo ?? "-"].join(" | ");
+      pdf.text(line.slice(0, 150), 770, y, { align: "right" });
+      y += 14;
+    });
+    pdf.save(`حركات-${selectedAccount.name}.pdf`);
+    toast.success("تم تصدير حركات الحساب إلى PDF.");
   };
 
   return (
@@ -255,9 +330,10 @@ export default function CompanyAccountsPage() {
               </div>
             </CardContent></Card>
 
-            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-bold text-white">سجل الحركات الكامل</h2><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); setTransactionPage(1); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div><div className="mt-4 space-y-2">{transactionRows.length ? visibleTransactions.map((row) => <div className="flex items-center justify-between rounded-xl border border-white/8 px-3 py-3 text-sm" key={row.id}><div><p className="font-bold text-white">{row.description}</p><p className="mt-1 text-xs text-slate-500">{new Date(row.occurredAt).toLocaleString("ar")} · الرصيد التراكمي: {money(Number(cumulativeById.get(row.id) ?? 0))} ش</p></div><span className={row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? "text-rose-300" : "text-emerald-300"}>{row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? "−" : "+"}{money(Number(row.amount))}</span></div>) : <p className="py-10 text-center text-sm text-slate-500">لا توجد حركات مسجلة بعد.</p>}</div>{transactionRows.length > 0 && <div className="mt-4 flex items-center justify-between text-xs text-slate-400"><span>صفحة {transactionPage} من {pageCount} · {transactionRows.length} حركة</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={transactionPage === 1} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))} className="border-white/10 text-white">السابق</Button><Button size="sm" variant="outline" disabled={transactionPage === pageCount} onClick={() => setTransactionPage((page) => Math.min(pageCount, page + 1))} className="border-white/10 text-white">التالي</Button></div></div>}</CardContent></Card>
+            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-bold text-white">سجل الحركات الكامل</h2><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!transactionRows.length} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">Excel</Button><Button size="sm" variant="outline" disabled={!transactionRows.length} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">PDF</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); setTransactionPage(1); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div><div className="mt-4 h-52 rounded-xl border border-white/8 bg-white/[.015] p-3"><p className="mb-2 text-xs font-bold text-slate-300">تطور الرصيد بمرور الوقت</p><ResponsiveContainer width="100%" height="88%"><AreaChart data={balanceTimeline} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}><defs><linearGradient id="accountBalanceFill" x1="0" x2="0" y1="0" y2="1"><stop offset="5%" stopColor="#F5B800" stopOpacity={0.35} /><stop offset="95%" stopColor="#F5B800" stopOpacity={0.03} /></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.08)" vertical={false} /><XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={44} /><Tooltip formatter={(value) => [`${money(Number(value))} ش`, "الرصيد"]} contentStyle={{ background: "#111823", border: "1px solid rgba(255,255,255,.12)", borderRadius: 10, color: "#fff" }} /><Area type="monotone" dataKey="balance" stroke="#F5B800" strokeWidth={2} fill="url(#accountBalanceFill)" /></AreaChart></ResponsiveContainer></div><div className="mt-4 space-y-2">{transactionRows.length ? visibleTransactions.map((row) => <div className="flex items-center justify-between rounded-xl border border-white/8 px-3 py-3 text-sm" key={row.id}><div><p className="font-bold text-white">{row.description}</p><p className="mt-1 text-xs text-slate-500">{new Date(row.occurredAt).toLocaleString("ar")} · الرصيد التراكمي: {money(Number(cumulativeById.get(row.id) ?? 0))} ش</p></div><span className={row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? "text-rose-300" : "text-emerald-300"}>{row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? "−" : "+"}{money(Number(row.amount))}</span></div>) : <p className="py-10 text-center text-sm text-slate-500">لا توجد حركات مسجلة بعد.</p>}</div>{transactionRows.length > 0 && <div className="mt-4 flex items-center justify-between text-xs text-slate-400"><span>صفحة {transactionPage} من {pageCount} · {transactionRows.length} حركة</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={transactionPage === 1} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))} className="border-white/10 text-white">السابق</Button><Button size="sm" variant="outline" disabled={transactionPage === pageCount} onClick={() => setTransactionPage((page) => Math.min(pageCount, page + 1))} className="border-white/10 text-white">التالي</Button></div></div>}</CardContent></Card>
           </div>
         )}
+        <Dialog open={Boolean(pendingAction)} onOpenChange={(open) => !open && setPendingAction(null)}><DialogContent className="border-white/10 bg-[#111823] text-white"><DialogHeader><DialogTitle>{pendingAction?.kind === "withdrawal" ? "تأكيد عملية السحب" : "تأكيد التحويل بين الحسابات"}</DialogTitle></DialogHeader><div className="space-y-3 text-sm"><p className="text-slate-300">الحساب المصدر: <strong className="text-white">{selectedAccount?.name}</strong></p><p className="text-slate-300">المبلغ: <strong className="text-[#F5B800]">{money(pendingAction?.amount ?? 0)} ش</strong></p>{pendingAction?.kind === "transfer" ? <p className="text-slate-300">الحساب المستقبِل: <strong className="text-white">{rows.find((row) => row.id === pendingAction.targetAccountId)?.name ?? "—"}</strong></p> : null}<p className="rounded-lg bg-amber-400/10 p-3 text-xs leading-6 text-amber-100">سيُسجل الإجراء في كشف الحساب وسجل التدقيق. راجع البيانات قبل التأكيد.</p></div><DialogFooter><Button variant="outline" onClick={() => setPendingAction(null)} className="border-white/15 text-white">إلغاء</Button><Button onClick={confirmPendingAction} disabled={movement.isPending || transfer.isPending} className="bg-[#F5B800] font-bold text-[#0D1117]">تأكيد التنفيذ</Button></DialogFooter></DialogContent></Dialog>
       </div>
     </DashboardLayout>
   );
