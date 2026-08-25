@@ -66,6 +66,7 @@ import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { createHeartbeatJob, deleteHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { COOKIE_NAME } from "../shared/const";
+import { getSupabaseDashboardSummary, listSupabaseAccessibleSites, listSupabaseGenerators, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, requireSupabaseSiteRole } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
@@ -1084,19 +1085,7 @@ export const powerhubRouter = router({
   }),
   sites: router({
     list: protectedProcedure.query(async ({ ctx }) => {
-      const db = await dbOrThrow();
-      if (ctx.user.role === "admin") return db.select().from(sites).orderBy(desc(sites.createdAt));
-      const memberships = await db.select({ tenantId: tenantMembers.tenantId, role: tenantMembers.role }).from(tenantMembers)
-        .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")));
-      const ownerTenantIds = memberships.filter((member) => member.role === "owner").map((member) => member.tenantId);
-      const [ownedSites, assignedSites] = await Promise.all([
-        ownerTenantIds.length ? db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, anomalyAlertPercent: sites.anomalyAlertPercent, invoiceDueDays: sites.invoiceDueDays, createdAt: sites.createdAt }).from(sites).where(inArray(sites.tenantId, ownerTenantIds)).orderBy(desc(sites.createdAt)) : Promise.resolve([]),
-        db.select({ id: sites.id, name: sites.name, code: sites.code, city: sites.city, address: sites.address, status: sites.status, anomalyAlertPercent: sites.anomalyAlertPercent, invoiceDueDays: sites.invoiceDueDays, createdAt: sites.createdAt }).from(staffProfiles)
-          .innerJoin(sites, eq(staffProfiles.siteId, sites.id))
-          .innerJoin(tenantMembers, and(eq(tenantMembers.tenantId, sites.tenantId), eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active")))
-          .where(and(eq(staffProfiles.userId, ctx.user.id), eq(staffProfiles.isActive, true))).orderBy(desc(sites.createdAt)),
-      ]);
-      return Array.from(new Map([...ownedSites, ...assignedSites].map((site) => [site.id, site])).values());
+      return listSupabaseAccessibleSites(ctx.user.id, ctx.user.role === "admin");
     }),
     branchPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"]);
@@ -1153,9 +1142,8 @@ export const powerhubRouter = router({
 
   subscribers: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
-      const db = await dbOrThrow();
-      return db.select().from(subscribers).where(eq(subscribers.siteId, input.siteId)).orderBy(desc(subscribers.createdAt));
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      return listSupabaseSubscribers(input.siteId);
     }),
     quota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
@@ -1361,9 +1349,8 @@ export const powerhubRouter = router({
 
   tariffs: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
-      const db = await dbOrThrow();
-      return db.select().from(tariffs).where(eq(tariffs.siteId, input.siteId)).orderBy(desc(tariffs.effectiveFrom));
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      return listSupabaseTariffs(input.siteId);
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), name: z.string().min(2).max(160), code: z.string().min(2).max(50),
@@ -1380,9 +1367,8 @@ export const powerhubRouter = router({
 
   generators: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "technician", "viewer"]);
-      const db = await dbOrThrow();
-      return db.select().from(generators).where(eq(generators.siteId, input.siteId)).orderBy(desc(generators.createdAt));
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "technician", "viewer"]);
+      return listSupabaseGenerators(input.siteId);
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), code: z.string().min(2).max(50), name: z.string().min(2).max(160),
@@ -1412,11 +1398,8 @@ export const powerhubRouter = router({
 
   readings: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
-      const db = await dbOrThrow();
-      return db.select({ reading: meterReadings, subscriber: subscribers }).from(meterReadings)
-        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
-        .where(eq(subscribers.siteId, input.siteId)).orderBy(desc(meterReadings.readingAt));
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
+      return listSupabaseReadings(input.siteId);
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date().optional(),
@@ -1779,14 +1762,8 @@ export const powerhubRouter = router({
 
   dashboard: router({
     summary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
-      const db = await dbOrThrow();
-      const [subscriberCount] = await db.select({ value: sql<number>`count(*)` }).from(subscribers).where(and(eq(subscribers.siteId, input.siteId), eq(subscribers.serviceStatus, "active")));
-      const [generatorStatus] = await db.select({ active: sql<number>`sum(case when ${generators.status} = 'active' then 1 else 0 end)`, maintenance: sql<number>`sum(case when ${generators.status} = 'maintenance' then 1 else 0 end)` }).from(generators).where(eq(generators.siteId, input.siteId));
-      const [invoiceTotals] = await db.select({ invoiced: sql<string>`coalesce(sum(${invoices.totalAmount}), 0)`, paid: sql<string>`coalesce(sum(${invoices.paidAmount}), 0)`, outstanding: sql<string>`coalesce(sum(${invoices.balanceDue}), 0)`, energy: sql<string>`coalesce(sum(${invoices.consumptionKwh}), 0)` }).from(invoices).where(and(eq(invoices.siteId, input.siteId), sql`${invoices.status} <> 'cancelled'`));
-      const [expenseTotals] = await db.select({ amount: sql<string>`coalesce(sum(${expenses.amount}), 0)` }).from(expenses).where(eq(expenses.siteId, input.siteId));
-      const [notificationTotals] = await db.select({ failed: sql<number>`sum(case when ${notificationMessages.status} = 'failed' then 1 else 0 end)` }).from(notificationMessages).where(sql`${notificationMessages.subscriberId} in (select ${subscribers.id} from ${subscribers} where ${subscribers.siteId} = ${input.siteId})`);
-      return { subscribers: Number(subscriberCount?.value ?? 0), generators: { active: Number(generatorStatus?.active ?? 0), maintenance: Number(generatorStatus?.maintenance ?? 0) }, financial: { invoiced: Number(invoiceTotals?.invoiced ?? 0), collected: Number(invoiceTotals?.paid ?? 0), outstanding: Number(invoiceTotals?.outstanding ?? 0), expenses: Number(expenseTotals?.amount ?? 0), operatingProfit: Number(invoiceTotals?.paid ?? 0) - Number(expenseTotals?.amount ?? 0) }, energyKwh: Number(invoiceTotals?.energy ?? 0), failedNotifications: Number(notificationTotals?.failed ?? 0) };
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
+      return getSupabaseDashboardSummary(input.siteId);
     }),
     allBranchesSummary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireAllBranchRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);

@@ -1,9 +1,7 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
-import { eq } from "drizzle-orm";
 import superjson from "superjson";
-import { platformSettings } from "../../drizzle/schema";
-import { getDb } from "../db";
+import { supabaseAdmin } from "../supabase-admin";
 import type { TrpcContext } from "./context";
 
 const t = initTRPC.context<TrpcContext>().create({
@@ -37,11 +35,10 @@ const requireUser = t.middleware(async opts => {
 const enforceMaintenanceMode = t.middleware(async opts => {
   const user = opts.ctx.user;
   if (!user || user.role === "admin" || opts.path === "auth.me") return opts.next();
-  const db = await getDb();
-  if (!db) return opts.next();
-  const [maintenance] = await db.select({ isEnabled: platformSettings.isEnabled, message: platformSettings.message })
-    .from(platformSettings).where(eq(platformSettings.settingKey, "maintenance_mode")).limit(1);
-  if (maintenance?.isEnabled) {
+  const { data: maintenance, error } = await supabaseAdmin().from("platform_settings")
+    .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });
+  if (maintenance?.is_enabled) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: maintenance.message || "المنصة تحت الصيانة مؤقتاً. يرجى المحاولة لاحقاً." });
   }
   return opts.next();
