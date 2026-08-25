@@ -403,6 +403,30 @@ export const adminRouter = router({
   listOwners: platformAdminProcedure.query(async () => ownerOverviewFromSupabase()),
 
   listTweetSmsAccounts: platformAdminProcedure.query(async () => {
+    {
+      const admin = supabaseAdmin();
+      const monthStart = new Date();
+      monthStart.setUTCDate(1);
+      monthStart.setUTCHours(0, 0, 0, 0);
+      const [ownersResult, accountsResult, usageResult, tenantsResult] = await Promise.all([
+        admin.from("tenant_owner_profiles").select("tenant_id, full_name, phone").order("tenant_id", { ascending: true }),
+        admin.from("tenant_tweetsms_accounts").select("id, tenant_id, api_endpoint, credential_ciphertext, credential_iv, sender_name, monthly_limit, is_active, last_tested_at, last_error, updated_at"),
+        admin.from("notification_messages").select("tenant_id, status").eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["submitted", "delivered", "read"]),
+        admin.from("tenants").select("id, name"),
+      ]);
+      if (ownersResult.error || accountsResult.error || usageResult.error || tenantsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات TweetSMS من Supabase." });
+      const accountByTenant = new Map((accountsResult.data ?? []).map((account) => [Number(account.tenant_id), account]));
+      const usageByTenant = new Map<number, number>();
+      for (const usage of usageResult.data ?? []) usageByTenant.set(Number(usage.tenant_id), (usageByTenant.get(Number(usage.tenant_id)) ?? 0) + 1);
+      const tenantNames = new Map((tenantsResult.data ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
+      return (ownersResult.data ?? []).map((owner) => {
+        const tenantId = Number(owner.tenant_id);
+        const account = accountByTenant.get(tenantId);
+        const monthlyLimit = account?.monthly_limit ?? 0;
+        const usedThisMonth = usageByTenant.get(tenantId) ?? 0;
+        return { id: account ? Number(account.id) : null, tenantId, tenantName: tenantNames.get(tenantId) ?? "—", ownerName: owner.full_name, ownerPhone: owner.phone, apiEndpoint: account?.api_endpoint ?? null, senderName: account?.sender_name ?? null, monthlyLimit, usedThisMonth, remaining: Math.max(0, monthlyLimit - usedThisMonth), isActive: account?.is_active ?? false, configured: Boolean(account?.credential_ciphertext && account?.credential_iv), lastTestedAt: account?.last_tested_at ?? null, lastError: account?.last_error ?? null, updatedAt: account?.updated_at ?? null };
+      });
+    }
     const db = await dbOrThrow();
     const monthStart = new Date();
     monthStart.setUTCDate(1);
@@ -980,6 +1004,25 @@ export const adminRouter = router({
     return { success: true };
   }),
   listSmsPackageRequests: platformAdminProcedure.query(async () => {
+    {
+      const admin = supabaseAdmin();
+      const { data: requests, error: requestsError } = await admin.from("sms_package_requests")
+        .select("id, tenant_id, requested_by_user_id, requested_messages, approved_messages, status, note, reviewed_by_user_id, reviewed_at, created_at, updated_at")
+        .order("created_at", { ascending: false }).limit(100);
+      if (requestsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات حزم الرسائل من Supabase." });
+      const tenantIds = Array.from(new Set((requests ?? []).map((request) => Number(request.tenant_id))));
+      const [tenantsResult, ownersResult] = await Promise.all([
+        tenantIds.length ? admin.from("tenants").select("id, name").in("id", tenantIds) : Promise.resolve({ data: [], error: null }),
+        tenantIds.length ? admin.from("tenant_owner_profiles").select("tenant_id, full_name").in("tenant_id", tenantIds) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (tenantsResult.error || ownersResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات أصحاب طلبات الرسائل من Supabase." });
+      const tenantNames = new Map((tenantsResult.data ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
+      const ownerNames = new Map((ownersResult.data ?? []).map((owner) => [Number(owner.tenant_id), owner.full_name]));
+      return (requests ?? []).map((request) => ({
+        request: { id: Number(request.id), tenantId: Number(request.tenant_id), requestedByUserId: Number(request.requested_by_user_id), requestedMessages: request.requested_messages, approvedMessages: request.approved_messages, status: request.status, note: request.note, reviewedByUserId: request.reviewed_by_user_id ? Number(request.reviewed_by_user_id) : null, reviewedAt: request.reviewed_at, createdAt: request.created_at, updatedAt: request.updated_at },
+        tenantName: tenantNames.get(Number(request.tenant_id)) ?? "—", ownerName: ownerNames.get(Number(request.tenant_id)) ?? "—",
+      }));
+    }
     const db = await dbOrThrow();
     return db.select({ request: smsPackageRequests, tenantName: tenants.name, ownerName: tenantOwnerProfiles.fullName }).from(smsPackageRequests).innerJoin(tenants, eq(smsPackageRequests.tenantId, tenants.id)).leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id)).orderBy(desc(smsPackageRequests.createdAt)).limit(100);
   }),
