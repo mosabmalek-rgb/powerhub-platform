@@ -9,6 +9,7 @@ import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypt
 import { supabaseAdmin } from "./supabase-admin";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 import { processNotificationById } from "./notification-worker";
+import { ownerOverviewFromSupabase } from "./admin-supabase";
 
 const planSchema = z.enum(["starter", "professional", "enterprise"]);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
@@ -325,8 +326,7 @@ export const adminRouter = router({
     }
   }),
   overview: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive().optional() }).optional()).query(async ({ input }) => {
-    const db = await dbOrThrow();
-    const owners = await ownerOverview(db, input?.tenantId);
+    const owners = await ownerOverviewFromSupabase(input?.tenantId);
     const totals = owners.reduce((acc, item) => ({
       generatorOwners: acc.generatorOwners + 1,
       residential: acc.residential + item.subscribers.residential,
@@ -337,7 +337,7 @@ export const adminRouter = router({
     return { totals, owners };
   }),
 
-  listOwners: platformAdminProcedure.query(async () => ownerOverview(await dbOrThrow())),
+  listOwners: platformAdminProcedure.query(async () => ownerOverviewFromSupabase()),
 
   listTweetSmsAccounts: platformAdminProcedure.query(async () => {
     const db = await dbOrThrow();
