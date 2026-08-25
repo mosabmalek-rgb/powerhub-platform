@@ -610,3 +610,4 @@
 - [x] نقل حساب أدمن المنصة فقط إلى Supabase ومنحه دور مالك المنصة بأمان.
 - [x] نقل أصول الواجهة وروابط صور الإيصالات المتبقية من `/manus-storage` إلى Supabase Storage أو أصول Vercel.
 - [ ] إزالة قالب التحليلات غير المهيأ والتحقق من تضمين متغيرات Supabase العامة في حزمة Vercel الإنتاجية.
+- [x] تحويل Mobile API للقراءات والمزامنة والجلسات إلى Supabase Auth وPostgres Storage مع فرض accessFieldApp وrecordReadings خادمياً.
