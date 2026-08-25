@@ -49,6 +49,8 @@ export default function CompanyAccountsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [transactionTypeFilter, setTransactionTypeFilter] = useState("");
+  const [movementFromDate, setMovementFromDate] = useState("");
+  const [movementToDate, setMovementToDate] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
   const [selected, setSelected] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -93,7 +95,10 @@ export default function CompanyAccountsPage() {
   const filtered = useMemo(() => rows.filter((account) => `${account.name} ${account.phoneNumber ?? ""} ${labels[account.accountType] ?? account.accountType}`.toLowerCase().includes(search.toLowerCase().trim())), [rows, search]);
   const selectedAccount = rows.find((account) => account.id === selected);
   const total = rows.reduce((sum, row) => sum + Number(row.balance), 0);
-  const transactionRows = selectedAccount?.transactions.filter((row) => !transactionTypeFilter || row.transactionType === transactionTypeFilter) ?? [];
+  const transactionRows = selectedAccount?.transactions.filter((row) => {
+    const date = new Date(row.occurredAt).toISOString().slice(0, 10);
+    return (!transactionTypeFilter || row.transactionType === transactionTypeFilter) && (!movementFromDate || date >= movementFromDate) && (!movementToDate || date <= movementToDate);
+  }) ?? [];
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(transactionRows.length / pageSize));
   const visibleTransactions = transactionRows.slice((transactionPage - 1) * pageSize, transactionPage * pageSize);
@@ -130,6 +135,8 @@ export default function CompanyAccountsPage() {
     setNewPhone(account.phoneNumber ?? "");
     setTransactionPage(1);
     setTransactionTypeFilter("");
+    setMovementFromDate("");
+    setMovementToDate("");
     setMode("deposit");
     setTarget("");
   };
@@ -315,6 +322,8 @@ export default function CompanyAccountsPage() {
         </div>
 
         <Card className="border-[#F5B800]/20 bg-[#F5B800]/5 print:border-slate-300 print:bg-white"><CardContent className="flex items-center justify-between p-5"><span className="font-bold text-white print:text-black">إجمالي السيولة المتاحة</span><strong className="text-2xl text-[#F5B800] print:text-black">{money(total)} ش</strong></CardContent></Card>
+
+        {selectedAccount && <Card className="border-white/10 bg-[#111823] print:hidden"><CardContent className="flex flex-wrap items-end gap-3 p-4"><div className="min-w-52"><p className="font-bold text-white">تصفية كشف الحركات</p><p className="mt-1 text-xs text-slate-500">تنطبق الفلاتر على السجل والمخطط وملفي Excel وPDF.</p></div><label className="grid gap-1 text-xs text-slate-300"><span>من تاريخ</span><Input dir="ltr" type="date" value={movementFromDate} max={movementToDate || undefined} onChange={(event) => { setMovementFromDate(event.target.value); setTransactionPage(1); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><label className="grid gap-1 text-xs text-slate-300"><span>إلى تاريخ</span><Input dir="ltr" type="date" value={movementToDate} min={movementFromDate || undefined} onChange={(event) => { setMovementToDate(event.target.value); setTransactionPage(1); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><Button size="sm" variant="outline" onClick={() => { setMovementFromDate(""); setMovementToDate(""); setTransactionTypeFilter(""); setTransactionPage(1); }} className="border-white/15 text-white">مسح فلاتر الحركات</Button></CardContent></Card>}
 
         {selectedAccount && (
           <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr] print:hidden">

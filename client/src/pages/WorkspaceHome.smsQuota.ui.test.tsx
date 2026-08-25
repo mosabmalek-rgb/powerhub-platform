@@ -18,6 +18,7 @@ vi.mock("@/lib/trpc", () => ({
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }] }) } },
       dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 } }) }, financialOverview: { useQuery: () => ({ data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [] } }) } },
+      companyAccounts: { list: { useQuery: () => ({ data: [] }) } },
       subscribers: { quota: { useQuery: () => ({ data: {} }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) } },
       messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: 42, remaining: state.remaining, senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null }, isLoading: false }) }, smsDailyUsage: { useQuery: () => ({ data: { total: 500, used: 42, remaining: state.remaining }, isLoading: false }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, refetch: vi.fn() }) }, requestSmsPackage: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },

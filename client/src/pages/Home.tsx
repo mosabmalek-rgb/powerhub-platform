@@ -47,6 +47,14 @@ function StateLine({ label, value, hint, tone = "bg-[#F5B800]" }: { label: strin
   return <div className="flex items-center justify-between gap-4 px-5 py-4"><div className="flex min-w-0 items-center gap-3"><span className={`h-2.5 w-2.5 shrink-0 rounded-full ${tone}`} /><div><p className="font-bold text-white">{label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{hint}</p></div></div><span className="shrink-0 font-display text-xl font-extrabold text-white">{value}</span></div>;
 }
 
+function CompanyBalancesDashboardCard({ accounts, loading, onOpen }: { accounts: any[]; loading: boolean; onOpen: () => void }) {
+  if (loading) return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="h-40 animate-pulse p-5"><div className="h-4 w-52 rounded bg-white/10" /><div className="mt-6 h-9 w-44 rounded bg-white/10" /></CardContent></Card>;
+  const total = accounts.reduce((sum, account) => sum + Number(account.balance ?? 0), 0);
+  const byType = accounts.reduce<Record<string, number>>((summary, account) => { summary[account.accountType] = (summary[account.accountType] ?? 0) + Number(account.balance ?? 0); return summary; }, {});
+  const types = [{ key: "cash", label: "كاش", tone: "text-slate-200" }, { key: "jawwal_pay", label: "جوال بي", tone: "text-lime-200" }, { key: "palpay", label: "بال بي", tone: "text-fuchsia-200" }, { key: "bank_of_palestine", label: "بنك فلسطين", tone: "text-rose-200" }].filter((type) => byType[type.key] !== undefined);
+  return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><WalletCards className="h-4 w-4" />ملخص حسابات الشركة</div><p className="mt-2 text-sm text-slate-400">الأرصدة الحالية عبر كل الحسابات المتاحة في مساحة الشركة.</p></div><Button variant="outline" onClick={onOpen} className="border-[#F5B800]/30 text-[#F5B800] hover:bg-[#F5B800]/10">فتح الحسابات</Button></div><div className="mt-5 flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs text-slate-500">إجمالي السيولة المتاحة</p><p className="mt-1 font-display text-3xl font-extrabold text-white">{number(total, 2)} <span className="text-sm text-[#F5B800]">ش</span></p></div><div className="grid min-w-[290px] flex-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">{types.length ? types.map((type) => <div key={type.key} className="rounded-xl border border-white/8 bg-white/[.018] px-3 py-3"><p className="text-[11px] text-slate-500">{type.label}</p><p className={`mt-1 font-bold ${type.tone}`}>{number(byType[type.key], 2)} ش</p></div>) : <p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-xs text-slate-500">لا توجد حسابات شركة مضافة بعد.</p>}</div></div></CardContent></Card>;
+}
+
 export function WorkspaceHome() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, loading, user } = useAuth();
@@ -66,6 +74,7 @@ export function WorkspaceHome() {
   const canUseAllBranches = Boolean(allBranchAccessQuery.data?.isGlobal && (sitesQuery.data?.length ?? 0) > 1);
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPlan}.`); }, onError: (error) => toast.error(error.message) });
   const overview = financialOverviewQuery.data;
   const activeSubscribers = overview?.branchSummaries.reduce((sum, branch) => sum + branch.activeSubscribers, 0) ?? 0;
@@ -99,6 +108,7 @@ export function WorkspaceHome() {
 
     {accessQuery.data?.role === "owner" ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} onOpen={() => setLocation("/notifications")} /> : null}
     <SubscriberQuotaDashboardCard quota={subscriberQuotaQuery.data} upgradeRequest={upgradeRequestQuery.data} canRequestUpgrade={accessQuery.data?.role === "owner"} requesting={requestUpgrade.isPending} onRequestUpgrade={(requestedPlan) => requestUpgrade.mutate({ siteId: siteId!, requestedPlan })} />
+    <CompanyBalancesDashboardCard accounts={companyAccountsQuery.data ?? []} loading={companyAccountsQuery.isLoading} onOpen={() => setLocation("/company-accounts")} />
     {accessQuery.data?.role === "owner" ? <SmsQuotaHomeAlert quota={smsDailyUsageQuery.data} request={smsPackageRequestQuery.data} loading={smsDailyUsageQuery.isLoading} hidden={Boolean(smsAlertKey && hiddenSmsAlertKey === smsAlertKey)} onDismiss={() => { if (smsAlertKey) { setHiddenSmsAlertKey(smsAlertKey); window.localStorage.setItem("powerhub.sms-alert-hidden", smsAlertKey); } }} onRequest={(messages, note) => requestSmsPackage.mutate({ siteId: siteId!, requestedMessages: messages, note })} pending={requestSmsPackage.isPending} onOpen={() => setLocation("/notifications")} /> : null}
 
     <section className="grid gap-6 xl:grid-cols-[1.35fr_.85fr]">
