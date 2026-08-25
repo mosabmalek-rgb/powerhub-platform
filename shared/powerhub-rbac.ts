@@ -11,6 +11,7 @@ export type PowerCapability =
   | "manageSubscribers"
   | "manageGenerators"
   | "recordReadings"
+  | "accessFieldApp"
   | "approveReadings"
   | "manageTariffs"
   | "issueInvoices"
@@ -43,6 +44,7 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   manageSubscribers: ["owner", "manager", "accountant"],
   manageGenerators: ["owner", "manager", "technician"],
   recordReadings: ["owner", "manager", "accountant", "technician"],
+  accessFieldApp: ["owner", "manager", "technician"],
   approveReadings: ["owner", "manager", "accountant"],
   manageTariffs: ["owner", "manager", "accountant"],
   issueInvoices: ["owner", "manager", "accountant"],
@@ -58,6 +60,7 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   manageSubscribers: "إدارة المشتركين",
   manageGenerators: "إدارة المولدات",
   recordReadings: "تسجيل القراءات",
+  accessFieldApp: "الدخول للتطبيق الميداني",
   approveReadings: "اعتماد القراءات",
   manageTariffs: "إدارة التعرفات",
   issueInvoices: "إصدار الفواتير",

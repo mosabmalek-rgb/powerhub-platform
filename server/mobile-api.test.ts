@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hashMobileToken, mobileApiSchemas } from "./mobile-api";
+import { hasFieldAppAccess, hashMobileToken, mobileApiSchemas } from "./mobile-api";
 
 describe("Mobile API v1 contract", () => {
   it("requires a valid UUID and precision-safe subscriber reading without a meter identifier", () => {
@@ -23,6 +23,13 @@ describe("Mobile API v1 contract", () => {
     expect(hashMobileToken("refresh-token-example")).toHaveLength(64);
     expect(hashMobileToken("refresh-token-example")).toBe(hashMobileToken("refresh-token-example"));
     expect(hashMobileToken("refresh-token-example")).not.toBe(hashMobileToken("different-token"));
+  });
+
+  it("requires the separate field-app permission in addition to recording permission", () => {
+    expect(hasFieldAppAccess("technician", ["recordReadings"])).toBe(false);
+    expect(hasFieldAppAccess("technician", ["accessFieldApp"])).toBe(false);
+    expect(hasFieldAppAccess("technician", ["recordReadings", "accessFieldApp"])).toBe(true);
+    expect(hasFieldAppAccess("collector", ["recordReadings", "accessFieldApp"])).toBe(true);
   });
 
   it("accepts bounded sync telemetry and rejects invalid event identity, branch, and counts", () => {

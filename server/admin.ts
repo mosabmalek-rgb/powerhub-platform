@@ -1248,7 +1248,7 @@ export const adminRouter = router({
 
   rolePolicies: platformAdminProcedure.query(async () => (await dbOrThrow()).select().from(platformRolePolicies).orderBy(platformRolePolicies.role, platformRolePolicies.capability)),
 
-  saveRolePolicy: platformAdminProcedure.input(z.object({ role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), capability: z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"]), isAllowed: z.boolean() })).mutation(async ({ ctx, input }) => {
+  saveRolePolicy: platformAdminProcedure.input(z.object({ role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), capability: z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"]), isAllowed: z.boolean() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();
     await db.insert(platformRolePolicies).values({ ...input, updatedByUserId: ctx.user.id }).onDuplicateKeyUpdate({ set: { isAllowed: input.isAllowed, updatedByUserId: ctx.user.id } });
     await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "warning", status: "success", title: `تحديث سياسة الدور: ${input.role}`, createdByUserId: ctx.user.id, metadata: input });

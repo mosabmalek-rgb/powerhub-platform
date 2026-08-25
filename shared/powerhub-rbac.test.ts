@@ -6,6 +6,7 @@ describe("PowerHub role capabilities", () => {
     expect(can("collector", "collectPayments")).toBe(true);
     expect(can("collector", "recordReadings")).toBe(false);
     expect(can("technician", "recordReadings")).toBe(true);
+    expect(can("technician", "accessFieldApp")).toBe(true);
     expect(can("technician", "collectPayments")).toBe(false);
     expect(can("accountant", "issueInvoices")).toBe(true);
     expect(can("viewer", "issueInvoices")).toBe(false);
@@ -21,6 +22,8 @@ describe("PowerHub role capabilities", () => {
   it("uses direct permissions when an account has a custom permission set", () => {
     expect(can("viewer", "collectPayments", ["collectPayments"])).toBe(true);
     expect(can("collector", "recordReadings", ["collectPayments"])).toBe(false);
+    expect(can("technician", "accessFieldApp", ["recordReadings"])).toBe(false);
+    expect(can("technician", "accessFieldApp", ["recordReadings", "accessFieldApp"])).toBe(true);
     expect(can("viewer", "viewAudit", ["viewAudit"])).toBe(true);
   });
 

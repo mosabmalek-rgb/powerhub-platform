@@ -933,7 +933,7 @@ export const platformSettings = mysqlTable("platformSettings", {
 export const platformRolePolicies = mysqlTable("platformRolePolicies", {
   id: int("id").autoincrement().primaryKey(),
   role: mysqlEnum("role", ["owner", "manager", "accountant", "collector", "technician", "viewer"]).notNull(),
-  capability: mysqlEnum("capability", ["manageSubscribers", "manageGenerators", "recordReadings", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"]).notNull(),
+  capability: mysqlEnum("capability", ["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"]).notNull(),
   isAllowed: boolean("isAllowed").default(true).notNull(),
   updatedByUserId: int("updatedByUserId").references(() => users.id),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

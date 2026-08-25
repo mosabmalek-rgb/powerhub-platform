@@ -69,6 +69,10 @@ export function hashMobileToken(value: string) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
+export function hasFieldAppAccess(role: PowerRole, permissions: readonly PowerCapability[] | null | undefined) {
+  return can(role, "recordReadings", permissions) && can(role, "accessFieldApp", permissions);
+}
+
 function newRefreshToken() {
   return crypto.randomBytes(48).toString("base64url");
 }
@@ -107,7 +111,7 @@ async function resolveMobileScope(userId: number, tenantId: number): Promise<Mob
     .where(and(eq(staffProfiles.userId, userId), eq(staffProfiles.tenantId, tenantId), eq(staffProfiles.isActive, true)));
   const permitted = profiles.filter((profile) => {
     const suspended = profile.suspensionStartedAt && profile.suspensionStartedAt <= now && (!profile.suspensionEndsAt || profile.suspensionEndsAt >= now);
-    return !suspended && can(profile.role as PowerRole, "recordReadings", profile.permissions as PowerCapability[] | null);
+    return !suspended && hasFieldAppAccess(profile.role as PowerRole, profile.permissions as PowerCapability[] | null);
   });
   if (!permitted.length) return null;
 
@@ -180,7 +184,7 @@ export function registerMobileApi(app: Express) {
     const tenantId = parsed.data.tenantId ?? (memberships.length === 1 ? memberships[0].id : undefined);
     if (!tenantId) return res.status(409).json({ error: { code: "TENANT_SELECTION_REQUIRED", message: "اختر مساحة الشركة قبل المتابعة.", retryable: false }, tenants: memberships });
     const scope = await resolveMobileScope(user.id, tenantId);
-    if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يملك هذا الحساب صلاحية تسجيل القراءات الميدانية أو يجب تغيير كلمة المرور المؤقتة أولاً.");
+    if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يملك هذا الحساب صلاحيتي الدخول للتطبيق الميداني وتسجيل القراءات، أو يجب تغيير كلمة المرور المؤقتة أولاً.");
     const tokens = await createSession(scope, parsed.data.deviceLabel);
     return res.json({ ...tokens, user: mobileUserPayload(scope) });
   });
