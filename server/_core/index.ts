@@ -6,7 +6,6 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
 import { sdk } from "./sdk";
 import { processNotificationQueue, processNotificationQueueForTenant } from "../notification-worker";
 import { getDb } from "../db";
@@ -90,6 +89,7 @@ export function createPowerHubApp() {
 async function startServer() {
   const app = createPowerHubApp();
   const server = createServer(app);
+  const { serveStatic, setupVite } = await import("./vite");
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
