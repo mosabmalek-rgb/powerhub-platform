@@ -1,16 +1,15 @@
 import type { Express, Request, Response } from "express";
 import { createClient } from "@supabase/supabase-js";
 import { SignJWT, jwtVerify } from "jose";
-import { and, desc, eq, gt, gte, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
-import { getDb, syncSupabaseUser } from "./db";
-import { auditLogs, meterReadings, mobileApiSessions, mobileSyncEvents, sites, staffProfiles, subscribers, tenantMembers, tenants, users } from "../drizzle/schema";
-import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import crypto from "node:crypto";
+import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { storagePut } from "./storage";
+import { supabaseAdmin } from "./supabase-admin";
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
+
 const jwtSecret = () => {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error("Mobile API authentication is not configured");
@@ -65,6 +64,9 @@ type MobileScope = {
   permissions: string[] | null;
 };
 
+const toNumber = (value: number | string | null | undefined) => Number(value);
+const isoNow = () => new Date().toISOString();
+
 export function hashMobileToken(value: string) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -90,38 +92,57 @@ function sendError(res: Response, status: number, code: string, message: string,
   return res.status(status).json({ error: { code, message, retryable } });
 }
 
+function sendSupabaseError(res: Response, error: { message: string } | null, message = "تعذر الوصول إلى قاعدة البيانات.") {
+  if (error) console.error("[Mobile API] Supabase error:", error.message);
+  return sendError(res, 503, "DATABASE_UNAVAILABLE", message, true);
+}
+
 function readBearerToken(req: Request) {
   const value = req.headers.authorization;
   return typeof value === "string" && value.startsWith("Bearer ") ? value.slice(7) : null;
 }
 
+async function syncMobileProfile(input: { id: string; email: string; name?: string | null }) {
+  const admin = supabaseAdmin();
+  const email = input.email.trim().toLowerCase();
+  const { data, error } = await admin.from("users")
+    .upsert({ auth_user_id: input.id, email, name: input.name?.trim() || email.split("@")[0], login_method: "supabase", last_signed_in: isoNow() }, { onConflict: "auth_user_id" })
+    .select("id, name, account_status, must_change_password")
+    .single();
+  if (error || !data) throw new Error(error?.message || "Supabase user profile was not returned");
+  return { id: toNumber(data.id), name: data.name as string | null, accountStatus: data.account_status as string, mustChangePassword: Boolean(data.must_change_password) };
+}
+
 async function resolveMobileScope(userId: number, tenantId: number): Promise<MobileScope | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database unavailable");
-  const [[user], [membership], [tenant]] = await Promise.all([
-    db.select({ id: users.id, name: users.name, accountStatus: users.accountStatus, mustChangePassword: users.mustChangePassword }).from(users).where(eq(users.id, userId)).limit(1),
-    db.select({ id: tenantMembers.id }).from(tenantMembers).where(and(eq(tenantMembers.userId, userId), eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active"))).limit(1),
-    db.select({ id: tenants.id, status: tenants.status }).from(tenants).where(eq(tenants.id, tenantId)).limit(1),
+  const admin = supabaseAdmin();
+  const [userResult, membershipResult, tenantResult, profilesResult] = await Promise.all([
+    admin.from("users").select("id, name, account_status, must_change_password").eq("id", userId).maybeSingle(),
+    admin.from("tenant_members").select("id").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
+    admin.from("tenants").select("id, status").eq("id", tenantId).maybeSingle(),
+    admin.from("staff_profiles").select("site_id, role, permissions, suspension_started_at, suspension_ends_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true),
   ]);
-  if (!user || user.accountStatus !== "active" || user.mustChangePassword || !membership || tenant?.status !== "active") return null;
+  if (userResult.error || membershipResult.error || tenantResult.error || profilesResult.error) throw new Error("Supabase mobile scope lookup failed");
+  const user = userResult.data;
+  if (!user || user.account_status !== "active" || user.must_change_password || !membershipResult.data || tenantResult.data?.status !== "active") return null;
 
   const now = new Date();
-  const profiles = await db.select({ siteId: staffProfiles.siteId, role: staffProfiles.role, permissions: staffProfiles.permissions, suspensionStartedAt: staffProfiles.suspensionStartedAt, suspensionEndsAt: staffProfiles.suspensionEndsAt })
-    .from(staffProfiles)
-    .where(and(eq(staffProfiles.userId, userId), eq(staffProfiles.tenantId, tenantId), eq(staffProfiles.isActive, true)));
-  const permitted = profiles.filter((profile) => {
-    const suspended = profile.suspensionStartedAt && profile.suspensionStartedAt <= now && (!profile.suspensionEndsAt || profile.suspensionEndsAt >= now);
-    return !suspended && hasFieldAppAccess(profile.role as PowerRole, profile.permissions as PowerCapability[] | null);
+  const permitted = (profilesResult.data ?? []).filter((profile) => {
+    const suspendedAt = profile.suspension_started_at ? new Date(profile.suspension_started_at) : null;
+    const suspensionEndsAt = profile.suspension_ends_at ? new Date(profile.suspension_ends_at) : null;
+    const suspended = Boolean(suspendedAt && suspendedAt <= now && (!suspensionEndsAt || suspensionEndsAt >= now));
+    return !suspended && hasFieldAppAccess(profile.role as PowerRole, (profile.permissions as PowerCapability[] | null) ?? null);
   });
   if (!permitted.length) return null;
 
-  const allBranches = permitted.some((profile) => profile.siteId === null);
-  const activeSites = await db.select({ id: sites.id }).from(sites).where(and(eq(sites.tenantId, tenantId), eq(sites.status, "active")));
-  const branchIds = allBranches ? activeSites.map((site) => site.id) : permitted.flatMap((profile) => profile.siteId ? [profile.siteId] : []);
-  const uniqueBranchIds = Array.from(new Set(branchIds));
-  if (!uniqueBranchIds.length) return null;
+  const allBranches = permitted.some((profile) => profile.site_id === null);
+  const { data: activeSites, error: sitesError } = await admin.from("sites").select("id").eq("tenant_id", tenantId).eq("status", "active");
+  if (sitesError) throw new Error(`Supabase active site lookup failed: ${sitesError.message}`);
+  const branchIds = allBranches
+    ? (activeSites ?? []).map((site) => toNumber(site.id))
+    : Array.from(new Set(permitted.flatMap((profile) => profile.site_id ? [toNumber(profile.site_id)] : [])));
+  if (!branchIds.length) return null;
   const selected = permitted[0];
-  return { userId, userName: user.name, tenantId, branchIds: uniqueBranchIds, role: selected.role as PowerRole, permissions: selected.permissions };
+  return { userId, userName: user.name as string | null, tenantId, branchIds, role: selected.role as PowerRole, permissions: (selected.permissions as string[] | null) ?? null };
 }
 
 async function authenticateMobile(req: Request): Promise<{ scope: MobileScope; sessionId: number } | null> {
@@ -131,42 +152,56 @@ async function authenticateMobile(req: Request): Promise<{ scope: MobileScope; s
     const { payload } = await jwtVerify(token, jwtSecret(), { algorithms: ["HS256"] });
     if (payload.tokenUse !== "mobile_access" || !payload.sub || typeof payload.sessionId !== "number" || typeof payload.tenantId !== "number") return null;
     const userId = Number(payload.sub);
-    const sessionId = payload.sessionId;
     if (!Number.isInteger(userId)) return null;
-    const db = await getDb();
-    if (!db) throw new Error("Database unavailable");
-    const [session] = await db.select({ id: mobileApiSessions.id }).from(mobileApiSessions)
-      .where(and(eq(mobileApiSessions.id, sessionId), eq(mobileApiSessions.userId, userId), eq(mobileApiSessions.tenantId, payload.tenantId), isNull(mobileApiSessions.revokedAt), gt(mobileApiSessions.expiresAt, new Date()))).limit(1);
-    if (!session) return null;
+    const admin = supabaseAdmin();
+    const { data: session, error } = await admin.from("mobile_api_sessions").select("id")
+      .eq("id", payload.sessionId).eq("user_id", userId).eq("tenant_id", payload.tenantId).is("revoked_at", null).gt("expires_at", isoNow()).maybeSingle();
+    if (error || !session) return null;
     const scope = await resolveMobileScope(userId, payload.tenantId);
     if (!scope) return null;
-    await db.update(mobileApiSessions).set({ lastUsedAt: new Date() }).where(eq(mobileApiSessions.id, sessionId));
-    return { scope, sessionId };
+    await admin.from("mobile_api_sessions").update({ last_used_at: isoNow() }).eq("id", session.id);
+    return { scope, sessionId: toNumber(session.id) };
   } catch {
     return null;
   }
 }
 
 async function availableTenantsForUser(userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database unavailable");
-  return db.select({ id: tenants.id, name: tenants.name }).from(tenantMembers)
-    .innerJoin(tenants, eq(tenants.id, tenantMembers.tenantId))
-    .where(and(eq(tenantMembers.userId, userId), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active"), eq(tenants.status, "active")));
+  const admin = supabaseAdmin();
+  const { data: memberships, error } = await admin.from("tenant_members").select("tenant_id, tenants!inner(id, name, status)")
+    .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").eq("tenants.status", "active");
+  if (error) throw new Error(error.message);
+  return (memberships ?? []).map((membership: any) => ({ id: toNumber(membership.tenants.id), name: membership.tenants.name as string }));
 }
 
 async function createSession(scope: MobileScope, deviceLabel?: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database unavailable");
   const refreshToken = newRefreshToken();
-  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
-  const result = await db.insert(mobileApiSessions).values({ userId: scope.userId, tenantId: scope.tenantId, refreshTokenHash: hashMobileToken(refreshToken), deviceLabel, expiresAt });
-  const sessionId = Number(result[0].insertId);
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { data: session, error } = await supabaseAdmin().from("mobile_api_sessions")
+    .insert({ user_id: scope.userId, tenant_id: scope.tenantId, refresh_token_hash: hashMobileToken(refreshToken), device_label: deviceLabel, expires_at: expiresAt })
+    .select("id")
+    .single();
+  if (error || !session) throw new Error(error?.message || "Supabase mobile session was not created");
+  const sessionId = toNumber(session.id);
   return { accessToken: await issueAccessToken({ userId: scope.userId, tenantId: scope.tenantId, sessionId }), refreshToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, sessionId };
 }
 
 function mobileUserPayload(scope: MobileScope) {
   return { id: scope.userId, name: scope.userName, role: scope.role, tenantId: scope.tenantId, branchIds: scope.branchIds };
+}
+
+async function writeAudit(input: { tenantId: number; branchId: number; userId: number; role: string; entityType: string; entityId: string; action: string; afterData: Record<string, unknown> }) {
+  const { error } = await supabaseAdmin().from("audit_logs").insert({
+    tenant_id: input.tenantId,
+    site_id: input.branchId,
+    user_id: input.userId,
+    actor_tenant_role: input.role,
+    entity_type: input.entityType,
+    entity_id: input.entityId,
+    action: input.action,
+    after_data: input.afterData,
+  });
+  if (error) throw new Error(`Supabase audit write failed: ${error.message}`);
 }
 
 export function registerMobileApi(app: Express) {
@@ -179,36 +214,44 @@ export function registerMobileApi(app: Express) {
     const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
     const { data, error } = await supabase.auth.signInWithPassword({ email: parsed.data.email.trim().toLowerCase(), password: parsed.data.password });
     if (error || !data.user?.email) return sendError(res, 401, "INVALID_CREDENTIALS", "بيانات الدخول غير صحيحة.");
-    const user = await syncSupabaseUser({ id: data.user.id, email: data.user.email, name: (data.user.user_metadata?.name as string | undefined) ?? null });
-    const memberships = await availableTenantsForUser(user.id);
-    const tenantId = parsed.data.tenantId ?? (memberships.length === 1 ? memberships[0].id : undefined);
-    if (!tenantId) return res.status(409).json({ error: { code: "TENANT_SELECTION_REQUIRED", message: "اختر مساحة الشركة قبل المتابعة.", retryable: false }, tenants: memberships });
-    const scope = await resolveMobileScope(user.id, tenantId);
-    if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يملك هذا الحساب صلاحيتي الدخول للتطبيق الميداني وتسجيل القراءات، أو يجب تغيير كلمة المرور المؤقتة أولاً.");
-    const tokens = await createSession(scope, parsed.data.deviceLabel);
-    return res.json({ ...tokens, user: mobileUserPayload(scope) });
+    try {
+      const user = await syncMobileProfile({ id: data.user.id, email: data.user.email, name: (data.user.user_metadata?.name as string | undefined) ?? null });
+      const memberships = await availableTenantsForUser(user.id);
+      const tenantId = parsed.data.tenantId ?? (memberships.length === 1 ? memberships[0].id : undefined);
+      if (!tenantId) return res.status(409).json({ error: { code: "TENANT_SELECTION_REQUIRED", message: "اختر مساحة الشركة قبل المتابعة.", retryable: false }, tenants: memberships });
+      const scope = await resolveMobileScope(user.id, tenantId);
+      if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يملك هذا الحساب صلاحيتي الدخول للتطبيق الميداني وتسجيل القراءات، أو يجب تغيير كلمة المرور المؤقتة أولاً.");
+      return res.json({ ...(await createSession(scope, parsed.data.deviceLabel)), user: mobileUserPayload(scope) });
+    } catch (profileError) {
+      return sendSupabaseError(res, profileError instanceof Error ? profileError : null, "تعذر تهيئة حساب الموبايل.");
+    }
   });
 
   app.post("/api/mobile/v1/auth/refresh", async (req, res) => {
     const parsed = refreshSchema.safeParse(req.body);
     if (!parsed.success) return sendError(res, 400, "INVALID_REFRESH_TOKEN", "رمز التجديد غير صالح.");
-    const db = await getDb();
-    if (!db) return sendError(res, 503, "DATABASE_UNAVAILABLE", "تعذر الوصول إلى قاعدة البيانات.", true);
-    const [session] = await db.select().from(mobileApiSessions).where(and(eq(mobileApiSessions.refreshTokenHash, hashMobileToken(parsed.data.refreshToken)), isNull(mobileApiSessions.revokedAt), gt(mobileApiSessions.expiresAt, new Date()))).limit(1);
+    const admin = supabaseAdmin();
+    const { data: session, error } = await admin.from("mobile_api_sessions").select("id, user_id, tenant_id")
+      .eq("refresh_token_hash", hashMobileToken(parsed.data.refreshToken)).is("revoked_at", null).gt("expires_at", isoNow()).maybeSingle();
+    if (error) return sendSupabaseError(res, error);
     if (!session) return sendError(res, 401, "REFRESH_TOKEN_EXPIRED", "انتهت جلسة الموبايل. سجّل الدخول مجدداً.");
-    const scope = await resolveMobileScope(session.userId, session.tenantId);
-    if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يمكن متابعة جلسة هذا الحساب.");
-    const refreshToken = newRefreshToken();
-    await db.update(mobileApiSessions).set({ refreshTokenHash: hashMobileToken(refreshToken), lastUsedAt: new Date() }).where(eq(mobileApiSessions.id, session.id));
-    return res.json({ accessToken: await issueAccessToken({ userId: scope.userId, tenantId: scope.tenantId, sessionId: session.id }), refreshToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, user: mobileUserPayload(scope) });
+    try {
+      const scope = await resolveMobileScope(toNumber(session.user_id), toNumber(session.tenant_id));
+      if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يمكن متابعة جلسة هذا الحساب.");
+      const refreshToken = newRefreshToken();
+      const { error: updateError } = await admin.from("mobile_api_sessions").update({ refresh_token_hash: hashMobileToken(refreshToken), last_used_at: isoNow() }).eq("id", session.id);
+      if (updateError) return sendSupabaseError(res, updateError);
+      return res.json({ accessToken: await issueAccessToken({ userId: scope.userId, tenantId: scope.tenantId, sessionId: toNumber(session.id) }), refreshToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, user: mobileUserPayload(scope) });
+    } catch (scopeError) {
+      return sendSupabaseError(res, scopeError instanceof Error ? scopeError : null);
+    }
   });
 
   app.post("/api/mobile/v1/auth/logout", async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة.");
-    const db = await getDb();
-    if (!db) return sendError(res, 503, "DATABASE_UNAVAILABLE", "تعذر الوصول إلى قاعدة البيانات.", true);
-    await db.update(mobileApiSessions).set({ revokedAt: new Date(), lastUsedAt: new Date() }).where(eq(mobileApiSessions.id, context.sessionId));
+    const { error } = await supabaseAdmin().from("mobile_api_sessions").update({ revoked_at: isoNow(), last_used_at: isoNow() }).eq("id", context.sessionId);
+    if (error) return sendSupabaseError(res, error);
     return res.status(204).send();
   });
 
@@ -224,17 +267,21 @@ export function registerMobileApi(app: Express) {
     const parsed = subscriberQuerySchema.safeParse(req.query);
     if (!parsed.success) return sendError(res, 400, "INVALID_QUERY", "بيانات طلب المشتركين غير صالحة.");
     if (!context.scope.branchIds.includes(parsed.data.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
-    const db = await getDb();
-    if (!db) return sendError(res, 503, "DATABASE_UNAVAILABLE", "تعذر الوصول إلى قاعدة البيانات.", true);
-    const rows = await db.select({ subscriberId: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, phone: subscribers.phone, address: subscribers.address, branchId: subscribers.siteId })
-      .from(subscribers)
-      .where(and(eq(subscribers.tenantId, context.scope.tenantId), eq(subscribers.siteId, parsed.data.branchId), eq(subscribers.serviceStatus, "active"))).limit(parsed.data.limit);
-    const items = await Promise.all(rows.map(async (row) => {
-      const [last] = await db.select({ readingValue: meterReadings.readingValue, readingAt: meterReadings.readingAt }).from(meterReadings)
-        .where(and(eq(meterReadings.subscriberId, row.subscriberId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
-      return { id: row.subscriberId, subscriberNo: row.subscriberNo, fullName: row.fullName, phone: row.phone, address: row.address, branchId: row.branchId, lastReading: last?.readingValue ?? null, lastReadingAt: last?.readingAt?.toISOString() ?? null };
-    }));
-    return res.json({ items, nextCursor: null });
+    const admin = supabaseAdmin();
+    const { data: rows, error } = await admin.from("subscribers").select("id, subscriber_no, full_name, phone, address, site_id")
+      .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active").limit(parsed.data.limit);
+    if (error) return sendSupabaseError(res, error);
+    try {
+      const items = await Promise.all((rows ?? []).map(async (row) => {
+        const { data: last, error: lastError } = await admin.from("meter_readings").select("reading_value, reading_at")
+          .eq("subscriber_id", row.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
+        if (lastError) throw new Error(lastError.message);
+        return { id: toNumber(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone, address: row.address, branchId: toNumber(row.site_id), lastReading: last?.reading_value ?? null, lastReadingAt: last?.reading_at ?? null };
+      }));
+      return res.json({ items, nextCursor: null });
+    } catch (lastReadingError) {
+      return sendSupabaseError(res, lastReadingError instanceof Error ? lastReadingError : null);
+    }
   });
 
   app.post("/api/mobile/v1/readings", async (req, res) => {
@@ -244,22 +291,26 @@ export function registerMobileApi(app: Express) {
     if (!parsed.success) return sendError(res, 400, "INVALID_READING", "بيانات القراءة غير صالحة.");
     const input = parsed.data;
     if (!context.scope.branchIds.includes(input.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية تسجيل قراءة لهذا الفرع.");
-    const db = await getDb();
-    if (!db) return sendError(res, 503, "DATABASE_UNAVAILABLE", "تعذر الوصول إلى قاعدة البيانات.", true);
-    const [existing] = await db.select({ id: meterReadings.id, status: meterReadings.status, consumptionKwh: meterReadings.consumptionKwh }).from(meterReadings)
-      .where(and(eq(meterReadings.tenantId, context.scope.tenantId), eq(meterReadings.clientOperationId, input.clientOperationId))).limit(1);
-    if (existing) return res.status(200).json({ id: existing.id, status: existing.status, consumptionKwh: existing.consumptionKwh, replayed: true });
-    const [scope] = await db.select({ subscriberId: subscribers.id }).from(subscribers)
-      .where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.tenantId, context.scope.tenantId), eq(subscribers.siteId, input.branchId), eq(subscribers.serviceStatus, "active"))).limit(1);
-    if (!scope) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
+    const admin = supabaseAdmin();
+    const { data: existing, error: existingError } = await admin.from("meter_readings").select("id, status, consumption_kwh")
+      .eq("tenant_id", context.scope.tenantId).eq("client_operation_id", input.clientOperationId).maybeSingle();
+    if (existingError) return sendSupabaseError(res, existingError);
+    if (existing) return res.status(200).json({ id: toNumber(existing.id), status: existing.status, consumptionKwh: existing.consumption_kwh, replayed: true });
+    const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id")
+      .eq("id", input.subscriberId).eq("tenant_id", context.scope.tenantId).eq("site_id", input.branchId).eq("service_status", "active").maybeSingle();
+    if (subscriberError) return sendSupabaseError(res, subscriberError);
+    if (!subscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
     const readingAt = new Date(input.readingAt);
-    const dayStart = new Date(readingAt); dayStart.setHours(0, 0, 0, 0);
-    const nextDay = new Date(dayStart); nextDay.setDate(nextDay.getDate() + 1);
-    const [sameDayReading] = await db.select({ id: meterReadings.id }).from(meterReadings)
-      .where(and(eq(meterReadings.subscriberId, scope.subscriberId), gte(meterReadings.readingAt, dayStart), lt(meterReadings.readingAt, nextDay), ne(meterReadings.status, "rejected"))).limit(1);
+    const dayStart = new Date(readingAt); dayStart.setUTCHours(0, 0, 0, 0);
+    const nextDay = new Date(dayStart); nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const { data: sameDayReading, error: sameDayError } = await admin.from("meter_readings").select("id")
+      .eq("subscriber_id", subscriber.id).gte("reading_at", dayStart.toISOString()).lt("reading_at", nextDay.toISOString()).neq("status", "rejected").limit(1).maybeSingle();
+    if (sameDayError) return sendSupabaseError(res, sameDayError);
     if (sameDayReading) return sendError(res, 409, "READING_ALREADY_EXISTS_TODAY", "توجد قراءة غير مرفوضة لهذا المشترك في اليوم نفسه.");
-    const [previous] = await db.select({ readingValue: meterReadings.readingValue }).from(meterReadings).where(and(eq(meterReadings.subscriberId, scope.subscriberId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
-    const previousValue = Number(previous?.readingValue ?? 0);
+    const { data: previous, error: previousError } = await admin.from("meter_readings").select("reading_value")
+      .eq("subscriber_id", subscriber.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
+    if (previousError) return sendSupabaseError(res, previousError);
+    const previousValue = Number(previous?.reading_value ?? 0);
     const nextValue = Number(input.readingValue);
     if (nextValue < previousValue && !input.isReadingReset) return sendError(res, 409, "READING_BELOW_PREVIOUS", "القراءة الحالية أقل من القراءة المعتمدة السابقة.");
     if (nextValue < previousValue && !input.notes) return sendError(res, 400, "READING_RESET_NOTE_REQUIRED", "أدخل ملاحظة تشرح إعادة ضبط سجل القراءة.");
@@ -272,12 +323,20 @@ export function registerMobileApi(app: Express) {
       if (!imageBytes.byteLength || imageBytes.byteLength > 7 * 1024 * 1024) return sendError(res, 413, "IMAGE_TOO_LARGE", "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت.");
       imageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
       const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-      imageKey = (await storagePut(`subscriber-readings/mobile/${context.scope.userId}/${scope.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime)).key;
+      imageKey = (await storagePut(`subscriber-readings/mobile/${context.scope.userId}/${subscriber.id}-${Date.now()}.${extension}`, imageBytes, input.imageMime)).key;
     }
-    const inserted = await db.insert(meterReadings).values({ tenantId: context.scope.tenantId, subscriberId: scope.subscriberId, clientOperationId: input.clientOperationId, readingAt, readingValue: input.readingValue, previousReadingValue: previous?.readingValue, consumptionKwh: String(consumptionKwh), captureMethod: input.captureMethod, imageKey, imageHash, enteredByUserId: context.scope.userId, notes: [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ") });
-    const id = Number(inserted[0].insertId);
-    await db.insert(auditLogs).values({ tenantId: context.scope.tenantId, siteId: input.branchId, userId: context.scope.userId, actorTenantRole: context.scope.role, entityType: "subscriber_reading", entityId: String(id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: scope.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
-    return res.status(201).json({ id, status: "pending_review", consumptionKwh: String(consumptionKwh), replayed: false });
+    const notes = [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ");
+    const { data: inserted, error: insertError } = await admin.from("meter_readings").insert({
+      tenant_id: context.scope.tenantId, subscriber_id: subscriber.id, client_operation_id: input.clientOperationId, reading_at: readingAt.toISOString(), reading_value: input.readingValue,
+      previous_reading_value: previous?.reading_value ?? null, consumption_kwh: String(consumptionKwh), capture_method: input.captureMethod, image_key: imageKey, image_hash: imageHash, entered_by_user_id: context.scope.userId, notes,
+    }).select("id, status, consumption_kwh").single();
+    if (insertError || !inserted) return sendSupabaseError(res, insertError, "تعذر تسجيل القراءة.");
+    try {
+      await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "subscriber_reading", entityId: String(inserted.id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: input.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
+      return res.status(201).json({ id: toNumber(inserted.id), status: inserted.status, consumptionKwh: inserted.consumption_kwh, replayed: false });
+    } catch (auditError) {
+      return sendSupabaseError(res, auditError instanceof Error ? auditError : null, "تم حفظ القراءة لكن تعذر تسجيل التدقيق.");
+    }
   });
 
   app.post("/api/mobile/v1/sync-events", async (req, res) => {
@@ -287,32 +346,23 @@ export function registerMobileApi(app: Express) {
     if (!parsed.success) return sendError(res, 400, "INVALID_SYNC_EVENT", "بيانات حدث المزامنة غير صالحة.");
     const input = parsed.data;
     if (!context.scope.branchIds.includes(input.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية تسجيل حدث لهذا الفرع.");
-    const db = await getDb();
-    if (!db) return sendError(res, 503, "DATABASE_UNAVAILABLE", "تعذر الوصول إلى قاعدة البيانات.", true);
-    const [existing] = await db.select({ id: mobileSyncEvents.id }).from(mobileSyncEvents)
-      .where(and(eq(mobileSyncEvents.tenantId, context.scope.tenantId), eq(mobileSyncEvents.eventKey, input.eventKey))).limit(1);
-    if (existing) return res.status(200).json({ id: existing.id, replayed: true });
-    const result = await db.insert(mobileSyncEvents).values({
-      tenantId: context.scope.tenantId,
-      siteId: input.branchId,
-      userId: context.scope.userId,
-      sessionId: context.sessionId,
-      eventKey: input.eventKey,
-      eventType: input.eventType,
-      status: input.status,
-      syncedCount: input.syncedCount,
-      retryableCount: input.retryableCount,
-      needsReviewCount: input.needsReviewCount,
-      errorCode: input.errorCode,
-      errorMessage: input.errorMessage,
-      appVersion: input.appVersion,
-      deviceLabel: input.deviceLabel,
-      metadata: input.metadata,
-      occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date(),
-    });
-    const id = Number(result[0].insertId);
-    await db.insert(auditLogs).values({ tenantId: context.scope.tenantId, siteId: input.branchId, userId: context.scope.userId, actorTenantRole: context.scope.role, entityType: "mobile_sync_event", entityId: String(id), action: input.eventType, afterData: { status: input.status, syncedCount: input.syncedCount, retryableCount: input.retryableCount, needsReviewCount: input.needsReviewCount, errorCode: input.errorCode } });
-    return res.status(201).json({ id, replayed: false });
+    const admin = supabaseAdmin();
+    const { data: existing, error: existingError } = await admin.from("mobile_sync_events").select("id")
+      .eq("tenant_id", context.scope.tenantId).eq("event_key", input.eventKey).maybeSingle();
+    if (existingError) return sendSupabaseError(res, existingError);
+    if (existing) return res.status(200).json({ id: toNumber(existing.id), replayed: true });
+    const { data: inserted, error: insertError } = await admin.from("mobile_sync_events").insert({
+      tenant_id: context.scope.tenantId, site_id: input.branchId, user_id: context.scope.userId, session_id: context.sessionId, event_key: input.eventKey, event_type: input.eventType, status: input.status,
+      synced_count: input.syncedCount, retryable_count: input.retryableCount, needs_review_count: input.needsReviewCount, error_code: input.errorCode, error_message: input.errorMessage,
+      app_version: input.appVersion, device_label: input.deviceLabel, metadata: input.metadata, occurred_at: input.occurredAt ?? isoNow(),
+    }).select("id").single();
+    if (insertError || !inserted) return sendSupabaseError(res, insertError, "تعذر تسجيل حدث المزامنة.");
+    try {
+      await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "mobile_sync_event", entityId: String(inserted.id), action: input.eventType, afterData: { status: input.status, syncedCount: input.syncedCount, retryableCount: input.retryableCount, needsReviewCount: input.needsReviewCount, errorCode: input.errorCode } });
+      return res.status(201).json({ id: toNumber(inserted.id), replayed: false });
+    } catch (auditError) {
+      return sendSupabaseError(res, auditError instanceof Error ? auditError : null, "تم تسجيل الحدث لكن تعذر تسجيل التدقيق.");
+    }
   });
 }
 
