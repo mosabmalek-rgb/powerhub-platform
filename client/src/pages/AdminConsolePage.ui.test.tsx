@@ -148,7 +148,7 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByRole("button", { name: "حظر المولد" })).toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المستخدمين"));
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
-    expect(screen.getByText("مشترك تجريبي")).toBeInTheDocument();
+    expect(screen.queryByText("مشترك تجريبي")).not.toBeInTheDocument();
     fireEvent.click(sidebarNav("المالية والتحصيل"));
     expect(screen.getByText("طرق الدفع الإلكتروني")).toBeInTheDocument();
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);

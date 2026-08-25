@@ -279,21 +279,38 @@ async function approveAndIssueMobileReading(input: { siteId: number; readingId: 
   return { ...result.invoice, alreadyProcessed: result.alreadyProcessed, notificationMode, deliveries };
 }
 
-async function ownerAllowedSubaccountRoles() {
+async function ownerLimitOverride(tenantId: number) {
+  const db = await dbOrThrow();
+  const [setting] = await db.select({ value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "owner_limit_overrides")).limit(1);
+  const value = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value) ? setting.value as Record<string, unknown> : {};
+  const overrides = value.overrides && typeof value.overrides === "object" && !Array.isArray(value.overrides) ? value.overrides as Record<string, unknown> : {};
+  const override = overrides[String(tenantId)] && typeof overrides[String(tenantId)] === "object" && !Array.isArray(overrides[String(tenantId)]) ? overrides[String(tenantId)] as Record<string, unknown> : {};
+  return {
+    subaccountLimit: typeof override.subaccountLimit === "number" && override.subaccountLimit >= 0 ? override.subaccountLimit : undefined,
+    subscriberLimit: typeof override.subscriberLimit === "number" && override.subscriberLimit >= 0 ? override.subscriberLimit : undefined,
+    allowedRoles: Array.isArray(override.allowedRoles) ? override.allowedRoles.filter((role): role is string => typeof role === "string") : undefined,
+  };
+}
+
+async function ownerAllowedSubaccountRoles(tenantId?: number) {
   const db = await dbOrThrow();
   const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value })
     .from(platformSettings).where(eq(platformSettings.settingKey, "owner_subaccount_roles")).limit(1);
-  return allowedOwnerSubaccountRoles(setting);
+  const globalRoles = allowedOwnerSubaccountRoles(setting);
+  if (!tenantId) return globalRoles;
+  const override = await ownerLimitOverride(tenantId);
+  return override.allowedRoles ? globalRoles.filter((role) => override.allowedRoles!.includes(role)) : globalRoles;
 }
 
 async function ownerSubaccountLimit(tenantId: number) {
   const db = await dbOrThrow();
-  const [[tenant], [setting]] = await Promise.all([
+  const [[tenant], [setting], override] = await Promise.all([
     db.select({ plan: tenants.plan }).from(tenants).where(eq(tenants.id, tenantId)).limit(1),
     db.select({ value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "owner_subaccount_limits")).limit(1),
+    ownerLimitOverride(tenantId),
   ]);
   if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-  return ownerSubaccountLimitForPlan(tenant.plan, setting);
+  return override.subaccountLimit ?? ownerSubaccountLimitForPlan(tenant.plan, setting);
 }
 
 async function activeSubaccountCount(tenantId: number) {
@@ -305,13 +322,14 @@ async function activeSubaccountCount(tenantId: number) {
 
 async function ownerSubscriberQuota(tenantId: number) {
   const db = await dbOrThrow();
-  const [[tenant], [setting], [countResult]] = await Promise.all([
+  const [[tenant], [setting], [countResult], override] = await Promise.all([
     db.select({ plan: tenants.plan }).from(tenants).where(eq(tenants.id, tenantId)).limit(1),
     db.select({ value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "owner_subscriber_limits")).limit(1),
     db.select({ count: sql<number>`count(*)` }).from(subscribers).where(eq(subscribers.tenantId, tenantId)),
+    ownerLimitOverride(tenantId),
   ]);
   if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-  const limit = ownerSubscriberLimitForPlan(tenant.plan, setting);
+  const limit = override.subscriberLimit ?? ownerSubscriberLimitForPlan(tenant.plan, setting);
   const currentCount = Number(countResult?.count ?? 0);
   return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenant.plan };
 }
@@ -738,7 +756,7 @@ export const powerhubRouter = router({
       const actorRole = await resolveRole(ctx.user.id, input.siteId);
       if (actorRole !== "owner" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "هذه القائمة مخصصة لمالك المولد." });
       const tenantId = await getSiteTenant(input.siteId);
-      const [roles, limit, currentCount] = await Promise.all([ownerAllowedSubaccountRoles(), ownerSubaccountLimit(tenantId), activeSubaccountCount(tenantId)]);
+      const [roles, limit, currentCount] = await Promise.all([ownerAllowedSubaccountRoles(tenantId), ownerSubaccountLimit(tenantId), activeSubaccountCount(tenantId)]);
       return { roles, limit, currentCount, remaining: Math.max(0, limit - currentCount) };
     }),
     permissionCatalog: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
@@ -793,7 +811,7 @@ export const powerhubRouter = router({
         const db = await dbOrThrow();
         const actorRole = await resolveRole(ctx.user.id, input.siteId);
         if (ctx.user.role !== "admin" && actorRole === "owner") {
-          const allowedRoles = await ownerAllowedSubaccountRoles();
+          const allowedRoles = await ownerAllowedSubaccountRoles(await getSiteTenant(input.siteId));
           if (!allowedRoles.includes(input.role as OwnerSubaccountRole)) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة آدمن المنصة." });
         }
         const tenantId = await getSiteTenant(input.siteId);

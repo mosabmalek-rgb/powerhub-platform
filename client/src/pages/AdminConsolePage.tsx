@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { AdvancedDashboard, BranchFeaturePolicyPanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OwnerLifecyclePanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
+import { AdvancedDashboard, BranchFeaturePolicyPanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OwnerLifecyclePanel, OwnerManualLimitOverridesPanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
 import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import PlatformTweetSmsReport from "./PlatformTweetSmsReport";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
@@ -16,7 +16,7 @@ import ExcelJS from "exceljs";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, FileSpreadsheet, FileText, Loader2, MessageSquareText, Plus, RefreshCw, ShieldAlert, UsersRound } from "lucide-react";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "smsFallback" | "smsPlans" | "complaints" | "notifications" | "security" | "settings";
@@ -28,6 +28,11 @@ const notificationStatusLabels: Record<string, string> = { pending: "بانتظ�
 
 function statusLabel(status?: string) {
   return ({ trial: "تجريبي", active: "فعّال", overdue: "متأخر", suspended: "معلّق", cancelled: "ملغي" } as Record<string, string>)[status ?? ""] ?? "غير مهيأ";
+}
+
+function HideUnusedSubscriberOverview() {
+  useEffect(() => { document.querySelector("h2")?.parentElement?.parentElement?.parentElement; const heading = Array.from(document.querySelectorAll("h2")).find((node) => node.textContent?.includes("مشتركو المنصة")); heading?.closest('[data-slot="card"]')?.remove(); }, []);
+  return null;
 }
 
 export default function AdminConsolePage() {
@@ -84,7 +89,7 @@ export default function AdminConsolePage() {
     {tab === "overview" && <AdvancedDashboard />}
     {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending || approvePendingGenerator.isPending} onStatus={setGeneratorStatus.mutate} onApprove={approvePendingGenerator.mutate} /><GeneratorOperationsInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
     {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutate} />}
-    {tab === "users" && <><UsersCenter users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} userSummary={snapshot.data?.users} /><OwnerLifecyclePanel /></>}
+    {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} userSummary={snapshot.data?.users} /><OwnerLifecyclePanel /></>}
     {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} plans={smsPlans.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutate} />}
     {tab === "reports" && <><AdminReportsExports rows={reportRows} /><ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} /></>}
     {tab === "invoiceDelivery" && <InvoiceDeliverySettingsPanel />}
@@ -95,7 +100,7 @@ export default function AdminConsolePage() {
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
-    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><BranchFeaturePolicyPanel /><OwnerSubaccountPolicyPanel /><OwnerSubaccountLimitPolicyPanel /><OwnerSubscriberLimitPolicyPanel /><SubscriptionUpgradeRequestsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
+    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><BranchFeaturePolicyPanel /><OwnerSubaccountPolicyPanel /><OwnerSubaccountLimitPolicyPanel /><OwnerSubscriberLimitPolicyPanel /><OwnerManualLimitOverridesPanel /><SubscriptionUpgradeRequestsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
   </main></PlatformAdminLayout>;
 }
 
