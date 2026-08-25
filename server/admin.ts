@@ -8,6 +8,7 @@ import { authenticatedProcedure, router } from "./_core/trpc";
 import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
 import { supabaseAdmin } from "./supabase-admin";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
+import { processNotificationById } from "./notification-worker";
 
 const planSchema = z.enum(["starter", "professional", "enterprise"]);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
@@ -607,6 +608,26 @@ export const adminRouter = router({
     });
     await db.insert(auditLogs).values({ tenantId: request.tenantId, siteId: site?.id ?? null, userId: ctx.user.id, entityType: "subscription_upgrade_request", entityId: String(request.id), action: `platform_admin_${input.decision}_subscription_upgrade`, afterData: { requestedPlan: request.requestedPlan, decision: input.decision, note: input.note ?? null }, actorPlatformRole: platformRoleOf(ctx.user) });
     return { success: true, plan: input.decision === "approved" ? request.requestedPlan : request.currentPlan };
+  }),
+
+  quickUpgradeOwnerPlan: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), plan: planSchema, note: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow(); const [tenant] = await db.select({ id: tenants.id, plan: tenants.plan }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
+    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
+    const rank: Record<string, number> = { starter: 1, professional: 2, enterprise: 3 };
+    if (rank[input.plan] <= (rank[tenant.plan] ?? 0)) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من الباقة الحالية." });
+    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
+    await db.transaction(async (tx) => { await tx.update(tenants).set({ plan: input.plan }).where(eq(tenants.id, input.tenantId)); await tx.update(tenantSubscriptions).set({ plan: input.plan }).where(eq(tenantSubscriptions.tenantId, input.tenantId)); });
+    await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site?.id ?? null, userId: ctx.user.id, entityType: "tenant_subscription", entityId: String(input.tenantId), action: "platform_admin_quick_upgrade_owner_plan", afterData: { fromPlan: tenant.plan, toPlan: input.plan, note: input.note ?? null }, actorPlatformRole: platformRoleOf(ctx.user) });
+    return { success: true, plan: input.plan };
+  }),
+
+  sendOwnerUsageAlert: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), message: z.string().trim().min(5).max(1200), usagePercent: z.number().int().min(80).max(100) })).mutation(async ({ ctx, input }) => {
+    const db = await dbOrThrow(); const [owner] = await db.select({ phone: tenantOwnerProfiles.phone, siteId: sites.id }).from(tenantOwnerProfiles).innerJoin(sites, eq(sites.tenantId, tenantOwnerProfiles.tenantId)).where(eq(tenantOwnerProfiles.tenantId, input.tenantId)).limit(1);
+    if (!owner?.phone) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يوجد رقم جوال لمالك هذا الحساب." });
+    const notificationId = insertId(await db.insert(notificationMessages).values({ tenantId: input.tenantId, channel: "sms", eventType: "service_alert", recipient: owner.phone, status: "pending", payload: { renderedText: input.message, type: "owner_usage_limit_alert", usagePercent: input.usagePercent, siteId: owner.siteId } }));
+    const delivery = await processNotificationById(notificationId).catch((error) => ({ status: "failed" as const, error: error instanceof Error ? error.message : "تعذر بدء الإرسال." }));
+    await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: owner.siteId, userId: ctx.user.id, entityType: "owner_usage_alert", entityId: String(notificationId), action: "platform_admin_send_owner_usage_alert", afterData: { usagePercent: input.usagePercent, message: input.message, notificationStatus: delivery.status }, actorPlatformRole: platformRoleOf(ctx.user) });
+    return { notificationId, status: delivery.status, error: delivery.error ?? null };
   }),
 
   platformSnapshot: platformAdminProcedure.query(async () => {
