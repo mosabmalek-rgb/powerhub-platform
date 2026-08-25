@@ -52,6 +52,7 @@ import {
 import { getDb, syncSupabaseUser } from "./db";
 import { supabaseAdmin } from "./supabase-admin";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
@@ -2224,12 +2225,15 @@ export const powerhubRouter = router({
       if (to && Number.isNaN(to.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ النهاية غير صحيح." });
       if (from && to && from > to) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب أن يسبق تاريخ النهاية." });
       const rows = await db.select().from(accountTransactions).where(and(eq(accountTransactions.tenantId, tenantId), ...(from ? [gte(accountTransactions.occurredAt, from)] : []), ...(to ? [lte(accountTransactions.occurredAt, to)] : []))).orderBy(desc(accountTransactions.occurredAt)).limit(1000);
-      return accounts.filter((account) => !visibleAccountIds || visibleAccountIds.has(account.id)).map((account) => ({ ...account, linkedSites: accountSiteRows.filter((row) => row.accountId === account.id), balance: rows.filter((row) => row.accountId === account.id).reduce((sum, row) => sum + (row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? -Number(row.amount) : Number(row.amount)), 0), transactions: rows.filter((row) => row.accountId === account.id) }));
+      return accounts.filter((account) => !visibleAccountIds || visibleAccountIds.has(account.id)).map((account) => {
+        const transactions = rows.filter((row) => row.accountId === account.id);
+        return { ...account, linkedSites: accountSiteRows.filter((row) => row.accountId === account.id), balance: calculateCompanyAccountBalance(account.openingBalance, transactions), transactions };
+      });
     }),
-    create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), name: z.string().trim().min(2).max(120), accountType: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]), phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً."), color: z.string().trim().max(20).optional(), siteIds: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
+    create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), name: z.string().trim().min(2).max(120), accountType: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]), phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً."), openingBalance: z.number().nonnegative().default(0), color: z.string().trim().max(20).optional(), siteIds: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageExpenses"); const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);
       const validSites = await db.select({ id: sites.id }).from(sites).where(and(eq(sites.tenantId, tenantId), inArray(sites.id, input.siteIds))); if (validSites.length !== input.siteIds.length) throw new TRPCError({ code: "FORBIDDEN", message: "أحد الفروع المحددة لا يتبع مساحة الشركة." });
-      const id = insertId(await db.insert(companyAccounts).values({ tenantId, name: input.name, accountType: input.accountType, phoneNumber: input.phoneNumber, color: input.color ?? "#64748b" }));
+      const id = insertId(await db.insert(companyAccounts).values({ tenantId, name: input.name, accountType: input.accountType, phoneNumber: input.phoneNumber, openingBalance: String(input.openingBalance), color: input.color ?? "#64748b" }));
       await db.insert(companyAccountSites).values(input.siteIds.map((siteId) => ({ tenantId, accountId: id, siteId })));
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "company_account", entityId: String(id), action: "create", afterData: input }); return { id };
     }),
@@ -2253,14 +2257,21 @@ export const powerhubRouter = router({
     }),
     addMovement: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), accountId: z.number().int().positive(), transactionType: z.enum(["deposit", "withdrawal"]), amount: z.number().positive(), description: z.string().trim().min(2).max(255), referenceNo: z.string().trim().max(120).optional() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses"); const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);
-      const [account] = await db.select({ id: companyAccounts.id }).from(companyAccounts).where(and(eq(companyAccounts.id, input.accountId), eq(companyAccounts.tenantId, tenantId))).limit(1); if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب غير موجود ضمن مساحة الشركة." });
-      const id = insertId(await db.insert(accountTransactions).values({ tenantId, accountId: input.accountId, transactionType: input.transactionType, amount: String(input.amount), description: input.description, referenceNo: input.referenceNo, createdByUserId: ctx.user.id }));
+      const [account] = await db.select({ id: companyAccounts.id, openingBalance: companyAccounts.openingBalance }).from(companyAccounts).where(and(eq(companyAccounts.id, input.accountId), eq(companyAccounts.tenantId, tenantId))).limit(1); if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب غير موجود ضمن مساحة الشركة." });
+      const occurredAt = new Date(); await assertFinancialPeriodOpen(db, tenantId, input.siteId, occurredAt, ctx.user.id, "company_account");
+      const accountRows = await db.select({ transactionType: accountTransactions.transactionType, amount: accountTransactions.amount }).from(accountTransactions).where(and(eq(accountTransactions.tenantId, tenantId), eq(accountTransactions.accountId, input.accountId)));
+      const availableBalance = calculateCompanyAccountBalance(account.openingBalance, accountRows);
+      if (input.transactionType === "withdrawal" && input.amount > availableBalance) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن سحب مبلغ أكبر من الرصيد المتاح في الحساب." });
+      const id = insertId(await db.insert(accountTransactions).values({ tenantId, accountId: input.accountId, transactionType: input.transactionType, amount: String(input.amount), description: input.description, referenceNo: input.referenceNo, createdByUserId: ctx.user.id, occurredAt }));
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "company_account", entityId: String(input.accountId), action: input.transactionType, afterData: input }); return { id };
     }),
     transfer: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), fromAccountId: z.number().int().positive(), toAccountId: z.number().int().positive(), amount: z.number().positive(), description: z.string().trim().min(2).max(255) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses"); if (input.fromAccountId === input.toAccountId) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن التحويل إلى الحساب نفسه." }); const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);
-      const accounts = await db.select({ id: companyAccounts.id }).from(companyAccounts).where(and(eq(companyAccounts.tenantId, tenantId), inArray(companyAccounts.id, [input.fromAccountId, input.toAccountId]))); if (accounts.length !== 2) throw new TRPCError({ code: "NOT_FOUND", message: "حساب التحويل غير موجود ضمن مساحة الشركة." });
-      await db.insert(accountTransactions).values([{ tenantId, accountId: input.fromAccountId, relatedAccountId: input.toAccountId, transactionType: "transfer_out", amount: String(input.amount), description: input.description, createdByUserId: ctx.user.id }, { tenantId, accountId: input.toAccountId, relatedAccountId: input.fromAccountId, transactionType: "transfer_in", amount: String(input.amount), description: input.description, createdByUserId: ctx.user.id }]); await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "company_account", entityId: String(input.fromAccountId), action: "transfer", afterData: input }); return { success: true };
+      const accounts = await db.select({ id: companyAccounts.id, openingBalance: companyAccounts.openingBalance }).from(companyAccounts).where(and(eq(companyAccounts.tenantId, tenantId), inArray(companyAccounts.id, [input.fromAccountId, input.toAccountId]))); if (accounts.length !== 2) throw new TRPCError({ code: "NOT_FOUND", message: "حساب التحويل غير موجود ضمن مساحة الشركة." });
+      const sourceAccount = accounts.find((account) => account.id === input.fromAccountId)!; const occurredAt = new Date(); await assertFinancialPeriodOpen(db, tenantId, input.siteId, occurredAt, ctx.user.id, "company_account");
+      const sourceRows = await db.select({ transactionType: accountTransactions.transactionType, amount: accountTransactions.amount }).from(accountTransactions).where(and(eq(accountTransactions.tenantId, tenantId), eq(accountTransactions.accountId, input.fromAccountId)));
+      if (input.amount > calculateCompanyAccountBalance(sourceAccount.openingBalance, sourceRows)) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تحويل مبلغ أكبر من الرصيد المتاح في الحساب المصدر." });
+      await db.insert(accountTransactions).values([{ tenantId, accountId: input.fromAccountId, relatedAccountId: input.toAccountId, transactionType: "transfer_out", amount: String(input.amount), description: input.description, createdByUserId: ctx.user.id, occurredAt }, { tenantId, accountId: input.toAccountId, relatedAccountId: input.fromAccountId, transactionType: "transfer_in", amount: String(input.amount), description: input.description, createdByUserId: ctx.user.id, occurredAt }]); await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "company_account", entityId: String(input.fromAccountId), action: "transfer", afterData: input }); return { success: true };
     }),
   }),
   hr: router({
