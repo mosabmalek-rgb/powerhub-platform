@@ -896,7 +896,13 @@ export const adminRouter = router({
     return { success: true };
   }),
 
-  listSmsPlans: platformAdminProcedure.query(async () => (await dbOrThrow()).select().from(platformSmsPlans).orderBy(desc(platformSmsPlans.createdAt))),
+  listSmsPlans: platformAdminProcedure.query(async () => {
+    const { data, error } = await supabaseAdmin().from("platform_sms_plans")
+      .select("id, code, name, description, included_messages, is_active, created_at, updated_at")
+      .order("created_at", { ascending: false });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل باقات الرسائل من Supabase." });
+    return (data ?? []).map((plan) => ({ id: Number(plan.id), code: plan.code, name: plan.name, description: plan.description, includedMessages: plan.included_messages, isActive: plan.is_active, createdAt: plan.created_at, updatedAt: plan.updated_at }));
+  }),
   createSmsPlan: platformAdminProcedure.input(z.object({ code: z.string().trim().min(2).max(80).regex(/^[a-z0-9_-]+$/), name: z.string().trim().min(2).max(160), description: z.string().max(1000).optional(), includedMessages: z.number().int().min(0).max(100000000), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();
     const id = insertId(await db.insert(platformSmsPlans).values(input));
@@ -973,10 +979,18 @@ export const adminRouter = router({
   }),
 
   listNotifications: platformAdminProcedure.input(z.object({ status: z.enum(["pending", "submitted", "delivered", "read", "failed"]).optional() }).optional()).query(async ({ input }) => {
-    const db = await dbOrThrow();
-    return db.select({ id: notificationMessages.id, channel: notificationMessages.channel, eventType: notificationMessages.eventType, recipient: notificationMessages.recipient, status: notificationMessages.status, attempts: notificationMessages.attempts, lastError: notificationMessages.lastError, createdAt: notificationMessages.createdAt, tenantName: tenants.name })
-      .from(notificationMessages).innerJoin(tenants, eq(notificationMessages.tenantId, tenants.id))
-      .where(input?.status ? eq(notificationMessages.status, input.status) : undefined).orderBy(desc(notificationMessages.createdAt)).limit(300);
+    const admin = supabaseAdmin();
+    let query = admin.from("notification_messages").select("id, tenant_id, channel, event_type, recipient, status, attempts, last_error, created_at").order("created_at", { ascending: false }).limit(300);
+    if (input?.status) query = query.eq("status", input.status);
+    const { data, error } = await query;
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل الإشعارات من Supabase." });
+    const tenantIds = Array.from(new Set((data ?? []).map((item) => Number(item.tenant_id))));
+    const { data: tenantRows, error: tenantsError } = tenantIds.length
+      ? await admin.from("tenants").select("id, name").in("id", tenantIds)
+      : { data: [], error: null };
+    if (tenantsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء مساحات الإشعارات من Supabase." });
+    const tenantNames = new Map((tenantRows ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
+    return (data ?? []).map((message) => ({ id: Number(message.id), channel: message.channel, eventType: message.event_type, recipient: message.recipient, status: message.status, attempts: message.attempts, lastError: message.last_error, createdAt: message.created_at, tenantName: tenantNames.get(Number(message.tenant_id)) ?? "—" }));
   }),
 
   operationalMonitoring: platformAdminProcedure.query(async () => {

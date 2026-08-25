@@ -4,6 +4,7 @@
 
 - Vercel production deployment `dpl_5vxSdoiKqURdzawAEnRuWJAbXZ7r` reached `READY` from commit `dc5ce3d`.
 - The public PowerHub landing page loads successfully at the production alias.
+- The public landing page remained available after deployment `dpl_8vgUNpVbJWsZLVjWguhgo3CYs46F`, which contains the Supabase-backed security-center migration.
 - The unauthenticated Mobile API endpoint `/api/mobile/v1/auth/me` returns a structured `401` response, confirming that the field API remains guarded.
 - The legacy route `/api/scheduled/process-notifications` now returns the explicit `scheduled_jobs_disabled` response in production, so no Heartbeat/Forge execution path remains active.
 - The currently verified production slices use Supabase for client authentication configuration, private storage URLs, Mobile API sessions/readings/sync events, web JWT profile synchronization, and the initial platform-owner overview/snapshot queries.
