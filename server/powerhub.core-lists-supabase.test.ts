@@ -359,6 +359,25 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.staff.directory({ siteId: 10 })).resolves.toEqual([{ id: 2, name: "محاسب الفرع", email: "accountant@example.com", role: "user" }]);
   });
 
+  it("يقرأ سياسة أدوار وحدود الحسابات الفرعية من Supabase مع تجاوز المستأجر والعدد النشط", async () => {
+    state.tables.users = [{ id: 1, role: "admin" }];
+    state.tables.tenant_subscriptions = [{ tenant_id: 20, plan: "professional" }];
+    state.tables.tenants = [{ id: 20, plan: "starter" }];
+    state.tables.platform_settings = [
+      { setting_key: "owner_subaccount_roles", is_enabled: true, value: { allowedRoles: ["accountant", "viewer", "owner"] } },
+      { setting_key: "owner_subaccount_limits", is_enabled: true, value: { limits: { professional: 5 } } },
+      { setting_key: "owner_limit_overrides", is_enabled: true, value: { overrides: { "20": { subaccountLimit: 3, allowedRoles: ["accountant"] } } } },
+    ];
+    state.tables.tenant_members = [
+      { tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active" },
+      { tenant_id: 20, user_id: 3, role: "member", is_active: true, membership_status: "active" },
+      { tenant_id: 20, user_id: 4, role: "member", is_active: false, membership_status: "active" },
+      { tenant_id: 99, user_id: 5, role: "member", is_active: true, membership_status: "active" },
+    ];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.allowedSubaccountRoles({ siteId: 10 })).resolves.toEqual({ roles: ["accountant"], limit: 3, currentCount: 2, remaining: 1 });
+  });
+
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))

@@ -783,10 +783,32 @@ export const powerhubRouter = router({
       return (userRows ?? []).map((user) => ({ id: Number(user.id), name: user.name, email: user.email, role: user.role }));
     }),
     allowedSubaccountRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const actorRole = await resolveRole(ctx.user.id, input.siteId);
-      if (actorRole !== "owner" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "هذه القائمة مخصصة لمالك المولد." });
-      const tenantId = await getSiteTenant(input.siteId);
-      const [roles, limit, currentCount] = await Promise.all([ownerAllowedSubaccountRoles(tenantId), ownerSubaccountLimit(tenantId), activeSubaccountCount(tenantId)]);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const admin = supabaseAdmin();
+      const [subscriptionResult, tenantResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult] = await Promise.all([
+        admin.from("tenant_subscriptions").select("plan").eq("tenant_id", access.tenantId).maybeSingle(),
+        admin.from("tenants").select("plan").eq("id", access.tenantId).maybeSingle(),
+        admin.from("platform_settings").select("is_enabled, value").eq("setting_key", "owner_subaccount_roles").maybeSingle(),
+        admin.from("platform_settings").select("value").eq("setting_key", "owner_subaccount_limits").maybeSingle(),
+        admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
+        admin.from("tenant_members").select("user_id").eq("tenant_id", access.tenantId).eq("role", "member").eq("is_active", true).eq("membership_status", "active"),
+      ]);
+      if (subscriptionResult.error || tenantResult.error || rolesPolicyResult.error || limitsPolicyResult.error || overridesResult.error || membersResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحسابات الفرعية من Supabase." });
+      }
+      const plan = subscriptionResult.data?.plan ?? tenantResult.data?.plan;
+      if (plan !== "starter" && plan !== "professional" && plan !== "enterprise") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
+      const policyOverrides = overridesResult.data?.value && typeof overridesResult.data.value === "object" && !Array.isArray(overridesResult.data.value)
+        ? (overridesResult.data.value as Record<string, unknown>).overrides : undefined;
+      const override = policyOverrides && typeof policyOverrides === "object" && !Array.isArray(policyOverrides)
+        ? (policyOverrides as Record<string, unknown>)[String(access.tenantId)] : undefined;
+      const overrideRecord = override && typeof override === "object" && !Array.isArray(override) ? override as Record<string, unknown> : {};
+      const globalRoles = allowedOwnerSubaccountRoles(rolesPolicyResult.data ? { isEnabled: rolesPolicyResult.data.is_enabled, value: rolesPolicyResult.data.value } : null);
+      const overrideRoles = Array.isArray(overrideRecord.allowedRoles) ? overrideRecord.allowedRoles.filter((role): role is string => typeof role === "string") : undefined;
+      const roles = overrideRoles ? globalRoles.filter((role) => overrideRoles.includes(role)) : globalRoles;
+      const overrideLimit = typeof overrideRecord.subaccountLimit === "number" && Number.isInteger(overrideRecord.subaccountLimit) && overrideRecord.subaccountLimit >= 0 ? overrideRecord.subaccountLimit : undefined;
+      const limit = overrideLimit ?? ownerSubaccountLimitForPlan(plan, limitsPolicyResult.data ? { value: limitsPolicyResult.data.value } : null);
+      const currentCount = (membersResult.data ?? []).length;
       return { roles, limit, currentCount, remaining: Math.max(0, limit - currentCount) };
     }),
     permissionCatalog: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
