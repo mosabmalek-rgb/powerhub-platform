@@ -20,7 +20,7 @@ export default function PlatformTweetSmsReport() {
   const report = trpc.admin.platformTweetSmsReport.useQuery(reportInput);
   const refresh = async () => { await Promise.all([utils.admin.getPlatformTweetSmsAccount.invalidate(), utils.admin.platformTweetSmsReport.invalidate()]); };
   const save = trpc.admin.savePlatformTweetSmsAccount.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم حفظ حساب TweetSMS المركزي بصورة مشفرة."); }, onError: (error) => toast.error(error.message) });
-  const test = trpc.admin.testPlatformTweetSmsAccount.useMutation({ onSuccess: async (result) => { await refresh(); result.ok ? toast.success(result.message) : toast.error(result.message); }, onError: (error) => toast.error(error.message) });
+  const test = trpc.admin.testPlatformTweetSmsAccount.useMutation({ onSuccess: async () => { await refresh(); }, onError: (error) => toast.error(error.message) });
   const rows = report.data?.usageRows ?? [];
   const maxUsage = Math.max(1, ...rows.map((row) => row.total));
   const configuration = account.data;

@@ -65,7 +65,7 @@ export default function AdminConsolePage() {
   const updateSmsPlan = trpc.admin.updateSmsPlan.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تحديث باقة SMS."); }, onError: (error) => toast.error(error.message) });
   const reviewSmsRequest = trpc.admin.reviewSmsPackageRequest.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت مراجعة طلب الحزمة وتحديث حالته."); }, onError: (error) => toast.error(error.message) });
   const saveTweetSmsAccount = trpc.admin.saveTweetSmsAccount.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم حفظ حساب TweetSMS المشفر لهذا صاحب المولد."); }, onError: (error) => toast.error(error.message) });
-  const testTweetSmsAccount = trpc.admin.testTweetSmsAccount.useMutation({ onSuccess: async (result) => { await refresh(); toast.info(result.message); }, onError: (error) => toast.error(error.message) });
+  const testTweetSmsAccount = trpc.admin.testTweetSmsAccount.useMutation({ onSuccess: async () => { await refresh(); }, onError: (error) => toast.error(error.message) });
   const overviewRows = overview.data?.owners ?? [];
   const reportRows = owners.data ?? [];
   const eligibleUsers = useMemo(() => (users.data ?? []).filter((candidate) => candidate.role !== "admin"), [users.data]);

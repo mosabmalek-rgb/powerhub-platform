@@ -515,92 +515,15 @@ export const adminRouter = router({
   }),
 
   savePlatformSmsFallbackProvider: platformAdminProcedure.input(platformSmsFallbackProviderInput).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow();
-    const [existing] = input.id
-      ? await db.select().from(platformSmsFallbackProviders).where(eq(platformSmsFallbackProviders.id, input.id)).limit(1)
-      : [];
-    if (input.id && !existing) throw new TRPCError({ code: "NOT_FOUND", message: "مزود الرسائل الاحتياطي غير موجود." });
-    const endpoint = input.apiEndpoint?.trim() || null;
-    if (endpoint && !/^https:\/\//i.test(endpoint)) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب أن يبدأ رابط API الآمن بـ https://" });
-    const credentialsProvided = Boolean(input.credentials?.trim());
-    const encrypted = credentialsProvided ? encryptTenantCredential(input.credentials!.trim()) : null;
-    const values = {
-      name: input.name,
-      providerKey: input.providerKey,
-      apiEndpoint: endpoint,
-      senderName: input.senderName?.trim() || null,
-      priority: input.priority,
-      isActive: input.isActive,
-      integrationStatus: "pending_contract" as const,
-      updatedByUserId: ctx.user.id,
-      ...(encrypted ? { credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, credentialKeyVersion: 1 } : {}),
-    };
-    let providerId = existing?.id;
-    if (existing) {
-      await db.update(platformSmsFallbackProviders).set(values).where(eq(platformSmsFallbackProviders.id, existing.id));
-    } else {
-      const result = await db.insert(platformSmsFallbackProviders).values({ ...values, createdByUserId: ctx.user.id });
-      providerId = Number(result[0].insertId);
-    }
-    await db.insert(platformSecurityEvents).values({
-      eventType: "security_change",
-      severity: "info",
-      status: "success",
-      title: "تم تحديث مزود SMS الاحتياطي",
-      details: "تم حفظ إعداد احتياطي مشفر. لن يُستخدم للإرسال حتى إضافة عقد API موثق ومحول إرسال معتمد.",
-      createdByUserId: ctx.user.id,
-      metadata: { providerId, providerKey: input.providerKey, isActive: input.isActive, priority: input.priority, credentialsUpdated: credentialsProvided, integrationStatus: "pending_contract" },
-    });
-    return { success: true, id: providerId, configured: credentialsProvided || Boolean(existing?.credentialCiphertext && existing.credentialIv), integrationStatus: "pending_contract" as const };
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "حفظ إعدادات مزودات الرسائل متوقف أثناء الترحيل إلى تصميم Supabase/Vercel مشفر ومعتمد." });
   }),
 
   savePlatformTweetSmsAccount: platformAdminProcedure.input(platformTweetSmsAccountInput).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow();
-    const [existing] = await db.select().from(platformTweetSmsAccounts).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
-    const credentialsProvided = Boolean(input.apiKey);
-    if (input.isActive && !credentialsProvided && !existing?.credentialCiphertext) {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل مفتاح API لحساب TweetSMS المركزي قبل تفعيل الإرسال." });
-    }
-    const encrypted = credentialsProvided ? encryptTenantCredential(JSON.stringify({ apiKey: input.apiKey, apiSecret: input.apiSecret || undefined })) : null;
-    const values = {
-      apiEndpoint: input.apiEndpoint,
-      senderName: input.senderName || null,
-      lowBalanceThreshold: input.lowBalanceThreshold,
-      isActive: input.isActive,
-      updatedByUserId: ctx.user.id,
-      ...(encrypted ? { credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, credentialKeyVersion: 1 } : {}),
-    };
-    if (existing) await db.update(platformTweetSmsAccounts).set(values).where(eq(platformTweetSmsAccounts.id, existing.id));
-    else if (!encrypted) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل مفتاح API لإنشاء حساب TweetSMS المركزي." });
-    else await db.insert(platformTweetSmsAccounts).values({ ...values, credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, credentialKeyVersion: 1, createdByUserId: ctx.user.id });
-    await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "info", status: "success", title: "تم تحديث حساب TweetSMS المركزي", details: "تم حفظ بيانات الربط المشفرة دون إظهار مفتاح API.", createdByUserId: ctx.user.id, metadata: { isActive: input.isActive, apiKeyUpdated: credentialsProvided, lowBalanceThreshold: input.lowBalanceThreshold } });
-    return { success: true };
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "حفظ حساب TweetSMS المركزي متوقف أثناء الترحيل إلى تصميم Supabase/Vercel معتمد." });
   }),
 
   testPlatformTweetSmsAccount: platformAdminProcedure.mutation(async ({ ctx }) => {
-    const db = await dbOrThrow();
-    const [account] = await db.select().from(platformTweetSmsAccounts).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
-    if (!account?.credentialCiphertext || !account.credentialIv) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل بيانات حساب TweetSMS المركزي أولاً." });
-    let credentials: TweetSmsCredentials;
-    try { credentials = JSON.parse(decryptTenantCredential(account.credentialCiphertext, account.credentialIv)) as TweetSmsCredentials; }
-    catch { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر قراءة بيانات TweetSMS المشفرة. احفظ الحساب مرة أخرى." }); }
-    const accountResult = await checkTweetSmsAccount({ endpoint: account.apiEndpoint, credentials });
-    const senderResult = accountResult.ok && account.senderName ? await checkTweetSmsSender({ endpoint: account.apiEndpoint, credentials, sender: account.senderName }) : null;
-    const balanceResult = accountResult.ok && (!account.senderName || senderResult?.ok) ? await checkTweetSmsBalance({ endpoint: account.apiEndpoint, credentials }) : null;
-    const result = senderResult && !senderResult.ok ? senderResult : balanceResult && balanceResult.code !== null && !balanceResult.ok ? balanceResult : accountResult;
-    const balance = balanceResult?.balance;
-    await db.update(platformTweetSmsAccounts).set({ lastTestedAt: new Date(), lastBalanceCheckedAt: balance !== undefined ? new Date() : account.lastBalanceCheckedAt, lastProviderBalance: balance ?? account.lastProviderBalance, lastError: result.ok ? null : result.message, updatedByUserId: ctx.user.id }).where(eq(platformTweetSmsAccounts.id, account.id));
-    if (balance !== undefined) {
-      const [openAlert] = await db.select().from(platformTweetSmsBalanceAlerts).where(and(eq(platformTweetSmsBalanceAlerts.accountId, account.id), eq(platformTweetSmsBalanceAlerts.status, "open"))).orderBy(desc(platformTweetSmsBalanceAlerts.createdAt)).limit(1);
-      if (balance <= account.lowBalanceThreshold && !openAlert) {
-        await db.insert(platformTweetSmsBalanceAlerts).values({ accountId: account.id, balance, threshold: account.lowBalanceThreshold });
-        await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "warning", status: "open", title: "تنبيه رصيد TweetSMS منخفض", details: `الرصيد المتاح ${balance} أقل من أو يساوي حد التنبيه ${account.lowBalanceThreshold}.`, createdByUserId: ctx.user.id, metadata: { accountId: account.id, balance, threshold: account.lowBalanceThreshold } });
-      } else if (balance > account.lowBalanceThreshold && openAlert) {
-        await db.update(platformTweetSmsBalanceAlerts).set({ status: "resolved", resolvedAt: new Date() }).where(eq(platformTweetSmsBalanceAlerts.accountId, account.id));
-      }
-    }
-    await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: result.ok ? "info" : "warning", status: result.ok ? "success" : "failed", title: "فحص حساب TweetSMS المركزي", details: result.message, createdByUserId: ctx.user.id, metadata: { code: result.code, senderCode: senderResult?.code ?? null, balance: balance ?? null } });
-    return { ok: result.ok, message: result.message, balance: balance ?? null };
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اختبار مزود TweetSMS متوقف. لا يتم الاتصال بأي مزود رسائل أثناء الترحيل." });
   }),
 
   platformTweetSmsReport: platformAdminProcedure.input(z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() }).optional()).query(async ({ input }) => {
@@ -621,76 +544,11 @@ export const adminRouter = router({
   }),
 
   saveTweetSmsAccount: platformAdminProcedure.input(tweetSmsAccountInput).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow();
-    const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
-    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
-    const [existing] = await db.select().from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, input.tenantId)).limit(1);
-    const [centralAccount] = await db.select({ credentialCiphertext: platformTweetSmsAccounts.credentialCiphertext, credentialIv: platformTweetSmsAccounts.credentialIv, isActive: platformTweetSmsAccounts.isActive }).from(platformTweetSmsAccounts).where(eq(platformTweetSmsAccounts.isActive, true)).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
-    const centralAccountAvailable = Boolean(centralAccount?.isActive && centralAccount.credentialCiphertext && centralAccount.credentialIv);
-    const endpoint = input.apiEndpoint?.trim() || existing?.apiEndpoint || null;
-    if (endpoint && !/^https:\/\//i.test(endpoint)) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب أن يكون رابط TweetSMS آمناً ويبدأ بـ https://" });
-    const credentialsProvided = Boolean(input.apiKey);
-    if (input.isActive && !centralAccountAvailable && (!endpoint || (!existing?.credentialCiphertext && !credentialsProvided))) {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "فعّل الحساب بعد إدخال بيانات TweetSMS الفرعية، أو فعّل حساب TweetSMS المركزي للمنصة أولاً." });
-    }
-    const encrypted = credentialsProvided ? encryptTenantCredential(JSON.stringify({ apiKey: input.apiKey, apiSecret: input.apiSecret || undefined })) : null;
-    const values = {
-      apiEndpoint: endpoint,
-      senderName: input.senderName,
-      monthlyLimit: input.monthlyLimit,
-      isActive: input.isActive,
-      updatedByUserId: ctx.user.id,
-      ...(encrypted ? { credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, credentialKeyVersion: 1 } : {}),
-    };
-    if (existing) await db.update(tenantTweetSmsAccounts).set(values).where(eq(tenantTweetSmsAccounts.id, existing.id));
-    else await db.insert(tenantTweetSmsAccounts).values({ tenantId: input.tenantId, createdByUserId: ctx.user.id, ...values });
-    await db.insert(tenantMessagingConfigurations).values({
-      tenantId: input.tenantId,
-      channel: "sms",
-      provider: "tweetsms",
-      senderId: input.senderName,
-      isActive: input.isActive,
-    }).onDuplicateKeyUpdate({
-      set: { provider: "tweetsms", senderId: input.senderName, phoneNumberId: null, credentialCiphertext: null, credentialIv: null, isActive: input.isActive },
-    });
-    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
-    await db.insert(auditLogs).values({
-      tenantId: input.tenantId,
-      siteId: site?.id ?? null,
-      userId: ctx.user.id,
-      entityType: "tweetsms_account",
-      entityId: String(existing?.id ?? input.tenantId),
-      action: "platform_admin_save_tweetsms_account",
-      afterData: { senderName: input.senderName, monthlyLimit: input.monthlyLimit, isActive: input.isActive, apiEndpointConfigured: Boolean(endpoint), apiKeyUpdated: credentialsProvided },
-      actorPlatformRole: platformRoleOf(ctx.user),
-    });
-    return { success: true };
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "حفظ حسابات TweetSMS للمستأجرين متوقف أثناء الترحيل إلى تصميم Supabase/Vercel معتمد." });
   }),
 
   testTweetSmsAccount: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow();
-    const [account] = await db.select().from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, input.tenantId)).limit(1);
-    if (!account?.credentialCiphertext || !account.credentialIv || !account.apiEndpoint) {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل رابط API الرسمي وبيانات حساب TweetSMS أولاً." });
-    }
-    let credentials: TweetSmsCredentials;
-    try {
-      credentials = JSON.parse(decryptTenantCredential(account.credentialCiphertext, account.credentialIv)) as TweetSmsCredentials;
-    } catch {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر قراءة بيانات TweetSMS المشفرة. احفظ بيانات الحساب مرة أخرى." });
-    }
-    if (!credentials.apiKey?.trim()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "مفتاح API الخاص بـ TweetSMS غير صالح." });
-    const accountResult = await checkTweetSmsAccount({ endpoint: account.apiEndpoint, credentials });
-    const senderResult = accountResult.ok ? await checkTweetSmsSender({ endpoint: account.apiEndpoint, credentials, sender: account.senderName ?? "" }) : null;
-    const balanceResult = accountResult.ok && senderResult?.ok ? await checkTweetSmsBalance({ endpoint: account.apiEndpoint, credentials }) : null;
-    const result = senderResult && !senderResult.ok ? senderResult : balanceResult && balanceResult.code !== null && !balanceResult.ok ? balanceResult : accountResult;
-    const balanceNote = balanceResult?.balance !== undefined ? ` الرصيد المتاح لدى المزود: ${balanceResult.balance}.` : balanceResult && balanceResult.code === null ? " نجح التحقق من الحساب؛ لم يُرجع المزود رصيداً رقمياً قابلاً للعرض." : "";
-    const message = `${result.message}${balanceNote}`;
-    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, account.tenantId)).limit(1);
-    if (!site) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد محطة مرتبطة بصاحب المولد لتسجيل نتيجة اختبار TweetSMS." });
-    await db.update(tenantTweetSmsAccounts).set({ lastTestedAt: new Date(), lastError: result.ok ? null : message, updatedByUserId: ctx.user.id }).where(eq(tenantTweetSmsAccounts.id, account.id));
-    await db.insert(auditLogs).values({ tenantId: account.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "tweetsms_account", entityId: String(account.id), action: "platform_admin_test_tweetsms_account", afterData: { ok: result.ok, code: result.code, senderCode: senderResult?.code ?? null, balance: balanceResult?.balance ?? null }, actorPlatformRole: platformRoleOf(ctx.user) });
-    return { ok: result.ok, mode: "live" as const, message, balance: balanceResult?.balance ?? null };
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اختبار مزود TweetSMS متوقف. لا يتم الاتصال بأي مزود رسائل أثناء الترحيل." });
   }),
 
   listSubscriptionUpgradeRequests: platformAdminProcedure.query(async () => {
@@ -728,12 +586,7 @@ export const adminRouter = router({
   }),
 
   sendOwnerUsageAlert: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), message: z.string().trim().min(5).max(1200), usagePercent: z.number().int().min(80).max(100) })).mutation(async ({ ctx, input }) => {
-    const db = await dbOrThrow(); const [owner] = await db.select({ phone: tenantOwnerProfiles.phone, siteId: sites.id }).from(tenantOwnerProfiles).innerJoin(sites, eq(sites.tenantId, tenantOwnerProfiles.tenantId)).where(eq(tenantOwnerProfiles.tenantId, input.tenantId)).limit(1);
-    if (!owner?.phone) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يوجد رقم جوال لمالك هذا الحساب." });
-    const notificationId = insertId(await db.insert(notificationMessages).values({ tenantId: input.tenantId, channel: "sms", eventType: "service_alert", recipient: owner.phone, status: "pending", payload: { renderedText: input.message, type: "owner_usage_limit_alert", usagePercent: input.usagePercent, siteId: owner.siteId } }));
-    const delivery = await processNotificationById(notificationId).catch((error) => ({ status: "failed" as const, error: error instanceof Error ? error.message : "تعذر بدء الإرسال." }));
-    await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: owner.siteId, userId: ctx.user.id, entityType: "owner_usage_alert", entityId: String(notificationId), action: "platform_admin_send_owner_usage_alert", afterData: { usagePercent: input.usagePercent, message: input.message, notificationStatus: delivery.status }, actorPlatformRole: platformRoleOf(ctx.user) });
-    return { notificationId, status: delivery.status, error: delivery.error ?? null };
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إرسال تنبيهات المالك متوقف أثناء ترحيل الإرسال الخارجي إلى خدمة Supabase/Vercel مستقلة." });
   }),
 
   platformSnapshot: platformAdminProcedure.query(async () => {
