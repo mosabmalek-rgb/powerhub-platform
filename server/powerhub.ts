@@ -724,22 +724,24 @@ export const powerhubRouter = router({
     }),
   }),
   staff: router({
-    myAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => resolveAccess(ctx.user.id, input.siteId)),
+    myAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => resolveSupabaseSiteAccess(ctx.user.id, input.siteId)),
     allBranchAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const role = await resolveRole(ctx.user.id, input.siteId);
-      if (ctx.user.role === "admin" || role === "owner") return { isGlobal: true };
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const [globalProfile] = await db.select({ id: staffProfiles.id }).from(staffProfiles)
-        .where(and(eq(staffProfiles.tenantId, tenantId), eq(staffProfiles.userId, ctx.user.id), isNull(staffProfiles.siteId), eq(staffProfiles.isActive, true))).limit(1);
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      if (access.role === "owner") return { isGlobal: true };
+      const { data: globalProfile, error } = await supabaseAdmin().from("staff_profiles").select("id")
+        .eq("tenant_id", access.tenantId).eq("user_id", ctx.user.id).is("site_id", null).eq("is_active", true).maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من امتداد صلاحية المستخدم لكل الفروع في Supabase." });
       return { isGlobal: Boolean(globalProfile) };
     }),
     permissionChanges: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive().optional() })).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "viewAudit");
-      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
-      const conditions = [eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), inArray(auditLogs.action, ["update_permissions", "create", "update"])];
-      if (input.userId) conditions.push(eq(auditLogs.userId, input.userId));
-      return db.select({ id: auditLogs.id, userId: auditLogs.userId, action: auditLogs.action, createdAt: auditLogs.createdAt, afterData: auditLogs.afterData, metadata: auditLogs.metadata }).from(auditLogs).where(and(...conditions)).orderBy(desc(auditLogs.createdAt)).limit(100);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "viewAudit");
+      let query = supabaseAdmin().from("audit_logs").select("id, user_id, action, created_at, after_data, metadata")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("action", ["update_permissions", "create", "update"])
+        .order("created_at", { ascending: false }).limit(100);
+      if (input.userId) query = query.eq("user_id", input.userId);
+      const { data, error } = await query;
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل تغييرات الصلاحيات من Supabase." });
+      return (data ?? []).map((row) => ({ id: Number(row.id), userId: row.user_id === null ? null : Number(row.user_id), action: row.action, createdAt: new Date(row.created_at), afterData: row.after_data, metadata: row.metadata }));
     }),
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam");

@@ -276,6 +276,19 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.inserts).toContainEqual(expect.objectContaining({ table: "audit_logs" }));
   });
 
+  it("يقرأ وصول الموظف وامتداد الفروع وسجل تغييرات الصلاحيات من Supabase دون MySQL", async () => {
+    state.tables.users = [{ id: 2, role: "user" }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active" }];
+    state.tables.staff_profiles = [{ id: 120, tenant_id: 20, user_id: 2, site_id: null, role: "manager", permissions: ["manageSubscribers"], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true }];
+    const staffCaller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
+    await expect(staffCaller.staff.myAccess({ siteId: 10 })).resolves.toEqual({ role: "manager", permissions: ["manageSubscribers"], tenantId: 20 });
+    await expect(staffCaller.staff.allBranchAccess({ siteId: 10 })).resolves.toEqual({ isGlobal: true });
+    state.tables.users = [{ id: 1, role: "admin" }];
+    state.tables.audit_logs = [{ id: 121, tenant_id: 20, site_id: 10, user_id: 2, entity_type: "staff_profile", entity_id: "120", action: "update_permissions", after_data: { permissions: ["manageSubscribers"] }, metadata: { targetUserId: 2 }, created_at: "2026-08-26T00:00:00.000Z" }];
+    const ownerCaller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(ownerCaller.staff.permissionChanges({ siteId: 10, userId: 2 })).resolves.toMatchObject([{ id: 121, userId: 2, action: "update_permissions", createdAt: expect.any(Date), afterData: { permissions: ["manageSubscribers"] } }]);
+  });
+
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))
