@@ -221,10 +221,14 @@ export const adminRouter = router({
     identityNumber: z.string().min(4).max(50),
     ownerPhone: z.string().min(5).max(30),
     ownerWhatsapp: z.string().min(5).max(30),
-    ownerEmail: z.string().email(),
-    temporaryPassword: z.string().min(8).max(128),
-    plan: planSchema.default("starter"),
+  ownerEmail: z.string().email(),
+  temporaryPassword: z.string().min(8).max(128),
+  plan: planSchema.default("starter"),
   })).mutation(async ({ ctx, input }) => {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "إنشاء اشتراك صاحب المولد متوقف انتقالياً أثناء ترحيل دورة Supabase Auth والمعاملة الذرية. لا يتم إنشاء أي حساب أو مساحة حالياً.",
+    });
     {
       const admin = supabaseAdmin();
       const email = input.ownerEmail.trim().toLowerCase();
@@ -243,14 +247,14 @@ export const adminRouter = router({
         const identity = encryptTenantCredential(input.identityNumber.trim());
         const { data: tenant, error: tenantError } = await admin.from("tenants").insert({ name: companyName, slug: tenantSlug, plan: input.plan, status: "active" }).select("id").single();
         if (tenantError || !tenant) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء مساحة صاحب المولد في Supabase." });
-        tenantId = Number(tenant.id);
+        tenantId = Number(tenant!.id);
         const { error: profileError } = await admin.from("tenant_owner_profiles").insert({ tenant_id: tenantId, owner_user_id: ownerUser.id, full_name: input.ownerName, phone, whatsapp_number: whatsappNumber, email, company_name: companyName, identity_number_ciphertext: identity.ciphertext, identity_number_iv: identity.iv, identity_number_last4: input.identityNumber.trim().slice(-4), invited_at: startedAt.toISOString(), claimed_at: startedAt.toISOString() });
         if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ ملف صاحب المولد في Supabase." });
         const { error: subscriptionError } = await admin.from("tenant_subscriptions").insert({ tenant_id: tenantId, plan: input.plan, status: "trial", billing_cycle: "monthly", started_at: startedAt.toISOString(), ends_at: addSubscriptionPeriod(startedAt, "monthly").toISOString() });
         if (subscriptionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء اشتراك صاحب المولد في Supabase." });
         const { data: site, error: siteError } = await admin.from("sites").insert({ tenant_id: tenantId, name: companyName, code: siteCode }).select("id").single();
         if (siteError || !site) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء الفرع الرئيسي في Supabase." });
-        const siteId = Number(site.id);
+        const siteId = Number(site!.id);
         const setupResults = await Promise.all([
           admin.from("site_portal_settings").insert({ tenant_id: tenantId, site_id: siteId, portal_code: siteCode.toLowerCase(), display_name: companyName }),
           admin.from("tenant_members").insert({ tenant_id: tenantId, user_id: ownerUser.id, role: "owner", is_active: true, membership_status: "active", invited_by_user_id: ctx.user.id }),
@@ -263,7 +267,7 @@ export const adminRouter = router({
         return { tenantId, siteId, ownerUserId: ownerUser.id, forcePasswordChange: true };
       } catch (error) {
         if (tenantId) await admin.from("tenants").delete().eq("id", tenantId);
-        if (createdSupabaseUserId !== null) await supabaseAdmin().auth.admin.deleteUser(createdSupabaseUserId);
+        if (createdSupabaseUserId !== null) await supabaseAdmin().auth.admin.deleteUser(createdSupabaseUserId!);
         throw error;
       }
     }
@@ -339,6 +343,10 @@ export const adminRouter = router({
     autoRenew: z.boolean().default(false),
     notes: z.string().max(2000).optional(),
   })).mutation(async ({ ctx, input }) => {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "إنشاء صاحب المولد مع مولده متوقف انتقالياً أثناء ترحيل دورة Supabase Auth والمعاملة الذرية. لا يتم إنشاء أي حساب أو مساحة حالياً.",
+    });
     const email = input.ownerEmail.trim().toLowerCase();
     const phone = input.ownerPhone.trim();
     const whatsappNumber = input.ownerWhatsapp.trim();
@@ -362,7 +370,7 @@ export const adminRouter = router({
         .insert({ name: input.tenantName.trim(), slug: input.slug, plan: input.plan, status: tenantStatusForSubscription(input.subscriptionStatus) })
         .select("id").single();
       if (tenantError || !tenant) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء مساحة صاحب المولد في Supabase." });
-      tenantId = Number(tenant.id);
+      tenantId = Number(tenant!.id);
       const { error: profileError } = await admin.from("tenant_owner_profiles").insert({
         tenant_id: tenantId, owner_user_id: ownerUser.id, full_name: input.ownerName.trim(), phone, whatsapp_number: whatsappNumber,
         email, company_name: input.companyName?.trim() || null, identity_number_ciphertext: identity.ciphertext,
@@ -379,13 +387,13 @@ export const adminRouter = router({
         .insert({ tenant_id: tenantId, name: input.siteName.trim(), code: input.siteCode, city: input.city?.trim() || null })
         .select("id").single();
       if (siteError || !site) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء الفرع الرئيسي في Supabase." });
-      const siteId = Number(site.id);
+      const siteId = Number(site!.id);
       const { data: generator, error: generatorInsertError } = await admin.from("generators").insert({
         tenant_id: tenantId, site_id: siteId, name: generatorName, code: input.generatorCode,
         rated_capacity_kw: input.generatorCapacityKw, fuel_type: input.generatorFuelType, status: "pending",
       }).select("id").single();
       if (generatorInsertError || !generator) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء المولد الأول في Supabase." });
-      const generatorId = Number(generator.id);
+      const generatorId = Number(generator!.id);
       const setupResults = await Promise.all([
         admin.from("site_portal_settings").insert({ tenant_id: tenantId, site_id: siteId, portal_code: input.siteCode.toLowerCase(), display_name: input.siteName.trim() }),
         admin.from("tenant_members").insert({ tenant_id: tenantId, user_id: ownerUser.id, role: "owner", is_active: true, membership_status: "active", invited_by_user_id: ctx.user.id }),
@@ -403,7 +411,7 @@ export const adminRouter = router({
       return { tenantId, siteId, generatorId, ownerUserId: ownerUser.id, forcePasswordChange: true };
     } catch (error) {
       if (tenantId) await admin.from("tenants").delete().eq("id", tenantId);
-      if (createdSupabaseUserId) await supabaseAdmin().auth.admin.deleteUser(createdSupabaseUserId);
+      if (createdSupabaseUserId) await supabaseAdmin().auth.admin.deleteUser(createdSupabaseUserId!);
       throw error;
     }
   }),

@@ -66,12 +66,18 @@ describe("إنشاء صاحب مولد متقدم عبر Supabase", () => {
     state.syncProfile.mockResolvedValue({ id: 44, role: "user", platformRole: null });
   });
 
-  it("ينشئ مساحة واشتراكاً وفرعاً ومولداً وعضوية وسجل تدقيق من Supabase فقط", async () => {
+  it("يعطّل مساري إنشاء اشتراك صاحب المولد قبل أي Auth أو PostgREST أو MySQL", async () => {
     const caller = adminRouter.createCaller({
       user: { id: 1, role: "admin", platformRole: "platform_owner" } as never,
       req: {} as never,
       res: {} as never,
     });
+
+    await expect(caller.createGeneratorOwnerSubscription({
+      companyName: "مولدات الاختبار", ownerName: "مالك الاختبار", identityNumber: "12345678",
+      ownerPhone: "0595000000", ownerWhatsapp: "0595000000", ownerEmail: "owner@example.test",
+      temporaryPassword: "Temporary!2026", plan: "starter",
+    })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
     await expect(caller.createGeneratorOwnerWithTemporaryPassword({
       tenantName: "مولدات الاختبار", slug: "test-generator-owner", ownerName: "مالك الاختبار",
@@ -80,37 +86,13 @@ describe("إنشاء صاحب مولد متقدم عبر Supabase", () => {
       generatorCapacityKw: 150, generatorFuelType: "diesel", temporaryPassword: "Temporary!2026",
       siteName: "الفرع الرئيسي", siteCode: "MAIN", plan: "starter", subscriptionStatus: "trial",
       billingCycle: "monthly", autoRenew: false,
-    })).resolves.toMatchObject({ tenantId: 101, siteId: 202, generatorId: 303, ownerUserId: 44, forcePasswordChange: true });
+    })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
-    expect(state.authCreateUser).toHaveBeenCalledWith(expect.objectContaining({ email: "owner@example.test", email_confirm: true }));
-    expect(state.inserted.map((entry) => entry.table)).toEqual(expect.arrayContaining([
-      "tenants", "tenant_owner_profiles", "tenant_subscriptions", "sites", "generators", "site_portal_settings", "tenant_members", "staff_profiles", "audit_logs",
-    ]));
-    expect(state.updated).toEqual(expect.arrayContaining([
-      expect.objectContaining({ table: "users", values: expect.objectContaining({ must_change_password: true }) }),
-    ]));
+    expect(state.authCreateUser).not.toHaveBeenCalled();
+    expect(state.inserted).toEqual([]);
+    expect(state.updated).toEqual([]);
+    expect(state.deleted).toEqual([]);
     expect(state.authDeleteUser).not.toHaveBeenCalled();
-  });
-
-  it("يحذف المساحة وحساب المصادقة اللذين أنشأهما عند تعذر حفظ ملف المالك", async () => {
-    state.failInsertTable = "tenant_owner_profiles";
-    const caller = adminRouter.createCaller({
-      user: { id: 1, role: "admin", platformRole: "platform_owner" } as never,
-      req: {} as never,
-      res: {} as never,
-    });
-
-    await expect(caller.createGeneratorOwnerWithTemporaryPassword({
-      tenantName: "مولدات الاختبار", slug: "test-generator-owner", ownerName: "مالك الاختبار",
-      ownerPhone: "0595000000", ownerWhatsapp: "0595000000", ownerEmail: "owner@example.test",
-      identityNumber: "12345678", generatorName: "مولد الاختبار", generatorCode: "GEN-01",
-      generatorCapacityKw: 150, generatorFuelType: "diesel", temporaryPassword: "Temporary!2026",
-      siteName: "الفرع الرئيسي", siteCode: "MAIN", plan: "starter", subscriptionStatus: "trial",
-      billingCycle: "monthly", autoRenew: false,
-    })).rejects.toMatchObject({ message: "تعذر حفظ ملف صاحب المولد في Supabase." });
-
-    expect(state.deleted).toContain("tenants");
-    expect(state.authDeleteUser).toHaveBeenCalledWith("new-auth-user");
   });
 
   it("يعطّل مسارات مزودات الرسائل والتنبيه الإداري قبل أي MySQL أو اتصال خارجي", async () => {
