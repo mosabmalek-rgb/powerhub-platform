@@ -98,6 +98,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_request_sms_package") return resolved([{ request_id: 98, request_status: "pending" }]);
       if (name === "powerhub_save_custom_permission_role") return resolved([{ role_id: 122, mutation: "create" }]);
       if (name === "powerhub_delete_custom_permission_role") return resolved([{ role_id: 122 }]);
+      if (name === "powerhub_update_staff_profile_permissions") return resolved([{ profile_id: 120, target_user_id: 2 }]);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -308,6 +309,13 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { name: "powerhub_save_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: null, p_permissions: ["collectPayments"] }) },
       { name: "powerhub_delete_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: 122 }) },
     ]));
+  });
+
+  it("يعدّل صلاحيات الحساب الفرعي عبر معاملة Supabase الذرية دون MySQL", async () => {
+    state.tables.users = [{ id: 1, role: "admin" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.updatePermissions({ siteId: 10, profileId: 120, customRoleId: 122, permissions: ["collectPayments"] })).resolves.toEqual({ success: true });
+    expect(state.rpcCalls).toContainEqual({ name: "powerhub_update_staff_profile_permissions", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_actor_user_id: 1, p_profile_id: 120, p_custom_role_id: 122, p_permissions: ["collectPayments"] }) });
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {

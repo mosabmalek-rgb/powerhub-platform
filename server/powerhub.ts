@@ -802,18 +802,17 @@ export const powerhubRouter = router({
       return { success: true };
     }),
     updatePermissions: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), customRoleId: z.number().int().positive().nullable().optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      const roleId = input.customRoleId ?? null;
-      if (roleId) {
-        const [role] = await db.select({ id: customPermissionRoles.id }).from(customPermissionRoles).where(and(eq(customPermissionRoles.id, roleId), eq(customPermissionRoles.tenantId, tenantId), eq(customPermissionRoles.isActive, true))).limit(1);
-        if (!role) throw new TRPCError({ code: "NOT_FOUND", message: "الدور المخصص غير موجود ضمن مساحة المستأجر." });
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_permissions", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_profile_id: input.profileId,
+        p_custom_role_id: input.customRoleId ?? null, p_permissions: input.permissions,
+      });
+      if (error) {
+        if (error.message.includes("CUSTOM_ROLE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "الدور المخصص غير موجود ضمن مساحة المستأجر." });
+        if (error.message.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+        if (error.message.includes("STAFF_PERMISSION_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل صلاحيات الحسابات الفرعية." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تعديل صلاحيات الحساب الفرعي في Supabase." });
       }
-      const [profile] = await db.select({ id: staffProfiles.id, userId: staffProfiles.userId, siteId: staffProfiles.siteId }).from(staffProfiles).where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
-      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
-      await db.update(staffProfiles).set({ customRoleId: roleId, permissions: input.permissions, updatedAt: new Date() }).where(eq(staffProfiles.id, input.profileId));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: "update_permissions", afterData: { customRoleId: roleId, permissions: input.permissions, targetUserId: profile.userId } });
       return { success: true };
     }),
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) }))
