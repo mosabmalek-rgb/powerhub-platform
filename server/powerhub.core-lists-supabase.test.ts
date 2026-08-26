@@ -30,6 +30,8 @@ const state = vi.hoisted(() => {
         select: () => query,
         eq: () => query,
         in: () => query,
+        is: () => query,
+        neq: () => query,
         order: () => query,
         gte: () => query,
         lte: () => query,
@@ -127,6 +129,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
       collectors: [{ name: "محصل غير محدد", count: 1, amount: 25 }],
       topDebtors: [{ subscriber: "مشترك الاختبار", subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001", balanceDue: 75 }],
+    });
+  });
+
+  it("يعرض تقرير جميع الأفرع من Supabase ضمن نطاق المستأجر", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.reports.allBranchesRange({ siteId: 10, startDate: "2026-08-01", endDate: "2026-08-31" })).resolves.toMatchObject({
+      scope: { branchCount: 1 },
+      summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
+      branchSummaries: [{ siteId: 10, branchName: "الفرع الرئيسي", invoiced: 100, collected: 25 }],
     });
   });
 

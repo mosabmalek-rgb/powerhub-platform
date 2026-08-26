@@ -66,7 +66,7 @@ import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { createHeartbeatJob, deleteHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { COOKIE_NAME } from "../shared/const";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
@@ -1779,20 +1779,20 @@ export const powerhubRouter = router({
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
-      await requireAllBranchRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
+      const { tenantId } = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
-      const branchRows = await db.select({ id: sites.id, name: sites.name }).from(sites).where(and(eq(sites.tenantId, tenantId), ne(sites.status, "archived"))).orderBy(desc(sites.createdAt));
+      const { data: siteRows, error: sitesError } = await supabaseAdmin().from("sites").select("id, name").eq("tenant_id", tenantId).neq("status", "archived");
+      if (sitesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أفرع المستأجر من Supabase." });
+      const branchRows = (siteRows ?? []).map((site) => ({ id: Number(site.id), name: site.name }));
       const branchIds = branchRows.map((branch) => branch.id);
       if (!branchIds.length) return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: 0 }, summary: { invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 }, collectors: [], topDebtors: [], branchSummaries: [] };
-      const [invoiceRows, paymentRows, expenseRows] = await Promise.all([
-        db.select({ invoice: invoices, subscriber: subscribers }).from(invoices).innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id))
-          .where(and(inArray(invoices.siteId, branchIds), gte(invoices.issueDate, start), lt(invoices.issueDate, endExclusive), sql`${invoices.status} <> 'cancelled'`)),
-        db.select({ payment: payments, collector: users }).from(payments).leftJoin(users, eq(payments.collectedByUserId, users.id))
-          .where(and(inArray(payments.siteId, branchIds), gte(payments.paidAt, start), lt(payments.paidAt, endExclusive))),
-        db.select().from(expenses).where(and(inArray(expenses.siteId, branchIds), gte(expenses.occurredAt, start), lt(expenses.occurredAt, endExclusive))),
-      ]);
+      const branchData = await Promise.all(branchIds.map(async (siteId) => {
+        const [invoicesForSite, paymentsForSite, expensesForSite, subscribersForSite] = await Promise.all([listSupabaseInvoices(siteId), listSupabasePayments(siteId), listSupabaseExpenses(siteId), listSupabaseSubscribers(siteId)]);
+        return { invoices: invoicesForSite.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive).map((invoice) => ({ invoice, subscriber: subscribersForSite.find((subscriber) => subscriber.id === invoice.subscriberId) })), payments: paymentsForSite.filter(({ payment }) => payment.paidAt >= start && payment.paidAt < endExclusive), expenses: expensesForSite.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive) };
+      }));
+      const invoiceRows = branchData.flatMap((data) => data.invoices);
+      const paymentRows = branchData.flatMap((data) => data.payments).map(({ payment }) => ({ payment, collector: null }));
+      const expenseRows = branchData.flatMap((data) => data.expenses);
       const branchNameById = new Map(branchRows.map((branch) => [branch.id, branch.name]));
       const branchSummaryById = new Map(branchRows.map((branch) => [branch.id, { siteId: branch.id, branchName: branch.name, invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 }]));
       invoiceRows.forEach((row) => {
@@ -1809,12 +1809,12 @@ export const powerhubRouter = router({
       const summary = branchSummaries.reduce((total, branch) => ({ invoiced: total.invoiced + branch.invoiced, collected: total.collected + branch.collected, outstanding: total.outstanding + branch.outstanding, energyKwh: total.energyKwh + branch.energyKwh, expenseTotal: total.expenseTotal + branch.expenseTotal, operatingProfit: total.operatingProfit + branch.operatingProfit }), { invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 });
       const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number }>>((acc, row) => {
         const key = String(row.payment.collectedByUserId ?? 0);
-        const entry = acc[key] ?? { name: row.collector?.name || row.collector?.email || "محصل غير محدد", count: 0, amount: 0 };
+        const entry = acc[key] ?? { name: "محصل غير محدد", count: 0, amount: 0 };
         entry.count += 1;
         entry.amount += Number(row.payment.amount);
         return acc;
       }, {})).sort((a, b) => b.amount - a.amount);
-      const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ branchName: branchNameById.get(row.invoice.siteId) ?? "فرع غير محدد", subscriber: row.subscriber.fullName, subscriberNo: row.subscriber.subscriberNo, invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
+      const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ branchName: branchNameById.get(row.invoice.siteId) ?? "فرع غير محدد", subscriber: row.subscriber?.fullName ?? "مشترك", subscriberNo: row.subscriber?.subscriberNo ?? "—", invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
       const paymentDetails = completedPayments.map((row) => ({ siteId: row.payment.siteId, paymentNo: row.payment.paymentNo, amount: Number(row.payment.amount), paymentMethod: row.payment.paymentMethod, paidAt: row.payment.paidAt, transferFromAccount: row.payment.transferFromAccount, transferFromType: row.payment.transferFromType, transferToAccount: row.payment.transferToAccount, transferToType: row.payment.transferToType }));
       return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: branchIds.length }, summary, collectors, topDebtors, branchSummaries, paymentDetails };
     }),

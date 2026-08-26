@@ -122,6 +122,24 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
   return access;
 }
 
+export async function requireSupabaseAllBranchesRole(userId: number, siteId: number, allowed: PowerRole[]) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const admin = supabaseAdmin();
+  const { data: user, error: userError } = await admin.from("users").select("role").eq("id", userId).maybeSingle();
+  if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف المستخدم في Supabase." });
+  if (user?.role === "admin") return { tenantId: access.tenantId, role: "owner" as const };
+  const { data: membership, error: membershipError } = await admin.from("tenant_members").select("role")
+    .eq("tenant_id", access.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle();
+  if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
+  if (membership?.role === "owner") return { tenantId: access.tenantId, role: "owner" as const };
+  const { data: profile, error: profileError } = await admin.from("staff_profiles").select("role")
+    .eq("tenant_id", access.tenantId).eq("user_id", userId).is("site_id", null).eq("is_active", true).maybeSingle();
+  if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تعيين جميع الأفرع في Supabase." });
+  const role = asPowerRole(profile?.role);
+  if (!profile || !allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
+  return { tenantId: access.tenantId, role };
+}
+
 export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmin: boolean): Promise<SupabaseSite[]> {
   const admin = supabaseAdmin();
   if (isPlatformAdmin) {
