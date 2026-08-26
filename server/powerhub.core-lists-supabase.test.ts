@@ -35,6 +35,7 @@ const state = vi.hoisted(() => {
         select: () => query,
         eq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] === value); return query; },
         in: (column: string, values: unknown[]) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || values.includes((row as Record<string, unknown>)[column])); return query; },
+        or: (expression: string) => { const match = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/); if (match) { const siteId = Number(match[1]); filteredRows = filteredRows.filter((row) => { const siteValue = (row as Record<string, unknown>).site_id; return siteValue === siteId || siteValue === null; }); } return query; },
         is: () => query,
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
         order: () => query,
@@ -337,6 +338,25 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.tables.audit_logs = [{ id: 125, tenant_id: 20, site_id: 10, user_id: 2, entity_type: "staff_profile", action: "update_permissions", metadata: { source: "team" }, after_data: { permissions: ["collectPayments"] }, created_at: "2026-08-10T12:00:00.000Z" }];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.activity({ siteId: 10, userId: 2 })).resolves.toMatchObject([{ id: 125, action: "update_permissions", entityType: "staff_profile", createdAt: expect.any(Date), metadata: { source: "team" } }]);
+  });
+
+  it("يعرض قائمة الحسابات ودليل التعيين من Supabase ضمن المستأجر والفرع فقط دون MySQL", async () => {
+    state.tables.users = [
+      { id: 1, role: "admin", name: "مدير المنصة", email: "admin@example.com", auth_user_id: "00000000-0000-4000-8000-000000000001", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-05T00:00:00.000Z" },
+      { id: 2, role: "user", name: "محاسب الفرع", email: "accountant@example.com", auth_user_id: "00000000-0000-4000-8000-000000000002", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-04T00:00:00.000Z" },
+      { id: 3, role: "user", name: "موظف مستأجر آخر", email: "outside@example.com", auth_user_id: "00000000-0000-4000-8000-000000000003", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-06T00:00:00.000Z" },
+    ];
+    state.tables.tenant_members = [
+      { tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active" },
+      { tenant_id: 99, user_id: 3, role: "member", is_active: true, membership_status: "active" },
+    ];
+    state.tables.staff_profiles = [
+      { id: 126, tenant_id: 20, user_id: 2, site_id: 10, role: "accountant", custom_role_id: null, permissions: ["collectPayments"], suspension_started_at: null, suspension_ends_at: null, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
+      { id: 127, tenant_id: 20, user_id: 3, site_id: 11, role: "collector", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
+    ];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.list({ siteId: 10 })).resolves.toMatchObject([{ profile: { id: 126, tenantId: 20, siteId: 10, role: "accountant", createdAt: expect.any(Date) }, user: { id: 2, name: "محاسب الفرع", email: "accountant@example.com" } }]);
+    await expect(caller.staff.directory({ siteId: 10 })).resolves.toEqual([{ id: 2, name: "محاسب الفرع", email: "accountant@example.com", role: "user" }]);
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {

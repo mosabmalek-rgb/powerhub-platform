@@ -744,17 +744,43 @@ export const powerhubRouter = router({
       return (data ?? []).map((row) => ({ id: Number(row.id), userId: row.user_id === null ? null : Number(row.user_id), action: row.action, createdAt: new Date(row.created_at), afterData: row.after_data, metadata: row.metadata }));
     }),
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      return db.select({ profile: staffProfiles, user: users }).from(staffProfiles)
-        .innerJoin(users, eq(staffProfiles.userId, users.id))
-        .where(and(eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId))));
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam");
+      const { data: profiles, error: profilesError } = await supabaseAdmin().from("staff_profiles")
+        .select("id, user_id, tenant_id, site_id, role, custom_role_id, permissions, suspension_started_at, suspension_ends_at, is_active, created_at, updated_at")
+        .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`);
+      if (profilesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الحسابات الفرعية من Supabase." });
+      const userIds = Array.from(new Set((profiles ?? []).map((profile) => Number(profile.user_id))));
+      const { data: userRows, error: usersError } = userIds.length
+        ? await supabaseAdmin().from("users").select("id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in").in("id", userIds)
+        : { data: [], error: null };
+      if (usersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الحسابات الفرعية من Supabase." });
+      const usersById = new Map((userRows ?? []).map((user) => [Number(user.id), {
+        id: Number(user.id), openId: user.auth_user_id, name: user.name, email: user.email, loginMethod: user.login_method, role: user.role,
+        platformRole: user.platform_role, accountStatus: user.account_status, mustChangePassword: user.must_change_password,
+        temporaryPasswordIssuedAt: user.temporary_password_issued_at ? new Date(user.temporary_password_issued_at) : null,
+        createdAt: new Date(user.created_at), updatedAt: new Date(user.updated_at), lastSignedIn: new Date(user.last_signed_in),
+      }]));
+      return (profiles ?? []).flatMap((profile) => {
+        const user = usersById.get(Number(profile.user_id));
+        if (!user) return [];
+        return [{ profile: {
+          id: Number(profile.id), userId: Number(profile.user_id), tenantId: profile.tenant_id === null ? null : Number(profile.tenant_id), siteId: profile.site_id === null ? null : Number(profile.site_id),
+          role: profile.role, customRoleId: profile.custom_role_id === null ? null : Number(profile.custom_role_id), permissions: profile.permissions,
+          suspensionStartedAt: profile.suspension_started_at ? new Date(profile.suspension_started_at) : null, suspensionEndsAt: profile.suspension_ends_at ? new Date(profile.suspension_ends_at) : null,
+          isActive: profile.is_active, createdAt: new Date(profile.created_at), updatedAt: new Date(profile.updated_at),
+        }, user }];
+      });
     }),
     directory: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const db = await dbOrThrow();
-      return db.select({ id: users.id, name: users.name, email: users.email, role: users.role }).from(users).orderBy(desc(users.lastSignedIn));
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data: members, error: membersError } = await supabaseAdmin().from("tenant_members").select("user_id")
+        .eq("tenant_id", access.tenantId).eq("is_active", true).eq("membership_status", "active");
+      if (membersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أعضاء مساحة صاحب المولد من Supabase." });
+      const userIds = Array.from(new Set((members ?? []).map((member) => Number(member.user_id))));
+      if (!userIds.length) return [];
+      const { data: userRows, error: usersError } = await supabaseAdmin().from("users").select("id, name, email, role").in("id", userIds).order("last_signed_in", { ascending: false });
+      if (usersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دليل الحسابات للمساحة من Supabase." });
+      return (userRows ?? []).map((user) => ({ id: Number(user.id), name: user.name, email: user.email, role: user.role }));
     }),
     allowedSubaccountRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const actorRole = await resolveRole(ctx.user.id, input.siteId);
