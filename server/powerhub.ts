@@ -66,7 +66,7 @@ import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { createHeartbeatJob, deleteHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { COOKIE_NAME } from "../shared/const";
-import { getSupabaseDashboardSummary, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseGenerators, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseGenerators, listSupabaseInvoices, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
@@ -1473,101 +1473,45 @@ export const powerhubRouter = router({
     }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) }))
       .mutation(async ({ ctx, input }) => {
-        await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
-        const db = await dbOrThrow();
-        const [readingScope] = await db.select({ id: meterReadings.id }).from(meterReadings)
-          .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
-          .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
-        if (!readingScope) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
-        const tenantId = await getSiteTenant(input.siteId);
-        const [mobileAudit] = await db.select({ id: auditLogs.id }).from(auditLogs).where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.entityId, String(input.readingId)), eq(auditLogs.action, "mobile_create"))).limit(1);
-        if (mobileAudit) {
-          await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
-          const issued = await approveAndIssueMobileReading({ ...input, userId: ctx.user.id });
-          return { success: true, automaticInvoice: issued };
-        }
-        const result = await db.update(meterReadings).set({ status: "approved", reviewedByUserId: ctx.user.id, reviewedAt: new Date(), versionNo: sql`${meterReadings.versionNo} + 1` })
-          .where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.versionNo, input.baseVersion)));
-        if (Number((result[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث البيانات ثم أعد المحاولة." });
-        await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: "approve" });
-        return { success: true };
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+        const { data, error } = await supabaseAdmin().rpc("powerhub_approve_reading", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion,
+        });
+        if (!error && data?.[0]) return { success: true };
+        const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
+        if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن اعتماد القراءات بانتظار المراجعة فقط." });
+        if (errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث البيانات ثم أعد المحاولة." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد القراءة في Supabase." });
       }),
   }),
 
   invoices: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
-      const db = await dbOrThrow();
-      return db.select().from(invoices).where(eq(invoices.siteId, input.siteId)).orderBy(desc(invoices.issueDate));
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      return listSupabaseInvoices(input.siteId);
     }),
     createFromReading: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), readingId: z.number().int().positive(), tariffId: z.number().int().positive(),
       billingPeriod: z.string().regex(/^\d{4}-\d{2}$/), dueDate: z.date(), discountAmount: z.number().min(0).default(0), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
-      const db = await dbOrThrow();
-      if (input.clientOperationId) {
-        const [applied] = await db.select({ operationType: offlineSyncOperations.operationType, response: offlineSyncOperations.response }).from(offlineSyncOperations)
-          .where(and(eq(offlineSyncOperations.userId, ctx.user.id), eq(offlineSyncOperations.clientOperationId, input.clientOperationId))).limit(1);
-        if (applied) {
-          if (applied.operationType !== "invoice_issue") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
-          return applied.response as { id: number; invoiceNo: string; totalAmount: number };
-        }
-      }
-      const [readingScope] = await db.select({ reading: meterReadings, subscriber: subscribers }).from(meterReadings)
-        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
-        .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
-      const reading = readingScope?.reading;
-      const subscriber = readingScope?.subscriber;
-      if (!reading || reading.status !== "approved" || !subscriber) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن فوترة قراءة غير معتمدة أو لا تتبع للمحطة المحددة." });
-      const [tariff] = await db.select().from(tariffs).where(and(eq(tariffs.id, input.tariffId), eq(tariffs.siteId, input.siteId), eq(tariffs.isActive, true))).limit(1);
-      const [site] = await db.select().from(sites).where(eq(sites.id, input.siteId)).limit(1);
-      if (!tariff || !site || !subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "بيانات المشترك أو التعرفة أو المحطة غير مكتملة." });
-      await assertFinancialPeriodOpen(db, site.tenantId, input.siteId, input.dueDate, ctx.user.id, "invoice");
-      const [tenantMessaging, platformDeliverySettings, tenantTemplates] = await Promise.all([
-        db.select({ channel: tenantMessagingConfigurations.channel, isActive: tenantMessagingConfigurations.isActive })
-          .from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, site.tenantId)),
-        db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
-          .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1),
-        db.select({ channel: tenantInvoiceMessageTemplates.channel, body: tenantInvoiceMessageTemplates.body, isActive: tenantInvoiceMessageTemplates.isActive }).from(tenantInvoiceMessageTemplates)
-          .where(and(eq(tenantInvoiceMessageTemplates.tenantId, site.tenantId), eq(tenantInvoiceMessageTemplates.eventType, "invoice_issued"))),
-      ]);
-      const tenantChannels = resolveInvoiceNotificationChannels(tenantMessaging, invoiceDeliveryPolicyFromSetting(platformDeliverySettings[0]));
-      const templateByChannel = new Map(tenantTemplates.filter((template) => template.isActive).map((template) => [template.channel, template.body]));
-      const countResult = await db.select({ count: sql<number>`count(*)` }).from(invoices).where(eq(invoices.siteId, input.siteId));
-      const calculated = calculateInvoiceAmounts({ consumptionKwh: Number(reading.consumptionKwh ?? 0), pricePerKwh: Number(tariff.pricePerKwh), fixedFee: Number(tariff.fixedFee), taxRate: Number(tariff.taxRate), discountAmount: input.discountAmount });
-      const invoiceNo = nextInvoiceNo(site.code, input.billingPeriod, Number(countResult[0]?.count ?? 0) + 1);
-      const response = await db.transaction(async (tx) => {
-        const invoiceId = insertId(await tx.insert(invoices).values({
-          tenantId: site.tenantId, siteId: input.siteId, subscriberId: subscriber.id, readingId: reading.id, tariffId: tariff.id,
-          invoiceNo, clientOperationId: input.clientOperationId, billingPeriod: input.billingPeriod, dueDate: input.dueDate, previousReading: reading.previousReadingValue,
-          currentReading: reading.readingValue, consumptionKwh: reading.consumptionKwh ?? "0", pricePerKwh: tariff.pricePerKwh,
-          fixedFee: tariff.fixedFee, taxAmount: String(calculated.taxAmount), discountAmount: String(input.discountAmount),
-          totalAmount: String(calculated.totalAmount), balanceDue: String(calculated.totalAmount), status: "issued", createdByUserId: ctx.user.id,
-        }));
-        const lines: Array<{ lineType: "energy" | "fixed_fee" | "tax" | "discount"; description: string; quantity: string; unitPrice: string; amount: string; displayOrder: number }> = [
-          { lineType: "energy" as const, description: "استهلاك الكهرباء", quantity: String(reading.consumptionKwh ?? 0), unitPrice: tariff.pricePerKwh, amount: String(calculated.energyAmount), displayOrder: 1 },
-          { lineType: "fixed_fee" as const, description: "رسم ثابت", quantity: "1", unitPrice: tariff.fixedFee, amount: tariff.fixedFee, displayOrder: 2 },
-          { lineType: "tax" as const, description: "الضريبة", quantity: "1", unitPrice: String(tariff.taxRate), amount: String(calculated.taxAmount), displayOrder: 3 },
-        ];
-        if (input.discountAmount > 0) lines.push({ lineType: "discount" as const, description: "خصم", quantity: "1", unitPrice: String(input.discountAmount), amount: String(input.discountAmount), displayOrder: 4 });
-        await tx.insert(invoiceLines).values(lines.map((line) => ({ ...line, tenantId: site.tenantId, invoiceId })));
-        const result = { id: invoiceId, invoiceNo, totalAmount: calculated.totalAmount };
-        if (input.clientOperationId) await tx.insert(offlineSyncOperations).values({ tenantId: site.tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "invoice_issue", entityType: "invoice", entityId: invoiceId, response: result });
-        return result;
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_issue_invoice_from_reading", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_tariff_id: input.tariffId,
+        p_billing_period: input.billingPeriod, p_due_date: input.dueDate.toISOString(), p_discount_amount: input.discountAmount, p_client_operation_id: input.clientOperationId ?? null,
       });
-      if (tenantChannels.length) await db.insert(notificationMessages).values(tenantChannels.map((channel) => ({
-        tenantId: site.tenantId,
-        invoiceId: response.id,
-        subscriberId: subscriber.id,
-        channel,
-        eventType: "invoice_issued" as const,
-        recipient: subscriber.phone,
-        status: "pending" as const,
-        payload: { invoiceNo, billingPeriod: input.billingPeriod, totalAmount: calculated.totalAmount, renderedText: renderInvoiceMessageTemplate(templateByChannel.get(channel) ?? defaultInvoiceMessageTemplates[channel], { subscriber_name: subscriber.fullName, invoice_no: invoiceNo, billing_period: input.billingPeriod, total_amount: String(calculated.totalAmount), due_date: input.dueDate.toLocaleDateString("ar-IQ") }) },
-      })));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "invoice", entityId: String(response.id), action: "issue", afterData: { invoiceNo, ...calculated, clientOperationId: input.clientOperationId } });
-      return response;
+      if (!error && data?.[0]) {
+        const row = data[0] as { invoice_id: number | string; invoice_no: string; total_amount: number | string };
+        return { id: Number(row.invoice_id), invoiceNo: row.invoice_no, totalAmount: Number(row.total_amount) };
+      }
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
+      if (errorText.includes("READING_NOT_APPROVED")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن فوترة قراءة غير معتمدة أو لا تتبع للمحطة المحددة." });
+      if (errorText.includes("TARIFF_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد تعرفة فعالة يمكن استخدامها لإصدار الفاتورة." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تعديل أو إضافة بيانات مالية داخلها." });
+      if (errorText.includes("INVALID_BILLING_PERIOD") || errorText.includes("INVALID_DISCOUNT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات فترة الفوترة أو الخصم غير صالحة." });
+      if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "تعذر إنشاء رقم فاتورة فريد؛ أعد المحاولة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إصدار الفاتورة في Supabase." });
     }),
     createShareLink: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive(), expiresAt: z.date().optional() }))
       .mutation(async ({ ctx, input }) => {
