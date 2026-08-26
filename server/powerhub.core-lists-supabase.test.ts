@@ -72,6 +72,9 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_issue_invoice_from_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, replayed: false }]);
       if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
       if (name === "powerhub_create_expense") return resolved([{ expense_id: 82 }]);
+      if (name === "powerhub_create_company_account") return resolved([{ account_id: 92 }]);
+      if (name === "powerhub_add_account_movement") return resolved([{ transaction_id: 93 }]);
+      if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -179,5 +182,17 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.expenses.create({ siteId: 10, category: "fuel", description: "وقود التشغيل", amount: 50, referenceNo: "EXP-1" })).resolves.toEqual({ id: 82 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_expense", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_category: "fuel", p_amount: 50 }) })]);
+  });
+
+  it("ينشئ حساب الشركة وحركاته وتحويله عبر Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.companyAccounts.create({ siteId: 10, name: "جوال بي 1", accountType: "jawwal_pay", phoneNumber: "+970595123456", openingBalance: 5, siteIds: [10] })).resolves.toEqual({ id: 92 });
+    await expect(caller.companyAccounts.addMovement({ siteId: 10, accountId: 90, transactionType: "deposit", amount: 10, description: "إيداع" })).resolves.toEqual({ id: 93 });
+    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل داخلي" })).resolves.toEqual({ success: true });
+    expect(state.rpcCalls).toEqual([
+      expect.objectContaining({ name: "powerhub_create_company_account", args: expect.objectContaining({ p_tenant_id: 20, p_site_ids: [10] }) }),
+      expect.objectContaining({ name: "powerhub_add_account_movement", args: expect.objectContaining({ p_account_id: 90, p_transaction_type: "deposit", p_amount: 10 }) }),
+      expect.objectContaining({ name: "powerhub_transfer_company_accounts", args: expect.objectContaining({ p_from_account_id: 90, p_to_account_id: 92, p_amount: 5 }) }),
+    ]);
   });
 });
