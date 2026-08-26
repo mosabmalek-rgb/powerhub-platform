@@ -67,6 +67,10 @@ const state = vi.hoisted(() => {
           };
         },
         update(values: unknown) { updates.push({ table, values }); return updateQuery; },
+        upsert(values: unknown) {
+          inserts.push({ table, values });
+          return resolved(null);
+        },
       };
     },
     rpc(name: string, args: unknown) {
@@ -226,6 +230,16 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.messaging.deliveryPolicy({ siteId: 10 })).resolves.toMatchObject({ configured: true, message: "الإرسال الخارجي معطل" });
     await expect(caller.messaging.listInvoiceTemplates({ siteId: 10 })).resolves.toMatchObject([{ id: 97, body: "فاتورتك جاهزة", isActive: true, createdAt: expect.any(Date) }]);
     await expect(caller.messaging.listPaymentReceiptTemplates({ siteId: 10 })).resolves.toMatchObject([{ id: 98, body: "تم استلام الدفعة", isActive: true, createdAt: expect.any(Date) }]);
+  });
+
+  it("يحفظ قوالب الرسائل في Supabase ويعطّل حفظ الاعتمادات الموروث", async () => {
+    state.tables.platform_settings = [{ setting_key: "invoice_delivery_channels", is_enabled: true, value: { smsEnabled: true, whatsappEnabled: true }, message: null }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.messaging.saveInvoiceTemplate({ siteId: 10, channel: "sms", body: "مرحباً {{subscriber_name}}، فاتورتك {{invoice_no}} جاهزة.", isActive: true })).resolves.toEqual({ success: true });
+    await expect(caller.messaging.savePaymentReceiptTemplate({ siteId: 10, body: "مرحباً {{subscriber_name}}، تم استلام دفعتك بنجاح.", isActive: true })).resolves.toEqual({ success: true });
+    expect(state.inserts).toContainEqual({ table: "tenant_invoice_message_templates", values: expect.objectContaining({ tenant_id: 20, channel: "sms", event_type: "invoice_issued", is_active: true }) });
+    expect(state.inserts).toContainEqual({ table: "tenant_payment_receipt_message_templates", values: expect.objectContaining({ tenant_id: 20, channel: "sms", is_active: true }) });
+    await expect(caller.messaging.saveConfiguration({ siteId: 10, channel: "sms", provider: "tweetsms", credential: "credential-long-enough", isActive: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {

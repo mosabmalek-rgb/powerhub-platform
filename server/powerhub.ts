@@ -664,20 +664,8 @@ export const powerhubRouter = router({
       senderId: z.string().max(120).optional(), phoneNumberId: z.string().max(120).optional(), templateName: z.string().max(120).optional(), receiptTemplateName: z.string().max(120).optional(), subscriberReferenceTemplateName: z.string().max(120).optional(),
       credential: z.string().min(8).max(4096), webhookVerifyToken: z.string().min(16).max(256).optional(), webhookAppSecret: z.string().min(16).max(512).optional(), isActive: z.boolean().default(true),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const tenantId = await getSiteTenant(input.siteId);
-      if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
-      const db = await dbOrThrow();
-      const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
-        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
-      if (!platformSetting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: `ربط قناة ${input.channel === "whatsapp" ? "WhatsApp" : "SMS"} غير متاح حالياً من إعدادات آدمن المنصة.` });
-      const encrypted = encryptTenantCredential(input.channel === "whatsapp" ? JSON.stringify({ accessToken: input.credential, appSecret: input.webhookAppSecret || undefined }) : input.credential);
-      await db.insert(tenantMessagingConfigurations).values({
-        tenantId, channel: input.channel, provider: input.provider, senderId: input.senderId, phoneNumberId: input.phoneNumberId,
-        templateName: input.templateName, receiptTemplateName: input.receiptTemplateName, subscriberReferenceTemplateName: input.subscriberReferenceTemplateName, credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, webhookVerifyTokenHash: input.webhookVerifyToken ? hashWebhookVerifyToken(input.webhookVerifyToken) : undefined, isActive: input.isActive,
-      }).onDuplicateKeyUpdate({ set: { provider: input.provider, senderId: input.senderId, phoneNumberId: input.phoneNumberId, templateName: input.templateName, receiptTemplateName: input.receiptTemplateName, subscriberReferenceTemplateName: input.subscriberReferenceTemplateName, credentialCiphertext: encrypted.ciphertext, credentialIv: encrypted.iv, webhookVerifyTokenHash: input.webhookVerifyToken ? hashWebhookVerifyToken(input.webhookVerifyToken) : sql`${tenantMessagingConfigurations.webhookVerifyTokenHash}`, isActive: input.isActive } });
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_configuration", entityId: `${tenantId}:${input.channel}`, action: "upsert", metadata: { channel: input.channel, provider: input.provider, isActive: input.isActive } });
-      return { success: true };
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "حفظ اعتمادات مزود الرسائل معطّل حالياً إلى أن يُعتمد تصميم تشفير وتشغيل مستقل متوافق مع Supabase/Vercel." });
     }),
     testConnection: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), provider: z.string().min(2).max(80),
@@ -692,26 +680,27 @@ export const powerhubRouter = router({
       return { enabled: false, cron: input.cron, nextExecutionAt: null };
     }),
     saveInvoiceTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const tenantId = await getSiteTenant(input.siteId);
-      if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
-      const db = await dbOrThrow();
-      const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
-        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
-      if (!platformSetting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب لقناة معطلة من آدمن المنصة." });
-      await db.insert(tenantInvoiceMessageTemplates).values({ tenantId, channel: input.channel, body: input.body, isActive: input.isActive }).onDuplicateKeyUpdate({ set: { body: input.body, isActive: input.isActive } });
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_invoice_message_template", entityId: `${tenantId}:${input.channel}`, action: "upsert", metadata: { channel: input.channel, isActive: input.isActive } });
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const admin = supabaseAdmin();
+      const { data: setting, error: settingError } = await admin.from("platform_settings").select("is_enabled, value")
+        .eq("setting_key", "invoice_delivery_channels").maybeSingle();
+      if (settingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة قنوات الفواتير في Supabase." });
+      if (!setting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting({ isEnabled: setting.is_enabled, value: setting.value }))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب لقناة معطلة من آدمن المنصة." });
+      const { error } = await admin.from("tenant_invoice_message_templates").upsert({ tenant_id: scope.tenantId, channel: input.channel, event_type: "invoice_issued", body: input.body, is_active: input.isActive }, { onConflict: "tenant_id,channel,event_type" });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ قالب رسالة الفاتورة في Supabase." });
+      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "tenant_invoice_message_template", entityId: `${scope.tenantId}:${input.channel}`, action: "upsert", afterData: { channel: input.channel, isActive: input.isActive }, metadata: { bodyLength: input.body.length } });
       return { success: true };
     }),
     savePaymentReceiptTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
-        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
-      if (!platformSetting || !isInvoiceDeliveryChannelEnabled("sms", invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب إيصال SMS لقناة معطلة من آدمن المنصة." });
-      await db.insert(tenantPaymentReceiptMessageTemplates).values({ tenantId, channel: "sms", body: input.body, isActive: input.isActive }).onDuplicateKeyUpdate({ set: { body: input.body, isActive: input.isActive } });
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_payment_receipt_message_template", entityId: `${tenantId}:sms`, action: "upsert", metadata: { channel: "sms", isActive: input.isActive } });
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const admin = supabaseAdmin();
+      const { data: setting, error: settingError } = await admin.from("platform_settings").select("is_enabled, value")
+        .eq("setting_key", "invoice_delivery_channels").maybeSingle();
+      if (settingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة قنوات الفواتير في Supabase." });
+      if (!setting || !isInvoiceDeliveryChannelEnabled("sms", invoiceDeliveryPolicyFromSetting({ isEnabled: setting.is_enabled, value: setting.value }))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب إيصال SMS لقناة معطلة من آدمن المنصة." });
+      const { error } = await admin.from("tenant_payment_receipt_message_templates").upsert({ tenant_id: scope.tenantId, channel: "sms", body: input.body, is_active: input.isActive }, { onConflict: "tenant_id,channel" });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ قالب إيصال SMS في Supabase." });
+      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "tenant_payment_receipt_message_template", entityId: `${scope.tenantId}:sms`, action: "upsert", afterData: { channel: "sms", isActive: input.isActive }, metadata: { bodyLength: input.body.length } });
       return { success: true };
     }),
   }),
