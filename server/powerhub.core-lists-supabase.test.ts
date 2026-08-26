@@ -64,6 +64,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_delete_pending_reading") return resolved(null);
       if (name === "powerhub_approve_reading") return resolved([{ reading_id: 60, version_no: 2 }]);
       if (name === "powerhub_issue_invoice_from_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, replayed: false }]);
+      if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -153,5 +154,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       expect.objectContaining({ name: "powerhub_issue_invoice_from_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_tariff_id: 40, p_billing_period: "2026-08" }) }),
     ]);
     expect(state.inserts.some((entry) => entry.table === "notification_messages")).toBe(false);
+  });
+
+  it("يسجل التحصيل الذري عبر Supabase من دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.payments.create({ siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0001", amount: 25, paymentMethod: "cash", companyAccountId: 90, clientOperationId: "55555555-5555-4555-8555-555555555555" }))
+      .resolves.toEqual({ id: 81 });
+    expect(state.rpcCalls).toEqual([
+      expect.objectContaining({ name: "powerhub_create_payment", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_invoice_id: 70, p_company_account_id: 90, p_amount: 25 }) }),
+    ]);
   });
 });

@@ -1560,36 +1560,7 @@ export const powerhubRouter = router({
       const hasTransferSource = Boolean(input.transferFromAccount);
       if ((hasTransferSource && !input.transferFromType) || (!hasTransferSource && input.transferFromType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "حدد نوع الحساب المحوِّل فقط عند إدخال رقمه." });
     })).mutation(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      if (input.clientOperationId) {
-        const [applied] = await db.select({ operationType: offlineSyncOperations.operationType, response: offlineSyncOperations.response }).from(offlineSyncOperations)
-          .where(and(eq(offlineSyncOperations.userId, ctx.user.id), eq(offlineSyncOperations.clientOperationId, input.clientOperationId))).limit(1);
-        if (applied) {
-          if (applied.operationType !== "payment_create") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
-          return applied.response as { id: number };
-        }
-        const [existingByOperation] = await db.select({ id: payments.id, collectedByUserId: payments.collectedByUserId }).from(payments).where(eq(payments.clientOperationId, input.clientOperationId)).limit(1);
-        if (existingByOperation) {
-          if (existingByOperation.collectedByUserId !== ctx.user.id) throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم بالفعل." });
-          return { id: existingByOperation.id };
-        }
-      }
-      const [duplicatePayment] = await db.select({ id: payments.id }).from(payments).where(eq(payments.paymentNo, input.paymentNo)).limit(1);
-      if (duplicatePayment) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
-      const [subscriber] = await db.select({ id: subscribers.id }).from(subscribers).where(and(eq(subscribers.id, input.subscriberId), eq(subscribers.siteId, input.siteId))).limit(1);
-      if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
-      const [companyAccount] = await db.select({ id: companyAccounts.id, accountType: companyAccounts.accountType, phoneNumber: companyAccounts.phoneNumber, isActive: companyAccounts.isActive }).from(companyAccounts).where(and(eq(companyAccounts.id, input.companyAccountId), eq(companyAccounts.tenantId, tenantId))).limit(1);
-      if (!companyAccount || !companyAccount.isActive) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب المستقبِل غير متاح ضمن حسابات الشركة." });
-      if (companyAccount.accountType !== input.paymentMethod) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة الدفع يجب أن تطابق نوع الحساب المستقبِل المختار." });
-      if (input.invoiceId) {
-        const [invoiceScope] = await db.select({ id: invoices.id, balanceDue: invoices.balanceDue, status: invoices.status }).from(invoices).where(and(eq(invoices.id, input.invoiceId), eq(invoices.siteId, input.siteId), eq(invoices.subscriberId, input.subscriberId))).limit(1);
-        if (!invoiceScope) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للمشترك والمحطة المحددين." });
-        if (invoiceScope.status === "cancelled" || invoiceScope.status === "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تسجيل دفعة على فاتورة ملغاة أو مسودة." });
-        if (input.amount > Number(invoiceScope.balanceDue)) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد الفاتورة منذ حفظ المسودة؛ قيمة الدفعة تتجاوز الرصيد المتبقي الحالي." });
-      }
-      await assertFinancialPeriodOpen(db, tenantId, input.siteId, new Date(), ctx.user.id, "payment");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
       if (input.receiptImageData) {
@@ -1602,34 +1573,32 @@ export const powerhubRouter = router({
         receiptImageKey = stored.key;
       }
       let collectorSessionId: number | undefined;
-      if (role === "collector") {
-        const [openSession] = await db.select({ id: collectorSessions.id }).from(collectorSessions).where(and(
-          eq(collectorSessions.tenantId, tenantId), eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id), eq(collectorSessions.status, "open"),
-        )).limit(1);
+      if (access.role === "collector") {
+        const { data: openSession, error: sessionError } = await supabaseAdmin().from("collector_sessions").select("id")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("collector_user_id", ctx.user.id).eq("status", "open").maybeSingle();
+        if (sessionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة التحصيل في Supabase." });
         if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
-        collectorSessionId = openSession.id;
+        collectorSessionId = Number(openSession.id);
       }
-      const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, companyAccountId: _companyAccountId, ...paymentInput } = input;
-      const resolvedPaymentInput = { ...paymentInput, transferToAccount: companyAccount.phoneNumber, transferToType: companyAccount.accountType === "jawwal_pay" || companyAccount.accountType === "palpay" || companyAccount.accountType === "bank_of_palestine" ? companyAccount.accountType : undefined };
-      const id = await db.transaction(async (tx) => {
-        if (input.invoiceId) {
-          const [invoice] = await tx.select({ id: invoices.id, paidAmount: invoices.paidAmount, totalAmount: invoices.totalAmount, balanceDue: invoices.balanceDue })
-            .from(invoices).where(and(eq(invoices.id, input.invoiceId), eq(invoices.siteId, input.siteId), eq(invoices.subscriberId, input.subscriberId))).limit(1);
-          if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للمشترك والمحطة المحددين." });
-          const paidAmount = Number(invoice.paidAmount) + input.amount;
-          const balanceDue = Math.max(0, Number(invoice.totalAmount) - paidAmount);
-          const updated = await tx.update(invoices).set({ paidAmount: String(paidAmount), balanceDue: String(balanceDue), status: balanceDue === 0 ? "paid" : "partially_paid" })
-            .where(and(eq(invoices.id, invoice.id), eq(invoices.balanceDue, invoice.balanceDue), gte(invoices.balanceDue, String(input.amount))));
-          if (Number((updated[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد الفاتورة أثناء المزامنة؛ راجع المسودة ثم أعد المحاولة." });
-        }
-        const paymentId = insertId(await tx.insert(payments).values({ ...resolvedPaymentInput, tenantId, amount: String(input.amount), receiptImageKey, receiptImageHash, collectedByUserId: ctx.user.id, collectorSessionId }));
-        await tx.insert(accountTransactions).values({ tenantId, accountId: companyAccount.id, transactionType: "collection", amount: String(input.amount), description: `تحصيل الفاتورة ${input.paymentNo}`, referenceNo: input.referenceNo, relatedPaymentId: paymentId, createdByUserId: ctx.user.id });
-        if (input.clientOperationId) await tx.insert(offlineSyncOperations).values({ tenantId, siteId: input.siteId, userId: ctx.user.id, clientOperationId: input.clientOperationId, operationType: "payment_create", entityType: "payment", entityId: paymentId, response: { id: paymentId } });
-        return paymentId;
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_payment", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId, p_invoice_id: input.invoiceId ?? null,
+        p_payment_no: input.paymentNo, p_amount: input.amount, p_payment_method: input.paymentMethod, p_company_account_id: input.companyAccountId,
+        p_transfer_from_account: input.transferFromAccount ?? null, p_transfer_from_type: input.transferFromType ?? null, p_reference_no: input.referenceNo ?? null,
+        p_receipt_image_key: receiptImageKey ?? null, p_receipt_image_hash: receiptImageHash ?? null, p_collector_session_id: collectorSessionId ?? null,
+        p_client_operation_id: input.clientOperationId ?? null,
       });
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "payment", entityId: String(id), action: "create", afterData: { ...resolvedPaymentInput, companyAccountId: companyAccount.id, receiptImageKey }, metadata: { collectorSessionId, receiptImageAttached: Boolean(receiptImageKey) } });
-      const response = { id };
-      return response;
+      if (!error && data?.[0]) return { id: Number((data[0] as { payment_id: number | string }).payment_id) };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("DUPLICATE_PAYMENT_NO")) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
+      if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
+      if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND") || errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب المستقبِل غير متاح ضمن حسابات الشركة." });
+      if (errorText.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة الدفع يجب أن تطابق نوع الحساب المستقبِل المختار." });
+      if (errorText.includes("INVOICE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للمشترك والمحطة المحددين." });
+      if (errorText.includes("INVOICE_NOT_COLLECTIBLE")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تسجيل دفعة على فاتورة ملغاة أو مسودة." });
+      if (errorText.includes("INVOICE_BALANCE_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد الفاتورة أثناء المزامنة؛ راجع المسودة ثم أعد المحاولة." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تعديل أو إضافة بيانات مالية داخلها." });
+      if (errorText.includes("COLLECTOR_SESSION_NOT_OPEN")) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل التحصيل في Supabase." });
     }),
   }),
 
