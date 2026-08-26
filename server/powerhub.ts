@@ -1088,34 +1088,25 @@ export const powerhubRouter = router({
       return listSupabaseAccessibleSites(ctx.user.id, ctx.user.role === "admin");
     }),
     branchPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"]);
-      return tenantBranchPolicy(await getSiteTenant(input.siteId));
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
+      const admin=supabaseAdmin();
+      const [subscription,platformSetting,tenantSetting,branchRows]=await Promise.all([
+        admin.from("tenant_subscriptions").select("plan").eq("tenant_id",access.tenantId).maybeSingle(),
+        admin.from("platform_settings").select("is_enabled, value").eq("setting_key","branch_feature").maybeSingle(),
+        admin.from("tenant_branch_settings").select("is_enabled_override, max_branches_override, disabled_behavior").eq("tenant_id",access.tenantId).maybeSingle(),
+        admin.from("sites").select("id").eq("tenant_id",access.tenantId).neq("status","archived"),
+      ]);
+      if(subscription.error||platformSetting.error||tenantSetting.error||branchRows.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سياسة الفروع من Supabase."});
+      return resolveBranchPolicy({plan:(subscription.data?.plan??"starter") as SubscriptionPlan,platformSetting:platformSetting.data?{isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,tenantSetting:tenantSetting.data?{isEnabledOverride:tenantSetting.data.is_enabled_override,maxBranchesOverride:tenantSetting.data.max_branches_override,disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended"}:null,currentCount:(branchRows.data??[]).length});
     }),
     create: protectedProcedure.input(siteInput).mutation(async ({ ctx, input }) => {
-      const db = await dbOrThrow();
-      const existingMemberships = await db.select({ tenantId: tenantMembers.tenantId, role: tenantMembers.role, membershipStatus: tenantMembers.membershipStatus }).from(tenantMembers)
-        .where(and(eq(tenantMembers.userId, ctx.user.id), eq(tenantMembers.isActive, true), eq(tenantMembers.membershipStatus, "active"))).limit(1);
-      const existingMembership = existingMemberships[0];
-      if (existingMembership && existingMembership.role !== "owner" && ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "إنشاء فرع جديد متاح لصاحب المولد فقط." });
-      }
-      if (existingMembership) {
-        const policy = await tenantBranchPolicy(existingMembership.tenantId);
-        if (!policy.isEnabled) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة تعدد الأفرع غير مفعّلة لحسابك من إدارة المنصة." });
-        if (policy.currentCount >= policy.maxBranches) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للأفرع في اشتراكك (${policy.maxBranches}).` });
-      }
-      const id = await db.transaction(async (tx) => {
-        let tenantId = existingMembership?.tenantId;
-        if (!tenantId) {
-          tenantId = insertId(await tx.insert(tenants).values({ name: input.name, slug: `${input.code.toLowerCase()}-${ctx.user.id}` }));
-          await tx.insert(tenantMembers).values({ tenantId, userId: ctx.user.id, role: "owner", isActive: true });
-        }
-        const siteId = insertId(await tx.insert(sites).values({ ...input, tenantId }));
-        await tx.insert(sitePortalSettings).values({ tenantId, siteId, portalCode: input.code.toLowerCase(), displayName: input.name });
-        return siteId;
-      });
-      await writeAudit({ userId: ctx.user.id, siteId: id, entityType: "site", entityId: String(id), action: "create", afterData: input });
-      return { id };
+      const admin=supabaseAdmin();
+      const {data:membership,error:membershipError}=await admin.from("tenant_members").select("tenant_id, role").eq("user_id",ctx.user.id).eq("is_active",true).eq("membership_status","active").eq("role","owner").maybeSingle();
+      if(membershipError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من عضوية مالك المولد في Supabase."});
+      if(!membership) throw new TRPCError({code:"FORBIDDEN",message:"إنشاء فرع جديد متاح لصاحب مولد لديه مساحة نشطة فقط."});
+      const {data,error}=await admin.rpc("powerhub_create_site",{p_tenant_id:Number(membership.tenant_id),p_user_id:ctx.user.id,p_name:input.name,p_code:input.code,p_city:input.city??null,p_address:input.address??null});
+      if(error) throw new TRPCError({code:error.message.includes("FEATURE_DISABLED")?"FORBIDDEN":error.message.includes("LIMIT_REACHED")?"PRECONDITION_FAILED":"BAD_REQUEST",message:error.message.includes("FEATURE_DISABLED")?"ميزة تعدد الأفرع غير مفعّلة لحسابك من إدارة المنصة.":error.message.includes("LIMIT_REACHED")?"وصلت إلى الحد الأقصى للأفرع في اشتراكك.":"تعذر إنشاء الفرع في Supabase."});
+      const id=Number((data as Array<{site_id:number}>|null)?.[0]?.site_id); if(!id) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة الفروع استجابة صالحة."}); return {id};
     }),
     anomalyAlert: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
@@ -1125,17 +1116,15 @@ export const powerhubRouter = router({
       return site;
     }),
     updateAnomalyAlert: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), anomalyAlertPercent: z.number().int().min(10).max(500) })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"]);
-      const db = await dbOrThrow();
-      await db.update(sites).set({ anomalyAlertPercent: input.anomalyAlertPercent, updatedAt: new Date() }).where(eq(sites.id, input.siteId));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "site", entityId: String(input.siteId), action: "update_anomaly_alert", afterData: input });
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
+      const {data,error}=await supabaseAdmin().rpc("powerhub_update_site_anomaly",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_anomaly_alert_percent:input.anomalyAlertPercent});
+      if(error || !Number((data as Array<{site_id:number}>|null)?.[0]?.site_id)) throw new TRPCError({code:error?.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":"BAD_REQUEST",message:"تعذر تحديث نسبة تنبيه الاستهلاك الشاذ."});
       return { success: true, anomalyAlertPercent: input.anomalyAlertPercent };
     }),
     updateBranch: protectedProcedure.input(siteInput.pick({ name: true, city: true, address: true }).extend({ siteId: z.number().int().positive(), status: z.enum(["active", "inactive", "archived"]), invoiceDueDays: z.number().int().min(1).max(90) })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"]);
-      const db = await dbOrThrow();
-      await db.update(sites).set({ name: input.name, city: input.city, address: input.address, status: input.status, invoiceDueDays: input.invoiceDueDays, updatedAt: new Date() }).where(eq(sites.id, input.siteId));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "branch", entityId: String(input.siteId), action: "update", afterData: input });
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
+      const {data,error}=await supabaseAdmin().rpc("powerhub_update_site",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_name:input.name,p_city:input.city??"",p_address:input.address??"",p_status:input.status,p_invoice_due_days:input.invoiceDueDays});
+      if(error || !Number((data as Array<{site_id:number}>|null)?.[0]?.site_id)) throw new TRPCError({code:error?.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":"BAD_REQUEST",message:"تعذر تحديث بيانات الفرع."});
       return { success: true };
     }),
   }),

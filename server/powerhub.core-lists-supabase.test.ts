@@ -20,28 +20,29 @@ const state = vi.hoisted(() => {
     account_transactions: [{ id: 91, tenant_id: 20, account_id: 90, transaction_type: "collection", amount: 25, description: "تحصيل الفاتورة PAY-202608-0001", reference_no: "REF-1", related_payment_id: 81, related_account_id: null, created_by_user_id: 1, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
     collector_sessions: [{ id: 96, tenant_id: 20, site_id: 10, collector_user_id: 1, status: "open", opening_cash: 5, expected_cash: 5, declared_cash: null, variance_amount: null, opened_at: "2026-08-03T00:00:00.000Z", closed_at: null, notes: null, closed_by_user_id: null, created_at: "2026-08-03T00:00:00.000Z", updated_at: "2026-08-03T00:00:00.000Z" }],
     financial_settlements: [{ id: 97, tenant_id: 20, site_id: 10, period_start: "2026-08-01T00:00:00.000Z", period_end: "2026-08-31T23:59:59.999Z", total_collected: 100, total_expenses: 20, book_profit: 80, actual_cash: 75, difference: -5, notes: "تسوية دورية", status: "draft", created_by_user_id: 1, approved_by_user_id: null, locked_at: null, created_at: "2026-08-31T23:59:59.999Z", updated_at: "2026-08-31T23:59:59.999Z" }],
-    users: [{ id: 1, role: "admin" }],
+    users: [{ id: 1, role: "admin" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, plan: "professional" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { starter: 1, professional: 3, enterprise: 10 } } }], tenant_branch_settings: [],
     tenants: [{ id: 20, plan: "starter" }],
   };
   const resolved = (data: unknown) => Promise.resolve({ data, error: null });
   const client = {
     from(table: string) {
       const rows = tables[table] ?? [];
+      let filteredRows = rows;
       const query = {
         select: () => query,
-        eq: () => query,
-        in: () => query,
+        eq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] === value); return query; },
+        in: (column: string, values: unknown[]) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || values.includes((row as Record<string, unknown>)[column])); return query; },
         is: () => query,
-        neq: () => query,
+        neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
         order: () => query,
         gte: () => query,
         lte: () => query,
         limit: () => query,
-        maybeSingle: () => resolved(rows[0] ?? null),
+        maybeSingle: () => resolved(filteredRows[0] ?? null),
         then: <TResult1 = { data: unknown[]; error: null }, TResult2 = never>(
           onfulfilled?: ((value: { data: unknown[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
           onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-        ) => resolved(rows).then(onfulfilled, onrejected),
+        ) => resolved(filteredRows).then(onfulfilled, onrejected),
       };
       const updateQuery = {
         eq: () => updateQuery,
@@ -79,6 +80,8 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_financial_settlement") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_set_financial_settlement_status") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_exceptional_locked_edit") return resolved([{ before_data: { id: 82, description: "وصف سابق" }, after_data: { id: 82, description: "وصف مصحح" } }]);
+      if (["powerhub_update_site_anomaly", "powerhub_update_site"].includes(name)) return resolved([{ site_id: 10 }]);
+      if (name === "powerhub_create_site") return resolved([{ site_id: 11 }]);
       if (["powerhub_update_company_account_phone", "powerhub_update_company_account_opening_balance", "powerhub_update_company_account_sites"].includes(name)) return resolved([{ account_id: 92 }]);
       if (name === "powerhub_create_company_account") return resolved([{ account_id: 92 }]);
       if (name === "powerhub_add_account_movement") return resolved([{ transaction_id: 93 }]);
@@ -160,6 +163,28 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.generators.update({ siteId: 10, id: 50, name: "مولد محدث", ratedCapacityKw: "160", fuelLevelLiters: "20", operatingHours: "10", status: "maintenance" })).resolves.toEqual({ success: true });
     expect(state.inserts).toEqual(expect.arrayContaining([expect.objectContaining({ table: "tariffs" }), expect.objectContaining({ table: "generators" }), expect.objectContaining({ table: "audit_logs" })]));
     expect(state.updates).toEqual(expect.arrayContaining([expect.objectContaining({ table: "generators", values: expect.objectContaining({ status: "maintenance" }) })]));
+  });
+
+  it("يحدّث إعدادات الفرع عبر Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.sites.updateAnomalyAlert({ siteId: 10, anomalyAlertPercent: 70 })).resolves.toEqual({ success: true, anomalyAlertPercent: 70 });
+    await expect(caller.sites.updateBranch({ siteId: 10, name: "الفرع المحدث", code: "MAIN", city: "غزة", address: "العنوان", status: "active", invoiceDueDays: 21 })).resolves.toEqual({ success: true });
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "powerhub_update_site_anomaly", args: expect.objectContaining({ p_tenant_id: 20, p_anomaly_alert_percent: 70 }) }),
+      expect.objectContaining({ name: "powerhub_update_site", args: expect.objectContaining({ p_invoice_due_days: 21, p_status: "active" }) }),
+    ]));
+  });
+
+  it("ينشئ فرعاً عبر Supabase دون MySQL مع عضوية مالك صالحة", async () => {
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.sites.create({ name: "الفرع الثاني", code: "BR2", city: "غزة", address: "العنوان" })).resolves.toEqual({ id: 11 });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_site", args: expect.objectContaining({ p_tenant_id: 20, p_name: "الفرع الثاني", p_code: "BR2" }) })]);
+  });
+
+  it("يقرأ سياسة تعدد الأفرع من Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.sites.branchPolicy({ siteId: 10 })).resolves.toMatchObject({ isEnabled: true, planLimit: 3, maxBranches: 3, currentCount: 1, remaining: 2 });
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
