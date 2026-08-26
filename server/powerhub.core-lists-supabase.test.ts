@@ -242,6 +242,20 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.messaging.saveConfiguration({ siteId: 10, channel: "sms", provider: "tweetsms", credential: "credential-long-enough", isActive: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
+  it("يعرض سجل الإشعارات من Supabase ويعطّل كل الإرسال وإعادة المحاولة الموروثة", async () => {
+    state.tables.notification_messages = [{ id: 99, tenant_id: 20, invoice_id: 70, subscriber_id: 30, channel: "sms", event_type: "invoice_issued", recipient: "+970595000000", status: "failed", provider_message_id: null, payload: { invoiceNo: "MAIN-202608-0001" }, attempts: 1, last_error: "غير مهيأ", created_at: "2026-08-25T00:00:00.000Z", updated_at: "2026-08-25T00:00:00.000Z" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.notifications.list({ siteId: 10, eventType: "invoice_issued" })).resolves.toMatchObject([{ notification: { id: 99, status: "failed", createdAt: expect.any(Date) }, subscriber: { id: 30, fullName: "مشترك الاختبار" }, invoiceNo: "MAIN-202608-0001" }]);
+    await expect(caller.notifications.retry({ siteId: 10, notificationId: 99 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.notifications.retryFailedInvoiceNotification({ siteId: 10, notificationId: 99 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.notifications.retryFailedInvoiceNotifications({ siteId: 10, notificationIds: [99] })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.notifications.retryPaymentReceipt({ siteId: 10, notificationId: 99 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.notifications.sendDeferredInvoices({ siteId: 10, limit: 1 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.notifications.sendBulkInvoiceSms({ siteId: 10, invoiceIds: [70] })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.notifications.sendPaymentReminder({ siteId: 10, invoiceId: 70 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.notifications.sendPaymentReceipt({ siteId: 10, paymentId: 81, channel: "sms" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))

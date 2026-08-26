@@ -1856,12 +1856,29 @@ export const powerhubRouter = router({
 
   notifications: router({
     list: protectedProcedure.input(siteScoped.extend({ eventType: z.enum(["invoice_issued", "payment_reminder", "payment_received", "service_alert", "subscriber_reference"]).optional() })).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
-      const db = await dbOrThrow();
-      return db.select({ notification: notificationMessages, subscriber: subscribers, invoiceNo: invoices.invoiceNo }).from(notificationMessages)
-        .innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id))
-        .leftJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
-        .where(input.eventType ? and(eq(subscribers.siteId, input.siteId), eq(notificationMessages.eventType, input.eventType)) : eq(subscribers.siteId, input.siteId)).orderBy(desc(notificationMessages.createdAt));
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      let notificationQuery = supabaseAdmin().from("notification_messages").select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, created_at, updated_at")
+        .eq("tenant_id", scope.tenantId).order("created_at", { ascending: false }).limit(500);
+      if (input.eventType) notificationQuery = notificationQuery.eq("event_type", input.eventType);
+      const { data: notificationRows, error: notificationsError } = await notificationQuery;
+      if (notificationsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل الإشعارات من Supabase." });
+      const subscriberIds = Array.from(new Set((notificationRows ?? []).map((row) => Number(row.subscriber_id)).filter(Number.isInteger)));
+      const { data: subscriberRows, error: subscribersError } = subscriberIds.length
+        ? await supabaseAdmin().from("subscribers").select("id, tenant_id, site_id, full_name, subscriber_no, phone").eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).in("id", subscriberIds)
+        : { data: [], error: null };
+      if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مشتركين سجل الإشعارات من Supabase." });
+      const subscribersById = new Map((subscriberRows ?? []).map((row) => [Number(row.id), { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), fullName: row.full_name, subscriberNo: row.subscriber_no, phone: row.phone }]));
+      const invoiceIds = Array.from(new Set((notificationRows ?? []).flatMap((row) => row.invoice_id === null ? [] : [Number(row.invoice_id)]).filter(Number.isInteger)));
+      const { data: invoiceRows, error: invoicesError } = invoiceIds.length
+        ? await supabaseAdmin().from("invoices").select("id, invoice_no, site_id").eq("site_id", input.siteId).in("id", invoiceIds)
+        : { data: [], error: null };
+      if (invoicesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فواتير سجل الإشعارات من Supabase." });
+      const invoiceNoById = new Map((invoiceRows ?? []).map((row) => [Number(row.id), row.invoice_no]));
+      return (notificationRows ?? []).flatMap((row) => {
+        const subscriber = subscribersById.get(Number(row.subscriber_id));
+        if (!subscriber) return [];
+        return [{ notification: { id: Number(row.id), tenantId: Number(row.tenant_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), subscriberId: Number(row.subscriber_id), channel: row.channel, eventType: row.event_type, recipient: row.recipient, status: row.status, providerMessageId: row.provider_message_id, payload: row.payload, attempts: row.attempts, lastError: row.last_error, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null }];
+      });
     }),
     listBulkInvoiceSends: protectedProcedure.input(bulkInvoiceSendLogInput).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
@@ -1924,6 +1941,8 @@ export const powerhubRouter = router({
       return { operation, items: rows };
     }),
     retry: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إعادة محاولة الإشعارات معطّلة حالياً إلى أن تكتمل خدمة إرسال مستقلة متوافقة مع Supabase/Vercel." });
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
       const [notificationScope] = await db.select({ id: notificationMessages.id, status: notificationMessages.status }).from(notificationMessages)
@@ -1936,6 +1955,8 @@ export const powerhubRouter = router({
       return { success: true };
     }),
     retryFailedInvoiceNotification: protectedProcedure.input(retryFailedInvoiceNotificationInput).mutation(async ({ ctx, input }) => {
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إعادة إرسال الفواتير معطّلة حالياً إلى أن تكتمل خدمة إرسال مستقلة متوافقة مع Supabase/Vercel." });
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
       const [scope] = await db.select({ id: notificationMessages.id, status: notificationMessages.status, invoiceId: notificationMessages.invoiceId, invoiceNo: invoices.invoiceNo })
@@ -1948,11 +1969,13 @@ export const powerhubRouter = router({
       await db.update(notificationMessages).set({ status: "pending", lastError: null }).where(eq(notificationMessages.id, input.notificationId));
       let dispatch: { status: string; error?: string | null };
       try { dispatch = await processNotificationById(input.notificationId); }
-      catch (error) { dispatch = { status: "failed", error: error instanceof Error ? error.message : "تعذر إعادة إرسال إشعار الفاتورة." }; }
+      catch (error: any) { dispatch = { status: "failed", error: error instanceof Error ? error.message : "تعذر إعادة إرسال إشعار الفاتورة." }; }
       await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "notification_message", entityId: String(input.notificationId), action: "retry_failed_invoice_notification", metadata: { invoiceId: scope.invoiceId, invoiceNo: scope.invoiceNo, dispatchStatus: dispatch.status, error: dispatch.error ?? null, source: "bulk_invoice_send_details" } });
       return { notificationId: input.notificationId, status: dispatch.status, error: dispatch.error ?? null };
     }),
     retryFailedInvoiceNotifications: protectedProcedure.input(retryFailedInvoiceNotificationsInput).mutation(async ({ ctx, input }) => {
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إعادة الإرسال الجماعي للفواتير معطّلة حالياً إلى أن تكتمل خدمة إرسال مستقلة متوافقة مع Supabase/Vercel." });
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
       const notificationIds = Array.from(new Set(input.notificationIds));
@@ -1974,6 +1997,8 @@ export const powerhubRouter = router({
       return { requested: notificationIds.length, retried: rows.length, submitted: results.filter((item) => item.status === "submitted").length, failed: results.filter((item) => item.status === "failed").length, results };
     }),
     retryPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إعادة إرسال إيصالات الدفع معطّلة حالياً إلى أن تكتمل خدمة إرسال مستقلة متوافقة مع Supabase/Vercel." });
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const db = await dbOrThrow();
       const [scope] = await db.select({ id: notificationMessages.id, status: notificationMessages.status }).from(notificationMessages)
@@ -1986,11 +2011,13 @@ export const powerhubRouter = router({
       return { notificationId: input.notificationId, ...await processNotificationById(input.notificationId) };
     }),
     sendDeferredInvoices: protectedProcedure.input(sendDeferredInvoiceNotificationsInput).mutation(async ({ ctx, input }) => {
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إرسال الفواتير المؤجلة معطّل حالياً إلى أن تكتمل خدمة إرسال مستقلة متوافقة مع Supabase/Vercel." });
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
       const selectedIds = input.invoiceIds ? Array.from(new Set(input.invoiceIds)) : undefined;
       const rows = selectedIds
-        ? await queueInvoiceNotificationsForSelection(db, { siteId: input.siteId, invoiceIds: selectedIds })
+        ? await queueInvoiceNotificationsForSelection(db, { siteId: input.siteId, invoiceIds: selectedIds! })
         : await db.select({ notificationId: notificationMessages.id, invoiceId: invoices.id, invoiceNo: invoices.invoiceNo })
           .from(notificationMessages).innerJoin(subscribers, eq(notificationMessages.subscriberId, subscribers.id)).innerJoin(invoices, eq(notificationMessages.invoiceId, invoices.id))
           .where(and(eq(subscribers.siteId, input.siteId), eq(notificationMessages.eventType, "invoice_issued"), eq(notificationMessages.status, "pending"))).orderBy(notificationMessages.createdAt).limit(input.limit);
@@ -2002,6 +2029,8 @@ export const powerhubRouter = router({
       return { requested: rows.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length, results };
     }),
     sendBulkInvoiceSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceIds: z.array(z.number().int().positive()).min(1).max(200) })).mutation(async ({ ctx, input }) => {
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إرسال فواتير SMS الجماعي معطّل حالياً إلى أن تكتمل خدمة إرسال مستقلة متوافقة مع Supabase/Vercel." });
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
       const ids = Array.from(new Set(input.invoiceIds));
@@ -2037,6 +2066,8 @@ export const powerhubRouter = router({
       return { requested: ids.length, processed: results.length, successful: results.filter((item) => item.status === "submitted").length, failed: results.filter((item) => item.status === "failed").length, skipped: ids.length - results.length, results };
     }),
     sendPaymentReminder: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إرسال تذكيرات السداد معطّل حالياً إلى أن تكتمل خدمة إرسال مستقلة متوافقة مع Supabase/Vercel." });
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
       const [scope] = await db.select({ invoice: invoices, subscriber: subscribers, site: sites }).from(invoices)
@@ -2046,7 +2077,7 @@ export const powerhubRouter = router({
       if (!scope || !scope.subscriber.phone) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة أو بيانات المشترك لا تتبع للفرع المحدد." });
       if (["paid", "cancelled", "draft"].includes(scope.invoice.status) || Number(scope.invoice.balanceDue) <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن إرسال تذكير لفاتورة مسددة أو لا تحمل رصيداً مستحقاً." });
       let recipient: string;
-      try { recipient = normalizeInternationalPhone(scope.subscriber.phone); } catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." }); }
+      try { recipient = normalizeInternationalPhone(scope.subscriber.phone); } catch (error: any) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." }); }
       const [tenantMessaging, platformDeliverySettings, tenantTemplates] = await Promise.all([
         db.select({ channel: tenantMessagingConfigurations.channel, isActive: tenantMessagingConfigurations.isActive }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, scope.site.tenantId)),
         db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1),
@@ -2062,6 +2093,8 @@ export const powerhubRouter = router({
       return { notificationIds, channels, recipient };
     }),
     sendPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), paymentId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]) })).mutation(async ({ ctx, input }) => {
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إرسال إيصالات الدفع معطّل حالياً إلى أن تكتمل خدمة إرسال مستقلة متوافقة مع Supabase/Vercel." });
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const db = await dbOrThrow();
       const [scope] = await db.select({ payment: payments, invoice: invoices, subscriber: subscribers, site: sites }).from(payments)
@@ -2073,7 +2106,7 @@ export const powerhubRouter = router({
       let recipient: string;
       try {
         recipient = normalizeInternationalPhone(scope.subscriber.phone);
-      } catch (error) {
+      } catch (error: any) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." });
       }
       const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
