@@ -656,39 +656,13 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), provider: z.string().min(2).max(80),
       phoneNumberId: z.string().max(120).optional(), credential: z.string().min(8).max(4096),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const db = await dbOrThrow();
-      const [platformSetting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
-        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
-      if (!platformSetting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting(platformSetting))) throw new TRPCError({ code: "FORBIDDEN", message: "اختبار الاتصال غير متاح لقناة معطلة من آدمن المنصة." });
-      try {
-        const result = await probeMessagingConnection(input);
-        await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_configuration", entityId: `${input.siteId}:${input.channel}`, action: "connection_test", metadata: { channel: input.channel, provider: input.provider, ok: result.ok, mode: result.mode } });
-        return result;
-      } catch (error) {
-        const message = error instanceof Error ? error.message.slice(0, 500) : "تعذر الاتصال بالمزود.";
-        await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_configuration", entityId: `${input.siteId}:${input.channel}`, action: "connection_test", metadata: { channel: input.channel, provider: input.provider, ok: false, mode: "live" } });
-        return { ok: false, mode: "live" as const, message: `تعذر إتمام اختبار الاتصال: ${message}` };
-      }
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اختبار مزود الرسائل معطّل حالياً إلى أن يكتمل نقل الإشعارات إلى Supabase/Vercel." });
     }),
     configureInvoiceAutoSend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), enabled: z.boolean(), cron: z.string().min(11).max(40).default("0 0/15 * * * *") })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      const [config] = await db.select({ id: tenantMessagingConfigurations.id, scheduleCronTaskUid: tenantMessagingConfigurations.scheduleCronTaskUid, provider: tenantMessagingConfigurations.provider }).from(tenantMessagingConfigurations).where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.channel, "sms"))).limit(1);
-      if (!config) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب أن يربط آدمن PowerHub حساب TweetSMS لهذا صاحب المولد أولاً." });
-      const userSession = sessionCookie(ctx.req);
-      if (!input.enabled) {
-        if (config.scheduleCronTaskUid) await deleteHeartbeatJob(config.scheduleCronTaskUid, userSession);
-        await db.update(tenantMessagingConfigurations).set({ autoSendAfterApproval: false, autoSendCron: input.cron, scheduleCronTaskUid: null }).where(eq(tenantMessagingConfigurations.id, config.id));
-        await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_schedule", entityId: String(config.id), action: "disable" });
-        return { enabled: false, cron: input.cron };
-      }
-      if (config.provider !== "tweetsms") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذه الجدولة متاحة لحساب TweetSMS الذي يديره آدمن PowerHub فقط." });
-      const job = config.scheduleCronTaskUid ? await updateHeartbeatJob(config.scheduleCronTaskUid, { cron: input.cron, path: "/api/scheduled/send-invoice-sms", enable: true, description: "إرسال فواتير القراءات المعتمدة عبر SMS" }, userSession).then((result) => ({ taskUid: config.scheduleCronTaskUid!, nextExecutionAt: result.nextExecutionAt })) : await createHeartbeatJob({ name: `tenant-${tenantId}-invoice-sms`, cron: input.cron, path: "/api/scheduled/send-invoice-sms", description: "إرسال فواتير القراءات المعتمدة عبر SMS" }, userSession);
-      await db.update(tenantMessagingConfigurations).set({ autoSendAfterApproval: true, autoSendCron: input.cron, scheduleCronTaskUid: job.taskUid }).where(eq(tenantMessagingConfigurations.id, config.id));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "tenant_messaging_schedule", entityId: String(config.id), action: "enable", metadata: { cron: input.cron, taskUid: job.taskUid } });
-      return { enabled: true, cron: input.cron, nextExecutionAt: job.nextExecutionAt ?? null };
+      void ctx; void input;
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "جدولة إرسال الفواتير معطّلة حالياً؛ لا توجد مهمة مجدولة مفعلة في بيئة Supabase/Vercel." });
+      return { enabled: false, cron: input.cron, nextExecutionAt: null };
     }),
     saveInvoiceTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
