@@ -121,6 +121,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     });
   });
 
+  it("يعرض التقرير الشهري للفرع من Supabase دون استدعاء MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.reports.monthly({ siteId: 10, billingPeriod: "2026-08" })).resolves.toMatchObject({
+      summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
+      collectors: [{ name: "محصل غير محدد", count: 1, amount: 25 }],
+      topDebtors: [{ subscriber: "مشترك الاختبار", subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001", balanceDue: 75 }],
+    });
+  });
+
   it("يرفض عرض بيانات الفرع لمستخدم لا يملك عضوية Supabase فعالة", async () => {
     state.tables.users = [{ id: 2, role: "user" }];
     state.tables.tenant_members = [];
