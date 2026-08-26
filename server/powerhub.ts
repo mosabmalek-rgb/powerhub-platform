@@ -909,18 +909,8 @@ export const powerhubRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل نشاط الحساب الفرعي من Supabase." });
       return (data ?? []).map((entry) => ({ id: Number(entry.id), action: entry.action, entityType: entry.entity_type, createdAt: new Date(entry.created_at), metadata: entry.metadata, afterData: entry.after_data }));
     }),
-    resetPassword: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
-      const [profile] = await db.select({ userId: staffProfiles.userId, siteId: staffProfiles.siteId, email: users.email }).from(staffProfiles).innerJoin(users, eq(staffProfiles.userId, users.id))
-        .where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
-      if (!profile?.email) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود أو لا يملك بريداً صالحاً." });
-      const temporaryPassword = randomBytes(12).toString("base64url") + "A1!";
-      const { error } = await supabaseAdmin().auth.admin.updateUserById((await db.select({ openId: users.openId }).from(users).where(eq(users.id, profile.userId)).limit(1))[0]?.openId ?? "", { password: temporaryPassword });
-      if (error) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر إعادة تعيين كلمة المرور في نظام المصادقة." });
-      await db.update(users).set({ mustChangePassword: true, temporaryPasswordIssuedAt: new Date() }).where(eq(users.id, profile.userId));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: "reset_temporary_password", afterData: { targetUserId: profile.userId } });
-      return { success: true, temporaryPassword };
+    resetPassword: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async () => {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إعادة تعيين كلمات المرور للحسابات الفرعية متوقفة مؤقتاً أثناء ترحيلها الآمن إلى Supabase Auth. لا تُنفّذ أي عملية على المسار الموروث." });
     }),
     suspend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), startsAt: z.string().datetime(), endsAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
       const startsAt = new Date(input.startsAt); const endsAt = new Date(input.endsAt);
