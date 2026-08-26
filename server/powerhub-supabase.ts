@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
 import { storageGet } from "./storage";
+import { buildFinancialOverview } from "./financial-overview-utils";
 
 const allCapabilities: PowerCapability[] = [
   "manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs",
@@ -275,6 +276,24 @@ export async function listSupabaseExpenses(siteId: number) {
     category: row.category, description: row.description, amount: String(row.amount), occurredAt: new Date(row.occurred_at), referenceNo: row.reference_no,
     createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at),
   }));
+}
+
+export async function getSupabaseFinancialOverview(site: SupabaseSite) {
+  const admin = supabaseAdmin();
+  const [invoices, payments, expenses, subscribers] = await Promise.all([
+    admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("site_id", site.id),
+    admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("site_id", site.id),
+    admin.from("expenses").select("site_id, amount, occurred_at").eq("site_id", site.id),
+    admin.from("subscribers").select("id, full_name, subscriber_no, service_status").eq("site_id", site.id),
+  ]);
+  if (invoices.error || payments.error || expenses.error || subscribers.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي من Supabase." });
+  const byId = new Map((subscribers.data ?? []).map((row) => [Number(row.id), row]));
+  return buildFinancialOverview({
+    branches: [{ id: site.id, name: site.name, activeSubscribers: (subscribers.data ?? []).filter((row) => row.service_status === "active").length }],
+    invoices: (invoices.data ?? []).map((row) => ({ id: Number(row.id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), subscriberName: byId.get(Number(row.subscriber_id))?.full_name ?? "مشترك", subscriberNo: byId.get(Number(row.subscriber_id))?.subscriber_no ?? "—", invoiceNo: row.invoice_no, issueDate: new Date(row.issue_date), dueDate: new Date(row.due_date), totalAmount: Number(row.total_amount), paidAmount: Number(row.paid_amount), balanceDue: Number(row.balance_due), status: row.status })),
+    payments: (payments.data ?? []).map((row) => ({ siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), amount: Number(row.amount), status: row.status, paidAt: new Date(row.paid_at) })),
+    expenses: (expenses.data ?? []).map((row) => ({ siteId: Number(row.site_id), amount: Number(row.amount), occurredAt: new Date(row.occurred_at) })),
+  });
 }
 
 export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; from?: Date | null; to?: Date | null }) {
