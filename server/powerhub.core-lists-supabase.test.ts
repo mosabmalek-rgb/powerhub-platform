@@ -99,6 +99,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_save_custom_permission_role") return resolved([{ role_id: 122, mutation: "create" }]);
       if (name === "powerhub_delete_custom_permission_role") return resolved([{ role_id: 122 }]);
       if (name === "powerhub_update_staff_profile_permissions") return resolved([{ profile_id: 120, target_user_id: 2 }]);
+      if (name === "powerhub_update_staff_profile_status") return resolved([{ profile_id: 120, is_active: true, suspension_ends_at: "2026-08-10T12:00:00.000Z" }]);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -316,6 +317,19 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.updatePermissions({ siteId: 10, profileId: 120, customRoleId: 122, permissions: ["collectPayments"] })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_update_staff_profile_permissions", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_actor_user_id: 1, p_profile_id: 120, p_custom_role_id: 122, p_permissions: ["collectPayments"] }) });
+  });
+
+  it("يوقف الحساب الفرعي ويرفع التوقيف ويحدث حالته عبر Supabase دون MySQL", async () => {
+    state.tables.users = [{ id: 1, role: "admin" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.suspend({ siteId: 10, profileId: 120, startsAt: "2026-08-10T10:00:00.000Z", endsAt: "2026-08-10T12:00:00.000Z" })).resolves.toMatchObject({ success: true, suspensionEndsAt: expect.any(Date) });
+    await expect(caller.staff.clearSuspension({ siteId: 10, profileId: 120 })).resolves.toEqual({ success: true });
+    await expect(caller.staff.setActive({ siteId: 10, profileId: 120, isActive: false })).resolves.toEqual({ success: true, isActive: false });
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([
+      { name: "powerhub_update_staff_profile_status", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_actor_user_id: 1, p_profile_id: 120, p_operation: "suspend" }) },
+      { name: "powerhub_update_staff_profile_status", args: expect.objectContaining({ p_profile_id: 120, p_operation: "clear_suspension" }) },
+      { name: "powerhub_update_staff_profile_status", args: expect.objectContaining({ p_profile_id: 120, p_operation: "set_active", p_is_active: false }) },
+    ]));
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {

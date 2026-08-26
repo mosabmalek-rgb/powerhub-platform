@@ -885,34 +885,45 @@ export const powerhubRouter = router({
       return { success: true, temporaryPassword };
     }),
     suspend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), startsAt: z.string().datetime(), endsAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
       const startsAt = new Date(input.startsAt); const endsAt = new Date(input.endsAt);
       if (endsAt <= startsAt) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب أن يكون تاريخ نهاية التوقيف بعد تاريخ البداية." });
-      const [profile] = await db.select({ id: staffProfiles.id, userId: staffProfiles.userId, siteId: staffProfiles.siteId }).from(staffProfiles).where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
-      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
-      await db.update(staffProfiles).set({ suspensionStartedAt: startsAt, suspensionEndsAt: endsAt, updatedAt: new Date() }).where(eq(staffProfiles.id, input.profileId));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: "suspend_until", afterData: { targetUserId: profile.userId, suspensionStartedAt: startsAt.toISOString(), suspensionEndsAt: endsAt.toISOString() } });
-      return { success: true, suspensionEndsAt: endsAt };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_status", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_profile_id: input.profileId,
+        p_operation: "suspend", p_suspension_started_at: startsAt.toISOString(), p_suspension_ends_at: endsAt.toISOString(), p_is_active: null,
+      });
+      if (error) {
+        if (error.message.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+        if (error.message.includes("INVALID_SUSPENSION_WINDOW")) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب أن يكون تاريخ نهاية التوقيف بعد تاريخ البداية." });
+        if (error.message.includes("STAFF_STATUS_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية توقيف الحسابات الفرعية." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر توقيف الحساب الفرعي في Supabase." });
+      }
+      return { success: true, suspensionEndsAt: data?.[0]?.suspension_ends_at ? new Date(data[0].suspension_ends_at) : endsAt };
     }),
     clearSuspension: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
-      const [profile] = await db.select({ id: staffProfiles.id, userId: staffProfiles.userId }).from(staffProfiles).where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
-      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
-      await db.update(staffProfiles).set({ suspensionStartedAt: null, suspensionEndsAt: null, updatedAt: new Date() }).where(eq(staffProfiles.id, input.profileId));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: "clear_suspension", afterData: { targetUserId: profile.userId } });
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_status", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_profile_id: input.profileId,
+        p_operation: "clear_suspension", p_suspension_started_at: null, p_suspension_ends_at: null, p_is_active: null,
+      });
+      if (error) {
+        if (error.message.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+        if (error.message.includes("STAFF_STATUS_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إدارة توقيف الحسابات الفرعية." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر رفع توقيف الحساب الفرعي في Supabase." });
+      }
       return { success: true };
     }),
     setActive: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const [profile] = await db.select({ id: staffProfiles.id, userId: staffProfiles.userId, siteId: staffProfiles.siteId }).from(staffProfiles)
-        .where(and(eq(staffProfiles.id, input.profileId), eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)))).limit(1);
-      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
-      await db.update(staffProfiles).set({ isActive: input.isActive, updatedAt: new Date() }).where(eq(staffProfiles.id, input.profileId));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "staff_profile", entityId: String(input.profileId), action: input.isActive ? "activate" : "deactivate", afterData: { isActive: input.isActive, userId: profile.userId, profileSiteId: profile.siteId } });
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_status", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_profile_id: input.profileId,
+        p_operation: "set_active", p_suspension_started_at: null, p_suspension_ends_at: null, p_is_active: input.isActive,
+      });
+      if (error) {
+        if (error.message.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+        if (error.message.includes("STAFF_STATUS_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تفعيل أو تعطيل الحسابات الفرعية." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالة الحساب الفرعي في Supabase." });
+      }
       return { success: true, isActive: input.isActive };
     }),
   }),
