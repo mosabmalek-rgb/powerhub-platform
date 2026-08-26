@@ -865,30 +865,20 @@ export const powerhubRouter = router({
     }),
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) }))
       .mutation(async ({ ctx, input }) => {
-        await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-        const db = await dbOrThrow();
-        const actorRole = await resolveRole(ctx.user.id, input.siteId);
-        if (ctx.user.role !== "admin" && actorRole === "owner") {
-          const allowedRoles = await ownerAllowedSubaccountRoles(await getSiteTenant(input.siteId));
-          if (!allowedRoles.includes(input.role as OwnerSubaccountRole)) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة آدمن المنصة." });
-        }
-        const tenantId = await getSiteTenant(input.siteId);
-        if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ربط المحطة بمستأجر قبل تعيين الفريق." });
-        const [existingMembership] = await db.select({ role: tenantMembers.role, isActive: tenantMembers.isActive, membershipStatus: tenantMembers.membershipStatus }).from(tenantMembers)
-          .where(and(eq(tenantMembers.tenantId, tenantId), eq(tenantMembers.userId, input.userId))).limit(1);
-        const alreadyActiveSubaccount = existingMembership?.role === "member" && existingMembership.isActive && existingMembership.membershipStatus === "active";
-        if (!alreadyActiveSubaccount) {
-          const [limit, currentCount] = await Promise.all([ownerSubaccountLimit(tenantId), activeSubaccountCount(tenantId)]);
-          if (currentCount >= limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك (${limit}).` });
-        }
-        const tenantRole = existingMembership?.role === "owner" ? "owner" : "member" as const;
-        const targetSiteId = input.allBranches ? null : input.siteId;
-        await db.transaction(async (tx) => {
-          await tx.insert(tenantMembers).values({ tenantId, userId: input.userId, role: tenantRole, isActive: true, membershipStatus: "active", expiresAt: null }).onDuplicateKeyUpdate({ set: { role: tenantRole, isActive: true, membershipStatus: "active", expiresAt: null } });
-          await tx.update(staffProfiles).set({ isActive: false }).where(and(eq(staffProfiles.tenantId, tenantId), input.allBranches ? isNull(staffProfiles.siteId) : eq(staffProfiles.siteId, input.siteId), eq(staffProfiles.userId, input.userId)));
-          await tx.insert(staffProfiles).values({ tenantId, siteId: targetSiteId, userId: input.userId, role: input.role, isActive: true }).onDuplicateKeyUpdate({ set: { isActive: true, role: input.role, updatedAt: new Date() } });
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+        const { error } = await supabaseAdmin().rpc("powerhub_assign_existing_staff", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_target_user_id: input.userId,
+          p_role: input.role, p_all_branches: input.allBranches,
         });
-        await writeAudit({ userId: ctx.user.id, entityType: "staff_profile", entityId: `${targetSiteId ?? "all"}:${input.userId}`, action: "assign_role", afterData: { ...input, assignedSiteId: targetSiteId } });
+        if (error) {
+          if (error.message.includes("TARGET_USER_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب المطلوب غير موجود في Supabase." });
+          if (error.message.includes("SUBACCOUNT_ROLE_NOT_ALLOWED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة آدمن المنصة." });
+          if (error.message.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك." });
+          if (error.message.includes("STAFF_ASSIGNMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعيين الحسابات الفرعية." });
+          if (error.message.includes("TENANT_PLAN_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
+          if (error.message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة صاحب المولد." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تعيين الحساب الفرعي في Supabase." });
+        }
         return { success: true };
       }),
     create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), email: z.string().email(), name: z.string().trim().min(2).max(160), temporaryPassword: z.string().min(8).max(128), role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
