@@ -865,11 +865,11 @@ export const powerhubRouter = router({
       } catch (error) { await supabaseAdmin().auth.admin.deleteUser(created.user.id); throw error; }
     }),
     activity: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive() })).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      return db.select({ id: auditLogs.id, action: auditLogs.action, entityType: auditLogs.entityType, createdAt: auditLogs.createdAt, metadata: auditLogs.metadata, afterData: auditLogs.afterData }).from(auditLogs)
-        .where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.userId, input.userId))).orderBy(desc(auditLogs.createdAt)).limit(15);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().from("audit_logs").select("id, action, entity_type, created_at, metadata, after_data")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("user_id", input.userId).order("created_at", { ascending: false }).limit(15);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل نشاط الحساب الفرعي من Supabase." });
+      return (data ?? []).map((entry) => ({ id: Number(entry.id), action: entry.action, entityType: entry.entity_type, createdAt: new Date(entry.created_at), metadata: entry.metadata, afterData: entry.after_data }));
     }),
     resetPassword: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");

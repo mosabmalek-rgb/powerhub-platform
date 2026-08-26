@@ -332,6 +332,13 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     ]));
   });
 
+  it("يعرض سجل نشاط الحساب الفرعي من Supabase دون MySQL", async () => {
+    state.tables.users = [{ id: 1, role: "admin" }];
+    state.tables.audit_logs = [{ id: 125, tenant_id: 20, site_id: 10, user_id: 2, entity_type: "staff_profile", action: "update_permissions", metadata: { source: "team" }, after_data: { permissions: ["collectPayments"] }, created_at: "2026-08-10T12:00:00.000Z" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.activity({ siteId: 10, userId: 2 })).resolves.toMatchObject([{ id: 125, action: "update_permissions", entityType: "staff_profile", createdAt: expect.any(Date), metadata: { source: "team" } }]);
+  });
+
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))
