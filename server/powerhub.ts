@@ -66,7 +66,7 @@ import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { createHeartbeatJob, deleteHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { COOKIE_NAME } from "../shared/const";
-import { getSupabaseDashboardSummary, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseGenerators, listSupabaseInvoices, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
@@ -1539,19 +1539,8 @@ export const powerhubRouter = router({
 
   payments: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
-      const db = await dbOrThrow();
-      const rows = await db.select({ payment: payments, subscriber: subscribers, invoiceNo: invoices.invoiceNo }).from(payments)
-        .innerJoin(subscribers, eq(payments.subscriberId, subscribers.id))
-        .leftJoin(invoices, eq(payments.invoiceId, invoices.id))
-        .where(eq(payments.siteId, input.siteId)).orderBy(desc(payments.paidAt));
-      return Promise.all(rows.map(async (row) => ({
-        ...row,
-        payment: {
-          ...row.payment,
-          receiptImageUrl: row.payment.receiptImageKey ? (await storageGet(row.payment.receiptImageKey)).url : null,
-        },
-      })));
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      return listSupabasePayments(input.siteId);
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
@@ -1644,25 +1633,24 @@ export const powerhubRouter = router({
 
   expenses: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
-      const db = await dbOrThrow();
-      return db.select().from(expenses).where(eq(expenses.siteId, input.siteId)).orderBy(desc(expenses.occurredAt));
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      return listSupabaseExpenses(input.siteId);
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), generatorId: z.number().int().positive().optional(), category: z.enum(["fuel", "maintenance", "payroll", "parts", "transport", "other"]),
       description: z.string().min(2).max(255), amount: z.number().positive(), referenceNo: z.string().max(120).optional(),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, createRoles, "manageExpenses");
-      const db = await dbOrThrow();
-      if (input.generatorId) {
-        const [generator] = await db.select({ id: generators.id }).from(generators).where(and(eq(generators.id, input.generatorId), eq(generators.siteId, input.siteId))).limit(1);
-        if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
-      }
-      const tenantId = await getSiteTenant(input.siteId);
-      await assertFinancialPeriodOpen(db, tenantId, input.siteId, new Date(), ctx.user.id, "expense");
-      const id = insertId(await db.insert(expenses).values({ ...input, tenantId, amount: String(input.amount), createdByUserId: ctx.user.id }));
-      await writeAudit({ userId: ctx.user.id, entityType: "expense", entityId: String(id), action: "create", afterData: input });
-      return { id };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageExpenses");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_expense", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_generator_id: input.generatorId ?? null,
+        p_category: input.category, p_description: input.description, p_amount: input.amount, p_reference_no: input.referenceNo ?? null,
+      });
+      if (!error && data?.[0]) return { id: Number((data[0] as { expense_id: number | string }).expense_id) };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("GENERATOR_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تعديل أو إضافة بيانات مالية داخلها." });
+      if (errorText.includes("INVALID_EXPENSE_AMOUNT") || errorText.includes("INVALID_EXPENSE_CATEGORY")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات المصروف غير صالحة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل المصروف في Supabase." });
     }),
   }),
 
@@ -2139,26 +2127,12 @@ export const powerhubRouter = router({
 
   companyAccounts: router({
     list: protectedProcedure.input(siteScoped.extend({ branchId: z.number().int().positive().optional(), fromDate: z.string().optional(), toDate: z.string().optional() })).query(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
-      void role;
-      const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);
-      let accounts = await db.select().from(companyAccounts).where(and(eq(companyAccounts.tenantId, tenantId), eq(companyAccounts.isActive, true))).orderBy(companyAccounts.id);
-      if (!accounts.length) {
-        const defaults = [["كاش", "cash", "#64748b"], ["جوال بي", "jawwal_pay", "#16a34a"], ["بال بي", "palpay", "#9333ea"], ["بنك فلسطين", "bank_of_palestine", "#0891b2"]] as const;
-        for (const [name, accountType, color] of defaults) await db.insert(companyAccounts).values({ tenantId, name, accountType, color });
-        accounts = await db.select().from(companyAccounts).where(and(eq(companyAccounts.tenantId, tenantId), eq(companyAccounts.isActive, true))).orderBy(companyAccounts.id);
-      }
-      const accountSiteRows = await db.select({ accountId: companyAccountSites.accountId, siteId: companyAccountSites.siteId, siteName: sites.name }).from(companyAccountSites).innerJoin(sites, eq(companyAccountSites.siteId, sites.id)).where(eq(companyAccountSites.tenantId, tenantId));
-      const visibleAccountIds = input.branchId ? new Set(accountSiteRows.filter((row) => row.siteId === input.branchId).map((row) => row.accountId)) : null;
       const from = input.fromDate ? new Date(input.fromDate) : null; const to = input.toDate ? new Date(input.toDate) : null;
       if (from && Number.isNaN(from.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية غير صحيح." });
       if (to && Number.isNaN(to.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ النهاية غير صحيح." });
       if (from && to && from > to) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب أن يسبق تاريخ النهاية." });
-      const rows = await db.select().from(accountTransactions).where(and(eq(accountTransactions.tenantId, tenantId), ...(from ? [gte(accountTransactions.occurredAt, from)] : []), ...(to ? [lte(accountTransactions.occurredAt, to)] : []))).orderBy(desc(accountTransactions.occurredAt)).limit(1000);
-      return accounts.filter((account) => !visibleAccountIds || visibleAccountIds.has(account.id)).map((account) => {
-        const transactions = rows.filter((row) => row.accountId === account.id);
-        return { ...account, linkedSites: accountSiteRows.filter((row) => row.accountId === account.id), balance: calculateCompanyAccountBalance(account.openingBalance, transactions), transactions };
-      });
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: input.branchId, from, to });
     }),
     create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), name: z.string().trim().min(2).max(120), accountType: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]), phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً."), openingBalance: z.number().nonnegative().default(0), color: z.string().trim().max(20).optional(), siteIds: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageExpenses"); const db = await dbOrThrow(); const tenantId = await getSiteTenant(input.siteId);

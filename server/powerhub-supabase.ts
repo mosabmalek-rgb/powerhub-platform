@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
+import { storageGet } from "./storage";
 
 const allCapabilities: PowerCapability[] = [
   "manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs",
@@ -37,6 +38,21 @@ function dateOrNull(value: string | null): Date | null {
 function isSuspended(now: Date, startsAt: Date | null, endsAt: Date | null) {
   return Boolean(startsAt && endsAt && now >= startsAt && now < endsAt);
 }
+
+type SupabaseAccountTransaction = {
+  id: number;
+  tenantId: number;
+  accountId: number;
+  transactionType: string;
+  amount: string;
+  description: string;
+  referenceNo: string | null;
+  relatedPaymentId: number | null;
+  relatedAccountId: number | null;
+  createdByUserId: number | null;
+  occurredAt: Date;
+  createdAt: Date;
+};
 
 export async function getSupabaseSite(siteId: number): Promise<SupabaseSite> {
   const { data, error } = await supabaseAdmin().from("sites")
@@ -213,6 +229,105 @@ export async function listSupabaseInvoices(siteId: number) {
     discountAmount: String(row.discount_amount), totalAmount: String(row.total_amount), paidAmount: String(row.paid_amount), balanceDue: String(row.balance_due),
     status: row.status, createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
   }));
+}
+
+export async function listSupabasePayments(siteId: number) {
+  const admin = supabaseAdmin();
+  const { data: paymentRows, error: paymentsError } = await admin.from("payments")
+    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, status, collected_by_user_id, collector_session_id, paid_at, created_at")
+    .eq("site_id", siteId).order("paid_at", { ascending: false });
+  if (paymentsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الدفعات من Supabase." });
+  const subscriberIds = Array.from(new Set((paymentRows ?? []).map((row) => Number(row.subscriber_id))));
+  const invoiceIds = Array.from(new Set((paymentRows ?? []).flatMap((row) => row.invoice_id === null ? [] : [Number(row.invoice_id)])));
+  const [{ data: subscriberRows, error: subscribersError }, { data: invoiceRows, error: invoicesError }] = await Promise.all([
+    subscriberIds.length ? admin.from("subscribers").select("id, tenant_id, site_id, subscriber_no, full_name, phone, whatsapp_number, address, subscription_type, service_status, created_at, updated_at").in("id", subscriberIds) : Promise.resolve({ data: [], error: null }),
+    invoiceIds.length ? admin.from("invoices").select("id, invoice_no").in("id", invoiceIds) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (subscribersError || invoicesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مراجع الدفعات من Supabase." });
+  const subscriberById = new Map((subscriberRows ?? []).map((row) => [Number(row.id), {
+    id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberNo: row.subscriber_no, fullName: row.full_name,
+    phone: row.phone, whatsappNumber: row.whatsapp_number, address: row.address, subscriptionType: row.subscription_type, serviceStatus: row.service_status,
+    createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+  }]));
+  const invoiceNoById = new Map((invoiceRows ?? []).map((row) => [Number(row.id), row.invoice_no]));
+  return (await Promise.all((paymentRows ?? []).map(async (row) => {
+    const subscriber = subscriberById.get(Number(row.subscriber_id));
+    if (!subscriber) return [];
+    const payment = {
+      id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id),
+      paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method,
+      transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type,
+      referenceNo: row.reference_no, receiptImageKey: row.receipt_image_key, receiptImageHash: row.receipt_image_hash, status: row.status,
+      collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id),
+      paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: row.receipt_image_key ? (await storageGet(row.receipt_image_key)).url : null,
+    };
+    return [{ payment, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null }];
+  }))).flat();
+}
+
+export async function listSupabaseExpenses(siteId: number) {
+  const { data, error } = await supabaseAdmin().from("expenses")
+    .select("id, tenant_id, site_id, generator_id, category, description, amount, occurred_at, reference_no, created_by_user_id, created_at")
+    .eq("site_id", siteId).order("occurred_at", { ascending: false });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المصروفات من Supabase." });
+  return (data ?? []).map((row) => ({
+    id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), generatorId: row.generator_id === null ? null : Number(row.generator_id),
+    category: row.category, description: row.description, amount: String(row.amount), occurredAt: new Date(row.occurred_at), referenceNo: row.reference_no,
+    createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at),
+  }));
+}
+
+export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; from?: Date | null; to?: Date | null }) {
+  const admin = supabaseAdmin();
+  let { data: accountRows, error: accountsError } = await admin.from("company_accounts")
+    .select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, created_at, updated_at")
+    .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
+  if (accountsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة من Supabase." });
+  if (!(accountRows ?? []).length) {
+    const defaults = [
+      { tenant_id: input.tenantId, name: "كاش", account_type: "cash", color: "#64748b" },
+      { tenant_id: input.tenantId, name: "جوال بي", account_type: "jawwal_pay", color: "#16a34a" },
+      { tenant_id: input.tenantId, name: "بال بي", account_type: "palpay", color: "#9333ea" },
+      { tenant_id: input.tenantId, name: "بنك فلسطين", account_type: "bank_of_palestine", color: "#0891b2" },
+    ];
+    const { error: defaultsError } = await admin.from("company_accounts").insert(defaults);
+    if (defaultsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تهيئة حسابات الشركة الافتراضية في Supabase." });
+    const retry = await admin.from("company_accounts").select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, created_at, updated_at")
+      .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
+    if (retry.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة بعد التهيئة." });
+    accountRows = retry.data;
+  }
+  const accountIds = (accountRows ?? []).map((row) => Number(row.id));
+  const [siteLinksResult, sitesResult, transactionsResult] = await Promise.all([
+    accountIds.length ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds) : Promise.resolve({ data: [], error: null }),
+    admin.from("sites").select("id, name").eq("tenant_id", input.tenantId),
+    accountIds.length ? admin.from("account_transactions").select("id, tenant_id, account_id, transaction_type, amount, description, reference_no, related_payment_id, related_account_id, created_by_user_id, occurred_at, created_at")
+      .eq("tenant_id", input.tenantId).in("account_id", accountIds)
+      .gte("occurred_at", input.from?.toISOString() ?? "1970-01-01T00:00:00.000Z").lte("occurred_at", input.to?.toISOString() ?? "9999-12-31T23:59:59.999Z").order("occurred_at", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (siteLinksResult.error || sitesResult.error || transactionsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حركات أو ربط حسابات الشركة من Supabase." });
+  const siteNameById = new Map((sitesResult.data ?? []).map((site) => [Number(site.id), site.name]));
+  const linksByAccount = new Map<number, Array<{ accountId: number; siteId: number; siteName: string }>>();
+  for (const link of siteLinksResult.data ?? []) {
+    const accountId = Number(link.account_id); const siteId = Number(link.site_id);
+    linksByAccount.set(accountId, [...(linksByAccount.get(accountId) ?? []), { accountId, siteId, siteName: siteNameById.get(siteId) ?? "فرع" }]);
+  }
+  const transactionsByAccount = new Map<number, SupabaseAccountTransaction[]>();
+  for (const row of transactionsResult.data ?? []) {
+    const accountId = Number(row.account_id);
+    const transaction: SupabaseAccountTransaction = { id: Number(row.id), tenantId: Number(row.tenant_id), accountId, transactionType: row.transaction_type, amount: String(row.amount), description: row.description, referenceNo: row.reference_no, relatedPaymentId: row.related_payment_id === null ? null : Number(row.related_payment_id), relatedAccountId: row.related_account_id === null ? null : Number(row.related_account_id), createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), occurredAt: new Date(row.occurred_at), createdAt: new Date(row.created_at) };
+    transactionsByAccount.set(accountId, [...(transactionsByAccount.get(accountId) ?? []), transaction]);
+  }
+  return (accountRows ?? []).flatMap((row) => {
+    const id = Number(row.id); const linkedSites = linksByAccount.get(id) ?? [];
+    if (input.branchId && !linkedSites.some((link) => link.siteId === input.branchId)) return [];
+    const transactions = transactionsByAccount.get(id) ?? [];
+    const balance = transactions.reduce((total, transaction) => {
+      const amount = Number(transaction.amount ?? 0);
+      return ["deposit", "transfer_in", "collection"].includes(String(transaction.transactionType)) ? total + amount : total - amount;
+    }, Number(row.opening_balance));
+    return [{ id, tenantId: Number(row.tenant_id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number, color: row.color, openingBalance: String(row.opening_balance), isActive: row.is_active, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at), linkedSites, balance, transactions }];
+  });
 }
 
 export async function getSupabaseDashboardSummary(siteId: number) {
