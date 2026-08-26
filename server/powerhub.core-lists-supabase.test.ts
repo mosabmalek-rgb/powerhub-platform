@@ -214,6 +214,20 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_request_sms_package", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_requested_messages: 1000 }) });
   });
 
+  it("يعرض إعدادات الرسائل والقوالب وسجل الجدولة من Supabase دون Heartbeat أو MySQL", async () => {
+    state.tables.tenant_messaging_configurations = [{ id: 95, tenant_id: 20, channel: "sms", provider: "tweetsms", sender_id: "PowerHub", phone_number_id: null, template_name: "invoice", receipt_template_name: "receipt", subscriber_reference_template_name: null, is_active: false, auto_send_after_approval: false, auto_send_cron: null, schedule_cron_task_uid: null, updated_at: "2026-08-25T00:00:00.000Z" }];
+    state.tables.messaging_schedule_runs = [{ id: 96, tenant_id: 20, configuration_id: 95, status: "success", scanned: 2, submitted: 0, failed: 0, skipped: 2, error: null, task_uid: null, started_at: "2026-08-25T00:00:00.000Z", finished_at: "2026-08-25T00:01:00.000Z" }];
+    state.tables.platform_settings = [{ setting_key: "invoice_delivery_channels", is_enabled: false, value: { sms: false, whatsapp: false }, message: "الإرسال الخارجي معطل" }];
+    state.tables.tenant_invoice_message_templates = [{ id: 97, tenant_id: 20, channel: "sms", event_type: "invoice_issued", body: "فاتورتك جاهزة", is_active: true, created_at: "2026-08-20T00:00:00.000Z", updated_at: "2026-08-20T00:00:00.000Z" }];
+    state.tables.tenant_payment_receipt_message_templates = [{ id: 98, tenant_id: 20, channel: "sms", body: "تم استلام الدفعة", is_active: true, created_at: "2026-08-20T00:00:00.000Z", updated_at: "2026-08-20T00:00:00.000Z" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.messaging.listConfigurations({ siteId: 10 })).resolves.toMatchObject([{ id: 95, channel: "sms", isActive: false, updatedAt: expect.any(Date) }]);
+    await expect(caller.messaging.listScheduleRuns({ siteId: 10, limit: 20 })).resolves.toMatchObject([{ id: 96, submitted: 0, startedAt: expect.any(Date), finishedAt: expect.any(Date) }]);
+    await expect(caller.messaging.deliveryPolicy({ siteId: 10 })).resolves.toMatchObject({ configured: true, message: "الإرسال الخارجي معطل" });
+    await expect(caller.messaging.listInvoiceTemplates({ siteId: 10 })).resolves.toMatchObject([{ id: 97, body: "فاتورتك جاهزة", isActive: true, createdAt: expect.any(Date) }]);
+    await expect(caller.messaging.listPaymentReceiptTemplates({ siteId: 10 })).resolves.toMatchObject([{ id: 98, body: "تم استلام الدفعة", isActive: true, createdAt: expect.any(Date) }]);
+  });
+
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))

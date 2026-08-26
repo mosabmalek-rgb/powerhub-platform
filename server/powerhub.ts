@@ -615,39 +615,49 @@ export const powerhubRouter = router({
       return { id: Number(request.request_id), status: "pending" as const };
     }),
     listConfigurations: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const tenantId = await getSiteTenant(input.siteId);
-      if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
-      const db = await dbOrThrow();
-      return db.select({ id: tenantMessagingConfigurations.id, channel: tenantMessagingConfigurations.channel, provider: tenantMessagingConfigurations.provider, senderId: tenantMessagingConfigurations.senderId, phoneNumberId: tenantMessagingConfigurations.phoneNumberId, templateName: tenantMessagingConfigurations.templateName, receiptTemplateName: tenantMessagingConfigurations.receiptTemplateName, subscriberReferenceTemplateName: tenantMessagingConfigurations.subscriberReferenceTemplateName, isActive: tenantMessagingConfigurations.isActive, autoSendAfterApproval: tenantMessagingConfigurations.autoSendAfterApproval, autoSendCron: tenantMessagingConfigurations.autoSendCron, scheduleCronTaskUid: tenantMessagingConfigurations.scheduleCronTaskUid, updatedAt: tenantMessagingConfigurations.updatedAt }).from(tenantMessagingConfigurations).where(eq(tenantMessagingConfigurations.tenantId, tenantId));
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const { data, error } = await supabaseAdmin().from("tenant_messaging_configurations")
+        .select("id, channel, provider, sender_id, phone_number_id, template_name, receipt_template_name, subscriber_reference_template_name, is_active, auto_send_after_approval, auto_send_cron, schedule_cron_task_uid, updated_at")
+        .eq("tenant_id", scope.tenantId).order("channel", { ascending: true });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات الرسائل من Supabase." });
+      return (data ?? []).map((config) => ({ id: Number(config.id), channel: config.channel, provider: config.provider, senderId: config.sender_id, phoneNumberId: config.phone_number_id, templateName: config.template_name, receiptTemplateName: config.receipt_template_name, subscriberReferenceTemplateName: config.subscriber_reference_template_name, isActive: config.is_active, autoSendAfterApproval: config.auto_send_after_approval, autoSendCron: config.auto_send_cron, scheduleCronTaskUid: config.schedule_cron_task_uid, updatedAt: new Date(config.updated_at) }));
     }),
     listScheduleRuns: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(50).default(20) })).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      const [config] = await db.select({ id: tenantMessagingConfigurations.id }).from(tenantMessagingConfigurations).where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.channel, "sms"))).limit(1);
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const admin = supabaseAdmin();
+      const { data: config, error: configError } = await admin.from("tenant_messaging_configurations").select("id")
+        .eq("tenant_id", scope.tenantId).eq("channel", "sms").maybeSingle();
+      if (configError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعداد جدولة الرسائل من Supabase." });
       if (!config) return [];
-      return db.select({ id: messagingScheduleRuns.id, status: messagingScheduleRuns.status, scanned: messagingScheduleRuns.scanned, submitted: messagingScheduleRuns.submitted, failed: messagingScheduleRuns.failed, skipped: messagingScheduleRuns.skipped, error: messagingScheduleRuns.error, taskUid: messagingScheduleRuns.taskUid, startedAt: messagingScheduleRuns.startedAt, finishedAt: messagingScheduleRuns.finishedAt }).from(messagingScheduleRuns).where(and(eq(messagingScheduleRuns.tenantId, tenantId), eq(messagingScheduleRuns.configurationId, config.id))).orderBy(desc(messagingScheduleRuns.startedAt)).limit(input.limit);
+      const { data, error } = await admin.from("messaging_schedule_runs")
+        .select("id, status, scanned, submitted, failed, skipped, error, task_uid, started_at, finished_at")
+        .eq("tenant_id", scope.tenantId).eq("configuration_id", config.id).order("started_at", { ascending: false }).limit(input.limit);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل جدولة الرسائل من Supabase." });
+      return (data ?? []).map((run) => ({ id: Number(run.id), status: run.status, scanned: run.scanned, submitted: run.submitted, failed: run.failed, skipped: run.skipped, error: run.error, taskUid: run.task_uid, startedAt: new Date(run.started_at), finishedAt: run.finished_at ? new Date(run.finished_at) : null }));
     }),
     deliveryPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const db = await dbOrThrow();
-      const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value, message: platformSettings.message }).from(platformSettings)
-        .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const { data, error } = await supabaseAdmin().from("platform_settings").select("is_enabled, value, message")
+        .eq("setting_key", "invoice_delivery_channels").maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة قنوات الفواتير من Supabase." });
+      const setting = data ? { isEnabled: data.is_enabled, value: data.value, message: data.message } : null;
       return { ...invoiceDeliveryPolicyFromSetting(setting), configured: Boolean(setting), message: setting?.message ?? null };
     }),
     listInvoiceTemplates: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const tenantId = await getSiteTenant(input.siteId);
-      if (!tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة مستأجر مهيأة بعد." });
-      const db = await dbOrThrow();
-      return db.select().from(tenantInvoiceMessageTemplates).where(and(eq(tenantInvoiceMessageTemplates.tenantId, tenantId), eq(tenantInvoiceMessageTemplates.eventType, "invoice_issued")));
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const { data, error } = await supabaseAdmin().from("tenant_invoice_message_templates")
+        .select("id, tenant_id, channel, event_type, body, is_active, created_at, updated_at")
+        .eq("tenant_id", scope.tenantId).eq("event_type", "invoice_issued").order("channel", { ascending: true });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قوالب رسائل الفواتير من Supabase." });
+      return (data ?? []).map((template) => ({ id: Number(template.id), tenantId: Number(template.tenant_id), channel: template.channel, eventType: template.event_type, body: template.body, isActive: template.is_active, createdAt: new Date(template.created_at), updatedAt: new Date(template.updated_at) }));
     }),
     listPaymentReceiptTemplates: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      return db.select().from(tenantPaymentReceiptMessageTemplates).where(eq(tenantPaymentReceiptMessageTemplates.tenantId, tenantId));
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const { data, error } = await supabaseAdmin().from("tenant_payment_receipt_message_templates")
+        .select("id, tenant_id, channel, body, is_active, created_at, updated_at")
+        .eq("tenant_id", scope.tenantId).order("channel", { ascending: true });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قوالب إيصالات الرسائل من Supabase." });
+      return (data ?? []).map((template) => ({ id: Number(template.id), tenantId: Number(template.tenant_id), channel: template.channel, body: template.body, isActive: template.is_active, createdAt: new Date(template.created_at), updatedAt: new Date(template.updated_at) }));
     }),
     saveConfiguration: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), provider: z.string().min(2).max(80),
