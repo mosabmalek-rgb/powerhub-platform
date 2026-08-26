@@ -18,6 +18,7 @@ const state = vi.hoisted(() => {
     company_accounts: [{ id: 90, tenant_id: 20, name: "كاش", account_type: "cash", phone_number: null, color: "#64748b", opening_balance: 100, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" }],
     company_account_sites: [{ account_id: 90, site_id: 10 }],
     account_transactions: [{ id: 91, tenant_id: 20, account_id: 90, transaction_type: "collection", amount: 25, description: "تحصيل الفاتورة PAY-202608-0001", reference_no: "REF-1", related_payment_id: 81, related_account_id: null, created_by_user_id: 1, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
+    collector_sessions: [{ id: 96, tenant_id: 20, site_id: 10, collector_user_id: 1, status: "open", opening_cash: 5, expected_cash: 5, declared_cash: null, variance_amount: null, opened_at: "2026-08-03T00:00:00.000Z", closed_at: null, notes: null, closed_by_user_id: null, created_at: "2026-08-03T00:00:00.000Z", updated_at: "2026-08-03T00:00:00.000Z" }],
     users: [{ id: 1, role: "admin" }],
     tenants: [{ id: 20, plan: "starter" }],
   };
@@ -75,6 +76,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_company_account") return resolved([{ account_id: 92 }]);
       if (name === "powerhub_add_account_movement") return resolved([{ transaction_id: 93 }]);
       if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
+      if (name === "powerhub_close_collector_session") return resolved([{ expected_cash: 10, variance_amount: 0 }]);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -194,5 +196,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       expect.objectContaining({ name: "powerhub_add_account_movement", args: expect.objectContaining({ p_account_id: 90, p_transaction_type: "deposit", p_amount: 10 }) }),
       expect.objectContaining({ name: "powerhub_transfer_company_accounts", args: expect.objectContaining({ p_from_account_id: 90, p_to_account_id: 92, p_amount: 5 }) }),
     ]);
+  });
+
+  it("يعرض ويغلق جلسة التحصيل عبر Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.collectorSessions.list({ siteId: 10 })).resolves.toMatchObject([{ session: { id: 96, openedAt: expect.any(Date) }, collector: { id: 1 } }]);
+    await expect(caller.collectorSessions.close({ siteId: 10, sessionId: 96, declaredCash: 10 })).resolves.toEqual({ expectedCash: 10, varianceAmount: 0 });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_close_collector_session", args: expect.objectContaining({ p_session_id: 96, p_allow_foreign_close: true }) })]);
   });
 });

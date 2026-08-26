@@ -1593,41 +1593,40 @@ export const powerhubRouter = router({
 
   collectorSessions: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
-      const db = await dbOrThrow();
-      const scope = role === "collector" ? and(eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id)) : eq(collectorSessions.siteId, input.siteId);
-      return db.select({ session: collectorSessions, collector: users }).from(collectorSessions).innerJoin(users, eq(collectorSessions.collectorUserId, users.id)).where(scope).orderBy(desc(collectorSessions.openedAt)).limit(100);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      let query = supabaseAdmin().from("collector_sessions").select("id, tenant_id, site_id, collector_user_id, status, opening_cash, expected_cash, declared_cash, variance_amount, opened_at, closed_at, notes, closed_by_user_id, created_at, updated_at").eq("site_id", input.siteId).order("opened_at", { ascending: false }).limit(100);
+      if (access.role === "collector") query = query.eq("collector_user_id", ctx.user.id);
+      const { data, error } = await query;
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جلسات التحصيل من Supabase." });
+      const userIds = Array.from(new Set((data ?? []).map((row) => Number(row.collector_user_id))));
+      const { data: userRows, error: usersError } = userIds.length ? await supabaseAdmin().from("users").select("id, name, email, phone_number, platform_role, created_at, updated_at").in("id", userIds) : { data: [], error: null };
+      if (usersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المحصلين من Supabase." });
+      const usersById = new Map((userRows ?? []).map((row) => [Number(row.id), { id: Number(row.id), name: row.name, email: row.email, phoneNumber: row.phone_number, platformRole: row.platform_role, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) }]));
+      return (data ?? []).map((row) => ({ session: { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), collectorUserId: Number(row.collector_user_id), status: row.status, openingCash: String(row.opening_cash), expectedCash: String(row.expected_cash), declaredCash: row.declared_cash === null ? null : String(row.declared_cash), varianceAmount: row.variance_amount === null ? null : String(row.variance_amount), openedAt: new Date(row.opened_at), closedAt: row.closed_at ? new Date(row.closed_at) : null, notes: row.notes, closedByUserId: row.closed_by_user_id === null ? null : Number(row.closed_by_user_id), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) }, collector: usersById.get(Number(row.collector_user_id)) ?? { id: Number(row.collector_user_id), name: null, email: null, phoneNumber: null, platformRole: null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) } }));
     }),
     current: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
-      const db = await dbOrThrow();
-      const [session] = await db.select().from(collectorSessions).where(and(eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id), eq(collectorSessions.status, "open"))).limit(1);
-      return session ?? null;
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      const { data, error } = await supabaseAdmin().from("collector_sessions").select("id, tenant_id, site_id, collector_user_id, status, opening_cash, expected_cash, declared_cash, variance_amount, opened_at, closed_at, notes, closed_by_user_id, created_at, updated_at").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("collector_user_id", ctx.user.id).eq("status", "open").maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جلسة التحصيل من Supabase." });
+      return data ? { id: Number(data.id), tenantId: Number(data.tenant_id), siteId: Number(data.site_id), collectorUserId: Number(data.collector_user_id), status: data.status, openingCash: String(data.opening_cash), expectedCash: String(data.expected_cash), declaredCash: data.declared_cash === null ? null : String(data.declared_cash), varianceAmount: data.variance_amount === null ? null : String(data.variance_amount), openedAt: new Date(data.opened_at), closedAt: data.closed_at ? new Date(data.closed_at) : null, notes: data.notes, closedByUserId: data.closed_by_user_id === null ? null : Number(data.closed_by_user_id), createdAt: new Date(data.created_at), updatedAt: new Date(data.updated_at) } : null;
     }),
     open: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), openingCash: z.number().min(0).default(0), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
-      if (role !== "collector") throw new TRPCError({ code: "FORBIDDEN", message: "جلسة التحصيل الميدانية مخصصة لدور المحصل." });
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const [existing] = await db.select({ id: collectorSessions.id }).from(collectorSessions).where(and(eq(collectorSessions.tenantId, tenantId), eq(collectorSessions.siteId, input.siteId), eq(collectorSessions.collectorUserId, ctx.user.id), eq(collectorSessions.status, "open"))).limit(1);
-      if (existing) throw new TRPCError({ code: "CONFLICT", message: "لديك جلسة تحصيل مفتوحة بالفعل لهذه المحطة." });
-      const id = insertId(await db.insert(collectorSessions).values({ tenantId, siteId: input.siteId, collectorUserId: ctx.user.id, openingCash: String(input.openingCash), notes: input.notes }));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "collector_session", entityId: String(id), action: "open", afterData: input });
-      return { id };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      if (access.role !== "collector") throw new TRPCError({ code: "FORBIDDEN", message: "جلسة التحصيل الميدانية مخصصة لدور المحصل." });
+      const { data, error } = await supabaseAdmin().rpc("powerhub_open_collector_session", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_opening_cash: input.openingCash, p_notes: input.notes ?? null });
+      if (!error && data?.[0]) return { id: Number((data[0] as { session_id: number | string }).session_id) };
+      if (`${error?.message ?? ""}`.includes("COLLECTOR_SESSION_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "لديك جلسة تحصيل مفتوحة بالفعل لهذه المحطة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر فتح جلسة التحصيل في Supabase." });
     }),
     close: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), sessionId: z.number().int().positive(), declaredCash: z.number().min(0), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
-      const db = await dbOrThrow();
-      const [session] = await db.select().from(collectorSessions).where(and(eq(collectorSessions.id, input.sessionId), eq(collectorSessions.siteId, input.siteId))).limit(1);
-      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "جلسة التحصيل غير موجودة ضمن المحطة المحددة." });
-      if (session.status !== "open") throw new TRPCError({ code: "CONFLICT", message: "تم إغلاق جلسة التحصيل مسبقاً." });
-      if (role === "collector" && session.collectorUserId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن للمحصل إغلاق جلسة محصل آخر." });
-      const [cashTotals] = await db.select({ amount: sql<string>`coalesce(sum(${payments.amount}), 0)` }).from(payments).where(and(eq(payments.collectorSessionId, session.id), eq(payments.paymentMethod, "cash"), eq(payments.status, "completed")));
-      const expectedCash = Number(session.openingCash) + Number(cashTotals?.amount ?? 0);
-      const varianceAmount = input.declaredCash - expectedCash;
-      await db.update(collectorSessions).set({ status: "closed", expectedCash: String(expectedCash), declaredCash: String(input.declaredCash), varianceAmount: String(varianceAmount), notes: input.notes ?? session.notes, closedAt: new Date(), closedByUserId: ctx.user.id }).where(eq(collectorSessions.id, session.id));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "collector_session", entityId: String(session.id), action: "close", beforeData: session, afterData: { declaredCash: input.declaredCash, expectedCash, varianceAmount } });
-      return { expectedCash, varianceAmount };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_close_collector_session", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_session_id: input.sessionId, p_declared_cash: input.declaredCash, p_notes: input.notes ?? null, p_allow_foreign_close: access.role !== "collector" });
+      if (!error && data?.[0]) return { expectedCash: Number((data[0] as { expected_cash: number | string }).expected_cash), varianceAmount: Number((data[0] as { variance_amount: number | string }).variance_amount) };
+      const errorText = `${error?.message ?? ""}`;
+      if (errorText.includes("COLLECTOR_SESSION_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "جلسة التحصيل غير موجودة ضمن المحطة المحددة." });
+      if (errorText.includes("COLLECTOR_SESSION_CLOSED")) throw new TRPCError({ code: "CONFLICT", message: "تم إغلاق جلسة التحصيل مسبقاً." });
+      if (errorText.includes("COLLECTOR_SESSION_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن للمحصل إغلاق جلسة محصل آخر." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إغلاق جلسة التحصيل في Supabase." });
     }),
   }),
 
