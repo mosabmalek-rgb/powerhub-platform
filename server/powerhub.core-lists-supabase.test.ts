@@ -14,6 +14,7 @@ const state = vi.hoisted(() => {
     invoices: [{ id: 70, tenant_id: 20, site_id: 10, subscriber_id: 30, reading_id: 60, tariff_id: 40, invoice_no: "MAIN-202608-0001", client_operation_id: null, billing_period: "2026-08", issue_date: "2026-08-02T00:00:00.000Z", due_date: "2026-08-16T00:00:00.000Z", previous_reading: 90, current_reading: 100, status: "issued", total_amount: 100, paid_amount: 25, balance_due: 75, consumption_kwh: 10, price_per_kwh: 10, fixed_fee: 0, tax_amount: 0, discount_amount: 0, created_by_user_id: 1, created_at: "2026-08-02T00:00:00.000Z", updated_at: "2026-08-02T00:00:00.000Z" }],
     expenses: [{ id: 80, tenant_id: 20, site_id: 10, generator_id: null, category: "fuel", description: "وقود", amount: 15, occurred_at: "2026-08-03T00:00:00.000Z", reference_no: null, created_by_user_id: 1, created_at: "2026-08-03T00:00:00.000Z" }],
     notification_messages: [{ id: 90, subscriber_id: 30, status: "failed" }],
+    user_quick_action_preferences: [{ user_id: 1, site_id: 10, action_ids: ["record_reading"], updated_at: "2026-08-01T00:00:00.000Z" }],
     tenant_tweetsms_accounts: [{ tenant_id: 20, sender_name: "PowerHub", monthly_limit: 1000, is_active: true, credential_ciphertext: "configured", last_error: null }],
     sms_package_requests: [],
     payments: [{ id: 81, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: 70, payment_no: "PAY-202608-0001", client_operation_id: null, amount: 25, payment_method: "cash", transfer_from_account: null, transfer_from_type: null, transfer_to_account: null, transfer_to_type: null, reference_no: "REF-1", receipt_image_key: null, receipt_image_hash: null, status: "completed", collected_by_user_id: 1, collector_session_id: null, paid_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
@@ -264,6 +265,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.notifications.listBulkInvoiceSends({ siteId: 10 })).resolves.toMatchObject([{ id: 109, action: "send_deferred_invoice_notifications", executorId: 1, executorName: "مالك الاختبار", createdAt: expect.any(Date) }]);
     await expect(caller.notifications.bulkInvoiceSendDetails({ siteId: 10, auditLogId: 109 })).resolves.toMatchObject({ operation: { id: 109, createdAt: expect.any(Date) }, items: [{ notificationId: 99, invoiceId: 70, invoiceNo: "MAIN-202608-0001", subscriberName: "مشترك الاختبار", status: "failed" }] });
+  });
+
+  it("يقرأ ويحفظ تفضيلات الإجراءات السريعة عبر Supabase دون MySQL", async () => {
+    state.tables.user_quick_action_preferences = [{ user_id: 1, site_id: 10, action_ids: ["record_reading"], updated_at: "2026-08-01T00:00:00.000Z" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.quickActions.preferences({ siteId: 10 })).resolves.toEqual({ actionIds: ["record_reading"], updatedAt: expect.any(Date) });
+    await expect(caller.quickActions.savePreferences({ siteId: 10, actionIds: ["record_reading", "collect_payment"] })).resolves.toEqual({ success: true, actionIds: ["record_reading", "collect_payment"] });
+    expect(state.inserts).toContainEqual({ table: "user_quick_action_preferences", values: { user_id: 1, site_id: 10, action_ids: ["record_reading", "collect_payment"] } });
+    expect(state.inserts).toContainEqual(expect.objectContaining({ table: "audit_logs" }));
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {

@@ -66,7 +66,7 @@ import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { createHeartbeatJob, deleteHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { COOKIE_NAME } from "../shared/const";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
@@ -706,21 +706,20 @@ export const powerhubRouter = router({
   }),
   quickActions: router({
     preferences: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await resolveAccess(ctx.user.id, input.siteId);
-      const db = await dbOrThrow();
-      const [preference] = await db.select({ actionIds: userQuickActionPreferences.actionIds, updatedAt: userQuickActionPreferences.updatedAt })
-        .from(userQuickActionPreferences)
-        .where(and(eq(userQuickActionPreferences.userId, ctx.user.id), eq(userQuickActionPreferences.siteId, input.siteId)))
-        .limit(1);
-      const actionIds = Array.isArray(preference?.actionIds) ? preference.actionIds.filter((actionId): actionId is keyof typeof quickActionCapabilityById => typeof actionId === "string" && actionId in quickActionCapabilityById) : [];
-      return { actionIds, updatedAt: preference?.updatedAt ?? null };
+      await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      const { data: preference, error } = await supabaseAdmin().from("user_quick_action_preferences")
+        .select("action_ids, updated_at").eq("user_id", ctx.user.id).eq("site_id", input.siteId).maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفضيلات الإجراءات السريعة من Supabase." });
+      const actionIds = Array.isArray(preference?.action_ids) ? preference.action_ids.filter((actionId): actionId is keyof typeof quickActionCapabilityById => typeof actionId === "string" && actionId in quickActionCapabilityById) : [];
+      return { actionIds, updatedAt: preference?.updated_at ? new Date(preference.updated_at) : null };
     }),
     savePreferences: protectedProcedure.input(siteScoped.extend({ actionIds: z.array(quickActionIdSchema).min(1).max(6).refine((actionIds) => new Set(actionIds).size === actionIds.length, "لا يمكن تكرار الإجراء المختار.") })).mutation(async ({ ctx, input }) => {
-      const access = await resolveAccess(ctx.user.id, input.siteId);
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
       const unavailable = input.actionIds.find((actionId) => access.role !== "owner" && !access.permissions.includes(quickActionCapabilityById[actionId]));
       if (unavailable) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك حفظ إجراء لا تملك صلاحيته في هذا الفرع." });
-      const db = await dbOrThrow();
-      await db.insert(userQuickActionPreferences).values({ userId: ctx.user.id, siteId: input.siteId, actionIds: input.actionIds }).onDuplicateKeyUpdate({ set: { actionIds: input.actionIds, updatedAt: new Date() } });
+      const { error } = await supabaseAdmin().from("user_quick_action_preferences").upsert({ user_id: ctx.user.id, site_id: input.siteId, action_ids: input.actionIds }, { onConflict: "user_id,site_id" });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ تفضيلات الإجراءات السريعة في Supabase." });
+      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "user_quick_action_preferences", entityId: `${ctx.user.id}:${input.siteId}`, action: "upsert", afterData: { actionIds: input.actionIds } });
       return { success: true, actionIds: input.actionIds };
     }),
   }),
