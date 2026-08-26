@@ -39,6 +39,7 @@ const state = vi.hoisted(() => {
         order: () => query,
         gte: () => query,
         lte: () => query,
+        lt: () => query,
         limit: () => query,
         maybeSingle: () => resolved(filteredRows[0] ?? null),
         then: <TResult1 = { data: unknown[]; error: null }, TResult2 = never>(
@@ -254,6 +255,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.notifications.sendBulkInvoiceSms({ siteId: 10, invoiceIds: [70] })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(caller.notifications.sendPaymentReminder({ siteId: 10, invoiceId: 70 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(caller.notifications.sendPaymentReceipt({ siteId: 10, paymentId: 81, channel: "sms" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+
+  it("يعرض سجل عمليات الإرسال الجماعي وتفاصيله من Supabase دون MySQL", async () => {
+    state.tables.users = [{ id: 1, role: "admin", name: "مالك الاختبار", email: "owner@example.com" }];
+    state.tables.audit_logs = [{ id: 109, tenant_id: 20, site_id: 10, user_id: 1, entity_type: "notification_batch", entity_id: "99", action: "send_deferred_invoice_notifications", metadata: { notificationIds: [99], requested: 1, submitted: 0, failed: 1 }, created_at: "2026-08-25T00:00:00.000Z" }];
+    state.tables.notification_messages = [{ id: 99, tenant_id: 20, invoice_id: 70, subscriber_id: 30, channel: "sms", event_type: "invoice_issued", recipient: "+970595000000", status: "failed", provider_message_id: null, payload: {}, attempts: 1, last_error: "غير مهيأ", created_at: "2026-08-25T00:00:00.000Z", updated_at: "2026-08-25T00:00:00.000Z" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.notifications.listBulkInvoiceSends({ siteId: 10 })).resolves.toMatchObject([{ id: 109, action: "send_deferred_invoice_notifications", executorId: 1, executorName: "مالك الاختبار", createdAt: expect.any(Date) }]);
+    await expect(caller.notifications.bulkInvoiceSendDetails({ siteId: 10, auditLogId: 109 })).resolves.toMatchObject({ operation: { id: 109, createdAt: expect.any(Date) }, items: [{ notificationId: 99, invoiceId: 70, invoiceNo: "MAIN-202608-0001", subscriberName: "مشترك الاختبار", status: "failed" }] });
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
