@@ -560,42 +560,59 @@ async function getVerifiedPortalSubscriber(input: z.infer<typeof subscriberPorta
 export const powerhubRouter = router({
   messaging: router({
     smsQuota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const role = await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");
-      void role;
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");
       const monthStart = new Date();
       monthStart.setUTCDate(1);
       monthStart.setUTCHours(0, 0, 0, 0);
-      const [[account], [usage]] = await Promise.all([
-        db.select({ senderName: tenantTweetSmsAccounts.senderName, monthlyLimit: tenantTweetSmsAccounts.monthlyLimit, isActive: tenantTweetSmsAccounts.isActive, configured: tenantTweetSmsAccounts.credentialCiphertext, lastError: tenantTweetSmsAccounts.lastError }).from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, tenantId)).limit(1),
-        db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.channel, "sms"), gte(notificationMessages.createdAt, monthStart), inArray(notificationMessages.status, ["submitted", "delivered", "read"]))),
+      const admin = supabaseAdmin();
+      const [accountResult, usageResult] = await Promise.all([
+        admin.from("tenant_tweetsms_accounts").select("sender_name, monthly_limit, is_active, credential_ciphertext, last_error").eq("tenant_id", scope.tenantId).maybeSingle(),
+        admin.from("notification_messages").select("id").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["submitted", "delivered", "read"]),
       ]);
-      const included = Number(account?.monthlyLimit ?? 0);
+      if (accountResult.error || usageResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة الرسائل من Supabase." });
+      const account = accountResult.data;
+      const included = Number(account?.monthly_limit ?? 0);
       const additional = 0;
-      const used = Number(usage?.used ?? 0);
-      return { plan: "tweetsms", planName: "TweetSMS", senderName: account?.senderName ?? null, isActive: account?.isActive ?? false, configured: Boolean(account?.configured), lastError: account?.lastError ?? null, included, additional, total: included, used, remaining: Math.max(0, included - used) };
+      const used = (usageResult.data ?? []).length;
+      return { plan: "tweetsms", planName: "TweetSMS", senderName: account?.sender_name ?? null, isActive: account?.is_active ?? false, configured: Boolean(account?.credential_ciphertext), lastError: account?.last_error ?? null, included, additional, total: included, used, remaining: Math.max(0, included - used) };
     }),
     smsDailyUsage: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");
-      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
-      const [account] = await db.select({ monthlyLimit: tenantTweetSmsAccounts.monthlyLimit }).from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, tenantId)).limit(1);
-      const messages = await db.select({ createdAt: notificationMessages.createdAt, status: notificationMessages.status }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.channel, "sms"))).orderBy(desc(notificationMessages.createdAt)).limit(5000);
-      const daily = new Map<string, number>(); for (const message of messages) { if (!["submitted", "delivered", "read"].includes(message.status)) continue; const key = new Date(message.createdAt).toISOString().slice(0, 10); daily.set(key, (daily.get(key) ?? 0) + 1); }
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");
+      const fourteenDaysAgo = new Date(); fourteenDaysAgo.setUTCDate(fourteenDaysAgo.getUTCDate() - 13); fourteenDaysAgo.setUTCHours(0, 0, 0, 0);
+      const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
+      const admin = supabaseAdmin();
+      const [accountResult, messagesResult, monthUsageResult] = await Promise.all([
+        admin.from("tenant_tweetsms_accounts").select("monthly_limit").eq("tenant_id", scope.tenantId).maybeSingle(),
+        admin.from("notification_messages").select("created_at, status").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", fourteenDaysAgo.toISOString()),
+        admin.from("notification_messages").select("id").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["submitted", "delivered", "read"]),
+      ]);
+      if (accountResult.error || messagesResult.error || monthUsageResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استخدام الرسائل من Supabase." });
+      const messages = messagesResult.data ?? [];
+      const daily = new Map<string, number>(); for (const message of messages) { if (!["submitted", "delivered", "read"].includes(message.status)) continue; const key = new Date(message.created_at).toISOString().slice(0, 10); daily.set(key, (daily.get(key) ?? 0) + 1); }
       const today = new Date(); const points = Array.from({ length: 14 }, (_, index) => { const date = new Date(today); date.setDate(today.getDate() - (13 - index)); const key = date.toISOString().slice(0, 10); return { date: key, count: daily.get(key) ?? 0 }; });
-      const included = Number(account?.monthlyLimit ?? 0); const additional = 0; const total = included; const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0); const used = messages.filter((message) => ["submitted", "delivered", "read"].includes(message.status) && message.createdAt >= monthStart).length;
+      const included = Number(accountResult.data?.monthly_limit ?? 0); const additional = 0; const total = included; const used = (monthUsageResult.data ?? []).length;
       return { points, included, additional, total, used, remaining: Math.max(0, total - used) };
     }),
-    currentSmsPackageRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => { const tenantId = await getSiteTenant(input.siteId); await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging"); const db = await dbOrThrow(); const [request] = await db.select({ id: smsPackageRequests.id, status: smsPackageRequests.status, requestedMessages: smsPackageRequests.requestedMessages, approvedMessages: smsPackageRequests.approvedMessages, note: smsPackageRequests.note, createdAt: smsPackageRequests.createdAt, reviewedAt: smsPackageRequests.reviewedAt }).from(smsPackageRequests).where(eq(smsPackageRequests.tenantId, tenantId)).orderBy(desc(smsPackageRequests.createdAt)).limit(1); return request ?? null; }),
+    currentSmsPackageRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const { data, error } = await supabaseAdmin().from("sms_package_requests")
+        .select("id, status, requested_messages, approved_messages, note, created_at, reviewed_at")
+        .eq("tenant_id", scope.tenantId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلب حزمة الرسائل من Supabase." });
+      return data ? { id: Number(data.id), status: data.status, requestedMessages: data.requested_messages, approvedMessages: data.approved_messages, note: data.note, createdAt: new Date(data.created_at), reviewedAt: data.reviewed_at ? new Date(data.reviewed_at) : null } : null;
+    }),
     requestSmsPackage: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestedMessages: z.number().int().min(1).max(100000000), note: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
-      const tenantId = await getSiteTenant(input.siteId);
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const db = await dbOrThrow();
-      const [pending] = await db.select({ id: smsPackageRequests.id }).from(smsPackageRequests).where(and(eq(smsPackageRequests.tenantId, tenantId), eq(smsPackageRequests.status, "pending"))).limit(1);
-      if (pending) throw new TRPCError({ code: "CONFLICT", message: "لديك طلب حزمة قيد المراجعة بالفعل." });
-      const id = insertId(await db.insert(smsPackageRequests).values({ tenantId, requestedByUserId: ctx.user.id, requestedMessages: input.requestedMessages, note: input.note }));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "sms_package_request", entityId: String(id), action: "request_sms_package", metadata: { requestedMessages: input.requestedMessages } });
-      return { id, status: "pending" as const };
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_request_sms_package", {
+        p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_messages: input.requestedMessages, p_note: input.note ?? null,
+      });
+      if (error) {
+        if (error.message.includes("SMS_PACKAGE_REQUEST_PENDING")) throw new TRPCError({ code: "CONFLICT", message: "لديك طلب حزمة قيد المراجعة بالفعل." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء طلب حزمة الرسائل في Supabase." });
+      }
+      const request = data?.[0];
+      if (!request) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة طلب الحزمة نتيجة صالحة." });
+      return { id: Number(request.request_id), status: "pending" as const };
     }),
     listConfigurations: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");

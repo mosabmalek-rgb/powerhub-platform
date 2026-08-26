@@ -14,6 +14,8 @@ const state = vi.hoisted(() => {
     invoices: [{ id: 70, tenant_id: 20, site_id: 10, subscriber_id: 30, reading_id: 60, tariff_id: 40, invoice_no: "MAIN-202608-0001", client_operation_id: null, billing_period: "2026-08", issue_date: "2026-08-02T00:00:00.000Z", due_date: "2026-08-16T00:00:00.000Z", previous_reading: 90, current_reading: 100, status: "issued", total_amount: 100, paid_amount: 25, balance_due: 75, consumption_kwh: 10, price_per_kwh: 10, fixed_fee: 0, tax_amount: 0, discount_amount: 0, created_by_user_id: 1, created_at: "2026-08-02T00:00:00.000Z", updated_at: "2026-08-02T00:00:00.000Z" }],
     expenses: [{ id: 80, tenant_id: 20, site_id: 10, generator_id: null, category: "fuel", description: "وقود", amount: 15, occurred_at: "2026-08-03T00:00:00.000Z", reference_no: null, created_by_user_id: 1, created_at: "2026-08-03T00:00:00.000Z" }],
     notification_messages: [{ id: 90, subscriber_id: 30, status: "failed" }],
+    tenant_tweetsms_accounts: [{ tenant_id: 20, sender_name: "PowerHub", monthly_limit: 1000, is_active: true, credential_ciphertext: "configured", last_error: null }],
+    sms_package_requests: [],
     payments: [{ id: 81, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: 70, payment_no: "PAY-202608-0001", client_operation_id: null, amount: 25, payment_method: "cash", transfer_from_account: null, transfer_from_type: null, transfer_to_account: null, transfer_to_type: null, reference_no: "REF-1", receipt_image_key: null, receipt_image_hash: null, status: "completed", collected_by_user_id: 1, collector_session_id: null, paid_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
     company_accounts: [{ id: 90, tenant_id: 20, name: "كاش", account_type: "cash", phone_number: null, color: "#64748b", opening_balance: 100, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" }],
     company_account_sites: [{ account_id: 90, site_id: 10 }],
@@ -87,6 +89,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_add_account_movement") return resolved([{ transaction_id: 93 }]);
       if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
       if (name === "powerhub_close_collector_session") return resolved([{ expected_cash: 10, variance_amount: 0 }]);
+      if (name === "powerhub_request_sms_package") return resolved([{ request_id: 98, request_status: "pending" }]);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -191,6 +194,24 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.messaging.testConnection({ siteId: 10, channel: "sms", provider: "tweetsms", credential: "credential-long-enough" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(caller.messaging.configureInvoiceAutoSend({ siteId: 10, enabled: false })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+
+  it("يعرض حصة SMS واستهلاكها وطلب الحزمة من Supabase فقط", async () => {
+    state.tables.notification_messages = [
+      { id: 90, tenant_id: 20, channel: "sms", status: "submitted", created_at: "2026-08-25T08:00:00.000Z" },
+      { id: 91, tenant_id: 20, channel: "sms", status: "failed", created_at: "2026-08-25T09:00:00.000Z" },
+    ];
+    state.tables.sms_package_requests = [{ id: 97, tenant_id: 20, status: "approved", requested_messages: 500, approved_messages: 500, note: "مراجعة", created_at: "2026-08-20T00:00:00.000Z", reviewed_at: "2026-08-21T00:00:00.000Z" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.messaging.smsQuota({ siteId: 10 })).resolves.toMatchObject({ senderName: "PowerHub", total: 1000, used: 1, remaining: 999, configured: true });
+    await expect(caller.messaging.smsDailyUsage({ siteId: 10 })).resolves.toMatchObject({ total: 1000, used: 1, remaining: 999, points: expect.any(Array) });
+    await expect(caller.messaging.currentSmsPackageRequest({ siteId: 10 })).resolves.toMatchObject({ id: 97, status: "approved", requestedMessages: 500, approvedMessages: 500, createdAt: expect.any(Date) });
+  });
+
+  it("ينشئ طلب حزمة SMS عبر دالة Supabase الذرية دون MySQL أو مزود خارجي", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.messaging.requestSmsPackage({ siteId: 10, requestedMessages: 1000, note: "طلب اختبار" })).resolves.toEqual({ id: 98, status: "pending" });
+    expect(state.rpcCalls).toContainEqual({ name: "powerhub_request_sms_package", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_requested_messages: 1000 }) });
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
