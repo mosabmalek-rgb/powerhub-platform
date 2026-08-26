@@ -764,15 +764,16 @@ export const powerhubRouter = router({
       return { roles, limit, currentCount, remaining: Math.max(0, limit - currentCount) };
     }),
     permissionCatalog: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const capabilities: PowerCapability[] = ["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"];
       return capabilities;
     }),
     customRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      return db.select({ id: customPermissionRoles.id, name: customPermissionRoles.name, description: customPermissionRoles.description, permissions: customPermissionRoles.permissions, isActive: customPermissionRoles.isActive }).from(customPermissionRoles).where(and(eq(customPermissionRoles.tenantId, tenantId), eq(customPermissionRoles.isActive, true))).orderBy(customPermissionRoles.name);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().from("custom_permission_roles").select("id, name, description, permissions, is_active")
+        .eq("tenant_id", access.tenantId).eq("is_active", true).order("name", { ascending: true });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الأدوار المخصصة من Supabase." });
+      return (data ?? []).map((role) => ({ id: Number(role.id), name: role.name, description: role.description, permissions: role.permissions, isActive: role.is_active }));
     }),
     saveCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), description: z.string().trim().max(255).optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
