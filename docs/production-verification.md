@@ -11,6 +11,13 @@
 - The currently verified production slices use Supabase for client authentication configuration, private storage URLs, Mobile API sessions/readings/sync events, web JWT profile synchronization, and the initial platform-owner overview/snapshot queries.
 - Remaining internal operational routers still require staged migration from the legacy MySQL/Drizzle query layer before the product can be considered ready for full production use.
 
+## 2026-08-26 — Operational finance checkpoints
+
+- Production deployment `dpl_7DUn1BbRkUH9K6iFHat1KwWJUu9q` reached `READY` from commit `925cb49`, containing the Supabase-backed collector-session slice.
+- The public landing page loaded successfully after this deployment.
+- `/api/mobile/v1/auth/me` continued to return the structured unauthenticated response without a token.
+- This verifies deployment availability and the public/mobile guard only; authenticated tenant flows still require staged end-to-end verification before production readiness can be claimed.
+
 ## Vercel Cron replacement notes
 
 The official [Vercel Cron Jobs documentation](https://vercel.com/docs/cron-jobs) specifies production `GET` invocations configured in `vercel.json`, with five-field UTC schedules. The [management documentation](https://vercel.com/docs/cron-jobs/manage-cron-jobs) recommends a `CRON_SECRET` environment variable; Vercel sends it through the `Authorization: Bearer` header. Cron work must be idempotent and protected from concurrent execution. The current free-tier constraint is one invocation per day, so PowerHub's higher-frequency SMS queue must remain disabled unless the deployed Vercel plan or a compliant external scheduling design can satisfy its required cadence.
