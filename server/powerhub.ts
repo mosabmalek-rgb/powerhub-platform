@@ -1446,34 +1446,30 @@ export const powerhubRouter = router({
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل القراءة في Supabase." });
     }),
     updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
-      const db = await dbOrThrow();
-      const [existing] = await db.select({ id: meterReadings.id, subscriberId: meterReadings.subscriberId, status: meterReadings.status }).from(meterReadings)
-        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
-        .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
-      if (existing.status !== "pending_review") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تعديل قراءة معتمدة أو مرفوضة من هذه الواجهة." });
-      const [previous] = await db.select({ readingValue: meterReadings.readingValue }).from(meterReadings)
-        .where(and(eq(meterReadings.subscriberId, existing.subscriberId), eq(meterReadings.status, "approved"))).orderBy(desc(meterReadings.readingAt)).limit(1);
-      const currentValue = Number(input.readingValue); const previousValue = Number(previous?.readingValue ?? 0);
-      if (currentValue < previousValue) throw new TRPCError({ code: "CONFLICT", message: "القراءة المعدلة أقل من القراءة السابقة المعتمدة." });
-      const result = await db.update(meterReadings).set({ readingValue: input.readingValue, readingAt: input.readingAt, previousReadingValue: previous?.readingValue, consumptionKwh: String(currentValue - previousValue), notes: input.notes, versionNo: sql`${meterReadings.versionNo} + 1` }).where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.versionNo, input.baseVersion), eq(meterReadings.status, "pending_review")));
-      if (Number((result[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث الصفحة ثم أعد المحاولة." });
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: "update_pending", afterData: input });
-      return { success: true, consumptionKwh: currentValue - previousValue };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_pending_reading", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId,
+        p_base_version: input.baseVersion, p_reading_value: input.readingValue, p_reading_at: input.readingAt.toISOString(), p_notes: input.notes?.trim() ?? "",
+      });
+      if (!error && data?.[0]) return { success: true, consumptionKwh: Number((data[0] as { consumption_kwh: number | string }).consumption_kwh) };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
+      if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تعديل قراءة معتمدة أو مرفوضة من هذه الواجهة." });
+      if (errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث الصفحة ثم أعد المحاولة." });
+      if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة المعدلة أقل من القراءة السابقة المعتمدة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تعديل القراءة في Supabase." });
     }),
     deletePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "recordReadings");
-      const db = await dbOrThrow();
-      const [existing] = await db.select({ id: meterReadings.id, status: meterReadings.status, versionNo: meterReadings.versionNo }).from(meterReadings)
-        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
-        .where(and(eq(meterReadings.id, input.readingId), eq(subscribers.siteId, input.siteId))).limit(1);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
-      if (existing.status !== "pending_review") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن حذف القراءات بانتظار المراجعة فقط." });
-      if (existing.versionNo !== input.baseVersion) throw new TRPCError({ code: "CONFLICT", message: "تم تحديث القراءة من جهة أخرى؛ حدّث الصفحة ثم أعد المحاولة." });
-      await db.delete(meterReadings).where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.versionNo, input.baseVersion), eq(meterReadings.status, "pending_review")));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "meter_reading", entityId: String(input.readingId), action: "delete_pending" });
-      return { success: true };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "recordReadings");
+      const { error } = await supabaseAdmin().rpc("powerhub_delete_pending_reading", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion,
+      });
+      if (!error) return { success: true };
+      const errorText = `${error.code ?? ""} ${error.message ?? ""}`;
+      if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
+      if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن حذف القراءات بانتظار المراجعة فقط." });
+      if (errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تم تحديث القراءة من جهة أخرى؛ حدّث البيانات ثم أعد المحاولة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حذف القراءة في Supabase." });
     }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) }))
       .mutation(async ({ ctx, input }) => {

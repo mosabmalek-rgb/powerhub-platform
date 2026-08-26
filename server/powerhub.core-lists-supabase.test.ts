@@ -60,6 +60,8 @@ const state = vi.hoisted(() => {
       rpcCalls.push({ name, args });
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
+      if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
+      if (name === "powerhub_delete_pending_reading") return resolved(null);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -125,5 +127,16 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.readings.create({ siteId: 10, subscriberId: 30, readingValue: "115", captureMethod: "manual", clientOperationId: "33333333-3333-4333-8333-333333333333", notes: "قراءة دورية" }))
       .resolves.toEqual({ id: 61, consumptionKwh: 15, status: "pending_review", replayed: false });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_reading", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_reading_value: "115", p_can_override_same_day: false }) })]);
+  });
+
+  it("يعدّل ويحذف القراءة المعلقة بدوال Supabase الذرية من دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.readings.updatePending({ siteId: 10, readingId: 60, baseVersion: 1, readingValue: "110", readingAt: new Date("2026-08-03T00:00:00.000Z"), notes: "تصحيح" }))
+      .resolves.toEqual({ success: true, consumptionKwh: 20 });
+    await expect(caller.readings.deletePending({ siteId: 10, readingId: 60, baseVersion: 2 })).resolves.toEqual({ success: true });
+    expect(state.rpcCalls).toEqual([
+      expect.objectContaining({ name: "powerhub_update_pending_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1 }) }),
+      expect.objectContaining({ name: "powerhub_delete_pending_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 2 }) }),
+    ]);
   });
 });
