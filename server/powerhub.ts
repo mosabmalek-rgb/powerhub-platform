@@ -776,23 +776,29 @@ export const powerhubRouter = router({
       return (data ?? []).map((role) => ({ id: Number(role.id), name: role.name, description: role.description, permissions: role.permissions, isActive: role.is_active }));
     }),
     saveCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), description: z.string().trim().max(255).optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      if (input.id) await db.update(customPermissionRoles).set({ name: input.name, description: input.description || null, permissions: input.permissions, updatedAt: new Date() }).where(and(eq(customPermissionRoles.id, input.id), eq(customPermissionRoles.tenantId, tenantId)));
-      else await db.insert(customPermissionRoles).values({ tenantId, name: input.name, description: input.description || null, permissions: input.permissions, createdByUserId: ctx.user.id, isActive: true });
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "custom_permission_role", entityId: input.id ? String(input.id) : "new", action: input.id ? "update" : "create", afterData: { name: input.name, permissions: input.permissions } });
-      return { success: true };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_save_custom_permission_role", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_role_id: input.id ?? null,
+        p_name: input.name, p_description: input.description ?? null, p_permissions: input.permissions,
+      });
+      if (error) {
+        if (error.message.includes("CUSTOM_ROLE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "الدور المخصص غير موجود ضمن مساحة المستأجر." });
+        if (error.message.includes("ROLE_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إدارة الأدوار المخصصة." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ الدور المخصص في Supabase." });
+      }
+      return { success: true, id: Number(data?.[0]?.role_id ?? input.id ?? 0) };
     }),
     deleteCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), roleId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
-      const [linked] = await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.tenantId, tenantId), eq(staffProfiles.customRoleId, input.roleId), eq(staffProfiles.isActive, true))).limit(1);
-      if (linked) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن حذف دور مرتبط بحساب فعال. أعد تعيين الحساب أولاً." });
-      const [role] = await db.select({ id: customPermissionRoles.id }).from(customPermissionRoles).where(and(eq(customPermissionRoles.id, input.roleId), eq(customPermissionRoles.tenantId, tenantId))).limit(1);
-      if (!role) throw new TRPCError({ code: "NOT_FOUND", message: "الدور المخصص غير موجود ضمن مساحة المستأجر." });
-      await db.update(customPermissionRoles).set({ isActive: false, updatedAt: new Date() }).where(eq(customPermissionRoles.id, input.roleId));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "custom_permission_role", entityId: String(input.roleId), action: "delete", afterData: { isActive: false } });
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { error } = await supabaseAdmin().rpc("powerhub_delete_custom_permission_role", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_role_id: input.roleId,
+      });
+      if (error) {
+        if (error.message.includes("CUSTOM_ROLE_LINKED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن حذف دور مرتبط بحساب فعال. أعد تعيين الحساب أولاً." });
+        if (error.message.includes("CUSTOM_ROLE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "الدور المخصص غير موجود ضمن مساحة المستأجر." });
+        if (error.message.includes("ROLE_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إدارة الأدوار المخصصة." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حذف الدور المخصص في Supabase." });
+      }
       return { success: true };
     }),
     updatePermissions: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), customRoleId: z.number().int().positive().nullable().optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {

@@ -96,6 +96,8 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
       if (name === "powerhub_close_collector_session") return resolved([{ expected_cash: 10, variance_amount: 0 }]);
       if (name === "powerhub_request_sms_package") return resolved([{ request_id: 98, request_status: "pending" }]);
+      if (name === "powerhub_save_custom_permission_role") return resolved([{ role_id: 122, mutation: "create" }]);
+      if (name === "powerhub_delete_custom_permission_role") return resolved([{ role_id: 122 }]);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -295,6 +297,17 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.permissionCatalog({ siteId: 10 })).resolves.toContain("manageTeam");
     await expect(caller.staff.customRoles({ siteId: 10 })).resolves.toEqual([{ id: 122, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"], isActive: true }]);
+  });
+
+  it("يحفظ ويحذف الدور المخصص بمعاملات Supabase الذرية دون MySQL", async () => {
+    state.tables.users = [{ id: 1, role: "admin" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.saveCustomRole({ siteId: 10, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"] })).resolves.toEqual({ success: true, id: 122 });
+    await expect(caller.staff.deleteCustomRole({ siteId: 10, roleId: 122 })).resolves.toEqual({ success: true });
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([
+      { name: "powerhub_save_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: null, p_permissions: ["collectPayments"] }) },
+      { name: "powerhub_delete_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: 122 }) },
+    ]));
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
