@@ -1745,35 +1745,33 @@ export const powerhubRouter = router({
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
-      const db = await dbOrThrow();
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
-      const [invoiceRows, paymentRows, expenseRows] = await Promise.all([
-        db.select({ invoice: invoices, subscriber: subscribers }).from(invoices)
-          .innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id))
-          .where(and(eq(invoices.siteId, input.siteId), gte(invoices.issueDate, start), lt(invoices.issueDate, endExclusive), sql`${invoices.status} <> 'cancelled'`)),
-        db.select({ payment: payments, collector: users }).from(payments)
-          .leftJoin(users, eq(payments.collectedByUserId, users.id))
-          .where(and(eq(payments.siteId, input.siteId), gte(payments.paidAt, start), lt(payments.paidAt, endExclusive))),
-        db.select().from(expenses)
-          .where(and(eq(expenses.siteId, input.siteId), gte(expenses.occurredAt, start), lt(expenses.occurredAt, endExclusive))),
-      ]);
-      const invoiced = invoiceRows.reduce((sum, row) => sum + Number(row.invoice.totalAmount), 0);
-      const outstanding = invoiceRows.reduce((sum, row) => sum + Number(row.invoice.balanceDue), 0);
-      const energyKwh = invoiceRows.reduce((sum, row) => sum + Number(row.invoice.consumptionKwh), 0);
-      const completedPayments = paymentRows.filter((row) => row.payment.status === "completed");
+      const inRange = (value: Date) => value >= start && value < endExclusive;
+      const [allInvoices, paymentRows, allExpenses, subscriberRows] = await Promise.all([listSupabaseInvoices(input.siteId), listSupabasePayments(input.siteId), listSupabaseExpenses(input.siteId), listSupabaseSubscribers(input.siteId)]);
+      const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && inRange(invoice.issueDate));
+      const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && inRange(payment.paidAt));
+      const expenseRows = allExpenses.filter((expense) => inRange(expense.occurredAt));
+      const collectorIds = Array.from(new Set(completedPayments.flatMap(({ payment }) => payment.collectedByUserId === null ? [] : [payment.collectedByUserId])));
+      const { data: collectorRows, error: collectorsError } = collectorIds.length ? await supabaseAdmin().from("users").select("id, name, email").in("id", collectorIds) : { data: [], error: null };
+      if (collectorsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المحصلين من Supabase." });
+      const collectorsById = new Map((collectorRows ?? []).map((collector) => [Number(collector.id), collector.name || collector.email || "محصل غير محدد"]));
+      const subscribersById = new Map(subscriberRows.map((subscriber) => [subscriber.id, subscriber]));
+      const invoiced = invoiceRows.reduce((sum, invoice) => sum + Number(invoice.totalAmount), 0);
+      const outstanding = invoiceRows.reduce((sum, invoice) => sum + Number(invoice.balanceDue), 0);
+      const energyKwh = invoiceRows.reduce((sum, invoice) => sum + Number(invoice.consumptionKwh), 0);
       const collected = completedPayments.reduce((sum, row) => sum + Number(row.payment.amount), 0);
-      const expenseTotal = expenseRows.reduce((sum, row) => sum + Number(row.amount), 0);
+      const expenseTotal = expenseRows.reduce((sum, expense) => sum + Number(expense.amount), 0);
       const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number }>>((acc, row) => {
         const key = String(row.payment.collectedByUserId ?? 0);
-        const entry = acc[key] ?? { name: row.collector?.name || row.collector?.email || "محصل غير محدد", count: 0, amount: 0 };
+        const entry = acc[key] ?? { name: collectorsById.get(row.payment.collectedByUserId ?? 0) ?? "محصل غير محدد", count: 0, amount: 0 };
         entry.count += 1;
         entry.amount += Number(row.payment.amount);
         acc[key] = entry;
         return acc;
       }, {})).sort((a, b) => b.amount - a.amount);
-      const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ subscriber: row.subscriber.fullName, subscriberNo: row.subscriber.subscriberNo, invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
-      const paymentDetails = completedPayments.map((row) => ({ paymentNo: row.payment.paymentNo, amount: Number(row.payment.amount), paymentMethod: row.payment.paymentMethod, paidAt: row.payment.paidAt, transferFromAccount: row.payment.transferFromAccount, transferFromType: row.payment.transferFromType, transferToAccount: row.payment.transferToAccount, transferToType: row.payment.transferToType }));
+      const topDebtors = invoiceRows.filter((invoice) => Number(invoice.balanceDue) > 0).sort((a, b) => Number(b.balanceDue) - Number(a.balanceDue)).slice(0, 10).map((invoice) => ({ subscriber: subscribersById.get(invoice.subscriberId)?.fullName ?? "مشترك", subscriberNo: subscribersById.get(invoice.subscriberId)?.subscriberNo ?? "—", invoiceNo: invoice.invoiceNo, balanceDue: Number(invoice.balanceDue), dueDate: invoice.dueDate }));
+      const paymentDetails = completedPayments.map(({ payment }) => ({ paymentNo: payment.paymentNo, amount: Number(payment.amount), paymentMethod: payment.paymentMethod, paidAt: payment.paidAt, transferFromAccount: payment.transferFromAccount, transferFromType: payment.transferFromType, transferToAccount: payment.transferToAccount, transferToType: payment.transferToType }));
       return { range: { startDate: input.startDate, endDate: input.endDate }, summary: { invoiced, collected, outstanding, energyKwh, expenseTotal, operatingProfit: collected - expenseTotal }, collectors, topDebtors, paymentDetails };
     }),
     allBranchesRange: protectedProcedure.input(z.object({

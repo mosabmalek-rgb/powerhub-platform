@@ -110,6 +110,17 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.dashboard.summary({ siteId: 10 })).resolves.toEqual({ subscribers: 1, generators: { active: 1, maintenance: 0 }, financial: { invoiced: 100, collected: 25, outstanding: 75, expenses: 15, operatingProfit: 10 }, energyKwh: 10, failedNotifications: 1 });
   });
 
+  it("يعرض تقرير النطاق الزمني للفرع من Supabase دون استدعاء MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.reports.range({ siteId: 10, startDate: "2026-08-01", endDate: "2026-08-31" })).resolves.toMatchObject({
+      range: { startDate: "2026-08-01", endDate: "2026-08-31" },
+      summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
+      collectors: [{ name: "محصل غير محدد", count: 1, amount: 25 }],
+      topDebtors: [{ subscriber: "مشترك الاختبار", subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001", balanceDue: 75 }],
+      paymentDetails: [{ paymentNo: "PAY-202608-0001", amount: 25 }],
+    });
+  });
+
   it("يرفض عرض بيانات الفرع لمستخدم لا يملك عضوية Supabase فعالة", async () => {
     state.tables.users = [{ id: 2, role: "user" }];
     state.tables.tenant_members = [];
