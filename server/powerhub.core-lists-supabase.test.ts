@@ -79,6 +79,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_financial_settlement") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_set_financial_settlement_status") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_exceptional_locked_edit") return resolved([{ before_data: { id: 82, description: "وصف سابق" }, after_data: { id: 82, description: "وصف مصحح" } }]);
+      if (["powerhub_update_company_account_phone", "powerhub_update_company_account_opening_balance", "powerhub_update_company_account_sites"].includes(name)) return resolved([{ account_id: 92 }]);
       if (name === "powerhub_create_company_account") return resolved([{ account_id: 92 }]);
       if (name === "powerhub_add_account_movement") return resolved([{ transaction_id: 93 }]);
       if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
@@ -254,6 +255,18 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       expect.objectContaining({ name: "powerhub_add_account_movement", args: expect.objectContaining({ p_account_id: 90, p_transaction_type: "deposit", p_amount: 10 }) }),
       expect.objectContaining({ name: "powerhub_transfer_company_accounts", args: expect.objectContaining({ p_from_account_id: 90, p_to_account_id: 92, p_amount: 5 }) }),
     ]);
+  });
+
+  it("يحدّث إعدادات حساب الشركة عبر Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.companyAccounts.updatePhone({ siteId: 10, accountId: 92, phoneNumber: "+970599000001" })).resolves.toEqual({ success: true });
+    await expect(caller.companyAccounts.updateOpeningBalance({ siteId: 10, accountId: 92, openingBalance: 100 })).resolves.toEqual({ success: true });
+    await expect(caller.companyAccounts.updateSites({ siteId: 10, accountId: 92, siteIds: [10] })).resolves.toEqual({ success: true });
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "powerhub_update_company_account_phone", args: expect.objectContaining({ p_tenant_id: 20, p_account_id: 92 }) }),
+      expect.objectContaining({ name: "powerhub_update_company_account_opening_balance", args: expect.objectContaining({ p_opening_balance: 100 }) }),
+      expect.objectContaining({ name: "powerhub_update_company_account_sites", args: expect.objectContaining({ p_site_ids: [10] }) }),
+    ]));
   });
 
   it("يعرض ويغلق جلسة التحصيل عبر Supabase دون MySQL", async () => {
