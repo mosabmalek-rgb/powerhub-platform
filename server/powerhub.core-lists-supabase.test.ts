@@ -78,6 +78,20 @@ const state = vi.hoisted(() => {
     },
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
+      if (name === "powerhub_subscriber_portal_list") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة" }]);
+      if (name === "powerhub_subscriber_portal_theme") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة" }]);
+      if (name === "powerhub_subscriber_portal_lookup") return resolved({
+        portal: { portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", city: "غزة" },
+        subscriber: { subscriberNo: "MAIN-001", fullName: "مشترك الاختبار", phone: "+970595000000", address: null, subscriptionType: "residential", serviceStatus: "active", joinedAt: "2026-08-01T00:00:00.000Z" },
+        invoices: [{ invoiceNo: "MAIN-202608-0001", billingPeriod: "2026-08", issueDate: "2026-08-02T00:00:00.000Z", dueDate: "2026-08-16T00:00:00.000Z", consumptionKwh: 10, totalAmount: 100, paidAmount: 25, balanceDue: 75, status: "issued" }],
+        payments: [{ id: 81, paymentNo: "PAY-202608-0001", amount: 25, paymentMethod: "cash", status: "completed", paidAt: "2026-08-03T00:00:00.000Z", invoiceNo: "MAIN-202608-0001" }],
+      });
+      if (name === "powerhub_subscriber_portal_invoice") return resolved({
+        portal: { displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800" },
+        subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001", phone: "+970595000000", address: null },
+        invoice: { invoiceNo: "MAIN-202608-0001", billingPeriod: "2026-08", issueDate: "2026-08-02T00:00:00.000Z", dueDate: "2026-08-16T00:00:00.000Z", previousReading: 90, currentReading: 100, consumptionKwh: 10, pricePerKwh: 10, fixedFee: 0, taxAmount: 0, discountAmount: 0, totalAmount: 100, paidAmount: 25, balanceDue: 75, status: "issued" },
+        lines: [{ description: "استهلاك كهرباء", quantity: 10, unitPrice: 10, amount: 100 }],
+      });
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
@@ -132,6 +146,26 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90, balance: 125, linkedSites: [{ siteId: 10, siteName: "الفرع الرئيسي" }], transactions: [{ id: 91, occurredAt: expect.any(Date) }] }]);
     await expect(caller.expenses.list({ siteId: 10 })).resolves.toMatchObject([{ id: 80, category: "fuel", amount: "15", occurredAt: expect.any(Date) }]);
     await expect(caller.dashboard.summary({ siteId: 10 })).resolves.toEqual({ subscribers: 1, generators: { active: 1, maintenance: 0 }, financial: { invoiced: 100, collected: 25, outstanding: 75, expenses: 15, operatingProfit: 10 }, energyKwh: 10, failedNotifications: 1 });
+  });
+
+  it("يعرض بوابة المشترك العامة وفاتورتها عبر دوال Supabase بعد التحقق الثنائي دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: null as never, req: {} as never, res: {} as never });
+    await expect(caller.subscriberPortal.list()).resolves.toEqual([{
+      portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", siteName: "الفرع الرئيسي", city: "غزة",
+    }]);
+    await expect(caller.subscriberPortal.theme({ portalCode: "main" })).resolves.toMatchObject({ portalCode: "main", displayName: "بوابة الفرع الرئيسي" });
+    await expect(caller.subscriberPortal.lookup({ portalCode: "main", subscriberNo: "MAIN-001", phone: "+970595000000" })).resolves.toMatchObject({
+      subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, summary: { outstandingBalance: 75 }, invoices: [{ invoiceNo: "MAIN-202608-0001" }],
+    });
+    await expect(caller.subscriberPortal.invoice({ portalCode: "main", subscriberNo: "MAIN-001", phone: "+970595000000", invoiceNo: "MAIN-202608-0001" })).resolves.toMatchObject({
+      invoice: { invoiceNo: "MAIN-202608-0001", balanceDue: 75 }, lines: [{ description: "استهلاك كهرباء" }],
+    });
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "powerhub_subscriber_portal_list" }),
+      expect.objectContaining({ name: "powerhub_subscriber_portal_theme", args: { p_portal_code: "main" } }),
+      expect.objectContaining({ name: "powerhub_subscriber_portal_lookup", args: { p_portal_code: "main", p_subscriber_no: "MAIN-001", p_phone: "+970595000000" } }),
+      expect.objectContaining({ name: "powerhub_subscriber_portal_invoice", args: { p_portal_code: "main", p_subscriber_no: "MAIN-001", p_phone: "+970595000000", p_invoice_no: "MAIN-202608-0001" } }),
+    ]));
   });
 
   it("يعرض تقرير النطاق الزمني للفرع من Supabase دون استدعاء MySQL", async () => {

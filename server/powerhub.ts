@@ -504,10 +504,6 @@ const subscriberPortalLookupInput = z.object({
   phone: z.string().trim().min(6).max(30),
 });
 
-function compactPhone(value: string) {
-  return value.replace(/[\s\-()]/g, "");
-}
-
 export function generateSubscriberReference(siteCode: string) {
   const compactSiteCode = siteCode.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 14) || "SITE";
   return `PH-${compactSiteCode}-${randomBytes(3).toString("hex").toUpperCase()}`;
@@ -526,34 +522,67 @@ function isDuplicateKeyError(error: unknown) {
 }
 
 async function getEnabledPortal(portalCode: string) {
-  const db = await dbOrThrow();
-  const [portal] = await db.select({
-    id: sitePortalSettings.id,
-    tenantId: sitePortalSettings.tenantId,
-    siteId: sitePortalSettings.siteId,
-    portalCode: sitePortalSettings.portalCode,
-    displayName: sitePortalSettings.displayName,
-    primaryColor: sitePortalSettings.primaryColor,
-    accentColor: sitePortalSettings.accentColor,
-    siteName: sites.name,
-    city: sites.city,
-  }).from(sitePortalSettings)
-    .innerJoin(sites, eq(sitePortalSettings.siteId, sites.id))
-    .where(and(eq(sitePortalSettings.portalCode, portalCode), eq(sitePortalSettings.isEnabled, true), eq(sites.status, "active")))
-    .limit(1);
+  const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_portal_theme", { p_portal_code: portalCode });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات بوابة المشتركين من Supabase." });
+  const portal = (data as Array<{ portal_code: string; display_name: string | null; primary_color: string; accent_color: string; site_name: string; city: string | null }> | null)?.[0];
   if (!portal) throw new TRPCError({ code: "NOT_FOUND", message: "رابط بوابة المشتركين غير متاح." });
-  return portal;
+  return {
+    portalCode: portal.portal_code,
+    displayName: portal.display_name,
+    primaryColor: portal.primary_color,
+    accentColor: portal.accent_color,
+    siteName: portal.site_name,
+    city: portal.city,
+  };
 }
 
 async function getVerifiedPortalSubscriber(input: z.infer<typeof subscriberPortalLookupInput>) {
-  const [portal, db] = await Promise.all([getEnabledPortal(input.portalCode), dbOrThrow()]);
-  const [subscriber] = await db.select().from(subscribers)
-    .where(and(eq(subscribers.siteId, portal.siteId), eq(subscribers.subscriberNo, input.subscriberNo)))
-    .limit(1);
-  if (!subscriber || compactPhone(subscriber.phone) !== compactPhone(input.phone)) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_portal_lookup", {
+    p_portal_code: input.portalCode,
+    p_subscriber_no: input.subscriberNo,
+    p_phone: input.phone,
+  });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من بيانات بوابة المشترك في Supabase." });
+  const result = data as {
+    portal?: { portalCode: string; displayName: string; primaryColor: string; accentColor: string; city: string | null };
+    subscriber?: { subscriberNo: string; fullName: string; phone: string; address: string | null; subscriptionType: string; serviceStatus: string; joinedAt: string };
+    invoices?: Array<{ invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; consumptionKwh: number | string; totalAmount: number | string; paidAmount: number | string; balanceDue: number | string; status: string }>;
+    payments?: Array<{ id: number; paymentNo: string; amount: number | string; paymentMethod: string; status: string; paidAt: string; invoiceNo: string | null }>;
+  } | null;
+  const portal = result?.portal;
+  const subscriber = result?.subscriber;
+  if (!portal || !subscriber) {
     throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من بيانات المشترك. راجع الرقم المرجعي ورقم الهاتف." });
   }
-  return { portal, subscriber };
+  return {
+    portal,
+    subscriber,
+    invoices: result.invoices ?? [],
+    payments: result.payments ?? [],
+  };
+}
+
+async function getVerifiedPortalInvoice(input: z.infer<typeof subscriberPortalLookupInput> & { invoiceNo: string }) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_portal_invoice", {
+    p_portal_code: input.portalCode,
+    p_subscriber_no: input.subscriberNo,
+    p_phone: input.phone,
+    p_invoice_no: input.invoiceNo,
+  });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفاتورة من Supabase." });
+  const result = data as {
+    portal?: { displayName: string; primaryColor: string; accentColor: string };
+    subscriber?: { fullName: string; subscriberNo: string; phone: string; address: string | null };
+    invoice?: { invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; previousReading: number | string | null; currentReading: number | string | null; consumptionKwh: number | string; pricePerKwh: number | string; fixedFee: number | string; taxAmount: number | string; discountAmount: number | string; totalAmount: number | string; paidAmount: number | string; balanceDue: number | string; status: string };
+    lines?: Array<{ description: string; quantity: number | string; unitPrice: number | string; amount: number | string }>;
+  } | null;
+  const portal = result?.portal;
+  const subscriber = result?.subscriber;
+  const invoice = result?.invoice;
+  if (!portal || !subscriber || !invoice) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة غير متاحة للعرض." });
+  }
+  return { portal, subscriber, invoice, lines: result.lines ?? [] };
 }
 
 export const powerhubRouter = router({
@@ -963,18 +992,16 @@ export const powerhubRouter = router({
   }),
   subscriberPortal: router({
     list: publicProcedure.query(async () => {
-      const db = await dbOrThrow();
-      return db.select({
-        portalCode: sitePortalSettings.portalCode,
-        displayName: sitePortalSettings.displayName,
-        primaryColor: sitePortalSettings.primaryColor,
-        accentColor: sitePortalSettings.accentColor,
-        siteName: sites.name,
-        city: sites.city,
-      }).from(sitePortalSettings)
-        .innerJoin(sites, eq(sitePortalSettings.siteId, sites.id))
-        .where(and(eq(sitePortalSettings.isEnabled, true), eq(sites.status, "active")))
-        .orderBy(sites.name);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_portal_list");
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بوابات المشتركين من Supabase." });
+      return ((data ?? []) as Array<{ portal_code: string; display_name: string | null; primary_color: string; accent_color: string; site_name: string; city: string | null }>).map((portal) => ({
+        portalCode: portal.portal_code,
+        displayName: portal.display_name,
+        primaryColor: portal.primary_color,
+        accentColor: portal.accent_color,
+        siteName: portal.site_name,
+        city: portal.city,
+      }));
     }),
     theme: publicProcedure.input(z.object({ portalCode: portalCodeInput })).query(async ({ input }) => {
       const portal = await getEnabledPortal(input.portalCode);
@@ -987,29 +1014,12 @@ export const powerhubRouter = router({
       };
     }),
     lookup: publicProcedure.input(subscriberPortalLookupInput).query(async ({ input }) => {
-      const { portal, subscriber } = await getVerifiedPortalSubscriber(input);
-      const db = await dbOrThrow();
-      const [rawInvoices, paymentRows] = await Promise.all([
-        db.select().from(invoices).where(and(eq(invoices.siteId, portal.siteId), eq(invoices.subscriberId, subscriber.id))).orderBy(desc(invoices.issueDate)).limit(24),
-        db.select({
-          id: payments.id,
-          paymentNo: payments.paymentNo,
-          amount: payments.amount,
-          paymentMethod: payments.paymentMethod,
-          status: payments.status,
-          paidAt: payments.paidAt,
-          invoiceNo: invoices.invoiceNo,
-        }).from(payments).leftJoin(invoices, eq(payments.invoiceId, invoices.id))
-          .where(and(eq(payments.siteId, portal.siteId), eq(payments.subscriberId, subscriber.id)))
-          .orderBy(desc(payments.paidAt)).limit(24),
-      ]);
-      const subscriberInvoices = rawInvoices.filter((invoice) => invoice.status !== "draft" && invoice.status !== "cancelled");
+      const { portal, subscriber, invoices: subscriberInvoices, payments: completedPayments } = await getVerifiedPortalSubscriber(input);
       const currentPeriod = new Date().toISOString().slice(0, 7);
       const currentInvoice = subscriberInvoices.find((invoice) => invoice.billingPeriod === currentPeriod);
-      const completedPayments = paymentRows.filter((payment) => payment.status === "completed");
       const outstandingBalance = subscriberInvoices.reduce((total, invoice) => total + Number(invoice.balanceDue || 0), 0);
       return {
-        portal: { portalCode: portal.portalCode, displayName: portal.displayName || portal.siteName, primaryColor: portal.primaryColor, accentColor: portal.accentColor, city: portal.city },
+        portal: { portalCode: portal.portalCode, displayName: portal.displayName, primaryColor: portal.primaryColor, accentColor: portal.accentColor, city: portal.city },
         subscriber: {
           subscriberNo: subscriber.subscriberNo,
           fullName: subscriber.fullName,
@@ -1017,7 +1027,7 @@ export const powerhubRouter = router({
           address: subscriber.address,
           subscriptionType: subscriber.subscriptionType,
           serviceStatus: subscriber.serviceStatus,
-          joinedAt: subscriber.createdAt,
+          joinedAt: subscriber.joinedAt,
         },
         summary: {
           outstandingBalance,
@@ -1041,17 +1051,10 @@ export const powerhubRouter = router({
       };
     }),
     invoice: publicProcedure.input(subscriberPortalLookupInput.extend({ invoiceNo: z.string().trim().min(1).max(60) })).query(async ({ input }) => {
-      const { portal, subscriber } = await getVerifiedPortalSubscriber(input);
-      const db = await dbOrThrow();
-      const [invoice] = await db.select().from(invoices)
-        .where(and(eq(invoices.siteId, portal.siteId), eq(invoices.subscriberId, subscriber.id), eq(invoices.invoiceNo, input.invoiceNo)))
-        .limit(1);
-      if (!invoice || invoice.status === "draft" || invoice.status === "cancelled") throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة غير متاحة للعرض." });
-      const lines = await db.select({ description: invoiceLines.description, quantity: invoiceLines.quantity, unitPrice: invoiceLines.unitPrice, amount: invoiceLines.amount })
-        .from(invoiceLines).where(eq(invoiceLines.invoiceId, invoice.id)).orderBy(invoiceLines.displayOrder);
+      const { portal, subscriber, invoice, lines } = await getVerifiedPortalInvoice(input);
       return {
-        portal: { displayName: portal.displayName || portal.siteName, primaryColor: portal.primaryColor, accentColor: portal.accentColor },
-        subscriber: { fullName: subscriber.fullName, subscriberNo: subscriber.subscriberNo, phone: subscriber.phone, address: subscriber.address },
+        portal,
+        subscriber,
         invoice: {
           invoiceNo: invoice.invoiceNo,
           billingPeriod: invoice.billingPeriod,
