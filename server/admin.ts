@@ -1015,17 +1015,34 @@ export const adminRouter = router({
   }),
 
   listTenantBranchSettings: platformAdminProcedure.query(async () => {
-    const db = await dbOrThrow();
-    const [rows, counts] = await Promise.all([
-      db.select({ tenantId: tenants.id, tenantName: tenants.name, plan: tenants.plan, tenantStatus: tenants.status, ownerName: tenantOwnerProfiles.fullName, isEnabledOverride: tenantBranchSettings.isEnabledOverride, maxBranchesOverride: tenantBranchSettings.maxBranchesOverride, disabledBehavior: tenantBranchSettings.disabledBehavior })
-        .from(tenants)
-        .leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id))
-        .leftJoin(tenantBranchSettings, eq(tenantBranchSettings.tenantId, tenants.id))
-        .orderBy(desc(tenants.createdAt)),
-      db.select({ tenantId: sites.tenantId, count: sql<number>`count(*)` }).from(sites).where(sql`${sites.status} <> 'archived'`).groupBy(sites.tenantId),
+    const [tenantResult, ownerResult, settingsResult] = await Promise.all([
+      supabaseAdmin().from("tenants").select("id, name, plan, status, created_at").order("created_at", { ascending: false }).limit(500),
+      supabaseAdmin().from("tenant_owner_profiles").select("tenant_id, full_name").limit(500),
+      supabaseAdmin().from("tenant_branch_settings").select("tenant_id, is_enabled_override, max_branches_override, disabled_behavior").limit(500),
     ]);
-    const countByTenant = new Map(counts.map((item) => [item.tenantId, Number(item.count)]));
-    return rows.map((row) => ({ ...row, currentBranchCount: countByTenant.get(row.tenantId) ?? 0 }));
+    if (tenantResult.error || ownerResult.error || settingsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات الأفرع من Supabase." });
+    const activeBranches: Array<{ tenant_id: number | string }> = [];
+    const pageSize = 1_000;
+    for (let offset = 0; ; offset += pageSize) {
+      const activeSitesResult = await supabaseAdmin().from("sites").select("tenant_id").neq("status", "archived").range(offset, offset + pageSize - 1);
+      if (activeSitesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب الأفرع النشطة من Supabase." });
+      const page = activeSitesResult.data ?? [];
+      activeBranches.push(...page);
+      if (page.length < pageSize) break;
+    }
+    const ownerNameByTenantId = new Map((ownerResult.data ?? []).map((owner) => [Number(owner.tenant_id), owner.full_name]));
+    const settingsByTenantId = new Map((settingsResult.data ?? []).map((setting) => [Number(setting.tenant_id), setting]));
+    const countByTenantId = new Map<number, number>();
+    activeBranches.forEach((site) => countByTenantId.set(Number(site.tenant_id), (countByTenantId.get(Number(site.tenant_id)) ?? 0) + 1));
+    return (tenantResult.data ?? []).map((tenant) => {
+      const setting = settingsByTenantId.get(Number(tenant.id));
+      return {
+        tenantId: Number(tenant.id), tenantName: tenant.name, plan: tenant.plan as "starter" | "professional" | "enterprise", tenantStatus: tenant.status,
+        ownerName: ownerNameByTenantId.get(Number(tenant.id)) ?? null,
+        isEnabledOverride: setting?.is_enabled_override ?? null, maxBranchesOverride: setting?.max_branches_override ?? null,
+        disabledBehavior: setting?.disabled_behavior ?? "read_only", currentBranchCount: countByTenantId.get(Number(tenant.id)) ?? 0,
+      };
+    });
   }),
 
   saveTenantBranchSettings: platformAdminProcedure.input(z.object({

@@ -13,7 +13,8 @@ const state = vi.hoisted(() => {
     users: [{ id: 1, name: "مدير المنصة" }],
     tenants: [{ id: 20, name: "مولدات الاختبار" }],
     tenant_owner_profiles: [{ tenant_id: 20, full_name: "مالك الاختبار" }],
-    sites: [{ id: 30, name: "فرع الاختبار" }],
+    tenant_branch_settings: [{ tenant_id: 20, is_enabled_override: true, max_branches_override: 3, disabled_behavior: "read_only" }],
+    sites: [{ id: 30, tenant_id: 20, name: "فرع الاختبار" }],
     subscribers: [{ id: 40, full_name: "المشترك الاختبار" }],
     complaints: [{ id: 15, tenant_id: 20, site_id: 30, subscriber_id: 40, title: "شكوى اختبار", description: "تفاصيل اختبار", priority: "high", status: "open", assigned_user_id: 1, response: null, opened_at: "2026-08-27T00:00:00.000Z", resolved_at: null }],
   };
@@ -21,7 +22,7 @@ const state = vi.hoisted(() => {
     from(table: string) {
       calls.push(table);
       const result = () => Promise.resolve({ data: rows[table] ?? [], error: null });
-      const query = { order: () => query, limit: () => query, in: () => query, eq: (column: string, value: unknown) => { filters.push([table, column, value]); return query; }, maybeSingle: () => Promise.resolve({ data: (rows[table] ?? [])[0] ?? null, error: null }), then: <TResult1 = { data: unknown[]; error: null }, TResult2 = never>(onfulfilled?: ((value: { data: unknown[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null) => result().then(onfulfilled, onrejected) };
+      const query = { order: () => query, limit: () => query, in: () => query, eq: (column: string, value: unknown) => { filters.push([table, column, value]); return query; }, neq: (column: string, value: unknown) => { filters.push([table, column, value]); return query; }, range: () => query, maybeSingle: () => Promise.resolve({ data: (rows[table] ?? [])[0] ?? null, error: null }), then: <TResult1 = { data: unknown[]; error: null }, TResult2 = never>(onfulfilled?: ((value: { data: unknown[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null) => result().then(onfulfilled, onrejected) };
       return { select: () => query };
     },
   };
@@ -69,5 +70,14 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     await expect(caller.listComplaints({ status: "open" })).resolves.toMatchObject([{ id: 15, tenantName: "مولدات الاختبار", siteName: "فرع الاختبار", subscriberName: "المشترك الاختبار", assignedUserName: "مدير المنصة" }]);
     expect(state.calls).toEqual(["complaints", "tenants", "sites", "subscribers", "users"]);
     expect(state.filters).toEqual([["complaints", "status", "open"]]);
+  });
+
+  it("يقرأ إعدادات الفروع ويعدّ الفروع النشطة من Supabase دون MySQL", async () => {
+    state.calls.splice(0);
+    state.filters.splice(0);
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.listTenantBranchSettings()).resolves.toMatchObject([{ tenantId: 20, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار", maxBranchesOverride: 3, currentBranchCount: 1 }]);
+    expect(state.calls).toEqual(["tenants", "tenant_owner_profiles", "tenant_branch_settings", "sites"]);
+    expect(state.filters).toEqual([["sites", "status", "archived"]]);
   });
 });
