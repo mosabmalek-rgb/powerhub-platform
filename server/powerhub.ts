@@ -1189,8 +1189,28 @@ export const powerhubRouter = router({
       return listSupabaseSubscribers(input.siteId);
     }),
     quota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
-      return ownerSubscriberQuota(await getSiteTenant(input.siteId));
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const admin = supabaseAdmin();
+      const [subscriptionResponse, tenantResponse, limitPolicyResponse, overridesPolicyResponse, countResponse] = await Promise.all([
+        admin.from("tenant_subscriptions").select("plan").eq("tenant_id", access.tenantId).maybeSingle(),
+        admin.from("tenants").select("plan").eq("id", access.tenantId).maybeSingle(),
+        admin.from("platform_settings").select("value").eq("setting_key", "owner_subscriber_limits").maybeSingle(),
+        admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
+        admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", access.tenantId),
+      ]);
+      if (subscriptionResponse.error || tenantResponse.error || limitPolicyResponse.error || overridesPolicyResponse.error || countResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
+      const plan = subscriptionResponse.data?.plan ?? tenantResponse.data?.plan;
+      if (plan !== "starter" && plan !== "professional" && plan !== "enterprise") throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
+      const policyValue = limitPolicyResponse.data?.value;
+      const overridesValue = overridesPolicyResponse.data?.value;
+      const overridesObject = overridesValue && typeof overridesValue === "object" && !Array.isArray(overridesValue) ? overridesValue as Record<string, unknown> : {};
+      const perTenantOverrides = overridesObject.overrides;
+      const override = perTenantOverrides && typeof perTenantOverrides === "object" && !Array.isArray(perTenantOverrides) ? (perTenantOverrides as Record<string, unknown>)[String(access.tenantId)] : undefined;
+      const requestedOverrideLimit = override && typeof override === "object" && !Array.isArray(override) ? (override as Record<string, unknown>).subscriberLimit : undefined;
+      const parsedOverrideLimit = typeof requestedOverrideLimit === "number" ? requestedOverrideLimit : typeof requestedOverrideLimit === "string" ? Number(requestedOverrideLimit) : NaN;
+      const limit = Number.isInteger(parsedOverrideLimit) && parsedOverrideLimit >= 0 && parsedOverrideLimit <= 100000 ? parsedOverrideLimit : ownerSubscriberLimitForPlan(plan, { value: policyValue });
+      const currentCount = countResponse.count ?? 0;
+      return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
     }),
     create: protectedProcedure.input(siteInput.pick({ code: true }).extend({
       siteId: z.number().int().positive(),

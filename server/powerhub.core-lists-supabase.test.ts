@@ -756,4 +756,9 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_requested_plan: "professional" },
     })]);
   });
+
+  it("يعرض حصة المشتركين من Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toEqual({ limit: 500, currentCount: 0, remaining: 500, plan: "professional" });
+  });
 });
