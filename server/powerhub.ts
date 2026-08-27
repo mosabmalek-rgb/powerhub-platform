@@ -2365,43 +2365,59 @@ export const powerhubRouter = router({
       });
     }),
     readings: protectedProcedure.input(mobileSyncReadingsInput).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      const conditions = [
-        eq(meterReadings.tenantId, tenantId),
-        eq(subscribers.tenantId, tenantId),
-        eq(subscribers.siteId, input.siteId),
-        eq(auditLogs.tenantId, tenantId),
-        eq(auditLogs.siteId, input.siteId),
-        eq(auditLogs.entityType, "meter_reading"),
-        eq(auditLogs.action, "mobile_create"),
-        sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`,
-      ];
-      if (input.userId) conditions.push(eq(auditLogs.userId, input.userId));
-      if (input.from) conditions.push(gte(auditLogs.createdAt, new Date(input.from)));
-      if (input.to) conditions.push(lte(auditLogs.createdAt, new Date(input.to)));
-      return db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, userId: auditLogs.userId })
-        .from(meterReadings)
-        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
-        .innerJoin(auditLogs, and(...conditions))
-        .orderBy(desc(auditLogs.createdAt))
-        .limit(input.pageSize)
-        .offset((input.page - 1) * input.pageSize);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      let auditQuery = supabaseAdmin().from("audit_logs")
+        .select("entity_id, user_id, created_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .eq("entity_type", "meter_reading").eq("action", "mobile_create");
+      if (input.userId) auditQuery = auditQuery.eq("user_id", input.userId);
+      if (input.from) auditQuery = auditQuery.gte("created_at", input.from);
+      if (input.to) auditQuery = auditQuery.lte("created_at", input.to);
+      const { data: auditRows, error: auditError } = await auditQuery.order("created_at", { ascending: false }).range((input.page - 1) * input.pageSize, input.page * input.pageSize - 1);
+      if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تدقيق القراءات الميدانية من Supabase." });
+      const readingIds = (auditRows ?? []).map((row) => Number(row.entity_id)).filter(Number.isInteger);
+      if (!readingIds.length) return [];
+      const [readingsResult, subscribersResult] = await Promise.all([
+        supabaseAdmin().from("meter_readings").select("id, version_no, subscriber_id, previous_reading_value, reading_value, reading_at, status").eq("tenant_id", access.tenantId).in("id", readingIds),
+        supabaseAdmin().from("subscribers").select("id, full_name, subscriber_no").eq("tenant_id", access.tenantId).eq("site_id", input.siteId),
+      ]);
+      if (readingsResult.error || subscribersResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل القراءات الميدانية من Supabase." });
+      const readingsById = new Map((readingsResult.data ?? []).map((reading) => [Number(reading.id), reading]));
+      const subscribersById = new Map((subscribersResult.data ?? []).map((subscriber) => [Number(subscriber.id), subscriber]));
+      return (auditRows ?? []).flatMap((audit) => {
+        const reading = readingsById.get(Number(audit.entity_id));
+        const subscriber = reading ? subscribersById.get(Number(reading.subscriber_id)) : undefined;
+        return reading && subscriber ? [{
+          id: Number(reading.id), versionNo: Number(reading.version_no), subscriberName: subscriber.full_name, subscriberNo: subscriber.subscriber_no,
+          previousReading: Number(reading.previous_reading_value), currentReading: Number(reading.reading_value), readingAt: new Date(reading.reading_at),
+          syncedAt: new Date(audit.created_at), status: reading.status, userId: audit.user_id === null ? null : Number(audit.user_id),
+        }] : [];
+      });
     }),
     readingDetail: protectedProcedure.input(mobileSyncReadingDetailInput).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      const [row] = await db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo, subscriberId: subscribers.id, subscriberName: subscribers.fullName, subscriberNo: subscribers.subscriberNo, previousReading: meterReadings.previousReadingValue, currentReading: meterReadings.readingValue, consumptionKwh: meterReadings.consumptionKwh, readingAt: meterReadings.readingAt, syncedAt: auditLogs.createdAt, status: meterReadings.status, captureMethod: meterReadings.captureMethod, notes: meterReadings.notes, technicianName: users.name, technicianEmail: users.email })
-        .from(meterReadings)
-        .innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id))
-        .innerJoin(auditLogs, and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.action, "mobile_create"), sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`))
-        .innerJoin(users, eq(users.id, auditLogs.userId))
-        .where(and(eq(meterReadings.id, input.readingId), eq(meterReadings.tenantId, tenantId), eq(subscribers.tenantId, tenantId), eq(subscribers.siteId, input.siteId)))
-        .limit(1);
-      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
-      return row;
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      const { data: audit, error: auditError } = await supabaseAdmin().from("audit_logs")
+        .select("user_id, created_at").eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .eq("entity_type", "meter_reading").eq("action", "mobile_create").eq("entity_id", String(input.readingId)).maybeSingle();
+      if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مصدر القراءة الميدانية في Supabase." });
+      if (!audit || audit.user_id === null) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
+      const { data: reading, error: readingError } = await supabaseAdmin().from("meter_readings")
+        .select("id, version_no, subscriber_id, previous_reading_value, reading_value, consumption_kwh, reading_at, status, capture_method, notes")
+        .eq("tenant_id", access.tenantId).eq("id", input.readingId).maybeSingle();
+      if (readingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءة الميدانية من Supabase." });
+      if (!reading) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
+      const [subscriberResult, technicianResult] = await Promise.all([
+        supabaseAdmin().from("subscribers").select("id, full_name, subscriber_no").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", reading.subscriber_id).maybeSingle(),
+        supabaseAdmin().from("users").select("name, email").eq("id", audit.user_id).maybeSingle(),
+      ]);
+      if (subscriberResult.error || technicianResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل القراءة الميدانية من Supabase." });
+      if (!subscriberResult.data || !technicianResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
+      return {
+        id: Number(reading.id), versionNo: Number(reading.version_no), subscriberId: Number(subscriberResult.data.id), subscriberName: subscriberResult.data.full_name, subscriberNo: subscriberResult.data.subscriber_no,
+        previousReading: Number(reading.previous_reading_value), currentReading: Number(reading.reading_value), consumptionKwh: Number(reading.consumption_kwh),
+        readingAt: new Date(reading.reading_at), syncedAt: new Date(audit.created_at), status: reading.status as "draft" | "pending_review" | "approved" | "rejected", captureMethod: reading.capture_method,
+        notes: reading.notes, technicianName: technicianResult.data.name, technicianEmail: technicianResult.data.email,
+      };
     }),
     approveAndIssue: protectedProcedure.input(mobileSyncApproveInput).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
