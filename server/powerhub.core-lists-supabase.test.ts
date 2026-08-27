@@ -114,6 +114,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_employee_adjustment") return resolved([{ adjustment_id: 125 }]);
       if (name === "powerhub_create_payroll_draft") return resolved([{ payroll_run_id: 126, total_net: 1100 }]);
       if (name === "powerhub_approve_payroll") return resolved([{ payroll_run_id: 122 }]);
+      if (name === "powerhub_pay_payroll") return resolved([{ payroll_run_id: 122, expense_id: 125, transaction_id: 126 }]);
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
@@ -727,6 +728,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([expect.objectContaining({
       name: "powerhub_approve_payroll",
       args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_payroll_run_id: 122 },
+    })]);
+  });
+
+  it("يصرف كشف الرواتب عبر RPC Supabase الذرية دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.hr.payPayroll({ siteId: 10, payrollRunId: 122, accountId: 90 })).resolves.toEqual({ success: true });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({
+      name: "powerhub_pay_payroll",
+      args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_payroll_run_id: 122, p_account_id: 90 },
     })]);
   });
 });
