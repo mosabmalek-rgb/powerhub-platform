@@ -468,12 +468,19 @@ export const adminRouter = router({
   }),
 
   financeOverview: platformFinanceProcedure.query(async () => {
-    const db = await dbOrThrow();
-    const [subscriptionSummary, [collectionSummary]] = await Promise.all([
-      db.select({ status: tenantSubscriptions.status, count: sql<number>`count(*)` }).from(tenantSubscriptions).groupBy(tenantSubscriptions.status),
-      db.select({ amount: sql<string>`coalesce(sum(${payments.amount}), 0)`, count: sql<number>`count(*)` }).from(payments).where(eq(payments.status, "completed")),
-    ]);
-    return { subscriptions: subscriptionSummary.map((item) => ({ ...item, count: Number(item.count) })), collections: { amount: Number(collectionSummary?.amount ?? 0), count: Number(collectionSummary?.count ?? 0) } };
+    const { data, error } = await supabaseAdmin().rpc("powerhub_finance_overview");
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي المركزي من Supabase." });
+    const overview = (data as Array<{ subscriptions?: unknown; collections_amount?: string | number | null; collections_count?: string | number | null }> | null)?.[0];
+    if (!overview) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة الملخص المالي استجابة صالحة." });
+    const subscriptions = Array.isArray(overview.subscriptions) ? overview.subscriptions : [];
+    return {
+      subscriptions: subscriptions.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const subscription = item as { status?: unknown; count?: unknown };
+        return typeof subscription.status === "string" ? [{ status: subscription.status, count: Number(subscription.count ?? 0) }] : [];
+      }),
+      collections: { amount: Number(overview.collections_amount ?? 0), count: Number(overview.collections_count ?? 0) },
+    };
   }),
 
   inviteTenantAccess: platformAdminProcedure.input(z.object({

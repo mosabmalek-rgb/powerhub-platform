@@ -7,7 +7,7 @@
 | المسار | الحالة الحالية | التصنيف | المعالجة المطلوبة |
 |---|---|---|---|
 | `platformTweetSmsReport` | MySQL | تقرير مجمّع مركزي | نقل تجميع الاستهلاك والتنبيهات إلى قراءة Supabase محدودة أو دالة PostgreSQL للقراءة فقط؛ لا اتصال بمزود خارجي. |
-| `financeOverview` | MySQL | ملخص مالي مركزي | نقل الإجماليات إلى دالة PostgreSQL للقراءة فقط، مقيدة بحارس `platformFinanceProcedure`. |
+| `financeOverview` | Supabase | ملخص مالي مركزي | نُقل إلى `powerhub_finance_overview`، وهي دالة PostgreSQL للقراءة فقط مقيدة بحارس `platformFinanceProcedure` وبصلاحية `service_role` فقط. |
 | `operationalMonitoring` | MySQL | مراقبة مركزية وتجميع حالات | نقل القوائم المحدودة والعدادات إلى Supabase، مع عدم تشغيل رسائل أو مهام مجدولة. |
 | `advancedDashboard` | MySQL | لوحة تحليلات متعددة الجداول | نقلها إلى استعلامات Supabase مقيدة أو دالة PostgreSQL للقراءة فقط، مع الحفاظ على نطاق مدير المنصة فقط. |
 | `globalSearch` | MySQL | بحث مركزي محدود | نقل البحث المحدود إلى Supabase مع تطبيع/هروب مدخلات البحث وإرجاع الأسماء ضمن المستأجر الصحيح. |

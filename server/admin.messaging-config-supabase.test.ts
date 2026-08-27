@@ -25,6 +25,11 @@ const state = vi.hoisted(() => {
     platform_security_events: [{ id: 21, severity: "warning", status: "open", title: "مراجعة مطلوبة", details: "تفاصيل", created_at: "2026-08-27T00:00:00.000Z" }],
   };
   const client = {
+    rpc(functionName: string) {
+      calls.push(`rpc:${functionName}`);
+      if (functionName === "powerhub_finance_overview") return Promise.resolve({ data: [{ subscriptions: [{ status: "active", count: 2 }], collections_amount: "150.5", collections_count: 3 }], error: null });
+      return Promise.resolve({ data: null, error: { message: "unknown rpc" } });
+    },
     from(table: string) {
       calls.push(table);
       const result = () => Promise.resolve({ data: rows[table] ?? [], error: null, count: (rows[table] ?? []).length });
@@ -127,5 +132,12 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
       alerts: expect.arrayContaining([expect.objectContaining({ id: "message-19", tenantName: "مولدات الاختبار" }), expect.objectContaining({ id: "sync-20" }), expect.objectContaining({ id: "security-21" })]),
     });
     expect(state.calls).toEqual(["tenants", "notification_messages", "notification_messages", "mobile_sync_events", "platform_security_events", "tenants"]);
+  });
+
+  it("يقرأ الملخص المالي المركزي من دالة PostgreSQL في Supabase دون MySQL", async () => {
+    state.calls.splice(0);
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "finance_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.financeOverview()).resolves.toEqual({ subscriptions: [{ status: "active", count: 2 }], collections: { amount: 150.5, count: 3 } });
+    expect(state.calls).toEqual(["rpc:powerhub_finance_overview"]);
   });
 });
