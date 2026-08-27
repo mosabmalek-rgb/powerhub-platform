@@ -24,8 +24,10 @@ const state = vi.hoisted(() => {
     collector_sessions: [{ id: 96, tenant_id: 20, site_id: 10, collector_user_id: 1, status: "open", opening_cash: 5, expected_cash: 5, declared_cash: null, variance_amount: null, opened_at: "2026-08-03T00:00:00.000Z", closed_at: null, notes: null, closed_by_user_id: null, created_at: "2026-08-03T00:00:00.000Z", updated_at: "2026-08-03T00:00:00.000Z" }],
     financial_settlements: [{ id: 97, tenant_id: 20, site_id: 10, period_start: "2026-08-01T00:00:00.000Z", period_end: "2026-08-31T23:59:59.999Z", total_collected: 100, total_expenses: 20, book_profit: 80, actual_cash: 75, difference: -5, notes: "تسوية دورية", status: "draft", created_by_user_id: 1, approved_by_user_id: null, locked_at: null, created_at: "2026-08-31T23:59:59.999Z", updated_at: "2026-08-31T23:59:59.999Z" }],
     audit_logs: [{ id: 108, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "subscriber", entity_id: "30", action: "create", before_data: null, after_data: { subscriberNo: "MAIN-001" }, metadata: null, created_at: "2026-08-03T00:00:00.000Z" }],
-    users: [{ id: 1, role: "admin" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, plan: "professional" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { starter: 1, professional: 3, enterprise: 10 } } }], tenant_branch_settings: [],
+    users: [{ id: 1, role: "admin", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, plan: "professional" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { starter: 1, professional: 3, enterprise: 10 } } }], tenant_branch_settings: [],
     tenant_owner_profiles: [{ tenant_id: 20, company_name: "شركة المولد", report_logo_key: null }],
+    staff_profiles: [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true }],
+    mobile_sync_events: [{ id: 110, tenant_id: 20, site_id: 10, user_id: 1, event_type: "sync_cycle", status: "success", synced_count: 2, retryable_count: 0, needs_review_count: 0, error_code: null, error_message: null, app_version: "1.0.0", device_label: "هاتف فني", occurred_at: "2026-08-03T00:00:00.000Z" }],
     tenants: [{ id: 20, plan: "starter" }],
     subscription_upgrade_requests: [{ id: 109, tenant_id: 20, current_plan: "starter", requested_plan: "professional", status: "pending", note: "مراجعة الباقة", created_at: "2026-08-20T00:00:00.000Z", reviewed_at: null }],
   };
@@ -46,6 +48,7 @@ const state = vi.hoisted(() => {
         lte: () => query,
         lt: () => query,
         not: () => query,
+        range: (from: number, to: number) => { filteredRows = filteredRows.slice(from, to + 1); return query; },
         limit: () => query,
         maybeSingle: () => resolved(filteredRows[0] ?? null),
         then: <TResult1 = { data: unknown[]; error: null }, TResult2 = never>(
@@ -299,6 +302,18 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.audit.list({ siteId: 10 })).resolves.toMatchObject([{
       id: 108, tenantId: 20, siteId: 10, userId: 1, entityType: "subscriber", entityId: "30", action: "create",
     }]);
+  });
+
+  it("يعرض ملخص وقائمة المزامنة الميدانية والفنيين من Supabase دون MySQL", async () => {
+    state.tables.users = [{ id: 1, role: "admin", name: "مدير المنصة", email: "admin@example.test" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.mobileSync.summary({ siteId: 10, from: "2026-08-01T00:00:00.000Z", to: "2026-09-01T00:00:00.000Z" })).resolves.toMatchObject({
+      cycles: 1, syncedReadings: 2, retryableReadings: 0, needsReviewReadings: 0, failedEvents: 0, activeTechnicians: 1,
+    });
+    await expect(caller.mobileSync.list({ siteId: 10, page: 1, pageSize: 25 })).resolves.toMatchObject([{
+      id: 110, userId: 1, userName: "مدير المنصة", eventType: "sync_cycle", status: "success", syncedCount: 2,
+    }]);
+    await expect(caller.mobileSync.technicians({ siteId: 10 })).resolves.toEqual([{ id: 1, name: "مدير المنصة", email: "admin@example.test" }]);
   });
 
   it("يعطّل اختبار الرسائل والجدولة الموروثين صراحةً", async () => {

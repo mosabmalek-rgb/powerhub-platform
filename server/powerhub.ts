@@ -2320,33 +2320,49 @@ export const powerhubRouter = router({
   }),
   mobileSync: router({
     summary: protectedProcedure.input(siteScoped.extend({ from: z.string().datetime().optional(), to: z.string().datetime().optional() })).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
       const from = input.from ? new Date(input.from) : new Date(Date.now() - 24 * 60 * 60 * 1000);
       const to = input.to ? new Date(input.to) : new Date();
-      const [row] = await db.select({
-        cycles: sql<number>`count(*)`,
-        syncedReadings: sql<number>`coalesce(sum(${mobileSyncEvents.syncedCount}), 0)`,
-        retryableReadings: sql<number>`coalesce(sum(${mobileSyncEvents.retryableCount}), 0)`,
-        needsReviewReadings: sql<number>`coalesce(sum(${mobileSyncEvents.needsReviewCount}), 0)`,
-        failedEvents: sql<number>`coalesce(sum(case when ${mobileSyncEvents.status} in ('failed', 'needs_review') then 1 else 0 end), 0)`,
-        activeTechnicians: sql<number>`count(distinct ${mobileSyncEvents.userId})`,
-        lastEventAt: sql<Date | null>`max(${mobileSyncEvents.occurredAt})`,
-      }).from(mobileSyncEvents).where(and(eq(mobileSyncEvents.tenantId, tenantId), eq(mobileSyncEvents.siteId, input.siteId), gte(mobileSyncEvents.occurredAt, from), lte(mobileSyncEvents.occurredAt, to)));
-      return { cycles: Number(row?.cycles ?? 0), syncedReadings: Number(row?.syncedReadings ?? 0), retryableReadings: Number(row?.retryableReadings ?? 0), needsReviewReadings: Number(row?.needsReviewReadings ?? 0), failedEvents: Number(row?.failedEvents ?? 0), activeTechnicians: Number(row?.activeTechnicians ?? 0), lastEventAt: row?.lastEventAt ?? null };
+      const { data, error } = await supabaseAdmin().from("mobile_sync_events")
+        .select("user_id, status, synced_count, retryable_count, needs_review_count, occurred_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .gte("occurred_at", from.toISOString()).lte("occurred_at", to.toISOString());
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص المزامنة الميدانية من Supabase." });
+      const rows = data ?? [];
+      const lastEventAt = rows.reduce<string | null>((latest, row) => !latest || row.occurred_at > latest ? row.occurred_at : latest, null);
+      return {
+        cycles: rows.length,
+        syncedReadings: rows.reduce((total, row) => total + Number(row.synced_count ?? 0), 0),
+        retryableReadings: rows.reduce((total, row) => total + Number(row.retryable_count ?? 0), 0),
+        needsReviewReadings: rows.reduce((total, row) => total + Number(row.needs_review_count ?? 0), 0),
+        failedEvents: rows.filter((row) => row.status === "failed" || row.status === "needs_review").length,
+        activeTechnicians: new Set(rows.map((row) => Number(row.user_id))).size,
+        lastEventAt: lastEventAt ? new Date(lastEventAt) : null,
+      };
     }),
     list: protectedProcedure.input(siteScoped.extend({ status: z.enum(["success", "partial", "retryable", "needs_review", "failed"]).optional(), userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) })).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      const conditions = [eq(mobileSyncEvents.tenantId, tenantId), eq(mobileSyncEvents.siteId, input.siteId)];
-      if (input.status) conditions.push(eq(mobileSyncEvents.status, input.status));
-      if (input.userId) conditions.push(eq(mobileSyncEvents.userId, input.userId));
-      if (input.from) conditions.push(gte(mobileSyncEvents.occurredAt, new Date(input.from)));
-      if (input.to) conditions.push(lte(mobileSyncEvents.occurredAt, new Date(input.to)));
-      const rows = await db.select({ id: mobileSyncEvents.id, eventType: mobileSyncEvents.eventType, status: mobileSyncEvents.status, syncedCount: mobileSyncEvents.syncedCount, retryableCount: mobileSyncEvents.retryableCount, needsReviewCount: mobileSyncEvents.needsReviewCount, errorCode: mobileSyncEvents.errorCode, errorMessage: mobileSyncEvents.errorMessage, appVersion: mobileSyncEvents.appVersion, deviceLabel: mobileSyncEvents.deviceLabel, occurredAt: mobileSyncEvents.occurredAt, userId: users.id, userName: users.name, userEmail: users.email }).from(mobileSyncEvents).innerJoin(users, eq(users.id, mobileSyncEvents.userId)).where(and(...conditions)).orderBy(desc(mobileSyncEvents.occurredAt)).limit(input.pageSize).offset((input.page - 1) * input.pageSize);
-      return rows;
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      let query = supabaseAdmin().from("mobile_sync_events")
+        .select("id, user_id, event_type, status, synced_count, retryable_count, needs_review_count, error_code, error_message, app_version, device_label, occurred_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId);
+      if (input.status) query = query.eq("status", input.status);
+      if (input.userId) query = query.eq("user_id", input.userId);
+      if (input.from) query = query.gte("occurred_at", input.from);
+      if (input.to) query = query.lte("occurred_at", input.to);
+      const { data, error } = await query.order("occurred_at", { ascending: false }).range((input.page - 1) * input.pageSize, input.page * input.pageSize - 1);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أحداث المزامنة الميدانية من Supabase." });
+      const userIds = Array.from(new Set((data ?? []).map((row) => Number(row.user_id))));
+      const { data: usersData, error: usersError } = userIds.length ? await supabaseAdmin().from("users").select("id, name, email").in("id", userIds) : { data: [], error: null };
+      if (usersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل منفذي المزامنة من Supabase." });
+      const usersById = new Map((usersData ?? []).map((user) => [Number(user.id), user]));
+      return (data ?? []).map((row) => {
+        const user = usersById.get(Number(row.user_id));
+        return {
+          id: Number(row.id), eventType: row.event_type as "sync_cycle" | "sync_error", status: row.status as "success" | "partial" | "retryable" | "needs_review" | "failed", syncedCount: Number(row.synced_count), retryableCount: Number(row.retryable_count), needsReviewCount: Number(row.needs_review_count),
+          errorCode: row.error_code, errorMessage: row.error_message, appVersion: row.app_version, deviceLabel: row.device_label, occurredAt: new Date(row.occurred_at),
+          userId: Number(row.user_id), userName: user?.name ?? null, userEmail: user?.email ?? null,
+        };
+      });
     }),
     readings: protectedProcedure.input(mobileSyncReadingsInput).query(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
@@ -2410,10 +2426,15 @@ export const powerhubRouter = router({
       return { requested: rows.length, issued: results.filter((row) => row.status === "issued").length, failed: results.filter((row) => row.status === "failed").length, results };
     }),
     technicians: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
-      const tenantId = await getSiteTenant(input.siteId);
-      const db = await dbOrThrow();
-      return db.select({ id: users.id, name: users.name, email: users.email }).from(staffProfiles).innerJoin(users, eq(users.id, staffProfiles.userId)).where(and(eq(staffProfiles.tenantId, tenantId), or(eq(staffProfiles.siteId, input.siteId), isNull(staffProfiles.siteId)), eq(staffProfiles.isActive, true)));
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      const { data: profiles, error: profilesError } = await supabaseAdmin().from("staff_profiles").select("user_id")
+        .eq("tenant_id", access.tenantId).eq("is_active", true).or(`site_id.eq.${input.siteId},site_id.is.null`);
+      if (profilesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تعيينات الفنيين من Supabase." });
+      const userIds = Array.from(new Set((profiles ?? []).map((profile) => Number(profile.user_id))));
+      if (!userIds.length) return [];
+      const { data, error } = await supabaseAdmin().from("users").select("id, name, email").in("id", userIds);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قائمة الفنيين من Supabase." });
+      return (data ?? []).map((user) => ({ id: Number(user.id), name: user.name, email: user.email }));
     }),
   }),
 });
