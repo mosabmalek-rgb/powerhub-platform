@@ -2356,8 +2356,17 @@ export const powerhubRouter = router({
       });
     }),
     createAdjustment: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), employeeId: z.number().int().positive(), adjustmentType: z.enum(["advance", "deduction"]), amount: z.number().positive().max(100000000), reason: z.string().trim().min(3).max(255) })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "accountant"], "manageExpenses"); const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow(); const [employee] = await db.select({ id: employees.id }).from(employees).where(and(eq(employees.id, input.employeeId), eq(employees.tenantId, tenantId), or(eq(employees.siteId, input.siteId), isNull(employees.siteId)))).limit(1); if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير موجود ضمن نطاقك." });
-      const id = insertId(await db.insert(employeeAdjustments).values({ tenantId, employeeId: input.employeeId, siteId: input.siteId, adjustmentType: input.adjustmentType, amount: String(input.amount), remainingAmount: String(input.amount), reason: input.reason, createdByUserId: ctx.user.id })); await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "employee_adjustment", entityId: String(id), action: "create", afterData: input }); return { id };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "manageExpenses");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_employee_adjustment", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_employee_id: input.employeeId,
+        p_adjustment_type: input.adjustmentType, p_amount: input.amount, p_reason: input.reason,
+      });
+      const result = (data as Array<{ adjustment_id: number | string }> | null)?.[0];
+      if (!error && result?.adjustment_id) return { id: Number(result.adjustment_id) };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("EMPLOYEE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير موجود ضمن نطاقك." });
+      if (errorText.includes("INVALID_EMPLOYEE_ADJUSTMENT_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات السلفة أو الخصم غير صحيحة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ السلفة أو الخصم في Supabase." });
     }),
     getPayrollDetails: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), payrollRunId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
