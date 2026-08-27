@@ -35,6 +35,7 @@ const state = vi.hoisted(() => {
     employee_adjustments: [{ id: 121, tenant_id: 20, employee_id: 120, site_id: 10, adjustment_type: "advance", amount: 100, remaining_amount: 100, reason: "سلفة اختبار", status: "open", created_by_user_id: 1, created_at: "2026-08-02T00:00:00.000Z", updated_at: "2026-08-02T00:00:00.000Z" }],
     payroll_runs: [{ id: 122, tenant_id: 20, site_id: 10, period: "2026-08", status: "draft", total_gross: 1000, total_deductions: 100, total_net: 900, paid_from_account_id: null, approved_by_user_id: null, paid_at: null, created_by_user_id: 1, created_at: "2026-08-31T00:00:00.000Z", updated_at: "2026-08-31T00:00:00.000Z" }],
     payroll_items: [{ id: 123, payroll_run_id: 122, employee_id: 120, base_amount: 1000, extra_amount: 0, advance_deduction: 100, other_deduction: 0, net_amount: 900, notes: null }],
+    employee_attendance: [{ id: 124, tenant_id: 20, employee_id: 120, site_id: 10, work_date: "2026-08-03", regular_hours: 8, overtime_hours: 1, absent_days: 0, notes: null, created_by_user_id: 1, created_at: "2026-08-03T00:00:00.000Z", updated_at: "2026-08-03T00:00:00.000Z" }],
     tenants: [{ id: 20, plan: "starter" }],
     subscription_upgrade_requests: [{ id: 109, tenant_id: 20, current_plan: "starter", requested_plan: "professional", status: "pending", note: "مراجعة الباقة", created_at: "2026-08-20T00:00:00.000Z", reviewed_at: null }],
   };
@@ -346,6 +347,16 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.hr.getPayrollDetails({ siteId: 10, payrollRunId: 122 })).resolves.toMatchObject([{
       item: { id: 123, payrollRunId: 122, netAmount: "900" }, employee: { id: 120, fullName: "محاسب الاختبار", jobTitle: "accountant" },
     }]);
+  });
+
+  it("يعرض سجل الحضور وملخص الموارد البشرية من Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.hr.listAttendance({ siteId: 10, fromDate: "2026-08-01", toDate: "2026-08-31" })).resolves.toMatchObject([{
+      attendance: { id: 124, employeeId: 120, regularHours: "8", overtimeHours: "1" }, employee: { id: 120, fullName: "محاسب الاختبار" },
+    }]);
+    await expect(caller.hr.overview({ siteId: 10, period: "2026-08" })).resolves.toMatchObject({
+      employees: [{ status: "active", count: 1, wages: 1000 }], payroll: { count: 1, totalGross: 1000, totalDeductions: 100, totalNet: 900 },
+    });
   });
 
   it("يعطّل اختبار الرسائل والجدولة الموروثين صراحةً", async () => {
