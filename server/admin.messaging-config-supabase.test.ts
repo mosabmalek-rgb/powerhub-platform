@@ -9,6 +9,7 @@ const state = vi.hoisted(() => {
     platform_settings: [{ id: 12, setting_key: "maintenance_mode", is_enabled: false, value: null, message: null, updated_by_user_id: 1, updated_at: "2026-08-27T00:00:00.000Z" }],
     access_recovery_requests: [{ id: 13, tenant_id: 20, method: "manual_review", status: "pending", note: "مراجعة", created_at: "2026-08-27T00:00:00.000Z" }],
     platform_tariff_policies: [{ id: 14, minimum_price_per_kwh: 0.2, maximum_price_per_kwh: 0.8, effective_from: "2026-08-27T00:00:00.000Z", notification_requested: false, notes: null, created_by_user_id: 1, created_at: "2026-08-27T00:00:00.000Z" }],
+    users: [{ id: 1, name: "مدير المنصة" }],
     tenants: [{ id: 20, name: "مولدات الاختبار" }],
     tenant_owner_profiles: [{ tenant_id: 20, full_name: "مالك الاختبار" }],
   };
@@ -48,5 +49,12 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.platformConfiguration()).resolves.toMatchObject({ settings: [{ settingKey: "maintenance_mode" }], recoveries: [{ id: 13, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار" }], currentTariff: { id: 14, minimumPricePerKwh: 0.2 } });
     expect(state.calls).toEqual(["platform_settings", "access_recovery_requests", "platform_tariff_policies", "tenants", "tenant_owner_profiles"]);
+  });
+
+  it("يقرأ قائمة سياسات التسعير واسم منشئها من Supabase دون MySQL", async () => {
+    state.calls.splice(0);
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.listTariffPolicies()).resolves.toMatchObject([{ id: 14, minimumPricePerKwh: "0.2", maximumPricePerKwh: "0.8", createdBy: "مدير المنصة" }]);
+    expect(state.calls).toEqual(["platform_tariff_policies", "users"]);
   });
 });

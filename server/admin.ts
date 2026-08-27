@@ -949,7 +949,23 @@ export const adminRouter = router({
     return { success: true };
   }),
 
-  listTariffPolicies: platformAdminProcedure.query(async () => (await dbOrThrow()).select({ id: platformTariffPolicies.id, minimumPricePerKwh: platformTariffPolicies.minimumPricePerKwh, maximumPricePerKwh: platformTariffPolicies.maximumPricePerKwh, effectiveFrom: platformTariffPolicies.effectiveFrom, notificationRequested: platformTariffPolicies.notificationRequested, notes: platformTariffPolicies.notes, createdAt: platformTariffPolicies.createdAt, createdBy: users.name }).from(platformTariffPolicies).leftJoin(users, eq(platformTariffPolicies.createdByUserId, users.id)).orderBy(desc(platformTariffPolicies.effectiveFrom)).limit(100)),
+  listTariffPolicies: platformAdminProcedure.query(async () => {
+    const policiesResult = await supabaseAdmin().from("platform_tariff_policies")
+      .select("id, minimum_price_per_kwh, maximum_price_per_kwh, effective_from, notification_requested, notes, created_by_user_id, created_at")
+      .order("effective_from", { ascending: false }).limit(100);
+    if (policiesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسات التسعير من Supabase." });
+    const creatorIds = Array.from(new Set((policiesResult.data ?? []).map((policy) => Number(policy.created_by_user_id))));
+    const creatorsResult = creatorIds.length
+      ? await supabaseAdmin().from("users").select("id, name").in("id", creatorIds)
+      : { data: [], error: null };
+    if (creatorsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل منشئي سياسات التسعير من Supabase." });
+    const creatorNameById = new Map((creatorsResult.data ?? []).map((creator) => [Number(creator.id), creator.name]));
+    return (policiesResult.data ?? []).map((policy) => ({
+      id: Number(policy.id), minimumPricePerKwh: String(policy.minimum_price_per_kwh), maximumPricePerKwh: String(policy.maximum_price_per_kwh),
+      effectiveFrom: new Date(policy.effective_from), notificationRequested: policy.notification_requested, notes: policy.notes,
+      createdAt: new Date(policy.created_at), createdBy: creatorNameById.get(Number(policy.created_by_user_id)) ?? null,
+    }));
+  }),
 
   createTariffPolicy: platformAdminProcedure.input(z.object({ minimumPricePerKwh: z.number().nonnegative(), maximumPricePerKwh: z.number().positive(), effectiveFrom: z.date(), notificationRequested: z.boolean().default(false), notes: z.string().max(2000).optional() }).refine((input) => input.maximumPricePerKwh >= input.minimumPricePerKwh, { message: "الحد الأقصى يجب أن يساوي أو يتجاوز الحد الأدنى.", path: ["maximumPricePerKwh"] })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow(); await db.insert(platformTariffPolicies).values({ ...input, minimumPricePerKwh: String(input.minimumPricePerKwh), maximumPricePerKwh: String(input.maximumPricePerKwh), createdByUserId: ctx.user.id });
