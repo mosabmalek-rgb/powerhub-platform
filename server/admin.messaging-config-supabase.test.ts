@@ -28,6 +28,7 @@ const state = vi.hoisted(() => {
     rpc(functionName: string) {
       calls.push(`rpc:${functionName}`);
       if (functionName === "powerhub_finance_overview") return Promise.resolve({ data: [{ subscriptions: [{ status: "active", count: 2 }], collections_amount: "150.5", collections_count: 3 }], error: null });
+      if (functionName === "powerhub_tweetsms_report") return Promise.resolve({ data: [{ account: { id: 9, isActive: false, senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: "2026-08-27T00:00:00.000Z", lastError: null, configured: true }, total: 3, usage_rows: [{ tenantId: 20, tenantName: "مولدات الاختبار", total: 3, submitted: 2, failed: 1 }], alerts: [{ id: 22, balance: 80, threshold: 100, status: "open", notifiedAt: "2026-08-27T00:00:00.000Z", resolvedAt: null, createdAt: "2026-08-27T00:00:00.000Z", updatedAt: "2026-08-27T00:00:00.000Z" }] }], error: null });
       return Promise.resolve({ data: null, error: { message: "unknown rpc" } });
     },
     from(table: string) {
@@ -139,5 +140,12 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "finance_admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.financeOverview()).resolves.toEqual({ subscriptions: [{ status: "active", count: 2 }], collections: { amount: 150.5, count: 3 } });
     expect(state.calls).toEqual(["rpc:powerhub_finance_overview"]);
+  });
+
+  it("يقرأ تقرير TweetSMS المركزي المحدد بالفترة من Supabase دون MySQL أو اتصال بالمزود", async () => {
+    state.calls.splice(0);
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.platformTweetSmsReport({ from: new Date("2026-08-01T00:00:00.000Z"), to: new Date("2026-08-31T23:59:59.999Z") })).resolves.toMatchObject({ account: { id: 9, configured: true, lastProviderBalance: 80 }, total: 3, usageRows: [{ tenantId: 20, submitted: 2, failed: 1 }], alerts: [{ id: 22, status: "open" }] });
+    expect(state.calls).toEqual(["rpc:powerhub_tweetsms_report"]);
   });
 });

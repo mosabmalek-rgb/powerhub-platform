@@ -314,19 +314,26 @@ export const adminRouter = router({
   }),
 
   platformTweetSmsReport: platformAdminProcedure.input(z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() }).optional()).query(async ({ input }) => {
-    const db = await dbOrThrow();
-    const [account] = await db.select().from(platformTweetSmsAccounts).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
-    const filters = [eq(notificationMessages.channel, "sms")];
-    if (input?.from) filters.push(gte(notificationMessages.createdAt, input.from));
-    if (input?.to) filters.push(lte(notificationMessages.createdAt, input.to));
-    const usageRows = await db.select({ tenantId: notificationMessages.tenantId, tenantName: tenants.name, total: sql<number>`count(*)`, submitted: sql<number>`sum(case when ${notificationMessages.status} = 'submitted' then 1 else 0 end)`, failed: sql<number>`sum(case when ${notificationMessages.status} = 'failed' then 1 else 0 end)` }).from(notificationMessages).innerJoin(tenants, eq(tenants.id, notificationMessages.tenantId)).where(and(...filters)).groupBy(notificationMessages.tenantId, tenants.name).orderBy(desc(sql`count(*)`)).limit(250);
-    const alerts = account ? await db.select().from(platformTweetSmsBalanceAlerts).where(eq(platformTweetSmsBalanceAlerts.accountId, account.id)).orderBy(desc(platformTweetSmsBalanceAlerts.createdAt)).limit(30) : [];
-    const total = usageRows.reduce((sum, row) => sum + Number(row.total ?? 0), 0);
+    const { data, error } = await supabaseAdmin().rpc("powerhub_tweetsms_report", { p_from: input?.from?.toISOString() ?? null, p_to: input?.to?.toISOString() ?? null });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تقرير TweetSMS المركزي من Supabase." });
+    const report = (data as Array<{ account?: unknown; total?: string | number | null; usage_rows?: unknown; alerts?: unknown }> | null)?.[0];
+    if (!report) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة تقرير TweetSMS استجابة صالحة." });
+    const rawAccount = report.account && typeof report.account === "object" ? report.account as Record<string, unknown> : null;
+    const usageRows = Array.isArray(report.usage_rows) ? report.usage_rows : [];
+    const alerts = Array.isArray(report.alerts) ? report.alerts : [];
     return {
-      account: account ? { id: account.id, isActive: account.isActive, senderName: account.senderName, lowBalanceThreshold: account.lowBalanceThreshold, lastProviderBalance: account.lastProviderBalance, lastBalanceCheckedAt: account.lastBalanceCheckedAt, lastError: account.lastError, configured: Boolean(account.credentialCiphertext && account.credentialIv) } : null,
-      total,
-      usageRows: usageRows.map((row) => ({ ...row, total: Number(row.total ?? 0), submitted: Number(row.submitted ?? 0), failed: Number(row.failed ?? 0) })),
-      alerts,
+      account: rawAccount ? { id: Number(rawAccount.id), isActive: Boolean(rawAccount.isActive), senderName: typeof rawAccount.senderName === "string" ? rawAccount.senderName : null, lowBalanceThreshold: Number(rawAccount.lowBalanceThreshold ?? 0), lastProviderBalance: rawAccount.lastProviderBalance === null ? null : Number(rawAccount.lastProviderBalance ?? 0), lastBalanceCheckedAt: rawAccount.lastBalanceCheckedAt ? new Date(String(rawAccount.lastBalanceCheckedAt)) : null, lastError: typeof rawAccount.lastError === "string" ? rawAccount.lastError : null, configured: Boolean(rawAccount.configured) } : null,
+      total: Number(report.total ?? 0),
+      usageRows: usageRows.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Record<string, unknown>;
+        return typeof row.tenantName === "string" ? [{ tenantId: Number(row.tenantId), tenantName: row.tenantName, total: Number(row.total ?? 0), submitted: Number(row.submitted ?? 0), failed: Number(row.failed ?? 0) }] : [];
+      }),
+      alerts: alerts.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const alert = item as Record<string, unknown>;
+        return typeof alert.status === "string" ? [{ id: Number(alert.id), balance: Number(alert.balance ?? 0), threshold: Number(alert.threshold ?? 0), status: alert.status, notifiedAt: new Date(String(alert.notifiedAt)), resolvedAt: alert.resolvedAt ? new Date(String(alert.resolvedAt)) : null, createdAt: new Date(String(alert.createdAt)), updatedAt: new Date(String(alert.updatedAt)) }] : [];
+      }),
     };
   }),
 
