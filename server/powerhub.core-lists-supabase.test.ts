@@ -739,4 +739,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_payroll_run_id: 122, p_account_id: 90 },
     })]);
   });
+
+  it("يعطّل الاعتماد الجماعي للقراءات قبل أي وصول MySQL إلى حين تصميمه الذري", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.mobileSync.approveAllAndIssue({ siteId: 10, limit: 10, sendNow: false }))
+      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(state.rpcCalls).toEqual([]);
+  });
 });

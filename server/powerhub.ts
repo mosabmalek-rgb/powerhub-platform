@@ -2577,21 +2577,9 @@ export const powerhubRouter = router({
       return approveAndIssueMobileReading({ ...input, userId: ctx.user.id });
     }),
     approveAllAndIssue: protectedProcedure.input(mobileSyncBulkApprovalInput).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
-      await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
-      const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow();
-      const conditions = [eq(meterReadings.tenantId, tenantId), eq(subscribers.siteId, input.siteId), eq(meterReadings.status, "pending_review"), eq(auditLogs.tenantId, tenantId), eq(auditLogs.siteId, input.siteId), eq(auditLogs.entityType, "meter_reading"), eq(auditLogs.action, "mobile_create"), sql`${auditLogs.entityId} = CAST(${meterReadings.id} AS CHAR)`];
-      if (input.userId) conditions.push(eq(auditLogs.userId, input.userId));
-      if (input.from) conditions.push(gte(auditLogs.createdAt, new Date(input.from)));
-      if (input.to) conditions.push(lte(auditLogs.createdAt, new Date(input.to)));
-      const rows = await db.select({ id: meterReadings.id, versionNo: meterReadings.versionNo }).from(meterReadings).innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id)).innerJoin(auditLogs, and(...conditions)).orderBy(desc(auditLogs.createdAt)).limit(input.limit);
-      const results: Array<{ readingId: number; status: "issued" | "failed"; invoiceNo?: string; message?: string }> = [];
-      for (const row of rows) {
-        try { const issued = await approveAndIssueMobileReading({ siteId: input.siteId, readingId: row.id, baseVersion: row.versionNo, userId: ctx.user.id, sendNow: input.sendNow }); results.push({ readingId: row.id, status: "issued", invoiceNo: issued.invoiceNo }); }
-        catch (error) { results.push({ readingId: row.id, status: "failed", message: error instanceof Error ? error.message : "تعذر اعتماد القراءة وإصدار فاتورتها." }); }
-      }
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "mobile_reading_batch", entityId: rows.map((row) => row.id).join(",") || "none", action: "approve_and_auto_issue", metadata: { requested: rows.length, issued: results.filter((row) => row.status === "issued").length, failed: results.filter((row) => row.status === "failed").length, userId: input.userId, from: input.from, to: input.to } });
-      return { requested: rows.length, issued: results.filter((row) => row.status === "issued").length, failed: results.filter((row) => row.status === "failed").length, results };
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الاعتماد الجماعي متوقف مؤقتاً لحين تنفيذ معاملة Supabase ذرية مستقلة لكل قراءة. يمكنك اعتماد القراءة وإصدار فاتورتها فردياً بأمان." });
     }),
     technicians: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
