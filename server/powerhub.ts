@@ -1376,36 +1376,28 @@ export const powerhubRouter = router({
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث المشترك في Supabase." });
     }),
     phoneReview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
-      const db = await dbOrThrow();
-      const rows = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, phone: subscribers.phone }).from(subscribers).where(eq(subscribers.siteId, input.siteId)).orderBy(subscribers.fullName);
-      return rows.map((row) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
+      const { data, error } = await supabaseAdmin().from("subscribers").select("id, subscriber_no, full_name, phone").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("full_name");
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر مراجعة أرقام المشتركين من Supabase." });
+      return (data ?? []).map((row) => {
+        const mapped = { id: Number(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone };
         try {
-          const normalizedPhone = normalizeInternationalPhone(row.phone);
-          return normalizedPhone === row.phone ? null : { ...row, status: "ready" as const, normalizedPhone, reason: "يمكن توحيد الصيغة تلقائياً." };
+          const normalizedPhone = normalizeInternationalPhone(mapped.phone);
+          return normalizedPhone === mapped.phone ? null : { ...mapped, status: "ready" as const, normalizedPhone, reason: "يمكن توحيد الصيغة تلقائياً." };
         } catch {
-          return { ...row, status: "manual" as const, normalizedPhone: null, reason: "يتطلب رمز دولة صريحاً؛ عدّل الرقم يدوياً من إدارة المشتركين." };
+          return { ...mapped, status: "manual" as const, normalizedPhone: null, reason: "يتطلب رمز دولة صريحاً؛ عدّل الرقم يدوياً من إدارة المشتركين." };
         }
       }).filter(Boolean);
     }),
     applyPhoneNormalization: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), subscriberIds: z.array(z.number().int().positive()).min(1).max(500) })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
-      const db = await dbOrThrow();
-      const rows = await db.select().from(subscribers).where(and(eq(subscribers.siteId, input.siteId), inArray(subscribers.id, input.subscriberIds)));
-      let updated = 0;
-      for (const row of rows) {
-        try {
-          const phone = normalizeInternationalPhone(row.phone);
-          if (phone !== row.phone) {
-            await db.update(subscribers).set({ phone }).where(eq(subscribers.id, row.id));
-            updated += 1;
-            await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber", entityId: String(row.id), action: "normalize_phone", beforeData: { phone: row.phone }, afterData: { phone } });
-          }
-        } catch {
-          // لا يخمن النظام رمز الدولة للأرقام المحلية غير القابلة للتحقق.
-        }
-      }
-      return { updated, skipped: input.subscriberIds.length - updated };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_normalize_subscriber_phones", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_ids: input.subscriberIds });
+      const result = (data as Array<{ updated_count: number; skipped_count: number }> | null)?.[0];
+      if (!error && result) return { updated: Number(result.updated_count), skipped: Number(result.skipped_count) };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
+      if (errorText.includes("INVALID_SUBSCRIBER_SELECTION")) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر من 1 إلى 500 مشترك لتوحيد الأرقام." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر توحيد أرقام المشتركين في Supabase." });
     }),
   }),
 

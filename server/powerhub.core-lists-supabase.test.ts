@@ -116,6 +116,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_approve_payroll") return resolved([{ payroll_run_id: 122 }]);
       if (name === "powerhub_pay_payroll") return resolved([{ payroll_run_id: 122, expense_id: 125, transaction_id: 126 }]);
       if (name === "powerhub_request_subscription_upgrade") return resolved([{ request_id: 127, requested_plan: "professional", already_requested: false }]);
+      if (name === "powerhub_normalize_subscriber_phones") return resolved([{ updated_count: 1, skipped_count: 0 }]);
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
@@ -768,5 +769,20 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(state.inserts).toEqual([]);
     expect(state.updates).toEqual([]);
+  });
+
+  it("يراجع أرقام المشتركين من Supabase دون MySQL", async () => {
+    state.tables.subscribers = [{ ...state.tables.subscribers[0] as object, phone: "00970595000000" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscribers.phoneReview({ siteId: 10 })).resolves.toMatchObject([{ id: 30, subscriberNo: "MAIN-001", status: "ready", normalizedPhone: "+970595000000" }]);
+  });
+
+  it("يوحّد أرقام المشتركين عبر RPC Supabase الذرية دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscribers.applyPhoneNormalization({ siteId: 10, subscriberIds: [30] })).resolves.toEqual({ updated: 1, skipped: 0 });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({
+      name: "powerhub_normalize_subscriber_phones",
+      args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_subscriber_ids: [30] },
+    })]);
   });
 });
