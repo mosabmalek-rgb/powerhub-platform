@@ -987,19 +987,16 @@ export const powerhubRouter = router({
       };
     }),
     requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPlan: z.enum(["starter", "professional", "enterprise"]) })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const quota = await ownerSubscriberQuota(tenantId);
-      if (quota.remaining > 0) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يتاح طلب الترقية من هذا الزر عند بلوغ الحد الأقصى للمشتركين." });
-      const planRank: Record<SubscriptionPlan, number> = { starter: 1, professional: 2, enterprise: 3 };
-      if (planRank[input.requestedPlan] <= planRank[quota.plan]) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من باقتك الحالية." });
-      const [pending] = await db.select({ id: subscriptionUpgradeRequests.id, requestedPlan: subscriptionUpgradeRequests.requestedPlan })
-        .from(subscriptionUpgradeRequests).where(and(eq(subscriptionUpgradeRequests.tenantId, tenantId), eq(subscriptionUpgradeRequests.status, "pending"))).limit(1);
-      if (pending) return { id: pending.id, requestedPlan: pending.requestedPlan, alreadyRequested: true };
-      const id = insertId(await db.insert(subscriptionUpgradeRequests).values({ tenantId, requestedByUserId: ctx.user.id, currentPlan: quota.plan, requestedPlan: input.requestedPlan }));
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscription_upgrade_request", entityId: String(id), action: "request_upgrade", afterData: { currentPlan: quota.plan, requestedPlan: input.requestedPlan, reason: "subscriber_limit_reached" } });
-      return { id, requestedPlan: input.requestedPlan, alreadyRequested: false };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_request_subscription_upgrade", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_plan: input.requestedPlan });
+      const result = (data as Array<{ request_id: number | string; requested_plan: SubscriptionPlan; already_requested: boolean }> | null)?.[0];
+      if (!error && result?.request_id) return { id: Number(result.request_id), requestedPlan: result.requested_plan, alreadyRequested: result.already_requested };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
+      if (errorText.includes("SUBSCRIBER_LIMIT_NOT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يتاح طلب الترقية من هذا الزر عند بلوغ الحد الأقصى للمشتركين." });
+      if (errorText.includes("REQUESTED_PLAN_NOT_HIGHER") || errorText.includes("INVALID_REQUESTED_PLAN")) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من باقتك الحالية." });
+      if (errorText.includes("TENANT_PLAN_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء طلب ترقية الباقة في Supabase." });
     }),
   }),
   subscriberPortal: router({
