@@ -761,4 +761,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toEqual({ limit: 500, currentCount: 0, remaining: 500, plan: "professional" });
   });
+
+  it("يعطّل الاستيراد الجماعي للمشتركين قبل أي وصول MySQL إلى حين تصميمه الذري", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscribers.bulkImport({ siteId: 10, rows: [{ sourceRow: 2, fullName: "مشترك اختبار", phone: "+970595000000", subscriptionType: "residential" }] }))
+      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(state.inserts).toEqual([]);
+    expect(state.updates).toEqual([]);
+  });
 });

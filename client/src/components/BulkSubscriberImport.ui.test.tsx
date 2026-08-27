@@ -29,14 +29,13 @@ describe("استيراد المشتركين من Excel", () => {
     expect(screen.getByLabelText("رفع ملف Excel", { selector: "input" })).toHaveAttribute("accept", expect.stringContaining(".xlsx"));
   });
 
-  it("يرسل الرقم المرجعي وخيار التحديث ويعرض نتيجة المحدثين", async () => {
+  it("يعرض المعاينة ويمنع إرسال البيانات عندما يكون الحفظ الجماعي متوقفاً", async () => {
     render(<BulkSubscriberImport siteId={7} onSaved={state.onSaved} />);
     fireEvent.change(screen.getByLabelText("رفع ملف Excel", { selector: "input" }), { target: { files: [new File(["xlsx"], "subscribers.xlsx")] } });
     await screen.findByText("أحمد العلي");
-    fireEvent.click(screen.getByLabelText("تحديث المشتركين المطابقين"));
+    expect(screen.getByText(/الحفظ والتحديث الجماعيان متوقفان مؤقتاً/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /حفظ 1 مشتركاً سليماً/ }));
-    expect(state.mutate).toHaveBeenCalledWith({ siteId: 7, updateExisting: true, rows: [{ sourceRow: 2, subscriberNo: "SUB-NORTH-001", fullName: "أحمد العلي", phone: "+970599000001", address: "غزة", subscriptionType: "residential" }] });
-    await state.options?.onSuccess({ created: [], updated: [{ sourceRow: 2, fullName: "أحمد العلي", subscriberNo: "SUB-NORTH-001" }], failed: [], message: "تم التحديث" });
-    await waitFor(() => expect(screen.getByText(/1 محدّث/)).toBeInTheDocument());
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(state.onSaved).not.toHaveBeenCalled();
   });
 });

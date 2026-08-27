@@ -1271,7 +1271,10 @@ export const powerhubRouter = router({
         subscriptionType: z.enum(["residential", "commercial"]),
       })).min(1).max(300),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
+      if (process.env.NODE_ENV !== "powerhub_bulk_import_reenabled_after_atomic_supabase_migration") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الاستيراد الجماعي متوقف مؤقتاً لحين تحويله إلى معاملة Supabase ذرية. لا تُنشأ أو تُحدّث أي بيانات من الملف في الوضع الحالي." });
+      }
       const db = await dbOrThrow();
       const tenantId = await getSiteTenant(input.siteId);
       const quota = await ownerSubscriberQuota(tenantId);
