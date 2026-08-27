@@ -1082,12 +1082,37 @@ export const adminRouter = router({
   impersonationStatus: platformAdminProcedure.query(() => ({ enabled: false as const, confirmationRequired: true as const, reason: "انتحال جلسة مالك المولد معطّل إلى حين اعتماد سياسة أمان مستقلة وموافقة قانونية وسجل تدقيق غير قابل للتعديل." })),
 
   generatorDetails: platformAdminProcedure.input(z.object({ generatorId: z.number().int().positive() })).query(async ({ input }) => {
-    const db = await dbOrThrow();
-    const [generator] = await db.select({ id: generators.id, code: generators.code, name: generators.name, status: generators.status, ratedCapacityKw: generators.ratedCapacityKw, fuelType: generators.fuelType, fuelLevelLiters: generators.fuelLevelLiters, operatingHours: generators.operatingHours, lastMaintenanceAt: generators.lastMaintenanceAt, tenantId: generators.tenantId, tenantName: tenants.name, siteId: sites.id, siteName: sites.name })
-      .from(generators).innerJoin(tenants, eq(generators.tenantId, tenants.id)).innerJoin(sites, eq(generators.siteId, sites.id)).where(eq(generators.id, input.generatorId)).limit(1);
-    if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود." });
-    const activity = await db.select({ id: auditLogs.id, action: auditLogs.action, entityType: auditLogs.entityType, createdAt: auditLogs.createdAt, userName: users.name })
-      .from(auditLogs).leftJoin(users, eq(auditLogs.userId, users.id)).where(eq(auditLogs.siteId, generator.siteId)).orderBy(desc(auditLogs.createdAt)).limit(30);
+    const admin = supabaseAdmin();
+    const { data: generatorRow, error: generatorError } = await admin.from("generators")
+      .select("id, code, name, status, rated_capacity_kw, fuel_type, fuel_level_liters, operating_hours, last_maintenance_at, tenant_id, site_id")
+      .eq("id", input.generatorId).maybeSingle();
+    if (generatorError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل المولد من Supabase." });
+    if (!generatorRow) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود." });
+    const [tenantResult, siteResult, activityResult] = await Promise.all([
+      admin.from("tenants").select("id, name").eq("id", generatorRow.tenant_id).maybeSingle(),
+      admin.from("sites").select("id, name").eq("id", generatorRow.site_id).maybeSingle(),
+      admin.from("audit_logs").select("id, action, entity_type, created_at, user_id").eq("site_id", generatorRow.site_id).order("created_at", { ascending: false }).limit(30),
+    ]);
+    if (tenantResult.error || siteResult.error || activityResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل البيانات المرجعية لتفاصيل المولد من Supabase." });
+    if (!tenantResult.data || !siteResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود." });
+    const activityRows = activityResult.data ?? [];
+    const actorUserIds = Array.from(new Set(activityRows.flatMap((activity) => activity.user_id === null ? [] : [Number(activity.user_id)])));
+    const actorResult = actorUserIds.length
+      ? await admin.from("users").select("id, name").in("id", actorUserIds)
+      : { data: [], error: null };
+    if (actorResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل منفذي سجل نشاط المولد من Supabase." });
+    const actorNameById = new Map((actorResult.data ?? []).map((actor) => [Number(actor.id), actor.name]));
+    const generator = {
+      id: Number(generatorRow.id), code: generatorRow.code, name: generatorRow.name, status: generatorRow.status,
+      ratedCapacityKw: String(generatorRow.rated_capacity_kw), fuelType: generatorRow.fuel_type,
+      fuelLevelLiters: String(generatorRow.fuel_level_liters), operatingHours: String(generatorRow.operating_hours),
+      lastMaintenanceAt: generatorRow.last_maintenance_at ? new Date(generatorRow.last_maintenance_at) : null,
+      tenantId: Number(generatorRow.tenant_id), tenantName: tenantResult.data.name, siteId: Number(generatorRow.site_id), siteName: siteResult.data.name,
+    };
+    const activity = activityRows.map((entry) => ({
+      id: Number(entry.id), action: entry.action, entityType: entry.entity_type, createdAt: new Date(entry.created_at),
+      userName: entry.user_id === null ? null : actorNameById.get(Number(entry.user_id)) ?? null,
+    }));
     return {
       generator,
       activity,

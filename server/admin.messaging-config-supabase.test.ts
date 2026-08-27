@@ -18,6 +18,8 @@ const state = vi.hoisted(() => {
     sites: [{ id: 30, tenant_id: 20, name: "فرع الاختبار" }],
     subscribers: [{ id: 40, full_name: "المشترك الاختبار" }],
     complaints: [{ id: 15, tenant_id: 20, site_id: 30, subscriber_id: 40, title: "شكوى اختبار", description: "تفاصيل اختبار", priority: "high", status: "open", assigned_user_id: 1, response: null, opened_at: "2026-08-27T00:00:00.000Z", resolved_at: null }],
+    generators: [{ id: 17, code: "GEN-01", name: "مولد الاختبار", status: "active", rated_capacity_kw: 250, fuel_type: "diesel", fuel_level_liters: 80, operating_hours: 12, last_maintenance_at: null, tenant_id: 20, site_id: 30 }],
+    audit_logs: [{ id: 18, action: "platform_admin_update_generator_status", entity_type: "generator", created_at: "2026-08-27T00:00:00.000Z", user_id: 1 }],
   };
   const client = {
     from(table: string) {
@@ -89,5 +91,14 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     await expect(caller.platformAccessDirectory()).resolves.toMatchObject({ accounts: [{ id: 1, platformRole: "platform_owner", accountStatus: "active" }], invitations: [{ id: 16, platformRole: "finance_admin", status: "invited" }] });
     expect(state.calls).toEqual(["users", "platform_access_invitations"]);
     expect(state.filters).toEqual([["users", "role", "admin"]]);
+  });
+
+  it("يقرأ تفاصيل المولد وسجل نشاط فرعه من Supabase دون MySQL", async () => {
+    state.calls.splice(0);
+    state.filters.splice(0);
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.generatorDetails({ generatorId: 17 })).resolves.toMatchObject({ generator: { id: 17, tenantName: "مولدات الاختبار", siteName: "فرع الاختبار", ratedCapacityKw: "250" }, activity: [{ id: 18, userName: "مدير المنصة" }] });
+    expect(state.calls).toEqual(["generators", "tenants", "sites", "audit_logs", "users"]);
+    expect(state.filters).toEqual([["generators", "id", 17], ["tenants", "id", 20], ["sites", "id", 30], ["audit_logs", "site_id", 30]]);
   });
 });
