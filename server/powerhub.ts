@@ -1887,13 +1887,14 @@ export const powerhubRouter = router({
 
   reportBranding: router({
     get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await resolveRole(ctx.user.id, input.siteId);
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const [profile] = await db.select({ companyName: tenantOwnerProfiles.companyName, reportLogoKey: tenantOwnerProfiles.reportLogoKey })
-        .from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.tenantId, tenantId)).limit(1);
-      const logoUrl = profile?.reportLogoKey ? (await storageGet(profile.reportLogoKey)).url : null;
-      return { companyName: profile?.companyName ?? null, reportLogoKey: profile?.reportLogoKey ?? null, logoUrl };
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      const { data: profile, error } = await supabaseAdmin().from("tenant_owner_profiles")
+        .select("company_name, report_logo_key")
+        .eq("tenant_id", access.tenantId)
+        .maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل هوية التقارير من Supabase." });
+      const logoUrl = profile?.report_logo_key ? (await storageGet(profile.report_logo_key)).url : null;
+      return { companyName: profile?.company_name ?? null, reportLogoKey: profile?.report_logo_key ?? null, logoUrl };
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
