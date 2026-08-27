@@ -1114,17 +1114,26 @@ export const powerhubRouter = router({
       accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
       isEnabled: z.boolean(),
     })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"]);
-      const db = await dbOrThrow();
-      const [site] = await db.select({ tenantId: sites.tenantId }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
-      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
-      const code = input.portalCode.toLowerCase();
-      const [conflict] = await db.select({ siteId: sitePortalSettings.siteId }).from(sitePortalSettings).where(eq(sitePortalSettings.portalCode, code)).limit(1);
-      if (conflict && conflict.siteId !== input.siteId) throw new TRPCError({ code: "CONFLICT", message: "رمز الرابط مستخدم لمولد آخر. اختر رمزاً مختلفاً." });
-      const values = { tenantId: site.tenantId, siteId: input.siteId, portalCode: code, displayName: input.displayName, primaryColor: input.primaryColor.toUpperCase(), accentColor: input.accentColor.toUpperCase(), isEnabled: input.isEnabled };
-      await db.insert(sitePortalSettings).values(values).onDuplicateKeyUpdate({ set: { portalCode: values.portalCode, displayName: values.displayName, primaryColor: values.primaryColor, accentColor: values.accentColor, isEnabled: values.isEnabled, updatedAt: new Date() } });
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "site_portal_settings", entityId: String(input.siteId), action: "update", afterData: values });
-      return { success: true, portalCode: code };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_save_site_portal_settings", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_portal_code: input.portalCode,
+        p_display_name: input.displayName,
+        p_primary_color: input.primaryColor,
+        p_accent_color: input.accentColor,
+        p_is_enabled: input.isEnabled,
+      });
+      if (error) {
+        if (error.message.includes("PORTAL_CODE_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "رمز الرابط مستخدم لمولد آخر. اختر رمزاً مختلفاً." });
+        if (error.message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة ضمن نطاقك." });
+        if (error.message.includes("INVALID_PORTAL_SETTINGS")) throw new TRPCError({ code: "BAD_REQUEST", message: "إعدادات بوابة المشتركين غير صالحة." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ إعدادات بوابة المشتركين في Supabase." });
+      }
+      const portalCode = (data as Array<{ portal_code: string }> | null)?.[0]?.portal_code;
+      if (!portalCode) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة البوابة رمز الرابط المحفوظ." });
+      return { success: true, portalCode };
     }),
   }),
   sites: router({

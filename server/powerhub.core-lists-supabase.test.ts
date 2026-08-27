@@ -94,6 +94,7 @@ const state = vi.hoisted(() => {
         invoice: { invoiceNo: "MAIN-202608-0001", billingPeriod: "2026-08", issueDate: "2026-08-02T00:00:00.000Z", dueDate: "2026-08-16T00:00:00.000Z", previousReading: 90, currentReading: 100, consumptionKwh: 10, pricePerKwh: 10, fixedFee: 0, taxAmount: 0, discountAmount: 0, totalAmount: 100, paidAmount: 25, balanceDue: 75, status: "issued" },
         lines: [{ description: "استهلاك كهرباء", quantity: 10, unitPrice: 10, amount: 100 }],
       });
+      if (name === "powerhub_save_site_portal_settings") return resolved([{ portal_code: "main" }]);
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
@@ -273,6 +274,17 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       siteId: 10, tenantId: 20, portalCode: "main", displayName: "الفرع الرئيسي", isEnabled: true,
     });
     await expect(caller.sites.anomalyAlert({ siteId: 10 })).resolves.toEqual({ anomalyAlertPercent: 50 });
+  });
+
+  it("يحفظ إعدادات بوابة المشترك عبر RPC Supabase ذرية دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscriberPortal.saveSettings({
+      siteId: 10, portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true,
+    })).resolves.toEqual({ success: true, portalCode: "main" });
+    expect(state.rpcCalls).toContainEqual(expect.objectContaining({
+      name: "powerhub_save_site_portal_settings",
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_portal_code: "main" }),
+    }));
   });
 
   it("يعطّل اختبار الرسائل والجدولة الموروثين صراحةً", async () => {
