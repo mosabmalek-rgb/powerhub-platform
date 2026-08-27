@@ -5,6 +5,7 @@ import { z } from "zod";
 import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, mobileSyncEvents, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, platformSmsFallbackProviders, platformTweetSmsAccounts, platformTweetSmsBalanceAlerts, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenantTweetSmsAccounts, tenants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
+import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
 import { supabaseAdmin } from "./supabase-admin";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 import { processNotificationById } from "./notification-worker";
@@ -57,6 +58,17 @@ function runtimeTweetSmsCredentials(): TweetSmsCredentials {
   const apiSecret = process.env.TWEETSMS_API_TOKEN?.trim();
   if (!apiKey) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "مفتاح TweetSMS غير مهيأ في المتغيرات السرية للخادم." });
   return { apiKey, ...(apiSecret ? { apiSecret } : {}) };
+}
+
+function decryptTenantTweetSmsCredentials(ciphertext: string, iv: string): TweetSmsCredentials {
+  const raw = decryptTenantCredential(ciphertext, iv);
+  try {
+    const parsed = JSON.parse(raw) as Partial<TweetSmsCredentials>;
+    if (typeof parsed.apiKey === "string" && parsed.apiKey.trim()) {
+      return { apiKey: parsed.apiKey, ...(typeof parsed.apiSecret === "string" && parsed.apiSecret.trim() ? { apiSecret: parsed.apiSecret } : {}) };
+    }
+  } catch { /* The encrypted payload is validated below without exposing it. */ }
+  throw new TRPCError({ code: "PRECONDITION_FAILED", message: "بيانات TweetSMS لهذا المولد غير صالحة؛ احفظ مفتاح API من جديد." });
 }
 
 export function platformSmsFallbackProviderSummary(provider: {
@@ -271,13 +283,13 @@ export const adminRouter = router({
       const [ownersResult, accountsResult, usageResult, tenantsResult] = await Promise.all([
         admin.from("tenant_owner_profiles").select("tenant_id, full_name, phone").order("tenant_id", { ascending: true }),
         admin.from("tenant_tweetsms_accounts").select("id, tenant_id, api_endpoint, credential_ciphertext, credential_iv, sender_name, monthly_limit, is_active, last_tested_at, last_error, updated_at"),
-        admin.from("notification_messages").select("tenant_id, status").eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["submitted", "delivered", "read"]),
+        admin.from("notification_messages").select("tenant_id, status, segment_count").eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read"]),
         admin.from("tenants").select("id, name"),
       ]);
       if (ownersResult.error || accountsResult.error || usageResult.error || tenantsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات TweetSMS من Supabase." });
       const accountByTenant = new Map((accountsResult.data ?? []).map((account) => [Number(account.tenant_id), account]));
       const usageByTenant = new Map<number, number>();
-      for (const usage of usageResult.data ?? []) usageByTenant.set(Number(usage.tenant_id), (usageByTenant.get(Number(usage.tenant_id)) ?? 0) + 1);
+      for (const usage of usageResult.data ?? []) usageByTenant.set(Number(usage.tenant_id), (usageByTenant.get(Number(usage.tenant_id)) ?? 0) + Math.max(1, Number(usage.segment_count ?? 1)));
       const tenantNames = new Map((tenantsResult.data ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
       return (ownersResult.data ?? []).map((owner) => {
         const tenantId = Number(owner.tenant_id);
@@ -386,11 +398,55 @@ export const adminRouter = router({
   }),
 
   saveTweetSmsAccount: platformAdminProcedure.input(tweetSmsAccountInput).mutation(async ({ ctx, input }) => {
-    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "حفظ حسابات TweetSMS للمستأجرين متوقف أثناء الترحيل إلى تصميم Supabase/Vercel معتمد." });
+    const admin = supabaseAdmin();
+    const { data: existing, error: existingError } = await admin.from("tenant_tweetsms_accounts")
+      .select("api_endpoint, credential_ciphertext, credential_iv").eq("tenant_id", input.tenantId).maybeSingle();
+    if (existingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر قراءة إعداد TweetSMS لهذا المولد." });
+    if (input.apiSecret && !input.apiKey) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل مفتاح API مع الرمز الإضافي عند تغيير بيانات الاعتماد." });
+    const endpointValue = input.apiEndpoint?.trim() || existing?.api_endpoint;
+    if (!endpointValue) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل رابط TweetSMS الرسمي لهذا المولد." });
+    if (!input.apiKey && (!existing?.credential_ciphertext || !existing.credential_iv)) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أدخل مفتاح API الخاص بهذا المولد قبل حفظ الحساب." });
+    }
+    const encrypted = input.apiKey ? encryptTenantCredential(JSON.stringify({ apiKey: input.apiKey, ...(input.apiSecret ? { apiSecret: input.apiSecret } : {}) })) : null;
+    const { data, error } = await admin.rpc("powerhub_save_tenant_tweetsms_account", {
+      p_user_id: ctx.user.id, p_tenant_id: input.tenantId, p_api_endpoint: normalizeTweetSmsEndpoint(endpointValue),
+      p_credential_ciphertext: encrypted?.ciphertext ?? null, p_credential_iv: encrypted?.iv ?? null,
+      p_sender_name: input.senderName.trim(), p_monthly_limit: input.monthlyLimit, p_is_active: input.isActive,
+    });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ حساب TweetSMS لهذا المولد بصورة آمنة." });
+    const row = (data as Array<Record<string, unknown>> | null)?.[0];
+    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تعد عملية حفظ TweetSMS نتيجة صالحة." });
+    return { id: Number(row.account_id), tenantId: Number(row.tenant_id), isActive: Boolean(row.is_active), activationRequired: Boolean(row.activation_required) };
   }),
 
   testTweetSmsAccount: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اختبار مزود TweetSMS متوقف. لا يتم الاتصال بأي مزود رسائل أثناء الترحيل." });
+    const admin = supabaseAdmin();
+    const { data: account, error: accountError } = await admin.from("tenant_tweetsms_accounts")
+      .select("tenant_id, api_endpoint, credential_ciphertext, credential_iv, sender_name, updated_at").eq("tenant_id", input.tenantId).maybeSingle();
+    if (accountError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر قراءة إعداد TweetSMS لهذا المولد." });
+    if (!account?.api_endpoint || !account.credential_ciphertext || !account.credential_iv || !account.sender_name || !account.updated_at) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "احفظ مفتاح TweetSMS واسم المرسل لهذا المولد قبل فحص الجاهزية." });
+    }
+    let result: { ok: boolean; message: string; balance?: number };
+    try {
+      const endpoint = normalizeTweetSmsEndpoint(account.api_endpoint);
+      const credentials = decryptTenantTweetSmsCredentials(account.credential_ciphertext, account.credential_iv);
+      const login = await checkTweetSmsAccount({ endpoint, credentials });
+      const sender = login.ok ? await checkTweetSmsSender({ endpoint, credentials, sender: account.sender_name }) : null;
+      const balance = login.ok && (!sender || sender.ok) ? await checkTweetSmsBalance({ endpoint, credentials }) : null;
+      result = !login.ok ? login : sender && !sender.ok ? sender : balance && !balance.ok ? balance : balance ?? login;
+    } catch (cause) {
+      result = { ok: false, message: cause instanceof Error ? cause.message : "تعذر فحص TweetSMS لهذا المولد." };
+    }
+    const { data, error } = await admin.rpc("powerhub_record_tenant_tweetsms_test", {
+      p_user_id: ctx.user.id, p_tenant_id: input.tenantId, p_expected_updated_at: account.updated_at,
+      p_success: result.ok, p_balance: Number.isFinite(result.balance) ? Math.max(0, Math.round(result.balance!)) : null,
+      p_error: result.ok ? null : result.message,
+    });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل نتيجة فحص TweetSMS لهذا المولد." });
+    const row = (data as Array<Record<string, unknown>> | null)?.[0];
+    return { ok: result.ok, message: result.message, balance: result.balance ?? null, accountActive: Boolean(row?.is_active) };
   }),
 
   listSubscriptionUpgradeRequests: platformAdminProcedure.query(async () => {

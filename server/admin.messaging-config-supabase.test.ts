@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
+  process.env.JWT_SECRET = "tweetsms-tenant-configuration-test-secret";
   process.env.TWEETSMS_API_KEY = "tweetsms-configuration-test-key";
   delete process.env.TWEETSMS_API_TOKEN;
 });
@@ -25,6 +26,7 @@ const state = vi.hoisted(() => {
     platform_access_invitations: [{ id: 16, email: "finance@example.test", platform_role: "finance_admin", status: "invited", expires_at: "2026-08-30T00:00:00.000Z", accepted_at: null, invited_by_user_id: 1 }],
     tenants: [{ id: 20, name: "مولدات الاختبار" }],
     tenant_owner_profiles: [{ id: 50, tenant_id: 20, full_name: "مالك الاختبار", phone: "0590000000" }],
+    tenant_tweetsms_accounts: [],
     tenant_branch_settings: [{ tenant_id: 20, is_enabled_override: true, max_branches_override: 3, disabled_behavior: "read_only" }],
     sites: [{ id: 30, tenant_id: 20, name: "فرع الاختبار" }],
     subscribers: [{ id: 40, full_name: "المشترك الاختبار", subscriber_no: "SUB-40", phone: "0590000040", tenant_id: 20 }],
@@ -40,6 +42,8 @@ const state = vi.hoisted(() => {
       calls.push(`rpc:${functionName}`);
       if (functionName === "powerhub_save_platform_tweetsms_account") return Promise.resolve({ data: [{ account_id: 9, is_active: false, activation_required: true }], error: null });
       if (functionName === "powerhub_record_platform_tweetsms_test") return Promise.resolve({ data: [{ account_id: 9, is_active: false, last_provider_balance: 80, last_tested_at: "2026-08-27T00:00:00.000Z", last_error: null }], error: null });
+      if (functionName === "powerhub_save_tenant_tweetsms_account") return Promise.resolve({ data: [{ account_id: 31, tenant_id: 20, is_active: false, activation_required: true }], error: null });
+      if (functionName === "powerhub_record_tenant_tweetsms_test") return Promise.resolve({ data: [{ account_id: 31, is_active: false, last_provider_balance: 80, last_tested_at: "2026-08-27T00:00:00.000Z", last_error: null }], error: null });
       if (functionName === "powerhub_finance_overview") return Promise.resolve({ data: [{ subscriptions: [{ status: "active", count: 2 }], collections_amount: "150.5", collections_count: 3 }], error: null });
       if (functionName === "powerhub_tweetsms_report") return Promise.resolve({ data: [{ account: { id: 9, isActive: false, senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: "2026-08-27T00:00:00.000Z", lastError: null, configured: true }, total: 3, usage_rows: [{ tenantId: 20, tenantName: "مولدات الاختبار", total: 3, submitted: 2, failed: 1 }], alerts: [{ id: 22, balance: 80, threshold: 100, status: "open", notifiedAt: "2026-08-27T00:00:00.000Z", resolvedAt: null, createdAt: "2026-08-27T00:00:00.000Z", updatedAt: "2026-08-27T00:00:00.000Z" }] }], error: null });
       if (functionName === "powerhub_advanced_dashboard") return Promise.resolve({ data: [{ kpis: { activeGenerators: 1, subscribers: 2, dailyConsumption: 3, monthlyConsumption: 4, monthlyCollections: 5, openComplaints: 1, generatorsToReview: 0, collectionRate: 75 }, monthly_growth: [{ month: "2026-08", count: 2 }], consumption_by_region: [{ region: "غزة", consumptionKwh: 4 }], collections_by_generator: [], latest_generators: [{ id: 17, name: "مولد الاختبار", code: "GEN-01", status: "active", tenantName: "مولدات الاختبار", createdAt: "2026-08-27T00:00:00.000Z" }], recent_complaints: [{ id: 15, title: "شكوى اختبار", priority: "high", status: "open", tenantName: "مولدات الاختبار", siteName: "فرع الاختبار", openedAt: "2026-08-27T00:00:00.000Z" }], expiring_subscriptions: [{ tenantId: 20, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار", endsAt: "2026-09-01T00:00:00.000Z", status: "active" }] }], error: null });
@@ -64,6 +68,7 @@ vi.mock("./tweetsms-client", () => ({
 }));
 
 import { adminRouter } from "./admin";
+import { encryptTenantCredential } from "./tenant-crypto";
 
 describe("إعدادات مزود الرسائل المركزي عبر Supabase", () => {
   it("يقرأ الإعداد المركزي والمزود الاحتياطي دون MySQL أو اتصال خارجي", async () => {
@@ -90,6 +95,32 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.testPlatformTweetSmsAccount()).resolves.toMatchObject({ ok: true, balance: 80, accountActive: false });
     expect(state.calls).toEqual(["platform_tweetsms_accounts", "rpc:powerhub_record_platform_tweetsms_test"]);
+    expect(tweetSms.checkAccount).toHaveBeenCalledTimes(1);
+    expect(tweetSms.checkSender).toHaveBeenCalledTimes(1);
+    expect(tweetSms.checkBalance).toHaveBeenCalledTimes(1);
+  });
+
+  it("يحفظ حساب TweetSMS منفصلاً للمولد بمفتاح مشفر عبر Supabase فقط", async () => {
+    state.calls.splice(0);
+    state.rows.tenant_tweetsms_accounts = [];
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.saveTweetSmsAccount({ tenantId: 20, apiEndpoint: "https://tweetsms.ps", apiKey: "tenant-key-123", senderName: "PowerHup", monthlyLimit: 1000, isActive: true })).resolves.toEqual({ id: 31, tenantId: 20, isActive: false, activationRequired: true });
+    expect(state.calls).toEqual(["tenant_tweetsms_accounts", "rpc:powerhub_save_tenant_tweetsms_account"]);
+  });
+
+  it("يفحص حساب TweetSMS الخاص بالمولد دون MySQL أو إرسال رسالة ثم يسجل النتيجة", async () => {
+    state.calls.splice(0);
+    tweetSms.checkAccount.mockReset();
+    tweetSms.checkSender.mockReset();
+    tweetSms.checkBalance.mockReset();
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rows.tenant_tweetsms_accounts = [{ tenant_id: 20, api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHup", updated_at: "2026-08-27T00:00:00.000Z" }];
+    tweetSms.checkAccount.mockResolvedValueOnce({ ok: true, message: "ok" });
+    tweetSms.checkSender.mockResolvedValueOnce({ ok: true, message: "ok" });
+    tweetSms.checkBalance.mockResolvedValueOnce({ ok: true, message: "ok", balance: 80 });
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.testTweetSmsAccount({ tenantId: 20 })).resolves.toMatchObject({ ok: true, balance: 80, accountActive: false });
+    expect(state.calls).toEqual(["tenant_tweetsms_accounts", "rpc:powerhub_record_tenant_tweetsms_test"]);
     expect(tweetSms.checkAccount).toHaveBeenCalledTimes(1);
     expect(tweetSms.checkSender).toHaveBeenCalledTimes(1);
     expect(tweetSms.checkBalance).toHaveBeenCalledTimes(1);

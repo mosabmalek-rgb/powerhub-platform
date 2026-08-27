@@ -149,17 +149,22 @@ const state = vi.hoisted(() => {
   return { client, tables, inserts, updates, rpcCalls };
 });
 
+const notificationWorker = vi.hoisted(() => ({ processQueue: vi.fn() }));
+
 vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => state.client }));
 vi.mock("./db", () => ({ getDb: vi.fn(async () => { throw new Error("MySQL must not be called"); }), syncSupabaseUser: vi.fn() }));
+vi.mock("./notification-worker", () => ({ processNotificationById: vi.fn(), processNotificationQueueForTenant: notificationWorker.processQueue }));
 
 import { powerhubRouter } from "./powerhub";
 
 describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   beforeEach(() => {
     state.tables.users = [{ id: 1, role: "admin" }];
+    state.tables.notification_messages = [{ id: 90, subscriber_id: 30, status: "failed" }];
     state.inserts.splice(0);
     state.updates.splice(0);
     state.rpcCalls.splice(0);
+    notificationWorker.processQueue.mockReset();
   });
 
   it("يعرض الفروع والمشتركين والتعرفة والمولدات والقراءات دون استدعاء MySQL", async () => {
@@ -174,6 +179,16 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90, balance: 125, linkedSites: [{ siteId: 10, siteName: "الفرع الرئيسي" }], transactions: [{ id: 91, occurredAt: expect.any(Date) }] }]);
     await expect(caller.expenses.list({ siteId: 10 })).resolves.toMatchObject([{ id: 80, category: "fuel", amount: "15", occurredAt: expect.any(Date) }]);
     await expect(caller.dashboard.summary({ siteId: 10 })).resolves.toEqual({ subscribers: 1, generators: { active: 1, maintenance: 0 }, financial: { invoiced: 100, collected: 25, outstanding: 75, expenses: 15, operatingProfit: 10 }, energyKwh: 10, failedNotifications: 1 });
+  });
+
+  it("يعالج رسائل SMS المؤجلة ضمن الفرع عبر حجز Supabase دون الوصول إلى MySQL", async () => {
+    state.tables.notification_messages = [{ id: 90, tenant_id: 20, invoice_id: 70, subscriber_id: 30, channel: "sms", status: "pending" }];
+    notificationWorker.processQueue.mockResolvedValueOnce({ requested: 1, submitted: 1, failed: 0, skipped: 0, results: [{ notificationId: 90, status: "submitted" }] });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.notifications.sendPendingSms({ siteId: 10, invoiceIds: [70] })).resolves.toMatchObject({ requested: 1, submitted: 1, failed: 0 });
+    expect(state.rpcCalls).toContainEqual({ name: "powerhub_queue_selected_invoice_sms", args: { p_user_id: 1, p_tenant_id: 20, p_site_id: 10, p_invoice_ids: [70] } });
+    expect(notificationWorker.processQueue).toHaveBeenCalledWith(20, 1, [90]);
+    expect(state.inserts).toContainEqual(expect.objectContaining({ table: "audit_logs" }));
   });
 
   it("يعرض بوابة المشترك العامة وفاتورتها عبر دوال Supabase بعد التحقق الثنائي دون MySQL", async () => {

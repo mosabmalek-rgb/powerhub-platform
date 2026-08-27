@@ -1,145 +1,118 @@
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
-import { auditLogs, notificationMessages, platformSettings, platformTweetSmsAccounts, subscribers, tenantMessagingConfigurations, tenantTweetSmsAccounts } from "../drizzle/schema";
-import { getDb } from "./db";
+import { TRPCError } from "@trpc/server";
 import { decryptTenantCredential } from "./tenant-crypto";
-import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled } from "./notification-channels";
+import { supabaseAdmin } from "./supabase-admin";
 import { sendTweetSms, type TweetSmsCredentials } from "./tweetsms-client";
+import { normalizeInternationalPhone } from "../shared/phone";
 
-type WhatsAppCredential = { accessToken: string; appSecret?: string };
-
-function parseWhatsAppCredential(ciphertext: string, iv: string): WhatsAppCredential {
-  const decrypted = iv === "unused" ? ciphertext : decryptTenantCredential(ciphertext, iv);
-  try {
-    const parsed = JSON.parse(decrypted) as Partial<WhatsAppCredential>;
-    if (typeof parsed.accessToken === "string" && parsed.accessToken.length > 0) return { accessToken: parsed.accessToken, appSecret: parsed.appSecret };
-  } catch { /* Legacy raw tokens remain supported. */ }
-  return { accessToken: decrypted };
-}
-
-function parseTweetSmsCredential(ciphertext: string, iv: string): TweetSmsCredentials {
-  const decrypted = decryptTenantCredential(ciphertext, iv);
-  const parsed = JSON.parse(decrypted) as Partial<TweetSmsCredentials>;
-  if (typeof parsed.apiKey !== "string" || !parsed.apiKey.trim()) throw new Error("بيانات حساب TweetSMS غير صالحة.");
-  return { apiKey: parsed.apiKey, apiSecret: typeof parsed.apiSecret === "string" && parsed.apiSecret ? parsed.apiSecret : undefined };
-}
-
-type MessagePayload = { renderedText?: string; invoiceTemplateParameters?: string[]; receiptTemplateParameters?: string[]; subscriberReferenceTemplateParameters?: string[] };
-type MessageRow = typeof notificationMessages.$inferSelect;
 type DispatchResult = { status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string };
+type SmsClaim = {
+  notification_id: number;
+  tenant_id: number;
+  recipient: string;
+  rendered_text: string;
+  api_endpoint: string;
+  credential_ciphertext: string;
+  credential_iv: string;
+  sender_name: string;
+  attempt_number: number;
+  character_count: number;
+  segment_count: number;
+};
 
 export function tweetSmsProviderStatus(ok: boolean): "submitted" | "failed" {
   return ok ? "submitted" : "failed";
 }
 
-function messagePayload(message: MessageRow) { return (message.payload ?? {}) as MessagePayload; }
-
-async function recordSmsQuotaAlert(message: MessageRow, db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
-  if (message.channel !== "sms" || !message.subscriberId) return;
-  const [subscriber] = await db.select({ siteId: subscribers.siteId }).from(subscribers).where(eq(subscribers.id, message.subscriberId)).limit(1);
-  if (!subscriber) return;
-  const [account] = await db.select({ monthlyLimit: tenantTweetSmsAccounts.monthlyLimit }).from(tenantTweetSmsAccounts).where(eq(tenantTweetSmsAccounts.tenantId, message.tenantId)).limit(1);
-  const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
-  const [usage] = await db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, message.tenantId), eq(notificationMessages.channel, "sms"), gte(notificationMessages.createdAt, monthStart), sql`${notificationMessages.status} in ('submitted','delivered','read')`));
-  const total = Number(account?.monthlyLimit ?? 0); const used = Number(usage?.used ?? 0); if (!total) return;
-  const threshold = used >= total ? 100 : used / total >= 0.8 ? 80 : 0; if (!threshold) return;
-  const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0); const action = `sms_quota_alert_${threshold}`;
-  const [existing] = await db.select({ id: auditLogs.id }).from(auditLogs).where(and(eq(auditLogs.tenantId, message.tenantId), eq(auditLogs.action, action), gte(auditLogs.createdAt, start))).limit(1);
-  if (!existing) await db.insert(auditLogs).values({ tenantId: message.tenantId, siteId: subscriber.siteId, entityType: "sms_quota", entityId: String(message.tenantId), action, metadata: { threshold, used, total, remaining: Math.max(0, total - used), automatic: true } });
-}
-
-async function dispatchNotification(message: MessageRow): Promise<DispatchResult> {
-  const db = await getDb();
-  if (!db) throw new Error("Database unavailable while processing notifications.");
-  if (["invoice_issued", "payment_reminder", "payment_received", "subscriber_reference"].includes(message.eventType)) {
-    const [setting] = await db.select({ isEnabled: platformSettings.isEnabled, value: platformSettings.value }).from(platformSettings)
-      .where(eq(platformSettings.settingKey, "invoice_delivery_channels")).limit(1);
-    if (!isInvoiceDeliveryChannelEnabled(message.channel, invoiceDeliveryPolicyFromSetting(setting))) {
-      const error = "قناة إرسال الإيصالات والفواتير معطلة من إعدادات آدمن PowerHub.";
-      await db.update(notificationMessages).set({ status: "failed", lastError: error }).where(eq(notificationMessages.id, message.id));
-      return { status: "skipped", error };
-    }
-  }
-  const claimed = await db.update(notificationMessages).set({ status: "submitted", attempts: sql`${notificationMessages.attempts} + 1` })
-    .where(and(eq(notificationMessages.id, message.id), eq(notificationMessages.status, "pending")));
-  if (Number((claimed[0] as { affectedRows?: number }).affectedRows ?? 0) !== 1) return { status: "skipped", error: "الرسالة لم تعد في انتظار الإرسال." };
+/** توافق قراءة بيانات القناة الموروثة فقط؛ لا تستعملها أي عملية إرسال في هذا الإصدار. */
+export function parseWhatsAppCredential(raw: string, _iv: string): { accessToken: string; appSecret?: string } {
   try {
-    const [configuration] = await db.select().from(tenantMessagingConfigurations).where(and(
-      eq(tenantMessagingConfigurations.tenantId, message.tenantId), eq(tenantMessagingConfigurations.channel, message.channel), eq(tenantMessagingConfigurations.isActive, true),
-    )).limit(1);
-    if (!configuration) throw new Error(`لا توجد قناة ${message.channel} مفعلة لهذا المستأجر.`);
-    if (message.channel === "whatsapp" && (!configuration.credentialCiphertext || !configuration.credentialIv)) throw new Error("لا توجد بيانات WhatsApp مفعلة لهذا المستأجر.");
-    const payload = messagePayload(message);
-    let providerMessageId: string | undefined;
-    if (message.channel === "whatsapp") {
-      if (configuration.provider !== "meta_whatsapp_cloud" || !configuration.phoneNumberId) throw new Error("إرسال WhatsApp يتطلب مزود Meta وPhone Number ID فعالين.");
-      const credential = parseWhatsAppCredential(configuration.credentialCiphertext!, configuration.credentialIv!);
-      const isReceipt = message.eventType === "payment_received";
-      const isSubscriberReference = message.eventType === "subscriber_reference";
-      const templateName = isReceipt ? configuration.receiptTemplateName : isSubscriberReference ? configuration.subscriberReferenceTemplateName : configuration.templateName;
-      if (!templateName) throw new Error(isReceipt ? "أدخل اسم قالب إيصال الدفع المعتمد من Meta أولاً." : isSubscriberReference ? "أدخل اسم قالب رسالة الرقم المرجعي المعتمد من Meta أولاً." : "أدخل اسم قالب فاتورة Meta المعتمد أولاً.");
-      const parameters = isReceipt ? payload.receiptTemplateParameters : isSubscriberReference ? payload.subscriberReferenceTemplateParameters : payload.invoiceTemplateParameters;
-      const components = parameters ? [{ type: "body", parameters: parameters.map((text) => ({ type: "text", text })) }] : undefined;
-      const response = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(configuration.phoneNumberId)}/messages`, {
-        method: "POST", headers: { Authorization: `Bearer ${credential.accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ messaging_product: "whatsapp", to: message.recipient, type: "template", template: { name: templateName, language: { code: "ar" }, ...(components ? { components } : {}) } }),
-      });
-      const body = await response.json().catch(() => ({})) as { messages?: Array<{ id?: string }>; error?: { message?: string } };
-      if (!response.ok) throw new Error(body.error?.message || `رفض مزود WhatsApp الطلب (${response.status}).`);
-      providerMessageId = body.messages?.[0]?.id;
-    } else if (message.channel === "sms") {
-      const [platformTweetSmsAccount] = await db.select().from(platformTweetSmsAccounts).where(eq(platformTweetSmsAccounts.isActive, true)).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
-      const [tweetSmsAccount] = await db.select().from(tenantTweetSmsAccounts).where(and(eq(tenantTweetSmsAccounts.tenantId, message.tenantId), eq(tenantTweetSmsAccounts.isActive, true))).limit(1);
-      const account = platformTweetSmsAccount?.credentialCiphertext && platformTweetSmsAccount.credentialIv ? platformTweetSmsAccount : tweetSmsAccount;
-      const senderName = tweetSmsAccount?.senderName || platformTweetSmsAccount?.senderName;
-      if (!tweetSmsAccount) throw new Error("لم تُضبط حصة TweetSMS لهذا صاحب المولد. راجع آدمن PowerHub.");
-      if (!account?.credentialCiphertext || !account.credentialIv || !senderName) throw new Error("لا يوجد حساب TweetSMS نشط واسم مرسل مهيأ. راجع آدمن PowerHub.");
-      if (!payload.renderedText) throw new Error("نص الفاتورة غير متوفر للإرسال عبر SMS.");
-      const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
-      const [usage] = await db.select({ used: sql<number>`count(*)` }).from(notificationMessages).where(and(eq(notificationMessages.tenantId, message.tenantId), eq(notificationMessages.channel, "sms"), gte(notificationMessages.createdAt, monthStart), sql`${notificationMessages.status} in ('submitted','delivered','read')`));
-      if (Number(usage?.used ?? 0) >= tweetSmsAccount.monthlyLimit) throw new Error("انتهى حد رسائل TweetSMS الشهري لهذا صاحب المولد. راجع آدمن PowerHub.");
-      if (!account.apiEndpoint) throw new Error("بيانات TweetSMS موجودة لكن رابط API الرسمي غير مضاف من آدمن PowerHub.");
-      const providerResult = await sendTweetSms({ endpoint: account.apiEndpoint, credentials: parseTweetSmsCredential(account.credentialCiphertext, account.credentialIv), sender: senderName, message: payload.renderedText, recipient: message.recipient });
-      if (!providerResult.ok) throw new Error(providerResult.message);
-      providerMessageId = providerResult.providerMessageId;
+    const parsed = JSON.parse(raw) as { accessToken?: unknown; appSecret?: unknown };
+    if (typeof parsed.accessToken === "string" && parsed.accessToken.trim()) {
+      return { accessToken: parsed.accessToken, ...(typeof parsed.appSecret === "string" && parsed.appSecret.trim() ? { appSecret: parsed.appSecret } : {}) };
+    }
+  } catch { /* A legacy raw token remains supported for non-sending compatibility checks. */ }
+  return { accessToken: raw };
+}
 
-    } else throw new Error("قناة الإرسال غير مدعومة.");
-    await db.update(notificationMessages).set({ status: tweetSmsProviderStatus(true), providerMessageId: providerMessageId || null, lastError: null }).where(eq(notificationMessages.id, message.id));
-    await recordSmsQuotaAlert(message, db);
-    return { status: "submitted", providerMessageId };
-  } catch (error) {
-    const messageText = error instanceof Error ? error.message.slice(0, 2000) : "فشل غير معروف";
-    await db.update(notificationMessages).set({ status: "failed", lastError: messageText }).where(eq(notificationMessages.id, message.id));
-    return { status: "failed", error: messageText };
+function decryptTweetSmsCredentials(ciphertext: string, iv: string): TweetSmsCredentials {
+  const raw = decryptTenantCredential(ciphertext, iv);
+  try {
+    const credentials = JSON.parse(raw) as Partial<TweetSmsCredentials>;
+    if (typeof credentials.apiKey === "string" && credentials.apiKey.trim()) {
+      return { apiKey: credentials.apiKey, ...(typeof credentials.apiSecret === "string" && credentials.apiSecret.trim() ? { apiSecret: credentials.apiSecret } : {}) };
+    }
+  } catch { /* Credentials are deliberately not surfaced in errors or logs. */ }
+  throw new TRPCError({ code: "PRECONDITION_FAILED", message: "بيانات TweetSMS المشفرة غير صالحة؛ احفظ مفتاح المولد من جديد." });
+}
+
+function rpcErrorMessage(error: { message?: string } | null, fallback: string) {
+  const code = error?.message ?? "";
+  if (code.includes("SMS_QUOTA_EXCEEDED")) return "لا يكفي رصيد الرسائل لهذا المولد بعد احتساب أجزاء الرسالة.";
+  if (code.includes("TWEETSMS_ACCOUNT_NOT_ACTIVE")) return "حساب TweetSMS لهذا المولد غير مفعل أو لم يجتز فحص الجاهزية.";
+  if (code.includes("MESSAGING_PERMISSION_REQUIRED")) return "لا تملك صلاحية إدارة الرسائل ضمن هذا الفرع.";
+  if (code.includes("NOTIFICATION_NOT_READY")) return "هذه الرسالة قيد المعالجة أو أُرسلت سابقاً.";
+  if (code.includes("SMS_RENDERED_TEXT_REQUIRED")) return "نص SMS غير جاهز للإرسال.";
+  return fallback;
+}
+
+/**
+ * Performs only an explicitly requested send. It is never a background worker:
+ * the caller must provide the authenticated actor responsible for the audit row.
+ */
+export async function processNotificationById(notificationId: number, actorUserId?: number): Promise<DispatchResult> {
+  if (!Number.isInteger(actorUserId) || !actorUserId || actorUserId < 1) {
+    return { status: "skipped", error: "يلزم منفذ مصادق عليه لمعالجة رسالة SMS." };
   }
-}
+  const admin = supabaseAdmin();
+  const { data: rawClaim, error: claimError } = await admin.rpc("powerhub_claim_sms_notification", {
+    p_user_id: actorUserId, p_notification_id: notificationId,
+  });
+  const claim = (rawClaim as SmsClaim[] | null)?.[0];
+  if (claimError || !claim) return { status: "skipped", error: rpcErrorMessage(claimError, "تعذر حجز رسالة SMS للإرسال.") };
 
-export async function processNotificationById(notificationId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database unavailable while processing notifications.");
-  const [message] = await db.select().from(notificationMessages).where(eq(notificationMessages.id, notificationId)).limit(1);
-  if (!message) return { status: "skipped" as const, error: "رسالة الإشعار غير موجودة." };
-  return dispatchNotification(message);
-}
-
-export async function processNotificationQueueForTenant(tenantId: number, limit = 25) {
-  const db = await getDb();
-  if (!db) throw new Error("Database unavailable while processing notifications.");
-  const pending = await db.select().from(notificationMessages).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.channel, "sms"), eq(notificationMessages.eventType, "invoice_issued"), eq(notificationMessages.status, "pending"))).orderBy(asc(notificationMessages.createdAt)).limit(Math.min(Math.max(limit, 1), 50));
-  const result = { scanned: pending.length, submitted: 0, failed: 0, skipped: 0 };
-  for (const message of pending) { const dispatched = await dispatchNotification(message); result[dispatched.status] += 1; }
-  return result;
-}
-
-export async function processNotificationQueue(limit = 25) {
-  const db = await getDb();
-  if (!db) throw new Error("Database unavailable while processing notifications.");
-  const pending = await db.select().from(notificationMessages).where(eq(notificationMessages.status, "pending")).orderBy(asc(notificationMessages.createdAt)).limit(Math.min(Math.max(limit, 1), 50));
-  const result = { scanned: pending.length, submitted: 0, failed: 0, skipped: 0 };
-  for (const message of pending) {
-    const dispatched = await dispatchNotification(message);
-    result[dispatched.status] += 1;
+  let sent = false;
+  let providerMessageId: string | null = null;
+  let sendError: string | null = null;
+  try {
+    const credentials = decryptTweetSmsCredentials(claim.credential_ciphertext, claim.credential_iv);
+    const providerResult = await sendTweetSms({
+      endpoint: claim.api_endpoint,
+      credentials,
+      sender: claim.sender_name,
+      message: claim.rendered_text,
+      recipient: normalizeInternationalPhone(claim.recipient),
+    });
+    if (!providerResult.ok) throw new Error(providerResult.message);
+    sent = true;
+    providerMessageId = providerResult.providerMessageId ?? null;
+  } catch (cause) {
+    sendError = cause instanceof Error ? cause.message.slice(0, 2000) : "فشل غير معروف عند الاتصال بمزود الرسائل.";
   }
-  return result;
+
+  const { data: rawFinish, error: finishError } = await admin.rpc("powerhub_finish_sms_notification", {
+    p_user_id: actorUserId,
+    p_notification_id: claim.notification_id,
+    p_attempt_number: claim.attempt_number,
+    p_success: sent,
+    p_provider_message_id: providerMessageId,
+    p_error: sendError,
+  });
+  if (finishError || !(rawFinish as unknown[] | null)?.[0]) {
+    return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال؛ لا تعاود المحاولة قبل مراجعة سجل التدقيق." };
+  }
+  if (!sent) return { status: "failed", error: sendError ?? "رفض مزود TweetSMS الإرسال." };
+  return { status: "submitted", providerMessageId };
 }
 
-export { parseWhatsAppCredential };
+export async function processNotificationQueueForTenant(tenantId: number, actorUserId: number, notificationIds: number[]) {
+  if (!Number.isInteger(tenantId) || tenantId < 1) throw new TRPCError({ code: "BAD_REQUEST", message: "المولد غير صالح." });
+  const uniqueIds = Array.from(new Set(notificationIds)).slice(0, 50);
+  const results = await Promise.all(uniqueIds.map(async (notificationId) => ({ notificationId, ...await processNotificationById(notificationId, actorUserId) })));
+  return {
+    requested: uniqueIds.length,
+    submitted: results.filter((result) => result.status === "submitted").length,
+    failed: results.filter((result) => result.status === "failed").length,
+    skipped: results.filter((result) => result.status === "skipped").length,
+    results,
+  };
+}
