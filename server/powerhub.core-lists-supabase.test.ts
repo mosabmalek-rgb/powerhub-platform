@@ -31,6 +31,10 @@ const state = vi.hoisted(() => {
     tenant_owner_profiles: [{ tenant_id: 20, company_name: "شركة المولد", report_logo_key: null }],
     staff_profiles: [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true }],
     mobile_sync_events: [{ id: 110, tenant_id: 20, site_id: 10, user_id: 1, event_type: "sync_cycle", status: "success", synced_count: 2, retryable_count: 0, needs_review_count: 0, error_code: null, error_message: null, app_version: "1.0.0", device_label: "هاتف فني", occurred_at: "2026-08-03T00:00:00.000Z" }],
+    employees: [{ id: 120, tenant_id: 20, site_id: 10, linked_user_id: null, full_name: "محاسب الاختبار", identity_no: null, phone: "0595000000", job_title: "accountant", employment_status: "active", contract_type: "monthly", base_wage: 1000, hire_date: "2026-08-01T00:00:00.000Z", notes: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" }],
+    employee_adjustments: [{ id: 121, tenant_id: 20, employee_id: 120, site_id: 10, adjustment_type: "advance", amount: 100, remaining_amount: 100, reason: "سلفة اختبار", status: "open", created_by_user_id: 1, created_at: "2026-08-02T00:00:00.000Z", updated_at: "2026-08-02T00:00:00.000Z" }],
+    payroll_runs: [{ id: 122, tenant_id: 20, site_id: 10, period: "2026-08", status: "draft", total_gross: 1000, total_deductions: 100, total_net: 900, paid_from_account_id: null, approved_by_user_id: null, paid_at: null, created_by_user_id: 1, created_at: "2026-08-31T00:00:00.000Z", updated_at: "2026-08-31T00:00:00.000Z" }],
+    payroll_items: [{ id: 123, payroll_run_id: 122, employee_id: 120, base_amount: 1000, extra_amount: 0, advance_deduction: 100, other_deduction: 0, net_amount: 900, notes: null }],
     tenants: [{ id: 20, plan: "starter" }],
     subscription_upgrade_requests: [{ id: 109, tenant_id: 20, current_plan: "starter", requested_plan: "professional", status: "pending", note: "مراجعة الباقة", created_at: "2026-08-20T00:00:00.000Z", reviewed_at: null }],
   };
@@ -330,6 +334,18 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       id: 60, versionNo: 1, subscriberId: 30, subscriberName: "مشترك الاختبار", currentReading: 100, consumptionKwh: 10,
       technicianName: "مدير المنصة", technicianEmail: "admin@example.test",
     });
+  });
+
+  it("يعرض الموظفين والسلف وكشوف الرواتب من Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.hr.listEmployees({ siteId: 10, employmentStatus: "active" })).resolves.toMatchObject([{ id: 120, fullName: "محاسب الاختبار", baseWage: "1000" }]);
+    await expect(caller.hr.listAdjustments({ siteId: 10, status: "open" })).resolves.toMatchObject([{
+      adjustment: { id: 121, employeeId: 120, amount: "100", remainingAmount: "100" }, employee: { id: 120, fullName: "محاسب الاختبار" },
+    }]);
+    await expect(caller.hr.listPayrollRuns({ siteId: 10, period: "2026-08" })).resolves.toMatchObject([{ id: 122, totalNet: "900", status: "draft" }]);
+    await expect(caller.hr.getPayrollDetails({ siteId: 10, payrollRunId: 122 })).resolves.toMatchObject([{
+      item: { id: 123, payrollRunId: 122, netAmount: "900" }, employee: { id: 120, fullName: "محاسب الاختبار", jobTitle: "accountant" },
+    }]);
   });
 
   it("يعطّل اختبار الرسائل والجدولة الموروثين صراحةً", async () => {
