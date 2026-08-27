@@ -967,12 +967,24 @@ export const powerhubRouter = router({
   }),
   subscription: router({
     currentUpgradeRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const [request] = await db.select({ id: subscriptionUpgradeRequests.id, currentPlan: subscriptionUpgradeRequests.currentPlan, requestedPlan: subscriptionUpgradeRequests.requestedPlan, status: subscriptionUpgradeRequests.status, note: subscriptionUpgradeRequests.note, createdAt: subscriptionUpgradeRequests.createdAt, reviewedAt: subscriptionUpgradeRequests.reviewedAt })
-        .from(subscriptionUpgradeRequests).where(eq(subscriptionUpgradeRequests.tenantId, tenantId)).orderBy(desc(subscriptionUpgradeRequests.createdAt)).limit(1);
-      return request ?? null;
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const { data, error } = await supabaseAdmin().from("subscription_upgrade_requests")
+        .select("id, current_plan, requested_plan, status, note, created_at, reviewed_at")
+        .eq("tenant_id", access.tenantId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلب ترقية الباقة من Supabase." });
+      if (!data) return null;
+      return {
+        id: Number(data.id),
+        currentPlan: data.current_plan,
+        requestedPlan: data.requested_plan,
+        status: data.status,
+        note: data.note,
+        createdAt: new Date(data.created_at),
+        reviewedAt: data.reviewed_at ? new Date(data.reviewed_at) : null,
+      };
     }),
     requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPlan: z.enum(["starter", "professional", "enterprise"]) })).mutation(async ({ ctx, input }) => {
       await requireRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");

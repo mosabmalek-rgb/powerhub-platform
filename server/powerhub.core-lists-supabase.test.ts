@@ -25,6 +25,7 @@ const state = vi.hoisted(() => {
     financial_settlements: [{ id: 97, tenant_id: 20, site_id: 10, period_start: "2026-08-01T00:00:00.000Z", period_end: "2026-08-31T23:59:59.999Z", total_collected: 100, total_expenses: 20, book_profit: 80, actual_cash: 75, difference: -5, notes: "تسوية دورية", status: "draft", created_by_user_id: 1, approved_by_user_id: null, locked_at: null, created_at: "2026-08-31T23:59:59.999Z", updated_at: "2026-08-31T23:59:59.999Z" }],
     users: [{ id: 1, role: "admin" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, plan: "professional" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { starter: 1, professional: 3, enterprise: 10 } } }], tenant_branch_settings: [],
     tenants: [{ id: 20, plan: "starter" }],
+    subscription_upgrade_requests: [{ id: 109, tenant_id: 20, current_plan: "starter", requested_plan: "professional", status: "pending", note: "مراجعة الباقة", created_at: "2026-08-20T00:00:00.000Z", reviewed_at: null }],
   };
   const resolved = (data: unknown) => Promise.resolve({ data, error: null });
   const client = {
@@ -176,6 +177,19 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       collectors: [{ name: "محصل غير محدد", count: 1, amount: 25 }],
       topDebtors: [{ subscriber: "مشترك الاختبار", subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001", balanceDue: 75 }],
       paymentDetails: [{ paymentNo: "PAY-202608-0001", amount: 25 }],
+    });
+  });
+
+  it("يعرض طلب ترقية الباقة الحالي من Supabase ضمن نطاق الفرع دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscription.currentUpgradeRequest({ siteId: 10 })).resolves.toMatchObject({
+      id: 109,
+      currentPlan: "starter",
+      requestedPlan: "professional",
+      status: "pending",
+      note: "مراجعة الباقة",
+      createdAt: expect.any(Date),
+      reviewedAt: null,
     });
   });
 
