@@ -259,48 +259,6 @@ export const adminRouter = router({
         return { id: account ? Number(account.id) : null, tenantId, tenantName: tenantNames.get(tenantId) ?? "—", ownerName: owner.full_name, ownerPhone: owner.phone, apiEndpoint: account?.api_endpoint ?? null, senderName: account?.sender_name ?? null, monthlyLimit, usedThisMonth, remaining: Math.max(0, monthlyLimit - usedThisMonth), isActive: account?.is_active ?? false, configured: Boolean(account?.credential_ciphertext && account?.credential_iv), lastTestedAt: account?.last_tested_at ?? null, lastError: account?.last_error ?? null, updatedAt: account?.updated_at ?? null };
       });
     }
-    const db = await dbOrThrow();
-    const monthStart = new Date();
-    monthStart.setUTCDate(1);
-    monthStart.setUTCHours(0, 0, 0, 0);
-    const [accounts, usage] = await Promise.all([
-      db.select({
-        account: tenantTweetSmsAccounts,
-        ownerTenantId: tenantOwnerProfiles.tenantId,
-        tenantName: tenants.name,
-        ownerName: tenantOwnerProfiles.fullName,
-        ownerPhone: tenantOwnerProfiles.phone,
-      }).from(tenantOwnerProfiles)
-        .innerJoin(tenants, eq(tenantOwnerProfiles.tenantId, tenants.id))
-        .leftJoin(tenantTweetSmsAccounts, eq(tenantTweetSmsAccounts.tenantId, tenants.id))
-        .orderBy(tenants.name),
-      db.select({ tenantId: notificationMessages.tenantId, used: sql<number>`count(*)` }).from(notificationMessages)
-        .where(and(eq(notificationMessages.channel, "sms"), gte(notificationMessages.createdAt, monthStart), inArray(notificationMessages.status, ["submitted", "delivered", "read"])))
-        .groupBy(notificationMessages.tenantId),
-    ]);
-    const usageByTenant = new Map(usage.map((row) => [row.tenantId, Number(row.used ?? 0)]));
-    return accounts.map(({ account, ownerTenantId, tenantName, ownerName, ownerPhone }) => {
-      const tenantId = account?.tenantId ?? ownerTenantId;
-      const usedThisMonth = usageByTenant.get(tenantId) ?? 0;
-      const monthlyLimit = account?.monthlyLimit ?? 0;
-      return {
-        id: account?.id ?? null,
-        tenantId,
-        tenantName,
-        ownerName,
-        ownerPhone,
-        apiEndpoint: account?.apiEndpoint ?? null,
-        senderName: account?.senderName ?? null,
-        monthlyLimit,
-        usedThisMonth,
-        remaining: Math.max(0, monthlyLimit - usedThisMonth),
-        isActive: account?.isActive ?? false,
-        configured: Boolean(account?.credentialCiphertext && account?.credentialIv),
-        lastTestedAt: account?.lastTestedAt ?? null,
-        lastError: account?.lastError ?? null,
-        updatedAt: account?.updatedAt ?? null,
-      };
-    });
   }),
 
   getPlatformTweetSmsAccount: platformAdminProcedure.query(async () => {
@@ -725,8 +683,6 @@ export const adminRouter = router({
         tenantName: tenantNames.get(Number(request.tenant_id)) ?? "—", ownerName: ownerNames.get(Number(request.tenant_id)) ?? "—",
       }));
     }
-    const db = await dbOrThrow();
-    return db.select({ request: smsPackageRequests, tenantName: tenants.name, ownerName: tenantOwnerProfiles.fullName }).from(smsPackageRequests).innerJoin(tenants, eq(smsPackageRequests.tenantId, tenants.id)).leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id)).orderBy(desc(smsPackageRequests.createdAt)).limit(100);
   }),
   reviewSmsPackageRequest: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected"]), approvedMessages: z.number().int().min(0).max(100000000), note: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();
