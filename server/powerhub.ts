@@ -1696,20 +1696,33 @@ export const powerhubRouter = router({
       return getSupabaseDashboardSummary(input.siteId);
     }),
     allBranchesSummary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireAllBranchRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const branchRows = await db.select({ id: sites.id }).from(sites).where(and(eq(sites.tenantId, tenantId), ne(sites.status, "archived")));
-      const branchIds = branchRows.map((branch) => branch.id);
+      const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+      const admin = supabaseAdmin();
+      const { data: branchRows, error: branchesError } = await admin.from("sites").select("id").eq("tenant_id", access.tenantId).neq("status", "archived");
+      if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع المستأجر من Supabase." });
+      const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
       if (!branchIds.length) return { branchCount: 0, subscribers: 0, generators: { active: 0, maintenance: 0 }, financial: { invoiced: 0, collected: 0, outstanding: 0, expenses: 0, operatingProfit: 0 }, energyKwh: 0, failedNotifications: 0 };
-      const [subscriberCount, generatorStatus, invoiceTotals, expenseTotals, notificationTotals] = await Promise.all([
-        db.select({ value: sql<number>`count(*)` }).from(subscribers).where(and(inArray(subscribers.siteId, branchIds), eq(subscribers.serviceStatus, "active"))),
-        db.select({ active: sql<number>`sum(case when ${generators.status} = 'active' then 1 else 0 end)`, maintenance: sql<number>`sum(case when ${generators.status} = 'maintenance' then 1 else 0 end)` }).from(generators).where(inArray(generators.siteId, branchIds)),
-        db.select({ invoiced: sql<string>`coalesce(sum(${invoices.totalAmount}), 0)`, paid: sql<string>`coalesce(sum(${invoices.paidAmount}), 0)`, outstanding: sql<string>`coalesce(sum(${invoices.balanceDue}), 0)`, energy: sql<string>`coalesce(sum(${invoices.consumptionKwh}), 0)` }).from(invoices).where(and(inArray(invoices.siteId, branchIds), sql`${invoices.status} <> 'cancelled'`)),
-        db.select({ amount: sql<string>`coalesce(sum(${expenses.amount}), 0)` }).from(expenses).where(inArray(expenses.siteId, branchIds)),
-        db.select({ failed: sql<number>`sum(case when ${notificationMessages.status} = 'failed' then 1 else 0 end)` }).from(notificationMessages).where(sql`${notificationMessages.subscriberId} in (select ${subscribers.id} from ${subscribers} where ${subscribers.tenantId} = ${tenantId})`),
+      const [subscriberResult, generatorResult, invoiceResult, expenseResult, notificationResult] = await Promise.all([
+        admin.from("subscribers").select("service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+        admin.from("generators").select("status").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+        admin.from("invoices").select("status, total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+        admin.from("expenses").select("amount").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+        admin.from("notification_messages").select("status").eq("tenant_id", access.tenantId),
       ]);
-      return { branchCount: branchIds.length, subscribers: Number(subscriberCount[0]?.value ?? 0), generators: { active: Number(generatorStatus[0]?.active ?? 0), maintenance: Number(generatorStatus[0]?.maintenance ?? 0) }, financial: { invoiced: Number(invoiceTotals[0]?.invoiced ?? 0), collected: Number(invoiceTotals[0]?.paid ?? 0), outstanding: Number(invoiceTotals[0]?.outstanding ?? 0), expenses: Number(expenseTotals[0]?.amount ?? 0), operatingProfit: Number(invoiceTotals[0]?.paid ?? 0) - Number(expenseTotals[0]?.amount ?? 0) }, energyKwh: Number(invoiceTotals[0]?.energy ?? 0), failedNotifications: Number(notificationTotals[0]?.failed ?? 0) };
+      if (subscriberResult.error || generatorResult.error || invoiceResult.error || expenseResult.error || notificationResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص جميع الأفرع من Supabase." });
+      const invoiceTotals = (invoiceResult.data ?? []).filter((row) => row.status !== "cancelled").reduce((totals, row) => ({
+        invoiced: totals.invoiced + Number(row.total_amount ?? 0), paid: totals.paid + Number(row.paid_amount ?? 0),
+        outstanding: totals.outstanding + Number(row.balance_due ?? 0), energy: totals.energy + Number(row.consumption_kwh ?? 0),
+      }), { invoiced: 0, paid: 0, outstanding: 0, energy: 0 });
+      const expensesTotal = (expenseResult.data ?? []).reduce((total, row) => total + Number(row.amount ?? 0), 0);
+      return {
+        branchCount: branchIds.length,
+        subscribers: (subscriberResult.data ?? []).filter((row) => row.service_status === "active").length,
+        generators: { active: (generatorResult.data ?? []).filter((row) => row.status === "active").length, maintenance: (generatorResult.data ?? []).filter((row) => row.status === "maintenance").length },
+        financial: { invoiced: invoiceTotals.invoiced, collected: invoiceTotals.paid, outstanding: invoiceTotals.outstanding, expenses: expensesTotal, operatingProfit: invoiceTotals.paid - expensesTotal },
+        energyKwh: invoiceTotals.energy,
+        failedNotifications: (notificationResult.data ?? []).filter((row) => row.status === "failed").length,
+      };
     }),
     financialOverview: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
@@ -1720,41 +1733,30 @@ export const powerhubRouter = router({
         const site = await getSupabaseSite(input.siteId);
         return getSupabaseFinancialOverview(site);
       }
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      if (input.scope === "all") await requireAllBranchRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
-      const branchRows = input.scope === "all"
-        ? await db.select({ id: sites.id, name: sites.name }).from(sites).where(and(eq(sites.tenantId, tenantId), ne(sites.status, "archived"))).orderBy(desc(sites.createdAt))
-        : await db.select({ id: sites.id, name: sites.name }).from(sites).where(and(eq(sites.id, input.siteId), eq(sites.tenantId, tenantId))).limit(1);
-      const branchIds = branchRows.map((branch) => branch.id);
+      const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+      const admin = supabaseAdmin();
+      const { data: branchRows, error: branchesError } = await admin.from("sites").select("id, name").eq("tenant_id", access.tenantId).neq("status", "archived").order("created_at", { ascending: false });
+      if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع التقرير المالي من Supabase." });
+      const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
       if (!branchIds.length) return buildFinancialOverview({ branches: [], invoices: [], payments: [], expenses: [] });
-      const [invoiceRows, paymentRows, expenseRows, subscriberCounts] = await Promise.all([
-        db.select({ invoice: invoices, subscriber: subscribers }).from(invoices).innerJoin(subscribers, eq(invoices.subscriberId, subscribers.id))
-          .where(and(inArray(invoices.siteId, branchIds), sql`${invoices.status} not in ('cancelled', 'draft')`)),
-        db.select({ payment: payments }).from(payments).where(inArray(payments.siteId, branchIds)),
-        db.select().from(expenses).where(inArray(expenses.siteId, branchIds)),
-        db.select({ siteId: subscribers.siteId, count: sql<number>`count(*)` }).from(subscribers)
-          .where(and(inArray(subscribers.siteId, branchIds), eq(subscribers.serviceStatus, "active"))).groupBy(subscribers.siteId),
+      const [invoiceResult, paymentResult, expenseResult, subscriberResult] = await Promise.all([
+        admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("tenant_id", access.tenantId).in("site_id", branchIds).not("status", "in", "(cancelled,draft)"),
+        admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+        admin.from("expenses").select("site_id, amount, occurred_at").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+        admin.from("subscribers").select("id, site_id, full_name, subscriber_no, service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds),
       ]);
-      const subscriberCountBySite = new Map(subscriberCounts.map((row) => [row.siteId, Number(row.count ?? 0)]));
+      if (invoiceResult.error || paymentResult.error || expenseResult.error || subscriberResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات التقرير المالي من Supabase." });
+      const subscribersById = new Map((subscriberResult.data ?? []).map((subscriber) => [Number(subscriber.id), subscriber]));
+      const subscriberCountBySite = new Map<number, number>();
+      for (const subscriber of subscriberResult.data ?? []) if (subscriber.service_status === "active") subscriberCountBySite.set(Number(subscriber.site_id), (subscriberCountBySite.get(Number(subscriber.site_id)) ?? 0) + 1);
       return buildFinancialOverview({
-        branches: branchRows.map((branch) => ({ id: branch.id, name: branch.name, activeSubscribers: subscriberCountBySite.get(branch.id) ?? 0 })),
-        invoices: invoiceRows.map((row) => ({
-          id: row.invoice.id,
-          siteId: row.invoice.siteId,
-          subscriberId: row.invoice.subscriberId,
-          subscriberName: row.subscriber.fullName,
-          subscriberNo: row.subscriber.subscriberNo,
-          invoiceNo: row.invoice.invoiceNo,
-          issueDate: row.invoice.issueDate,
-          dueDate: row.invoice.dueDate,
-          totalAmount: Number(row.invoice.totalAmount),
-          paidAmount: Number(row.invoice.paidAmount),
-          balanceDue: Number(row.invoice.balanceDue),
-          status: row.invoice.status,
-        })),
-        payments: paymentRows.map((row) => ({ siteId: row.payment.siteId, subscriberId: row.payment.subscriberId, amount: Number(row.payment.amount), status: row.payment.status, paidAt: row.payment.paidAt })),
-        expenses: expenseRows.map((row) => ({ siteId: row.siteId, amount: Number(row.amount), occurredAt: row.occurredAt })),
+        branches: (branchRows ?? []).map((branch) => ({ id: Number(branch.id), name: branch.name, activeSubscribers: subscriberCountBySite.get(Number(branch.id)) ?? 0 })),
+        invoices: (invoiceResult.data ?? []).flatMap((invoice) => {
+          const subscriber = subscribersById.get(Number(invoice.subscriber_id));
+          return subscriber ? [{ id: Number(invoice.id), siteId: Number(invoice.site_id), subscriberId: Number(invoice.subscriber_id), subscriberName: subscriber.full_name, subscriberNo: subscriber.subscriber_no, invoiceNo: invoice.invoice_no, issueDate: new Date(invoice.issue_date), dueDate: new Date(invoice.due_date), totalAmount: Number(invoice.total_amount), paidAmount: Number(invoice.paid_amount), balanceDue: Number(invoice.balance_due), status: invoice.status }] : [];
+        }),
+        payments: (paymentResult.data ?? []).map((payment) => ({ siteId: Number(payment.site_id), subscriberId: Number(payment.subscriber_id), amount: Number(payment.amount), status: payment.status, paidAt: new Date(payment.paid_at) })),
+        expenses: (expenseResult.data ?? []).map((expense) => ({ siteId: Number(expense.site_id), amount: Number(expense.amount), occurredAt: new Date(expense.occurred_at) })),
       });
     }),
   }),

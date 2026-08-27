@@ -43,6 +43,7 @@ const state = vi.hoisted(() => {
         gte: () => query,
         lte: () => query,
         lt: () => query,
+        not: () => query,
         limit: () => query,
         maybeSingle: () => resolved(filteredRows[0] ?? null),
         then: <TResult1 = { data: unknown[]; error: null }, TResult2 = never>(
@@ -208,6 +209,23 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       scope: { branchCount: 1 },
       summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
       branchSummaries: [{ siteId: 10, branchName: "الفرع الرئيسي", invoiced: 100, collected: 25 }],
+    });
+  });
+
+  it("يعرض ملخص لوحة التشغيل والنظرة المالية لجميع الأفرع من Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.dashboard.allBranchesSummary({ siteId: 10 })).resolves.toEqual({
+      branchCount: 1,
+      subscribers: 1,
+      generators: { active: 1, maintenance: 0 },
+      financial: { invoiced: 100, collected: 25, outstanding: 75, expenses: 15, operatingProfit: 10 },
+      energyKwh: 10,
+      failedNotifications: 1,
+    });
+    await expect(caller.dashboard.financialOverview({ siteId: 10, scope: "all" })).resolves.toMatchObject({
+      branchSummaries: [{ id: 10, name: "الفرع الرئيسي", activeSubscribers: 1 }],
+      outstanding: { total: 75, accountCount: 1 },
+      topDebtors: [{ subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001" }],
     });
   });
 
