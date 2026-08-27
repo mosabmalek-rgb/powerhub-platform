@@ -129,6 +129,15 @@ async function dbOrThrow() {
   return db;
 }
 
+function assertLegacyAdminWriteMigrationGuard(operation: string): void {
+  if (process.env.NODE_ENV !== "powerhub_admin_writes_reenabled_after_atomic_supabase_migration") {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: `${operation} متوقف مؤقتاً لأن تنفيذه ما زال يعتمد على MySQL. لا يُجرى أي تعديل حتى يُنقل إلى RPC Supabase ذرية مع تدقيق مناسب.`,
+    });
+  }
+}
+
 async function recordPlatformSecurityChange(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, actor: typeof users.$inferSelect, targetUserId: number | undefined, title: string, metadata: Record<string, unknown>) {
   await db.insert(platformSecurityEvents).values({
     eventType: "security_change",
@@ -346,6 +355,7 @@ export const adminRouter = router({
   }),
 
   reviewSubscriptionUpgradeRequest: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), decision: z.enum(["approved", "rejected"]), note: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("مراجعة طلب ترقية الباقة");
     const db = await dbOrThrow();
     const [request] = await db.select().from(subscriptionUpgradeRequests).where(eq(subscriptionUpgradeRequests.id, input.id)).limit(1);
     if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الترقية غير موجود." });
@@ -363,6 +373,7 @@ export const adminRouter = router({
   }),
 
   quickUpgradeOwnerPlan: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), plan: planSchema, note: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("الترقية السريعة لباقة صاحب المولد");
     const db = await dbOrThrow(); const [tenant] = await db.select({ id: tenants.id, plan: tenants.plan }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
     if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
     const rank: Record<string, number> = { starter: 1, professional: 2, enterprise: 3 };
@@ -419,6 +430,7 @@ export const adminRouter = router({
     platformRole: z.enum(["platform_admin", "finance_admin"]),
     expiresInHours: z.number().int().min(1).max(168).default(72),
   })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("دعوة وصول لإدارة المنصة");
     const db = await dbOrThrow();
     const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
     const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
@@ -428,6 +440,7 @@ export const adminRouter = router({
   }),
 
   setPlatformAccountStatus: platformOwnerProcedure.input(z.object({ userId: z.number().int().positive(), accountStatus: z.enum(["active", "locked", "disabled"]) })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("تغيير حالة حساب إدارة المنصة");
     if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تغيير حالة حسابك من هذه العملية." });
     const db = await dbOrThrow();
     const [target] = await db.select({ id: users.id, role: users.role, platformRole: users.platformRole, accountStatus: users.accountStatus }).from(users).where(eq(users.id, input.userId)).limit(1);
@@ -439,6 +452,7 @@ export const adminRouter = router({
   }),
 
   setPlatformAccessRole: platformOwnerProcedure.input(z.object({ userId: z.number().int().positive(), platformRole: z.enum(["platform_admin", "finance_admin"]) })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("تغيير دور حساب إدارة المنصة");
     if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تغيير دور حسابك من هذه العملية." });
     const db = await dbOrThrow();
     const [target] = await db.select({ id: users.id, role: users.role, platformRole: users.platformRole }).from(users).where(eq(users.id, input.userId)).limit(1);
@@ -466,6 +480,7 @@ export const adminRouter = router({
     siteRole: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]).optional(),
     expiresInHours: z.number().int().min(1).max(168).default(72),
   })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("دعوة وصول إلى مساحة صاحب المولد");
     const db = await dbOrThrow();
     const [site] = input.siteId ? await db.select({ id: sites.id, tenantId: sites.tenantId }).from(sites).where(eq(sites.id, input.siteId)).limit(1) : [undefined];
     if (input.siteId && (!site || site.tenantId !== input.tenantId)) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة صاحب المولد المحددة." });
@@ -489,6 +504,7 @@ export const adminRouter = router({
   }),
 
   setTenantMembershipStatus: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), userId: z.number().int().positive(), status: z.enum(["active", "suspended", "revoked"]) })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("تغيير حالة عضوية صاحب المولد");
     const db = await dbOrThrow();
     const [membership] = await db.select().from(tenantMembers).where(and(eq(tenantMembers.tenantId, input.tenantId), eq(tenantMembers.userId, input.userId))).limit(1);
     const [site] = await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
@@ -524,6 +540,7 @@ export const adminRouter = router({
     autoRenew: z.boolean().default(false),
     notes: z.string().max(2000).optional(),
   })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("إنشاء صاحب مولد");
     const db = await dbOrThrow();
     const phone = input.ownerPhone.trim();
     const generatorName = input.generatorName.trim();
@@ -609,6 +626,7 @@ export const adminRouter = router({
 
   attachOwnerUser: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), userId: z.number().int().positive(), siteId: z.number().int().positive().optional() }))
     .mutation(async ({ ctx, input }) => {
+      assertLegacyAdminWriteMigrationGuard("ربط حساب مالك بصاحب مولد");
       const db = await dbOrThrow();
       const [tenant] = await db.select().from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
       const [user] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
@@ -637,6 +655,7 @@ export const adminRouter = router({
     notes: z.string().max(2000).optional(),
     smsPlanId: z.number().int().positive().nullable().optional(),
   })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("تحديث اشتراك صاحب المولد");
     const db = await dbOrThrow();
     if (input.smsPlanId) {
       const [plan] = await db.select({ id: platformSmsPlans.id, isActive: platformSmsPlans.isActive }).from(platformSmsPlans).where(eq(platformSmsPlans.id, input.smsPlanId)).limit(1);
@@ -662,12 +681,14 @@ export const adminRouter = router({
     return (data ?? []).map((plan) => ({ id: Number(plan.id), code: plan.code, name: plan.name, description: plan.description, includedMessages: plan.included_messages, isActive: plan.is_active, createdAt: plan.created_at, updatedAt: plan.updated_at }));
   }),
   createSmsPlan: platformAdminProcedure.input(z.object({ code: z.string().trim().min(2).max(80).regex(/^[a-z0-9_-]+$/), name: z.string().trim().min(2).max(160), description: z.string().max(1000).optional(), includedMessages: z.number().int().min(0).max(100000000), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("إنشاء باقة رسائل SMS");
     const db = await dbOrThrow();
     const id = insertId(await db.insert(platformSmsPlans).values(input));
     await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "info", status: "success", title: "إنشاء باقة رسائل SMS", createdByUserId: ctx.user.id, metadata: { planId: id, code: input.code, includedMessages: input.includedMessages } });
     return { id };
   }),
   updateSmsPlan: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(160).optional(), description: z.string().max(1000).optional(), includedMessages: z.number().int().min(0).max(100000000).optional(), isActive: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("تحديث باقة رسائل SMS");
     const db = await dbOrThrow();
     const { id, ...changes } = input;
     await db.update(platformSmsPlans).set(changes).where(eq(platformSmsPlans.id, id));
@@ -696,6 +717,7 @@ export const adminRouter = router({
     }
   }),
   reviewSmsPackageRequest: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected"]), approvedMessages: z.number().int().min(0).max(100000000), note: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("مراجعة طلب حزمة رسائل SMS");
     const db = await dbOrThrow();
     const [request] = await db.select().from(smsPackageRequests).where(and(eq(smsPackageRequests.id, input.id), eq(smsPackageRequests.status, "pending"))).limit(1);
     if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الحزمة غير موجود أو تمت مراجعته سابقاً." });
@@ -706,6 +728,7 @@ export const adminRouter = router({
     return { success: true };
   }),
   renewSubscription: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), periods: z.number().int().min(1).max(24).default(1) })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("تجديد اشتراك صاحب المولد");
     const db = await dbOrThrow();
     const [subscription] = await db.select().from(tenantSubscriptions).where(eq(tenantSubscriptions.tenantId, input.tenantId)).limit(1);
     if (!subscription) throw new TRPCError({ code: "NOT_FOUND", message: "اشتراك المستأجر غير موجود." });
@@ -937,6 +960,7 @@ export const adminRouter = router({
   }),
 
   updateComplaint: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["open", "assigned", "in_progress", "resolved", "closed"]), assignedUserId: z.number().int().positive().nullable().optional(), response: z.string().max(4000).optional() })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("تحديث الشكوى");
     const db = await dbOrThrow(); const [complaint] = await db.select().from(complaints).where(eq(complaints.id, input.id)).limit(1);
     if (!complaint) throw new TRPCError({ code: "NOT_FOUND", message: "الشكوى غير موجودة." });
     await db.update(complaints).set({ status: input.status, assignedUserId: input.assignedUserId, response: input.response, resolvedAt: input.status === "resolved" || input.status === "closed" ? new Date() : null }).where(eq(complaints.id, input.id));
@@ -963,6 +987,7 @@ export const adminRouter = router({
   }),
 
   createTariffPolicy: platformAdminProcedure.input(z.object({ minimumPricePerKwh: z.number().nonnegative(), maximumPricePerKwh: z.number().positive(), effectiveFrom: z.date(), notificationRequested: z.boolean().default(false), notes: z.string().max(2000).optional() }).refine((input) => input.maximumPricePerKwh >= input.minimumPricePerKwh, { message: "الحد الأقصى يجب أن يساوي أو يتجاوز الحد الأدنى.", path: ["maximumPricePerKwh"] })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("إنشاء سياسة تسعير");
     const db = await dbOrThrow(); await db.insert(platformTariffPolicies).values({ ...input, minimumPricePerKwh: String(input.minimumPricePerKwh), maximumPricePerKwh: String(input.maximumPricePerKwh), createdByUserId: ctx.user.id });
     let queuedNotifications = 0;
     if (input.notificationRequested) {
@@ -1018,6 +1043,7 @@ export const adminRouter = router({
     maxBranchesOverride: z.number().int().min(1).max(1000).nullable(),
     disabledBehavior: z.enum(["read_only", "suspended"]).default("read_only"),
   })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("حفظ إعدادات فروع صاحب المولد");
     const db = await dbOrThrow();
     const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
     if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
@@ -1051,11 +1077,13 @@ export const adminRouter = router({
   }),
 
   savePlatformSetting: platformAdminProcedure.input(z.object({ settingKey: z.string().min(2).max(100), isEnabled: z.boolean(), message: z.string().max(4000).optional(), value: z.record(z.string(), z.unknown()).optional() })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("حفظ إعدادات المنصة");
     const db = await dbOrThrow(); await db.insert(platformSettings).values({ ...input, updatedByUserId: ctx.user.id }).onDuplicateKeyUpdate({ set: { isEnabled: input.isEnabled, message: input.message, value: input.value, updatedByUserId: ctx.user.id } });
     await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: input.settingKey === "maintenance_mode" ? "warning" : "info", status: "success", title: `تحديث إعداد المنصة: ${input.settingKey}`, createdByUserId: ctx.user.id, metadata: { isEnabled: input.isEnabled } }); return { success: true };
   }),
 
   requestOwnerAccessRecovery: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), note: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("طلب استرداد وصول صاحب المولد");
     const db = await dbOrThrow(); const [owner] = await db.select().from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.tenantId, input.tenantId)).limit(1); if (!owner) throw new TRPCError({ code: "NOT_FOUND", message: "ملف مالك المولد غير موجود." });
     await db.insert(accessRecoveryRequests).values({ tenantId: input.tenantId, ownerUserId: owner.ownerUserId, requestedByUserId: ctx.user.id, method: "oauth_invite", status: "pending", note: input.note });
     const [site] = await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1); if (site) await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "access_recovery", entityId: String(input.tenantId), action: "platform_admin_request_owner_access_recovery" });
@@ -1073,6 +1101,7 @@ export const adminRouter = router({
   }),
 
   saveRolePolicy: platformAdminProcedure.input(z.object({ role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), capability: z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"]), isAllowed: z.boolean() })).mutation(async ({ ctx, input }) => {
+    assertLegacyAdminWriteMigrationGuard("حفظ سياسة صلاحيات المنصة");
     const db = await dbOrThrow();
     await db.insert(platformRolePolicies).values({ ...input, updatedByUserId: ctx.user.id }).onDuplicateKeyUpdate({ set: { isAllowed: input.isAllowed, updatedByUserId: ctx.user.id } });
     await db.insert(platformSecurityEvents).values({ eventType: "security_change", severity: "warning", status: "success", title: `تحديث سياسة الدور: ${input.role}`, createdByUserId: ctx.user.id, metadata: input });
