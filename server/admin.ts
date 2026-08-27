@@ -814,22 +814,32 @@ export const adminRouter = router({
   }),
 
   operationalMonitoring: platformAdminProcedure.query(async () => {
-    const db = await dbOrThrow();
-    const [databaseProbe, failedMessages, pendingMessages, syncIssues, securityIssues] = await Promise.all([
-      db.select({ tenants: sql<number>`count(*)` }).from(tenants).limit(1),
-      db.select({ id: notificationMessages.id, tenantName: tenants.name, channel: notificationMessages.channel, eventType: notificationMessages.eventType, lastError: notificationMessages.lastError, createdAt: notificationMessages.createdAt }).from(notificationMessages).innerJoin(tenants, eq(notificationMessages.tenantId, tenants.id)).where(eq(notificationMessages.status, "failed")).orderBy(desc(notificationMessages.createdAt)).limit(12),
-      db.select({ count: sql<number>`count(*)` }).from(notificationMessages).where(eq(notificationMessages.status, "pending")).limit(1),
-      db.select({ id: mobileSyncEvents.id, tenantName: tenants.name, status: mobileSyncEvents.status, errorCode: mobileSyncEvents.errorCode, errorMessage: mobileSyncEvents.errorMessage, occurredAt: mobileSyncEvents.occurredAt }).from(mobileSyncEvents).innerJoin(tenants, eq(mobileSyncEvents.tenantId, tenants.id)).where(inArray(mobileSyncEvents.status, ["partial", "retryable", "needs_review", "failed"])).orderBy(desc(mobileSyncEvents.occurredAt)).limit(12),
-      db.select({ id: platformSecurityEvents.id, severity: platformSecurityEvents.severity, status: platformSecurityEvents.status, title: platformSecurityEvents.title, details: platformSecurityEvents.details, createdAt: platformSecurityEvents.createdAt }).from(platformSecurityEvents).where(inArray(platformSecurityEvents.status, ["open", "failed"])).orderBy(desc(platformSecurityEvents.createdAt)).limit(12),
+    const admin = supabaseAdmin();
+    const [databaseProbe, failedMessagesResult, pendingMessagesResult, syncIssuesResult, securityIssuesResult] = await Promise.all([
+      admin.from("tenants").select("id", { count: "exact", head: true }),
+      admin.from("notification_messages").select("id, tenant_id, channel, event_type, last_error, created_at").eq("status", "failed").order("created_at", { ascending: false }).limit(12),
+      admin.from("notification_messages").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      admin.from("mobile_sync_events").select("id, tenant_id, status, error_code, error_message, occurred_at").in("status", ["partial", "retryable", "needs_review", "failed"]).order("occurred_at", { ascending: false }).limit(12),
+      admin.from("platform_security_events").select("id, severity, status, title, details, created_at").in("status", ["open", "failed"]).order("created_at", { ascending: false }).limit(12),
     ]);
+    if (databaseProbe.error || failedMessagesResult.error || pendingMessagesResult.error || syncIssuesResult.error || securityIssuesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المراقبة التشغيلية من Supabase." });
+    const failedMessages = failedMessagesResult.data ?? [];
+    const syncIssues = syncIssuesResult.data ?? [];
+    const securityIssues = securityIssuesResult.data ?? [];
+    const tenantIds = Array.from(new Set([...failedMessages, ...syncIssues].map((item) => Number(item.tenant_id))));
+    const tenantResult = tenantIds.length
+      ? await admin.from("tenants").select("id, name").in("id", tenantIds)
+      : { data: [], error: null };
+    if (tenantResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء مساحات التنبيهات من Supabase." });
+    const tenantNameById = new Map((tenantResult.data ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
     const alerts = [
-      ...failedMessages.map((item) => ({ id: `message-${item.id}`, category: "messaging" as const, severity: "critical" as const, title: `فشل إرسال ${item.channel === "sms" ? "SMS" : "WhatsApp"}`, detail: item.lastError ?? `تعذر إرسال ${item.eventType}.`, tenantName: item.tenantName, occurredAt: item.createdAt, target: "notifications" as const })),
-      ...syncIssues.map((item) => ({ id: `sync-${item.id}`, category: "sync" as const, severity: item.status === "failed" ? "critical" as const : "warning" as const, title: `مزامنة ميدانية: ${item.status}`, detail: item.errorMessage ?? item.errorCode ?? "تحتاج دورة المزامنة إلى مراجعة.", tenantName: item.tenantName, occurredAt: item.occurredAt, target: "field_sync" as const })),
-      ...securityIssues.map((item) => ({ id: `security-${item.id}`, category: "security" as const, severity: item.severity === "critical" ? "critical" as const : "warning" as const, title: item.title, detail: item.details ?? "حدث أمني مفتوح يحتاج إلى متابعة.", tenantName: null, occurredAt: item.createdAt, target: "security" as const })),
-    ].sort((left, right) => Number(right.occurredAt) - Number(left.occurredAt)).slice(0, 24);
-    const pending = Number(pendingMessages[0]?.count ?? 0);
+      ...failedMessages.map((item) => ({ id: `message-${item.id}`, category: "messaging" as const, severity: "critical" as const, title: `فشل إرسال ${item.channel === "sms" ? "SMS" : "WhatsApp"}`, detail: item.last_error ?? `تعذر إرسال ${item.event_type}.`, tenantName: tenantNameById.get(Number(item.tenant_id)) ?? "—", occurredAt: new Date(item.created_at), target: "notifications" as const })),
+      ...syncIssues.map((item) => ({ id: `sync-${item.id}`, category: "sync" as const, severity: item.status === "failed" ? "critical" as const : "warning" as const, title: `مزامنة ميدانية: ${item.status}`, detail: item.error_message ?? item.error_code ?? "تحتاج دورة المزامنة إلى مراجعة.", tenantName: tenantNameById.get(Number(item.tenant_id)) ?? "—", occurredAt: new Date(item.occurred_at), target: "field_sync" as const })),
+      ...securityIssues.map((item) => ({ id: `security-${item.id}`, category: "security" as const, severity: item.severity === "critical" ? "critical" as const : "warning" as const, title: item.title, detail: item.details ?? "حدث أمني مفتوح يحتاج إلى متابعة.", tenantName: null, occurredAt: new Date(item.created_at), target: "security" as const })),
+    ].sort((left, right) => right.occurredAt.getTime() - left.occurredAt.getTime()).slice(0, 24);
+    const pending = Number(pendingMessagesResult.count ?? 0);
     return { health: [
-      { key: "database", label: "البيانات", state: databaseProbe.length ? "healthy" as const : "critical" as const, detail: databaseProbe.length ? "استجابة قاعدة البيانات سليمة." : "تعذر التحقق من قاعدة البيانات.", count: Number(databaseProbe[0]?.tenants ?? 0), target: "reports" as const },
+      { key: "database", label: "البيانات", state: databaseProbe.count !== null ? "healthy" as const : "critical" as const, detail: databaseProbe.count !== null ? "استجابة قاعدة البيانات سليمة." : "تعذر التحقق من قاعدة البيانات.", count: Number(databaseProbe.count ?? 0), target: "reports" as const },
       { key: "messaging", label: "الإرسال", state: failedMessages.length ? "critical" as const : pending ? "warning" as const : "healthy" as const, detail: failedMessages.length ? `${failedMessages.length} رسالة فاشلة تحتاج مراجعة.` : pending ? `${pending} رسالة بانتظار المعالجة.` : "لا توجد رسائل معلقة أو فاشلة.", count: failedMessages.length || pending, target: "notifications" as const },
       { key: "sync", label: "المزامنة", state: syncIssues.some((item) => item.status === "failed") ? "critical" as const : syncIssues.length ? "warning" as const : "healthy" as const, detail: syncIssues.length ? `${syncIssues.length} حدث مزامنة يحتاج متابعة.` : "لا توجد أحداث مزامنة معلقة للمراجعة.", count: syncIssues.length, target: "field_sync" as const },
       { key: "security", label: "الأمان", state: securityIssues.some((item) => item.severity === "critical") ? "critical" as const : securityIssues.length ? "warning" as const : "healthy" as const, detail: securityIssues.length ? `${securityIssues.length} حدث أمني مفتوح.` : "لا توجد أحداث أمنية مفتوحة.", count: securityIssues.length, target: "security" as const },
