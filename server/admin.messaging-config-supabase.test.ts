@@ -29,6 +29,7 @@ const state = vi.hoisted(() => {
       calls.push(`rpc:${functionName}`);
       if (functionName === "powerhub_finance_overview") return Promise.resolve({ data: [{ subscriptions: [{ status: "active", count: 2 }], collections_amount: "150.5", collections_count: 3 }], error: null });
       if (functionName === "powerhub_tweetsms_report") return Promise.resolve({ data: [{ account: { id: 9, isActive: false, senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: "2026-08-27T00:00:00.000Z", lastError: null, configured: true }, total: 3, usage_rows: [{ tenantId: 20, tenantName: "مولدات الاختبار", total: 3, submitted: 2, failed: 1 }], alerts: [{ id: 22, balance: 80, threshold: 100, status: "open", notifiedAt: "2026-08-27T00:00:00.000Z", resolvedAt: null, createdAt: "2026-08-27T00:00:00.000Z", updatedAt: "2026-08-27T00:00:00.000Z" }] }], error: null });
+      if (functionName === "powerhub_advanced_dashboard") return Promise.resolve({ data: [{ kpis: { activeGenerators: 1, subscribers: 2, dailyConsumption: 3, monthlyConsumption: 4, monthlyCollections: 5, openComplaints: 1, generatorsToReview: 0, collectionRate: 75 }, monthly_growth: [{ month: "2026-08", count: 2 }], consumption_by_region: [{ region: "غزة", consumptionKwh: 4 }], collections_by_generator: [], latest_generators: [{ id: 17, name: "مولد الاختبار", code: "GEN-01", status: "active", tenantName: "مولدات الاختبار", createdAt: "2026-08-27T00:00:00.000Z" }], recent_complaints: [{ id: 15, title: "شكوى اختبار", priority: "high", status: "open", tenantName: "مولدات الاختبار", siteName: "فرع الاختبار", openedAt: "2026-08-27T00:00:00.000Z" }], expiring_subscriptions: [{ tenantId: 20, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار", endsAt: "2026-09-01T00:00:00.000Z", status: "active" }] }], error: null });
       return Promise.resolve({ data: null, error: { message: "unknown rpc" } });
     },
     from(table: string) {
@@ -147,5 +148,19 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.platformTweetSmsReport({ from: new Date("2026-08-01T00:00:00.000Z"), to: new Date("2026-08-31T23:59:59.999Z") })).resolves.toMatchObject({ account: { id: 9, configured: true, lastProviderBalance: 80 }, total: 3, usageRows: [{ tenantId: 20, submitted: 2, failed: 1 }], alerts: [{ id: 22, status: "open" }] });
     expect(state.calls).toEqual(["rpc:powerhub_tweetsms_report"]);
+  });
+
+  it("يقرأ لوحة التحليلات المركزية من دالة Supabase دون MySQL", async () => {
+    state.calls.splice(0);
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.advancedDashboard()).resolves.toMatchObject({
+      kpis: { activeGenerators: 1, collectionRate: 75 },
+      monthlyGrowth: [{ month: "2026-08", count: 2 }],
+      consumptionByRegion: [{ region: "غزة", consumptionKwh: 4 }],
+      latestGenerators: [{ id: 17, tenantName: "مولدات الاختبار" }],
+      recentComplaints: [{ id: 15, siteName: "فرع الاختبار" }],
+      expiringSubscriptions: [{ tenantId: 20, ownerName: "مالك الاختبار" }],
+    });
+    expect(state.calls).toEqual(["rpc:powerhub_advanced_dashboard"]);
   });
 });

@@ -904,41 +904,22 @@ export const adminRouter = router({
   }),
 
   advancedDashboard: platformAdminProcedure.query(async () => {
-    const db = await dbOrThrow();
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const [kpis] = await db.select({
-      activeGenerators: sql<number>`(select count(*) from ${generators} where ${generators.status} = 'active')`,
-      subscribers: sql<number>`(select count(*) from ${subscribers})`,
-      openComplaints: sql<number>`(select count(*) from ${complaints} where ${complaints.status} in ('open', 'assigned', 'in_progress'))`,
-      generatorsToReview: sql<number>`(select count(*) from ${generators} where ${generators.status} in ('maintenance', 'stopped', 'offline', 'blocked'))`,
-    }).from(tenants).limit(1);
-    const [consumption] = await db.select({
-      daily: sql<number>`sum(case when ${meterReadings.readingAt} >= ${today} and ${meterReadings.status} = 'approved' then ${meterReadings.consumptionKwh} else 0 end)`,
-      monthly: sql<number>`sum(case when ${meterReadings.readingAt} >= ${monthStart} and ${meterReadings.status} = 'approved' then ${meterReadings.consumptionKwh} else 0 end)`,
-    }).from(meterReadings);
-    const [collections] = await db.select({
-      monthly: sql<number>`sum(case when ${payments.paidAt} >= ${monthStart} and ${payments.status} = 'completed' then ${payments.amount} else 0 end)`,
-      paid: sql<number>`sum(case when ${invoices.status} in ('paid', 'partially_paid') then ${invoices.paidAmount} else 0 end)`,
-      total: sql<number>`sum(case when ${invoices.status} in ('issued', 'partially_paid', 'paid', 'overdue') then ${invoices.totalAmount} else 0 end)`,
-    }).from(invoices).leftJoin(payments, eq(payments.invoiceId, invoices.id));
-    const growthMonth = sql<string>`DATE_FORMAT(${subscribers.createdAt}, '%Y-%m')`;
-    const monthlyGrowth = await db.select({ month: growthMonth, count: sql<number>`count(*)` })
-      .from(subscribers).where(gte(subscribers.createdAt, new Date(now.getFullYear(), now.getMonth() - 11, 1))).groupBy(sql`1`).orderBy(sql`1`);
-    const consumptionByRegion = await db.select({ region: sites.city, consumptionKwh: sql<number>`sum(${meterReadings.consumptionKwh})` })
-      .from(meterReadings).innerJoin(subscribers, eq(meterReadings.subscriberId, subscribers.id)).innerJoin(sites, eq(subscribers.siteId, sites.id))
-      .where(eq(meterReadings.status, "approved")).groupBy(sites.city).orderBy(desc(sql`sum(${meterReadings.consumptionKwh})`)).limit(12);
-    const collectionsByGenerator: Array<{ generatorId: number; generatorName: string; code: string; tenantName: string; amount: number }> = [];
-    const latestGenerators = await db.select({ id: generators.id, name: generators.name, code: generators.code, status: generators.status, createdAt: generators.createdAt, tenantName: tenants.name })
-      .from(generators).innerJoin(tenants, eq(generators.tenantId, tenants.id)).orderBy(desc(generators.createdAt)).limit(8);
-    const recentComplaints = await db.select({ id: complaints.id, title: complaints.title, priority: complaints.priority, status: complaints.status, tenantName: tenants.name, siteName: sites.name, openedAt: complaints.openedAt })
-      .from(complaints).innerJoin(tenants, eq(complaints.tenantId, tenants.id)).innerJoin(sites, eq(complaints.siteId, sites.id)).orderBy(desc(complaints.openedAt)).limit(8);
-    const expiringSubscriptions = await db.select({ tenantId: tenants.id, tenantName: tenants.name, ownerName: tenantOwnerProfiles.fullName, endsAt: tenantSubscriptions.endsAt, status: tenantSubscriptions.status })
-      .from(tenantSubscriptions).innerJoin(tenants, eq(tenantSubscriptions.tenantId, tenants.id)).leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id)).orderBy(tenantSubscriptions.endsAt).limit(8);
+    const { data, error } = await supabaseAdmin().rpc("powerhub_advanced_dashboard");
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل لوحة التحليلات المركزية من Supabase." });
+    const dashboard = (data as Array<Record<string, unknown>> | null)?.[0];
+    if (!dashboard) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة لوحة التحليلات استجابة صالحة." });
+    const records = (value: unknown): Array<Record<string, unknown>> => Array.isArray(value)
+      ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      : [];
+    const rawKpis = dashboard.kpis && typeof dashboard.kpis === "object" ? dashboard.kpis as Record<string, unknown> : {};
     return {
-      kpis: { activeGenerators: Number(kpis?.activeGenerators ?? 0), subscribers: Number(kpis?.subscribers ?? 0), dailyConsumption: Number(consumption?.daily ?? 0), monthlyConsumption: Number(consumption?.monthly ?? 0), monthlyCollections: Number(collections?.monthly ?? 0), openComplaints: Number(kpis?.openComplaints ?? 0), generatorsToReview: Number(kpis?.generatorsToReview ?? 0), collectionRate: Number(collections?.total ?? 0) ? Math.round((Number(collections?.paid ?? 0) / Number(collections?.total ?? 0)) * 100) : 0 },
-      monthlyGrowth: monthlyGrowth.map((item) => ({ ...item, count: Number(item.count) })), consumptionByRegion: consumptionByRegion.map((item) => ({ ...item, consumptionKwh: Number(item.consumptionKwh) })), collectionsByGenerator: collectionsByGenerator.map((item) => ({ ...item, amount: Number(item.amount) })), latestGenerators, recentComplaints, expiringSubscriptions,
+      kpis: { activeGenerators: Number(rawKpis.activeGenerators ?? 0), subscribers: Number(rawKpis.subscribers ?? 0), dailyConsumption: Number(rawKpis.dailyConsumption ?? 0), monthlyConsumption: Number(rawKpis.monthlyConsumption ?? 0), monthlyCollections: Number(rawKpis.monthlyCollections ?? 0), openComplaints: Number(rawKpis.openComplaints ?? 0), generatorsToReview: Number(rawKpis.generatorsToReview ?? 0), collectionRate: Number(rawKpis.collectionRate ?? 0) },
+      monthlyGrowth: records(dashboard.monthly_growth).flatMap((item) => typeof item.month === "string" ? [{ month: item.month, count: Number(item.count ?? 0) }] : []),
+      consumptionByRegion: records(dashboard.consumption_by_region).flatMap((item) => typeof item.region === "string" ? [{ region: item.region, consumptionKwh: Number(item.consumptionKwh ?? 0) }] : []),
+      collectionsByGenerator: records(dashboard.collections_by_generator).flatMap((item) => typeof item.generatorName === "string" && typeof item.code === "string" && typeof item.tenantName === "string" ? [{ generatorId: Number(item.generatorId), generatorName: item.generatorName, code: item.code, tenantName: item.tenantName, amount: Number(item.amount ?? 0) }] : []),
+      latestGenerators: records(dashboard.latest_generators).flatMap((item) => typeof item.name === "string" && typeof item.code === "string" && typeof item.status === "string" && typeof item.tenantName === "string" ? [{ id: Number(item.id), name: item.name, code: item.code, status: item.status, tenantName: item.tenantName, createdAt: new Date(String(item.createdAt)) }] : []),
+      recentComplaints: records(dashboard.recent_complaints).flatMap((item) => typeof item.title === "string" && typeof item.priority === "string" && typeof item.status === "string" && typeof item.tenantName === "string" && typeof item.siteName === "string" ? [{ id: Number(item.id), title: item.title, priority: item.priority, status: item.status, tenantName: item.tenantName, siteName: item.siteName, openedAt: new Date(String(item.openedAt)) }] : []),
+      expiringSubscriptions: records(dashboard.expiring_subscriptions).flatMap((item) => typeof item.tenantName === "string" && typeof item.status === "string" ? [{ tenantId: Number(item.tenantId), tenantName: item.tenantName, ownerName: typeof item.ownerName === "string" ? item.ownerName : null, endsAt: new Date(String(item.endsAt)), status: item.status }] : []),
     };
   }),
 
