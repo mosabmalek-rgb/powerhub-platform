@@ -365,9 +365,23 @@ export const adminRouter = router({
   }),
 
   listSubscriptionUpgradeRequests: platformAdminProcedure.query(async () => {
-    const db = await dbOrThrow();
-    return db.select({ id: subscriptionUpgradeRequests.id, tenantId: subscriptionUpgradeRequests.tenantId, tenantName: tenants.name, ownerName: tenantOwnerProfiles.fullName, ownerEmail: tenantOwnerProfiles.email, currentPlan: subscriptionUpgradeRequests.currentPlan, requestedPlan: subscriptionUpgradeRequests.requestedPlan, status: subscriptionUpgradeRequests.status, note: subscriptionUpgradeRequests.note, createdAt: subscriptionUpgradeRequests.createdAt, reviewedAt: subscriptionUpgradeRequests.reviewedAt })
-      .from(subscriptionUpgradeRequests).innerJoin(tenants, eq(subscriptionUpgradeRequests.tenantId, tenants.id)).leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id)).orderBy(desc(subscriptionUpgradeRequests.createdAt)).limit(300);
+    const { data: requests, error } = await supabaseAdmin().from("subscription_upgrade_requests")
+      .select("id, tenant_id, current_plan, requested_plan, status, note, created_at, reviewed_at").order("created_at", { ascending: false }).limit(300);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات ترقية الباقات من Supabase." });
+    const tenantIds = Array.from(new Set((requests ?? []).map((request) => Number(request.tenant_id))));
+    const [tenantResult, profileResult] = await Promise.all([
+      tenantIds.length ? supabaseAdmin().from("tenants").select("id, name").in("id", tenantIds) : Promise.resolve({ data: [], error: null }),
+      tenantIds.length ? supabaseAdmin().from("tenant_owner_profiles").select("tenant_id, full_name, email").in("tenant_id", tenantIds) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (tenantResult.error || profileResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أصحاب طلبات الترقية من Supabase." });
+    const tenantById = new Map((tenantResult.data ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
+    const profileByTenantId = new Map((profileResult.data ?? []).map((profile) => [Number(profile.tenant_id), profile]));
+    return (requests ?? []).map((request) => ({
+      id: Number(request.id), tenantId: Number(request.tenant_id), tenantName: tenantById.get(Number(request.tenant_id)) ?? "مساحة غير معروفة",
+      ownerName: profileByTenantId.get(Number(request.tenant_id))?.full_name ?? null, ownerEmail: profileByTenantId.get(Number(request.tenant_id))?.email ?? null,
+      currentPlan: request.current_plan, requestedPlan: request.requested_plan, status: request.status, note: request.note,
+      createdAt: new Date(request.created_at), reviewedAt: request.reviewed_at ? new Date(request.reviewed_at) : null,
+    }));
   }),
 
   reviewSubscriptionUpgradeRequest: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), decision: z.enum(["approved", "rejected"]), note: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
