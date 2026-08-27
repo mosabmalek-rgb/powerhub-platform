@@ -2267,7 +2267,20 @@ export const powerhubRouter = router({
       });
     }),
     upsertAttendance: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), employeeId: z.number().int().positive(), workDate: z.string(), regularHours: z.number().min(0).max(24).default(0), overtimeHours: z.number().min(0).max(24).default(0), absentDays: z.number().min(0).max(1).default(0), notes: z.string().trim().max(500).optional() })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll"); const tenantId = await getSiteTenant(input.siteId); const db = await dbOrThrow(); const date = new Date(input.workDate); if (Number.isNaN(date.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ الحضور غير صحيح." }); const [employee] = await db.select({ id: employees.id }).from(employees).where(and(eq(employees.id, input.employeeId), eq(employees.tenantId, tenantId), or(eq(employees.siteId, input.siteId), isNull(employees.siteId)))).limit(1); if (!employee) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير موجود ضمن الفرع." }); const [existing] = await db.select({ id: employeeAttendance.id }).from(employeeAttendance).where(and(eq(employeeAttendance.employeeId, input.employeeId), eq(employeeAttendance.workDate, date))).limit(1); const values = { tenantId, employeeId: input.employeeId, siteId: input.siteId, workDate: date, regularHours: String(input.regularHours), overtimeHours: String(input.overtimeHours), absentDays: String(input.absentDays), notes: input.notes || null, createdByUserId: ctx.user.id, updatedAt: new Date() }; if (existing) await db.update(employeeAttendance).set(values).where(eq(employeeAttendance.id, existing.id)); else insertId(await db.insert(employeeAttendance).values(values)); await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "employee_attendance", entityId: String(existing?.id ?? "new"), action: existing ? "update" : "create", afterData: input }); return { success: true };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+      const workDate = new Date(input.workDate);
+      if (Number.isNaN(workDate.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ الحضور غير صحيح." });
+      const { data, error } = await supabaseAdmin().rpc("powerhub_upsert_employee_attendance", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_employee_id: input.employeeId,
+        p_work_date: input.workDate, p_regular_hours: input.regularHours, p_overtime_hours: input.overtimeHours,
+        p_absent_days: input.absentDays, p_notes: input.notes ?? null,
+      });
+      const result = (data as Array<{ attendance_id: number | string; mutation: string }> | null)?.[0];
+      if (!error && result?.attendance_id) return { success: true };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("EMPLOYEE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير موجود ضمن الفرع." });
+      if (errorText.includes("INVALID_ATTENDANCE_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات الحضور غير صحيحة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ سجل الحضور في Supabase." });
     }),
     overview: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "viewAudit");

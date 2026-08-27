@@ -108,6 +108,7 @@ const state = vi.hoisted(() => {
         lines: [{ description: "استهلاك كهرباء", quantity: 10, unitPrice: 10, amount: 100 }],
       });
       if (name === "powerhub_save_site_portal_settings") return resolved([{ portal_code: "main" }]);
+      if (name === "powerhub_upsert_employee_attendance") return resolved([{ attendance_id: 124, mutation: "update" }]);
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
@@ -357,6 +358,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.hr.overview({ siteId: 10, period: "2026-08" })).resolves.toMatchObject({
       employees: [{ status: "active", count: 1, wages: 1000 }], payroll: { count: 1, totalGross: 1000, totalDeductions: 100, totalNet: 900 },
     });
+    await expect(caller.hr.upsertAttendance({ siteId: 10, employeeId: 120, workDate: "2026-08-03", regularHours: 8, overtimeHours: 1, absentDays: 0 })).resolves.toEqual({ success: true });
+    expect(state.rpcCalls).toContainEqual(expect.objectContaining({
+      name: "powerhub_upsert_employee_attendance",
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_employee_id: 120, p_work_date: "2026-08-03" }),
+    }));
   });
 
   it("يعطّل اختبار الرسائل والجدولة الموروثين صراحةً", async () => {
