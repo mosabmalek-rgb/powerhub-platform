@@ -796,4 +796,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(result).toMatchObject({ invoice: { id: 70, invoice_no: "MAIN-202608-0001" }, subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, lines: [{ description: "استهلاك كهرباء" }] });
     expect(state.rpcCalls.map((call) => call.name)).toEqual(["powerhub_create_invoice_share_link", "powerhub_get_shared_invoice_by_token_hash"]);
   });
+
+  it("يعطّل اعتماد القراءة الميدانية الفردي غير الذري قبل أي وصول MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.mobileSync.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false }))
+      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(state.rpcCalls).toEqual([]);
+  });
 });

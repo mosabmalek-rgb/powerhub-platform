@@ -2589,9 +2589,9 @@ export const powerhubRouter = router({
       };
     }),
     approveAndIssue: protectedProcedure.input(mobileSyncApproveInput).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
-      await requireRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
-      return approveAndIssueMobileReading({ ...input, userId: ctx.user.id });
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اعتماد القراءة الميدانية وإصدار فاتورتها من هذا المسار متوقفان مؤقتاً إلى حين تنفيذ RPC Supabase ذرية. استخدم اعتماد القراءة وإصدار الفاتورة الفرديين من شاشة القراءات." });
     }),
     approveAllAndIssue: protectedProcedure.input(mobileSyncBulkApprovalInput).mutation(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
