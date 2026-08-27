@@ -249,6 +249,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.sites.branchPolicy({ siteId: 10 })).resolves.toMatchObject({ isEnabled: true, planLimit: 3, maxBranches: 3, currentCount: 1, remaining: 2 });
   });
 
+  it("يعرض إعدادات البوابة ونسبة التنبيه الشاذ من Supabase ضمن الفرع دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscriberPortal.settings({ siteId: 10 })).resolves.toMatchObject({
+      siteId: 10, tenantId: 20, portalCode: "main", displayName: "الفرع الرئيسي", isEnabled: true,
+    });
+    await expect(caller.sites.anomalyAlert({ siteId: 10 })).resolves.toEqual({ anomalyAlertPercent: 50 });
+  });
+
   it("يعطّل اختبار الرسائل والجدولة الموروثين صراحةً", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.messaging.testConnection({ siteId: 10, channel: "sms", provider: "tweetsms", credential: "credential-long-enough" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });

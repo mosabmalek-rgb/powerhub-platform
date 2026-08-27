@@ -1088,12 +1088,24 @@ export const powerhubRouter = router({
       };
     }),
     settings: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"]);
-      const db = await dbOrThrow();
-      const [site] = await db.select({ id: sites.id, tenantId: sites.tenantId, name: sites.name, code: sites.code }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
-      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
-      const [setting] = await db.select().from(sitePortalSettings).where(eq(sitePortalSettings.siteId, input.siteId)).limit(1);
-      return setting || { siteId: site.id, tenantId: site.tenantId, portalCode: site.code.toLowerCase(), displayName: site.name, primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true };
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      const [site, settingResult] = await Promise.all([
+        getSupabaseSite(input.siteId),
+        supabaseAdmin().from("site_portal_settings")
+          .select("site_id, tenant_id, portal_code, display_name, primary_color, accent_color, is_enabled")
+          .eq("site_id", input.siteId)
+          .eq("tenant_id", access.tenantId)
+          .maybeSingle(),
+      ]);
+      if (settingResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات بوابة المشتركين من Supabase." });
+      const setting = settingResult.data;
+      return setting ? {
+        siteId: Number(setting.site_id), tenantId: Number(setting.tenant_id), portalCode: setting.portal_code,
+        displayName: setting.display_name, primaryColor: setting.primary_color, accentColor: setting.accent_color, isEnabled: setting.is_enabled,
+      } : {
+        siteId: site.id, tenantId: site.tenantId, portalCode: site.code.toLowerCase(), displayName: site.name,
+        primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true,
+      };
     }),
     saveSettings: protectedProcedure.input(siteScoped.extend({
       portalCode: z.string().trim().min(2).max(50).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
@@ -1141,11 +1153,15 @@ export const powerhubRouter = router({
       const id=Number((data as Array<{site_id:number}>|null)?.[0]?.site_id); if(!id) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة الفروع استجابة صالحة."}); return {id};
     }),
     anomalyAlert: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
-      const db = await dbOrThrow();
-      const [site] = await db.select({ anomalyAlertPercent: sites.anomalyAlertPercent }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
-      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود." });
-      return site;
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const { data, error } = await supabaseAdmin().from("sites")
+        .select("anomaly_alert_percent")
+        .eq("id", input.siteId)
+        .eq("tenant_id", access.tenantId)
+        .maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعداد تنبيه الاستهلاك الشاذ من Supabase." });
+      if (!data) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود." });
+      return { anomalyAlertPercent: Number(data.anomaly_alert_percent) };
     }),
     updateAnomalyAlert: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), anomalyAlertPercent: z.number().int().min(10).max(500) })).mutation(async ({ ctx, input }) => {
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
