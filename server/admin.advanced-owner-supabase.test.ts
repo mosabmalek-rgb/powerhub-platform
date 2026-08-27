@@ -95,14 +95,13 @@ describe("إنشاء صاحب مولد متقدم عبر Supabase", () => {
     expect(state.authDeleteUser).not.toHaveBeenCalled();
   });
 
-  it("يعطّل مسارات مزودات الرسائل والتنبيه الإداري قبل أي MySQL أو اتصال خارجي", async () => {
+  it("يعطّل مسارات مزودات الرسائل الخاصة بالمستأجر والتنبيه الإداري قبل أي MySQL أو اتصال خارجي", async () => {
     const caller = adminRouter.createCaller({
       user: { id: 1, role: "admin", platformRole: "platform_owner" } as never,
       req: {} as never,
       res: {} as never,
     });
 
-    await expect(caller.testPlatformTweetSmsAccount()).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(caller.testTweetSmsAccount({ tenantId: 10 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(caller.sendOwnerUsageAlert({ tenantId: 10, message: "تنبيه استهلاك تجريبي", usagePercent: 80 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });

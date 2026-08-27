@@ -1,5 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
+vi.hoisted(() => {
+  process.env.TWEETSMS_API_KEY = "tweetsms-configuration-test-key";
+  delete process.env.TWEETSMS_API_TOKEN;
+});
+
+const tweetSms = vi.hoisted(() => ({
+  checkAccount: vi.fn(),
+  checkBalance: vi.fn(),
+  checkSender: vi.fn(),
+}));
+
 const state = vi.hoisted(() => {
   const calls: string[] = [];
   const filters: Array<[string, string, unknown]> = [];
@@ -27,6 +38,8 @@ const state = vi.hoisted(() => {
   const client = {
     rpc(functionName: string) {
       calls.push(`rpc:${functionName}`);
+      if (functionName === "powerhub_save_platform_tweetsms_account") return Promise.resolve({ data: [{ account_id: 9, is_active: false, activation_required: true }], error: null });
+      if (functionName === "powerhub_record_platform_tweetsms_test") return Promise.resolve({ data: [{ account_id: 9, is_active: false, last_provider_balance: 80, last_tested_at: "2026-08-27T00:00:00.000Z", last_error: null }], error: null });
       if (functionName === "powerhub_finance_overview") return Promise.resolve({ data: [{ subscriptions: [{ status: "active", count: 2 }], collections_amount: "150.5", collections_count: 3 }], error: null });
       if (functionName === "powerhub_tweetsms_report") return Promise.resolve({ data: [{ account: { id: 9, isActive: false, senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: "2026-08-27T00:00:00.000Z", lastError: null, configured: true }, total: 3, usage_rows: [{ tenantId: 20, tenantName: "مولدات الاختبار", total: 3, submitted: 2, failed: 1 }], alerts: [{ id: 22, balance: 80, threshold: 100, status: "open", notifiedAt: "2026-08-27T00:00:00.000Z", resolvedAt: null, createdAt: "2026-08-27T00:00:00.000Z", updatedAt: "2026-08-27T00:00:00.000Z" }] }], error: null });
       if (functionName === "powerhub_advanced_dashboard") return Promise.resolve({ data: [{ kpis: { activeGenerators: 1, subscribers: 2, dailyConsumption: 3, monthlyConsumption: 4, monthlyCollections: 5, openComplaints: 1, generatorsToReview: 0, collectionRate: 75 }, monthly_growth: [{ month: "2026-08", count: 2 }], consumption_by_region: [{ region: "غزة", consumptionKwh: 4 }], collections_by_generator: [], latest_generators: [{ id: 17, name: "مولد الاختبار", code: "GEN-01", status: "active", tenantName: "مولدات الاختبار", createdAt: "2026-08-27T00:00:00.000Z" }], recent_complaints: [{ id: 15, title: "شكوى اختبار", priority: "high", status: "open", tenantName: "مولدات الاختبار", siteName: "فرع الاختبار", openedAt: "2026-08-27T00:00:00.000Z" }], expiring_subscriptions: [{ tenantId: 20, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار", endsAt: "2026-09-01T00:00:00.000Z", status: "active" }] }], error: null });
@@ -39,20 +52,47 @@ const state = vi.hoisted(() => {
       return { select: (..._args: unknown[]) => query };
     },
   };
-  return { calls, filters, client };
+  return { calls, filters, rows, client };
 });
 
 vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => state.client }));
 vi.mock("./db", () => ({ getDb: vi.fn(async () => { throw new Error("MySQL must not be called"); }), syncSupabaseUser: vi.fn() }));
+vi.mock("./tweetsms-client", () => ({
+  checkTweetSmsAccount: tweetSms.checkAccount,
+  checkTweetSmsBalance: tweetSms.checkBalance,
+  checkTweetSmsSender: tweetSms.checkSender,
+}));
 
 import { adminRouter } from "./admin";
 
 describe("إعدادات مزود الرسائل المركزي عبر Supabase", () => {
   it("يقرأ الإعداد المركزي والمزود الاحتياطي دون MySQL أو اتصال خارجي", async () => {
     const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
-    await expect(caller.getPlatformTweetSmsAccount()).resolves.toMatchObject({ id: 9, senderName: "PowerHub", configured: false, isActive: false });
+    await expect(caller.getPlatformTweetSmsAccount()).resolves.toMatchObject({ id: 9, senderName: "PowerHub", configured: true, isActive: false });
     await expect(caller.listPlatformSmsFallbackProviders()).resolves.toMatchObject([{ id: 10, providerKey: "backup_sms", configured: false, integrationStatus: "pending_contract" }]);
     expect(state.calls).toEqual(["platform_tweetsms_accounts", "platform_sms_fallback_providers"]);
+  });
+
+  it("يحفظ إعداد TweetSMS المركزي عبر RPC من دون استدعاء MySQL أو تخزين الاعتمادات", async () => {
+    state.calls.splice(0);
+    state.rows.platform_tweetsms_accounts = [];
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.savePlatformTweetSmsAccount({ apiEndpoint: "https://tweetsms.ps", senderName: "PowerHub", lowBalanceThreshold: 100, isActive: true })).resolves.toEqual({ id: 9, isActive: false, activationRequired: true });
+    expect(state.calls).toEqual(["rpc:powerhub_save_platform_tweetsms_account"]);
+  });
+
+  it("يفحص حساب TweetSMS المحفوظ عبر المزود ثم يسجل النتيجة في Supabase فقط", async () => {
+    state.calls.splice(0);
+    state.rows.platform_tweetsms_accounts = [{ id: 9, api_endpoint: "https://tweetsms.ps", sender_name: "PowerHub", low_balance_threshold: 100, last_provider_balance: null, last_balance_checked_at: null, last_tested_at: null, last_error: null, is_active: false, credential_ciphertext: null, credential_iv: null }];
+    tweetSms.checkAccount.mockResolvedValueOnce({ ok: true, message: "ok" });
+    tweetSms.checkSender.mockResolvedValueOnce({ ok: true, message: "ok" });
+    tweetSms.checkBalance.mockResolvedValueOnce({ ok: true, message: "ok", balance: 80 });
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.testPlatformTweetSmsAccount()).resolves.toMatchObject({ ok: true, balance: 80, accountActive: false });
+    expect(state.calls).toEqual(["platform_tweetsms_accounts", "rpc:powerhub_record_platform_tweetsms_test"]);
+    expect(tweetSms.checkAccount).toHaveBeenCalledTimes(1);
+    expect(tweetSms.checkSender).toHaveBeenCalledTimes(1);
+    expect(tweetSms.checkBalance).toHaveBeenCalledTimes(1);
   });
 
   it("يقرأ سياسات صلاحيات المنصة من Supabase دون MySQL", async () => {

@@ -5,7 +5,6 @@ import { z } from "zod";
 import { accessInvitations, accessRecoveryRequests, auditLogs, complaints, generators, invoices, meterReadings, meters, mobileSyncEvents, notificationMessages, payments, platformAccessInvitations, platformRolePolicies, platformSecurityEvents, platformSecuritySettings, platformSettings, platformTariffPolicies, platformSmsFallbackProviders, platformTweetSmsAccounts, platformTweetSmsBalanceAlerts, sitePortalSettings, sites, staffProfiles, subscribers, subscriptionUpgradeRequests, platformSmsPlans, smsPackageRequests, tenantBranchSettings, tenantMembers, tenantMessagingConfigurations, tenantOwnerProfiles, tenantSubscriptions, tenantTweetSmsAccounts, tenants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { authenticatedProcedure, router } from "./_core/trpc";
-import { decryptTenantCredential } from "./tenant-crypto";
 import { supabaseAdmin } from "./supabase-admin";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 import { processNotificationById } from "./notification-worker";
@@ -43,6 +42,22 @@ const platformSmsFallbackProviderInput = z.object({
   priority: z.number().int().min(1).max(10_000),
   isActive: z.boolean(),
 });
+
+function normalizeTweetSmsEndpoint(endpoint: string) {
+  let url: URL;
+  try { url = new URL(endpoint.trim()); } catch { throw new TRPCError({ code: "BAD_REQUEST", message: "رابط TweetSMS غير صالح." }); }
+  if (url.protocol !== "https:" || !["tweetsms.ps", "www.tweetsms.ps"].includes(url.hostname.toLowerCase()) || url.username || url.password || url.search || url.hash) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "استخدم رابط TweetSMS الرسمي عبر HTTPS فقط." });
+  }
+  return `${url.origin}${url.pathname.replace(/\/$/, "")}`;
+}
+
+function runtimeTweetSmsCredentials(): TweetSmsCredentials {
+  const apiKey = process.env.TWEETSMS_API_KEY?.trim();
+  const apiSecret = process.env.TWEETSMS_API_TOKEN?.trim();
+  if (!apiKey) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "مفتاح TweetSMS غير مهيأ في المتغيرات السرية للخادم." });
+  return { apiKey, ...(apiSecret ? { apiSecret } : {}) };
+}
 
 export function platformSmsFallbackProviderSummary(provider: {
   id: number;
@@ -284,7 +299,7 @@ export const adminRouter = router({
       id: Number(account.id), apiEndpoint: account.api_endpoint, senderName: account.sender_name, lowBalanceThreshold: Number(account.low_balance_threshold),
       lastProviderBalance: account.last_provider_balance, lastBalanceCheckedAt: account.last_balance_checked_at ? new Date(account.last_balance_checked_at) : null,
       lastTestedAt: account.last_tested_at ? new Date(account.last_tested_at) : null, lastError: account.last_error, isActive: account.is_active,
-      configured: Boolean(account.credential_ciphertext && account.credential_iv),
+      configured: Boolean(process.env.TWEETSMS_API_KEY?.trim()),
     };
   }),
 
@@ -306,11 +321,44 @@ export const adminRouter = router({
   }),
 
   savePlatformTweetSmsAccount: platformAdminProcedure.input(platformTweetSmsAccountInput).mutation(async ({ ctx, input }) => {
-    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "حفظ حساب TweetSMS المركزي متوقف أثناء الترحيل إلى تصميم Supabase/Vercel معتمد." });
+    const admin = supabaseAdmin();
+    const endpoint = normalizeTweetSmsEndpoint(input.apiEndpoint);
+    if (input.apiKey || input.apiSecret) throw new TRPCError({ code: "BAD_REQUEST", message: "تُدار بيانات اعتماد TweetSMS عبر المتغيرات السرية للخادم ولا تحفظ من النموذج." });
+    runtimeTweetSmsCredentials();
+    const { data, error } = await admin.rpc("powerhub_save_platform_tweetsms_account", {
+      p_user_id: ctx.user.id, p_api_endpoint: endpoint, p_credential_ciphertext: null, p_credential_iv: null,
+      p_sender_name: input.senderName?.trim() || null, p_low_balance_threshold: input.lowBalanceThreshold, p_is_active: input.isActive,
+    });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ إعداد TweetSMS المركزي بصورة آمنة." });
+    const row = (data as Array<Record<string, unknown>> | null)?.[0];
+    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تعد عملية حفظ TweetSMS نتيجة صالحة." });
+    return { id: Number(row.account_id), isActive: Boolean(row.is_active), activationRequired: Boolean(row.activation_required) };
   }),
 
   testPlatformTweetSmsAccount: platformAdminProcedure.mutation(async ({ ctx }) => {
-    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اختبار مزود TweetSMS متوقف. لا يتم الاتصال بأي مزود رسائل أثناء الترحيل." });
+    const admin = supabaseAdmin();
+    const { data: account, error: accountError } = await admin.from("platform_tweetsms_accounts")
+      .select("api_endpoint, credential_ciphertext, credential_iv, sender_name").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    if (accountError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر قراءة إعداد TweetSMS للفحص." });
+    if (!account?.api_endpoint) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "احفظ رابط TweetSMS المركزي قبل فحص الاتصال." });
+    let result: { ok: boolean; message: string; balance?: number };
+    try {
+      const credentials = runtimeTweetSmsCredentials();
+      const endpoint = normalizeTweetSmsEndpoint(account.api_endpoint);
+      const login = await checkTweetSmsAccount({ endpoint, credentials });
+      const sender = login.ok && account.sender_name ? await checkTweetSmsSender({ endpoint, credentials, sender: account.sender_name }) : null;
+      const balance = login.ok && (!sender || sender.ok) ? await checkTweetSmsBalance({ endpoint, credentials }) : null;
+      result = !login.ok ? login : sender && !sender.ok ? sender : balance && !balance.ok ? balance : balance ?? login;
+    } catch (cause) {
+      result = { ok: false, message: cause instanceof Error ? cause.message : "تعذر فحص اتصال TweetSMS." };
+    }
+    const { data, error } = await admin.rpc("powerhub_record_platform_tweetsms_test", {
+      p_user_id: ctx.user.id, p_success: result.ok, p_balance: Number.isFinite(result.balance) ? Math.max(0, Math.round(result.balance!)) : null,
+      p_error: result.ok ? null : result.message,
+    });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل نتيجة فحص TweetSMS." });
+    const row = (data as Array<Record<string, unknown>> | null)?.[0];
+    return { ok: result.ok, message: result.message, balance: result.balance ?? null, accountActive: Boolean(row?.is_active) };
   }),
 
   platformTweetSmsReport: platformAdminProcedure.input(z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() }).optional()).query(async ({ input }) => {
