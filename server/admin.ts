@@ -304,27 +304,30 @@ export const adminRouter = router({
   }),
 
   getPlatformTweetSmsAccount: platformAdminProcedure.query(async () => {
-    const db = await dbOrThrow();
-    const [account] = await db.select().from(platformTweetSmsAccounts).orderBy(desc(platformTweetSmsAccounts.updatedAt)).limit(1);
+    const { data: account, error } = await supabaseAdmin().from("platform_tweetsms_accounts")
+      .select("id, api_endpoint, sender_name, low_balance_threshold, last_provider_balance, last_balance_checked_at, last_tested_at, last_error, is_active, credential_ciphertext, credential_iv")
+      .order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات مزود الرسائل المركزي من Supabase." });
     if (!account) return null;
     return {
-      id: account.id,
-      apiEndpoint: account.apiEndpoint,
-      senderName: account.senderName,
-      lowBalanceThreshold: account.lowBalanceThreshold,
-      lastProviderBalance: account.lastProviderBalance,
-      lastBalanceCheckedAt: account.lastBalanceCheckedAt,
-      lastTestedAt: account.lastTestedAt,
-      lastError: account.lastError,
-      isActive: account.isActive,
-      configured: Boolean(account.credentialCiphertext && account.credentialIv),
+      id: Number(account.id), apiEndpoint: account.api_endpoint, senderName: account.sender_name, lowBalanceThreshold: Number(account.low_balance_threshold),
+      lastProviderBalance: account.last_provider_balance, lastBalanceCheckedAt: account.last_balance_checked_at ? new Date(account.last_balance_checked_at) : null,
+      lastTestedAt: account.last_tested_at ? new Date(account.last_tested_at) : null, lastError: account.last_error, isActive: account.is_active,
+      configured: Boolean(account.credential_ciphertext && account.credential_iv),
     };
   }),
 
   listPlatformSmsFallbackProviders: platformAdminProcedure.query(async () => {
-    const db = await dbOrThrow();
-    const providers = await db.select().from(platformSmsFallbackProviders).orderBy(platformSmsFallbackProviders.priority, desc(platformSmsFallbackProviders.updatedAt));
-    return providers.map(platformSmsFallbackProviderSummary);
+    const { data, error } = await supabaseAdmin().from("platform_sms_fallback_providers")
+      .select("id, name, provider_key, api_endpoint, sender_name, priority, integration_status, is_active, credential_ciphertext, credential_iv, last_tested_at, last_error, updated_at")
+      .order("priority", { ascending: true }).order("updated_at", { ascending: false });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مزودي الرسائل الاحتياطيين من Supabase." });
+    return (data ?? []).map((provider) => ({
+      id: Number(provider.id), name: provider.name, providerKey: provider.provider_key, apiEndpoint: provider.api_endpoint, senderName: provider.sender_name,
+      priority: Number(provider.priority), integrationStatus: provider.integration_status as "pending_contract" | "ready", isActive: provider.is_active,
+      configured: Boolean(provider.credential_ciphertext && provider.credential_iv), lastTestedAt: provider.last_tested_at ? new Date(provider.last_tested_at) : null,
+      lastError: provider.last_error, updatedAt: new Date(provider.updated_at),
+    }));
   }),
 
   savePlatformSmsFallbackProvider: platformAdminProcedure.input(platformSmsFallbackProviderInput).mutation(async ({ ctx, input }) => {
