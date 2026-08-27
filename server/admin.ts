@@ -1000,7 +1000,27 @@ export const adminRouter = router({
     return { success: true };
   }),
 
-  platformConfiguration: platformAdminProcedure.query(async () => { const db = await dbOrThrow(); const [settings, recoveries, tariffPolicies] = await Promise.all([db.select().from(platformSettings).orderBy(platformSettings.settingKey), db.select({ id: accessRecoveryRequests.id, tenantName: tenants.name, ownerName: tenantOwnerProfiles.fullName, method: accessRecoveryRequests.method, status: accessRecoveryRequests.status, note: accessRecoveryRequests.note, createdAt: accessRecoveryRequests.createdAt }).from(accessRecoveryRequests).innerJoin(tenants, eq(accessRecoveryRequests.tenantId, tenants.id)).leftJoin(tenantOwnerProfiles, eq(tenantOwnerProfiles.tenantId, tenants.id)).orderBy(desc(accessRecoveryRequests.createdAt)).limit(100), db.select().from(platformTariffPolicies).orderBy(desc(platformTariffPolicies.effectiveFrom)).limit(1)]); return { settings, recoveries, currentTariff: tariffPolicies[0] ?? null }; }),
+  platformConfiguration: platformAdminProcedure.query(async () => {
+    const [settingsResult, recoveryResult, tariffResult] = await Promise.all([
+      supabaseAdmin().from("platform_settings").select("id, setting_key, is_enabled, value, message, updated_by_user_id, updated_at").order("setting_key", { ascending: true }).limit(200),
+      supabaseAdmin().from("access_recovery_requests").select("id, tenant_id, method, status, note, created_at").order("created_at", { ascending: false }).limit(100),
+      supabaseAdmin().from("platform_tariff_policies").select("id, minimum_price_per_kwh, maximum_price_per_kwh, effective_from, notification_requested, notes, created_by_user_id, created_at").order("effective_from", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    if (settingsResult.error || recoveryResult.error || tariffResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات المنصة من Supabase." });
+    const tenantIds = Array.from(new Set((recoveryResult.data ?? []).map((recovery) => Number(recovery.tenant_id))));
+    const [tenantResult, ownerResult] = await Promise.all([
+      tenantIds.length ? supabaseAdmin().from("tenants").select("id, name").in("id", tenantIds) : Promise.resolve({ data: [], error: null }),
+      tenantIds.length ? supabaseAdmin().from("tenant_owner_profiles").select("tenant_id, full_name").in("tenant_id", tenantIds) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (tenantResult.error || ownerResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات طلبات الاسترداد من Supabase." });
+    const tenantById = new Map((tenantResult.data ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
+    const ownerByTenantId = new Map((ownerResult.data ?? []).map((owner) => [Number(owner.tenant_id), owner.full_name]));
+    return {
+      settings: (settingsResult.data ?? []).map((setting) => ({ id: Number(setting.id), settingKey: setting.setting_key, isEnabled: setting.is_enabled, value: setting.value, message: setting.message, updatedByUserId: setting.updated_by_user_id === null ? null : Number(setting.updated_by_user_id), updatedAt: new Date(setting.updated_at) })),
+      recoveries: (recoveryResult.data ?? []).map((recovery) => ({ id: Number(recovery.id), tenantName: tenantById.get(Number(recovery.tenant_id)) ?? "مساحة غير معروفة", ownerName: ownerByTenantId.get(Number(recovery.tenant_id)) ?? null, method: recovery.method, status: recovery.status, note: recovery.note, createdAt: new Date(recovery.created_at) })),
+      currentTariff: tariffResult.data ? { id: Number(tariffResult.data.id), minimumPricePerKwh: Number(tariffResult.data.minimum_price_per_kwh), maximumPricePerKwh: Number(tariffResult.data.maximum_price_per_kwh), effectiveFrom: new Date(tariffResult.data.effective_from), notificationRequested: tariffResult.data.notification_requested, notes: tariffResult.data.notes, createdByUserId: Number(tariffResult.data.created_by_user_id), createdAt: new Date(tariffResult.data.created_at) } : null,
+    };
+  }),
 
   savePlatformSetting: platformAdminProcedure.input(z.object({ settingKey: z.string().min(2).max(100), isEnabled: z.boolean(), message: z.string().max(4000).optional(), value: z.record(z.string(), z.unknown()).optional() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow(); await db.insert(platformSettings).values({ ...input, updatedByUserId: ctx.user.id }).onDuplicateKeyUpdate({ set: { isEnabled: input.isEnabled, message: input.message, value: input.value, updatedByUserId: ctx.user.id } });
