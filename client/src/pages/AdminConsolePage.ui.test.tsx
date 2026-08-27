@@ -12,7 +12,7 @@ class ResizeObserverMock {
 }
 vi.stubGlobal("ResizeObserver", ResizeObserverMock);
 
-const state = vi.hoisted(() => ({ role: "user", mutation: vi.fn() }));
+const state = vi.hoisted(() => ({ role: "user", mutation: vi.fn(), collectionRate: 80 as unknown }));
 const ownerRow = {
   tenant: { id: 9, name: "مساحة مولد الاختبار", plan: "professional" },
   owner: { fullName: "صاحب المولد التجريبي", phone: "0790000000", ownerUserId: 4 },
@@ -43,7 +43,7 @@ vi.mock("@/lib/trpc", () => ({
       getPlatformTweetSmsAccount: { useQuery: () => ({ data: { id: 1, apiEndpoint: "https://tweetsms.ps", senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: new Date(), lastTestedAt: new Date(), lastError: null, isActive: true, configured: true } }) },
       platformTweetSmsReport: { useQuery: () => ({ data: { account: null, total: 42, usageRows: [{ tenantId: 9, tenantName: "مساحة مولد الاختبار", total: 42, submitted: 40, failed: 2 }], alerts: [{ id: 1, balance: 80, threshold: 100, status: "open", notifiedAt: new Date() }] } }) },
       listPlatformSmsFallbackProviders: { useQuery: () => ({ data: [{ id: 13, name: "مزود بديل تجريبي", providerKey: "backup-sms", apiEndpoint: "https://backup.example.test", senderName: "PowerHub", priority: 10, integrationStatus: "pending_contract", isActive: true, configured: true, lastTestedAt: null, lastError: null, updatedAt: new Date() }] }) },
-      advancedDashboard: { useQuery: () => ({ data: { kpis: { activeGenerators: 2, subscribers: 150, dailyConsumption: 50, monthlyConsumption: 1000, monthlyCollections: 4000, openComplaints: 1, generatorsToReview: 0, collectionRate: 80 }, monthlyGrowth: [{ month: "2026-08", count: 150 }], consumptionByRegion: [{ region: "بغداد", consumptionKwh: 1000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", code: "GEN-T-01", tenantName: "مساحة مولد الاختبار", amount: 4000 }], latestGenerators: [], recentComplaints: [], expiringSubscriptions: [] } }) },
+      advancedDashboard: { useQuery: () => ({ data: { kpis: { activeGenerators: 2, subscribers: 150, dailyConsumption: 50, monthlyConsumption: 1000, monthlyCollections: 4000, openComplaints: 1, generatorsToReview: 0, collectionRate: state.collectionRate }, monthlyGrowth: [{ month: "2026-08", count: 150 }], consumptionByRegion: [{ region: "بغداد", consumptionKwh: 1000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", code: "GEN-T-01", tenantName: "مساحة مولد الاختبار", amount: 4000 }], latestGenerators: [], recentComplaints: [], expiringSubscriptions: [] } }) },
       globalSearch: { useQuery: () => ({ data: [] }) },
       listComplaints: { useQuery: () => ({ data: [{ id: 4, title: "شكوى اختبار", description: "تفاصيل الشكوى", priority: "high", status: "open", response: null, openedAt: new Date(), resolvedAt: null, tenantId: 1, tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", subscriberName: "مشترك تجريبي", assignedUserId: null, assignedUserName: null }] }) },
       updateComplaint: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
@@ -79,7 +79,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-afterEach(() => { document.body.innerHTML = ""; state.role = "user"; state.mutation.mockReset(); });
+afterEach(() => { document.body.innerHTML = ""; state.role = "user"; state.collectionRate = 80; state.mutation.mockReset(); });
 
 const sidebarNav = (label: string) => screen.getAllByRole("button", { name: label })[0];
 
@@ -130,6 +130,14 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("أحداث الأمان والنسخ الاحتياطي")).toBeInTheDocument();
     fireEvent.click(sidebarNav("إعدادات المنصة"));
     expect(screen.getByText("وضع صيانة المنصة")).toBeInTheDocument();
+  });
+
+  it("يعرض صفراً لنسبة التحصيل عند وصول قيمة غير رقمية من قراءة التحليلات", () => {
+    state.role = "admin";
+    state.collectionRate = "NaN";
+    render(<AdminConsolePage />);
+    expect(screen.getAllByText("0%").length).toBeGreaterThan(0);
+    expect(screen.queryByText((content) => content.includes("ليس") && content.includes("رقم"))).not.toBeInTheDocument();
   });
 
   it("keeps icon navigation available when the platform sidebar is collapsed", () => {
