@@ -117,6 +117,8 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_pay_payroll") return resolved([{ payroll_run_id: 122, expense_id: 125, transaction_id: 126 }]);
       if (name === "powerhub_request_subscription_upgrade") return resolved([{ request_id: 127, requested_plan: "professional", already_requested: false }]);
       if (name === "powerhub_normalize_subscriber_phones") return resolved([{ updated_count: 1, skipped_count: 0 }]);
+      if (name === "powerhub_create_invoice_share_link") return resolved([{ share_link_id: 128 }]);
+      if (name === "powerhub_get_shared_invoice_by_token_hash") return resolved({ invoice: { id: 70, invoice_no: "MAIN-202608-0001" }, subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, lines: [{ id: 129, invoice_id: 70, description: "استهلاك كهرباء" }] });
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
@@ -784,5 +786,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       name: "powerhub_normalize_subscriber_phones",
       args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_subscriber_ids: [30] },
     })]);
+  });
+
+  it("ينشئ ويقرأ رابط مشاركة فاتورة عبر Supabase دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const shared = await caller.invoices.createShareLink({ siteId: 10, invoiceId: 70 });
+    expect(shared.path).toMatch(/^\/invoice\/.+/);
+    const result = await caller.invoices.publicByToken({ token: shared.token });
+    expect(result).toMatchObject({ invoice: { id: 70, invoice_no: "MAIN-202608-0001" }, subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, lines: [{ description: "استهلاك كهرباء" }] });
+    expect(state.rpcCalls.map((call) => call.name)).toEqual(["powerhub_create_invoice_share_link", "powerhub_get_shared_invoice_by_token_hash"]);
   });
 });
