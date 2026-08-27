@@ -393,14 +393,25 @@ export const adminRouter = router({
   }),
 
   platformAccessDirectory: platformOwnerProcedure.query(async () => {
-    const db = await dbOrThrow();
-    const [accounts, invitations] = await Promise.all([
-      db.select({ id: users.id, name: users.name, email: users.email, platformRole: users.platformRole, accountStatus: users.accountStatus, lastSignedIn: users.lastSignedIn })
-        .from(users).where(eq(users.role, "admin")).orderBy(desc(users.lastSignedIn)).limit(100),
-      db.select({ id: platformAccessInvitations.id, email: platformAccessInvitations.email, platformRole: platformAccessInvitations.platformRole, status: platformAccessInvitations.status, expiresAt: platformAccessInvitations.expiresAt, acceptedAt: platformAccessInvitations.acceptedAt, invitedByUserId: platformAccessInvitations.invitedByUserId })
-        .from(platformAccessInvitations).orderBy(desc(platformAccessInvitations.createdAt)).limit(100),
+    const [accountsResult, invitationsResult] = await Promise.all([
+      supabaseAdmin().from("users").select("id, name, email, platform_role, account_status, last_signed_in").eq("role", "admin").order("last_signed_in", { ascending: false }).limit(100),
+      supabaseAdmin().from("platform_access_invitations").select("id, email, platform_role, status, expires_at, accepted_at, invited_by_user_id").order("created_at", { ascending: false }).limit(100),
     ]);
-    return { accounts, invitations };
+    if (accountsResult.error || invitationsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دليل وصول آدمن المنصة من Supabase." });
+    return {
+      accounts: (accountsResult.data ?? []).map((account) => ({
+        id: Number(account.id), name: account.name, email: account.email,
+        platformRole: account.platform_role as "platform_owner" | "platform_admin" | "finance_admin" | null,
+        accountStatus: account.account_status as "active" | "locked" | "disabled", lastSignedIn: account.last_signed_in ? new Date(account.last_signed_in) : null,
+      })),
+      invitations: (invitationsResult.data ?? []).map((invitation) => ({
+        id: Number(invitation.id), email: invitation.email,
+        platformRole: invitation.platform_role as "platform_owner" | "platform_admin" | "finance_admin",
+        status: invitation.status as "invited" | "accepted" | "revoked" | "expired",
+        expiresAt: new Date(invitation.expires_at), acceptedAt: invitation.accepted_at ? new Date(invitation.accepted_at) : null,
+        invitedByUserId: Number(invitation.invited_by_user_id),
+      })),
+    };
   }),
 
   invitePlatformAccess: platformOwnerProcedure.input(z.object({

@@ -10,7 +10,8 @@ const state = vi.hoisted(() => {
     platform_settings: [{ id: 12, setting_key: "maintenance_mode", is_enabled: false, value: null, message: null, updated_by_user_id: 1, updated_at: "2026-08-27T00:00:00.000Z" }],
     access_recovery_requests: [{ id: 13, tenant_id: 20, method: "manual_review", status: "pending", note: "مراجعة", created_at: "2026-08-27T00:00:00.000Z" }],
     platform_tariff_policies: [{ id: 14, minimum_price_per_kwh: 0.2, maximum_price_per_kwh: 0.8, effective_from: "2026-08-27T00:00:00.000Z", notification_requested: false, notes: null, created_by_user_id: 1, created_at: "2026-08-27T00:00:00.000Z" }],
-    users: [{ id: 1, name: "مدير المنصة" }],
+    users: [{ id: 1, name: "مدير المنصة", email: "admin@example.test", role: "admin", platform_role: "platform_owner", account_status: "active", last_signed_in: "2026-08-27T00:00:00.000Z" }],
+    platform_access_invitations: [{ id: 16, email: "finance@example.test", platform_role: "finance_admin", status: "invited", expires_at: "2026-08-30T00:00:00.000Z", accepted_at: null, invited_by_user_id: 1 }],
     tenants: [{ id: 20, name: "مولدات الاختبار" }],
     tenant_owner_profiles: [{ tenant_id: 20, full_name: "مالك الاختبار" }],
     tenant_branch_settings: [{ tenant_id: 20, is_enabled_override: true, max_branches_override: 3, disabled_behavior: "read_only" }],
@@ -79,5 +80,14 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     await expect(caller.listTenantBranchSettings()).resolves.toMatchObject([{ tenantId: 20, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار", maxBranchesOverride: 3, currentBranchCount: 1 }]);
     expect(state.calls).toEqual(["tenants", "tenant_owner_profiles", "tenant_branch_settings", "sites"]);
     expect(state.filters).toEqual([["sites", "status", "archived"]]);
+  });
+
+  it("يقرأ دليل وصول آدمن المنصة ودعواته من Supabase دون MySQL", async () => {
+    state.calls.splice(0);
+    state.filters.splice(0);
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_owner" } as never, req: {} as never, res: {} as never });
+    await expect(caller.platformAccessDirectory()).resolves.toMatchObject({ accounts: [{ id: 1, platformRole: "platform_owner", accountStatus: "active" }], invitations: [{ id: 16, platformRole: "finance_admin", status: "invited" }] });
+    expect(state.calls).toEqual(["users", "platform_access_invitations"]);
+    expect(state.filters).toEqual([["users", "role", "admin"]]);
   });
 });
