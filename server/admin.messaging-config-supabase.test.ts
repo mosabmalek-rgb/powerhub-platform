@@ -13,10 +13,10 @@ const state = vi.hoisted(() => {
     users: [{ id: 1, name: "مدير المنصة", email: "admin@example.test", role: "admin", platform_role: "platform_owner", account_status: "active", last_signed_in: "2026-08-27T00:00:00.000Z" }],
     platform_access_invitations: [{ id: 16, email: "finance@example.test", platform_role: "finance_admin", status: "invited", expires_at: "2026-08-30T00:00:00.000Z", accepted_at: null, invited_by_user_id: 1 }],
     tenants: [{ id: 20, name: "مولدات الاختبار" }],
-    tenant_owner_profiles: [{ tenant_id: 20, full_name: "مالك الاختبار" }],
+    tenant_owner_profiles: [{ id: 50, tenant_id: 20, full_name: "مالك الاختبار", phone: "0590000000" }],
     tenant_branch_settings: [{ tenant_id: 20, is_enabled_override: true, max_branches_override: 3, disabled_behavior: "read_only" }],
     sites: [{ id: 30, tenant_id: 20, name: "فرع الاختبار" }],
-    subscribers: [{ id: 40, full_name: "المشترك الاختبار" }],
+    subscribers: [{ id: 40, full_name: "المشترك الاختبار", subscriber_no: "SUB-40", phone: "0590000040", tenant_id: 20 }],
     complaints: [{ id: 15, tenant_id: 20, site_id: 30, subscriber_id: 40, title: "شكوى اختبار", description: "تفاصيل اختبار", priority: "high", status: "open", assigned_user_id: 1, response: null, opened_at: "2026-08-27T00:00:00.000Z", resolved_at: null }],
     generators: [{ id: 17, code: "GEN-01", name: "مولد الاختبار", status: "active", rated_capacity_kw: 250, fuel_type: "diesel", fuel_level_liters: 80, operating_hours: 12, last_maintenance_at: null, tenant_id: 20, site_id: 30 }],
     audit_logs: [{ id: 18, action: "platform_admin_update_generator_status", entity_type: "generator", created_at: "2026-08-27T00:00:00.000Z", user_id: 1 }],
@@ -25,7 +25,7 @@ const state = vi.hoisted(() => {
     from(table: string) {
       calls.push(table);
       const result = () => Promise.resolve({ data: rows[table] ?? [], error: null });
-      const query = { order: () => query, limit: () => query, in: () => query, eq: (column: string, value: unknown) => { filters.push([table, column, value]); return query; }, neq: (column: string, value: unknown) => { filters.push([table, column, value]); return query; }, range: () => query, maybeSingle: () => Promise.resolve({ data: (rows[table] ?? [])[0] ?? null, error: null }), then: <TResult1 = { data: unknown[]; error: null }, TResult2 = never>(onfulfilled?: ((value: { data: unknown[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null) => result().then(onfulfilled, onrejected) };
+      const query = { order: () => query, limit: () => query, in: () => query, eq: (column: string, value: unknown) => { filters.push([table, column, value]); return query; }, neq: (column: string, value: unknown) => { filters.push([table, column, value]); return query; }, ilike: (column: string, value: unknown) => { filters.push([table, column, value]); return query; }, range: () => query, maybeSingle: () => Promise.resolve({ data: (rows[table] ?? [])[0] ?? null, error: null }), then: <TResult1 = { data: unknown[]; error: null }, TResult2 = never>(onfulfilled?: ((value: { data: unknown[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null) => result().then(onfulfilled, onrejected) };
       return { select: () => query };
     },
   };
@@ -100,5 +100,18 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     await expect(caller.generatorDetails({ generatorId: 17 })).resolves.toMatchObject({ generator: { id: 17, tenantName: "مولدات الاختبار", siteName: "فرع الاختبار", ratedCapacityKw: "250" }, activity: [{ id: 18, userName: "مدير المنصة" }] });
     expect(state.calls).toEqual(["generators", "tenants", "sites", "audit_logs", "users"]);
     expect(state.filters).toEqual([["generators", "id", 17], ["tenants", "id", 20], ["sites", "id", 30], ["audit_logs", "site_id", 30]]);
+  });
+
+  it("ينفذ البحث العالمي المحدود من Supabase دون MySQL", async () => {
+    state.calls.splice(0);
+    state.filters.splice(0);
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.globalSearch({ query: "اختبار" })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 17, kind: "generator", tenantName: "مولدات الاختبار" }),
+      expect.objectContaining({ id: 40, kind: "subscriber", tenantName: "مولدات الاختبار" }),
+      expect.objectContaining({ id: 50, kind: "owner", tenantName: "مولدات الاختبار" }),
+    ]));
+    expect(state.calls).toEqual(["generators", "generators", "subscribers", "subscribers", "subscribers", "tenant_owner_profiles", "tenant_owner_profiles", "tenants"]);
+    expect(state.filters).toEqual(expect.arrayContaining([["generators", "name", "%اختبار%"], ["subscribers", "full_name", "%اختبار%"], ["tenant_owner_profiles", "full_name", "%اختبار%"]]));
   });
 });

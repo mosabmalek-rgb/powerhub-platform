@@ -138,6 +138,10 @@ function assertLegacyAdminWriteMigrationGuard(operation: string): void {
   }
 }
 
+function containsSearchPattern(value: string): string {
+  return `%${value.replace(/[\\%_]/g, "\\$&")}%`;
+}
+
 async function recordPlatformSecurityChange(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, actor: typeof users.$inferSelect, targetUserId: number | undefined, title: string, metadata: Record<string, unknown>) {
   await db.insert(platformSecurityEvents).values({
     eventType: "security_change",
@@ -915,13 +919,34 @@ export const adminRouter = router({
   }),
 
   globalSearch: platformAdminProcedure.input(z.object({ query: z.string().trim().min(2).max(100) })).query(async ({ input }) => {
-    const db = await dbOrThrow(); const term = `%${input.query}%`;
-    const [generatorResults, subscriberResults, ownerResults] = await Promise.all([
-      db.select({ id: generators.id, label: generators.name, reference: generators.code, tenantName: tenants.name, kind: sql<"generator">`'generator'` }).from(generators).innerJoin(tenants, eq(generators.tenantId, tenants.id)).where(or(like(generators.name, term), like(generators.code, term))).limit(20),
-      db.select({ id: subscribers.id, label: subscribers.fullName, reference: subscribers.subscriberNo, tenantName: tenants.name, kind: sql<"subscriber">`'subscriber'` }).from(subscribers).innerJoin(tenants, eq(subscribers.tenantId, tenants.id)).where(or(like(subscribers.fullName, term), like(subscribers.subscriberNo, term), like(subscribers.phone, term))).limit(20),
-      db.select({ id: tenantOwnerProfiles.id, label: tenantOwnerProfiles.fullName, reference: tenantOwnerProfiles.phone, tenantName: tenants.name, kind: sql<"owner">`'owner'` }).from(tenantOwnerProfiles).innerJoin(tenants, eq(tenantOwnerProfiles.tenantId, tenants.id)).where(or(like(tenantOwnerProfiles.fullName, term), like(tenantOwnerProfiles.phone, term))).limit(20),
+    const admin = supabaseAdmin();
+    const term = containsSearchPattern(input.query);
+    const [generatorNameResult, generatorCodeResult, subscriberNameResult, subscriberNumberResult, subscriberPhoneResult, ownerNameResult, ownerPhoneResult] = await Promise.all([
+      admin.from("generators").select("id, name, code, tenant_id").ilike("name", term).limit(20),
+      admin.from("generators").select("id, name, code, tenant_id").ilike("code", term).limit(20),
+      admin.from("subscribers").select("id, full_name, subscriber_no, phone, tenant_id").ilike("full_name", term).limit(20),
+      admin.from("subscribers").select("id, full_name, subscriber_no, phone, tenant_id").ilike("subscriber_no", term).limit(20),
+      admin.from("subscribers").select("id, full_name, subscriber_no, phone, tenant_id").ilike("phone", term).limit(20),
+      admin.from("tenant_owner_profiles").select("id, full_name, phone, tenant_id").ilike("full_name", term).limit(20),
+      admin.from("tenant_owner_profiles").select("id, full_name, phone, tenant_id").ilike("phone", term).limit(20),
     ]);
-    return [...generatorResults, ...subscriberResults, ...ownerResults];
+    const resultSets = [generatorNameResult, generatorCodeResult, subscriberNameResult, subscriberNumberResult, subscriberPhoneResult, ownerNameResult, ownerPhoneResult];
+    if (resultSets.some((result) => result.error)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تنفيذ البحث المركزي من Supabase." });
+    const uniqueById = <T extends { id: number | string }>(items: T[]) => Array.from(new Map(items.map((item) => [Number(item.id), item])).values()).slice(0, 20);
+    const generatorsFound = uniqueById([...(generatorNameResult.data ?? []), ...(generatorCodeResult.data ?? [])]);
+    const subscribersFound = uniqueById([...(subscriberNameResult.data ?? []), ...(subscriberNumberResult.data ?? []), ...(subscriberPhoneResult.data ?? [])]);
+    const ownersFound = uniqueById([...(ownerNameResult.data ?? []), ...(ownerPhoneResult.data ?? [])]);
+    const tenantIds = Array.from(new Set([...generatorsFound, ...subscribersFound, ...ownersFound].map((item) => Number(item.tenant_id))));
+    const tenantResult = tenantIds.length
+      ? await admin.from("tenants").select("id, name").in("id", tenantIds)
+      : { data: [], error: null };
+    if (tenantResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء مساحات نتائج البحث من Supabase." });
+    const tenantNameById = new Map((tenantResult.data ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
+    return [
+      ...generatorsFound.map((generator) => ({ id: Number(generator.id), label: generator.name, reference: generator.code, tenantName: tenantNameById.get(Number(generator.tenant_id)) ?? "مساحة غير معروفة", kind: "generator" as const })),
+      ...subscribersFound.map((subscriber) => ({ id: Number(subscriber.id), label: subscriber.full_name, reference: subscriber.subscriber_no, tenantName: tenantNameById.get(Number(subscriber.tenant_id)) ?? "مساحة غير معروفة", kind: "subscriber" as const })),
+      ...ownersFound.map((owner) => ({ id: Number(owner.id), label: owner.full_name, reference: owner.phone, tenantName: tenantNameById.get(Number(owner.tenant_id)) ?? "مساحة غير معروفة", kind: "owner" as const })),
+    ];
   }),
 
   listComplaints: platformAdminProcedure.input(z.object({ status: z.enum(["open", "assigned", "in_progress", "resolved", "closed"]).optional() }).optional()).query(async ({ input }) => {
