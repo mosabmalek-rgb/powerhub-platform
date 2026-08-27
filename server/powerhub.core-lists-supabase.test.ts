@@ -137,6 +137,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_company_account") return resolved([{ account_id: 92 }]);
       if (name === "powerhub_add_account_movement") return resolved([{ transaction_id: 93 }]);
       if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
+      if (name === "powerhub_queue_payment_sms") return resolved([{ notification_id: 90, queued: true }]);
       if (name === "powerhub_close_collector_session") return resolved([{ expected_cash: 10, variance_amount: 0 }]);
       if (name === "powerhub_request_sms_package") return resolved([{ request_id: 98, request_status: "pending" }]);
       if (name === "powerhub_save_custom_permission_role") return resolved([{ role_id: 122, mutation: "create" }]);
@@ -149,11 +150,11 @@ const state = vi.hoisted(() => {
   return { client, tables, inserts, updates, rpcCalls };
 });
 
-const notificationWorker = vi.hoisted(() => ({ processQueue: vi.fn() }));
+const notificationWorker = vi.hoisted(() => ({ processQueue: vi.fn(), processById: vi.fn() }));
 
 vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => state.client }));
 vi.mock("./db", () => ({ getDb: vi.fn(async () => { throw new Error("MySQL must not be called"); }), syncSupabaseUser: vi.fn() }));
-vi.mock("./notification-worker", () => ({ processNotificationById: vi.fn(), processNotificationQueueForTenant: notificationWorker.processQueue }));
+vi.mock("./notification-worker", () => ({ processNotificationById: notificationWorker.processById, processNotificationQueueForTenant: notificationWorker.processQueue }));
 
 import { powerhubRouter } from "./powerhub";
 
@@ -165,6 +166,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.updates.splice(0);
     state.rpcCalls.splice(0);
     notificationWorker.processQueue.mockReset();
+    notificationWorker.processById.mockReset();
   });
 
   it("يعرض الفروع والمشتركين والتعرفة والمولدات والقراءات دون استدعاء MySQL", async () => {
@@ -189,6 +191,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_queue_selected_invoice_sms", args: { p_user_id: 1, p_tenant_id: 20, p_site_id: 10, p_invoice_ids: [70] } });
     expect(notificationWorker.processQueue).toHaveBeenCalledWith(20, 1, [90]);
     expect(state.inserts).toContainEqual(expect.objectContaining({ table: "audit_logs" }));
+  });
+
+  it("يجهز تذكير السداد وإيصال التحصيل عبر طابور SMS الذري دون مزود حي", async () => {
+    notificationWorker.processById.mockResolvedValue({ status: "submitted" });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.notifications.sendPaymentReminderSms({ siteId: 10, invoiceId: 70 })).resolves.toMatchObject({ notificationIds: [90], status: "submitted", channels: ["sms"] });
+    await expect(caller.notifications.sendPaymentReceiptSms({ siteId: 10, paymentId: 81, channel: "sms" })).resolves.toMatchObject({ notificationId: 90, status: "submitted", channel: "sms" });
+    expect(state.rpcCalls.filter((call) => call.name === "powerhub_queue_payment_sms")).toHaveLength(2);
+    expect(notificationWorker.processById).toHaveBeenCalledWith(90, 1);
   });
 
   it("يعرض بوابة المشترك العامة وفاتورتها عبر دوال Supabase بعد التحقق الثنائي دون MySQL", async () => {

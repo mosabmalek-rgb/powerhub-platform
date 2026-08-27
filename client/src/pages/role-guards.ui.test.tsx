@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   retryFailedInvoiceNotification: vi.fn(),
   retryFailedInvoiceNotifications: vi.fn(),
   sendPaymentReceipt: vi.fn(),
+  sendPaymentReceiptSms: vi.fn(),
+  sendPaymentReminderSms: vi.fn(),
   mutation: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
   query: (data: unknown = []) => ({ data, isLoading: false, isFetching: false }),
 }));
@@ -66,12 +68,12 @@ vi.mock("@/lib/trpc", () => ({
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, listScheduleRuns: { useQuery: () => mocks.query([]) }, smsQuota: { useQuery: () => mocks.query({ total: 0, used: 0, remaining: 0 }) }, smsDailyUsage: { useQuery: () => mocks.query({ points: [], total: 0, used: 0, remaining: 0 }) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation }, configureInvoiceAutoSend: { useMutation: mocks.mutation }, requestSmsPackage: { useMutation: mocks.mutation } },
       subscriberPortal: { settings: { useQuery: () => mocks.query(mocks.portalSettings) }, saveSettings: { useMutation: mocks.mutation } },
-      notifications: { list: { useQuery: () => mocks.query(mocks.notifications) }, listBulkInvoiceSends: { useQuery: () => mocks.query(mocks.bulkInvoiceSends) }, bulkInvoiceSendDetails: { useQuery: () => mocks.query(mocks.bulkInvoiceSendDetails) }, retry: { useMutation: mocks.mutation }, retryFailedInvoiceNotification: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotification, isPending: false }) }, retryFailedInvoiceNotifications: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotifications, isPending: false }) }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceipt: { useMutation: () => ({ mutate: mocks.sendPaymentReceipt, isPending: false }) }, sendPaymentReminder: { useMutation: mocks.mutation }, sendBulkInvoiceSms: { useMutation: mocks.mutation }, sendDeferredInvoices: { useMutation: () => ({ mutate: mocks.sendDeferredInvoices, isPending: false }) }, sendPendingSms: { useMutation: () => ({ mutate: mocks.sendPendingSms, isPending: false }) } },
+      notifications: { list: { useQuery: () => mocks.query(mocks.notifications) }, listBulkInvoiceSends: { useQuery: () => mocks.query(mocks.bulkInvoiceSends) }, bulkInvoiceSendDetails: { useQuery: () => mocks.query(mocks.bulkInvoiceSendDetails) }, retry: { useMutation: mocks.mutation }, retryFailedInvoiceNotification: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotification, isPending: false }) }, retryFailedInvoiceNotifications: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotifications, isPending: false }) }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceipt: { useMutation: () => ({ mutate: mocks.sendPaymentReceipt, isPending: false }) }, sendPaymentReceiptSms: { useMutation: () => ({ mutate: mocks.sendPaymentReceiptSms, isPending: false }) }, sendPaymentReminder: { useMutation: mocks.mutation }, sendPaymentReminderSms: { useMutation: () => ({ mutate: mocks.sendPaymentReminderSms, isPending: false, variables: undefined }) }, sendBulkInvoiceSms: { useMutation: mocks.mutation }, sendDeferredInvoices: { useMutation: () => ({ mutate: mocks.sendDeferredInvoices, isPending: false }) }, sendPendingSms: { useMutation: () => ({ mutate: mocks.sendPendingSms, isPending: false }) } },
     },
   },
 }));
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); mocks.activeRole = "viewer"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceipt.mockReset(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); mocks.activeRole = "viewer"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceipt.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); mocks.sendPaymentReminderSms.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("hides invoice issuance and sharing controls from the viewer", () => {
@@ -239,9 +241,9 @@ describe("role guards in administration UI", () => {
     render(<OperationsPage section="collections" />);
     expect(screen.getByRole("button", { name: "طباعة" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "WhatsApp" }));
-    expect(mocks.sendPaymentReceipt).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "whatsapp" });
+    expect(mocks.sendPaymentReceiptSms).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "whatsapp" });
     fireEvent.click(screen.getByRole("button", { name: "SMS" }));
-    expect(mocks.sendPaymentReceipt).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "sms" });
+    expect(mocks.sendPaymentReceiptSms).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "sms" });
   });
 
   it("lets an accountant create a public share link from an issued invoice", () => {
