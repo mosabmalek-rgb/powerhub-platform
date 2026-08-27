@@ -2301,9 +2301,21 @@ export const powerhubRouter = router({
   }),
   audit: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
-      const db = await dbOrThrow();
-      return db.select().from(auditLogs).where(eq(auditLogs.siteId, input.siteId)).orderBy(desc(auditLogs.createdAt)).limit(100);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
+      const { data, error } = await supabaseAdmin().from("audit_logs")
+        .select("id, tenant_id, site_id, user_id, actor_platform_role, actor_tenant_role, entity_type, entity_id, action, before_data, after_data, metadata, created_at")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل التدقيق من Supabase." });
+      return (data ?? []).map((entry) => ({
+        id: Number(entry.id), tenantId: Number(entry.tenant_id), siteId: Number(entry.site_id),
+        userId: entry.user_id === null ? null : Number(entry.user_id), actorPlatformRole: entry.actor_platform_role,
+        actorTenantRole: entry.actor_tenant_role, entityType: entry.entity_type, entityId: entry.entity_id,
+        action: entry.action, beforeData: entry.before_data, afterData: entry.after_data, metadata: entry.metadata,
+        createdAt: new Date(entry.created_at),
+      }));
     }),
   }),
   mobileSync: router({
