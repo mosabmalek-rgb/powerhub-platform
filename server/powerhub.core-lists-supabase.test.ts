@@ -119,6 +119,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_normalize_subscriber_phones") return resolved([{ updated_count: 1, skipped_count: 0 }]);
       if (name === "powerhub_create_invoice_share_link") return resolved([{ share_link_id: 128 }]);
       if (name === "powerhub_get_shared_invoice_by_token_hash") return resolved({ invoice: { id: 70, invoice_no: "MAIN-202608-0001" }, subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, lines: [{ id: 129, invoice_id: 70, description: "استهلاك كهرباء" }] });
+      if (name === "powerhub_update_report_branding") return resolved([{ company_name: "شركة الاختبار", report_logo_key: null }]);
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
@@ -802,5 +803,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.mobileSync.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false }))
       .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(state.rpcCalls).toEqual([]);
+  });
+
+  it("يحدّث هوية التقارير عبر RPC Supabase الذرية دون MySQL", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.reportBranding.update({ siteId: 10, companyName: "شركة الاختبار" })).resolves.toMatchObject({ companyName: "شركة الاختبار", reportLogoKey: null, logoUrl: null });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_report_branding", args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_company_name: "شركة الاختبار", p_report_logo_key: null } })]);
   });
 });

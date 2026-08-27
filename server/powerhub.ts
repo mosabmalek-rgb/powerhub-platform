@@ -61,7 +61,7 @@ import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
 import { normalizeInternationalPhone } from "../shared/phone";
 import { processNotificationById } from "./notification-worker";
-import { storageGet, storagePut } from "./storage";
+import { storageGet, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
@@ -1919,25 +1919,28 @@ export const powerhubRouter = router({
       logoData: z.string().min(20).max(4_500_000).optional(),
       logoMime: z.enum(["image/png", "image/jpeg", "image/webp"]).optional(),
     }).refine((input) => Boolean(input.companyName || (input.logoData && input.logoMime)), { message: "أدخل اسم الشركة أو اختر شعاراً صالحاً للتحديث." }).refine((input) => !input.logoData || Boolean(input.logoMime), { message: "تعذر التعرف إلى نوع ملف الشعار." })).mutation(async ({ ctx, input }) => {
-      await requireRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       let reportLogoKey: string | undefined;
       if (input.logoData && input.logoMime) {
         const bytes = Buffer.from(input.logoData, "base64");
         if (!bytes.length || bytes.length > 3 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ألا يتجاوز حجم شعار التقرير 3 ميغابايت." });
         const extension = input.logoMime === "image/png" ? "png" : input.logoMime === "image/jpeg" ? "jpg" : "webp";
-        const uploaded = await storagePut(`tenant-report-branding/${tenantId}/logo-${Date.now()}.${extension}`, bytes, input.logoMime);
+        const uploaded = await storagePut(`tenant-report-branding/${access.tenantId}/logo-${Date.now()}.${extension}`, bytes, input.logoMime);
         reportLogoKey = uploaded.key;
       }
-      const update: { companyName?: string; reportLogoKey?: string } = {};
-      if (input.companyName) update.companyName = input.companyName;
-      if (reportLogoKey) update.reportLogoKey = reportLogoKey;
-      await db.update(tenantOwnerProfiles).set(update).where(eq(tenantOwnerProfiles.tenantId, tenantId));
-      await writeAudit({ tenantId, siteId: input.siteId, userId: ctx.user.id, entityType: "tenant_owner_profile", entityId: String(tenantId), action: "update_report_branding", afterData: { companyName: input.companyName, hasReportLogo: Boolean(reportLogoKey) } });
-      const [profile] = await db.select({ companyName: tenantOwnerProfiles.companyName, reportLogoKey: tenantOwnerProfiles.reportLogoKey }).from(tenantOwnerProfiles).where(eq(tenantOwnerProfiles.tenantId, tenantId)).limit(1);
-      const logoUrl = profile?.reportLogoKey ? (await storageGet(profile.reportLogoKey)).url : null;
-      return { companyName: profile?.companyName ?? null, reportLogoKey: profile?.reportLogoKey ?? null, logoUrl };
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_report_branding", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_company_name: input.companyName ?? null, p_report_logo_key: reportLogoKey ?? null,
+      });
+      const profile = (data as Array<{ company_name: string | null; report_logo_key: string | null }> | null)?.[0];
+      if (!error && profile) {
+        const logoUrl = profile.report_logo_key ? (await storageGet(profile.report_logo_key)).url : null;
+        return { companyName: profile.company_name, reportLogoKey: profile.report_logo_key, logoUrl };
+      }
+      if (reportLogoKey) await storageRemove(reportLogoKey).catch(() => undefined);
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
+      if (errorText.includes("OWNER_PROFILE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "ملف مالك المولد غير موجود." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ هوية التقارير في Supabase." });
     }),
   }),
 

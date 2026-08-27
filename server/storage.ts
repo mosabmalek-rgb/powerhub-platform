@@ -48,3 +48,9 @@ export async function storageGetSignedUrl(relKey: string): Promise<string> {
 
   return data.signedUrl;
 }
+
+export async function storageRemove(relKey: string): Promise<void> {
+  const key = normalizeKey(relKey);
+  const { error } = await supabaseAdmin().storage.from(STORAGE_BUCKET).remove([key]);
+  if (error) throw new Error(`Supabase Storage removal failed: ${error.message}`);
+}
