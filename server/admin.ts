@@ -1014,7 +1014,15 @@ export const adminRouter = router({
     return { success: true, delivery: "deferred" as const };
   }),
 
-  rolePolicies: platformAdminProcedure.query(async () => (await dbOrThrow()).select().from(platformRolePolicies).orderBy(platformRolePolicies.role, platformRolePolicies.capability)),
+  rolePolicies: platformAdminProcedure.query(async () => {
+    const { data, error } = await supabaseAdmin().from("platform_role_policies")
+      .select("id, role, capability, is_allowed, updated_by_user_id, updated_at").order("role", { ascending: true }).order("capability", { ascending: true }).limit(200);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسات صلاحيات المنصة من Supabase." });
+    return (data ?? []).map((policy) => ({
+      id: Number(policy.id), role: policy.role, capability: policy.capability, isAllowed: policy.is_allowed,
+      updatedByUserId: policy.updated_by_user_id === null ? null : Number(policy.updated_by_user_id), updatedAt: new Date(policy.updated_at),
+    }));
+  }),
 
   saveRolePolicy: platformAdminProcedure.input(z.object({ role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), capability: z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"]), isAllowed: z.boolean() })).mutation(async ({ ctx, input }) => {
     const db = await dbOrThrow();

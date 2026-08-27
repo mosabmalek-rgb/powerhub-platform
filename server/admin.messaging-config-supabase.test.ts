@@ -5,6 +5,7 @@ const state = vi.hoisted(() => {
   const rows: Record<string, unknown[]> = {
     platform_tweetsms_accounts: [{ id: 9, api_endpoint: "https://sms.example.test", sender_name: "PowerHub", low_balance_threshold: 100, last_provider_balance: 500, last_balance_checked_at: null, last_tested_at: null, last_error: null, is_active: false, credential_ciphertext: null, credential_iv: null }],
     platform_sms_fallback_providers: [{ id: 10, name: "مزود احتياطي", provider_key: "backup_sms", api_endpoint: null, sender_name: null, priority: 1, integration_status: "pending_contract", is_active: false, credential_ciphertext: null, credential_iv: null, last_tested_at: null, last_error: null, updated_at: "2026-08-27T00:00:00.000Z" }],
+    platform_role_policies: [{ id: 11, role: "accountant", capability: "managePayroll", is_allowed: true, updated_by_user_id: 1, updated_at: "2026-08-27T00:00:00.000Z" }],
   };
   const client = {
     from(table: string) {
@@ -28,5 +29,12 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     await expect(caller.getPlatformTweetSmsAccount()).resolves.toMatchObject({ id: 9, senderName: "PowerHub", configured: false, isActive: false });
     await expect(caller.listPlatformSmsFallbackProviders()).resolves.toMatchObject([{ id: 10, providerKey: "backup_sms", configured: false, integrationStatus: "pending_contract" }]);
     expect(state.calls).toEqual(["platform_tweetsms_accounts", "platform_sms_fallback_providers"]);
+  });
+
+  it("يقرأ سياسات صلاحيات المنصة من Supabase دون MySQL", async () => {
+    state.calls.splice(0);
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.rolePolicies()).resolves.toMatchObject([{ id: 11, role: "accountant", capability: "managePayroll", isAllowed: true, updatedByUserId: 1 }]);
+    expect(state.calls).toEqual(["platform_role_policies"]);
   });
 });
