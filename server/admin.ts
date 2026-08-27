@@ -935,10 +935,38 @@ export const adminRouter = router({
   }),
 
   listComplaints: platformAdminProcedure.input(z.object({ status: z.enum(["open", "assigned", "in_progress", "resolved", "closed"]).optional() }).optional()).query(async ({ input }) => {
-    const db = await dbOrThrow();
-    return db.select({ id: complaints.id, title: complaints.title, description: complaints.description, priority: complaints.priority, status: complaints.status, response: complaints.response, openedAt: complaints.openedAt, resolvedAt: complaints.resolvedAt, tenantId: complaints.tenantId, tenantName: tenants.name, siteName: sites.name, subscriberName: subscribers.fullName, assignedUserId: complaints.assignedUserId, assignedUserName: users.name })
-      .from(complaints).innerJoin(tenants, eq(complaints.tenantId, tenants.id)).innerJoin(sites, eq(complaints.siteId, sites.id)).leftJoin(subscribers, eq(complaints.subscriberId, subscribers.id)).leftJoin(users, eq(complaints.assignedUserId, users.id))
-      .where(input?.status ? eq(complaints.status, input.status) : undefined).orderBy(desc(complaints.openedAt)).limit(300);
+    const complaintsQuery = supabaseAdmin().from("complaints")
+      .select("id, tenant_id, site_id, subscriber_id, title, description, priority, status, assigned_user_id, response, opened_at, resolved_at")
+      .order("opened_at", { ascending: false }).limit(300);
+    const complaintsResult = input?.status
+      ? await complaintsQuery.eq("status", input.status)
+      : await complaintsQuery;
+    if (complaintsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الشكاوى من Supabase." });
+    const rows = complaintsResult.data ?? [];
+    const tenantIds = Array.from(new Set(rows.map((complaint) => Number(complaint.tenant_id))));
+    const siteIds = Array.from(new Set(rows.map((complaint) => Number(complaint.site_id))));
+    const subscriberIds = Array.from(new Set(rows.flatMap((complaint) => complaint.subscriber_id === null ? [] : [Number(complaint.subscriber_id)])));
+    const assignedUserIds = Array.from(new Set(rows.flatMap((complaint) => complaint.assigned_user_id === null ? [] : [Number(complaint.assigned_user_id)])));
+    const [tenantResult, siteResult, subscriberResult, assignedUserResult] = await Promise.all([
+      tenantIds.length ? supabaseAdmin().from("tenants").select("id, name").in("id", tenantIds) : Promise.resolve({ data: [], error: null }),
+      siteIds.length ? supabaseAdmin().from("sites").select("id, name").in("id", siteIds) : Promise.resolve({ data: [], error: null }),
+      subscriberIds.length ? supabaseAdmin().from("subscribers").select("id, full_name").in("id", subscriberIds) : Promise.resolve({ data: [], error: null }),
+      assignedUserIds.length ? supabaseAdmin().from("users").select("id, name").in("id", assignedUserIds) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (tenantResult.error || siteResult.error || subscriberResult.error || assignedUserResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل البيانات المرجعية للشكاوى من Supabase." });
+    const tenantById = new Map((tenantResult.data ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
+    const siteById = new Map((siteResult.data ?? []).map((site) => [Number(site.id), site.name]));
+    const subscriberById = new Map((subscriberResult.data ?? []).map((subscriber) => [Number(subscriber.id), subscriber.full_name]));
+    const assignedUserById = new Map((assignedUserResult.data ?? []).map((user) => [Number(user.id), user.name]));
+    return rows.map((complaint) => ({
+      id: Number(complaint.id), title: complaint.title, description: complaint.description, priority: complaint.priority, status: complaint.status,
+      response: complaint.response, openedAt: new Date(complaint.opened_at), resolvedAt: complaint.resolved_at ? new Date(complaint.resolved_at) : null,
+      tenantId: Number(complaint.tenant_id), tenantName: tenantById.get(Number(complaint.tenant_id)) ?? "مساحة غير معروفة",
+      siteName: siteById.get(Number(complaint.site_id)) ?? "فرع غير معروف",
+      subscriberName: complaint.subscriber_id === null ? null : subscriberById.get(Number(complaint.subscriber_id)) ?? null,
+      assignedUserId: complaint.assigned_user_id === null ? null : Number(complaint.assigned_user_id),
+      assignedUserName: complaint.assigned_user_id === null ? null : assignedUserById.get(Number(complaint.assigned_user_id)) ?? null,
+    }));
   }),
 
   updateComplaint: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["open", "assigned", "in_progress", "resolved", "closed"]), assignedUserId: z.number().int().positive().nullable().optional(), response: z.string().max(4000).optional() })).mutation(async ({ ctx, input }) => {
