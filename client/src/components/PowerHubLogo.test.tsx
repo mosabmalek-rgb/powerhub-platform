@@ -1,10 +1,10 @@
-// @vitest-environment jsdom
+/* @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ThemeProvider } from "@/contexts/ThemeContext";
-import { PowerHubLogo } from "./PowerHubLogo";
+import { DARK_LOGO_URL, LIGHT_LOGO_URL, PowerHubLogo } from "./PowerHubLogo";
 
 afterEach(() => {
   document.documentElement.classList.remove("dark");
@@ -13,18 +13,20 @@ afterEach(() => {
 });
 
 describe("PowerHubLogo", () => {
-  it("renders a self-contained accessible brand without a Manus storage image", () => {
-    const { container } = render(<ThemeProvider defaultTheme="light"><PowerHubLogo header /></ThemeProvider>);
+  it("renders the light-theme brand asset with an accessible label", () => {
+    render(<ThemeProvider defaultTheme="light"><PowerHubLogo header /></ThemeProvider>);
 
     expect(screen.getByLabelText("PowerHub — منصة إدارة مولدات الكهرباء")).toBeInTheDocument();
-    expect(screen.getByText("Power")).toBeInTheDocument();
-    expect(screen.getByText("Hub")).toBeInTheDocument();
-    expect(container.querySelectorAll("img")).toHaveLength(0);
+    expect(screen.getByRole("img")).toHaveAttribute("data-logo-theme", "light");
+    expect(screen.getByRole("img").querySelector("img")).toHaveAttribute("src", LIGHT_LOGO_URL);
   });
 
-  it("keeps the mark readable in dark mode", () => {
+  it("selects the white-wordmark dark-theme asset", () => {
     render(<ThemeProvider defaultTheme="dark"><PowerHubLogo header /></ThemeProvider>);
 
-    expect(screen.getByLabelText("PowerHub — منصة إدارة مولدات الكهرباء")).toHaveClass("text-foreground");
+    const logo = screen.getByRole("img");
+    expect(logo).toHaveAttribute("data-logo-theme", "dark");
+    expect(logo.querySelector("img")).toHaveAttribute("src", DARK_LOGO_URL);
+    expect(document.documentElement).toHaveClass("dark");
   });
 });

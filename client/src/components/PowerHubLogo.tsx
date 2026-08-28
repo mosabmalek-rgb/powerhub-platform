@@ -1,18 +1,34 @@
-import { Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useOptionalTheme } from "@/contexts/ThemeContext";
+
+const LIGHT_LOGO_URL = "/manus-storage/powerhub-logo-light_fc1f9aac.png";
+const DARK_LOGO_URL = "/manus-storage/powerhub-logo-dark_6ed084aa.png";
 
 export function PowerHubLogo({ compact = false, header = false, className }: { compact?: boolean; header?: boolean; className?: string }) {
-  const iconSize = compact ? "size-7" : header ? "size-11 sm:size-[52px]" : "size-9 sm:size-10";
-  const wordSize = compact ? "text-lg" : header ? "text-3xl sm:text-4xl" : "text-2xl sm:text-3xl";
+  const theme = useOptionalTheme();
+  const logoUrl = theme?.theme === "dark" ? DARK_LOGO_URL : LIGHT_LOGO_URL;
+  const imageSize = compact
+    ? "h-9 w-[9.5rem]"
+    : header
+      ? "h-[4.25rem] w-[13.5rem] sm:h-24 sm:w-[18rem]"
+      : "h-[3.75rem] w-[12rem] sm:h-[4.5rem] sm:w-[14.5rem]";
 
   return (
-    <div className={cn("flex items-center gap-2.5 text-foreground", className)} aria-label="PowerHub — منصة إدارة مولدات الكهرباء">
-      <span className={cn("grid shrink-0 place-items-center rounded-xl bg-[#F5B800] text-[#10151e] shadow-[0_0_0_1px_rgba(245,184,0,.35)]", iconSize)} aria-hidden="true">
-        <Zap className={compact ? "size-4" : header ? "size-6 sm:size-7" : "size-5"} strokeWidth={2.6} />
-      </span>
-      <span className={cn("font-display font-black tracking-[-0.06em] leading-none", wordSize)} dir="ltr">
-        <span className="text-[#E5A900]">Power</span><span className="text-foreground">Hub</span>
-      </span>
+    <div
+      role="img"
+      aria-label="PowerHub — منصة إدارة مولدات الكهرباء"
+      data-logo-theme={theme?.theme ?? "light"}
+      className={cn("flex shrink-0 items-center overflow-hidden", className)}
+    >
+      <img
+        src={logoUrl}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        className={cn("block object-contain object-center", imageSize)}
+      />
     </div>
   );
 }
+
+export { LIGHT_LOGO_URL, DARK_LOGO_URL };
