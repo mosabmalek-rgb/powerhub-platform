@@ -9,3 +9,4 @@
 - فحص نطاق `powerhup-com-ps.vercel.app` أعاد `DEPLOYMENT_NOT_FOUND`، بينما نطاق `powerhub-platform.vercel.app` يعرض مسارات `/manus-storage/...`؛ يلزم فحص استجابة الأصل مباشرة وتحديد نطاق الإنتاج الصحيح.
 - سبب الخلل: `vercel.json` كان يمرر `/manus-storage/*` إلى `index.html`، لذلك كانت الصور تعود 404. الإصلاح يضيف إعادة كتابة إلى دالة API ومسار Express مطابقاً لها.
 - تحقق محلياً من مسار الشعار: استجابة `307` إلى رابط التخزين الموقّع، مع نجاح TypeScript والاختبارات والبناء.
+- في نشر Vercel الجاهز، يعيد المسار الخارجي `/brand-assets/powerhub-logo-light.png` صفحة 404، بينما يعمل `/api/brand-assets/powerhub-logo-light.png` ويعيد رابط Supabase Storage موقّعاً. هذا يثبت أن دالة الوسيط تعمل وأن الخلل في ترتيب/تطبيق rewrite الخارجي فقط.
