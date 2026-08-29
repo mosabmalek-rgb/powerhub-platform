@@ -1,8 +1,8 @@
 import { cn } from "@/lib/utils";
 import { useOptionalTheme } from "@/contexts/ThemeContext";
 
-const LIGHT_LOGO_URL = "/manus-storage/powerhub-logo-light_fc1f9aac.png";
-const DARK_LOGO_URL = "/manus-storage/powerhub-logo-dark_6ed084aa.png";
+const LIGHT_LOGO_URL = "/brand-assets/powerhub-logo-light.png";
+const DARK_LOGO_URL = "/brand-assets/powerhub-logo-dark.png";
 
 export function PowerHubLogo({ compact = false, header = false, className }: { compact?: boolean; header?: boolean; className?: string }) {
   const theme = useOptionalTheme();
