@@ -55,5 +55,5 @@ begin
   return query select v_tenant_id, v_user_id, v_site_id, v_subscription_id;
 end;
 $$;
-revoke all on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text) from public, anon, authenticated;
-grant execute on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text) to service_role;
+revoke all on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz) from public, anon, authenticated;
+grant execute on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz) to service_role;

@@ -129,6 +129,21 @@ function requirePlatformRoles(allowedRoles: PlatformRole[]) {
 }
 
 const platformAdminProcedure = requirePlatformRoles(["platform_owner", "platform_admin"]);
+
+/**
+ * يحوّل خطأ RPC إنشاء صاحب المولد (كائن PostgREST أو Error) إلى رمز tRPC ورسالة عربية صريحة.
+ * أكواد PostgreSQL: 23505 تعارض تفرد، 42501 صلاحيات، 22023 مدخلات غير صالحة.
+ */
+export function mapOwnerProvisioningError(error: unknown): { code: "CONFLICT" | "FORBIDDEN" | "BAD_REQUEST" | "INTERNAL_SERVER_ERROR"; message: string } {
+  const record = typeof error === "object" && error !== null ? (error as { code?: unknown; message?: unknown }) : {};
+  const pgCode = typeof record.code === "string" ? record.code : undefined;
+  const rawMessage = error instanceof Error ? error.message : typeof record.message === "string" ? record.message : "";
+  const message = rawMessage || "تعذر إكمال إنشاء اشتراك صاحب المولد.";
+  if (pgCode === "23505" || message.includes("مستخدم بالفعل") || message.includes("duplicate")) return { code: "CONFLICT", message };
+  if (pgCode === "42501") return { code: "FORBIDDEN", message };
+  if (pgCode === "22023") return { code: "BAD_REQUEST", message };
+  return { code: "INTERNAL_SERVER_ERROR", message };
+}
 const platformOwnerProcedure = requirePlatformRoles(["platform_owner"]);
 const platformFinanceProcedure = requirePlatformRoles(["platform_owner", "platform_admin", "finance_admin"]);
 
@@ -266,8 +281,8 @@ export const adminRouter = router({
     } catch (error) {
       const { error: cleanupError } = await admin.auth.admin.deleteUser(authData.user.id);
       if (cleanupError) console.error("[OwnerProvisioning] Auth compensation failed", { authUserId: authData.user.id, message: cleanupError.message });
-      const message = error instanceof Error ? error.message : "تعذر إكمال إنشاء اشتراك صاحب المولد.";
-      throw new TRPCError({ code: message.includes("مستخدم بالفعل") || message.includes("duplicate") ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message });
+      const { code, message } = mapOwnerProvisioningError(error);
+      throw new TRPCError({ code, message });
     }
   }),
   createGeneratorOwnerWithTemporaryPassword: platformAdminProcedure.input(z.object({
@@ -646,7 +661,7 @@ export const adminRouter = router({
     const [site] = input.siteId ? await db.select({ id: sites.id, tenantId: sites.tenantId }).from(sites).where(eq(sites.id, input.siteId)).limit(1) : [undefined];
     if (input.siteId && (!site || site.tenantId !== input.tenantId)) throw new TRPCError({ code: "BAD_REQUEST", message: "المحطة لا تتبع لمساحة صاحب المولد المحددة." });
     const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
-    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المول�� غير موجودة." });
     if (input.tenantRole === "owner" && input.siteRole && input.siteRole !== "owner") throw new TRPCError({ code: "BAD_REQUEST", message: "دعوة صاحب المولد يجب أن تحمل دور مالك للمحطة أيضاً." });
     const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
     const tokenHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
@@ -996,7 +1011,7 @@ export const adminRouter = router({
     ].sort((left, right) => right.occurredAt.getTime() - left.occurredAt.getTime()).slice(0, 24);
     const pending = Number(pendingMessagesResult.count ?? 0);
     return { health: [
-      { key: "database", label: "البيانات", state: databaseProbe.count !== null ? "healthy" as const : "critical" as const, detail: databaseProbe.count !== null ? "استجابة قاعدة البيانات سليمة." : "تعذر التحقق من قاعدة البيانات.", count: Number(databaseProbe.count ?? 0), target: "reports" as const },
+      { key: "database", label: "البيانات", state: databaseProbe.count !== null ? "healthy" as const : "critical" as const, detail: databaseProbe.count !== null ? "استجابة قاعدة البيانات س��يمة." : "تعذر التحقق من قاعدة البيانات.", count: Number(databaseProbe.count ?? 0), target: "reports" as const },
       { key: "messaging", label: "الإرسال", state: failedMessages.length ? "critical" as const : pending ? "warning" as const : "healthy" as const, detail: failedMessages.length ? `${failedMessages.length} رسالة فاشلة تحتاج مراجعة.` : pending ? `${pending} رسالة بانتظار المعالجة.` : "لا توجد رسائل معلقة أو فاشلة.", count: failedMessages.length || pending, target: "notifications" as const },
       { key: "sync", label: "المزامنة", state: syncIssues.some((item) => item.status === "failed") ? "critical" as const : syncIssues.length ? "warning" as const : "healthy" as const, detail: syncIssues.length ? `${syncIssues.length} حدث مزامنة يحتاج متابعة.` : "لا توجد أحداث مزامنة معلقة للمراجعة.", count: syncIssues.length, target: "field_sync" as const },
       { key: "security", label: "الأمان", state: securityIssues.some((item) => item.severity === "critical") ? "critical" as const : securityIssues.length ? "warning" as const : "healthy" as const, detail: securityIssues.length ? `${securityIssues.length} حدث أمني مفتوح.` : "لا توجد أحداث أمنية مفتوحة.", count: securityIssues.length, target: "security" as const },
