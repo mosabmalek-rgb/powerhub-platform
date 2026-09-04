@@ -121,6 +121,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_get_shared_invoice_by_token_hash") return resolved({ invoice: { id: 70, invoice_no: "MAIN-202608-0001" }, subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, lines: [{ id: 129, invoice_id: 70, description: "استهلاك كهرباء" }] });
       if (name === "powerhub_update_report_branding") return resolved([{ company_name: "شركة الاختبار", report_logo_key: null }]);
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
+      if (name === "powerhub_bulk_upsert_subscribers") return resolved([{ created: [{ id: 31, sourceRow: 2, fullName: "مشترك اختبار", subscriberNo: "MAIN-NEW" }], updated: [], failed: [] }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
       if (name === "powerhub_delete_pending_reading") return resolved(null);
@@ -792,11 +793,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toEqual({ limit: 500, currentCount: 0, remaining: 500, plan: "professional" });
   });
 
-  it("يعطّل الاستيراد الجماعي للمشتركين قبل أي وصول MySQL إلى حين تصميمه الذري", async () => {
+  it("يحفظ الاستيراد الجماعي عبر RPC Supabase الذرية دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
-    await expect(caller.subscribers.bulkImport({ siteId: 10, rows: [{ sourceRow: 2, fullName: "مشترك اختبار", phone: "+970595000000", subscriptionType: "residential" }] }))
-      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(state.inserts).toEqual([]);
+    await expect(caller.subscribers.bulkImport({ siteId: 10, updateExisting: false, rows: [{ sourceRow: 2, subscriberNo: "MAIN-NEW", fullName: "مشترك اختبار", phone: "+970595000111", subscriptionType: "residential" }] }))
+      .resolves.toMatchObject({ created: [{ subscriberNo: "MAIN-NEW" }], updated: [], failed: [], notificationsQueued: 0 });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_bulk_upsert_subscribers", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_update_existing: false, p_quota_limit: 100 }) })]);
+    expect(state.inserts.filter((entry) => entry.table === "subscribers")).toEqual([]);
     expect(state.updates).toEqual([]);
   });
 

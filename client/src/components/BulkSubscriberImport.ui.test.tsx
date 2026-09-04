@@ -29,13 +29,16 @@ describe("استيراد المشتركين من Excel", () => {
     expect(screen.getByLabelText("رفع ملف Excel", { selector: "input" })).toHaveAttribute("accept", expect.stringContaining(".xlsx"));
   });
 
-  it("يعرض المعاينة ويمنع إرسال البيانات عندما يكون الحفظ الجماعي متوقفاً", async () => {
+  it("يعرض المعاينة ويرسل الصفوف السليمة إلى الحفظ الذري الجماعي", async () => {
     render(<BulkSubscriberImport siteId={7} onSaved={state.onSaved} />);
     fireEvent.change(screen.getByLabelText("رفع ملف Excel", { selector: "input" }), { target: { files: [new File(["xlsx"], "subscribers.xlsx")] } });
     await screen.findByText("أحمد العلي");
-    expect(screen.getByText(/الحفظ والتحديث الجماعيان متوقفان مؤقتاً/)).toBeInTheDocument();
+    expect(screen.getByText(/سيُحفظ الملف كاملاً داخل معاملة ذرية/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /حفظ 1 مشتركاً سليماً/ }));
-    expect(state.mutate).not.toHaveBeenCalled();
-    expect(state.onSaved).not.toHaveBeenCalled();
+    expect(state.mutate).toHaveBeenCalledWith({
+      siteId: 7,
+      updateExisting: false,
+      rows: [{ sourceRow: 2, subscriberNo: "SUB-NORTH-001", fullName: "أحمد العلي", phone: "+970599000001", whatsappNumber: undefined, address: "غزة", subscriptionType: "residential" }],
+    });
   });
 });

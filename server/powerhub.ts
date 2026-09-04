@@ -1271,76 +1271,49 @@ export const powerhubRouter = router({
         subscriptionType: z.enum(["residential", "commercial"]),
       })).min(1).max(300),
     })).mutation(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
-      if (process.env.NODE_ENV !== "powerhub_bulk_import_reenabled_after_atomic_supabase_migration") {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الاستيراد الجماعي متوقف مؤقتاً لحين تحويله إلى معاملة Supabase ذرية. لا تُنشأ أو تُحدّث أي بيانات من الملف في الوضع الحالي." });
-      }
-      const db = await dbOrThrow();
-      const tenantId = await getSiteTenant(input.siteId);
-      const quota = await ownerSubscriberQuota(tenantId);
-      const [site] = await db.select({ code: sites.code }).from(sites).where(eq(sites.id, input.siteId)).limit(1);
-      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
+      const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
+      const site = await getSupabaseSite(input.siteId);
       const failureRows: Array<{ sourceRow: number; fullName: string; reason: string }> = [];
       const seenPhones = new Set<string>();
       const seenReferences = new Set<string>();
-      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial" }> = [];
+      const accepted: Array<{ sourceRow: number; subscriberNo: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial" }> = [];
       for (const row of input.rows) {
         if (row.fullName.trim().length < 2) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الاسم الكامل قصير جداً." }); continue; }
         let phone: string;
-        try { phone = normalizeInternationalPhone(row.phone); }
-        catch { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال غير صالح؛ استخدم رمز الدولة مثل +970." }); continue; }
+        try { phone = normalizeInternationalPhone(row.phone); } catch { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال غير صالح؛ استخدم رمز الدولة مثل +970." }); continue; }
         let whatsappNumber: string | undefined;
-        try { whatsappNumber = row.whatsappNumber ? normalizeInternationalPhone(row.whatsappNumber) : undefined; }
-        catch { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم واتساب غير صالح؛ اتركه فارغاً أو استخدم رمز الدولة مثل +970." }); continue; }
+        try { whatsappNumber = row.whatsappNumber ? normalizeInternationalPhone(row.whatsappNumber) : undefined; } catch { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم واتساب غير صالح؛ اتركه فارغاً أو استخدم رمز الدولة مثل +970." }); continue; }
         if (seenPhones.has(phone)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال مكرر داخل ملف الاستيراد." }); continue; }
         seenPhones.add(phone);
-        const subscriberNo = row.subscriberNo?.replace(/\s+/g, "").toUpperCase();
-        if (subscriberNo && !/^[A-Z0-9][A-Z0-9_-]{1,79}$/.test(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي غير صالح." }); continue; }
-        if (subscriberNo && seenReferences.has(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي مكرر داخل ملف الاستيراد." }); continue; }
-        if (subscriberNo) seenReferences.add(subscriberNo);
+        const subscriberNo = row.subscriberNo?.replace(/\s+/g, "").toUpperCase() || generateSubscriberReference(site.code);
+        if (!/^[A-Z0-9][A-Z0-9_-]{1,79}$/.test(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي غير صالح." }); continue; }
+        if (seenReferences.has(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي مكرر داخل ملف الاستيراد." }); continue; }
+        seenReferences.add(subscriberNo);
         accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, whatsappNumber, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType });
       }
-      const existing = await db.select({ id: subscribers.id, subscriberNo: subscribers.subscriberNo, fullName: subscribers.fullName, phone: subscribers.phone, whatsappNumber: subscribers.whatsappNumber, address: subscribers.address, subscriptionType: subscribers.subscriptionType }).from(subscribers).where(eq(subscribers.siteId, input.siteId));
-      const existingByReference = new Map(existing.map((row) => [row.subscriberNo.replace(/\s+/g, "").toUpperCase(), row]));
-      const existingByKey = new Map(existing.map((row) => [`${row.fullName.trim().replace(/\s+/g, " ").toLocaleLowerCase("ar")}:${row.phone}`, row]));
-      const updated: Array<{ id: number; sourceRow: number; fullName: string; subscriberNo: string }> = [];
-      const uniqueRows: typeof accepted = [];
-      for (const row of accepted) {
-        const key = `${row.fullName.replace(/\s+/g, " ").toLocaleLowerCase("ar")}:${row.phone}`;
-        const matched = row.subscriberNo ? existingByReference.get(row.subscriberNo) : existingByKey.get(key);
-        if (row.subscriberNo && !matched) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي لا يطابق مشتركاً في هذا الفرع؛ اتركه فارغاً لإضافة مشترك جديد." }); continue; }
-        if (!matched) { uniqueRows.push(row); continue; }
-        if (input.updateExisting) {
-          await db.update(subscribers).set({ fullName: row.fullName, phone: row.phone, whatsappNumber: row.whatsappNumber, address: row.address, subscriptionType: row.subscriptionType }).where(eq(subscribers.id, matched.id));
-          await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber", entityId: String(matched.id), action: "bulk_import_update", beforeData: matched, afterData: { ...row, matchMethod: row.subscriberNo ? "subscriber_no" : "full_name_and_phone" } });
-          updated.push({ id: matched.id, sourceRow: row.sourceRow, fullName: row.fullName, subscriberNo: matched.subscriberNo });
-          continue;
-        }
-        failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: row.subscriberNo ? "الرقم المرجعي يعود لمشترك موجود؛ فعّل خيار تحديث المشتركين المطابقين لتعديل بياناته." : "يوجد مشترك بالاسم ورقم الجوال نفسيهما في هذا الفرع." });
+      if (!accepted.length) return { created: [], updated: [], failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لا توجد صفوف صالحة للحفظ." };
+      const { data, error } = await supabaseAdmin().rpc("powerhub_bulk_upsert_subscribers", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_rows: accepted,
+        p_update_existing: input.updateExisting,
+        p_quota_limit: quota.limit,
+      });
+      if (error) {
+        const errorText = String(error?.code ?? "") + " " + String(error?.message ?? "");
+        if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة لا تتبع لمساحة صاحب المولد الحالية." });
+        if (errorText.includes("INVALID_BULK_ROWS")) throw new TRPCError({ code: "BAD_REQUEST", message: "ملف الاستيراد غير صالح أو يتجاوز 300 صف." });
+        if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "يوجد رقم مرجعي مكرر في الملف أو قاعدة البيانات. عدّل الملف وأعد المحاولة." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ الاستيراد الجماعي في Supabase." });
       }
-      const remainingCapacity = quota.limit === Infinity ? uniqueRows.length : Math.max(0, quota.limit - quota.currentCount);
-      const rowsToCreate = uniqueRows.slice(0, remainingCapacity);
-      uniqueRows.slice(remainingCapacity).forEach((row) => failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "يتجاوز هذا الصف الحد المتاح للمشتركين في الباقة." }));
-      const created: Array<{ id: number; sourceRow: number; fullName: string; subscriberNo: string }> = [];
-      for (const row of rowsToCreate) {
-        let createdRow: { id: number; sourceRow: number; fullName: string; subscriberNo: string } | null = null;
-        for (let attempt = 0; attempt < 5; attempt += 1) {
-          const subscriberNo = generateSubscriberReference(site.code);
-          try {
-            const id = insertId(await db.insert(subscribers).values({ tenantId, siteId: input.siteId, subscriberNo, fullName: row.fullName, phone: row.phone, whatsappNumber: row.whatsappNumber, address: row.address, subscriptionType: row.subscriptionType }));
-            await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber", entityId: String(id), action: "bulk_import_create", afterData: { fullName: row.fullName, phone: row.phone, whatsappNumber: row.whatsappNumber, subscriberNo, sourceRow: row.sourceRow } });
-            createdRow = { id, sourceRow: row.sourceRow, fullName: row.fullName, subscriberNo };
-            break;
-          } catch (error) {
-            if (!isDuplicateKeyError(error) || attempt === 4) throw error;
-          }
-        }
-        if (createdRow) created.push(createdRow);
-        else failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "تعذر توليد رقم مرجعي فريد للمشترك." });
-      }
-      await writeAudit({ userId: ctx.user.id, siteId: input.siteId, entityType: "subscriber_import", entityId: `bulk-${Date.now()}`, action: "bulk_import", afterData: { requested: input.rows.length, created: created.length, updated: updated.length, failed: failureRows.length, updateExisting: input.updateExisting } });
-      await recordSubscriberQuotaAlert({ tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + created.length, remaining: Math.max(0, quota.remaining - created.length) } });
-      return { created, updated, failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لم تُرسل رسائل الأرقام المرجعية تلقائياً ضمن الاستيراد الجماعي لحماية رصيد الرسائل؛ استخدم إرسال الإشعارات بعد المراجعة." };
+      const row = (data as Array<{ created?: unknown; updated?: unknown; failed?: unknown }> | null)?.[0];
+      const created = Array.isArray(row?.created) ? row.created : [];
+      const updated = Array.isArray(row?.updated) ? row.updated : [];
+      const failed = [...failureRows, ...(Array.isArray(row?.failed) ? row.failed : [])].sort((a, b) => Number(a.sourceRow) - Number(b.sourceRow));
+      if (created.length) await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + created.length, remaining: Math.max(0, quota.remaining - created.length) } });
+      return { created, updated, failed, notificationsQueued: 0, message: "تم حفظ الاستيراد الجماعي ذرياً في Supabase دون إرسال رسائل تلقائية." };
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
