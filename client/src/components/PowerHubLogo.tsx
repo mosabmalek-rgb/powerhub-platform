@@ -1,12 +1,16 @@
 import { cn } from "@/lib/utils";
 import { useOptionalTheme } from "@/contexts/ThemeContext";
 
-const LIGHT_LOGO_URL = "/manus-storage/powerhub-logo-light-final_50a6ca98.png";
-const DARK_LOGO_URL = "/manus-storage/powerhub-logo-dark-final_e0d771c8.png";
+export const LIGHT_LOGO_URL = "/manus-storage/powerhub-logo-light-native-alpha_409b726c.png";
+export const DARK_LOGO_URL = "/manus-storage/powerhub-logo-dark-native-alpha_bad9591c.png";
+const LIGHT_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-light.png";
+const DARK_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-dark.png";
 
 export function PowerHubLogo({ compact = false, header = false, className }: { compact?: boolean; header?: boolean; className?: string }) {
   const theme = useOptionalTheme();
-  const logoUrl = theme?.theme === "dark" ? DARK_LOGO_URL : LIGHT_LOGO_URL;
+  const isDark = theme?.theme === "dark";
+  const logoUrl = isDark ? DARK_LOGO_URL : LIGHT_LOGO_URL;
+  const fallbackUrl = isDark ? DARK_LOGO_FALLBACK_URL : LIGHT_LOGO_FALLBACK_URL;
   const imageSize = compact
     ? "h-9 w-[9.5rem]"
     : header
@@ -25,10 +29,15 @@ export function PowerHubLogo({ compact = false, header = false, className }: { c
         alt=""
         aria-hidden="true"
         draggable={false}
+        onError={(event) => {
+          const image = event.currentTarget;
+          if (!image.dataset.fallbackApplied) {
+            image.dataset.fallbackApplied = "true";
+            image.src = fallbackUrl;
+          }
+        }}
         className={cn("block object-contain object-center", imageSize)}
       />
     </div>
   );
 }
-
-export { LIGHT_LOGO_URL, DARK_LOGO_URL };
