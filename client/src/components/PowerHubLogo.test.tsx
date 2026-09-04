@@ -21,7 +21,7 @@ describe("PowerHubLogo", () => {
     expect(screen.getByRole("img").querySelector("img")).toHaveAttribute("src", LIGHT_LOGO_URL);
   });
 
-  it("selects the white-wordmark dark-theme asset", () => {
+  it("selects the transparent white-wordmark dark-theme asset", () => {
     render(<ThemeProvider defaultTheme="dark"><PowerHubLogo header /></ThemeProvider>);
 
     const logo = screen.getByRole("img");
