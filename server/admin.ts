@@ -226,10 +226,49 @@ export const adminRouter = router({
   temporaryPassword: z.string().min(8).max(128),
   plan: planSchema.default("starter"),
   })).mutation(async ({ ctx, input }) => {
-    throw new TRPCError({
-      code: "PRECONDITION_FAILED",
-      message: "إنشاء اشتراك صاحب المولد متوقف انتقالياً أثناء ترحيل دورة Supabase Auth والمعاملة الذرية. لا يتم إنشاء أي حساب أو مساحة حالياً.",
+    const email = input.ownerEmail.trim().toLowerCase();
+    const phone = input.ownerPhone.trim();
+    const identity = encryptTenantCredential(input.identityNumber.trim());
+    const slug = `owner-${crypto.randomUUID().replaceAll("-", "")}`;
+    const siteCode = `SITE-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const admin = supabaseAdmin();
+    const { data: authData, error: authError } = await admin.auth.admin.createUser({
+      email,
+      password: input.temporaryPassword,
+      email_confirm: true,
+      user_metadata: { name: input.ownerName.trim(), must_change_password: true },
     });
+    if (authError || !authData.user) {
+      throw new TRPCError({ code: authError?.status === 422 ? "CONFLICT" : "BAD_REQUEST", message: authError?.message || "تعذر إنشاء حساب صاحب المولد في Supabase Auth." });
+    }
+    try {
+      const { data, error } = await admin.rpc("powerhub_create_generator_owner_subscription", {
+        p_actor_user_id: ctx.user.id,
+        p_auth_user_id: authData.user.id,
+        p_tenant_name: input.companyName.trim(),
+        p_slug: slug,
+        p_company_name: input.companyName.trim(),
+        p_owner_name: input.ownerName.trim(),
+        p_identity_ciphertext: identity.ciphertext,
+        p_identity_iv: identity.iv,
+        p_identity_last4: input.identityNumber.trim().slice(-4),
+        p_owner_phone: phone,
+        p_owner_whatsapp: input.ownerWhatsapp.trim(),
+        p_owner_email: email,
+        p_site_name: "الفرع الرئيسي",
+        p_site_code: siteCode,
+        p_plan: input.plan,
+        p_billing_cycle: "monthly",
+        p_subscription_status: "trial",
+      });
+      if (error || !data?.[0]) throw error ?? new Error("لم تُرجع معاملة Supabase نتيجة إنشاء الاشتراك.");
+      return data[0];
+    } catch (error) {
+      const { error: cleanupError } = await admin.auth.admin.deleteUser(authData.user.id);
+      if (cleanupError) console.error("[OwnerProvisioning] Auth compensation failed", { authUserId: authData.user.id, message: cleanupError.message });
+      const message = error instanceof Error ? error.message : "تعذر إكمال إنشاء اشتراك صاحب المولد.";
+      throw new TRPCError({ code: message.includes("مستخدم بالفعل") || message.includes("duplicate") ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message });
+    }
   }),
   createGeneratorOwnerWithTemporaryPassword: platformAdminProcedure.input(z.object({
     tenantName: z.string().min(2).max(160),
