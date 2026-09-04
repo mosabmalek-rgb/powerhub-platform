@@ -58,3 +58,9 @@
 ## فحص الشعار الشفاف بعد النشر — 4 سبتمبر 2026
 
 في نشر Vercel الجاهز المرتبط بالالتزام `46d16d36`، ظهر الشعار الفاتح في الصفحة العامة دون خلفية سوداء. بعد اختيار الثيم الغامق تغيّر المصدر إلى `/api/brand-assets/powerhub-logo-dark.png?v=transparent-20260904` وظهر النص الأبيض والعناصر الذهبية بوضوح على الخلفية الداكنة. لا توجد صورة مفقودة في الحالتين.
+
+## Favicon production check — 4 سبتمبر 2026
+
+تم فتح `https://powerhub-platform.vercel.app/` بعد دفع الالتزام `80e9d772`. ظهرت صور شعار PowerHub عبر `/api/brand-assets/...`، لكن فحص DOM الحي لم يجد عناصر `link[rel~="icon"]` أو `apple-touch-icon`. روابط favicon موجودة في النسخة المبنية محلياً وفي نقطة المراجعة، لذلك يلزم انتظار/مطابقة نشر Vercel الأخير قبل اعتبار favicon منشوراً في النطاق الأساسي.
+
+تم التحقق النهائي على نشر Vercel الجاهز `powerhub-platform-oz5vp5xa9-mosabmalek-rgb.vercel.app`: يحتوي DOM على favicon للثيم الفاتح، وfavicon للثيم الغامق، و`apple-touch-icon`، وجميعها تشير إلى أصول PowerHub عبر `/api/brand-assets/`. عنوان الصفحة صحيح: `PowerHub — منصة إدارة مولدات الكهرباء`.
