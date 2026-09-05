@@ -2,6 +2,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { MetricCard } from "@/components/MetricCard";
 import { SubscriberQuotaDashboardCard } from "@/components/SubscriberQuotaDashboardCard";
 import { OperationalStatusDashboardCard } from "@/components/OperationalStatusDashboardCard";
+import { FinancialTrendSection } from "@/components/FinancialTrendSection";
 import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -110,6 +111,8 @@ export function WorkspaceHome() {
       <MetricCard label="المتأخرات" value={number(overview?.outstanding.total, 2)} unit="—" description={`${number(overview?.outstanding.accountCount)} حساباً برصيد مفتوح.`} icon={CircleAlert} accent="rose" />
       <MetricCard label="المشتركون النشطون" value={number(activeSubscribers)} unit="مشترك" description={selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
     </section>
+
+    <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
 
     <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={summaryQuery.data?.generators} loading={summaryQuery.isLoading} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
