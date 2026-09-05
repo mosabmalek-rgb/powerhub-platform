@@ -1,6 +1,7 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { MetricCard } from "@/components/MetricCard";
 import { SubscriberQuotaDashboardCard } from "@/components/SubscriberQuotaDashboardCard";
+import { OperationalStatusDashboardCard } from "@/components/OperationalStatusDashboardCard";
 import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -109,6 +110,8 @@ export function WorkspaceHome() {
       <MetricCard label="المتأخرات" value={number(overview?.outstanding.total, 2)} unit="—" description={`${number(overview?.outstanding.accountCount)} حساباً برصيد مفتوح.`} icon={CircleAlert} accent="rose" />
       <MetricCard label="المشتركون النشطون" value={number(activeSubscribers)} unit="مشترك" description={selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
     </section>
+
+    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={summaryQuery.data?.generators} loading={summaryQuery.isLoading} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
     {accessQuery.data?.role === "owner" ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} onOpen={() => setLocation("/notifications")} /> : null}
     <SubscriberQuotaDashboardCard quota={subscriberQuotaQuery.data} upgradeRequest={upgradeRequestQuery.data} canRequestUpgrade={accessQuery.data?.role === "owner"} requesting={requestUpgrade.isPending} onRequestUpgrade={(requestedPlan) => requestUpgrade.mutate({ siteId: siteId!, requestedPlan })} />

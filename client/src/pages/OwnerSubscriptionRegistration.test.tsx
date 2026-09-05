@@ -23,7 +23,16 @@ describe("OwnerSubscriptionRegistration", () => {
     expect(screen.queryByText(/الإنشاء متوقف انتقالياً/)).not.toBeInTheDocument();
     fillRequiredFields();
     fireEvent.submit(screen.getByRole("button", { name: /إنشاء اشتراك صاحب مولد/ }).closest("form")!);
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ companyName: "مولدات الاختبار", ownerEmail: "owner@example.test", ownerWhatsapp: "", plan: "starter" }));
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ companyName: "مولدات الاختبار", ownerEmail: "owner@example.test", ownerWhatsapp: "", plan: "starter", trialDurationDays: 8 }));
+  });
+
+  it("passes a custom trial duration selected by the platform admin", () => {
+    const onCreate = vi.fn();
+    render(<OwnerSubscriptionRegistration rows={[]} pending={false} creationAvailable onCreate={onCreate} />);
+    fillRequiredFields();
+    fireEvent.change(screen.getByRole("spinbutton", { name: /مدة التجربة/ }), { target: { value: "21" } });
+    fireEvent.submit(screen.getByRole("button", { name: /إنشاء اشتراك صاحب مولد/ }).closest("form")!);
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ trialDurationDays: 21 }));
   });
 
   it("renders WhatsApp as optional", () => {

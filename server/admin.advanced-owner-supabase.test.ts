@@ -25,9 +25,25 @@ describe("إنشاء صاحب مولد عبر Supabase Auth وRPC ذري", () =>
   it("ينشئ Auth ثم يمرر المعاملة الذرية إلى Supabase", async () => {
     await expect(caller().createGeneratorOwnerSubscription(input)).resolves.toMatchObject({ tenant_id: 101, subscription_id: 404 });
     expect(state.authCreateUser).toHaveBeenCalledWith(expect.objectContaining({ email: input.ownerEmail, email_confirm: true, password: input.temporaryPassword }));
-    expect(state.rpc).toHaveBeenCalledWith("powerhub_create_generator_owner_subscription", expect.objectContaining({ p_actor_user_id: 1, p_auth_user_id: "new-auth-user", p_owner_email: input.ownerEmail, p_plan: "starter" }));
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_create_generator_owner_subscription", expect.objectContaining({ p_actor_user_id: 1, p_auth_user_id: "new-auth-user", p_owner_email: input.ownerEmail, p_plan: "starter", p_trial_duration_days: 8 }));
     expect(state.authDeleteUser).not.toHaveBeenCalled();
   });
+  it("يمرر مدة تجربة مخصصة إلى المعاملة الذرية", async () => {
+    await expect(caller().createGeneratorOwnerSubscription({ ...input, trialDurationDays: 21 })).resolves.toMatchObject({ subscription_id: 404 });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_create_generator_owner_subscription", expect.objectContaining({ p_trial_duration_days: 21 }));
+  });
+
+  it.each([0, -1, 3651])("يرفض مدة تجربة غير صالحة server-side: %s", async (trialDurationDays) => {
+    await expect(caller().createGeneratorOwnerSubscription({ ...input, trialDurationDays })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.authCreateUser).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("يحافظ على حماية Platform Admin", async () => {
+    const nonAdminCaller = adminRouter.createCaller({ user: { id: 2, role: "user", platformRole: null } as never, req: {} as never, res: {} as never });
+    await expect(nonAdminCaller.createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("يحذف Auth تعويضياً إذا فشلت المعاملة", async () => {
     state.rpc.mockRejectedValueOnce(new Error("فشل إدخال الاشتراك"));
     await expect(caller().createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });

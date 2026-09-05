@@ -222,9 +222,10 @@ export const adminRouter = router({
     identityNumber: z.string().min(4).max(50),
     ownerPhone: z.string().min(5).max(30),
     ownerWhatsapp: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().min(5).max(30).optional()),
-  ownerEmail: z.string().email(),
-  temporaryPassword: z.string().min(8).max(128),
-  plan: planSchema.default("starter"),
+    ownerEmail: z.string().email(),
+    temporaryPassword: z.string().min(8).max(128),
+    plan: planSchema.default("starter"),
+    trialDurationDays: z.number().int().min(1).max(3650).default(8),
   })).mutation(async ({ ctx, input }) => {
     const email = input.ownerEmail.trim().toLowerCase();
     const phone = input.ownerPhone.trim();
@@ -260,6 +261,7 @@ export const adminRouter = router({
         p_plan: input.plan,
         p_billing_cycle: "monthly",
         p_subscription_status: "trial",
+        p_trial_duration_days: input.trialDurationDays,
       });
       if (error || !data?.[0]) throw error ?? new Error("لم تُرجع معاملة Supabase نتيجة إنشاء الاشتراك.");
       return data[0];
