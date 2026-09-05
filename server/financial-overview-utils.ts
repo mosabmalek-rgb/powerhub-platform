@@ -67,6 +67,8 @@ export function buildFinancialOverview(input: {
 }) {
   const now = input.now ?? new Date();
   const { todayStart, tomorrowStart, monthStart, nextMonthStart } = periodBounds(now);
+  const trendFrom = new Date(tomorrowStart);
+  trendFrom.setUTCDate(trendFrom.getUTCDate() - 30);
   const branchMap = new Map(input.branches.map((branch) => [branch.id, { ...branch, invoiced: 0, collected: 0, outstanding: 0, overdue: 0, partialInvoices: 0 }]));
   let todayInvoiced = 0, todayCollected = 0, monthInvoiced = 0, monthCollected = 0, monthExpenses = 0, outstanding = 0, overdue = 0, partialInvoices = 0;
   const lastPaymentBySubscriber = new Map<string, Date>();
@@ -99,5 +101,14 @@ export function buildFinancialOverview(input: {
   const todayCollectionRate = todayInvoiced > 0 ? (todayCollected / todayInvoiced) * 100 : 0;
   const branchSummaries = Array.from(branchMap.values()).map((branch) => ({ ...branch, collectionRate: branch.invoiced > 0 ? (branch.collected / branch.invoiced) * 100 : 0 })).sort((a, b) => b.outstanding - a.outstanding || a.collectionRate - b.collectionRate);
   const topDebtors = Array.from(debtorMap.values()).map((debtor) => ({ ...debtor, ageDays: debtor.isOverdue ? Math.max(1, Math.floor((now.getTime() - debtor.oldestDueDate.getTime()) / 86400000)) : 0, oldestDueDate: debtor.oldestDueDate.toISOString(), lastPaymentAt: lastPaymentBySubscriber.get(`${debtor.siteId}:${debtor.subscriberId}`)?.toISOString() ?? null, branchName: input.branches.find((branch) => branch.id === debtor.siteId)?.name ?? "فرع غير محدد" })).sort((a, b) => Number(b.isOverdue) - Number(a.isOverdue) || b.outstanding - a.outstanding).slice(0, 10);
-  return { generatedAt: now.toISOString(), period: { today: todayStart.toISOString().slice(0, 10), month: monthStart.toISOString().slice(0, 7) }, today: { invoiced: todayInvoiced, collected: todayCollected, collectionRate: todayCollectionRate }, month: { invoiced: monthInvoiced, collected: monthCollected, expenses: monthExpenses, netCash: monthCollected - monthExpenses, collectionRate }, outstanding: { total: outstanding, overdue, partialInvoices, accountCount: debtorMap.size }, branchSummaries, topDebtors };
+  return {
+    generatedAt: now.toISOString(),
+    period: { today: todayStart.toISOString().slice(0, 10), month: monthStart.toISOString().slice(0, 7) },
+    today: { invoiced: todayInvoiced, collected: todayCollected, collectionRate: todayCollectionRate },
+    month: { invoiced: monthInvoiced, collected: monthCollected, expenses: monthExpenses, netCash: monthCollected - monthExpenses, collectionRate },
+    outstanding: { total: outstanding, overdue, partialInvoices, accountCount: debtorMap.size },
+    branchSummaries,
+    topDebtors,
+    trend: buildFinancialTrendSeries({ invoices: input.invoices, payments: input.payments, expenses: input.expenses, from: trendFrom, to: tomorrowStart }),
+  };
 }
