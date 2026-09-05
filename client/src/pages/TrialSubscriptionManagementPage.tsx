@@ -1,0 +1,74 @@
+import { trpc } from "@/lib/trpc";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { CalendarClock, CheckCircle2, Loader2, RefreshCw, Save } from "lucide-react";
+import { useState } from "react";
+
+const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
+const statusLabel: Record<string, string> = { trial: "تجريبي", active: "فعّال", overdue: "متأخر", suspended: "معلّق", cancelled: "ملغي" };
+const planLabel: Record<string, string> = { starter: "Starter", professional: "Professional", enterprise: "Enterprise" };
+
+function dateInputValue(value?: string | Date | null) {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
+export default function TrialSubscriptionManagementPage() {
+  const owners = trpc.admin.listOwners.useQuery();
+  const utils = trpc.useUtils();
+  const updateSubscription = trpc.admin.updateSubscription.useMutation({
+    onSuccess: async () => { await utils.admin.listOwners.invalidate(); },
+  });
+  const [drafts, setDrafts] = useState<Record<number, { days: string; endsAt: string }>>({});
+
+  const refresh = () => void owners.refetch();
+  const draftFor = (row: any) => {
+    const id = Number(row.tenant.id);
+    if (drafts[id]) return drafts[id];
+    const start = row.subscription?.startedAt ? new Date(row.subscription.startedAt) : null;
+    const end = row.subscription?.endsAt ? new Date(row.subscription.endsAt) : null;
+    const days = start && end ? Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000)) : 8;
+    return { days: String(days), endsAt: dateInputValue(row.subscription?.endsAt) };
+  };
+  const setDraft = (id: number, patch: Partial<{ days: string; endsAt: string }>) => setDrafts((current) => ({ ...current, [id]: { ...draftFor(owners.data?.find((r: any) => Number(r.tenant.id) === id)), ...current[id], ...patch } }));
+
+  return <main className="space-y-6 pb-12" dir="rtl">
+    <header className="rounded-[26px] border border-[#F5B800]/20 bg-[#111823]/85 p-6 shadow-panel">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><CalendarClock className="h-4 w-4" />إدارة مدة التجربة</div><h1 className="mt-2 text-2xl font-extrabold text-white">اشتراكات التجربة الحالية</h1><p className="mt-2 text-sm leading-7 text-slate-400">تعديل مدة التجربة أو تاريخ انتهائها لأصحاب المولدات من مكان واحد. الحد المسموح من يوم إلى 3650 يومًا.</p></div>
+        <Button variant="outline" onClick={refresh} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />تحديث</Button>
+      </div>
+    </header>
+    {updateSubscription.isError && <div className="rounded-xl border border-rose-400/20 bg-rose-400/[.06] p-3 text-sm text-rose-100">تعذر تحديث الاشتراك: {updateSubscription.error.message}</div>}
+    <section className="grid gap-4">
+      {(owners.data ?? []).map((row: any) => {
+        const sub = row.subscription;
+        if (!sub) return null;
+        const id = Number(row.tenant.id);
+        const draft = draftFor(row);
+        const isTrial = sub.status === "trial";
+        return <Card key={id} className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+            <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="font-extrabold text-white">{row.owner?.companyName ?? row.tenant.name}</h2><Badge className="bg-white/10 text-slate-200">{planLabel[sub.plan] ?? sub.plan}</Badge><Badge className={isTrial ? "bg-[#F5B800]/15 text-[#F5B800]" : "bg-emerald-400/10 text-emerald-200"}>{statusLabel[sub.status] ?? sub.status}</Badge></div><p className="mt-1 text-xs text-slate-500">{row.owner?.fullName ?? "—"} · بدء التجربة: {sub.startedAt ? new Date(sub.startedAt).toLocaleDateString("ar-IQ") : "—"}</p></div>
+            {isTrial && <div className="grid gap-3 sm:grid-cols-3 sm:items-end">
+              <label><span className="mb-1 block text-xs font-bold text-slate-400">المدة بالأيام</span><Input type="number" min={1} max={3650} value={draft.days} onChange={(e) => setDraft(id, { days: e.target.value })} className={inputClass} dir="ltr" /></label>
+              <label><span className="mb-1 block text-xs font-bold text-slate-400">تاريخ الانتهاء</span><Input type="date" value={draft.endsAt} onChange={(e) => setDraft(id, { endsAt: e.target.value })} className={inputClass} dir="ltr" /></label>
+              <Button disabled={updateSubscription.isPending} onClick={() => {
+                const days = Number(draft.days);
+                if (!Number.isInteger(days) || days < 1 || days > 3650) return;
+                const end = draft.endsAt ? new Date(`${draft.endsAt}T23:59:59.000Z`) : new Date(new Date(sub.startedAt).getTime() + days * 86400000);
+                updateSubscription.mutate({ tenantId: id, plan: sub.plan, status: sub.status, billingCycle: sub.billingCycle, endsAt: end, autoRenew: false, notes: sub.notes ?? undefined, smsPlanId: sub.smsPlanId ?? null });
+              }} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]"><Save className="ml-2 h-4 w-4" />حفظ</Button>
+            </div>}
+          </div>
+          {isTrial && <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-white/8 bg-white/[.02] p-3 text-xs text-slate-400"><span>المدة الحالية: <b className="text-white">{draft.days} يوم</b></span><span>ينتهي: <b className="text-white">{sub.endsAt ? new Date(sub.endsAt).toLocaleDateString("ar-IQ") : "—"}</b></span><span className="text-emerald-300"><CheckCircle2 className="ml-1 inline h-3.5 w-3.5" />التجديد التلقائي: متوقف</span></div>}
+        </CardContent></Card>;
+      })}
+      {owners.isLoading && <Card className="border-white/8 bg-[#111823]"><CardContent className="grid min-h-40 place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></CardContent></Card>}
+      {!owners.isLoading && !(owners.data ?? []).some((row: any) => row.subscription?.status === "trial") && <Card className="border-white/8 bg-[#111823]"><CardContent className="py-12 text-center text-sm text-slate-500">لا توجد اشتراكات تجريبية حالية.</CardContent></Card>}
+    </section>
+  </main>;
+}
