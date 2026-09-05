@@ -806,3 +806,10 @@
 - [x] تنفيذ اختبار SMS حي واحد إلى +970598082061 بالنص الذي حدده المستخدم بعد تأكيده الصريح، والتحقق من نتيجة المزود وسجل الإرسال دون إرسال إضافي. قبول المزود: HTTP 200 / code 999؛ لا يوجد providerMessageId، ومسار الطابور المحلي لم يُثبت بسبب خطأ RPC في نشر Vercel.
 
 - [x] إصلاح سبب HTTP 500 في `admin.testPlatformTweetSmsAccount`: تعارضات PL/pgSQL في `is_active` و`account_id` داخل RPC، وتحقق RPC الإنتاجي بعد migration 0058 و0059 بإرجاع الحساب 1 والرصيد 4 دون إرسال SMS إضافي.
+
+## P5.3 — ربط مدة تجربة الاشتراك بإنشاء صاحب المولد
+- [x] فحص عقد الخادم والواجهة والـRPC الحاليين وتحديد الفرع المستقل.
+- [x] تمرير trialDurationDays من واجهة Platform Admin إلى RPC الذري مع افتراضي 8 وحدود 1–3650.
+- [x] إضافة اختبارات P5.3 للمدد الافتراضية والمخصصة والقيم غير الصالحة والصلاحيات وتعديل الاشتراك الموجود. نجحت اختبارات Vitest وخُبرِت Supabase فعلياً للمدد 8/21/30 والرفض 0/-1/3651 وتحديث ends_at.
+- [x] تشغيل Vitest وTypeScript والبناء ومراجعة diff وتحقق Supabase. نجح targeted/full validation وpnpm check وpnpm build وgit diff --check.
+- [ ] إنشاء branch وCommit وPull Request إلى main دون الدمج أو بدء P5.4.
