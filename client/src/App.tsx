@@ -33,6 +33,7 @@ import MobileReadingDetailPage from "./pages/MobileReadingDetailPage";
 import QuickActionsPage from "./pages/QuickActionsPage";
 import OfflineSyncPage from "./pages/OfflineSyncPage";
 import SetupWizardPage from "./pages/SetupWizardPage";
+import TrialSubscriptionManagementPage from "./pages/TrialSubscriptionManagementPage";
 
 function Router() {
   return (
@@ -67,6 +68,7 @@ function Router() {
       <Route path={"/human-resources"}>{() => <RouteAccessGate><HumanResourcesPage /></RouteAccessGate>}</Route>
       <Route path={"/payroll"}>{() => <RouteAccessGate><PayrollPage /></RouteAccessGate>}</Route>
       <Route path={"/attendance"}>{() => <RouteAccessGate><AttendancePage /></RouteAccessGate>}</Route>
+      <Route path={"/admin/trial-management"}>{() => <RouteAccessGate platformAdminOnly><TrialSubscriptionManagementPage /></RouteAccessGate>}</Route>
       <Route path={"/admin"}>{() => <RouteAccessGate platformAdminOnly><AdminConsolePage /></RouteAccessGate>}</Route>
       <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
       <Route path={"/404"} component={NotFound} />
