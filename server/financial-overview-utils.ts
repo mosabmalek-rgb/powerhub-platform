@@ -68,7 +68,7 @@ export function buildFinancialOverview(input: {
   const now = input.now ?? new Date();
   const { todayStart, tomorrowStart, monthStart, nextMonthStart } = periodBounds(now);
   const trendFrom = new Date(tomorrowStart);
-  trendFrom.setUTCDate(trendFrom.getUTCDate() - 30);
+  trendFrom.setUTCDate(trendFrom.getUTCDate() - 31);
   const branchMap = new Map(input.branches.map((branch) => [branch.id, { ...branch, invoiced: 0, collected: 0, outstanding: 0, overdue: 0, partialInvoices: 0 }]));
   let todayInvoiced = 0, todayCollected = 0, monthInvoiced = 0, monthCollected = 0, monthExpenses = 0, outstanding = 0, overdue = 0, partialInvoices = 0;
   const lastPaymentBySubscriber = new Map<string, Date>();
