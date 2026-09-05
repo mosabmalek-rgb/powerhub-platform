@@ -2,7 +2,7 @@ name: PowerHub CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, p4-production-excellence]
   pull_request:
     branches: [main]
 
