@@ -812,4 +812,4 @@
 - [x] تمرير trialDurationDays من واجهة Platform Admin إلى RPC الذري مع افتراضي 8 وحدود 1–3650.
 - [x] إضافة اختبارات P5.3 للمدد الافتراضية والمخصصة والقيم غير الصالحة والصلاحيات وتعديل الاشتراك الموجود. نجحت اختبارات Vitest وخُبرِت Supabase فعلياً للمدد 8/21/30 والرفض 0/-1/3651 وتحديث ends_at.
 - [x] تشغيل Vitest وTypeScript والبناء ومراجعة diff وتحقق Supabase. نجح targeted/full validation وpnpm check وpnpm build وgit diff --check.
-- [ ] إنشاء branch وCommit وPull Request إلى main دون الدمج أو بدء P5.4.
+- [x] إنشاء branch وCommit وPull Request إلى main دون بدء P5.4. أُنشئ الفرع `p5-3-commercial-model-final` والـCommit `7b29c19` والـPR `#5`، ثم دُمج بعد نجاح الفحوص؛ Production على Vercel أصبح READY بالـcommit `a376a174`.
