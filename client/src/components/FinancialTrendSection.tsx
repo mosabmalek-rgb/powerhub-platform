@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { FinancialTrendChart, type FinancialTrendPoint } from "@/components/FinancialTrendChart";
 import { DashboardPeriodFilter } from "@/components/DashboardPeriodFilter";
+import ConsumptionKpiSection from "@/components/ConsumptionKpiSection";
 import { resolveDashboardPeriod, type DashboardPeriodPreset } from "@/lib/dashboard-period";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -21,6 +22,7 @@ export function FinancialTrendSection({ data = [], loading = false }: { data?: F
         </CardContent>
       </Card>
       <FinancialTrendChart data={visibleData} loading={loading} />
+      <ConsumptionKpiSection enabled={!loading} />
     </section>
   );
 }
