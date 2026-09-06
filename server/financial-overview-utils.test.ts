@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFinancialOverview } from "./financial-overview-utils";
+import { buildFinancialOverview, buildFinancialTrendSeries } from "./financial-overview-utils";
 
 describe("buildFinancialOverview", () => {
   it("يجمع الفوترة والتحصيل والمتأخرات وأولوية الديون حسب الفرع", () => {
@@ -20,5 +20,39 @@ describe("buildFinancialOverview", () => {
     expect(overview.outstanding).toMatchObject({ total: 150, overdue: 70, partialInvoices: 1, accountCount: 2 });
     expect(overview.branchSummaries[0]).toMatchObject({ name: "فرع السوق", outstanding: 80, collectionRate: 0 });
     expect(overview.topDebtors[0]).toMatchObject({ subscriber: "أحمد", outstanding: 70, isOverdue: true, ageDays: 11, lastPaymentAt: "2026-08-21T10:00:00.000Z", invoiceId: 101, invoiceNo: "INV-1" });
+  });
+});
+
+describe("buildFinancialTrendSeries", () => {
+  it("ينشئ سلسلة يومية مكتملة ويجمع الفوترة والتحصيل والمصروفات وصافي النقد", () => {
+    const series = buildFinancialTrendSeries({
+      from: new Date("2026-08-01T00:00:00.000Z"),
+      to: new Date("2026-08-04T00:00:00.000Z"),
+      invoices: [
+        { id: 1, siteId: 1, subscriberId: 1, subscriberName: "أ", subscriberNo: "1", invoiceNo: "I-1", issueDate: new Date("2026-08-01T10:00:00.000Z"), dueDate: new Date("2026-08-10T00:00:00.000Z"), totalAmount: 100, paidAmount: 0, balanceDue: 100, status: "issued" },
+        { id: 2, siteId: 1, subscriberId: 2, subscriberName: "ب", subscriberNo: "2", invoiceNo: "I-2", issueDate: new Date("2026-08-02T10:00:00.000Z"), dueDate: new Date("2026-08-10T00:00:00.000Z"), totalAmount: 50, paidAmount: 0, balanceDue: 50, status: "cancelled" },
+      ],
+      payments: [
+        { siteId: 1, subscriberId: 1, amount: 40, status: "completed", paidAt: new Date("2026-08-02T12:00:00.000Z") },
+        { siteId: 1, subscriberId: 1, amount: 9, status: "pending", paidAt: new Date("2026-08-03T12:00:00.000Z") },
+      ],
+      expenses: [{ siteId: 1, amount: 15, occurredAt: new Date("2026-08-03T08:00:00.000Z") }],
+    });
+
+    expect(series).toEqual([
+      { date: "2026-08-01", invoiced: 100, collected: 0, expenses: 0, netCash: 0 },
+      { date: "2026-08-02", invoiced: 0, collected: 40, expenses: 0, netCash: 40 },
+      { date: "2026-08-03", invoiced: 0, collected: 0, expenses: 15, netCash: -15 },
+    ]);
+  });
+
+  it("يرفض الفترة العكسية", () => {
+    expect(() => buildFinancialTrendSeries({
+      from: new Date("2026-08-04T00:00:00.000Z"),
+      to: new Date("2026-08-01T00:00:00.000Z"),
+      invoices: [],
+      payments: [],
+      expenses: [],
+    })).toThrow("الفترة الزمنية غير صالحة");
   });
 });

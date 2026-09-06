@@ -17,9 +17,11 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }] }) }, branchPolicy: { useQuery: () => ({ data: { isEnabled: true, maxBranches: 3, currentCount: 1, remaining: 2 }, isLoading: false }) } },
-      dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 } }) }, financialOverview: { useQuery: () => ({ data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [] } }) } },
+      dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 } }) }, financialOverview: { useQuery: () => ({ data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] } }) } },
       companyAccounts: { list: { useQuery: () => ({ data: [] }) } },
       subscribers: { quota: { useQuery: () => ({ data: {} }) } },
+      readings: { list: { useQuery: () => ({ data: [], isLoading: false }) } },
+      collectorSessions: { list: { useQuery: () => ({ data: [], isLoading: false }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) } },
       messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: 42, remaining: state.remaining, senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null }, isLoading: false }) }, smsDailyUsage: { useQuery: () => ({ data: { total: 500, used: 42, remaining: state.remaining }, isLoading: false }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, refetch: vi.fn() }) }, requestSmsPackage: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
