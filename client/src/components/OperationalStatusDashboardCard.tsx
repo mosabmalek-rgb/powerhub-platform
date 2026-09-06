@@ -18,7 +18,7 @@ export function OperationalStatusDashboardCard({ subscribers, generators, loadin
     return (
       <Card aria-label="ملخص الحالة التشغيلية" className="border-white/8 bg-[#111823] shadow-panel">
         <CardContent className="grid gap-4 p-5 sm:grid-cols-3">
-          {["w-36", "w-24", "w-24"].map((width) => <div key={width} className="h-20 animate-pulse rounded-2xl bg-white/[.05]"><div className={`m-4 h-3 rounded bg-white/10 ${width}`} /></div>)}
+          {["w-36", "w-24", "w-24"].map((width, index) => <div key={`${width}-${index}`} className="h-20 animate-pulse rounded-2xl bg-white/[.05]"><div className={`m-4 h-3 rounded bg-white/10 ${width}`} /></div>)}
         </CardContent>
       </Card>
     );
