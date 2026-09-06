@@ -6,7 +6,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
-import { ArrowLeft, CheckCircle2, Circle, Gauge, Settings2, UsersRound, Zap } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Gauge, Settings2, UsersRound, Zap } from "lucide-react";
 
 const steps = [
   { key: "branch", title: "إعداد الفرع", description: "تأكد من وجود فرع نشط ومعلوماته الأساسية.", path: "/branches", icon: Settings2 },
@@ -19,12 +19,12 @@ const steps = [
 export default function SetupWizardPage() {
   const { isAuthenticated, loading, user } = useAuth();
   const [, setLocation] = useLocation();
-  const { siteId } = useBranchFilter();
-  const enabled = Boolean(isAuthenticated && siteId);
   const branches = trpc.powerhub.sites.list.useQuery(undefined, { enabled: Boolean(isAuthenticated) });
-  const generators = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
-  const tariffs = trpc.powerhub.tariffs.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
-  const subscribers = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
+  const { branchId } = useBranchFilter(branches.data ?? []);
+  const enabled = Boolean(isAuthenticated && branchId);
+  const generators = trpc.powerhub.generators.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
+  const tariffs = trpc.powerhub.tariffs.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
+  const subscribers = trpc.powerhub.subscribers.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
 
   const counts = {
     branch: (branches.data ?? []).filter((item: any) => item.status !== "archived").length,
