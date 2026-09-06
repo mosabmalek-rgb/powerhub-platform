@@ -9,7 +9,10 @@ import { Card, CardContent } from "@/components/ui/card";
 export function FinancialTrendSection({ data = [], loading = false }: { data?: FinancialTrendPoint[]; loading?: boolean }) {
   const [preset, setPreset] = useState<Exclude<DashboardPeriodPreset, "custom">>("30d");
   const period = useMemo(() => resolveDashboardPeriod(preset), [preset]);
-  const visibleData = useMemo(() => data.filter((point) => point.date >= period.from && point.date <= period.to), [data, period.from, period.to]);
+  const visibleData = useMemo(
+    () => data.filter((point) => point.date >= period.from && point.date <= period.to),
+    [data, period.from, period.to],
+  );
 
   return (
     <section className="space-y-3" aria-label="الاتجاه المالي">
@@ -17,14 +20,14 @@ export function FinancialTrendSection({ data = [], loading = false }: { data?: F
         <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-bold text-white">الفترة الزمنية</p>
-            <p className="mt-1 text-xs text-slate-500">اختر نطاق الاتجاه المالي المعروض.</p>
+            <p className="mt-1 text-xs text-slate-500">تتحكم الفترة في الاتجاه المالي ومؤشرات الاستهلاك والتحصيل أدناه.</p>
           </div>
           <DashboardPeriodFilter value={preset} onChange={setPreset} />
         </CardContent>
       </Card>
       <FinancialTrendChart data={visibleData} loading={loading} />
-      <ConsumptionKpiSection enabled={!loading} />
-      <CollectorPerformanceSection enabled={!loading} />
+      <ConsumptionKpiSection enabled={!loading} from={period.from} to={period.to} />
+      <CollectorPerformanceSection enabled={!loading} from={period.from} to={period.to} />
     </section>
   );
 }
