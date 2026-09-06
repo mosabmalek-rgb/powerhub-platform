@@ -62,7 +62,7 @@ jobs:
 
   dependency-remediation:
     name: Remediate critical dependencies
-    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'p5-4-2-financial-trends' && needs.dependency-audit.result == 'failure' }}
+    if: ${{ always() && github.event_name == 'pull_request' && github.head_ref == 'p5-4-2-financial-trends' && needs.dependency-audit.result == 'failure' }}
     needs: dependency-audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
