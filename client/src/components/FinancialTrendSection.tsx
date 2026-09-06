@@ -5,6 +5,8 @@ import ConsumptionKpiSection from "@/components/ConsumptionKpiSection";
 import CollectorPerformanceSection from "@/components/CollectorPerformanceSection";
 import { resolveDashboardPeriod, type DashboardPeriodPreset } from "@/lib/dashboard-period";
 import { Card, CardContent } from "@/components/ui/card";
+import { trpc } from "@/lib/trpc";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 
 export function FinancialTrendSection({ data = [], loading = false }: { data?: FinancialTrendPoint[]; loading?: boolean }) {
   const [preset, setPreset] = useState<Exclude<DashboardPeriodPreset, "custom">>("30d");
@@ -13,6 +15,8 @@ export function FinancialTrendSection({ data = [], loading = false }: { data?: F
     () => data.filter((point) => point.date >= period.from && point.date <= period.to),
     [data, period.from, period.to],
   );
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: !loading });
+  const { branchId } = useBranchFilter(sitesQuery.data ?? []);
 
   return (
     <section className="space-y-3" aria-label="الاتجاه المالي">
@@ -26,8 +30,8 @@ export function FinancialTrendSection({ data = [], loading = false }: { data?: F
         </CardContent>
       </Card>
       <FinancialTrendChart data={visibleData} loading={loading} />
-      <ConsumptionKpiSection enabled={!loading} from={period.from} to={period.to} />
-      <CollectorPerformanceSection enabled={!loading} from={period.from} to={period.to} />
+      <ConsumptionKpiSection siteId={branchId} enabled={!loading} from={period.from} to={period.to} />
+      <CollectorPerformanceSection siteId={branchId} enabled={!loading} from={period.from} to={period.to} />
     </section>
   );
 }
