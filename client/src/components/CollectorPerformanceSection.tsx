@@ -7,15 +7,15 @@ import { useBranchFilter } from "@/hooks/useBranchFilter";
 
 const number = (value: number, fractionDigits = 0) => new Intl.NumberFormat("ar", { maximumFractionDigits: fractionDigits }).format(value);
 
-type Props = { enabled?: boolean; from?: string; to?: string };
+type Props = { siteId?: number | null; enabled?: boolean; from?: string; to?: string };
 
-export default function CollectorPerformanceSection({ enabled = true, from, to }: Props) {
-  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled });
+export default function CollectorPerformanceSection({ siteId, enabled = true, from, to }: Props) {
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: enabled && !siteId });
   const { branchId } = useBranchFilter(sitesQuery.data ?? []);
-  const siteId = branchId ?? 0;
+  const resolvedSiteId = siteId ?? branchId ?? 0;
   const sessionsQuery = trpc.powerhub.collectorSessions.list.useQuery(
-    { siteId },
-    { enabled: enabled && Boolean(siteId), staleTime: 30_000 },
+    { siteId: resolvedSiteId },
+    { enabled: enabled && Boolean(resolvedSiteId), staleTime: 30_000 },
   );
 
   const metrics = useMemo(() => {
@@ -51,7 +51,7 @@ export default function CollectorPerformanceSection({ enabled = true, from, to }
     };
   }, [from, sessionsQuery.data, to]);
 
-  if (!enabled || !siteId) return null;
+  if (!enabled || !resolvedSiteId) return null;
   if (sessionsQuery.isLoading) {
     return (
       <Card className="border-white/8 bg-[#111823] shadow-panel">
