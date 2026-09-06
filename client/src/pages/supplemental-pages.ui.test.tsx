@@ -39,6 +39,8 @@ vi.mock("@/lib/trpc", () => ({
       companyAccounts: { list: { useQuery: () => ({ data: [] }) } },
       subscribers: { quota: { useQuery: () => ({ data: { plan: "starter", limit: 100, currentCount: 3, remaining: 97 } }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: true } }) } },
+      readings: { list: { useQuery: () => ({ data: [] }) } },
+      collectorSessions: { list: { useQuery: () => ({ data: [] }) } },
       messaging: { smsQuota: { useQuery: () => ({ data: { total: 100, used: 10, remaining: 90, senderName: "PowerHub", configured: true, isActive: true, lastError: null }, isLoading: false }) }, smsDailyUsage: { useQuery: () => ({ data: { points: [], total: 100, used: 10, remaining: 90 }, isLoading: false }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false }) }, requestSmsPackage: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
       reports: { range: { useQuery: () => ({ data: report }) }, allBranchesRange: { useQuery: () => ({ data: { ...report, scope: { branchCount: 1 }, branchSummaries: [] } }) } },
