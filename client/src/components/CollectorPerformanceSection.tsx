@@ -40,7 +40,7 @@ export default function CollectorPerformanceSection({ enabled = true }: { enable
       closedCount: closed.length,
       varianceCount: varianceRows.length,
       netVariance: declared - expected,
-      collectors: [...byCollector.values()].sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance)).slice(0, 5),
+      collectors: Array.from(byCollector.values()).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance)).slice(0, 5),
     };
   }, [sessionsQuery.data]);
 
