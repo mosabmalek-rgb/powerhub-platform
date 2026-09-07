@@ -18,9 +18,11 @@ export function healthHandler(_req: unknown, res: Response) {
 
 export function readinessHandler(_req: unknown, res: Response) {
   noStore(res);
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+  const publishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
   const checks = {
     application: true,
-    supabaseConfig: Boolean(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_PUBLISHABLE_KEY),
+    supabaseConfig: Boolean(supabaseUrl && publishableKey),
   };
   const ready = Object.values(checks).every(Boolean);
 
