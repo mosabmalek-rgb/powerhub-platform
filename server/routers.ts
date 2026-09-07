@@ -33,10 +33,7 @@ export const appRouter = router({
       return { success: true } as const;
     }),
   }),
-  powerhub: router({
-    ...powerhubRouter._def.procedures,
-    ...powerhubRouter._def.recorders,
-  }),
+  powerhub: powerhubRouter.merge("performance", powerhubDashboardRouter),
   admin: adminRouter,
 
   // TODO: add feature routers here, e.g.
