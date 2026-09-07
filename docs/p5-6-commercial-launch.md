@@ -94,6 +94,10 @@ Supabase currently reports one security warning for leaked password protection b
 
 Supabase also reports informational performance findings for several unindexed foreign keys and unused indexes. These are not automatically launch blockers; address them based on measured query paths rather than adding speculative indexes.
 
+## CI verification note
+
+The launch branch intentionally does not alter dependency versions. The committed `pnpm-lock.yaml` remains the source of truth for the existing dependency graph; CI must continue to use `pnpm install --frozen-lockfile`.
+
 ## Deferred reliability work
 
 The Supabase backup/restore drill remains a pre-scale reliability requirement. Full removal of heavy static Excel/PDF import paths remains a later performance optimization unless measured production usage shows launch impact.
