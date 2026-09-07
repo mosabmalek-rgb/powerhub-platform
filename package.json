@@ -11,6 +11,7 @@
     "format": "prettier --write .",
     "test": "bash scripts/run-tests.sh",
     "test:launch": "node scripts/p5-6-production-smoke.mjs",
+    "test:ops": "node scripts/p6-scale-operations-smoke.mjs",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
   },
   "dependencies": {
@@ -82,7 +83,7 @@
     "tailwindcss-animate": "^1.0.7",
     "tesseract.js": "^7.0.0",
     "vaul": "^1.1.2",
-    "wouter": "^3.3.5",
+    "wouter": "^3.7.1",
     "zod": "^4.1.12"
   },
   "devDependencies": {
