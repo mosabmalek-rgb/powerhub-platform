@@ -2,7 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
-import { authenticatedProcedure, publicProcedure, router } from "./_core/trpc";
+import { authenticatedProcedure, publicProcedure, mergeRouters, router } from "./_core/trpc";
 import { powerhubRouter } from "./powerhub";
 import { powerhubDashboardRouter } from "./powerhub-dashboard";
 import { adminRouter } from "./admin";
@@ -33,7 +33,7 @@ export const appRouter = router({
       return { success: true } as const;
     }),
   }),
-  powerhub: powerhubRouter.merge("performance", powerhubDashboardRouter),
+  powerhub: mergeRouters(powerhubRouter, router({ performance: powerhubDashboardRouter })),
   admin: adminRouter,
 
   // TODO: add feature routers here, e.g.
