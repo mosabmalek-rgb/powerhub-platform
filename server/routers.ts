@@ -4,6 +4,7 @@ import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
 import { authenticatedProcedure, publicProcedure, router } from "./_core/trpc";
 import { powerhubRouter } from "./powerhub";
+import { powerhubDashboardRouter } from "./powerhub-dashboard";
 import { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
 
@@ -32,7 +33,10 @@ export const appRouter = router({
       return { success: true } as const;
     }),
   }),
-  powerhub: powerhubRouter,
+  powerhub: router({
+    ...powerhubRouter._def.procedures,
+    ...powerhubRouter._def.recorders,
+  }),
   admin: adminRouter,
 
   // TODO: add feature routers here, e.g.
