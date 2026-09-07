@@ -2,7 +2,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { CheckCircle2, ClipboardList, Gauge, TriangleAlert } from "lucide-react";
-import { useMemo } from "react";
 
 type Props = { siteId?: number | null; enabled?: boolean; from?: string; to?: string };
 
@@ -12,32 +11,20 @@ export default function ConsumptionKpiSection({ siteId, enabled = true, from, to
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: enabled && !siteId });
   const { branchId } = useBranchFilter(sitesQuery.data ?? []);
   const resolvedSiteId = siteId ?? branchId ?? 0;
-  const readingsQuery = trpc.powerhub.readings.list.useQuery(
-    { siteId: resolvedSiteId },
-    { enabled: enabled && Boolean(resolvedSiteId), staleTime: 30_000 },
+  const readingsQuery = trpc.powerhub.performance.readingKpis.useQuery(
+    { siteId: resolvedSiteId, from: from ?? new Date().toISOString().slice(0, 10), to: to ?? new Date().toISOString().slice(0, 10) },
+    { enabled: enabled && Boolean(resolvedSiteId), staleTime: 30_000, refetchOnWindowFocus: false },
   );
 
-  const metrics = useMemo(() => {
-    const rows = readingsQuery.data ?? [];
-    const inPeriod = (value: string | Date | null | undefined) => {
-      if (!value) return false;
-      const date = new Date(value).toISOString().slice(0, 10);
-      return (!from || date >= from) && (!to || date <= to);
-    };
-    const approved = rows.filter((row) => row.reading.status === "approved");
-    const pending = rows.filter((row) => row.reading.status === "pending_review" && inPeriod(row.reading.readingAt));
-    const recent = approved.filter((row) => inPeriod(row.reading.readingAt));
-    const consumption = recent.reduce((sum, row) => sum + Number(row.reading.consumptionKwh ?? 0), 0);
-    const average = recent.length ? consumption / recent.length : 0;
-    const latestReading = [...recent].sort((a, b) => new Date(b.reading.readingAt).getTime() - new Date(a.reading.readingAt).getTime())[0];
-    return {
-      consumption,
-      average,
-      approvedCount: recent.length,
-      pendingCount: pending.length,
-      latestReadingAt: latestReading?.reading.readingAt ?? null,
-    };
-  }, [from, readingsQuery.data, to]);
+  const metrics = readingsQuery.data
+    ? {
+        consumption: Number(readingsQuery.data.consumption ?? 0),
+        average: Number(readingsQuery.data.average ?? 0),
+        approvedCount: Number(readingsQuery.data.approvedCount ?? 0),
+        pendingCount: Number(readingsQuery.data.pendingCount ?? 0),
+        latestReadingAt: readingsQuery.data.latestReadingAt,
+      }
+    : { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null };
 
   if (!enabled || !resolvedSiteId) return null;
 
@@ -56,7 +43,7 @@ export default function ConsumptionKpiSection({ siteId, enabled = true, from, to
       <Card className="border-rose-400/20 bg-rose-400/[.04] shadow-panel">
         <CardContent className="p-5">
           <h2 className="font-bold text-white">تعذر تحميل مؤشرات الاستهلاك</h2>
-          <p className="mt-1 text-sm text-slate-400">تعذر جلب قراءات الفرع حاليًا. ستعود المؤشرات تلقائيًا عند نجاح الاتصال.</p>
+          <p className="mt-1 text-sm text-slate-400">تعذر جلب مؤشرات القراءات حاليًا. ستعود المؤشرات تلقائيًا عند نجاح الاتصال.</p>
         </CardContent>
       </Card>
     );
@@ -67,7 +54,7 @@ export default function ConsumptionKpiSection({ siteId, enabled = true, from, to
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="font-bold text-white">مؤشرات الاستهلاك والقراءات</h2>
-          <p className="mt-1 text-sm text-slate-400">الفترة المحددة — مبنية على القراءات المعتمدة وسجل المراجعة.</p>
+          <p className="mt-1 text-sm text-slate-400">الفترة المحددة — تُحسب مباشرة داخل قاعدة البيانات.</p>
         </div>
         {metrics.latestReadingAt ? <span className="text-xs text-slate-500">آخر قراءة: {new Date(metrics.latestReadingAt).toLocaleDateString("ar")}</span> : null}
       </div>
