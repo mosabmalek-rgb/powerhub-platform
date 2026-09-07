@@ -8,11 +8,7 @@ import PublicInvoice from "./PublicInvoice";
 import ReportsPage from "./ReportsPage";
 
 if (!globalThis.ResizeObserver) {
-  class ResizeObserverMock {
-    observe() { /* jsdom does not calculate layout dimensions. */ }
-    unobserve() { /* no-op test shim */ }
-    disconnect() { /* no-op test shim */ }
-  }
+  class ResizeObserverMock { observe() {} unobserve() {} disconnect() {} }
   Object.defineProperty(globalThis, "ResizeObserver", { value: ResizeObserverMock, writable: true });
 }
 
@@ -36,26 +32,18 @@ vi.mock("@/lib/trpc", () => ({
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 7, name: "محطة التقرير", code: "REPORT-01" }] }) }, branchPolicy: { useQuery: () => ({ data: { isEnabled: true, maxBranches: 3, currentCount: 1, remaining: 2 }, isLoading: false }) } },
       dashboard: { summary: { useQuery: () => ({ data: { energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) }, allBranchesSummary: { useQuery: () => ({ data: { branchCount: 1, energyKwh: 42, subscribers: 3, financial: { collected: 100, outstanding: 25 }, generators: { active: 1, maintenance: 0 } } }) }, financialOverview: { useQuery: () => ({ data: { period: { today: "2026-08-21", month: "2026-08" }, today: { invoiced: 50, collected: 40, collectionRate: 80 }, month: { invoiced: 125, collected: 100, expenses: 10, netCash: 90, collectionRate: 80 }, outstanding: { total: 25, overdue: 15, partialInvoices: 1, accountCount: 1 }, branchSummaries: [{ id: 7, name: "محطة التقرير", activeSubscribers: 3, invoiced: 125, collected: 100, outstanding: 25, overdue: 15, partialInvoices: 1, collectionRate: 80 }], topDebtors: [{ subscriber: "المشترك التجريبي", subscriberNo: "PH-TEST", branchName: "محطة التقرير", outstanding: 25, ageDays: 4, partialInvoices: 1, isOverdue: true }] } }) } },
+      performance: {
+        readingKpis: { useQuery: () => ({ data: { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null }, isLoading: false, isError: false }) },
+        collectorPerformance: { useQuery: () => ({ data: { openCount: 0, closedCount: 0, varianceCount: 0, netVariance: 0, collectors: [] }, isLoading: false, isError: false }) },
+      },
       companyAccounts: { list: { useQuery: () => ({ data: [] }) } },
       subscribers: { quota: { useQuery: () => ({ data: { plan: "starter", limit: 100, currentCount: 3, remaining: 97 } }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: true } }) } },
-      readings: { list: { useQuery: () => ({ data: [] }) } },
-      collectorSessions: { list: { useQuery: () => ({ data: [] }) } },
       messaging: { smsQuota: { useQuery: () => ({ data: { total: 100, used: 10, remaining: 90, senderName: "PowerHub", configured: true, isActive: true, lastError: null }, isLoading: false }) }, smsDailyUsage: { useQuery: () => ({ data: { points: [], total: 100, used: 10, remaining: 90 }, isLoading: false }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false }) }, requestSmsPackage: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
       reports: { range: { useQuery: () => ({ data: report }) }, allBranchesRange: { useQuery: () => ({ data: { ...report, scope: { branchCount: 1 }, branchSummaries: [] } }) } },
       reportBranding: { get: { useQuery: () => ({ data: { companyName: "شركة التقرير", reportLogoKey: null, logoUrl: null } }) }, update: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
-      invoices: {
-        publicByToken: { useQuery: () => ({
-          data: {
-            invoice: { invoiceNo: "PH-PUBLIC-0001", billingPeriod: "2026-08", status: "issued", consumptionKwh: "42", balanceDue: "63" },
-            subscriber: { fullName: "مستخدم الرابط العام" },
-            lines: [{ id: 1, description: "استهلاك الكهرباء", amount: "63" }],
-          },
-          isLoading: false,
-          isError: false,
-        }) },
-      },
+      invoices: { publicByToken: { useQuery: () => ({ data: { invoice: { invoiceNo: "PH-PUBLIC-0001", billingPeriod: "2026-08", status: "issued", consumptionKwh: "42", balanceDue: "63" }, subscriber: { fullName: "مستخدم الرابط العام" }, lines: [{ id: 1, description: "استهلاك الكهرباء", amount: "63" }] }, isLoading: false, isError: false }) } },
     },
   },
 }));
@@ -96,7 +84,6 @@ describe("supplemental PowerHub page review", () => {
   it("routes a platform admin away from the generator workspace to the admin center", async () => {
     state.user = { role: "admin", platformRole: "platform_admin" };
     render(<WorkspaceHome />);
-
     await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/admin"));
     state.user = undefined;
     state.setLocation.mockReset();
