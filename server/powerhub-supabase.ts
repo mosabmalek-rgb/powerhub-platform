@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
+import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
 import { buildFinancialOverview } from "./financial-overview-utils";
 
@@ -82,6 +83,9 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
     .select("role").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle();
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
   if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
+
+  await requireTenantSubscription(site.tenantId);
+
   if (membership.role === "owner") return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId };
 
   const { data: profiles, error: profileError } = await admin.from("staff_profiles")

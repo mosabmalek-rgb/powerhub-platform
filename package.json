@@ -11,6 +11,7 @@
     "format": "prettier --write .",
     "test": "bash scripts/run-tests.sh",
     "test:launch": "node scripts/p5-6-production-smoke.mjs",
+    "test:ops": "node scripts/p6-scale-operations-smoke.mjs",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
   },
   "dependencies": {
