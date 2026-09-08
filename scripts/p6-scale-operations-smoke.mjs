@@ -38,24 +38,16 @@ async function main() {
     console.log("PASS /api/health");
   }
 
-  const readyResponse = await fetch(`${baseUrl}/api/ready`, { redirect: "manual", cache: "no-store" });
-  const readyContentType = readyResponse.headers.get("content-type") || "";
-  const readyBody = await readyResponse.text();
-  if (readyResponse.status !== 200) {
-    fail(`/api/ready returned HTTP ${readyResponse.status}`);
-  } else if (!readyContentType.includes("application/json")) {
-    fail(`/api/ready returned unexpected content-type ${readyContentType}`);
+  const ready = await expectJson("/api/ready", 200);
+  if (
+    ready?.status !== "ok" ||
+    ready?.checks?.application !== true ||
+    ready?.checks?.supabaseConfig !== true ||
+    ready?.checks?.supabaseConnectivity !== true
+  ) {
+    fail("/api/ready payload reports an unhealthy application or Supabase dependency");
   } else {
-    try {
-      const ready = JSON.parse(readyBody);
-      if (ready.status !== "ok" || ready.checks?.application !== true || ready.checks?.supabaseConfig !== true) {
-        fail("/api/ready payload reports an unhealthy application");
-      } else {
-        console.log("PASS /api/ready");
-      }
-    } catch {
-      fail("/api/ready did not return valid JSON");
-    }
+    console.log("PASS /api/ready");
   }
 
   if (process.exitCode) process.exit(process.exitCode);
