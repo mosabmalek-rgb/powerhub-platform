@@ -16,13 +16,44 @@ export function healthHandler(_req: unknown, res: Response) {
   });
 }
 
-export function readinessHandler(_req: unknown, res: Response) {
+async function checkSupabaseConnectivity(
+  supabaseUrl: string,
+  publishableKey: string,
+): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+
+  try {
+    const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/auth/v1/settings`, {
+      method: "GET",
+      headers: {
+        apikey: publishableKey,
+      },
+      signal: controller.signal,
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function readinessHandler(_req: unknown, res: Response) {
   noStore(res);
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const publishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const configReady = Boolean(supabaseUrl && publishableKey);
+
+  const supabaseConnectivity = configReady
+    ? await checkSupabaseConnectivity(supabaseUrl!, publishableKey!)
+    : false;
+
   const checks = {
     application: true,
-    supabaseConfig: Boolean(supabaseUrl && publishableKey),
+    supabaseConfig: configReady,
+    supabaseConnectivity,
   };
   const ready = Object.values(checks).every(Boolean);
 
