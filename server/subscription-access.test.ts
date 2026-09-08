@@ -27,7 +27,7 @@ describe("tenant subscription access policy", () => {
     expect(isTenantSubscriptionActive(null, now)).toBe(false);
   });
 
-  it("treats an active subscription without endsAt as non-expiring", () => {
-    expect(isTenantSubscriptionActive({ status: "active", endsAt: null }, now)).toBe(true);
+  it("fails closed when an active subscription has no endsAt", () => {
+    expect(isTenantSubscriptionActive({ status: "active", endsAt: null }, now)).toBe(false);
   });
 });
