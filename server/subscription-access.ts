@@ -11,7 +11,9 @@ export type TenantSubscription = {
 export function isTenantSubscriptionActive(subscription: TenantSubscription | null, now = new Date()): boolean {
   if (!subscription) return false;
   if (subscription.status === "suspended" || subscription.status === "cancelled" || subscription.status === "overdue") return false;
-  if (!subscription.endsAt) return true;
+  // Commercial subscriptions must have an explicit expiry. Fail closed rather than
+  // treating a missing endsAt as perpetual access.
+  if (!subscription.endsAt) return false;
   return subscription.endsAt > now;
 }
 
