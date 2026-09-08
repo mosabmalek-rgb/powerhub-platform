@@ -1,0 +1,38 @@
+name: PowerHub Operations Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Deployment URL to smoke-test"
+        required: false
+        default: "https://powerhub-platform.vercel.app"
+        type: string
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: powerhub-ops-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Production health and readiness smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Run operational smoke test
+        run: node scripts/p6-scale-operations-smoke.mjs
+        env:
+          POWERHUB_PRODUCTION_URL: ${{ inputs.target_url || 'https://powerhub-platform.vercel.app' }}
