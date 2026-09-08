@@ -1,0 +1,40 @@
+name: P6 Fixture Fix
+
+on:
+  push:
+    branches: [p6-scale-operations]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-fixture:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch legacy subscription fixture
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('server/powerhub.core-lists-supabase.test.ts')
+          s = p.read_text()
+          old = 'tenant_subscriptions: [{ tenant_id: 20, plan: "professional" }],'
+          new = 'tenant_subscriptions: [{ tenant_id: 20, plan: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }],'
+          if old not in s:
+              raise SystemExit('expected subscription fixture was not found; refusing to modify the file')
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+      - name: Commit fixture correction
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add server/powerhub.core-lists-supabase.test.ts
+          git diff --cached --exit-code -- server/powerhub.core-lists-supabase.test.ts && exit 0
+          git commit -m 'test: align subscription fixture with expiry gate'
+          git push origin HEAD:p6-scale-operations
