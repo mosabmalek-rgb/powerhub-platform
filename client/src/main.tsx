@@ -7,7 +7,7 @@ import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
 import { getSupabaseAccessToken, supabase } from "./lib/supabase";
-import { hydrateOfflineQueryCache, persistOfflineAuthUser, persistOfflineQuery } from "./lib/offline-query-cache";
+import { hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -96,9 +96,7 @@ async function bootstrapOfflineState() {
     activeOfflineUserId = nextUserId;
     if (activeOfflineUserId) void hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
 
-    if (event === "SIGNED_OUT") {
-      activeOfflineUserId = null;
-    }
+    if (event === "SIGNED_OUT") activeOfflineUserId = null;
   });
 
   queryClient.getQueryCache().subscribe((event) => {
