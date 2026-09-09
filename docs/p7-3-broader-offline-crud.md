@@ -1,7 +1,7 @@
 # P7.3 — Broader Offline CRUD
 
 ## Current slice
-P7.3 starts with an explicit policy boundary before wiring additional UI mutations. This prevents an offline-capable screen from accidentally making financial, administrative, messaging, audit, or authorization-sensitive data locally authoritative.
+P7.3 adds an explicit safety boundary for offline operational CRUD before expanding into additional entities. This prevents an offline-capable screen from accidentally making financial, administrative, messaging, audit, or authorization-sensitive data locally authoritative.
 
 ## Approved operational scope
 - Create: subscribers, generators, readings.
@@ -21,11 +21,12 @@ All replayable mutations continue through the P7.2 unified executor and retain `
 ## Implemented in this slice
 - Added `generator_create` and `generator_update` to the existing offline work contract.
 - Added generator create/update payload types without changing the Supabase schema.
-- Added deterministic contract tests covering client operation identity and user/site scope.
-- Existing subscriber, invoice, and payment queue behavior remains unchanged.
+- Added deterministic queue contract tests covering client operation identity and user/site scope.
+- Routed generator create/update queue items through the existing `OfflineWorkSyncPanel` and P7.2 unified executor.
+- Preview deployment for the current branch is `READY`, and `/api/health` plus `/api/ready` both return HTTP 200 on the preview deployment.
 
-## Not yet claimed
-The generator queue contract is not yet wired into `NetworkDirectoryPage` or `OfflineWorkSyncPanel`. Therefore P7.3 broader generator CRUD is **not yet implemented end-to-end**.
+## Remaining gate
+The `NetworkDirectoryPage` generator form is still submitting directly to the server and does not yet enqueue `generator_create` / `generator_update` while offline. Therefore P7.3 broader generator CRUD is **not yet implemented end-to-end**.
 
 ## Next implementation slice
-Wire generator create/update through the existing queue and P7.2 unified executor. Then add reconnect, retry, conflict, and staging replay verification before expanding to additional operational entities.
+Wire the existing generator form submit path to `enqueueOfflineWork` for offline create/update, preserve `expectedUpdatedAt` for optimistic concurrency, then verify reconnect → sync → idempotent replay and staging isolation before production promotion.
