@@ -52,12 +52,15 @@ export async function upsertSyncMetadata(record: SyncMetadataRecord) {
   });
 }
 
-export async function getSyncMetadata(operationId: string) {
+export async function getSyncMetadata(operationId: string, scope: { userId: number; siteId: number }) {
   const db = await openDatabase();
   return new Promise<SyncMetadataRecord | undefined>((resolve, reject) => {
     const tx = db.transaction(storeName, "readonly");
     const request = tx.objectStore(storeName).get(operationId);
-    request.onsuccess = () => resolve(request.result as SyncMetadataRecord | undefined);
+    request.onsuccess = () => {
+      const record = request.result as SyncMetadataRecord | undefined;
+      resolve(record && record.userId === scope.userId && record.siteId === scope.siteId ? record : undefined);
+    };
     request.onerror = () => reject(request.error ?? new OfflineSyncMetadataError("تعذر قراءة حالة المزامنة."));
     tx.oncomplete = () => db.close();
     tx.onerror = () => { const error = tx.error; db.close(); reject(error ?? new OfflineSyncMetadataError("تعذر قراءة حالة المزامنة.")); };
@@ -81,7 +84,10 @@ export async function listSyncMetadata(options: { userId: number; siteId?: numbe
   });
 }
 
-export async function removeSyncMetadata(operationId: string) {
+export async function removeSyncMetadata(operationId: string, scope: { userId: number; siteId: number }) {
+  const existing = await getSyncMetadata(operationId, scope);
+  if (!existing) return;
+
   const db = await openDatabase();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction(storeName, "readwrite");
