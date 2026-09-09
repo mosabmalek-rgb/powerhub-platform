@@ -37,8 +37,8 @@ describe("executeReadyOperations", () => {
       now: 100,
     });
 
-    expect(calls).toEqual(["a"]);
-    expect(results.map((result) => result.outcome)).toEqual(["applied"]);
+    expect(calls).toEqual(["a", "b"]);
+    expect(results.map((result) => result.outcome)).toEqual(["applied", "applied"]);
   });
 
   it("does not submit an already completed operation", async () => {
