@@ -10,7 +10,7 @@ import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق" } as const;
+const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق" } as const;
 const labelByStatus = { pending: "بانتظار المزامنة", failed: "فشل قابل لإعادة المحاولة", conflict: "يتطلب مراجعة", applied: "تمت المزامنة" } as const;
 
 function getErrorCode(error: unknown) { return (error as { data?: { code?: string } } | null)?.data?.code; }
@@ -27,10 +27,12 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
 
   const createSubscriber = trpc.powerhub.subscribers.create.useMutation();
   const updateSubscriber = trpc.powerhub.subscribers.update.useMutation();
+  const createGenerator = trpc.powerhub.generators.create.useMutation();
+  const updateGenerator = trpc.powerhub.generators.update.useMutation();
   const issueInvoice = trpc.powerhub.invoices.createFromReading.useMutation();
   const createPayment = trpc.powerhub.payments.create.useMutation();
 
-  const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
+  const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
 
   const buildMetadata = async (pendingItems: QueuedOfflineWork[]) => {
     const stored = await listSyncMetadata({ userId, siteId });
@@ -56,6 +58,18 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const payload = item.payload as import("@/lib/offline-work-queue").SubscriberUpdateDraft;
         await updateSubscriber.mutateAsync({ siteId: item.siteId, id: payload.subscriberId, fullName: payload.fullName, phone: payload.phone, address: payload.address, subscriptionType: payload.subscriptionType, serviceStatus: payload.serviceStatus, expectedUpdatedAt: new Date(payload.expectedUpdatedAt), clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: payload.subscriberId, appliedLabel: payload.fullName });
+        return { outcome: "applied" };
+      }
+      if (item.kind === "generator_create") {
+        const payload = item.payload as import("@/lib/offline-work-queue").GeneratorCreateDraft;
+        const result = await createGenerator.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
+        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
+        return { outcome: "applied" };
+      }
+      if (item.kind === "generator_update") {
+        const payload = item.payload as import("@/lib/offline-work-queue").GeneratorUpdateDraft;
+        const result = await updateGenerator.mutateAsync({ siteId: item.siteId, id: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, ...(payload.expectedUpdatedAt ? { expectedUpdatedAt: new Date(payload.expectedUpdatedAt) } : {}), clientOperationId: item.clientOperationId });
+        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
         return { outcome: "applied" };
       }
       if (item.kind === "invoice_issue") {
