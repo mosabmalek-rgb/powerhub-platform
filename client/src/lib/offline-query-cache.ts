@@ -14,7 +14,6 @@ const CACHEABLE_PROCEDURES = new Set([
   "readings",
   "tariffs",
   "schedules",
-  "dashboard",
 ]);
 
 const BLOCKED_PROCEDURES = new Set([
@@ -113,6 +112,7 @@ export async function hydrateOfflineQueryCache(queryClient: QueryClient, userId:
     try {
       const queryKey = superjson.parse<readonly unknown[]>(record.serializedQueryKey);
       const data = superjson.parse(record.serializedData);
+      if (!isOfflineCacheableQueryKey(queryKey)) continue;
       queryClient.setQueryData(queryKey, data, { updatedAt: record.updatedAt });
       hydrated += 1;
     } catch {
