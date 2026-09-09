@@ -1,15 +1,35 @@
 import { trpc } from "@/lib/trpc";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
-import { getSupabaseAccessToken } from "./lib/supabase";
+import { getSupabaseAccessToken, supabase } from "./lib/supabase";
+import { hydrateOfflineQueryCache, persistOfflineAuthUser, persistOfflineQuery } from "./lib/offline-query-cache";
 import "./index.css";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      networkMode: "offlineFirst",
+      refetchOnReconnect: true,
+    },
+  },
+});
+
+onlineManager.setEventListener((setOnline) => {
+  if (typeof window === "undefined") return () => undefined;
+  const handleOnline = () => setOnline(true);
+  const handleOffline = () => setOnline(false);
+  window.addEventListener("online", handleOnline);
+  window.addEventListener("offline", handleOffline);
+  return () => {
+    window.removeEventListener("online", handleOnline);
+    window.removeEventListener("offline", handleOffline);
+  };
+});
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -57,18 +77,53 @@ const trpcClient = trpc.createClient({
   ],
 });
 
-createRoot(document.getElementById("root")!).render(
-  <trpc.Provider client={trpcClient} queryClient={queryClient}>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  </trpc.Provider>
-);
+let activeOfflineUserId: string | null = null;
+
+async function bootstrapOfflineState() {
+  try {
+    const { data } = await supabase.auth.getSession();
+    activeOfflineUserId = data.session?.user.id ?? null;
+    if (activeOfflineUserId) await hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
+  } catch (error) {
+    console.warn("[PowerHub] Offline cache bootstrap skipped", error);
+  }
+
+  supabase.auth.onAuthStateChange((event, session) => {
+    const nextUserId = session?.user.id ?? null;
+    if (nextUserId === activeOfflineUserId) return;
+
+    queryClient.clear();
+    activeOfflineUserId = nextUserId;
+    if (activeOfflineUserId) void hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
+
+    if (event === "SIGNED_OUT") {
+      activeOfflineUserId = null;
+    }
+  });
+
+  queryClient.getQueryCache().subscribe((event) => {
+    if (!activeOfflineUserId) return;
+    if (event.type !== "updated" || event.action.type !== "success") return;
+    void persistOfflineQuery(event.query, activeOfflineUserId);
+  });
+}
+
+function renderApp() {
+  createRoot(document.getElementById("root")!).render(
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </trpc.Provider>
+  );
+}
+
+void bootstrapOfflineState().finally(renderApp);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     // Versioned URL forces an immediate Service Worker update after changing
     // cache semantics, even when a legacy worker had cached /sw.js itself.
-    void navigator.serviceWorker.register("/sw.js?v=2").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
+    void navigator.serviceWorker.register("/sw.js?v=3").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
   });
 }
