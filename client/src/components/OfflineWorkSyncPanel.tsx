@@ -5,6 +5,7 @@ import { listOfflineWork, removeOfflineWork, updateOfflineWork, type QueuedOffli
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
 import { createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
+import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -27,8 +28,6 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
 
   const createSubscriber = trpc.powerhub.subscribers.create.useMutation();
   const updateSubscriber = trpc.powerhub.subscribers.update.useMutation();
-  const createGenerator = trpc.powerhub.generators.create.useMutation();
-  const updateGenerator = trpc.powerhub.generators.update.useMutation();
   const issueInvoice = trpc.powerhub.invoices.createFromReading.useMutation();
   const createPayment = trpc.powerhub.payments.create.useMutation();
 
@@ -62,13 +61,13 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       }
       if (item.kind === "generator_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorCreateDraft;
-        const result = await createGenerator.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
+        const result = await syncGeneratorCreate({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
         return { outcome: "applied" };
       }
       if (item.kind === "generator_update") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorUpdateDraft;
-        const result = await updateGenerator.mutateAsync({ siteId: item.siteId, id: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, ...(payload.expectedUpdatedAt ? { expectedUpdatedAt: new Date(payload.expectedUpdatedAt) } : {}), clientOperationId: item.clientOperationId });
+        const result = await syncGeneratorUpdate({ siteId: item.siteId, generatorId: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, expectedUpdatedAt: payload.expectedUpdatedAt, clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
         return { outcome: "applied" };
       }
