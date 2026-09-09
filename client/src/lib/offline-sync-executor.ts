@@ -46,62 +46,71 @@ export async function executeReadyOperations({
 }): Promise<SyncExecutionResult[]> {
   const completed = new Set(completedIds ?? []);
   const results: SyncExecutionResult[] = [];
-  const plan = planReadyOperations(items, metadataByOperationId, completed, now);
+  const handled = new Set<string>();
 
-  for (const { item, metadata } of plan) {
-    const inFlightMetadata: SyncExecutionMetadata = {
-      ...metadata,
-      outcome: "syncing",
-    };
-    let transportResult: SyncTransportResult;
+  while (true) {
+    const plan = planReadyOperations(items, metadataByOperationId, completed, now).filter(
+      ({ item }) => !handled.has(item.clientOperationId),
+    );
 
-    try {
-      transportResult = await transport(item, metadata);
-    } catch (error) {
-      transportResult = {
-        outcome: "retryable",
-        errorCode: error instanceof Error ? "INTERNAL_SERVER_ERROR" : "UNKNOWN_ERROR",
-        message: error instanceof Error ? error.message : "Unknown sync transport failure",
+    if (plan.length === 0) break;
+
+    for (const { item, metadata } of plan) {
+      handled.add(item.clientOperationId);
+      const inFlightMetadata: SyncExecutionMetadata = {
+        ...metadata,
+        outcome: "syncing",
       };
-    }
+      let transportResult: SyncTransportResult;
 
-    const outcome = transportResult.errorCode
-      ? classifySyncResult(transportResult.errorCode)
-      : transportResult.outcome;
+      try {
+        transportResult = await transport(item, metadata);
+      } catch (error) {
+        transportResult = {
+          outcome: "retryable",
+          errorCode: error instanceof Error ? "INTERNAL_SERVER_ERROR" : "UNKNOWN_ERROR",
+          message: error instanceof Error ? error.message : "Unknown sync transport failure",
+        };
+      }
 
-    if (outcome === "applied" || outcome === "already_applied") {
-      const completedMetadata: SyncExecutionMetadata = {
-        ...markCompleted(inFlightMetadata),
+      const outcome = transportResult.errorCode
+        ? classifySyncResult(transportResult.errorCode)
+        : transportResult.outcome;
+
+      if (outcome === "applied" || outcome === "already_applied") {
+        const completedMetadata: SyncExecutionMetadata = {
+          ...markCompleted(inFlightMetadata),
+          outcome,
+          lastError: undefined,
+        };
+        completed.add(item.clientOperationId);
+        results.push({ item, metadata: completedMetadata, outcome });
+        continue;
+      }
+
+      if (outcome === "retryable") {
+        const retryMetadata: SyncExecutionMetadata = {
+          ...scheduleRetry(
+            { ...inFlightMetadata, lastError: transportResult.message },
+            now,
+            random(),
+          ),
+          outcome: "retryable",
+        };
+        results.push({ item, metadata: retryMetadata, outcome });
+        continue;
+      }
+
+      results.push({
+        item,
+        metadata: {
+          ...inFlightMetadata,
+          outcome,
+          lastError: transportResult.message,
+        },
         outcome,
-        lastError: undefined,
-      };
-      completed.add(item.clientOperationId);
-      results.push({ item, metadata: completedMetadata, outcome });
-      continue;
+      });
     }
-
-    if (outcome === "retryable") {
-      const retryMetadata: SyncExecutionMetadata = {
-        ...scheduleRetry(
-          { ...inFlightMetadata, lastError: transportResult.message },
-          now,
-          random(),
-        ),
-        outcome: "retryable",
-      };
-      results.push({ item, metadata: retryMetadata, outcome });
-      continue;
-    }
-
-    results.push({
-      item,
-      metadata: {
-        ...inFlightMetadata,
-        outcome,
-        lastError: transportResult.message,
-      },
-      outcome,
-    });
   }
 
   return results;
