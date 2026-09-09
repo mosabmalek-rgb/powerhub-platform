@@ -19,9 +19,13 @@ export type SyncTransport = (
   metadata: SyncMetadata,
 ) => Promise<SyncTransportResult>;
 
+export type SyncExecutionMetadata = SyncMetadata & {
+  outcome: "pending" | "syncing" | SyncOutcome;
+};
+
 export type SyncExecutionResult = {
   item: QueuedOfflineWork;
-  metadata: SyncMetadata;
+  metadata: SyncExecutionMetadata;
   outcome: SyncOutcome;
 };
 
@@ -45,11 +49,14 @@ export async function executeReadyOperations({
   const plan = planReadyOperations(items, metadataByOperationId, completed, now);
 
   for (const { item, metadata } of plan) {
-    const inFlightMetadata: SyncMetadata = { ...metadata, outcome: "syncing" };
+    const inFlightMetadata: SyncExecutionMetadata = {
+      ...metadata,
+      outcome: "syncing",
+    };
     let transportResult: SyncTransportResult;
 
     try {
-      transportResult = await transport(item, inFlightMetadata);
+      transportResult = await transport(item, metadata);
     } catch (error) {
       transportResult = {
         outcome: "retryable",
@@ -63,7 +70,7 @@ export async function executeReadyOperations({
       : transportResult.outcome;
 
     if (outcome === "applied" || outcome === "already_applied") {
-      const completedMetadata = {
+      const completedMetadata: SyncExecutionMetadata = {
         ...markCompleted(inFlightMetadata),
         outcome,
         lastError: undefined,
@@ -74,18 +81,15 @@ export async function executeReadyOperations({
     }
 
     if (outcome === "retryable") {
-      results.push({
-        item,
-        metadata: {
-          ...scheduleRetry(
-            { ...inFlightMetadata, lastError: transportResult.message },
-            now,
-            random(),
-          ),
-          outcome: "retryable",
-        },
-        outcome,
-      });
+      const retryMetadata: SyncExecutionMetadata = {
+        ...scheduleRetry(
+          { ...inFlightMetadata, lastError: transportResult.message },
+          now,
+          random(),
+        ),
+        outcome: "retryable",
+      };
+      results.push({ item, metadata: retryMetadata, outcome });
       continue;
     }
 
