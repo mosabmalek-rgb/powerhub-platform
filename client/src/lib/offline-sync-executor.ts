@@ -50,7 +50,7 @@ export async function executeReadyOperations({
 
   while (true) {
     const plan = planReadyOperations(items, metadataByOperationId, completed, now).filter(
-      ({ item }) => !handled.has(item.clientOperationId),
+      ({ item }) => !handled.has(item.clientOperationId) && !completed.has(item.clientOperationId),
     );
 
     if (plan.length === 0) break;
