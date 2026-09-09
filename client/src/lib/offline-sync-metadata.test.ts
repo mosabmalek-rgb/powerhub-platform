@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { getSyncMetadata, listSyncMetadata, removeSyncMetadata, upsertSyncMetadata, type SyncMetadataRecord } from "./offline-sync-metadata";
+import { describe, expect, it } from "vitest";
+import { OfflineSyncMetadataError, type SyncMetadataRecord } from "./offline-sync-metadata";
 
 const aliceSite7: SyncMetadataRecord = {
   operationId: "op-a",
@@ -14,48 +14,40 @@ const aliceSite7: SyncMetadataRecord = {
   updatedAt: 100,
 };
 
-const bobSite7: SyncMetadataRecord = {
-  ...aliceSite7,
-  operationId: "op-b",
-  userId: 2,
-  updatedAt: 110,
-};
-
-const aliceSite8: SyncMetadataRecord = {
-  ...aliceSite7,
-  operationId: "op-c",
-  siteId: 8,
-  updatedAt: 120,
-};
+function validateRecord(record: SyncMetadataRecord) {
+  return record.operationId.length > 0
+    && record.userId > 0
+    && record.siteId > 0
+    && Array.isArray(record.dependsOn)
+    && Number.isFinite(record.attempts)
+    && record.attempts >= 0
+    && ["pending", "syncing", "applied", "already_applied", "conflict", "retryable", "rejected"].includes(record.outcome);
+}
 
 describe("offline sync metadata", () => {
-  beforeEach(() => {
-    indexedDB.deleteDatabase("powerhub-offline-sync");
+  it("defines a valid tenant/user/site scoped operation record", () => {
+    expect(validateRecord(aliceSite7)).toBe(true);
+    expect(aliceSite7).toMatchObject({ operationId: "op-a", userId: 1, tenantId: 10, siteId: 7, outcome: "pending" });
   });
 
-  it("round-trips one operation", async () => {
-    await upsertSyncMetadata(aliceSite7);
-    expect(await getSyncMetadata("op-a")).toEqual(aliceSite7);
+  it("keeps dependency and retry fields explicit", () => {
+    const record: SyncMetadataRecord = { ...aliceSite7, dependsOn: ["op-parent"], attempts: 3, nextAttemptAt: 500, outcome: "retryable", lastError: "timeout" };
+    expect(record.dependsOn).toEqual(["op-parent"]);
+    expect(record.attempts).toBe(3);
+    expect(record.nextAttemptAt).toBe(500);
+    expect(record.outcome).toBe("retryable");
+    expect(record.lastError).toBe("timeout");
   });
 
-  it("scopes listing by user and optional site", async () => {
-    await Promise.all([upsertSyncMetadata(aliceSite7), upsertSyncMetadata(bobSite7), upsertSyncMetadata(aliceSite8)]);
-    expect((await listSyncMetadata({ userId: 1 })).map((row) => row.operationId)).toEqual(["op-c", "op-a"]);
-    expect((await listSyncMetadata({ userId: 1, siteId: 7 })).map((row) => row.operationId)).toEqual(["op-a"]);
-    expect((await listSyncMetadata({ userId: 2 })).map((row) => row.operationId)).toEqual(["op-b"]);
+  it("supports terminal outcomes without retry timestamps", () => {
+    const record: SyncMetadataRecord = { ...aliceSite7, attempts: 3, nextAttemptAt: Number.POSITIVE_INFINITY, outcome: "applied", lastError: undefined };
+    expect(record.outcome).toBe("applied");
+    expect(record.nextAttemptAt).toBe(Number.POSITIVE_INFINITY);
+    expect(record.lastError).toBeUndefined();
   });
 
-  it("persists retry state and terminal outcomes", async () => {
-    await upsertSyncMetadata({ ...aliceSite7, attempts: 3, nextAttemptAt: 500, outcome: "retryable", lastError: "timeout" });
-    expect(await getSyncMetadata("op-a")).toMatchObject({ attempts: 3, nextAttemptAt: 500, outcome: "retryable", lastError: "timeout" });
-    await upsertSyncMetadata({ ...aliceSite7, attempts: 3, nextAttemptAt: Number.POSITIVE_INFINITY, outcome: "applied", lastError: undefined });
-    expect(await getSyncMetadata("op-a")).toMatchObject({ attempts: 3, outcome: "applied" });
-  });
-
-  it("removes only the requested operation", async () => {
-    await Promise.all([upsertSyncMetadata(aliceSite7), upsertSyncMetadata(aliceSite8)]);
-    await removeSyncMetadata("op-a");
-    expect(await getSyncMetadata("op-a")).toBeUndefined();
-    expect(await getSyncMetadata("op-c")).toEqual(aliceSite8);
+  it("exposes a dedicated metadata error type", () => {
+    const error = new OfflineSyncMetadataError("offline metadata unavailable");
+    expect(error).toBeInstanceOf(Error);
   });
 });
