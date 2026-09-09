@@ -10,7 +10,7 @@ function item(id: string, createdAt: number): QueuedOfflineWork {
     userId: 7,
     siteId: 11,
     kind: "subscriber_create",
-    payload: { name: id },
+    payload: { name: id, phone: "", subscriptionType: "residential" },
     createdAt,
     updatedAt: createdAt,
     status: "pending",
@@ -18,17 +18,19 @@ function item(id: string, createdAt: number): QueuedOfflineWork {
 }
 
 describe("executeReadyOperations", () => {
-  it("executes ready operations sequentially and unlocks dependents", async () => {
+  it("executes a dependency chain sequentially in one run", async () => {
     const a = item("a", 1);
     const b = item("b", 2);
+    const c = item("c", 3);
     const metadata = new Map([
       [a.clientOperationId, createSyncMetadata(a, 0)],
       [b.clientOperationId, { ...createSyncMetadata(b, 0), dependsOn: [a.clientOperationId] }],
+      [c.clientOperationId, { ...createSyncMetadata(c, 0), dependsOn: [b.clientOperationId] }],
     ]);
     const calls: string[] = [];
 
     const results = await executeReadyOperations({
-      items: [b, a],
+      items: [c, b, a],
       metadataByOperationId: metadata,
       transport: async (operation) => {
         calls.push(operation.clientOperationId);
@@ -37,8 +39,8 @@ describe("executeReadyOperations", () => {
       now: 100,
     });
 
-    expect(calls).toEqual(["a", "b"]);
-    expect(results.map((result) => result.outcome)).toEqual(["applied", "applied"]);
+    expect(calls).toEqual(["a", "b", "c"]);
+    expect(results.map((result) => result.outcome)).toEqual(["applied", "applied", "applied"]);
   });
 
   it("does not submit an already completed operation", async () => {
