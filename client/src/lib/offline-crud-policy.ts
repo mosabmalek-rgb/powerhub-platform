@@ -18,9 +18,9 @@ export function assertOfflineCrudAllowed(entity: OfflineCrudEntity, action: Offl
 }
 
 export const OFFLINE_CRUD_POLICY = Object.freeze({
-  create: Object.freeze([...safeCreate]),
-  update: Object.freeze([...safeUpdate]),
-  delete: Object.freeze([...safeDelete]),
+  create: Object.freeze(Array.from(safeCreate)),
+  update: Object.freeze(Array.from(safeUpdate)),
+  delete: Object.freeze(Array.from(safeDelete)),
   blockedByDefault: Object.freeze([
     "invoices",
     "payments",
