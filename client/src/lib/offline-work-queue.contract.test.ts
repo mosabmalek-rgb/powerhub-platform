@@ -17,7 +17,7 @@ describe("offline generator queue contract", () => {
     expect(item.payload).toEqual(payload);
   });
 
-  it("preserves update identity and operational fields", () => {
+  it("preserves update identity, operational fields, and optimistic concurrency token", () => {
     const payload: GeneratorUpdateDraft = {
       generatorId: 11,
       name: "المولد الاحتياطي",
@@ -25,9 +25,11 @@ describe("offline generator queue contract", () => {
       fuelLevelLiters: "42",
       operatingHours: "120.5",
       status: "maintenance",
+      expectedUpdatedAt: "2026-09-09T12:00:00.000Z",
     };
     const item = createOfflineWork({ userId: 7, siteId: 3, kind: "generator_update", payload });
     expect(item.kind).toBe("generator_update");
     expect(item.payload).toEqual(payload);
+    expect((item.payload as GeneratorUpdateDraft).expectedUpdatedAt).toBe("2026-09-09T12:00:00.000Z");
   });
 });
