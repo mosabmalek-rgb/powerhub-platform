@@ -58,6 +58,20 @@ export function offlineQueryCacheKey(queryKey: readonly unknown[]) {
   return superjson.stringify(queryKey);
 }
 
+export function isOfflineQueryRecordUsable(
+  record: Pick<OfflineQueryRecord, "userId" | "serializedQueryKey" | "expiresAt">,
+  userId: string,
+  now = Date.now(),
+) {
+  if (record.userId !== userId || record.expiresAt <= now) return false;
+  try {
+    const queryKey = superjson.parse<readonly unknown[]>(record.serializedQueryKey);
+    return isOfflineCacheableQueryKey(queryKey);
+  } catch {
+    return false;
+  }
+}
+
 function collectStrings(value: unknown): string[] {
   if (typeof value === "string") return [value];
   if (Array.isArray(value)) return value.flatMap(collectStrings);
@@ -108,11 +122,10 @@ export async function hydrateOfflineQueryCache(queryClient: QueryClient, userId:
 
   let hydrated = 0;
   for (const record of records) {
-    if (record.userId !== userId || record.expiresAt <= now) continue;
+    if (!isOfflineQueryRecordUsable(record, userId, now)) continue;
     try {
       const queryKey = superjson.parse<readonly unknown[]>(record.serializedQueryKey);
       const data = superjson.parse(record.serializedData);
-      if (!isOfflineCacheableQueryKey(queryKey)) continue;
       queryClient.setQueryData(queryKey, data, { updatedAt: record.updatedAt });
       hydrated += 1;
     } catch {
