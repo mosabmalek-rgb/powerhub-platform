@@ -1,0 +1,68 @@
+import { describe, expect, it } from "vitest";
+import {
+  isOfflineCacheableQueryKey,
+  isOfflineQueryRecordUsable,
+  offlineQueryCacheKey,
+} from "./offline-query-cache";
+
+describe("offline query cache policy", () => {
+  it("caches tenant-scoped operational PowerHub queries", () => {
+    expect(isOfflineCacheableQueryKey(["powerhub", "subscribers", "list", { siteId: 7 }])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub", "readings", "list", { siteId: 7 }])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub", "sites", "list"])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub", "generators", "list", { siteId: 7 }])).toBe(true);
+  });
+
+  it("does not cache financial, dashboard, admin, audit, or auth queries", () => {
+    expect(isOfflineCacheableQueryKey(["powerhub", "payments", "list", { siteId: 7 }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub", "dashboard", "summary", { siteId: 7 }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub", "admin", "tenants"])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["auth", "me"])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
+  });
+
+  it("rejects unrelated namespaces from the offline cache", () => {
+    expect(isOfflineCacheableQueryKey(["users", "list"])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["settings", "get"])).toBe(false);
+  });
+
+  it("keeps site-scoped query keys distinct after serialization", () => {
+    const site7 = ["powerhub", "subscribers", "list", { siteId: 7 }];
+    const site8 = ["powerhub", "subscribers", "list", { siteId: 8 }];
+    expect(offlineQueryCacheKey(site7)).not.toBe(offlineQueryCacheKey(site8));
+  });
+
+  it("accepts only current-user, unexpired, cacheable records", () => {
+    const key = ["powerhub", "subscribers", "list", { siteId: 7 }];
+    const baseRecord = {
+      userId: "user-1",
+      serializedQueryKey: offlineQueryCacheKey(key),
+      expiresAt: 2_000,
+    };
+
+    expect(isOfflineQueryRecordUsable(baseRecord, "user-1", 1_000)).toBe(true);
+    expect(isOfflineQueryRecordUsable(baseRecord, "user-2", 1_000)).toBe(false);
+    expect(isOfflineQueryRecordUsable(baseRecord, "user-1", 2_000)).toBe(false);
+    expect(
+      isOfflineQueryRecordUsable(
+        { ...baseRecord, serializedQueryKey: offlineQueryCacheKey(["powerhub", "payments", "list"]) },
+        "user-1",
+        1_000,
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects malformed serialized query keys", () => {
+    expect(
+      isOfflineQueryRecordUsable(
+        {
+          userId: "user-1",
+          serializedQueryKey: "not-valid-superjson",
+          expiresAt: 2_000,
+        },
+        "user-1",
+        1_000,
+      ),
+    ).toBe(false);
+  });
+});

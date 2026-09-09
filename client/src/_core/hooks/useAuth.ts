@@ -1,5 +1,6 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
 import { supabase } from "@/lib/supabase";
 import { useCallback, useEffect, useState } from "react";
 
@@ -18,38 +19,61 @@ export function useAuth(options?: UseAuthOptions) {
   const [sessionReady, setSessionReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      setHasSession(Boolean(data.session));
-      setSessionReady(true);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setHasSession(Boolean(session));
-      setSessionReady(true);
-      void utils.auth.me.invalidate();
-    });
-    return () => { active = false; listener.subscription.unsubscribe(); };
-  }, [utils.auth.me]);
-
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: hasSession,
     retry: false,
     refetchOnWindowFocus: false,
   });
+  type CachedAuthUser = Exclude<typeof meQuery.data, undefined>;
+  const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void supabase.auth.getSession().then(async ({ data }) => {
+      if (!active) return;
+      setHasSession(Boolean(data.session));
+      setSessionReady(true);
+      if (!data.session) return;
+      const cached = await getOfflineAuthUser<CachedAuthUser>(data.session.user.id);
+      if (active && cached) setCachedUser(cached);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setHasSession(Boolean(session));
+      setSessionReady(true);
+      if (!session) {
+        setCachedUser(null);
+      } else {
+        void getOfflineAuthUser<CachedAuthUser>(session.user.id).then((cached) => {
+          if (cached) setCachedUser(cached);
+        });
+      }
+      void utils.auth.me.invalidate();
+    });
+    return () => { active = false; listener.subscription.unsubscribe(); };
+  }, [utils.auth.me]);
+
+  useEffect(() => {
+    if (!meQuery.data) return;
+    setCachedUser(meQuery.data);
+    void supabase.auth.getSession().then(({ data }) => {
+      const userId = data.session?.user.id;
+      if (userId) void persistOfflineAuthUser(userId, meQuery.data);
+    });
+  }, [meQuery.data]);
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
+    setCachedUser(null);
     utils.auth.me.setData(undefined, null);
     await utils.auth.me.invalidate();
   }, [utils]);
 
+  const user = meQuery.data ?? cachedUser;
   const state = {
-    user: meQuery.data ?? null,
-    loading: !sessionReady || (hasSession && meQuery.isLoading),
+    user,
+    loading: !sessionReady || (hasSession && meQuery.isLoading && !cachedUser),
     error: meQuery.error ?? null,
-    isAuthenticated: Boolean(hasSession && meQuery.data),
+    isAuthenticated: Boolean(hasSession && user),
   };
 
   useEffect(() => {

@@ -1,0 +1,19 @@
+{
+  "name": "PowerHub",
+  "short_name": "PowerHub",
+  "description": "منصة إدارة مولدات الكهرباء والعمل دون اتصال مع المزامنة لاحقاً.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/workspace",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0D1117",
+  "theme_color": "#0D1117",
+  "icons": [
+    {
+      "src": "/api/brand-assets/powerhub-logo-light.png?v=20260904",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ]
+}
