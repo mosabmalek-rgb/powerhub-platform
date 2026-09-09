@@ -6,13 +6,20 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "subscribers", "list", { siteId: 7 }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub", "readings", "list", { siteId: 7 }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub", "sites", "list"])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub", "generators", "list", { siteId: 7 }])).toBe(true);
   });
 
-  it("does not cache financial, admin, audit, or auth queries", () => {
+  it("does not cache financial, dashboard, admin, audit, or auth queries", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "payments", "list", { siteId: 7 }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub", "dashboard", "summary", { siteId: 7 }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "admin", "tenants"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["auth", "me"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
+  });
+
+  it("rejects unrelated namespaces from the offline cache", () => {
+    expect(isOfflineCacheableQueryKey(["users", "list"])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["settings", "get"])).toBe(false);
   });
 
   it("serializes equivalent query keys deterministically", () => {
