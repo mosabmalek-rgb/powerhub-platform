@@ -18,11 +18,8 @@ function item(clientOperationId: string, createdAt: number): QueuedOfflineWork {
     siteId: 7,
     kind: "subscriber_create",
     payload: { fullName: `User ${clientOperationId}`, phone: "0590000000", subscriptionType: "residential" },
-    dependsOn: [],
     createdAt,
     updatedAt: createdAt,
-    attempts: 0,
-    nextAttemptAt: createdAt,
     status: "pending",
   };
 }
