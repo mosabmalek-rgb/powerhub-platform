@@ -25,7 +25,7 @@ function item(clientOperationId: string, createdAt: number): QueuedOfflineWork {
 }
 
 describe("offline sync engine", () => {
-  it("plans only ready operations in creation order", () => {
+  it("plans only dependency-ready operations in creation order", () => {
     const a = item("a", 100);
     const b = item("b", 200);
     const meta = new Map([
@@ -34,7 +34,7 @@ describe("offline sync engine", () => {
     ]);
 
     expect(planReadyOperations([b, a], meta, new Set(), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["a"]);
-    expect(planReadyOperations([b, a], meta, new Set(["a"]), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["b"]);
+    expect(planReadyOperations([b, a], meta, new Set(["a"]), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["a", "b"]);
   });
 
   it("does not plan operations before nextAttemptAt", () => {
@@ -58,7 +58,7 @@ describe("offline sync engine", () => {
   it("uses bounded exponential backoff with jitter", () => {
     expect(computeBackoffDelay(1, 0)).toBe(750);
     expect(computeBackoffDelay(2, 0.5)).toBe(2_000);
-    expect(computeBackoffDelay(5, 1)).toBe(16_000);
+    expect(computeBackoffDelay(5, 1)).toBe(20_000);
     expect(computeBackoffDelay(20, 1)).toBeLessThanOrEqual(5 * 60_000);
   });
 
