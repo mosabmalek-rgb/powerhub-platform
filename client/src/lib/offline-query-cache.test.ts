@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isOfflineCacheableQueryKey, offlineQueryCacheKey } from "./offline-query-cache";
+import {
+  isOfflineCacheableQueryKey,
+  isOfflineQueryRecordUsable,
+  offlineQueryCacheKey,
+} from "./offline-query-cache";
 
 describe("offline query cache policy", () => {
   it("caches tenant-scoped operational PowerHub queries", () => {
@@ -22,8 +26,43 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["settings", "get"])).toBe(false);
   });
 
-  it("serializes equivalent query keys deterministically", () => {
+  it("keeps site-scoped query keys distinct after serialization", () => {
+    const site7 = ["powerhub", "subscribers", "list", { siteId: 7 }];
+    const site8 = ["powerhub", "subscribers", "list", { siteId: 8 }];
+    expect(offlineQueryCacheKey(site7)).not.toBe(offlineQueryCacheKey(site8));
+  });
+
+  it("accepts only current-user, unexpired, cacheable records", () => {
     const key = ["powerhub", "subscribers", "list", { siteId: 7 }];
-    expect(offlineQueryCacheKey(key)).toBe(offlineQueryCacheKey(key));
+    const baseRecord = {
+      userId: "user-1",
+      serializedQueryKey: offlineQueryCacheKey(key),
+      expiresAt: 2_000,
+    };
+
+    expect(isOfflineQueryRecordUsable(baseRecord, "user-1", 1_000)).toBe(true);
+    expect(isOfflineQueryRecordUsable(baseRecord, "user-2", 1_000)).toBe(false);
+    expect(isOfflineQueryRecordUsable(baseRecord, "user-1", 2_000)).toBe(false);
+    expect(
+      isOfflineQueryRecordUsable(
+        { ...baseRecord, serializedQueryKey: offlineQueryCacheKey(["powerhub", "payments", "list"]) },
+        "user-1",
+        1_000,
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects malformed serialized query keys", () => {
+    expect(
+      isOfflineQueryRecordUsable(
+        {
+          userId: "user-1",
+          serializedQueryKey: "not-valid-superjson",
+          expiresAt: 2_000,
+        },
+        "user-1",
+        1_000,
+      ),
+    ).toBe(false);
   });
 });
