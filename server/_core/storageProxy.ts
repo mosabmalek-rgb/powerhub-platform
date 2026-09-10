@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Response } from "express";
 import { storageGetSignedUrl } from "../storage";
 import { ENV } from "./env";
 import { POWERHUB_DARK_SVG, POWERHUB_LIGHT_SVG } from "./brandAssetsFallback";
@@ -9,7 +9,7 @@ function routeKey(req: { params: unknown }): string {
   return ((req.params as Record<string, string>)["0"] ?? "").replace(/^\/+/, "");
 }
 
-function sendBrandFallback(assetName: string, res: Parameters<Express["get"]>[1] extends never ? never : any) {
+function sendBrandFallback(assetName: string, res: Response) {
   const svg = assetName === "powerhub-logo-dark.png" ? POWERHUB_DARK_SVG : POWERHUB_LIGHT_SVG;
   res.set("Content-Type", "image/svg+xml; charset=utf-8");
   res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
