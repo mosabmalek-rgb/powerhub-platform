@@ -41,7 +41,7 @@ export function useAuth(options?: UseAuthOptions) {
       if (active && cached) setCachedUser(cached);
     });
 
-    return subscribeSupabaseAuthState((event, session) => {
+    const unsubscribe = subscribeSupabaseAuthState((event, session) => {
       setHasSession(Boolean(session));
       setSessionReady(true);
       if (!session) {
@@ -57,6 +57,11 @@ export function useAuth(options?: UseAuthOptions) {
       // renewal can fan out into a request storm. Identity/profile changes do.
       if (AUTH_DATA_EVENTS.has(event)) setAuthDataRevision((value) => value + 1);
     });
+
+    return () => {
+      unsubscribe();
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
