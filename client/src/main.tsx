@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
-import { getSupabaseAccessToken, getSupabaseSession, supabase } from "./lib/supabase";
+import { getSupabaseAccessToken, getSupabaseSession, subscribeSupabaseAuthState } from "./lib/supabase";
 import { hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
 import "./index.css";
 
@@ -36,9 +36,7 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (typeof window === "undefined") return;
 
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
-
   if (!isUnauthorized) return;
-
   startLogin();
 };
 
@@ -88,7 +86,7 @@ async function bootstrapOfflineState() {
     console.warn("[PowerHub] Offline cache bootstrap skipped", error);
   }
 
-  supabase.auth.onAuthStateChange((event, session) => {
+  subscribeSupabaseAuthState((event, session) => {
     const nextUserId = session?.user.id ?? null;
     if (nextUserId === activeOfflineUserId) return;
 
