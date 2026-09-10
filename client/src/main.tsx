@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
-import { getSupabaseAccessToken, supabase } from "./lib/supabase";
+import { getSupabaseAccessToken, getSupabaseSession, supabase } from "./lib/supabase";
 import { hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
 import "./index.css";
 
@@ -81,8 +81,8 @@ let activeOfflineUserId: string | null = null;
 
 async function bootstrapOfflineState() {
   try {
-    const { data } = await supabase.auth.getSession();
-    activeOfflineUserId = data.session?.user.id ?? null;
+    const session = await getSupabaseSession();
+    activeOfflineUserId = session?.user.id ?? null;
     if (activeOfflineUserId) await hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
   } catch (error) {
     console.warn("[PowerHub] Offline cache bootstrap skipped", error);
