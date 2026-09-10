@@ -1,13 +1,15 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
-import { getSupabaseSession, supabase } from "@/lib/supabase";
+import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { useCallback, useEffect, useState } from "react";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
   redirectPath?: string;
 };
+
+const AUTH_DATA_EVENTS = new Set(["INITIAL_SESSION", "SIGNED_IN", "SIGNED_OUT", "USER_UPDATED"]);
 
 export function useAuth(options?: UseAuthOptions) {
   // Login is started via startLogin() in the effect below, only when we actually
@@ -18,6 +20,7 @@ export function useAuth(options?: UseAuthOptions) {
   const utils = trpc.useUtils();
   const [sessionReady, setSessionReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
+  const [authDataRevision, setAuthDataRevision] = useState(0);
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: hasSession,
@@ -37,7 +40,8 @@ export function useAuth(options?: UseAuthOptions) {
       const cached = await getOfflineAuthUser<CachedAuthUser>(session.user.id);
       if (active && cached) setCachedUser(cached);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+
+    return subscribeSupabaseAuthState((event, session) => {
       setHasSession(Boolean(session));
       setSessionReady(true);
       if (!session) {
@@ -47,10 +51,18 @@ export function useAuth(options?: UseAuthOptions) {
           if (cached) setCachedUser(cached);
         });
       }
-      void utils.auth.me.invalidate();
+
+      // TOKEN_REFRESHED only replaces credentials. It must not invalidate every
+      // auth.me query instance across the application, otherwise a routine token
+      // renewal can fan out into a request storm. Identity/profile changes do.
+      if (AUTH_DATA_EVENTS.has(event)) setAuthDataRevision((value) => value + 1);
     });
-    return () => { active = false; listener.subscription.unsubscribe(); };
-  }, [utils.auth.me]);
+  }, []);
+
+  useEffect(() => {
+    if (authDataRevision === 0) return;
+    void utils.auth.me.invalidate();
+  }, [authDataRevision, utils.auth.me]);
 
   useEffect(() => {
     if (!meQuery.data) return;
@@ -62,7 +74,7 @@ export function useAuth(options?: UseAuthOptions) {
   }, [meQuery.data]);
 
   const logout = useCallback(async () => {
-    await supabase.auth.signOut();
+    await supabaseSignOutSafely();
     setCachedUser(null);
     utils.auth.me.setData(undefined, null);
     await utils.auth.me.invalidate();
@@ -102,4 +114,9 @@ export function useAuth(options?: UseAuthOptions) {
     refresh: () => meQuery.refetch(),
     logout,
   };
+}
+
+async function supabaseSignOutSafely() {
+  const { supabase } = await import("@/lib/supabase");
+  await supabase.auth.signOut();
 }
