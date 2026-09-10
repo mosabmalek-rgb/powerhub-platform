@@ -1,7 +1,7 @@
 # P7.3 — Broader Offline CRUD
 
 ## Current slice
-P7.3 adds an explicit safety boundary for offline operational CRUD before expanding into additional entities. This prevents an offline-capable screen from accidentally making financial, administrative, messaging, audit, or authorization-sensitive data locally authoritative.
+P7.3 adds a controlled safety boundary for offline operational CRUD before expanding into additional entities. Offline-capable screens do not make financial, administrative, messaging, audit, or authorization-sensitive data locally authoritative.
 
 ## Approved operational scope
 - Create: subscribers, generators, readings.
@@ -23,24 +23,31 @@ All replayable mutations continue through the P7.2 unified executor and retain `
 - Added generator create/update payload types without changing existing online caller semantics.
 - Added deterministic queue contract tests covering client operation identity and user/site scope.
 - Routed generator create/update queue items through the existing `OfflineWorkSyncPanel` and P7.2 unified executor.
-- Added replay-safe generator create/update database functions with site/tenant scope and optimistic concurrency protection.
+- Added browser-authenticated Supabase generator create/update RPCs with tenant/site authorization, idempotent replay, and optimistic concurrency protection.
 - Extended `offline_sync_operations` to accept generator operation types.
-- Preview deployments for the current branch reach `READY`.
-- Latest Preview runtime log review found no warnings/errors and no 5xx responses in the last 24 hours.
+- Generator Editor now enqueues `generator_create` / `generator_update` while offline and preserves `expectedUpdatedAt` for stale-write detection.
+- Auth session reads are centralized through a single-flight in-memory session accessor while Supabase automatic token renewal remains enabled.
+- Latest branch Preview deployment reaches `READY`.
 
 ## Staging verification
-The staging project `powerhub-staging-dr` was used for controlled verification only.
+The staging project `powerhub-staging-dr` is used for controlled verification only.
 
-Verified scenarios:
+Verified database/RPC scenarios:
 1. Generator create succeeds with a client operation identity.
-2. Replaying the same operation returns the same generator rather than creating a duplicate.
+2. Replaying the same operation returns the existing generator instead of creating a duplicate.
 3. Generator update with the current `expectedUpdatedAt` succeeds.
 4. A stale update is rejected with `GENERATOR_VERSION_CONFLICT` and does not overwrite newer data.
 5. Scope checks reject mismatched tenant/site/generator combinations.
 6. Test records and test sync-operation rows are removed after verification; no test data remains.
 
-## Remaining gate
-The application server router in `server/powerhub.ts` still needs to expose the new Generator idempotency/concurrency contract to the tRPC surface, and the `NetworkDirectoryPage` generator form still needs to enqueue `generator_create` / `generator_update` while offline. Therefore P7.3 broader generator CRUD is **not yet end-to-end complete**.
+## Current release gate
+The remaining gate is authenticated browser-level E2E on the staging Preview. It must prove the real browser path:
+
+`Login → Session Stability → Offline Generator Form → IndexedDB Queue → Reconnect → Unified Sync Executor → Supabase → Idempotent Replay → Stale Conflict`
+
+and then run subscriber/invoice/payment smoke coverage to protect the existing commercial flows.
+
+Browser E2E is not considered passed until execution evidence exists from an authenticated browser session. Unit tests, database verification, CI, and Preview readiness do not substitute for this gate.
 
 ## Release policy
-P7.3 remains Draft. Do not merge or promote to production until the server contract, Generator Editor offline path, full unit/regression suite, CI, staging replay/isolation checks, and final review all pass. Production remains on the established P6 release.
+P7.3 remains Draft. Do not merge or promote to production until the browser E2E gate, tenant/site isolation checks, regression smoke coverage, CI, Security, Preview verification, and final review all pass. Production remains on the established P6 release.
