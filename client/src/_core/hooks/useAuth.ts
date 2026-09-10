@@ -1,7 +1,7 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseSession, supabase } from "@/lib/supabase";
 import { useCallback, useEffect, useState } from "react";
 
 type UseAuthOptions = {
@@ -29,12 +29,12 @@ export function useAuth(options?: UseAuthOptions) {
 
   useEffect(() => {
     let active = true;
-    void supabase.auth.getSession().then(async ({ data }) => {
+    void getSupabaseSession().then(async (session) => {
       if (!active) return;
-      setHasSession(Boolean(data.session));
+      setHasSession(Boolean(session));
       setSessionReady(true);
-      if (!data.session) return;
-      const cached = await getOfflineAuthUser<CachedAuthUser>(data.session.user.id);
+      if (!session) return;
+      const cached = await getOfflineAuthUser<CachedAuthUser>(session.user.id);
       if (active && cached) setCachedUser(cached);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -55,8 +55,8 @@ export function useAuth(options?: UseAuthOptions) {
   useEffect(() => {
     if (!meQuery.data) return;
     setCachedUser(meQuery.data);
-    void supabase.auth.getSession().then(({ data }) => {
-      const userId = data.session?.user.id;
+    void getSupabaseSession().then((session) => {
+      const userId = session?.user.id;
       if (userId) void persistOfflineAuthUser(userId, meQuery.data);
     });
   }, [meQuery.data]);
