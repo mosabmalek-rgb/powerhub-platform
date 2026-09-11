@@ -2,6 +2,7 @@ import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { ThemeSelector } from "@/components/ThemeSelector";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
+  Activity,
   BellRing,
   Building2,
   ChevronLeft,
@@ -64,6 +65,7 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
     label: "الرقابة والحماية",
     items: [
       { id: "notifications", label: "التنبيهات والإشعارات", icon: BellRing, detail: "التنبيهات وسجل الرسائل" },
+      { id: "syncEvents", label: "سجل المزامنة", icon: Activity, detail: "أحداث المزامنة والتعارضات المركزية" },
       { id: "security", label: "الأمان والسجلات", icon: ShieldCheck, detail: "التدقيق والنسخ الاحتياطي والحماية" },
       { id: "settings", label: "إعدادات المنصة", icon: Settings2, detail: "الهوية والصفحة العامة والتكاملات" },
     ],

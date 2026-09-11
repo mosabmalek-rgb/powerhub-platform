@@ -957,6 +957,40 @@ export const adminRouter = router({
     return { success: true, generatorId: Number(generator.id), status: "active" as const };
   }),
 
+  listSyncEvents: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive().optional(), siteId: z.number().int().positive().optional(), status: z.enum(["success", "partial", "retryable", "needs_review", "failed"]).optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) })).query(async ({ input }) => {
+    const admin = supabaseAdmin();
+    let query = admin.from("mobile_sync_events").select("id, tenant_id, site_id, user_id, event_type, status, synced_count, retryable_count, needs_review_count, error_code, error_message, app_version, device_label, occurred_at");
+    if (input.tenantId) query = query.eq("tenant_id", input.tenantId);
+    if (input.siteId) query = query.eq("site_id", input.siteId);
+    if (input.status) query = query.eq("status", input.status);
+    if (input.from) query = query.gte("occurred_at", input.from);
+    if (input.to) query = query.lte("occurred_at", input.to);
+    const { data, error } = await query.order("occurred_at", { ascending: false }).range((input.page - 1) * input.pageSize, input.page * input.pageSize - 1);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل المزامنة المركزي من Supabase." });
+    const rows = data ?? [];
+    const tenantIds = Array.from(new Set(rows.map((row) => Number(row.tenant_id))));
+    const siteIds = Array.from(new Set(rows.map((row) => Number(row.site_id))));
+    const userIds = Array.from(new Set(rows.map((row) => Number(row.user_id))));
+    const [tenantsResult, sitesResult, usersResult] = await Promise.all([
+      tenantIds.length ? admin.from("tenants").select("id, name").in("id", tenantIds) : Promise.resolve({ data: [], error: null }),
+      siteIds.length ? admin.from("sites").select("id, name").in("id", siteIds) : Promise.resolve({ data: [], error: null }),
+      userIds.length ? admin.from("users").select("id, name, email").in("id", userIds) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (tenantsResult.error || sitesResult.error || usersResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياق أحداث المزامنة من Supabase." });
+    const tenantNames = new Map((tenantsResult.data ?? []).map((tenant) => [Number(tenant.id), tenant.name]));
+    const siteNames = new Map((sitesResult.data ?? []).map((site) => [Number(site.id), site.name]));
+    const usersById = new Map((usersResult.data ?? []).map((user) => [Number(user.id), user]));
+    return rows.map((row) => {
+      const user = usersById.get(Number(row.user_id));
+      return {
+        id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—", siteName: siteNames.get(Number(row.site_id)) ?? "—",
+        userId: Number(row.user_id), userName: user?.name ?? null, userEmail: user?.email ?? null, eventType: row.event_type, status: row.status,
+        syncedCount: Number(row.synced_count ?? 0), retryableCount: Number(row.retryable_count ?? 0), needsReviewCount: Number(row.needs_review_count ?? 0), errorCode: row.error_code, errorMessage: row.error_message,
+        appVersion: row.app_version, deviceLabel: row.device_label, occurredAt: new Date(row.occurred_at),
+      };
+    });
+  }),
+
   listNotifications: platformAdminProcedure.input(z.object({ status: z.enum(["pending", "submitted", "delivered", "read", "failed"]).optional() }).optional()).query(async ({ input }) => {
     const admin = supabaseAdmin();
     let query = admin.from("notification_messages").select("id, tenant_id, channel, event_type, recipient, status, attempts, last_error, created_at").order("created_at", { ascending: false }).limit(300);
