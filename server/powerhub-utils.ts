@@ -24,11 +24,12 @@ export function hashInvoiceShareToken(token: string) {
 }
 
 /**
- * Generates the global, human-readable PowerHub invoice number.
- * The sequence is global within the invoice year, not per site/tenant.
+ * Generates the human-readable PowerHub invoice number.
+ * The invoice number is global at the business level; siteCode is retained
+ * only for backward-compatible callers and is intentionally not encoded.
  * Example: INV-2026-0001
  */
-export function nextInvoiceNo(period: string, sequence: number) {
+export function nextInvoiceNo(_siteCode: string, period: string, sequence: number) {
   const year = period.slice(0, 4);
   return `INV-${year}-${String(sequence).padStart(4, "0")}`;
 }
