@@ -1,1 +1,0 @@
-Next stage: wire the existing admin tRPC mutations to the new Supabase RPCs, then test and preview before any production migration.
