@@ -31,10 +31,30 @@ begin
          updated_at = now()
    where nm.tenant_id = p_tenant_id
      and nm.provider_message_id = p_provider_message_id
+     and (
+       nm.status = p_status
+       or (
+         p_status = 'delivered'
+         and nm.status = 'submitted'
+       )
+       or (
+         p_status = 'read'
+         and nm.status in ('submitted', 'delivered')
+       )
+       or (
+         p_status = 'failed'
+         and nm.status = 'submitted'
+       )
+     )
   returning true, nm.id, nm.status;
 
   if not found then
-    return query select false, null::bigint, null::text;
+    return query
+    select false, nm.id, nm.status
+    from public.notification_messages as nm
+    where nm.tenant_id = p_tenant_id
+      and nm.provider_message_id = p_provider_message_id
+    limit 1;
   end if;
 end;
 $$;
