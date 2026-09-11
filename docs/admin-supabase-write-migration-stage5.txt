@@ -1,0 +1,1 @@
+Review target: validate RPC signatures against production schema before wiring tRPC callers.
