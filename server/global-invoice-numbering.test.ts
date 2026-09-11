@@ -28,6 +28,12 @@ describe("global invoice numbering contract", () => {
     expect(migration).not.toContain("where site_id=p_site_id");
   });
 
+  it("keeps the sequence allocator server-internal", () => {
+    expect(migration).toContain("alter table public.powerhub_invoice_sequences enable row level security");
+    expect(migration).toContain("revoke all on table public.powerhub_invoice_sequences from public,anon,authenticated");
+    expect(migration).toContain("grant select,insert,update on table public.powerhub_invoice_sequences to service_role");
+  });
+
   it("keeps the database uniqueness guard and service-role RPC contract", () => {
     expect(migration).toContain("revoke execute on function public.powerhub_issue_invoice_from_reading");
     expect(migration).toContain("grant execute on function public.powerhub_issue_invoice_from_reading");
