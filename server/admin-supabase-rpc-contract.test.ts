@@ -15,18 +15,18 @@ describe("admin Supabase RPC contracts", () => {
   it("keeps the three migration RPCs SECURITY DEFINER and locked to service_role", () => {
     for (const name of rpcNames) {
       expect(migration).toContain(`create or replace function public.${name}`);
-      expect(migration).toContain("security definer");
       expect(grants).toContain(`revoke all on function public.${name}`);
       expect(grants).toContain(`grant execute on function public.${name}`);
-      expect(grants).toContain("to service_role");
     }
+    expect(migration.match(/security definer/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(grants.match(/to service_role/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
   it("keeps the legacy admin write guard intact while runtime wiring is staged", () => {
     const admin = readFileSync(resolve(process.cwd(), "server/admin.ts"), "utf8");
     expect(admin).toContain("function assertLegacyAdminWriteMigrationGuard");
-    expect(admin).toContain("powerhub_admin_set_tenant_membership_status");
-    expect(admin).toContain("powerhub_admin_attach_owner_user");
-    expect(admin).toContain("powerhub_admin_update_subscription");
+    expect(admin).toContain("assertLegacyAdminWriteMigrationGuard(\"تغيير حالة عضوية صاحب المولد\")");
+    expect(admin).toContain("assertLegacyAdminWriteMigrationGuard(\"ربط حساب صاحب المولد\")");
+    expect(admin).toContain("assertLegacyAdminWriteMigrationGuard(\"تحديث اشتراك صاحب المولد\")");
   });
 });
