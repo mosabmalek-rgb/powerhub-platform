@@ -5,12 +5,13 @@ import { listOfflineWork, removeOfflineWork, updateOfflineWork, type QueuedOffli
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
 import { createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
+import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق" } as const;
+const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق" } as const;
 const labelByStatus = { pending: "بانتظار المزامنة", failed: "فشل قابل لإعادة المحاولة", conflict: "يتطلب مراجعة", applied: "تمت المزامنة" } as const;
 
 function getErrorCode(error: unknown) { return (error as { data?: { code?: string } } | null)?.data?.code; }
@@ -30,7 +31,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const issueInvoice = trpc.powerhub.invoices.createFromReading.useMutation();
   const createPayment = trpc.powerhub.payments.create.useMutation();
 
-  const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
+  const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
 
   const buildMetadata = async (pendingItems: QueuedOfflineWork[]) => {
     const stored = await listSyncMetadata({ userId, siteId });
@@ -56,6 +57,18 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const payload = item.payload as import("@/lib/offline-work-queue").SubscriberUpdateDraft;
         await updateSubscriber.mutateAsync({ siteId: item.siteId, id: payload.subscriberId, fullName: payload.fullName, phone: payload.phone, address: payload.address, subscriptionType: payload.subscriptionType, serviceStatus: payload.serviceStatus, expectedUpdatedAt: new Date(payload.expectedUpdatedAt), clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: payload.subscriberId, appliedLabel: payload.fullName });
+        return { outcome: "applied" };
+      }
+      if (item.kind === "generator_create") {
+        const payload = item.payload as import("@/lib/offline-work-queue").GeneratorCreateDraft;
+        const result = await syncGeneratorCreate({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
+        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
+        return { outcome: "applied" };
+      }
+      if (item.kind === "generator_update") {
+        const payload = item.payload as import("@/lib/offline-work-queue").GeneratorUpdateDraft;
+        const result = await syncGeneratorUpdate({ siteId: item.siteId, generatorId: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, expectedUpdatedAt: payload.expectedUpdatedAt, clientOperationId: item.clientOperationId });
+        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
         return { outcome: "applied" };
       }
       if (item.kind === "invoice_issue") {

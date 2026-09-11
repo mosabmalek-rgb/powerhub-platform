@@ -62,7 +62,47 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     if (editing) updateSubscriber.mutate({ ...base, id: editing.id });
     else createSubscriber.mutate(base);
   };
-  const submitGenerator = (values: Values) => {
+  const submitGenerator = async (values: Values) => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      if (!user?.id) return toast.error("تعذر معرفة المستخدم الحالي لحفظ المسودة محلياً.");
+      try {
+        if (editing) {
+          await enqueueOfflineWork({
+            userId: user.id,
+            siteId: siteId!,
+            kind: "generator_update",
+            payload: {
+              generatorId: editing.id,
+              name: String(values.name),
+              ratedCapacityKw: String(values.ratedCapacityKw),
+              fuelLevelLiters: String(values.fuelLevelLiters),
+              operatingHours: String(values.operatingHours),
+              status: values.status as "active" | "maintenance" | "stopped" | "offline",
+              expectedUpdatedAt: new Date(editing.updatedAt).toISOString(),
+            },
+          });
+          setEditing(null);
+          toast.success("حُفظ تعديل المولد كمسودة محلية؛ سيُزامن تلقائياً عند عودة الاتصال.");
+        } else {
+          await enqueueOfflineWork({
+            userId: user.id,
+            siteId: siteId!,
+            kind: "generator_create",
+            payload: {
+              code: String(values.code),
+              name: String(values.name),
+              serialNumber: values.serialNumber ? String(values.serialNumber) : undefined,
+              ratedCapacityKw: String(values.ratedCapacityKw),
+              fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other",
+            },
+          });
+          toast.success("حُفظ المولد كمسودة محلية؛ سيُنشأ في الخادم عند عودة الاتصال.");
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "تعذر حفظ المسودة المحلية.");
+      }
+      return;
+    }
     if (editing) updateGenerator.mutate({ siteId: siteId!, id: editing.id, name: String(values.name), ratedCapacityKw: String(values.ratedCapacityKw), fuelLevelLiters: String(values.fuelLevelLiters), operatingHours: String(values.operatingHours), status: values.status as "active" | "maintenance" | "stopped" | "offline" });
     else createGenerator.mutate({ siteId: siteId!, code: String(values.code), name: String(values.name), serialNumber: values.serialNumber ? String(values.serialNumber) : undefined, ratedCapacityKw: String(values.ratedCapacityKw), fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other" });
   };
