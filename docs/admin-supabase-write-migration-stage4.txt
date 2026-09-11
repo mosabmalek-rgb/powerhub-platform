@@ -1,1 +1,0 @@
-Stage 1 complete: database-side contracts created. Stage 2 will wire callers; this branch intentionally does not enable them yet.
