@@ -24,10 +24,16 @@ describe("WhatsApp webhook Supabase migration", () => {
   });
 
   it("validates supported WhatsApp statuses", () => {
-    expect(migration).toContain("submitted",);
+    expect(migration).toContain("submitted");
     expect(migration).toContain("delivered");
     expect(migration).toContain("read");
     expect(migration).toContain("failed");
     expect(migration).toContain("INVALID_NOTIFICATION_STATUS");
+  });
+
+  it("prevents stale webhook events from regressing status", () => {
+    expect(migration).toContain("p_status = 'delivered'\n         and nm.status = 'submitted'");
+    expect(migration).toContain("p_status = 'read'\n         and nm.status in ('submitted', 'delivered')");
+    expect(migration).toContain("p_status = 'failed'\n         and nm.status = 'submitted'");
   });
 });
