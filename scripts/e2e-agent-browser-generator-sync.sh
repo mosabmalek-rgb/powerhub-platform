@@ -17,17 +17,15 @@ BASE_URL="${POWERHUB_E2E_URL%/}"
 agent-browser --session "$SESSION" state load "$POWERHUB_E2E_AUTH_STATE"
 agent-browser --session "$SESSION" open "$BASE_URL/generators"
 agent-browser --session "$SESSION" wait --load networkidle
-
-# Confirm that the protected route renders for the authenticated session.
 agent-browser --session "$SESSION" snapshot -i
 agent-browser --session "$SESSION" get url
 
 # Seed one pending generator operation directly into the browser's IndexedDB.
 # This is local-only: no PowerHub API mutation is performed by the seed step.
-agent-browser --session "$SESSION" eval --stdin <<'EVAL'
+agent-browser --session "$SESSION" eval --stdin <<EVAL
 (async () => {
-  const userId = Number(process.env.POWERHUB_E2E_USER_ID);
-  const siteId = Number(process.env.POWERHUB_E2E_SITE_ID);
+  const userId = ${POWERHUB_E2E_USER_ID};
+  const siteId = ${POWERHUB_E2E_SITE_ID};
   const db = await new Promise((resolve, reject) => {
     const request = indexedDB.open("powerhub-offline-workspace", 1);
     request.onupgradeneeded = () => {
@@ -78,7 +76,6 @@ grep -q "مزامنة المعلقة (1)" <<<"$BODY"
 grep -q "بانتظار المزامنة" <<<"$BODY"
 
 echo "PASS: authenticated Generator route exposes the offline sync panel with a pending local generator operation."
-
 echo "PASS: test does not click the sync action; no server-side generator mutation is performed."
 
 agent-browser --session "$SESSION" screenshot --full
