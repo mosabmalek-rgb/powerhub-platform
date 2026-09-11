@@ -9,6 +9,12 @@ create table if not exists public.powerhub_invoice_sequences (
   next_sequence integer not null check (next_sequence between 1 and 10000)
 );
 
+-- This allocator is server-internal. It must not be readable or writable
+-- through the public Supabase API; the service-role RPC is its only caller.
+alter table public.powerhub_invoice_sequences enable row level security;
+revoke all on table public.powerhub_invoice_sequences from public,anon,authenticated;
+grant select,insert,update on table public.powerhub_invoice_sequences to service_role;
+
 -- Seed the persistent allocator from any already-issued global invoice numbers.
 -- Non-global legacy invoice numbers are intentionally ignored.
 insert into public.powerhub_invoice_sequences(invoice_year,next_sequence)
