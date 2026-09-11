@@ -1,7 +1,30 @@
 -- Global invoice numbering.
 -- Format: INV-YYYY-NNNN (for example INV-2026-0001).
 -- The sequence is global across all tenants/sites within the invoice year.
+-- The sequence is persisted so deleting an invoice can never cause number reuse.
 -- The existing unique constraint on public.invoices.invoice_no remains the final database guard.
+
+create table if not exists public.powerhub_invoice_sequences (
+  invoice_year integer primary key,
+  next_sequence integer not null check (next_sequence between 1 and 10000)
+);
+
+-- Seed the persistent allocator from any already-issued global invoice numbers.
+-- Non-global legacy invoice numbers are intentionally ignored.
+insert into public.powerhub_invoice_sequences(invoice_year,next_sequence)
+select years.invoice_year, greatest(max(years.sequence_no)+1,1)
+from (
+  select
+    (regexp_match(invoice_no,'^INV-([0-9]{4})-([0-9]{4})$'))[1]::integer as invoice_year,
+    (regexp_match(invoice_no,'^INV-([0-9]{4})-([0-9]{4})$'))[2]::integer as sequence_no
+  from public.invoices
+  where invoice_no ~ '^INV-[0-9]{4}-[0-9]{4}$'
+) as years
+where years.invoice_year is not null
+  and years.sequence_no is not null
+group by years.invoice_year
+on conflict (invoice_year) do update
+set next_sequence = greatest(public.powerhub_invoice_sequences.next_sequence, excluded.next_sequence);
 
 create or replace function public.powerhub_issue_invoice_from_reading(
   p_tenant_id bigint,
@@ -30,7 +53,7 @@ declare
   v_total_amount numeric(14,2);
   v_platform_role text;
   v_sequence integer;
-  v_invoice_year text;
+  v_invoice_year integer;
 begin
   if p_billing_period !~ '^[0-9]{4}-[0-9]{2}$' then raise exception 'INVALID_BILLING_PERIOD' using errcode='P0001'; end if;
   if p_discount_amount<0 then raise exception 'INVALID_DISCOUNT' using errcode='P0001'; end if;
@@ -57,13 +80,16 @@ begin
   select * into v_tariff from public.tariffs where id=p_tariff_id and tenant_id=p_tenant_id and site_id=p_site_id and is_active=true;
   if not found then raise exception 'TARIFF_NOT_FOUND' using errcode='P0001'; end if;
 
-  -- Serialize invoice allocation globally for the year, not per site.
-  v_invoice_year:=left(p_billing_period,4);
-  perform pg_advisory_xact_lock(hashtext('powerhub-global-invoice:'||v_invoice_year));
-  select count(*)::integer+1 into v_sequence
-    from public.invoices
-   where invoice_no like 'INV-'||v_invoice_year||'-%';
-  if v_sequence>9999 then raise exception 'INVOICE_SEQUENCE_EXHAUSTED' using errcode='P0001'; end if;
+  -- Allocate from a persistent per-year sequence. The row-level upsert serializes
+  -- concurrent issuances and, unlike COUNT(invoices), never reuses a deleted number.
+  v_invoice_year:=left(p_billing_period,4)::integer;
+  insert into public.powerhub_invoice_sequences(invoice_year,next_sequence)
+  values(v_invoice_year,2)
+  on conflict (invoice_year) do update
+    set next_sequence=public.powerhub_invoice_sequences.next_sequence+1
+    where public.powerhub_invoice_sequences.next_sequence<=9999
+  returning next_sequence-1 into v_sequence;
+  if not found or v_sequence is null or v_sequence>9999 then raise exception 'INVOICE_SEQUENCE_EXHAUSTED' using errcode='P0001'; end if;
   v_invoice_no:=format('INV-%s-%s',v_invoice_year,lpad(v_sequence::text,4,'0'));
 
   v_energy_amount:=round(coalesce(v_reading.consumption_kwh,0)*v_tariff.price_per_kwh,2);
