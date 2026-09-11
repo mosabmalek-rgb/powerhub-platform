@@ -1,0 +1,1 @@
+Stage 1: atomic Supabase RPC contracts for setTenantMembershipStatus, attachOwnerUser, and updateSubscription. Callers remain guarded. Production unchanged.
