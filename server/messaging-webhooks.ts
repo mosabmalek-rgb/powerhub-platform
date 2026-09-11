@@ -1,8 +1,6 @@
 import crypto from "node:crypto";
 import type { Request, Response } from "express";
-import { and, eq } from "drizzle-orm";
-import { notificationMessages, tenantMessagingConfigurations } from "../drizzle/schema";
-import { getDb } from "./db";
+import { supabaseAdmin } from "./supabase-admin";
 import { decryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 
 type RawRequest = Request & { rawBody?: Buffer };
@@ -27,27 +25,52 @@ export async function verifyWhatsAppWebhook(req: Request, res: Response) {
   const token = typeof req.query["hub.verify_token"] === "string" ? req.query["hub.verify_token"] : "";
   const challenge = typeof req.query["hub.challenge"] === "string" ? req.query["hub.challenge"] : "";
   if (!Number.isInteger(tenantId) || req.query["hub.mode"] !== "subscribe" || !token || !challenge) return res.sendStatus(403);
-  const db = await getDb();
-  const [configuration] = db ? await db.select({ hash: tenantMessagingConfigurations.webhookVerifyTokenHash }).from(tenantMessagingConfigurations).where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.channel, "whatsapp"), eq(tenantMessagingConfigurations.isActive, true))).limit(1) : [];
-  if (!configuration?.hash || !crypto.timingSafeEqual(Buffer.from(configuration.hash), Buffer.from(hashWebhookVerifyToken(token)))) return res.sendStatus(403);
+
+  const { data: configuration, error } = await supabaseAdmin()
+    .from("tenant_messaging_configurations")
+    .select("webhook_verify_token_hash")
+    .eq("tenant_id", tenantId)
+    .eq("channel", "whatsapp")
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error || !configuration?.webhook_verify_token_hash) return res.sendStatus(403);
+
+  const expectedHash = Buffer.from(hashWebhookVerifyToken(token));
+  const actualHash = Buffer.from(configuration.webhook_verify_token_hash);
+  if (expectedHash.length !== actualHash.length || !crypto.timingSafeEqual(actualHash, expectedHash)) return res.sendStatus(403);
   return res.status(200).send(challenge);
 }
 
 export async function receiveWhatsAppWebhook(req: RawRequest, res: Response) {
   const tenantId = Number(req.params.tenantId);
   if (!Number.isInteger(tenantId)) return res.sendStatus(404);
-  const db = await getDb();
-  if (!db) return res.status(503).json({ error: "database_unavailable" });
-  const [configuration] = await db.select().from(tenantMessagingConfigurations).where(and(eq(tenantMessagingConfigurations.tenantId, tenantId), eq(tenantMessagingConfigurations.channel, "whatsapp"), eq(tenantMessagingConfigurations.isActive, true))).limit(1);
-  if (!configuration?.credentialCiphertext || !configuration.credentialIv) return res.sendStatus(403);
-  const credential = readCredential(configuration.credentialCiphertext, configuration.credentialIv);
+
+  const { data: configuration, error } = await supabaseAdmin()
+    .from("tenant_messaging_configurations")
+    .select("credential_ciphertext, credential_iv")
+    .eq("tenant_id", tenantId)
+    .eq("channel", "whatsapp")
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) return res.status(503).json({ error: "database_unavailable" });
+  if (!configuration?.credential_ciphertext || !configuration.credential_iv) return res.sendStatus(403);
+
+  const credential = readCredential(configuration.credential_ciphertext, configuration.credential_iv);
   const signature = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : undefined;
   if (!verifySignature(req.rawBody, signature, credential.appSecret)) return res.sendStatus(403);
+
+  const admin = supabaseAdmin();
   const changes = (req.body?.entry ?? []).flatMap((entry: { changes?: WhatsAppChange[] }) => entry.changes ?? []);
   for (const change of changes) for (const status of change.value?.statuses ?? []) {
     if (!status.id) continue;
     const nextStatus = status.status === "delivered" ? "delivered" : status.status === "read" ? "read" : status.status === "failed" ? "failed" : "submitted";
-    await db.update(notificationMessages).set({ status: nextStatus }).where(and(eq(notificationMessages.tenantId, tenantId), eq(notificationMessages.providerMessageId, status.id)));
+    const { error: updateError } = await admin.rpc("powerhub_process_whatsapp_status", {
+      p_tenant_id: tenantId,
+      p_provider_message_id: status.id,
+      p_status: nextStatus,
+    });
+    if (updateError) return res.status(503).json({ error: "database_unavailable" });
   }
+
   return res.status(200).json({ received: true });
 }
