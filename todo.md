@@ -813,3 +813,16 @@
 - [x] إضافة اختبارات P5.3 للمدد الافتراضية والمخصصة والقيم غير الصالحة والصلاحيات وتعديل الاشتراك الموجود. نجحت اختبارات Vitest وخُبرِت Supabase فعلياً للمدد 8/21/30 والرفض 0/-1/3651 وتحديث ends_at.
 - [x] تشغيل Vitest وTypeScript والبناء ومراجعة diff وتحقق Supabase. نجح targeted/full validation وpnpm check وpnpm build وgit diff --check.
 - [x] إنشاء branch وCommit وPull Request إلى main دون بدء P5.4. أُنشئ الفرع `p5-3-commercial-model-final` والـCommit `7b29c19` والـPR `#5`، ثم دُمج بعد نجاح الفحوص؛ Production على Vercel أصبح READY بالـcommit `a376a174`.
+
+## مراجعة إضافات P7 من التقرير المرفق
+- [x] تحديث جرد GitHub للفروع وPRs وmain ومقارنة التقرير بالحالة الفعلية.
+- [x] التحقق من ميزات P7.3 وP7.4 وQA وموقعها بالنسبة إلى main.
+- [x] التحقق من CI وPreview/Production على Vercel والاختبارات والحالات الفاشلة أو المعلقة.
+- [x] إعداد تقرير فروقات وقرار مقترح دون دمج أو تعديل خارجي.
+
+## Release Gate — نشر ميزات P7 على Vercel
+- [x] تثبيت نطاق الإصدار: P7.3 ثم P7.4 فقط، مع إبقاء PR #33 وPR #17 وPR #1 والقضايا القديمة خارج الدمج.
+- [x] التحقق من رأس P7.3 والاختبارات وPreview قبل الدمج.
+- [x] دمج PR #21 ثم التحقق من نشر Vercel Production وعدم وجود فشل. أصبح commit `fe0c977602c1459fb7c14b949c260241ecf1b83a` بحالة READY.
+- [x] التحقق من PR #31 بعد تحديث قاعدته إلى main فوق P7.3 المدموج ثم دمجه. أصبح commit `eb98fab7caa379c478367cb7bd23b565166e4f1a` بحالة READY.
+- [x] التحقق النهائي من Production وSupabase وتوثيق الإصدار دون بدء أعمال P7.5 أو تنظيف الفروع. أضيف `docs/p7-production-release-2026-09-11.md` ونجح فتح رابط Production.
