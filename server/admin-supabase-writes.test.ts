@@ -43,4 +43,8 @@ describe("Supabase atomic admin write RPCs", () => {
     expect((migration.match(/security definer/g) ?? []).length).toBe(3);
     expect((migration.match(/set search_path = public, pg_temp/g) ?? []).length).toBe(3);
   });
+
+  it("uses the Supabase staff profile uniqueness key for owner attachment", () => {
+    expect(migration).toContain("on conflict (user_id, site_id, role)");
+  });
 });
