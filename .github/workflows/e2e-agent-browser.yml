@@ -1,0 +1,63 @@
+name: PowerHub Agent Browser E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Preview or test environment URL (without /generators)
+        required: true
+        type: string
+      user_id:
+        description: Authenticated PowerHub user id used by the local offline queue
+        required: true
+        type: string
+      site_id:
+        description: Allowed PowerHub site id used by the local offline queue
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  generator-sync:
+    name: Generator offline sync UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      POWERHUB_E2E_URL: ${{ inputs.base_url }}
+      POWERHUB_E2E_USER_ID: ${{ inputs.user_id }}
+      POWERHUB_E2E_SITE_ID: ${{ inputs.site_id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: qa/agent-browser-e2e-main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Agent Browser
+        run: |
+          npm install -g agent-browser
+          agent-browser install --with-deps
+          agent-browser --version
+
+      - name: Restore authenticated browser state
+        env:
+          POWERHUB_E2E_AUTH_STATE_B64: ${{ secrets.POWERHUB_E2E_AUTH_STATE_B64 }}
+        run: |
+          test -n "$POWERHUB_E2E_AUTH_STATE_B64"
+          printf '%s' "$POWERHUB_E2E_AUTH_STATE_B64" | base64 --decode > "$RUNNER_TEMP/powerhub-auth.json"
+          chmod 600 "$RUNNER_TEMP/powerhub-auth.json"
+          echo "POWERHUB_E2E_AUTH_STATE=$RUNNER_TEMP/powerhub-auth.json" >> "$GITHUB_ENV"
+
+      - name: Run authenticated Generator E2E
+        run: bash scripts/e2e-agent-browser-generator-sync.sh
+
+      - name: Cleanup browser state
+        if: always()
+        run: rm -f "$RUNNER_TEMP/powerhub-auth.json"
