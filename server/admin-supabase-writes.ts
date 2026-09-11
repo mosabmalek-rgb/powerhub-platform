@@ -21,6 +21,20 @@ function rpcError(operation: string, error: { message?: string } | null) {
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تنفيذ العملية في Supabase." });
 }
 
+function reviewSubscriptionRpcError(error: { message?: string } | null) {
+  const message = error?.message?.trim() ?? "";
+  if (message.includes("REQUEST_NOT_FOUND")) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Subscription upgrade request not found." });
+  }
+  if (message.includes("REQUEST_ALREADY_PROCESSED")) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Subscription upgrade request was already processed." });
+  }
+  if (message.includes("INVALID_DECISION")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid subscription upgrade decision." });
+  }
+  rpcError("reviewSubscriptionUpgradeRequest", error);
+}
+
 export async function setTenantMembershipStatus(input: {
   actorUserId: number;
   tenantId: number;
@@ -83,4 +97,22 @@ export async function updateSubscription(input: {
   const row = data?.[0];
   if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُرجع Supabase نتيجة صالحة." });
   return { success: Boolean(row.success), subscriptionId: Number(row.subscription_id), siteId: Number(row.site_id) };
+}
+
+export async function reviewSubscriptionUpgradeRequest(input: {
+  actorUserId: number;
+  requestId: number;
+  decision: "approved" | "rejected";
+  note?: string;
+}) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_review_subscription_upgrade_request", {
+    p_actor_user_id: input.actorUserId,
+    p_request_id: input.requestId,
+    p_decision: input.decision,
+    p_note: input.note ?? null,
+  });
+  reviewSubscriptionRpcError(error);
+  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
+  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription review result." });
+  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
 }

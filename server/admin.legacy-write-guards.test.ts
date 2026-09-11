@@ -13,16 +13,12 @@ const ownerCaller = adminRouter.createCaller({ user: { id: 1, role: "admin", pla
 describe("حراس الكتابات الإدارية الموروثة", () => {
   it("يوقف كل كتابة إدارية موروثة قبل أي وصول MySQL أو Supabase", async () => {
     const guardedWrites: Array<Promise<unknown>> = [
-      adminCaller.reviewSubscriptionUpgradeRequest({ id: 1, decision: "approved" }),
       adminCaller.quickUpgradeOwnerPlan({ tenantId: 1, plan: "professional" }),
       ownerCaller.invitePlatformAccess({ email: "finance@example.test", platformRole: "finance_admin" }),
       ownerCaller.setPlatformAccountStatus({ userId: 2, accountStatus: "locked" }),
       ownerCaller.setPlatformAccessRole({ userId: 2, platformRole: "finance_admin" }),
       adminCaller.inviteTenantAccess({ tenantId: 1, siteId: 1, email: "staff@example.test", tenantRole: "member", siteRole: "accountant" }),
-      adminCaller.setTenantMembershipStatus({ tenantId: 1, userId: 2, status: "suspended" }),
       adminCaller.createGeneratorOwner({ tenantName: "مولدات الاختبار", slug: "test-generator", ownerName: "مالك الاختبار", ownerPhone: "0590000000", siteName: "الفرع الرئيسي", siteCode: "HQ", generatorName: "مولد الاختبار", generatorCode: "GEN-1", generatorCapacityKw: 100 }),
-      adminCaller.attachOwnerUser({ tenantId: 1, userId: 2, siteId: 1 }),
-      adminCaller.updateSubscription({ tenantId: 1, plan: "professional", status: "active", billingCycle: "monthly", endsAt: new Date("2026-12-31T00:00:00.000Z"), autoRenew: false }),
       adminCaller.createSmsPlan({ code: "starter_sms", name: "باقة اختبار", includedMessages: 100, isActive: true }),
       adminCaller.updateSmsPlan({ id: 1, isActive: false }),
       adminCaller.reviewSmsPackageRequest({ id: 1, status: "approved", approvedMessages: 100 }),

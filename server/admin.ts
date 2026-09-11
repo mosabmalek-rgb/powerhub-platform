@@ -10,6 +10,12 @@ import { supabaseAdmin } from "./supabase-admin";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 import { processNotificationById } from "./notification-worker";
 import { ownerOverviewFromSupabase, platformSnapshotFromSupabase } from "./admin-supabase";
+import {
+  attachOwnerUser as attachOwnerUserSupabase,
+  reviewSubscriptionUpgradeRequest as reviewSubscriptionUpgradeRequestSupabase,
+  setTenantMembershipStatus as setTenantMembershipStatusSupabase,
+  updateSubscription as updateSubscriptionSupabase,
+} from "./admin-supabase-writes";
 
 const planSchema = z.enum(["starter", "professional", "enterprise"]);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
@@ -511,21 +517,12 @@ export const adminRouter = router({
   }),
 
   reviewSubscriptionUpgradeRequest: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), decision: z.enum(["approved", "rejected"]), note: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
-    assertLegacyAdminWriteMigrationGuard("مراجعة طلب ترقية الباقة");
-    const db = await dbOrThrow();
-    const [request] = await db.select().from(subscriptionUpgradeRequests).where(eq(subscriptionUpgradeRequests.id, input.id)).limit(1);
-    if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الترقية غير موجود." });
-    if (request.status !== "pending" && request.status !== "reviewing") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تمت معالجة هذا الطلب مسبقاً." });
-    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, request.tenantId)).limit(1);
-    await db.transaction(async (tx) => {
-      await tx.update(subscriptionUpgradeRequests).set({ status: input.decision, note: input.note ?? null, reviewedByUserId: ctx.user.id, reviewedAt: new Date() }).where(eq(subscriptionUpgradeRequests.id, request.id));
-      if (input.decision === "approved") {
-        await tx.update(tenants).set({ plan: request.requestedPlan }).where(eq(tenants.id, request.tenantId));
-        await tx.update(tenantSubscriptions).set({ plan: request.requestedPlan }).where(eq(tenantSubscriptions.tenantId, request.tenantId));
-      }
+    return reviewSubscriptionUpgradeRequestSupabase({
+      actorUserId: ctx.user.id,
+      requestId: input.id,
+      decision: input.decision,
+      note: input.note,
     });
-    await db.insert(auditLogs).values({ tenantId: request.tenantId, siteId: site?.id ?? null, userId: ctx.user.id, entityType: "subscription_upgrade_request", entityId: String(request.id), action: `platform_admin_${input.decision}_subscription_upgrade`, afterData: { requestedPlan: request.requestedPlan, decision: input.decision, note: input.note ?? null }, actorPlatformRole: platformRoleOf(ctx.user) });
-    return { success: true, plan: input.decision === "approved" ? request.requestedPlan : request.currentPlan };
   }),
 
   quickUpgradeOwnerPlan: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), plan: planSchema, note: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
@@ -667,18 +664,12 @@ export const adminRouter = router({
   }),
 
   setTenantMembershipStatus: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), userId: z.number().int().positive(), status: z.enum(["active", "suspended", "revoked"]) })).mutation(async ({ ctx, input }) => {
-    assertLegacyAdminWriteMigrationGuard("تغيير حالة عضوية صاحب المولد");
-    const db = await dbOrThrow();
-    const [membership] = await db.select().from(tenantMembers).where(and(eq(tenantMembers.tenantId, input.tenantId), eq(tenantMembers.userId, input.userId))).limit(1);
-    const [site] = await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
-    if (!membership || !site) throw new TRPCError({ code: "NOT_FOUND", message: "العضوية أو محطة المستأجر غير موجودة." });
-    const isActive = input.status === "active";
-    await db.transaction(async (tx) => {
-      await tx.update(tenantMembers).set({ membershipStatus: input.status, isActive, expiresAt: input.status === "revoked" ? new Date() : null }).where(eq(tenantMembers.id, membership.id));
-      await tx.update(staffProfiles).set({ isActive }).where(and(eq(staffProfiles.userId, input.userId), eq(staffProfiles.siteId, site.id)));
+    return setTenantMembershipStatusSupabase({
+      actorUserId: ctx.user.id,
+      tenantId: input.tenantId,
+      userId: input.userId,
+      status: input.status,
     });
-    await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, actorPlatformRole: platformRoleOf(ctx.user), entityType: "tenant_membership", entityId: String(membership.id), action: "platform_admin_set_tenant_membership_status", beforeData: { status: membership.membershipStatus }, afterData: { status: input.status } });
-    return { success: true };
   }),
 
   createGeneratorOwner: platformAdminProcedure.input(z.object({
@@ -789,23 +780,12 @@ export const adminRouter = router({
 
   attachOwnerUser: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), userId: z.number().int().positive(), siteId: z.number().int().positive().optional() }))
     .mutation(async ({ ctx, input }) => {
-      assertLegacyAdminWriteMigrationGuard("ربط حساب مالك بصاحب مولد");
-      const db = await dbOrThrow();
-      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
-      const [user] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
-      if (!tenant || !user) throw new TRPCError({ code: "NOT_FOUND", message: "المستأجر أو حساب المالك غير موجود." });
-      if (isPlatformAccount(user)) throw new TRPCError({ code: "FORBIDDEN", message: platformAccountOwnerMessage });
-      const [site] = input.siteId
-        ? await db.select().from(sites).where(and(eq(sites.id, input.siteId), eq(sites.tenantId, input.tenantId))).limit(1)
-        : await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
-      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد محطة لهذا المستأجر لربط مالكها." });
-      await db.transaction(async (tx) => {
-        await tx.insert(tenantMembers).values({ tenantId: input.tenantId, userId: input.userId, role: "owner", isActive: true }).onDuplicateKeyUpdate({ set: { role: "owner", isActive: true } });
-        await tx.insert(staffProfiles).values({ tenantId: input.tenantId, siteId: site.id, userId: input.userId, role: "owner", isActive: true }).onDuplicateKeyUpdate({ set: { isActive: true } });
-        await tx.update(tenantOwnerProfiles).set({ ownerUserId: input.userId, claimedAt: new Date() }).where(eq(tenantOwnerProfiles.tenantId, input.tenantId));
+      return attachOwnerUserSupabase({
+        actorUserId: ctx.user.id,
+        tenantId: input.tenantId,
+        userId: input.userId,
+        siteId: input.siteId,
       });
-      await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "tenant_owner_profile", entityId: String(input.tenantId), action: "platform_admin_attach_owner_user", metadata: { attachedUserId: input.userId } });
-      return { success: true };
     }),
 
   updateSubscription: platformAdminProcedure.input(z.object({
@@ -818,22 +798,17 @@ export const adminRouter = router({
     notes: z.string().max(2000).optional(),
     smsPlanId: z.number().int().positive().nullable().optional(),
   })).mutation(async ({ ctx, input }) => {
-    assertLegacyAdminWriteMigrationGuard("تحديث اشتراك صاحب المولد");
-    const db = await dbOrThrow();
-    if (input.smsPlanId) {
-      const [plan] = await db.select({ id: platformSmsPlans.id, isActive: platformSmsPlans.isActive }).from(platformSmsPlans).where(eq(platformSmsPlans.id, input.smsPlanId)).limit(1);
-      if (!plan || !plan.isActive) throw new TRPCError({ code: "BAD_REQUEST", message: "خطة رسائل SMS غير موجودة أو متوقفة." });
-    }
-    const [subscription] = await db.select().from(tenantSubscriptions).where(eq(tenantSubscriptions.tenantId, input.tenantId)).limit(1);
-    if (!subscription) throw new TRPCError({ code: "NOT_FOUND", message: "اشتراك المستأجر غير موجود." });
-    const [site] = await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
-    if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد محطة مرتبطة بالمستأجر." });
-    await db.transaction(async (tx) => {
-      await tx.update(tenantSubscriptions).set({ plan: input.plan, status: input.status, billingCycle: input.billingCycle, endsAt: input.endsAt, autoRenew: input.autoRenew, notes: input.notes, smsPlanId: input.smsPlanId ?? null }).where(eq(tenantSubscriptions.tenantId, input.tenantId));
-      await tx.update(tenants).set({ plan: input.plan, status: tenantStatusForSubscription(input.status) }).where(eq(tenants.id, input.tenantId));
+    return updateSubscriptionSupabase({
+      actorUserId: ctx.user.id,
+      tenantId: input.tenantId,
+      plan: input.plan,
+      status: input.status,
+      billingCycle: input.billingCycle,
+      endsAt: input.endsAt,
+      autoRenew: input.autoRenew,
+      notes: input.notes,
+      smsPlanId: input.smsPlanId,
     });
-    await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "tenant_subscription", entityId: String(subscription.id), action: "platform_admin_update_subscription", afterData: input });
-    return { success: true };
   }),
 
   listSmsPlans: platformAdminProcedure.query(async () => {
