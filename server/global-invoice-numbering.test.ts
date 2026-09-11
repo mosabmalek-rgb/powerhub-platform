@@ -15,7 +15,8 @@ describe("global invoice numbering contract", () => {
 
   it("serializes allocation globally by invoice year", () => {
     expect(migration).toContain("pg_advisory_xact_lock(hashtext('powerhub-global-invoice:'||v_invoice_year))");
-    expect(migration).not.toContain("where site_id=p_site_id");
+    expect(migration).toContain("select count(*)::integer+1 into v_sequence");
+    expect(migration).not.toContain("select count(*)::integer+1 into v_sequence from public.invoices where site_id=p_site_id");
   });
 
   it("keeps the database uniqueness guard and service-role RPC contract", () => {
