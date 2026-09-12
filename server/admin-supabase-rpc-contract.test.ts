@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260911200000_powerhub_admin_membership_subscription_rpcs.sql"), "utf8");
 const grants = readFileSync(resolve(process.cwd(), "supabase/migrations/20260911201000_powerhub_admin_rpc_grants.sql"), "utf8");
 const reviewMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260911202000_powerhub_admin_review_subscription_upgrade_request_rpc.sql"), "utf8");
+const renewalMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260912100000_powerhub_admin_renew_subscription_rpc.sql"), "utf8");
 
 const rpcNames = [
   "powerhub_admin_set_tenant_membership_status",
@@ -34,6 +35,19 @@ describe("admin Supabase RPC contracts", () => {
     expect(reviewMigration).toContain("update public.tenants");
     expect(reviewMigration).toContain("update public.tenant_subscriptions");
     expect(reviewMigration).toContain("platform_admin_' || p_decision || '_subscription_upgrade");
+  });
+
+  it("defines the subscription renewal RPC atomically with site validation and audit logging", () => {
+    expect(renewalMigration).toContain("create or replace function public.powerhub_admin_renew_subscription");
+    expect(renewalMigration).toContain("security definer");
+    expect(renewalMigration).toContain("set search_path = public, pg_temp");
+    expect(renewalMigration).toContain("SITE_NOT_FOUND");
+    expect(renewalMigration).toContain("SUBSCRIPTION_NOT_FOUND");
+    expect(renewalMigration).toContain("renewal_count = renewal_count + p_periods");
+    expect(renewalMigration).toContain("last_renewed_at = now()");
+    expect(renewalMigration).toContain("platform_admin_renew_subscription");
+    expect(renewalMigration).toContain("revoke all on function public.powerhub_admin_renew_subscription");
+    expect(renewalMigration).toContain("grant execute on function public.powerhub_admin_renew_subscription");
   });
 
   it("removes only the review procedure legacy guard while preserving other admin guards", () => {
