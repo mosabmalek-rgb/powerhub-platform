@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260912132000_powerhub_admin_set_platform_account_status_rpc.sql"), "utf8");
 const adapter = readFileSync(resolve(process.cwd(), "server/platform-account-status-supabase.ts"), "utf8");
-const router = readFileSync(resolve(process.cwd(), "server/admin-platform-account-status-router.ts"), "utf8");
+const router = readFileSync(resolve(process.cwd(), "server/admin-platform-access-router.ts"), "utf8");
 const appRouter = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
 
 describe("platform account status Supabase migration", () => {
@@ -36,6 +36,7 @@ describe("platform account status Supabase migration", () => {
     expect(router).toContain("setPlatformAccountStatus");
     expect(router).toContain("platform_owner");
     expect(router).toContain("accountStatus");
-    expect(appRouter).toContain("adminRouterWithSupabasePlatformAccountStatus");
+    expect(appRouter).toContain("adminRouterWithSupabasePlatformSetting");
+    expect(appRouter).toContain("admin: adminRouterWithSupabasePlatformSetting");
   });
 });
