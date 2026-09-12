@@ -6,7 +6,16 @@ import { authenticatedProcedure, publicProcedure, mergeRouters, router } from ".
 import { powerhubRuntimeRouter } from "./powerhub-runtime-router";
 import { powerhubDashboardRouter } from "./powerhub-dashboard";
 import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router";
+import { adminRolePolicyRouter } from "./admin-role-policy-router";
 import { supabaseAdmin } from "./supabase-admin";
+
+const adminRuntimeRecord = {
+  ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
+};
+delete adminRuntimeRecord.saveRolePolicy;
+Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, unknown>);
+
+const adminRuntimeRouter = router(adminRuntimeRecord as Record<string, any>);
 
 export const appRouter = router({
   system: systemRouter,
@@ -31,7 +40,7 @@ export const appRouter = router({
     }),
   }),
   powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
-  admin: adminRouterWithSupabasePlatformSetting,
+  admin: adminRuntimeRouter,
 });
 
 export type AppRouter = typeof appRouter;
