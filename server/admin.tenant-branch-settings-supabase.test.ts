@@ -7,6 +7,15 @@ const state = vi.hoisted(() => ({
 
 vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => ({ rpc: state.rpc }) }));
 vi.mock("./db", () => ({ getDb: state.getDb, syncSupabaseUser: vi.fn() }));
+vi.mock("./powerhub", () => ({
+  powerhubRouter: {
+    _def: {
+      record: {
+        mobileSync: { _def: { record: {} } },
+      },
+    },
+  },
+}));
 
 import { appRouter } from "./routers";
 
