@@ -11,7 +11,7 @@ function rpcError(operation: string, error: { message?: string } | null) {
   if (message.includes("FORBIDDEN") || message.includes("PLATFORM_ROLE")) {
     throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
   }
-  if (message.includes("NOT_FOUND") || message.includes("NOT_FOUND")) {
+  if (message.includes("NOT_FOUND")) {
     throw new TRPCError({ code: "NOT_FOUND", message: "السجل المطلوب غير موجود في Supabase." });
   }
   if (message.includes("INVALID_") || message.includes("PLAN_NOT_ACTIVE")) {
@@ -115,4 +115,20 @@ export async function reviewSubscriptionUpgradeRequest(input: {
   const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
   if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription review result." });
   return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
+}
+
+export async function renewSubscription(input: {
+  actorUserId: number;
+  tenantId: number;
+  periods: number;
+}) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_renew_subscription", {
+    p_actor_user_id: input.actorUserId,
+    p_tenant_id: input.tenantId,
+    p_periods: input.periods,
+  });
+  rpcError("renewSubscription", error);
+  const row = data?.[0] as { success?: boolean; ends_at?: string } | undefined;
+  if (!row || typeof row.ends_at !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription renewal result." });
+  return { success: Boolean(row.success), endsAt: new Date(row.ends_at) };
 }
