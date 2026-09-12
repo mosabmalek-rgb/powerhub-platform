@@ -5,7 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { authenticatedProcedure, publicProcedure, mergeRouters, router } from "./_core/trpc";
 import { powerhubRouter } from "./powerhub";
 import { powerhubDashboardRouter } from "./powerhub-dashboard";
-import { adminRouterWithSupabasePlatformAccountStatus } from "./admin-platform-account-status-router";
+import { adminRouterWithSupabasePlatformAccessRole } from "./admin-platform-access-role-router";
 import { supabaseAdmin } from "./supabase-admin";
 
 export const appRouter = router({
@@ -34,7 +34,7 @@ export const appRouter = router({
     }),
   }),
   powerhub: mergeRouters(powerhubRouter, router({ performance: powerhubDashboardRouter })),
-  admin: adminRouterWithSupabasePlatformAccountStatus,
+  admin: adminRouterWithSupabasePlatformAccessRole,
 
   // TODO: add feature routers here, e.g.
   // todo: router({
