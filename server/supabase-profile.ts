@@ -59,11 +59,14 @@ export async function syncSupabaseProfile(input: { id: string; email?: string | 
     .single();
   if (error || !data) throw new Error(error?.message || "تعذر مزامنة ملف مستخدم Supabase.");
 
-  const { error: invitationError } = await supabaseAdmin().rpc("powerhub_accept_pending_platform_invitation", {
+  const { data: invitationResult, error: invitationError } = await supabaseAdmin().rpc("powerhub_accept_pending_platform_invitation", {
     p_auth_user_id: input.id,
     p_email: email,
   });
   if (invitationError) throw new Error(invitationError.message || "تعذر معالجة دعوة الوصول إلى إدارة المنصة.");
+
+  const accepted = Boolean(invitationResult?.[0]?.accepted);
+  if (!accepted) return mapSupabaseProfile(data as UserRow);
 
   const { data: refreshed, error: refreshError } = await supabaseAdmin().from("users")
     .select("id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in")
