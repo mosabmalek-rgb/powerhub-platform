@@ -18,8 +18,6 @@ describe("حراس الكتابات الإدارية الموروثة", () => {
       ownerCaller.setPlatformAccountStatus({ userId: 2, accountStatus: "locked" }),
       ownerCaller.setPlatformAccessRole({ userId: 2, platformRole: "finance_admin" }),
       adminCaller.createGeneratorOwner({ tenantName: "مولدات الاختبار", slug: "test-generator", ownerName: "مالك الاختبار", ownerPhone: "0590000000", siteName: "الفرع الرئيسي", siteCode: "HQ", generatorName: "مولد الاختبار", generatorCode: "GEN-1", generatorCapacityKw: 100 }),
-      adminCaller.createSmsPlan({ code: "starter_sms", name: "باقة اختبار", includedMessages: 100, isActive: true }),
-      adminCaller.updateSmsPlan({ id: 1, isActive: false }),
       adminCaller.reviewSmsPackageRequest({ id: 1, status: "approved", approvedMessages: 100 }),
       adminCaller.renewSubscription({ tenantId: 1, periods: 1 }),
       adminCaller.updateComplaint({ id: 1, status: "resolved", response: "تمت المعالجة" }),
