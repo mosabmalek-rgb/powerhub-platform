@@ -26,6 +26,7 @@ begin
   select * into v_actor
   from public.users
   where id = p_actor_user_id
+    and role = 'admin'
     and account_status = 'active'
     and platform_role in ('platform_owner', 'platform_admin')
   for share;
