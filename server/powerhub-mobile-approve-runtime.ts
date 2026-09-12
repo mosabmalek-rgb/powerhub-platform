@@ -5,9 +5,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { approveAndIssueMobileReadingSupabase } from "./powerhub-mobile-approval-supabase";
 import { getSupabaseSite, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 import { processNotificationById } from "./notification-worker";
-import { rolesWith } from "../shared/powerhub-rbac";
 
-const createRoles = rolesWith("issueInvoices");
 const mobileSyncApproveInput = z.object({
   siteId: z.number().int().positive(),
   readingId: z.number().int().positive(),
