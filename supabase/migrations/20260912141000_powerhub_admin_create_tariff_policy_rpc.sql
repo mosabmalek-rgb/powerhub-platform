@@ -65,16 +65,21 @@ begin
 
   if p_notification_requested then
     for v_owner_site in
-      select top.owner_id,
-             top.phone,
-             s.id as site_id,
-             s.tenant_id
-        from public.tenant_owner_profiles top
-        join public.sites s on s.tenant_id = top.tenant_id
-       where top.phone is not null
-         and length(trim(top.phone)) > 0
-         and s.status <> 'archived'
-       order by s.id
+      select top_profile.tenant_id,
+             top_profile.phone,
+             first_site.id as site_id
+        from public.tenant_owner_profiles top_profile
+        join lateral (
+          select s.id
+            from public.sites s
+           where s.tenant_id = top_profile.tenant_id
+             and s.status <> 'archived'
+           order by s.id asc
+           limit 1
+        ) first_site on true
+       where top_profile.phone is not null
+         and length(trim(top_profile.phone)) > 0
+       order by top_profile.tenant_id
     loop
       for v_channel in
         select tmc.channel
