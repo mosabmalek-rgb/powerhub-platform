@@ -1,16 +1,19 @@
 import { router } from "./_core/trpc";
 import { powerhubRouter } from "./powerhub";
-import { powerhubMobileSyncSupabaseRouter } from "./powerhub-mobile-sync-supabase-router";
+import { approveAndIssueMobileReadingRuntime } from "./powerhub-mobile-approve-runtime";
+
+const legacyRecord = (powerhubRouter as any)._def.record as Record<string, any>;
+const legacyMobileSync = legacyRecord.mobileSync as any;
 
 /**
- * Runtime overlay used during the Supabase migration.
- * It keeps the existing PowerHub API surface while replacing only the
- * mobileSync subtree with the Supabase-native implementation.
- *
- * The underlying legacy router remains guarded so direct legacy callers
- * cannot accidentally execute the old MySQL approval path.
+ * Runtime overlay used during the Supabase migration. Only the individual
+ * mobile approval mutation is replaced; the remaining mobile-sync procedures
+ * continue to use their existing Supabase-backed implementations.
  */
 export const powerhubRuntimeRouter = router({
-  ...(powerhubRouter as any)._def.record,
-  mobileSync: powerhubMobileSyncSupabaseRouter,
+  ...legacyRecord,
+  mobileSync: router({
+    ...legacyMobileSync._def.record,
+    approveAndIssue: approveAndIssueMobileReadingRuntime,
+  }),
 });
