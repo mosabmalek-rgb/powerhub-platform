@@ -2,7 +2,7 @@
 
 **النطاق:** `server/admin.ts` في مسار الترحيل إلى Supabase. هذا الجرد توثيق داخلي فقط؛ لا يعني أن الترحيل الإنتاجي اكتمل.
 
-## الكتابات
+## الكتابات المرحّلة إلى Supabase
 
 - `setTenantMembershipStatus` — Supabase RPC + adapter + runtime wiring.
 - `attachOwnerUser` — Supabase RPC + adapter + runtime wiring.
@@ -14,7 +14,19 @@
 - `invitePlatformAccess` — Supabase invitation RPC + adapter + runtime wiring + Auth acceptance flow.
 - `setPlatformAccountStatus` — Supabase RPC + adapter + runtime wiring.
 - `setPlatformAccessRole` — Supabase RPC + adapter + runtime wiring.
-- بقية الكتابات الإدارية ما زالت Guarded Legacy إلى حين تصميم RPC ذرية واختبارات مناسبة.
+- `createTariffPolicy` — Supabase RPC + adapter + runtime wiring؛ السياسة والإشعارات والتدقيق تُكتب ضمن RPC ذرية واحدة.
+
+## الكتابات المتبقية
+
+- `inviteTenantAccess`
+- `createGeneratorOwner` (Legacy؛ يوجد مسار أحدث لإنشاء صاحب المولد/الاشتراك عبر Supabase ويجب تقييم إزالة هذا المسار بدل إعادة بنائه.)
+- `createSmsPlan`
+- `updateSmsPlan`
+- `updateComplaint`
+- `saveTenantBranchSettings`
+- `savePlatformSetting`
+- `requestOwnerAccessRecovery`
+- `saveRolePolicy`
 
 ## قاعدة الترحيل
 
