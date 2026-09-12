@@ -14,10 +14,10 @@ function assertPlatformOwner(ctx: { user: { role: "user" | "admin"; platformRole
   }
 }
 
-const legacyProcedures = (adminRouter as any)._def.procedures as Record<string, unknown>;
+const legacyRecord = (adminRouter as any)._def.record as Record<string, unknown>;
 
 export const adminRouterWithSupabasePlatformAccess = router({
-  ...legacyProcedures,
+  ...legacyRecord,
 
   invitePlatformAccess: authenticatedProcedure
     .input(z.object({
