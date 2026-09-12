@@ -13,6 +13,7 @@ const ownerCaller = adminRouter.createCaller({ user: { id: 1, role: "admin", pla
 describe("حراس الكتابات الإدارية الموروثة", () => {
   it("يوقف كل كتابة إدارية موروثة قبل أي وصول MySQL أو Supabase", async () => {
     const guardedWrites: Array<Promise<unknown>> = [
+      adminCaller.quickUpgradeOwnerPlan({ tenantId: 1, plan: "professional" }),
       ownerCaller.invitePlatformAccess({ email: "finance@example.test", platformRole: "finance_admin" }),
       ownerCaller.setPlatformAccountStatus({ userId: 2, accountStatus: "locked" }),
       ownerCaller.setPlatformAccessRole({ userId: 2, platformRole: "finance_admin" }),
@@ -22,7 +23,11 @@ describe("حراس الكتابات الإدارية الموروثة", () => {
       adminCaller.reviewSmsPackageRequest({ id: 1, status: "approved", approvedMessages: 100 }),
       adminCaller.renewSubscription({ tenantId: 1, periods: 1 }),
       adminCaller.updateComplaint({ id: 1, status: "resolved", response: "تمت المعالجة" }),
+      adminCaller.createTariffPolicy({ minimumPricePerKwh: 0.2, maximumPricePerKwh: 0.8, effectiveFrom: new Date("2026-09-01T00:00:00.000Z") }),
       adminCaller.saveTenantBranchSettings({ tenantId: 1, isEnabledOverride: true, maxBranchesOverride: 3, disabledBehavior: "read_only" }),
+      adminCaller.savePlatformSetting({ settingKey: "maintenance_mode", isEnabled: false }),
+      adminCaller.requestOwnerAccessRecovery({ tenantId: 1 }),
+      adminCaller.saveRolePolicy({ role: "accountant", capability: "managePayroll", isAllowed: true }),
     ];
     for (const operation of guardedWrites) await expect(operation).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(state.getDb).not.toHaveBeenCalled();
