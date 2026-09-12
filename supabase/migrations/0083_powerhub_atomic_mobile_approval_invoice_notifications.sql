@@ -12,7 +12,7 @@ create or replace function public.powerhub_approve_and_issue_mobile_reading(
   p_discount_amount numeric default 0
 )
 returns table(invoice_id bigint, invoice_no text, total_amount numeric, notification_ids bigint[], already_processed boolean)
-language plpgsql security invoker set search_path=public,pg_temp as $$
+language plpgsql security definer set search_path=public,pg_temp as $$
 declare
   v_reading public.meter_readings%rowtype;
   v_subscriber public.subscribers%rowtype;
