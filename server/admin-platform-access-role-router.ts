@@ -21,9 +21,9 @@ const platformOwnerSetAccessRoleProcedure = authenticatedProcedure
     });
   });
 
-const legacyProcedures = (adminRouterWithSupabasePlatformAccess as any)._def.procedures as Record<string, unknown>;
+const legacyRecord = (adminRouterWithSupabasePlatformAccess as any)._def.record as Record<string, unknown>;
 
 export const adminRouterWithSupabasePlatformAccessRole = (router({
-  ...legacyProcedures,
+  ...legacyRecord,
   setPlatformAccessRole: platformOwnerSetAccessRoleProcedure,
 }) as unknown) as typeof adminRouter;
