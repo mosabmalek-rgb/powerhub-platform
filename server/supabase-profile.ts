@@ -53,22 +53,29 @@ export function mapSupabaseProfile(row: UserRow): SupabaseProfileUser {
 export async function syncSupabaseProfile(input: { id: string; email?: string | null; name?: string | null }) {
   const email = input.email?.trim().toLowerCase() ?? null;
   const name = input.name?.trim() || email?.split("@")[0] || null;
-  const { data, error } = await supabaseAdmin().from("users")
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.from("users")
     .upsert({ auth_user_id: input.id, email, name, login_method: "supabase", last_signed_in: new Date().toISOString() }, { onConflict: "auth_user_id" })
     .select("id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in")
     .single();
   if (error || !data) throw new Error(error?.message || "تعذر مزامنة ملف مستخدم Supabase.");
 
-  const { data: invitationResult, error: invitationError } = await supabaseAdmin().rpc("powerhub_accept_pending_platform_invitation", {
+  const { data: platformInvitation, error: platformInvitationError } = await admin.rpc("powerhub_accept_pending_platform_invitation", {
     p_auth_user_id: input.id,
     p_email: email,
   });
-  if (invitationError) throw new Error(invitationError.message || "تعذر معالجة دعوة الوصول إلى إدارة المنصة.");
+  if (platformInvitationError) throw new Error(platformInvitationError.message || "تعذر معالجة دعوة الوصول إلى إدارة المنصة.");
 
-  const accepted = Boolean(invitationResult?.[0]?.accepted);
-  if (!accepted) return mapSupabaseProfile(data as UserRow);
+  const { error: tenantInvitationError } = await admin.rpc("powerhub_accept_pending_tenant_invitations", {
+    p_auth_user_id: input.id,
+    p_email: email,
+  });
+  if (tenantInvitationError) throw new Error(tenantInvitationError.message || "تعذر معالجة دعوة الوصول إلى حساب المولد.");
 
-  const { data: refreshed, error: refreshError } = await supabaseAdmin().from("users")
+  const platformAccepted = Boolean(platformInvitation?.[0]?.accepted);
+  if (!platformAccepted) return mapSupabaseProfile(data as UserRow);
+
+  const { data: refreshed, error: refreshError } = await admin.from("users")
     .select("id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in")
     .eq("auth_user_id", input.id)
     .single();
