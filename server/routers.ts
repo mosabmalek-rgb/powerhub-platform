@@ -5,18 +5,18 @@ import { systemRouter } from "./_core/systemRouter";
 import { authenticatedProcedure, publicProcedure, mergeRouters, router } from "./_core/trpc";
 import { powerhubRuntimeRouter } from "./powerhub-runtime-router";
 import { powerhubDashboardRouter } from "./powerhub-dashboard";
-import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router";
+import { adminRouterWithSupabasePlatformSetting as baseAdminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router";
 import { adminRolePolicyRouter } from "./admin-role-policy-router";
 import { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
 
 const adminRuntimeRecord = {
-  ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
+  ...((baseAdminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
 };
 delete adminRuntimeRecord.saveRolePolicy;
 Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, unknown>);
 
-const adminRuntimeRouter = (router(adminRuntimeRecord as Record<string, any>) as unknown) as typeof adminRouter;
+const adminRouterWithSupabasePlatformSetting = (router(adminRuntimeRecord as Record<string, any>) as unknown) as typeof adminRouter;
 
 export const appRouter = router({
   system: systemRouter,
@@ -41,7 +41,7 @@ export const appRouter = router({
     }),
   }),
   powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
-  admin: adminRuntimeRouter,
+  admin: adminRouterWithSupabasePlatformSetting,
 });
 
 export type AppRouter = typeof appRouter;
