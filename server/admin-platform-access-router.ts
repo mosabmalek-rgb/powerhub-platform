@@ -27,4 +27,4 @@ const legacyProcedures = (adminRouter as any)._def.procedures as Record<string, 
 export const adminRouterWithSupabasePlatformAccess = router({
   ...legacyProcedures,
   invitePlatformAccess: platformOwnerInviteProcedure,
-});
+}) as typeof adminRouter;
