@@ -16,13 +16,21 @@ const legacyStaff = legacyRecord.staff as any;
 
 export const powerhubRuntimeRouter: typeof powerhubRouter = router({
   ...legacyRecord,
-  mobileSync: router({
-    ...legacyMobileSync._def.record,
-    approveAndIssue: approveAndIssueMobileReadingRuntime,
-  }),
-  staff: router({
-    ...legacyStaff._def.record,
-    suspend: powerhubStaffSuspensionRuntimeRouter._def.record.suspend,
-    clearSuspension: powerhubStaffSuspensionRuntimeRouter._def.record.clearSuspension,
-  }),
+  ...(legacyMobileSync?._def?.record
+    ? {
+        mobileSync: router({
+          ...legacyMobileSync._def.record,
+          approveAndIssue: approveAndIssueMobileReadingRuntime,
+        }),
+      }
+    : {}),
+  ...((legacyStaff?._def?.record || powerhubStaffSuspensionRuntimeRouter?._def?.record)
+    ? {
+        staff: router({
+          ...(legacyStaff?._def?.record ?? {}),
+          suspend: powerhubStaffSuspensionRuntimeRouter._def.record.suspend,
+          clearSuspension: powerhubStaffSuspensionRuntimeRouter._def.record.clearSuspension,
+        }),
+      }
+    : {}),
 }) as unknown as typeof powerhubRouter;
