@@ -7,6 +7,7 @@ const grants = readFileSync(resolve(process.cwd(), "supabase/migrations/20260911
 const reviewMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260911202000_powerhub_admin_review_subscription_upgrade_request_rpc.sql"), "utf8");
 const renewalMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260912100000_powerhub_admin_renew_subscription_rpc.sql"), "utf8");
 const smsReviewMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260912110000_powerhub_admin_review_sms_package_request_rpc.sql"), "utf8");
+const invitationMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260912130000_powerhub_platform_access_invitation_rpcs.sql"), "utf8");
 
 const rpcNames = [
   "powerhub_admin_set_tenant_membership_status",
@@ -64,6 +65,19 @@ describe("admin Supabase RPC contracts", () => {
     expect(smsReviewMigration).toContain("grant execute on function public.powerhub_admin_review_sms_package_request");
   });
 
+  it("defines platform invitation creation and acceptance as service-role-only SECURITY DEFINER RPCs", () => {
+    expect(invitationMigration).toContain("create or replace function public.powerhub_admin_invite_platform_access");
+    expect(invitationMigration).toContain("create or replace function public.powerhub_accept_pending_platform_invitation");
+    expect(invitationMigration).toContain("security definer");
+    expect(invitationMigration).toContain("set search_path = public, pg_temp");
+    expect(invitationMigration).toContain("INVITATION_ALREADY_PENDING");
+    expect(invitationMigration).toContain("ACCOUNT_ALREADY_EXISTS");
+    expect(invitationMigration).toContain("status = 'accepted'");
+    expect(invitationMigration).toContain("role = 'admin'");
+    expect(invitationMigration).toContain("grant execute on function public.powerhub_admin_invite_platform_access");
+    expect(invitationMigration).toContain("grant execute on function public.powerhub_accept_pending_platform_invitation");
+  });
+
   it("removes only the review procedure legacy guard while preserving other admin guards", () => {
     const admin = readFileSync(resolve(process.cwd(), "server/admin.ts"), "utf8");
     const reviewStart = admin.indexOf("reviewSubscriptionUpgradeRequest:");
@@ -85,5 +99,16 @@ describe("admin Supabase RPC contracts", () => {
     expect(block).toContain("powerhub_admin_review_sms_package_request");
     expect(block).not.toContain("getDb");
     expect(block).not.toContain("drizzle");
+  });
+
+  it("keeps the platform invitation runtime wired to the Supabase adapter and auth sync", () => {
+    const router = readFileSync(resolve(process.cwd(), "server/admin-platform-access-router.ts"), "utf8");
+    const appRouter = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
+    const profile = readFileSync(resolve(process.cwd(), "server/supabase-profile.ts"), "utf8");
+    expect(router).toContain("invitePlatformAccess");
+    expect(router).toContain("platform_owner");
+    expect(router).toContain("powerhub_admin_invite_platform_access");
+    expect(appRouter).toContain("adminRouterWithSupabasePlatformAccess");
+    expect(profile).toContain("powerhub_accept_pending_platform_invitation");
   });
 });
