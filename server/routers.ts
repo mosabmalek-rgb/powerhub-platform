@@ -7,6 +7,7 @@ import { powerhubRuntimeRouter } from "./powerhub-runtime-router";
 import { powerhubDashboardRouter } from "./powerhub-dashboard";
 import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router";
 import { adminRolePolicyRouter } from "./admin-role-policy-router";
+import { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
 
 const adminRuntimeRecord = {
@@ -15,7 +16,7 @@ const adminRuntimeRecord = {
 delete adminRuntimeRecord.saveRolePolicy;
 Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, unknown>);
 
-const adminRuntimeRouter = router(adminRuntimeRecord as Record<string, any>);
+const adminRuntimeRouter = (router(adminRuntimeRecord as Record<string, any>) as unknown) as typeof adminRouter;
 
 export const appRouter = router({
   system: systemRouter,
