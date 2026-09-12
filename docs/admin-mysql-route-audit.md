@@ -8,8 +8,12 @@
 - `attachOwnerUser` — Supabase RPC + adapter + runtime wiring.
 - `updateSubscription` — Supabase RPC + adapter + runtime wiring.
 - `reviewSubscriptionUpgradeRequest` — Supabase RPC + adapter + runtime wiring.
-- `renewSubscription` — RPC + adapter جاهزان؛ **runtime wiring HOLD**.
-- `reviewSmsPackageRequest` — RPC + adapter جاهزان؛ **runtime wiring HOLD**.
+- `quickUpgradeOwnerPlan` — Supabase RPC + adapter + runtime wiring.
+- `renewSubscription` — Supabase RPC + adapter + runtime wiring.
+- `reviewSmsPackageRequest` — Supabase RPC + adapter + runtime wiring.
+- `invitePlatformAccess` — Supabase invitation RPC + adapter + runtime wiring + Auth acceptance flow.
+- `setPlatformAccountStatus` — Supabase RPC + adapter + runtime wiring.
+- `setPlatformAccessRole` — Supabase RPC + adapter + runtime wiring.
 - بقية الكتابات الإدارية ما زالت Guarded Legacy إلى حين تصميم RPC ذرية واختبارات مناسبة.
 
 ## قاعدة الترحيل
