@@ -17,7 +17,7 @@ begin
   select u.platform_role into v_role
   from public.users u
   where u.id = p_actor_user_id and u.role = 'admin' and u.account_status = 'active';
-  if v_role not in ('platform_owner','platform_admin') then raise exception 'PLATFORM_ADMIN_REQUIRED'; end if;
+  if v_role is null or v_role not in ('platform_owner','platform_admin') then raise exception 'PLATFORM_ADMIN_REQUIRED'; end if;
   if trim(coalesce(p_code,'')) = '' or trim(coalesce(p_name,'')) = '' or coalesce(p_included_messages,0) < 0 then raise exception 'INVALID_PLAN'; end if;
 
   insert into public.platform_sms_plans(code,name,description,included_messages,is_active,created_at,updated_at)
@@ -54,7 +54,7 @@ begin
   select u.platform_role into v_role
   from public.users u
   where u.id = p_actor_user_id and u.role = 'admin' and u.account_status = 'active';
-  if v_role not in ('platform_owner','platform_admin') then raise exception 'PLATFORM_ADMIN_REQUIRED'; end if;
+  if v_role is null or v_role not in ('platform_owner','platform_admin') then raise exception 'PLATFORM_ADMIN_REQUIRED'; end if;
   if p_id is null or p_id <= 0 or (p_included_messages is not null and p_included_messages < 0) then raise exception 'INVALID_PLAN'; end if;
 
   update public.platform_sms_plans
