@@ -13,6 +13,8 @@ import { ownerOverviewFromSupabase, platformSnapshotFromSupabase } from "./admin
 import {
   attachOwnerUser as attachOwnerUserSupabase,
   reviewSubscriptionUpgradeRequest as reviewSubscriptionUpgradeRequestSupabase,
+  reviewSmsPackageRequest as reviewSmsPackageRequestSupabase,
+  renewSubscription as renewSubscriptionSupabase,
   setTenantMembershipStatus as setTenantMembershipStatusSupabase,
   updateSubscription as updateSubscriptionSupabase,
 } from "./admin-supabase-writes";
@@ -855,31 +857,20 @@ export const adminRouter = router({
     }
   }),
   reviewSmsPackageRequest: platformAdminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected"]), approvedMessages: z.number().int().min(0).max(100000000), note: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
-    assertLegacyAdminWriteMigrationGuard("مراجعة طلب حزمة رسائل SMS");
-    const db = await dbOrThrow();
-    const [request] = await db.select().from(smsPackageRequests).where(and(eq(smsPackageRequests.id, input.id), eq(smsPackageRequests.status, "pending"))).limit(1);
-    if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الحزمة غير موجود أو تمت مراجعته سابقاً." });
-    if (input.status === "approved" && input.approvedMessages < 1) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل كمية رسائل موجبة عند اعتماد الطلب." });
-    await db.update(smsPackageRequests).set({ status: input.status, approvedMessages: input.status === "approved" ? input.approvedMessages : 0, note: input.note, reviewedByUserId: ctx.user.id, reviewedAt: new Date() }).where(eq(smsPackageRequests.id, input.id));
-    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, request.tenantId)).limit(1);
-    if (site) await db.insert(auditLogs).values({ tenantId: request.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "sms_package_request", entityId: String(input.id), action: `platform_admin_${input.status}_sms_package_request`, metadata: { requestedMessages: request.requestedMessages, approvedMessages: input.approvedMessages, note: input.note } });
-    return { success: true };
+    return reviewSmsPackageRequestSupabase({
+      actorUserId: ctx.user.id,
+      requestId: input.id,
+      status: input.status,
+      approvedMessages: input.approvedMessages,
+      note: input.note,
+    });
   }),
   renewSubscription: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), periods: z.number().int().min(1).max(24).default(1) })).mutation(async ({ ctx, input }) => {
-    assertLegacyAdminWriteMigrationGuard("تجديد اشتراك صاحب المولد");
-    const db = await dbOrThrow();
-    const [subscription] = await db.select().from(tenantSubscriptions).where(eq(tenantSubscriptions.tenantId, input.tenantId)).limit(1);
-    if (!subscription) throw new TRPCError({ code: "NOT_FOUND", message: "اشتراك المستأجر غير موجود." });
-    const [site] = await db.select().from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
-    if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد محطة مرتبطة بالمستأجر." });
-    const base = subscription.endsAt > new Date() ? subscription.endsAt : new Date();
-    const endsAt = addSubscriptionPeriod(base, subscription.billingCycle, input.periods);
-    await db.transaction(async (tx) => {
-      await tx.update(tenantSubscriptions).set({ status: "active", endsAt, renewalCount: sql`${tenantSubscriptions.renewalCount} + ${input.periods}`, lastRenewedAt: new Date() }).where(eq(tenantSubscriptions.tenantId, input.tenantId));
-      await tx.update(tenants).set({ status: "active" }).where(eq(tenants.id, input.tenantId));
+    return renewSubscriptionSupabase({
+      actorUserId: ctx.user.id,
+      tenantId: input.tenantId,
+      periods: input.periods,
     });
-    await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site.id, userId: ctx.user.id, entityType: "tenant_subscription", entityId: String(subscription.id), action: "platform_admin_renew_subscription", metadata: { periods: input.periods, endsAt } });
-    return { endsAt };
   }),
 
   setTenantStatus: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), status: z.enum(["active", "suspended"]) })).mutation(async ({ ctx, input }) => {

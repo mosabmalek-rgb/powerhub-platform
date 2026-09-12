@@ -35,6 +35,26 @@ function reviewSubscriptionRpcError(error: { message?: string } | null) {
   rpcError("reviewSubscriptionUpgradeRequest", error);
 }
 
+function quickUpgradeOwnerPlanRpcError(error: { message?: string } | null) {
+  const message = error?.message?.trim() ?? "";
+  if (message.includes("TENANT_NOT_FOUND")) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
+  }
+  if (message.includes("SUBSCRIPTION_NOT_FOUND")) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يوجد اشتراك مرتبط بصاحب المولد." });
+  }
+  if (message.includes("SITE_NOT_FOUND")) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن ترقية الباقة قبل وجود فرع/محطة مرتبطة بالمساحة." });
+  }
+  if (message.includes("PLAN_NOT_UPGRADE")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من الباقة الحالية." });
+  }
+  if (message.includes("INVALID_PLAN")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "خطة الاشتراك غير صالحة." });
+  }
+  rpcError("quickUpgradeOwnerPlan", error);
+}
+
 function reviewSmsPackageRpcError(error: { message?: string } | null) {
   const message = error?.message?.trim() ?? "";
   if (message.includes("REQUEST_NOT_FOUND")) {
@@ -114,6 +134,24 @@ export async function updateSubscription(input: {
   const row = data?.[0];
   if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُرجع Supabase نتيجة صالحة." });
   return { success: Boolean(row.success), subscriptionId: Number(row.subscription_id), siteId: Number(row.site_id) };
+}
+
+export async function quickUpgradeOwnerPlan(input: {
+  actorUserId: number;
+  tenantId: number;
+  plan: AdminSubscriptionPlan;
+  note: string;
+}) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_quick_upgrade_owner_plan", {
+    p_actor_user_id: input.actorUserId,
+    p_tenant_id: input.tenantId,
+    p_plan: input.plan,
+    p_note: input.note,
+  });
+  quickUpgradeOwnerPlanRpcError(error);
+  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
+  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
+  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
 }
 
 export async function reviewSubscriptionUpgradeRequest(input: {
