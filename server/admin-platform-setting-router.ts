@@ -31,7 +31,8 @@ const platformAdminSavePlatformSettingProcedure = authenticatedProcedure
     });
   });
 
-const legacyRecord = (adminRouterWithSupabaseTariffPolicy as any)._def.record as Record<string, unknown>;
+const legacyRecord = { ...((adminRouterWithSupabaseTariffPolicy as any)._def.record as Record<string, unknown>) };
+delete legacyRecord.saveRolePolicy;
 const recoveryRecord = (adminOwnerAccessRecoveryRouter as any)._def.record as Record<string, unknown>;
 const rolePolicyRecord = (adminRolePolicyRouter as any)._def.record as Record<string, unknown>;
 const platformAccessRecord = (adminRouterWithSupabasePlatformAccess as any)._def.record as Record<string, unknown>;
