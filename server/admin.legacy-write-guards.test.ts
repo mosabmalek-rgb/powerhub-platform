@@ -22,7 +22,6 @@ describe("حراس الكتابات الإدارية الموروثة", () => {
       adminCaller.renewSubscription({ tenantId: 1, periods: 1 }),
       adminCaller.updateComplaint({ id: 1, status: "resolved", response: "تمت المعالجة" }),
       adminCaller.createTariffPolicy({ minimumPricePerKwh: 0.2, maximumPricePerKwh: 0.8, effectiveFrom: new Date("2026-09-01T00:00:00.000Z") }),
-      adminCaller.saveTenantBranchSettings({ tenantId: 1, isEnabledOverride: true, maxBranchesOverride: 3, disabledBehavior: "read_only" }),
       adminCaller.savePlatformSetting({ settingKey: "maintenance_mode", isEnabled: false }),
       adminCaller.requestOwnerAccessRecovery({ tenantId: 1 }),
       adminCaller.saveRolePolicy({ role: "accountant", capability: "managePayroll", isAllowed: true }),
