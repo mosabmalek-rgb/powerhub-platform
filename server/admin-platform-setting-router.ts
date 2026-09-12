@@ -4,6 +4,7 @@ import { authenticatedProcedure, router } from "./_core/trpc";
 import { adminRouter } from "./admin";
 import { adminRouterWithSupabaseTariffPolicy } from "./admin-tariff-policy-router";
 import { savePlatformSetting } from "./platform-setting-supabase";
+import { adminOwnerAccessRecoveryRouter } from "./admin-owner-access-recovery-router";
 
 const platformAdminSavePlatformSettingProcedure = authenticatedProcedure
   .input(z.object({
@@ -26,8 +27,10 @@ const platformAdminSavePlatformSettingProcedure = authenticatedProcedure
   });
 
 const legacyProcedures = (adminRouterWithSupabaseTariffPolicy as any)._def.procedures as Record<string, unknown>;
+const recoveryProcedures = (adminOwnerAccessRecoveryRouter as any)._def.procedures as Record<string, unknown>;
 
 export const adminRouterWithSupabasePlatformSetting = (router({
   ...legacyProcedures,
+  ...recoveryProcedures,
   savePlatformSetting: platformAdminSavePlatformSettingProcedure,
 }) as unknown) as typeof adminRouter;
