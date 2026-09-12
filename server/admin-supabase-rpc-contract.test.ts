@@ -6,6 +6,7 @@ const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260
 const grants = readFileSync(resolve(process.cwd(), "supabase/migrations/20260911201000_powerhub_admin_rpc_grants.sql"), "utf8");
 const reviewMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260911202000_powerhub_admin_review_subscription_upgrade_request_rpc.sql"), "utf8");
 const renewalMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260912100000_powerhub_admin_renew_subscription_rpc.sql"), "utf8");
+const smsReviewMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260912110000_powerhub_admin_review_sms_package_request_rpc.sql"), "utf8");
 
 const rpcNames = [
   "powerhub_admin_set_tenant_membership_status",
@@ -50,6 +51,19 @@ describe("admin Supabase RPC contracts", () => {
     expect(renewalMigration).toContain("grant execute on function public.powerhub_admin_renew_subscription");
   });
 
+  it("defines the SMS package review RPC atomically with validation, site scope, and audit logging", () => {
+    expect(smsReviewMigration).toContain("create or replace function public.powerhub_admin_review_sms_package_request");
+    expect(smsReviewMigration).toContain("security definer");
+    expect(smsReviewMigration).toContain("set search_path = public, pg_temp");
+    expect(smsReviewMigration).toContain("REQUEST_NOT_FOUND");
+    expect(smsReviewMigration).toContain("REQUEST_ALREADY_PROCESSED");
+    expect(smsReviewMigration).toContain("APPROVED_MESSAGES_REQUIRED");
+    expect(smsReviewMigration).toContain("SITE_NOT_FOUND");
+    expect(smsReviewMigration).toContain("for update");
+    expect(smsReviewMigration).toContain("reviewed_by_user_id = p_actor_user_id");
+    expect(smsReviewMigration).toContain("grant execute on function public.powerhub_admin_review_sms_package_request");
+  });
+
   it("removes only the review procedure legacy guard while preserving other admin guards", () => {
     const admin = readFileSync(resolve(process.cwd(), "server/admin.ts"), "utf8");
     const reviewStart = admin.indexOf("reviewSubscriptionUpgradeRequest:");
@@ -61,5 +75,15 @@ describe("admin Supabase RPC contracts", () => {
     expect(reviewBlock).not.toContain(".transaction(");
     expect(admin).toContain("function assertLegacyAdminWriteMigrationGuard");
     expect(admin).toContain("assertLegacyAdminWriteMigrationGuard(\"الترقية السريعة لباقة صاحب المولد\")");
+  });
+
+  it("keeps the SMS package review adapter Supabase-only", () => {
+    const adapter = readFileSync(resolve(process.cwd(), "server/admin-supabase-writes.ts"), "utf8");
+    const start = adapter.indexOf("export async function reviewSmsPackageRequest");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const block = adapter.slice(start);
+    expect(block).toContain("powerhub_admin_review_sms_package_request");
+    expect(block).not.toContain("getDb");
+    expect(block).not.toContain("drizzle");
   });
 });
