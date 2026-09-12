@@ -31,21 +31,21 @@ const platformAdminSavePlatformSettingProcedure = authenticatedProcedure
     });
   });
 
-const legacyProcedures = (adminRouterWithSupabaseTariffPolicy as any)._def.procedures as Record<string, unknown>;
-const recoveryProcedures = (adminOwnerAccessRecoveryRouter as any)._def.procedures as Record<string, unknown>;
-const rolePolicyProcedures = (adminRolePolicyRouter as any)._def.procedures as Record<string, unknown>;
-const platformAccessProcedures = (adminRouterWithSupabasePlatformAccess as any)._def.procedures as Record<string, unknown>;
-const tenantAccessProcedures = (adminTenantAccessRouter as any)._def.procedures as Record<string, unknown>;
-const smsPlanProcedures = (adminSmsPlanRouter as any)._def.procedures as Record<string, unknown>;
-const tenantBranchProcedures = adminRouterWithSupabaseTenantBranchSettings as unknown as Record<string, unknown>;
+const legacyRecord = (adminRouterWithSupabaseTariffPolicy as any)._def.record as Record<string, unknown>;
+const recoveryRecord = (adminOwnerAccessRecoveryRouter as any)._def.record as Record<string, unknown>;
+const rolePolicyRecord = (adminRolePolicyRouter as any)._def.record as Record<string, unknown>;
+const platformAccessRecord = (adminRouterWithSupabasePlatformAccess as any)._def.record as Record<string, unknown>;
+const tenantAccessRecord = (adminTenantAccessRouter as any)._def.record as Record<string, unknown>;
+const smsPlanRecord = (adminSmsPlanRouter as any)._def.record as Record<string, unknown>;
+const tenantBranchRecord = (adminRouterWithSupabaseTenantBranchSettings as any)._def.record as Record<string, unknown>;
 
 export const adminRouterWithSupabasePlatformSetting = (router({
-  ...legacyProcedures,
-  ...recoveryProcedures,
-  ...rolePolicyProcedures,
-  ...platformAccessProcedures,
-  ...tenantAccessProcedures,
-  ...smsPlanProcedures,
-  ...tenantBranchProcedures,
+  ...legacyRecord,
+  ...recoveryRecord,
+  ...rolePolicyRecord,
+  ...platformAccessRecord,
+  ...tenantAccessRecord,
+  ...smsPlanRecord,
+  ...tenantBranchRecord,
   savePlatformSetting: platformAdminSavePlatformSettingProcedure,
 }) as unknown) as typeof adminRouter;
