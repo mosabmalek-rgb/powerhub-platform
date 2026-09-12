@@ -23,7 +23,7 @@ const platformOwnerSetAccountStatusProcedure = authenticatedProcedure
 
 const legacyProcedures = (adminRouterWithSupabasePlatformAccess as any)._def.procedures as Record<string, unknown>;
 
-export const adminRouterWithSupabasePlatformAccountStatus = router({
+export const adminRouterWithSupabasePlatformAccountStatus = (router({
   ...legacyProcedures,
   setPlatformAccountStatus: platformOwnerSetAccountStatusProcedure,
-}) as typeof adminRouter;
+}) as unknown) as typeof adminRouter;
