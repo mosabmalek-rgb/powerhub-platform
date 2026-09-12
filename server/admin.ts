@@ -12,6 +12,7 @@ import { processNotificationById } from "./notification-worker";
 import { ownerOverviewFromSupabase, platformSnapshotFromSupabase } from "./admin-supabase";
 import {
   attachOwnerUser as attachOwnerUserSupabase,
+  quickUpgradeOwnerPlan as quickUpgradeOwnerPlanSupabase,
   reviewSubscriptionUpgradeRequest as reviewSubscriptionUpgradeRequestSupabase,
   reviewSmsPackageRequest as reviewSmsPackageRequestSupabase,
   renewSubscription as renewSubscriptionSupabase,
@@ -528,15 +529,12 @@ export const adminRouter = router({
   }),
 
   quickUpgradeOwnerPlan: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), plan: planSchema, note: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
-    assertLegacyAdminWriteMigrationGuard("الترقية السريعة لباقة صاحب المولد");
-    const db = await dbOrThrow(); const [tenant] = await db.select({ id: tenants.id, plan: tenants.plan }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
-    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
-    const rank: Record<string, number> = { starter: 1, professional: 2, enterprise: 3 };
-    if (rank[input.plan] <= (rank[tenant.plan] ?? 0)) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من الباقة الحالية." });
-    const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.tenantId, input.tenantId)).limit(1);
-    await db.transaction(async (tx) => { await tx.update(tenants).set({ plan: input.plan }).where(eq(tenants.id, input.tenantId)); await tx.update(tenantSubscriptions).set({ plan: input.plan }).where(eq(tenantSubscriptions.tenantId, input.tenantId)); });
-    await db.insert(auditLogs).values({ tenantId: input.tenantId, siteId: site?.id ?? null, userId: ctx.user.id, entityType: "tenant_subscription", entityId: String(input.tenantId), action: "platform_admin_quick_upgrade_owner_plan", afterData: { fromPlan: tenant.plan, toPlan: input.plan, note: input.note ?? null }, actorPlatformRole: platformRoleOf(ctx.user) });
-    return { success: true, plan: input.plan };
+    return quickUpgradeOwnerPlanSupabase({
+      actorUserId: ctx.user.id,
+      tenantId: input.tenantId,
+      plan: input.plan,
+      note: input.note ?? "",
+    });
   }),
 
   sendOwnerUsageAlert: platformAdminProcedure.input(z.object({ tenantId: z.number().int().positive(), message: z.string().trim().min(5).max(1200), usagePercent: z.number().int().min(80).max(100) })).mutation(async ({ ctx, input }) => {
