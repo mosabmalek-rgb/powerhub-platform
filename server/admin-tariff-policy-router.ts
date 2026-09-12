@@ -30,9 +30,9 @@ const platformAdminCreateTariffPolicyProcedure = authenticatedProcedure
     });
   });
 
-const legacyProcedures = (adminRouterWithSupabasePlatformAccessRole as any)._def.procedures as Record<string, unknown>;
+const legacyRecord = (adminRouterWithSupabasePlatformAccessRole as any)._def.record as Record<string, unknown>;
 
 export const adminRouterWithSupabaseTariffPolicy = (router({
-  ...legacyProcedures,
+  ...legacyRecord,
   createTariffPolicy: platformAdminCreateTariffPolicyProcedure,
 }) as unknown) as typeof adminRouter;
