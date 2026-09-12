@@ -122,4 +122,167 @@ describe("role guards in administration UI", () => {
     expect(screen.getByLabelText("بداية نطاق سجل الإرسال")).toBeInTheDocument();
     expect(screen.getByLabelText("نهاية نطاق سجل الإرسال")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "محاسب الفرع" }));
-    expect(screen... (truncated)
+    expect(screen.getByRole("heading", { name: "تفاصيل عملية الإرسال الجماعي" })).toBeInTheDocument();
+    expect(screen.getByText("PH-TEST-0081")).toBeInTheDocument();
+    expect(screen.getByText("أحمد المشترك")).toBeInTheDocument();
+    expect(screen.getByText("تعذر")).toBeInTheDocument();
+    expect(screen.getByText("نسبة النجاح: 50%")).toBeInTheDocument();
+    expect(screen.getByText("نسبة التعذر: 50%")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "تقدم نجاح وفشل عملية الإرسال" })).toHaveAttribute("aria-valuenow", "50");
+    fireEvent.click(screen.getByRole("button", { name: /PH-TEST-0081/ }));
+    expect(mocks.createShareLink).toHaveBeenCalledWith({ siteId: 1, invoiceId: 81 });
+    fireEvent.click(screen.getByRole("button", { name: "إعادة إرسال SMS" }));
+    expect(mocks.sendPendingSms).toHaveBeenCalledWith({ siteId: 1, invoiceIds: [81], includeFailed: true });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "إعادة إرسال SMS الفاشل (1)" }));
+    expect(mocks.sendPendingSms).toHaveBeenCalledWith({ siteId: 1, invoiceIds: [81], includeFailed: true });
+  });
+
+  it("renders the subscriber directory in read-only mode for the viewer", () => {
+    mocks.subscribers = [{ id: 101, fullName: "مشترك الاختبار", subscriberNo: "PH-TEST-ABC123", phone: "+970700000000", subscriptionType: "residential", serviceStatus: "active" }];
+    render(<NetworkDirectoryPage kind="subscribers" />);
+    expect(screen.getByText(/وضع القراءة فقط لهذه المحطة/)).toBeInTheDocument();
+    expect(screen.getByText("إرشاد بوابة الاستعلامات للمشترك")).toBeInTheDocument();
+    expect(screen.getByText(/الرقم المرجعي مع رقم هاتفه الدولي المسجل/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "نسخ الرقم المرجعي" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /إضافة المشترك/ })).not.toBeInTheDocument();
+  });
+
+  it("shows generator creation to the technician but keeps it read-only for the accountant", () => {
+    mocks.activeRole = "technician";
+    const { unmount } = render(<NetworkDirectoryPage kind="generators" />);
+    expect(screen.getByRole("button", { name: "إضافة المولد" })).toBeInTheDocument();
+    unmount();
+    mocks.activeRole = "accountant";
+    render(<NetworkDirectoryPage kind="generators" />);
+    expect(screen.getByText(/وضع القراءة فقط لهذه المحطة/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إضافة المولد" })).not.toBeInTheDocument();
+  });
+
+  it("hides tenant messaging configuration from every non-owner role", () => {
+    mocks.activeRole = "manager";
+    render(<MessagingSettingsPage />);
+    expect(screen.getByText(/تحتاج إلى صلاحية/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /حفظ إعداد WhatsApp/ })).not.toBeInTheDocument();
+  });
+
+  it("shows WhatsApp setup and a read-only TweetSMS status to the owner", () => {
+    mocks.activeRole = "owner";
+    render(<MessagingSettingsPage />);
+    expect(screen.getByText("إعداد WhatsApp Cloud API")).toBeInTheDocument();
+    expect(screen.getByText("حساب TweetSMS")).toBeInTheDocument();
+    expect(screen.getByLabelText("اسم قالب رسالة الرقم المرجعي")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /حفظ إعداد WhatsApp/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /حفظ إعداد SMS/ })).not.toBeInTheDocument();
+  });
+
+  it("shows a clear portal URL copy action to the owner", () => {
+    mocks.activeRole = "owner";
+    render(<SubscriberPortalSettingsPage />);
+    expect(screen.getByRole("button", { name: "نسخ رابط البوابة" })).toBeInTheDocument();
+    expect(screen.getByText(/انسخ الرابط ثم شاركه مع المشتركين/)).toBeInTheDocument();
+    expect(screen.getByText("رمز QR للبوابة")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تنزيل رمز QR" })).toBeInTheDocument();
+  });
+
+  it("shows team administration to the owner", () => {
+    mocks.activeRole = "owner";
+    render(<SettingsPage />);
+    expect(screen.getByRole("button", { name: /حفظ الدور/ })).toBeInTheDocument();
+  });
+
+  it("offers the separate field-app permission to the generator owner", () => {
+    render(<FlexiblePermissionsPanel siteId={1} canManageTeam staff={[{ profile: { id: 10, role: "technician", permissions: ["recordReadings"], customRoleId: null }, user: { id: 20, name: "فني الاختبار", email: "field@powerhub.test" } }]} />);
+    fireEvent.change(screen.getByLabelText("اختيار الحساب لتعديل الصلاحيات"), { target: { value: "10" } });
+    const fieldAppPermission = screen.getByLabelText("الدخول للتطبيق الميداني");
+    expect(fieldAppPermission).not.toBeChecked();
+    fireEvent.click(fieldAppPermission);
+    expect(fieldAppPermission).toBeChecked();
+  });
+
+  it("keeps the operational reading entry view read-only for the viewer", () => {
+    render(<OperationsPage section="readings" />);
+    expect(screen.getByText(/لا يتيح دورك تنفيذ هذه العملية/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /حفظ القراءة/ })).not.toBeInTheDocument();
+  });
+
+  it("hides payment entry from the viewer in the operational collections view", () => {
+    render(<OperationsPage section="collections" />);
+    expect(screen.getByText(/دورك يتيح مراجعة التحصيلات فقط/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /تسجيل الدفعة/ })).not.toBeInTheDocument();
+  });
+
+  it("shows payment entry to the collector", () => {
+    mocks.activeRole = "collector";
+    render(<OperationsPage section="collections" />);
+    expect(screen.getByRole("button", { name: /تسجيل الدفعة/ })).toBeInTheDocument();
+  });
+
+  it("shows expense entry to the accountant but keeps it read-only for the collector", () => {
+    mocks.activeRole = "accountant";
+    const { unmount } = render(<OperationsPage section="expenses" />);
+    expect(screen.getByRole("button", { name: "حفظ المصروف" })).toBeInTheDocument();
+    unmount();
+    mocks.activeRole = "collector";
+    render(<OperationsPage section="expenses" />);
+    expect(screen.queryByRole("button", { name: "حفظ المصروف" })).not.toBeInTheDocument();
+  });
+
+  it("shows the collector session opening flow to the collector", () => {
+    mocks.activeRole = "collector";
+    render(<OperationsPage section="collections" />);
+    expect(screen.getByText(/افتح جلسة قبل تسجيل دفعاتك الميدانية/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "فتح جلسة تحصيل" })).toBeInTheDocument();
+  });
+
+  it("shows receipt print, WhatsApp, and SMS actions for a partial payment", () => {
+    mocks.activeRole = "owner";
+    mocks.invoices = [{ id: 50, invoiceNo: "INV-PARTIAL", billingPeriod: "2026-08", consumptionKwh: "5", totalAmount: "100", paidAmount: "40", balanceDue: "60", status: "partially_paid" } as any];
+    mocks.payments = [{ payment: { id: 70, invoiceId: 50, paymentNo: "PAY-PARTIAL", amount: "40", paymentMethod: "cash", paidAt: new Date("2026-08-20") }, subscriber: { fullName: "مشترك اختبار", phone: "970599000000" }, invoiceNo: "INV-PARTIAL" }];
+    render(<OperationsPage section="collections" />);
+    expect(screen.getByRole("button", { name: "طباعة" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "WhatsApp" }));
+    expect(mocks.sendPaymentReceiptSms).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "whatsapp" });
+    fireEvent.click(screen.getByRole("button", { name: "SMS" }));
+    expect(mocks.sendPaymentReceiptSms).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "sms" });
+  });
+
+  it("lets an accountant create a public share link from an issued invoice", () => {
+    mocks.activeRole = "accountant";
+    mocks.invoices = [{ id: 44, invoiceNo: "PH-TEST-0044", billingPeriod: "2026-08", consumptionKwh: "50", balanceDue: "75", status: "issued" }];
+    render(<OperationsPage section="invoices" />);
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء رابط" }));
+    expect(mocks.createShareLink).toHaveBeenCalledWith({ siteId: 1, invoiceId: 44 });
+  });
+
+  it("keeps audit records unavailable to the collector", () => {
+    mocks.activeRole = "collector";
+    render(<OperationsPage section="audit" />);
+    expect(screen.getByText(/لا يتيح دورك تنفيذ هذه العملية/)).toBeInTheDocument();
+  });
+
+  it("shows audit records to the owner", () => {
+    mocks.activeRole = "owner";
+    render(<OperationsPage section="audit" />);
+    expect(screen.getByRole("heading", { name: "سجل التدقيق" })).toBeInTheDocument();
+  });
+
+  it("shows the focused add-reading page without legacy meter forms to the viewer", () => {
+    render(<MeterReadingsPage />);
+    expect(screen.getByRole("heading", { name: "إضافة قراءة" })).toBeInTheDocument();
+    expect(screen.queryByText("إضافة عداد")).not.toBeInTheDocument();
+    expect(screen.queryByText("تسجيل قراءة جديدة")).not.toBeInTheDocument();
+  });
+
+  it("shows direct reading registration to the technician", () => {
+    mocks.activeRole = "technician";
+    render(<MeterReadingsPage />);
+    expect(screen.getByRole("heading", { name: "إضافة قراءة" })).toBeInTheDocument();
+    expect(screen.getByText("تسجيل قراءة")).toBeInTheDocument();
+    expect(screen.getByText("آخر القراءات المسجلة")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "بحث في القراءات" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "فلترة حالة القراءة" })).toBeInTheDocument();
+    expect(screen.queryByText("إضافة عداد")).not.toBeInTheDocument();
+    expect(screen.queryByText("تسجيل قراءة جديدة")).not.toBeInTheDocument();
+  });
+});
