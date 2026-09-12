@@ -3,22 +3,19 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
 import { authenticatedProcedure, publicProcedure, mergeRouters, router } from "./_core/trpc";
-import { powerhubRouter } from "./powerhub";
+import { powerhubRuntimeRouter } from "./powerhub-runtime-router";
 import { powerhubDashboardRouter } from "./powerhub-dashboard";
 import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router";
 import { supabaseAdmin } from "./supabase-admin";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
     updateProfile: authenticatedProcedure.input(z.object({ name: z.string().min(2).max(180) })).mutation(async ({ ctx, input }) => {
       const { error } = await supabaseAdmin().from("users").update({ name: input.name.trim() }).eq("id", ctx.user.id);
@@ -33,15 +30,8 @@ export const appRouter = router({
       return { success: true } as const;
     }),
   }),
-  powerhub: mergeRouters(powerhubRouter, router({ performance: powerhubDashboardRouter })),
+  powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
   admin: adminRouterWithSupabasePlatformSetting,
-
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
 });
 
 export type AppRouter = typeof appRouter;
