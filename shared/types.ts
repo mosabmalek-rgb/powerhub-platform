@@ -1,7 +1,8 @@
 /**
- * Unified type exports
- * Import shared types from this single entry point.
+ * Shared type/error exports that are independent from any database adapter.
+ *
+ * Database row types belong to their owning domain/adaptor module and must not
+ * leak the legacy Drizzle schema into shared application code.
  */
 
-export type * from "../drizzle/schema";
 export * from "./_core/errors";
