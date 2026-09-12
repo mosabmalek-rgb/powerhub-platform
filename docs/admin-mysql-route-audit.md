@@ -15,6 +15,7 @@
 - `setPlatformAccountStatus` — Supabase RPC + adapter + runtime wiring.
 - `setPlatformAccessRole` — Supabase RPC + adapter + runtime wiring.
 - `createTariffPolicy` — Supabase RPC + adapter + runtime wiring؛ السياسة والإشعارات والتدقيق تُكتب ضمن RPC ذرية واحدة.
+- `savePlatformSetting` — Supabase RPC + adapter + runtime wiring؛ upsert الإعداد وسجل الأمان ضمن معاملة واحدة.
 
 ## الكتابات المتبقية
 
@@ -24,7 +25,6 @@
 - `updateSmsPlan`
 - `updateComplaint`
 - `saveTenantBranchSettings`
-- `savePlatformSetting`
 - `requestOwnerAccessRecovery`
 - `saveRolePolicy`
 
