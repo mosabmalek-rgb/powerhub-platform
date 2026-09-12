@@ -6,6 +6,7 @@ import { adminRouterWithSupabaseTariffPolicy } from "./admin-tariff-policy-route
 import { savePlatformSetting } from "./platform-setting-supabase";
 import { adminOwnerAccessRecoveryRouter } from "./admin-owner-access-recovery-router";
 import { adminRolePolicyRouter } from "./admin-role-policy-router";
+import { adminRouterWithSupabasePlatformAccess } from "./admin-platform-access-router";
 import { adminTenantAccessRouter } from "./admin-tenant-access-router";
 import { adminSmsPlanRouter } from "./admin-sms-plan-router";
 import { adminRouterWithSupabaseTenantBranchSettings } from "./admin-tenant-branch-settings-router";
@@ -33,6 +34,7 @@ const platformAdminSavePlatformSettingProcedure = authenticatedProcedure
 const legacyProcedures = (adminRouterWithSupabaseTariffPolicy as any)._def.procedures as Record<string, unknown>;
 const recoveryProcedures = (adminOwnerAccessRecoveryRouter as any)._def.procedures as Record<string, unknown>;
 const rolePolicyProcedures = (adminRolePolicyRouter as any)._def.procedures as Record<string, unknown>;
+const platformAccessProcedures = (adminRouterWithSupabasePlatformAccess as any)._def.procedures as Record<string, unknown>;
 const tenantAccessProcedures = (adminTenantAccessRouter as any)._def.procedures as Record<string, unknown>;
 const smsPlanProcedures = (adminSmsPlanRouter as any)._def.procedures as Record<string, unknown>;
 const tenantBranchProcedures = adminRouterWithSupabaseTenantBranchSettings as unknown as Record<string, unknown>;
@@ -41,6 +43,7 @@ export const adminRouterWithSupabasePlatformSetting = (router({
   ...legacyProcedures,
   ...recoveryProcedures,
   ...rolePolicyProcedures,
+  ...platformAccessProcedures,
   ...tenantAccessProcedures,
   ...smsPlanProcedures,
   ...tenantBranchProcedures,
