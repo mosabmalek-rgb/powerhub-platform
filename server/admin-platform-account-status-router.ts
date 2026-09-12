@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { authenticatedProcedure, router } from "./_core/trpc";
+import { adminRouter } from "./admin";
 import { adminRouterWithSupabasePlatformAccess } from "./admin-platform-access-router";
 import { setPlatformAccountStatus } from "./platform-account-status-supabase";
 
@@ -25,4 +26,4 @@ const legacyProcedures = (adminRouterWithSupabasePlatformAccess as any)._def.pro
 export const adminRouterWithSupabasePlatformAccountStatus = router({
   ...legacyProcedures,
   setPlatformAccountStatus: platformOwnerSetAccountStatusProcedure,
-});
+}) as typeof adminRouter;
