@@ -78,7 +78,7 @@ describe("admin Supabase RPC contracts", () => {
     expect(invitationMigration).toContain("grant execute on function public.powerhub_accept_pending_platform_invitation");
   });
 
-  it("removes only the review procedure legacy guard while preserving other admin guards", () => {
+  it("keeps migrated admin procedures Supabase-only while preserving guards for blocked legacy mutations", () => {
     const admin = readFileSync(resolve(process.cwd(), "server/admin.ts"), "utf8");
     const reviewStart = admin.indexOf("reviewSubscriptionUpgradeRequest:");
     const reviewEnd = admin.indexOf("quickUpgradeOwnerPlan:", reviewStart);
@@ -88,7 +88,8 @@ describe("admin Supabase RPC contracts", () => {
     expect(reviewBlock).not.toContain("dbOrThrow");
     expect(reviewBlock).not.toContain(".transaction(");
     expect(admin).toContain("function assertLegacyAdminWriteMigrationGuard");
-    expect(admin).toContain("assertLegacyAdminWriteMigrationGuard(\"الترقية السريعة لباقة صاحب المولد\")");
+    expect(admin).toContain("assertLegacyAdminWriteMigrationGuard(\"إنشاء صاحب مولد\")");
+    expect(admin).toContain("assertLegacyAdminWriteMigrationGuard(\"تحديث الشكوى\")");
   });
 
   it("keeps the SMS package review adapter Supabase-only", () => {
@@ -107,8 +108,8 @@ describe("admin Supabase RPC contracts", () => {
     const profile = readFileSync(resolve(process.cwd(), "server/supabase-profile.ts"), "utf8");
     expect(router).toContain("invitePlatformAccess");
     expect(router).toContain("platform_owner");
-    expect(router).toContain("powerhub_admin_invite_platform_access");
-    expect(appRouter).toContain("adminRouterWithSupabasePlatformAccess");
+    expect(router).toContain("invitePlatformAccessSupabase");
+    expect(appRouter).toContain("adminRouterWithSupabasePlatformSetting");
     expect(profile).toContain("powerhub_accept_pending_platform_invitation");
   });
 });
