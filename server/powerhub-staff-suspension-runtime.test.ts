@@ -21,7 +21,13 @@ vi.mock("./supabase-admin", () => ({
         eq() { return query; },
         or() { return query; },
         maybeSingle: async () => ({ data: state.profile, error: null }),
-        update(values: Record<string, unknown>) { state.updates.push(values); return query; },
+        update(values: Record<string, unknown>) {
+          state.updates.push(values);
+          return query;
+        },
+        then(resolve: (value: { data: null; error: null }) => unknown) {
+          return Promise.resolve(resolve({ data: null, error: null }));
+        },
       };
       return query;
     },
@@ -29,17 +35,74 @@ vi.mock("./supabase-admin", () => ({
 }));
 
 describe("PowerHub staff suspension Supabase runtime", () => {
-  it("uses Supabase and preserves the suspend contract", async () => {
+  it("executes suspend through Supabase without calling MySQL", async () => {
     const { powerhubStaffSuspensionRuntimeRouter } = await import("./powerhub-staff-suspension-runtime");
     const mutation = (powerhubStaffSuspensionRuntimeRouter as any)._def.record.suspend;
-    expect(mutation).toBeDefined();
+
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 99 } },
+      input: {
+        siteId: 3,
+        profileId: 7,
+        startsAt: "2026-09-12T10:00:00.000Z",
+        endsAt: "2026-09-13T10:00:00.000Z",
+      },
+    });
+
+    expect(result.success).toBe(true);
     expect(state.getDb).not.toHaveBeenCalled();
+    expect(state.updates).toHaveLength(1);
+    expect(state.updates[0]).toMatchObject({
+      suspension_started_at: "2026-09-12T10:00:00.000Z",
+      suspension_ends_at: "2026-09-13T10:00:00.000Z",
+    });
+    expect(state.audits[0]).toMatchObject({
+      action: "suspend_until",
+      entityType: "staff_profile",
+      entityId: "7",
+    });
   });
 
-  it("uses Supabase and preserves the clearSuspension contract", async () => {
+  it("executes clearSuspension through Supabase without calling MySQL", async () => {
+    state.updates.length = 0;
+    state.audits.length = 0;
+
     const { powerhubStaffSuspensionRuntimeRouter } = await import("./powerhub-staff-suspension-runtime");
     const mutation = (powerhubStaffSuspensionRuntimeRouter as any)._def.record.clearSuspension;
-    expect(mutation).toBeDefined();
+
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 99 } },
+      input: { siteId: 3, profileId: 7 },
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(state.getDb).not.toHaveBeenCalled();
+    expect(state.updates).toHaveLength(1);
+    expect(state.updates[0]).toMatchObject({
+      suspension_started_at: null,
+      suspension_ends_at: null,
+    });
+    expect(state.audits[0]).toMatchObject({
+      action: "clear_suspension",
+      entityType: "staff_profile",
+      entityId: "7",
+    });
+  });
+
+  it("rejects an invalid suspension window before writing", async () => {
+    const { powerhubStaffSuspensionRuntimeRouter } = await import("./powerhub-staff-suspension-runtime");
+    const mutation = (powerhubStaffSuspensionRuntimeRouter as any)._def.record.suspend;
+
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 99 } },
+      input: {
+        siteId: 3,
+        profileId: 7,
+        startsAt: "2026-09-13T10:00:00.000Z",
+        endsAt: "2026-09-12T10:00:00.000Z",
+      },
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
     expect(state.getDb).not.toHaveBeenCalled();
   });
 });
