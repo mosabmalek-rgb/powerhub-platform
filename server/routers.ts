@@ -42,6 +42,7 @@ export const appRouter = router({
   }),
   powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
   // Canonical composition contract: admin: adminRouterWithSupabasePlatformSetting
+  // Reissued after CI merge-ref drift so GitHub Actions evaluates the current branch head.
   admin: adminRuntimeRouter,
 });
 
