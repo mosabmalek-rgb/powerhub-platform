@@ -16,17 +16,17 @@
 - `setPlatformAccessRole` — Supabase RPC + adapter + runtime wiring.
 - `createTariffPolicy` — Supabase RPC + adapter + runtime wiring؛ السياسة والإشعارات والتدقيق تُكتب ضمن RPC ذرية واحدة.
 - `savePlatformSetting` — Supabase RPC + adapter + runtime wiring؛ upsert الإعداد وسجل الأمان ضمن معاملة واحدة.
+- `requestOwnerAccessRecovery` — Supabase RPC + adapter + runtime wiring.
+- `saveRolePolicy` — Supabase RPC + adapter + runtime wiring.
+- `inviteTenantAccess` — Supabase invitation RPC + adapter + runtime wiring.
+- `createSmsPlan` — Supabase RPC + adapter + runtime wiring.
+- `updateSmsPlan` — Supabase RPC + adapter + runtime wiring.
+- `saveTenantBranchSettings` — Supabase RPC + adapter + runtime wiring؛ الإعداد والتدقيق/حدث الأمان ضمن RPC ذرية.
 
 ## الكتابات المتبقية
 
-- `inviteTenantAccess`
-- `createGeneratorOwner` (Legacy؛ يوجد مسار أحدث لإنشاء صاحب المولد/الاشتراك عبر Supabase ويجب تقييم إزالة هذا المسار بدل إعادة بنائه.)
-- `createSmsPlan`
-- `updateSmsPlan`
-- `updateComplaint`
-- `saveTenantBranchSettings`
-- `requestOwnerAccessRecovery`
-- `saveRolePolicy`
+- `createGeneratorOwner` (Legacy؛ يوجد مسار أحدث لإنشاء صاحب المولد/الاشتراك عبر Supabase، ويجب تقييم إزالة هذا المسار بدل إعادة بنائه.)
+- `updateComplaint` (محجوب؛ لا توجد حاليًا `public.complaints` في Staging، لذلك لا يجوز اختراع مخطط قبل توثيق نموذج البيانات.)
 
 ## قاعدة الترحيل
 
