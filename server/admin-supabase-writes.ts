@@ -35,6 +35,23 @@ function reviewSubscriptionRpcError(error: { message?: string } | null) {
   rpcError("reviewSubscriptionUpgradeRequest", error);
 }
 
+function reviewSmsPackageRpcError(error: { message?: string } | null) {
+  const message = error?.message?.trim() ?? "";
+  if (message.includes("REQUEST_NOT_FOUND")) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "طلب حزمة الرسائل غير موجود." });
+  }
+  if (message.includes("REQUEST_ALREADY_PROCESSED")) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تمت معالجة طلب حزمة الرسائل مسبقاً." });
+  }
+  if (message.includes("SITE_NOT_FOUND")) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن مراجعة طلب حزمة الرسائل قبل وجود فرع/محطة مرتبطة بالمساحة." });
+  }
+  if (message.includes("APPROVED_MESSAGES_REQUIRED") || message.includes("INVALID_APPROVED_MESSAGES") || message.includes("INVALID_STATUS")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات مراجعة حزمة الرسائل غير صالحة." });
+  }
+  rpcError("reviewSmsPackageRequest", error);
+}
+
 export async function setTenantMembershipStatus(input: {
   actorUserId: number;
   tenantId: number;
@@ -115,6 +132,32 @@ export async function reviewSubscriptionUpgradeRequest(input: {
   const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
   if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription review result." });
   return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
+}
+
+export async function reviewSmsPackageRequest(input: {
+  actorUserId: number;
+  requestId: number;
+  status: "approved" | "rejected";
+  approvedMessages: number;
+  note?: string;
+}) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_review_sms_package_request", {
+    p_actor_user_id: input.actorUserId,
+    p_request_id: input.requestId,
+    p_status: input.status,
+    p_approved_messages: input.approvedMessages,
+    p_note: input.note ?? null,
+  });
+  reviewSmsPackageRpcError(error);
+  const row = data?.[0] as { success?: boolean; tenant_id?: number | string; site_id?: number | string; status?: string; approved_messages?: number } | undefined;
+  if (!row || typeof row.status !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid SMS package review result." });
+  return {
+    success: Boolean(row.success),
+    tenantId: Number(row.tenant_id),
+    siteId: Number(row.site_id),
+    status: row.status as "approved" | "rejected",
+    approvedMessages: Number(row.approved_messages ?? 0),
+  };
 }
 
 function renewSubscriptionRpcError(error: { message?: string } | null) {
