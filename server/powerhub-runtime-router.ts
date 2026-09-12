@@ -12,11 +12,12 @@ import { approveAndIssueMobileReadingRuntime } from "./powerhub-mobile-approve-r
  */
 const legacyRecord = (powerhubRouter as any)._def.record as Record<string, any>;
 const legacyMobileSync = legacyRecord.mobileSync as any;
+const legacyMobileSyncRecord = legacyMobileSync?._def?.record ?? {};
 
 export const powerhubRuntimeRouter: typeof powerhubRouter = router({
   ...legacyRecord,
   mobileSync: router({
-    ...legacyMobileSync._def.record,
+    ...legacyMobileSyncRecord,
     approveAndIssue: approveAndIssueMobileReadingRuntime,
   }),
 }) as unknown as typeof powerhubRouter;
