@@ -44,3 +44,4 @@ jobs:
           server/admin.legacy-write-guards.test.ts
           server/admin.tenant-branch-settings-supabase.test.ts
           server/powerhub-mobile-approve-runtime.test.ts
+          server/supabase-runtime-boundary.test.ts
