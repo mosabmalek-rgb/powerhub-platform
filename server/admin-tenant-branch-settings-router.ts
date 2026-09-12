@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { authenticatedProcedure } from "./_core/trpc";
+import { authenticatedProcedure, router } from "./_core/trpc";
 import { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
 
@@ -34,6 +34,7 @@ const saveTenantBranchSettingsProcedure = authenticatedProcedure
 
 const legacyRecord = (adminRouter as any)._def.record as Record<string, unknown>;
 
-export const adminRouterWithSupabaseTenantBranchSettings = (Object.assign({}, legacyRecord, {
+export const adminRouterWithSupabaseTenantBranchSettings = router({
+  ...legacyRecord,
   saveTenantBranchSettings: saveTenantBranchSettingsProcedure,
-}) as unknown) as typeof adminRouter;
+}) as unknown as typeof adminRouter;
