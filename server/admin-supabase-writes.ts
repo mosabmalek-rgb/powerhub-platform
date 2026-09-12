@@ -117,6 +117,23 @@ export async function reviewSubscriptionUpgradeRequest(input: {
   return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
 }
 
+function renewSubscriptionRpcError(error: { message?: string } | null) {
+  const message = error?.message?.trim() ?? "";
+  if (message.includes("SUBSCRIPTION_NOT_FOUND")) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "اشتراك صاحب المولد غير موجود." });
+  }
+  if (message.includes("SITE_NOT_FOUND")) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تجديد الاشتراك قبل وجود فرع/محطة مرتبطة بالمساحة." });
+  }
+  if (message.includes("INVALID_BILLING_CYCLE")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "دورة الفوترة الحالية غير صالحة لتجديد الاشتراك." });
+  }
+  if (message.includes("INVALID_PERIODS")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "عدد فترات التجديد يجب أن يكون بين 1 و24." });
+  }
+  rpcError("renewSubscription", error);
+}
+
 export async function renewSubscription(input: {
   actorUserId: number;
   tenantId: number;
@@ -127,7 +144,7 @@ export async function renewSubscription(input: {
     p_tenant_id: input.tenantId,
     p_periods: input.periods,
   });
-  rpcError("renewSubscription", error);
+  renewSubscriptionRpcError(error);
   const row = data?.[0] as { success?: boolean; ends_at?: string } | undefined;
   if (!row || typeof row.ends_at !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription renewal result." });
   return { success: Boolean(row.success), endsAt: new Date(row.ends_at) };
