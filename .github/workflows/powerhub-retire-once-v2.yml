@@ -1,4 +1,5 @@
 name: PowerHub retire legacy once v2
+# One-shot retirement trigger for the current Supabase migration head.
 on:
   push:
     branches: [refactor/admin-supabase-migration]
