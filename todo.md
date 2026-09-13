@@ -826,3 +826,8 @@
 - [x] استبدال retiredMutation بإجراءات Supabase محمية دون إعادة Drizzle/MySQL للإجراءات المطلوبة، مع إبقاء العمليات التي لا تملك بديلاً مكتملًا محجوبة.
 - [x] إضافة migration `0060_admin_subscription_upgrade_enrichment_rpc.sql` لـRPC موحد لإثراء طلبات الترقية وربطه بالراوتر مع fallback آمن.
 - [x] تحديث اختبار عقد الراوتر وتشغيل اختبارات الإدارة 18/18، وVitest الكامل، و`pnpm check`، و`pnpm build`، و`git diff --check`.
+
+## GitHub push — استكمال Admin Supabase
+- [ ] فحص حالة Git والفرق الحاليين والتأكد من أن التغييرات تخص إجراءات Admin Supabase وRPC 0060 فقط.
+- [ ] إنشاء Commit واضح ودفع فرع مستقل إلى GitHub.
+- [ ] التحقق من SHA والرابط وحالة الفرع دون دمج أو نشر Production تلقائياً.
