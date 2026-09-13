@@ -847,3 +847,17 @@
 - [x] اختبار Offline/Sync قراءةً ومحاكاة offline/online محلياً؛ لم تُنشأ مسودة أو تُشغّل مزامنة فعلية بسبب غياب مشترك QA.
 - [x] فحص الحماية غير المصادق، عزل مساحة QA، أخطاء إنشاء المشترك/المولد، صفحات المالية، والاستجابة؛ الأدلة محفوظة في docs/qa-discovery-notes-2026-09-11.md.
 - [x] حُذفت بيانات QA فقط وتحقق Supabase من عدم بقاء tenant/user/Auth، وبقي حساب الأدمن فعالاً؛ تقرير الجاهزية في docs/qa-production-report-2026-09-11.md.
+
+## إغلاق الترحيل الكامل إلى Supabase
+- [ ] تدقيق PR #37 وProduction وPreview وتحديد الفرق القابل للنقل دون تكرار أو دمج تاريخي.
+- [ ] حصر مستدعي Drizzle/MySQL وDATABASE_URL في Runtime والتحقق من بدائل Supabase قبل الإزالة.
+- [ ] تنفيذ AST-safe retirement للملفات legacy فقط إذا كانت الفحوص تثبت عدم وجود callers.
+- [ ] تصفير legacy allowlist وتشغيل pnpm check وpnpm test وpnpm build واختبارات Supabase والأمن.
+- [ ] إنشاء نسخة قابلة للمراجعة وPR/Preview، مع إبقاء Production دون نشر تلقائي حتى اعتماد المستخدم.
+- [ ] معالجة أخطاء TypeScript الحالية في PR #37 (AdminAdvancedWorkspace وFinanceAdminPage وMessagingSettingsPage وMeterReadingsPage وPlatformAccessPanel وPlatformTweetSmsReport) ثم إعادة تشغيل retirement والاختبارات.
+
+## مقارنة Supabase staging وProduction
+- [x] تثبيت معرفات powerhub-staging-dr وProduction ومشاريع Vercel المرتبطة.
+- [x] مقارنة migrations وRPCs والجداول والـRLS بين البيئتين قراءةً فقط. اتضح أن staging لديه 51 migration و46 جدولاً، وProduction 90 migration و58 جدولاً، مع اختلافات RPC ومخطط مهمة.
+- [x] تحديد الفروقات القابلة للمصالحة والفروقات التي تحتاج migration أو مراجعة يدوية؛ staging ليس superset ولا يصلح للنسخ المباشر إلى Production.
+- [x] إعداد خطة نقل آمنة دون تطبيق أي تغيير على Production تلقائياً في docs/supabase-staging-production-reconciliation-2026-09-13.md.
