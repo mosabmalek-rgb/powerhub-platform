@@ -1,19 +1,16 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { router } from "./_core/trpc";
+import { authenticatedProcedure, router } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { adminRouter } from "./admin-runtime";
 
 const legacyRecord = (adminRouter as any)._def.record as Record<string, any>;
-
-export const adminRouterWithSupabaseReads = router({
-  ...legacyRecord,
-
-  platformTweetSmsReport: legacyRecord.platformTweetSmsReport
-    ? legacyRecord.platformTweetSmsReport.constructor
-    : undefined,
-
-  advancedDashboard: undefined,
+const platformAdminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
+  const platformRole = ctx.user.platformRole ?? "platform_admin";
+  if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(platformRole) || ctx.user.accountStatus !== "active") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
+  }
+  return next({ ctx });
 });
 
 const reportInput = z.object({
@@ -21,8 +18,10 @@ const reportInput = z.object({
   to: z.coerce.date().optional(),
 }).optional();
 
-const overrides = {
-  platformTweetSmsReport: (async ({ input }: { input?: { from?: Date; to?: Date } }) => {
+export const adminRouterWithSupabaseReadContracts = router({
+  ...legacyRecord,
+
+  platformTweetSmsReport: platformAdminProcedure.input(reportInput).query(async ({ input }) => {
     const { data, error } = await supabaseAdmin().rpc("powerhub_tweetsms_report", {
       p_from: input?.from?.toISOString() ?? null,
       p_to: input?.to?.toISOString() ?? null,
@@ -42,31 +41,14 @@ const overrides = {
           id: row.id === undefined ? undefined : Number(row.id),
         }))
       : [];
-    return {
-      account: report.account ?? null,
-      total: Number(report.total ?? 0),
-      usageRows,
-      alerts,
-    };
+    return { account: report.account ?? null, total: Number(report.total ?? 0), usageRows, alerts };
   }),
 
-  advancedDashboard: async () => {
+  advancedDashboard: platformAdminProcedure.query(async () => {
     const { data, error } = await supabaseAdmin().rpc("powerhub_advanced_dashboard");
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل لوحة التحليلات المركزية من Supabase." });
     const dashboard = (data as Array<Record<string, unknown>> | null)?.[0];
     if (!dashboard) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة لوحة التحليلات استجابة صالحة." });
     return dashboard;
-  },
-};
-
-const basePlatformTweetSmsReport = adminRouterWithSupabaseReads;
-
-export const adminRouterWithSupabaseReadContracts = router({
-  ...(basePlatformTweetSmsReport as any)._def.record,
-  platformTweetSmsReport: (router({
-    query: undefined,
-  }) as any),
-} as any);
-
-void reportInput;
-void overrides;
+  }),
+});
