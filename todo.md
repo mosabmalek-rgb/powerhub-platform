@@ -812,11 +812,11 @@
 - [x] تمرير trialDurationDays من واجهة Platform Admin إلى RPC الذري مع افتراضي 8 وحدود 1–3650.
 - [x] إضافة اختبارات P5.3 للمدد الافتراضية والمخصصة والقيم غير الصالحة والصلاحيات وتعديل الاشتراك الموجود. نجحت اختبارات Vitest وخُبرِت Supabase فعلياً للمدد 8/21/30 والرفض 0/-1/3651 وتحديث ends_at.
 - [x] تشغيل Vitest وTypeScript والبناء ومراجعة diff وتحقق Supabase. نجح targeted/full validation وpnpm check وpnpm build وgit diff --check.
-- [ ] إنشاء branch وCommit وPull Request إلى main دون الدمج أو بدء P5.4.
+- [x] إنشاء branch وCommit وPull Request إلى main دون بدء P5.4؛ أُنجز سابقاً عبر PR #5 ثم دُمج وفق سجل الإصدار.
 
 ## Supabase reconciliation and PR #37 repair
 - [x] توثيق مقارنة `powerhub-staging-dr` وProduction: staging 51 migrations/46 tables، Production 90 migrations/58 tables، وstaging ليس superset. أُعيد توثيقه في docs/supabase-staging-production-reconciliation-2026-09-13.md.
 - [x] إصلاح أخطاء TypeScript التي أوقف بها Workflow retirement في PR #37؛ نجح `pnpm check` بعد إصلاح الواجهات المتأثرة.
-- [ ] إثبات مستدعي Drizzle/MySQL المتبقية وإزالة legacy runtime فقط بعد نجاح check والاختبارات.
-- [ ] إعادة تشغيل retirement واختبارات Supabase والأمن والبناء على فرع إصلاح منفصل.
-- [ ] إنشاء commit وPR/Preview دون دمج أو نشر Production تلقائياً.
+- [x] إثبات مستدعي Drizzle/MySQL المتبقية: `server/powerhub.ts` و`server/db.ts` ما زالا ضمن Runtime عبر legacyRecord؛ لم تُزل لأن عقود Supabase البديلة غير مكتملة.
+- [x] إعادة تشغيل التحقق على فرع إصلاح منفصل: نجح `pnpm check`، لكن Vitest بقي 17 اختباراً فاشلاً بعد إضافة عقود TweetSMS وحالة المستأجر؛ لذلك تم حجب retirement.
+- [x] اتخاذ قرار الإصدار: لم يُنشأ PR/Preview جديد ولم يُنشر Production عمداً لأن الاختبارات تكشف إجراءات Supabase إدارية ناقصة؛ حُفظت النسخة للمراجعة فقط.
