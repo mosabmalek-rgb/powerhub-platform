@@ -1,0 +1,35 @@
+name: PowerHub retire legacy once
+on:
+  push:
+    branches: [refactor/admin-supabase-migration]
+permissions:
+  contents: write
+jobs:
+  retire:
+    if: ${{ contains(github.event.head_commit.message, 'add branch-scoped one-shot PowerHub legacy retirement script') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/admin-supabase-migration
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/powerhub-retire-legacy-once.mjs
+      - run: pnpm check
+      - name: Commit and self-remove
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f scripts/powerhub-retire-legacy-once.mjs .github/workflows/powerhub-retire-once.yml
+          git add server/powerhub.ts scripts/powerhub-retire-legacy-once.mjs .github/workflows/powerhub-retire-once.yml
+          git commit -m "refactor(powerhub): retire legacy mysql runtime paths"
+          git push origin HEAD:refactor/admin-supabase-migration
