@@ -1,0 +1,69 @@
+name: PowerHub fix retirement TypeScript once
+
+on:
+  push:
+    branches: [refactor/admin-supabase-migration]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: powerhub-fix-retirement-ts-once-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/admin-supabase-migration
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply narrow retirement compatibility fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "client/src/pages/MessagingSettingsPage.tsx": (
+                  'onSuccess: async (result) => { await refresh(); toast.success(result.status === "submitted" ? "أعيد إرسال الإيصال إلى المزود." : "تمت معالجة طلب إعادة الإرسال."); }',
+                  'onSuccess: async () => { await refresh(); toast.success("تمت معالجة طلب إعادة الإرسال."); }',
+              ),
+              "client/src/pages/MeterReadingsPage.tsx": (
+                  'onSuccess: async (result) => { await utils.powerhub.notifications.list.invalidate(); toast.success(`تمت معالجة ${result.processed} فاتورة: ${result.successful} ناجحة و${result.failed} فاشلة.`); }',
+                  'onSuccess: async () => { await utils.powerhub.notifications.list.invalidate(); toast.success("تمت معالجة طلب الإرسال الجماعي."); }',
+              ),
+          }
+
+          changed = []
+          for name, (old, new) in replacements.items():
+              path = Path(name)
+              text = path.read_text()
+              if old not in text:
+                  raise SystemExit(f"Expected target not found in {name}")
+              path.write_text(text.replace(old, new, 1))
+              changed.append(name)
+          print("Updated:", ", ".join(changed))
+          PY
+      - name: TypeScript check
+        run: pnpm check
+      - name: Commit and self-remove
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/powerhub-fix-retirement-ts-once.yml
+          git add client/src/pages/MessagingSettingsPage.tsx client/src/pages/MeterReadingsPage.tsx
+          git commit -m 'fix(migration): unblock legacy retirement typecheck'
+          git push origin HEAD:refactor/admin-supabase-migration
