@@ -54,12 +54,40 @@ jobs:
           if(!edits.length)throw new Error('No AST edits found; aborting without commit.');
           fs.writeFileSync(file,source);
           NODE
+      - name: Align client contracts with retired legacy mutations
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const edits = [
+            {
+              file: 'client/src/pages/MessagingSettingsPage.tsx',
+              from: 'const autoSendMutation = trpc.powerhub.messaging.configureInvoiceAutoSend.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(result.enabled ? "تم تفعيل جدولة إرسال الفواتير." : "تم إيقاف جدولة إرسال الفواتير."); }, onError: (e) => toast.error(e.message) });',
+              to: 'const autoSendMutation = trpc.powerhub.messaging.configureInvoiceAutoSend.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت معالجة إعداد الإرسال التلقائي."); }, onError: (e) => toast.error(e.message) });',
+            },
+            {
+              file: 'client/src/pages/MessagingSettingsPage.tsx',
+              from: 'const retryReceipt = trpc.powerhub.notifications.retryPaymentReceipt.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(result.status === "submitted" ? "أعيد إرسال الإيصال إلى المزود." : "تمت معالجة طلب إعادة الإرسال."); }, onError: (e) => toast.error(e.message) });',
+              to: 'const retryReceipt = trpc.powerhub.notifications.retryPaymentReceipt.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت معالجة طلب إعادة الإرسال."); }, onError: (e) => toast.error(e.message) });',
+            },
+            {
+              file: 'client/src/pages/MeterReadingsPage.tsx',
+              from: 'const sendBulkInvoiceSms = trpc.powerhub.notifications.sendBulkInvoiceSms.useMutation({ onSuccess: async (result) => { await utils.powerhub.notifications.list.invalidate(); toast.success(`تمت معالجة ${result.processed} فاتورة: ${result.successful} ناجحة و${result.failed} فاشلة.`); }, onError: (error) => toast.error(error.message) });',
+              to: 'const sendBulkInvoiceSms = trpc.powerhub.notifications.sendBulkInvoiceSms.useMutation({ onSuccess: async () => { await utils.powerhub.notifications.list.invalidate(); toast.success("تمت معالجة طلب إرسال الرسائل."); }, onError: (error) => toast.error(error.message) });',
+            },
+          ];
+          for (const { file, from, to } of edits) {
+            const source = fs.readFileSync(file, 'utf8');
+            if (!source.includes(from)) throw new Error(`Expected client contract was not found in ${file}`);
+            fs.writeFileSync(file, source.replace(from, to));
+          }
+          NODE
       - run: pnpm check
       - name: Commit and self-remove
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           rm -f scripts/powerhub-retire-legacy-once.mjs scripts/powerhub-retire-legacy-ast.mjs .github/workflows/powerhub-retire-once.yml .github/workflows/powerhub-retire-once-v2.yml README.ci-marker.md
-          git add server/powerhub.ts scripts .github/workflows/powerhub-retire-once.yml .github/workflows/powerhub-retire-once-v2.yml README.ci-marker.md
+          git add server/powerhub.ts client/src/pages/MessagingSettingsPage.tsx client/src/pages/MeterReadingsPage.tsx scripts .github/workflows/powerhub-retire-once.yml .github/workflows/powerhub-retire-once-v2.yml README.ci-marker.md
           git commit -m "refactor(powerhub): retire legacy mysql runtime paths"
           git push origin HEAD:refactor/admin-supabase-migration
