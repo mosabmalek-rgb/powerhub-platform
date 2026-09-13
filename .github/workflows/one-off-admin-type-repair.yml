@@ -1,0 +1,53 @@
+name: one-off admin type repair
+
+on:
+  push:
+    branches:
+      - reconcile/admin-supabase-on-current-20260913
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: "!contains(github.event.head_commit.message, 'fix(admin): repair advanced workspace type contract')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply targeted type repairs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('client/src/pages/AdminAdvancedWorkspace.tsx')
+          text = path.read_text()
+          replacements = {
+              'const collections = data?.collectionsByGenerator ?? [];': 'const collections = (data?.collectionsByGenerator ?? []) as Array<{ generatorName: string; code: string; amount: number }>;',
+              'const users = trpc.admin.userDirectory.useQuery();': 'const users = trpc.admin.userDirectory.useQuery(undefined);',
+              'data.subscribers.map((row) =>': 'data.subscribers.map((row: (typeof data.subscribers)[number]) =>',
+              'data.invoices.map((row) =>': 'data.invoices.map((row: (typeof data.invoices)[number]) =>',
+              'data.activity.map((row) =>': 'data.activity.map((row: (typeof data.activity)[number]) =>',
+              'const inheritedLimit = planLimits[tenant.plan];': 'const inheritedLimit = planLimits[tenant.plan as keyof typeof planLimits];',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'Missing expected source fragment: {old}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+
+      - name: Verify targeted diff
+        run: git diff --check && git diff -- client/src/pages/AdminAdvancedWorkspace.tsx
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client/src/pages/AdminAdvancedWorkspace.tsx .github/workflows/one-off-admin-type-repair.yml
+          git rm .github/workflows/one-off-admin-type-repair.yml
+          git commit -m "fix(admin): repair advanced workspace type contract"
+          git push origin HEAD:reconcile/admin-supabase-on-current-20260913
