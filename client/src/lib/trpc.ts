@@ -8,10 +8,14 @@ type ClientAppRouter = Omit<AppRouter, "admin"> & {
 };
 
 const trpcBase = createTRPCReact<ClientAppRouter>();
+type ComplaintQueryProxy = typeof trpcBase.admin.listComplaints;
+type ComplaintQueryOverride = Omit<ComplaintQueryProxy, "useQuery"> & {
+  useQuery: (...args: any[]) => ReturnType<ComplaintQueryProxy["useQuery"]>;
+};
 
 type ClientTRPC = Omit<typeof trpcBase, "admin"> & {
   admin: Omit<typeof trpcBase.admin, "listComplaints"> & {
-    listComplaints: any;
+    listComplaints: ComplaintQueryOverride;
   };
 };
 
