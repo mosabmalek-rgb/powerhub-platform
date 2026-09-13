@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 
 const serverRoot = join(process.cwd(), "server");
 const allowedLegacyFiles = new Set([
-  "server/admin.ts",
   "server/powerhub.ts",
   "server/db.ts",
 ]);
