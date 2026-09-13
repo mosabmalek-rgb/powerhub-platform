@@ -33,20 +33,18 @@ jobs:
           const dead = new Set(['dbOrThrow','insertId','getSiteTenant','issueInvoiceForApprovedReading','approveAndIssueMobileReading','ownerLimitOverride','ownerAllowedSubaccountRoles','ownerSubaccountLimit','activeSubaccountCount','ownerSubscriberQuota','recordSubscriberQuotaAlert','tenantBranchPolicy','resolveRole','resolveAccess','enforcePlatformRolePolicy','requireRole','requireAllBranchRole','writeAudit','assertFinancialPeriodOpen','queueInvoiceNotificationsForSelection','dispatchInvoiceNotifications']);
           const disabled = new Set(['retry','retryFailedInvoiceNotification','retryFailedInvoiceNotifications','retryPaymentReceipt','sendDeferredInvoices','sendBulkInvoiceSms','sendPaymentReminder','sendPaymentReceipt']);
           const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-          const edits = [];
-          function firstArrow(node){ let found=null; const walk=(n)=>{ if(found)return; if(ts.isArrowFunction(n)){found=n;return;} ts.forEachChild(n,walk); }; ts.forEachChild(node,walk); return found; }
-          const walk = (node) => {
-            if (ts.isFunctionDeclaration(node) && node.name && dead.has(node.name.text)) edits.push({start:node.getFullStart(),end:node.end,text:''});
-            if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && disabled.has(node.name.text)) { const a=firstArrow(node.initializer); if(a && ts.isBlock(a.body)) edits.push({start:a.body.getStart(ast),end:a.body.end,text:'{ throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }'}); }
+          const edits=[];
+          function firstArrow(node){let found=null;function walk(n){if(found)return;if(ts.isArrowFunction(n)){found=n;return;}ts.forEachChild(n,walk)}ts.forEachChild(node,walk);return found;}
+          function walk(node){
+            if(ts.isFunctionDeclaration(node)&&node.name&&dead.has(node.name.text))edits.push({start:node.getFullStart(),end:node.end,text:''});
+            if(ts.isPropertyAssignment(node)&&ts.isIdentifier(node.name)&&disabled.has(node.name.text)){const a=firstArrow(node.initializer);if(a&&ts.isBlock(a.body))edits.push({start:a.body.getStart(ast),end:a.body.end,text:'{ throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }'});}
+            if(ts.isImportDeclaration(node)&&ts.isStringLiteral(node.moduleSpecifier)){const m=node.moduleSpecifier.text;if(m==='drizzle-orm'||m==='../drizzle/schema'||m==='./db')edits.push({start:node.getFullStart(),end:node.end,text:''});}
             ts.forEachChild(node,walk);
-          };
+          }
           walk(ast);
           edits.sort((a,b)=>b.start-a.start);
-          for (const e of edits) source = source.slice(0,e.start)+e.text+source.slice(e.end);
-          source = source.replace(/import \\{ and, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql \\} from "drizzle-orm";\\n/g,'');
-          source = source.replace(/import \\{\\n  auditLogs,[\\s\\S]*?\\n\\} from "\\.\\.\\/drizzle\\/schema";\\n/g,'');
-          source = source.replace(/import \\{ getDb, syncSupabaseUser \\} from "\\.\\/db";\\n/g,'');
-          if (!edits.length) throw new Error('No AST edits found; aborting without commit.');
+          for(const e of edits)source=source.slice(0,e.start)+e.text+source.slice(e.end);
+          if(!edits.length)throw new Error('No AST edits found; aborting without commit.');
           fs.writeFileSync(file,source);
           NODE
       - run: pnpm check
