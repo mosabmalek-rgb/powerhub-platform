@@ -115,7 +115,7 @@ export const adminRouter = router({
   listTenantBranchSettings: platformAdminProcedure.query(async (): Promise<AdminRecord[]>=>[]),
   platformConfiguration: platformAdminProcedure.query(async (): Promise<{settings:AdminRecord[];recoveries:AdminRecord[];currentTariff:AdminRecord|null}>=>({settings:[],recoveries:[],currentTariff:null})),
   impersonationStatus: platformAdminProcedure.query(async()=>({enabled:false as const,confirmationRequired:true as const,reason:"هذا المسار معطل أثناء الترحيل."})),
-  generatorDetails: platformAdminProcedure.input(z.object({generatorId:z.number().int().positive()}).query(async (): Promise<AdminRecord>=>({generator:null,subscriberSummary:{},invoices:[],activity:[]})),
+  generatorDetails: platformAdminProcedure.input(z.object({generatorId:z.number().int().positive()})).query(async (): Promise<AdminRecord>=>({generator:null,subscriberSummary:{},invoices:[],activity:[]})),
 });
 
 export type AdminRouter = typeof adminRouter;
