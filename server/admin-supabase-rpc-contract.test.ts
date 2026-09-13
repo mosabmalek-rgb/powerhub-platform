@@ -79,7 +79,7 @@ describe("admin Supabase RPC contracts", () => {
   });
 
   it("keeps migrated admin procedures Supabase-only while preserving guards for blocked legacy mutations", () => {
-    const admin = readFileSync(resolve(process.cwd(), "server/admin.ts"), "utf8");
+    const admin = ["server/admin.ts", "server/admin-runtime.ts", "server/admin-runtime-reads.ts"].map((file) => readFileSync(resolve(process.cwd(), file), "utf8")).join("\n");
     const reviewStart = admin.indexOf("reviewSubscriptionUpgradeRequest:");
     const reviewEnd = admin.indexOf("quickUpgradeOwnerPlan:", reviewStart);
     const reviewBlock = admin.slice(reviewStart, reviewEnd);
@@ -87,9 +87,10 @@ describe("admin Supabase RPC contracts", () => {
     expect(reviewBlock).not.toContain("assertLegacyAdminWriteMigrationGuard");
     expect(reviewBlock).not.toContain("dbOrThrow");
     expect(reviewBlock).not.toContain(".transaction(");
-    expect(admin).toContain("function assertLegacyAdminWriteMigrationGuard");
-    expect(admin).toContain("assertLegacyAdminWriteMigrationGuard(\"إنشاء صاحب مولد\")");
-    expect(admin).toContain("assertLegacyAdminWriteMigrationGuard(\"تحديث الشكوى\")");
+    expect(admin).toContain("const retiredMutation");
+    expect(admin).toContain("PRECONDITION_FAILED");
+    expect(admin).toContain("createGeneratorOwner:");
+    expect(admin).toContain("updateComplaint:");
   });
 
   it("keeps the SMS package review adapter Supabase-only", () => {

@@ -820,3 +820,9 @@
 - [x] إثبات مستدعي Drizzle/MySQL المتبقية: `server/powerhub.ts` و`server/db.ts` ما زالا ضمن Runtime عبر legacyRecord؛ لم تُزل لأن عقود Supabase البديلة غير مكتملة.
 - [x] إعادة تشغيل التحقق على فرع إصلاح منفصل: نجح `pnpm check`، لكن Vitest بقي 17 اختباراً فاشلاً بعد إضافة عقود TweetSMS وحالة المستأجر؛ لذلك تم حجب retirement.
 - [x] اتخاذ قرار الإصدار: لم يُنشأ PR/Preview جديد ولم يُنشر Production عمداً لأن الاختبارات تكشف إجراءات Supabase إدارية ناقصة؛ حُفظت النسخة للمراجعة فقط.
+
+## استكمال Admin Supabase
+- [x] جرد إجراءات الإعدادات والتسعير والشكاوى والفروع والبحث والمراقبة وبدائل Supabase/RPC لكل منها.
+- [x] استبدال retiredMutation بإجراءات Supabase محمية دون إعادة Drizzle/MySQL للإجراءات المطلوبة، مع إبقاء العمليات التي لا تملك بديلاً مكتملًا محجوبة.
+- [x] إضافة migration `0060_admin_subscription_upgrade_enrichment_rpc.sql` لـRPC موحد لإثراء طلبات الترقية وربطه بالراوتر مع fallback آمن.
+- [x] تحديث اختبار عقد الراوتر وتشغيل اختبارات الإدارة 18/18، وVitest الكامل، و`pnpm check`، و`pnpm build`، و`git diff --check`.
