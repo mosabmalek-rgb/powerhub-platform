@@ -1,4 +1,5 @@
 name: One-off normalize complaints query input
+# Triggered once more so this newly-created workflow gets an independent push event.
 on:
   push:
     branches:
