@@ -7,7 +7,7 @@ import { powerhubRuntimeRouter } from "./powerhub-runtime-router";
 import { powerhubDashboardRouter } from "./powerhub-dashboard";
 import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router";
 import { adminRolePolicyRouter } from "./admin-role-policy-router";
-import { adminRouter } from "./admin";
+import type { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
 
 const adminRuntimeRecord = {
