@@ -95,7 +95,7 @@ export const adminRouter = router({
   saveTenantBranchSettings: retiredMutation("حفظ إعدادات الفروع"),
   savePlatformSetting: retiredMutation("حفظ إعدادات المنصة"),
   requestOwnerAccessRecovery: retiredMutation("طلب استرداد وصول صاحب المولد"),
-  saveRolePolicy: retiredMutation("حفظ سياسة صلاحيات الدور"),
+  saveRolePolicy: retiredMutation("حفظ سياسة الصلاحيات الدور"),
   sendOwnerUsageAlert: retiredMutation("إرسال تنبيه استخدام صاحب المولد"),
   savePlatformSmsFallbackProvider: retiredMutation("حفظ مزود SMS الاحتياطي"),
   savePlatformTweetSmsAccount: retiredMutation("حفظ حساب TweetSMS المركزي"),
