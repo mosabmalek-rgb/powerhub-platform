@@ -6,7 +6,6 @@ permissions:
   contents: write
 jobs:
   retire:
-    if: ${{ contains(github.event.head_commit.message, 'add branch-scoped one-shot PowerHub legacy retirement script') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
