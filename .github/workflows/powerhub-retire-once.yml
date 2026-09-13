@@ -60,3 +60,5 @@ jobs:
           git add server/powerhub.ts scripts .github/workflows/powerhub-retire-once.yml
           git commit -m "refactor(powerhub): retire legacy mysql runtime paths"
           git push origin HEAD:refactor/admin-supabase-migration
+
+# CI trigger marker: execute retirement against the current branch head.
