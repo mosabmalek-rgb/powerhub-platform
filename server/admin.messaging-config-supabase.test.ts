@@ -70,9 +70,17 @@ vi.mock("./tweetsms-client", () => ({
 import { adminRouter } from "./admin";
 import { encryptTenantCredential } from "./tenant-crypto";
 
+type PlatformRole = "platform_owner" | "platform_admin" | "finance_admin";
+
+const adminContext = (platformRole: PlatformRole = "platform_admin") => ({
+  user: { id: 1, role: "admin", platformRole, accountStatus: "active" } as never,
+  req: {} as never,
+  res: {} as never,
+});
+
 describe("إعدادات مزود الرسائل المركزي عبر Supabase", () => {
   it("يقرأ الإعداد المركزي والمزود الاحتياطي دون MySQL أو اتصال خارجي", async () => {
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.getPlatformTweetSmsAccount()).resolves.toMatchObject({ id: 9, senderName: "PowerHub", configured: true, isActive: false });
     await expect(caller.listPlatformSmsFallbackProviders()).resolves.toMatchObject([{ id: 10, providerKey: "backup_sms", configured: false, integrationStatus: "pending_contract" }]);
     expect(state.calls).toEqual(["platform_tweetsms_accounts", "platform_sms_fallback_providers"]);
@@ -81,7 +89,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
   it("يحفظ إعداد TweetSMS المركزي عبر RPC من دون استدعاء MySQL أو تخزين الاعتمادات", async () => {
     state.calls.splice(0);
     state.rows.platform_tweetsms_accounts = [];
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.savePlatformTweetSmsAccount({ apiEndpoint: "https://tweetsms.ps", senderName: "PowerHub", lowBalanceThreshold: 100, isActive: true })).resolves.toEqual({ id: 9, isActive: false, activationRequired: true });
     expect(state.calls).toEqual(["rpc:powerhub_save_platform_tweetsms_account"]);
   });
@@ -92,7 +100,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     tweetSms.checkAccount.mockResolvedValueOnce({ ok: true, message: "ok" });
     tweetSms.checkSender.mockResolvedValueOnce({ ok: true, message: "ok" });
     tweetSms.checkBalance.mockResolvedValueOnce({ ok: true, message: "ok", balance: 80 });
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.testPlatformTweetSmsAccount()).resolves.toMatchObject({ ok: true, balance: 80, accountActive: false });
     expect(state.calls).toEqual(["platform_tweetsms_accounts", "rpc:powerhub_record_platform_tweetsms_test"]);
     expect(tweetSms.checkAccount).toHaveBeenCalledTimes(1);
@@ -103,7 +111,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
   it("يحفظ حساب TweetSMS منفصلاً للمولد بمفتاح مشفر عبر Supabase فقط", async () => {
     state.calls.splice(0);
     state.rows.tenant_tweetsms_accounts = [];
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.saveTweetSmsAccount({ tenantId: 20, apiEndpoint: "https://tweetsms.ps", apiKey: "tenant-key-123", senderName: "PowerHup", monthlyLimit: 1000, isActive: true })).resolves.toEqual({ id: 31, tenantId: 20, isActive: false, activationRequired: true });
     expect(state.calls).toEqual(["tenant_tweetsms_accounts", "rpc:powerhub_save_tenant_tweetsms_account"]);
   });
@@ -118,7 +126,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     tweetSms.checkAccount.mockResolvedValueOnce({ ok: true, message: "ok" });
     tweetSms.checkSender.mockResolvedValueOnce({ ok: true, message: "ok" });
     tweetSms.checkBalance.mockResolvedValueOnce({ ok: true, message: "ok", balance: 80 });
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.testTweetSmsAccount({ tenantId: 20 })).resolves.toMatchObject({ ok: true, balance: 80, accountActive: false });
     expect(state.calls).toEqual(["tenant_tweetsms_accounts", "rpc:powerhub_record_tenant_tweetsms_test"]);
     expect(tweetSms.checkAccount).toHaveBeenCalledTimes(1);
@@ -128,21 +136,21 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
 
   it("يقرأ سياسات صلاحيات المنصة من Supabase دون MySQL", async () => {
     state.calls.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.rolePolicies()).resolves.toMatchObject([{ id: 11, role: "accountant", capability: "managePayroll", isAllowed: true, updatedByUserId: 1 }]);
     expect(state.calls).toEqual(["platform_role_policies"]);
   });
 
   it("يقرأ إعدادات المنصة والتسعيرة وطلبات الاسترداد من Supabase دون MySQL", async () => {
     state.calls.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.platformConfiguration()).resolves.toMatchObject({ settings: [{ settingKey: "maintenance_mode" }], recoveries: [{ id: 13, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار" }], currentTariff: { id: 14, minimumPricePerKwh: 0.2 } });
     expect(state.calls).toEqual(["platform_settings", "access_recovery_requests", "platform_tariff_policies", "tenants", "tenant_owner_profiles"]);
   });
 
   it("يقرأ قائمة سياسات التسعير واسم منشئها من Supabase دون MySQL", async () => {
     state.calls.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.listTariffPolicies()).resolves.toMatchObject([{ id: 14, minimumPricePerKwh: "0.2", maximumPricePerKwh: "0.8", createdBy: "مدير المنصة" }]);
     expect(state.calls).toEqual(["platform_tariff_policies", "users"]);
   });
@@ -150,7 +158,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
   it("يقرأ الشكاوى الإدارية المصفاة مع الأسماء المرجعية من Supabase دون MySQL", async () => {
     state.calls.splice(0);
     state.filters.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.listComplaints({ status: "open" })).resolves.toMatchObject([{ id: 15, tenantName: "مولدات الاختبار", siteName: "فرع الاختبار", subscriberName: "المشترك الاختبار", assignedUserName: "مدير المنصة" }]);
     expect(state.calls).toEqual(["complaints", "tenants", "sites", "subscribers", "users"]);
     expect(state.filters).toEqual([["complaints", "status", "open"]]);
@@ -159,7 +167,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
   it("يقرأ إعدادات الفروع ويعدّ الفروع النشطة من Supabase دون MySQL", async () => {
     state.calls.splice(0);
     state.filters.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.listTenantBranchSettings()).resolves.toMatchObject([{ tenantId: 20, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار", maxBranchesOverride: 3, currentBranchCount: 1 }]);
     expect(state.calls).toEqual(["tenants", "tenant_owner_profiles", "tenant_branch_settings", "sites"]);
     expect(state.filters).toEqual([["sites", "status", "archived"]]);
@@ -168,7 +176,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
   it("يقرأ دليل وصول آدمن المنصة ودعواته من Supabase دون MySQL", async () => {
     state.calls.splice(0);
     state.filters.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_owner" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext("platform_owner"));
     await expect(caller.platformAccessDirectory()).resolves.toMatchObject({ accounts: [{ id: 1, platformRole: "platform_owner", accountStatus: "active" }], invitations: [{ id: 16, platformRole: "finance_admin", status: "invited" }] });
     expect(state.calls).toEqual(["users", "platform_access_invitations"]);
     expect(state.filters).toEqual([["users", "role", "admin"]]);
@@ -177,7 +185,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
   it("يقرأ تفاصيل المولد وسجل نشاط فرعه من Supabase دون MySQL", async () => {
     state.calls.splice(0);
     state.filters.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.generatorDetails({ generatorId: 17 })).resolves.toMatchObject({ generator: { id: 17, tenantName: "مولدات الاختبار", siteName: "فرع الاختبار", ratedCapacityKw: "250" }, activity: [{ id: 18, userName: "مدير المنصة" }] });
     expect(state.calls).toEqual(["generators", "tenants", "sites", "audit_logs", "users"]);
     expect(state.filters).toEqual([["generators", "id", 17], ["tenants", "id", 20], ["sites", "id", 30], ["audit_logs", "site_id", 30]]);
@@ -186,7 +194,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
   it("ينفذ البحث العالمي المحدود من Supabase دون MySQL", async () => {
     state.calls.splice(0);
     state.filters.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.globalSearch({ query: "اختبار" })).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 17, kind: "generator", tenantName: "مولدات الاختبار" }),
       expect.objectContaining({ id: 40, kind: "subscriber", tenantName: "مولدات الاختبار" }),
@@ -199,7 +207,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
   it("يعرض المراقبة التشغيلية من Supabase دون MySQL أو تشغيل خدمات خارجية", async () => {
     state.calls.splice(0);
     state.filters.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.operationalMonitoring()).resolves.toMatchObject({
       health: expect.arrayContaining([expect.objectContaining({ key: "database", state: "healthy" }), expect.objectContaining({ key: "messaging", state: "critical" })]),
       alerts: expect.arrayContaining([expect.objectContaining({ id: "message-19", tenantName: "مولدات الاختبار" }), expect.objectContaining({ id: "sync-20" }), expect.objectContaining({ id: "security-21" })]),
@@ -209,21 +217,21 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
 
   it("يقرأ الملخص المالي المركزي من دالة PostgreSQL في Supabase دون MySQL", async () => {
     state.calls.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "finance_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext("finance_admin"));
     await expect(caller.financeOverview()).resolves.toEqual({ subscriptions: [{ status: "active", count: 2 }], collections: { amount: 150.5, count: 3 } });
     expect(state.calls).toEqual(["rpc:powerhub_finance_overview"]);
   });
 
   it("يقرأ تقرير TweetSMS المركزي المحدد بالفترة من Supabase دون MySQL أو اتصال بالمزود", async () => {
     state.calls.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.platformTweetSmsReport({ from: new Date("2026-08-01T00:00:00.000Z"), to: new Date("2026-08-31T23:59:59.999Z") })).resolves.toMatchObject({ account: { id: 9, configured: true, lastProviderBalance: 80 }, total: 3, usageRows: [{ tenantId: 20, submitted: 2, failed: 1 }], alerts: [{ id: 22, status: "open" }] });
     expect(state.calls).toEqual(["rpc:powerhub_tweetsms_report"]);
   });
 
   it("يقرأ لوحة التحليلات المركزية من دالة Supabase دون MySQL", async () => {
     state.calls.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller(adminContext());
     await expect(caller.advancedDashboard()).resolves.toMatchObject({
       kpis: { activeGenerators: 1, collectionRate: 75 },
       monthlyGrowth: [{ month: "2026-08", count: 2 }],
