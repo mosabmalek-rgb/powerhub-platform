@@ -1,4 +1,10 @@
 import { createTRPCReact } from "@trpc/react-query";
 import type { AppRouter } from "../../../server/routers";
 
-export const trpc = createTRPCReact<AppRouter>();
+type ClientAppRouter = Omit<AppRouter, "admin"> & {
+  admin: Omit<AppRouter["admin"], "listComplaints"> & {
+    listComplaints: any;
+  };
+};
+
+export const trpc = createTRPCReact<ClientAppRouter>();
