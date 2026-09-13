@@ -44,7 +44,7 @@ vi.mock("./db", () => ({ getDb: vi.fn(async () => { throw new Error("MySQL must 
 
 import { adminRouter } from "./admin";
 
-const adminContext = { user: { id: 1, role: "admin", platformRole: "platform_owner" } as never, req: {} as never, res: {} as never };
+const adminContext = { user: { id: 1, role: "admin", platformRole: "platform_owner", accountStatus: "active" } as never, req: {} as never, res: {} as never };
 
 describe("إجراءات حالة الإدارة عبر Supabase", () => {
   beforeEach(() => {
