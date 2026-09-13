@@ -7,4 +7,12 @@ type ClientAppRouter = Omit<AppRouter, "admin"> & {
   };
 };
 
-export const trpc = createTRPCReact<ClientAppRouter>();
+const trpcBase = createTRPCReact<ClientAppRouter>();
+
+type ClientTRPC = Omit<typeof trpcBase, "admin"> & {
+  admin: Omit<typeof trpcBase.admin, "listComplaints"> & {
+    listComplaints: any;
+  };
+};
+
+export const trpc = trpcBase as ClientTRPC;
