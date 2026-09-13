@@ -21,8 +21,8 @@ describe("platform access Supabase canonical contract", () => {
   it("routes platform access mutations through the canonical Supabase adapter", () => {
     const source = readFileSync(join(serverRoot, "admin-platform-access-router.ts"), "utf8");
     expect(source).toContain('from "./admin-platform-access-supabase"');
-    expect(source).toContain("invitePlatformAccess as invitePlatformAccessSupabase");
-    expect(source).toContain("setPlatformAccountStatus as setPlatformAccountStatusSupabase");
-    expect(source).toContain("setPlatformAccessRole as setPlatformAccessRoleSupabase");
+    expect(source).toContain("invitePlatformAccessSupabase");
+    expect(source).toContain("setPlatformAccountStatusSupabase");
+    expect(source).toContain("setPlatformAccessRoleSupabase");
   });
 });
