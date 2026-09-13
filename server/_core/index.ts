@@ -10,6 +10,7 @@ import { receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "../messaging-webh
 import { registerMobileApi } from "../mobile-api";
 import { isVercelRuntime } from "./runtime";
 import { registerBrandAssetProxy, registerStorageProxy } from "./storageProxy";
+import { healthHandler, readinessHandler } from "./health";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -35,6 +36,8 @@ export function createPowerHubApp() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb", verify: (req, _res, buffer) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buffer; } }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.get("/api/health", healthHandler);
+  app.get("/api/ready", readinessHandler);
   registerBrandAssetProxy(app);
   registerStorageProxy(app);
   registerMobileApi(app);

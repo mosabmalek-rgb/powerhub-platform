@@ -14,7 +14,7 @@ let invitationId: number | undefined;
   beforeAll(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const inviter = await db.insert(users).values({ openId: `${suffix}-inviter`, name: "Platform owner", role: "admin", platformRole: "platform_owner" });
+    const inviter = await db.insert(users).values({ openId: `${suffix}-inviter`, name: "Platform owner", role: "admin", platformRole: "platform_owner", accountStatus: "active" });
     inviterId = Number((Array.isArray(inviter) ? inviter[0] : inviter).insertId);
     const invitation = await db.insert(platformAccessInvitations).values({
       email,

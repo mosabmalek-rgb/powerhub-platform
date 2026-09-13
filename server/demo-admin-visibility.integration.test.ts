@@ -13,7 +13,7 @@ let adminUserId: number | undefined;
   beforeAll(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const result = await db.insert(users).values({ openId: suffix, name: "Demo visibility admin", role: "admin", platformRole: "platform_admin" });
+    const result = await db.insert(users).values({ openId: suffix, name: "Demo visibility admin", role: "admin", platformRole: "platform_admin", accountStatus: "active" });
     adminUserId = Number((Array.isArray(result) ? result[0] : result).insertId);
   });
 

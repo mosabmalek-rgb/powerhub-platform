@@ -15,7 +15,7 @@ import { adminRouter } from "./admin";
 
 describe("إنشاء صاحب مولد عبر Supabase Auth وRPC ذري", () => {
   const input = { companyName: "مولدات الاختبار", ownerName: "مالك الاختبار", identityNumber: "12345678", ownerPhone: "0595000000", ownerWhatsapp: "0595000000", ownerEmail: "owner@example.test", temporaryPassword: "Temporary!2026", plan: "starter" as const };
-  const caller = () => adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_owner" } as never, req: {} as never, res: {} as never });
+  const caller = () => adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_owner", accountStatus: "active" } as never, req: {} as never, res: {} as never });
   beforeEach(() => {
     process.env.JWT_SECRET = "test-jwt-secret-for-owner-provisioning";
     state.authCreateUser.mockReset().mockResolvedValue({ data: { user: { id: "new-auth-user" } }, error: null });

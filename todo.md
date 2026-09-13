@@ -812,52 +812,11 @@
 - [x] تمرير trialDurationDays من واجهة Platform Admin إلى RPC الذري مع افتراضي 8 وحدود 1–3650.
 - [x] إضافة اختبارات P5.3 للمدد الافتراضية والمخصصة والقيم غير الصالحة والصلاحيات وتعديل الاشتراك الموجود. نجحت اختبارات Vitest وخُبرِت Supabase فعلياً للمدد 8/21/30 والرفض 0/-1/3651 وتحديث ends_at.
 - [x] تشغيل Vitest وTypeScript والبناء ومراجعة diff وتحقق Supabase. نجح targeted/full validation وpnpm check وpnpm build وgit diff --check.
-- [x] إنشاء branch وCommit وPull Request إلى main دون بدء P5.4. أُنشئ الفرع `p5-3-commercial-model-final` والـCommit `7b29c19` والـPR `#5`، ثم دُمج بعد نجاح الفحوص؛ Production على Vercel أصبح READY بالـcommit `a376a174`.
+- [ ] إنشاء branch وCommit وPull Request إلى main دون الدمج أو بدء P5.4.
 
-## مراجعة إضافات P7 من التقرير المرفق
-- [x] تحديث جرد GitHub للفروع وPRs وmain ومقارنة التقرير بالحالة الفعلية.
-- [x] التحقق من ميزات P7.3 وP7.4 وQA وموقعها بالنسبة إلى main.
-- [x] التحقق من CI وPreview/Production على Vercel والاختبارات والحالات الفاشلة أو المعلقة.
-- [x] إعداد تقرير فروقات وقرار مقترح دون دمج أو تعديل خارجي.
-
-## Release Gate — نشر ميزات P7 على Vercel
-- [x] تثبيت نطاق الإصدار: P7.3 ثم P7.4 فقط، مع إبقاء PR #33 وPR #17 وPR #1 والقضايا القديمة خارج الدمج.
-- [x] التحقق من رأس P7.3 والاختبارات وPreview قبل الدمج.
-- [x] دمج PR #21 ثم التحقق من نشر Vercel Production وعدم وجود فشل. أصبح commit `fe0c977602c1459fb7c14b949c260241ecf1b83a` بحالة READY.
-- [x] التحقق من PR #31 بعد تحديث قاعدته إلى main فوق P7.3 المدموج ثم دمجه. أصبح commit `eb98fab7caa379c478367cb7bd23b565166e4f1a` بحالة READY.
-- [x] التحقق النهائي من Production وSupabase وتوثيق الإصدار دون بدء أعمال P7.5 أو تنظيف الفروع. أضيف `docs/p7-production-release-2026-09-11.md` ونجح فتح رابط Production.
-
-## تحسينات تجربة المزامنة
-- [x] فحص مكوّنات المزامنة الحالية وعقود الصلاحيات والعزل.
-- [x] إضافة إشعار مرئي عند انقطاع الإنترنت وعودته.
-- [x] إضافة زر «مزامنة الآن» مع حالة تحميل حركية وحماية من النقر المتكرر.
-- [x] إضافة واجهة إدارية لسجل المزامنة والتعارضات مع التصفية حسب المساحة والحالة والفترة والصلاحيات المركزية.
-- [x] كتابة اختبارات المزامنة والعزل وتشغيل TypeScript والبناء والتحقق البصري. نجح اختبار SyncExperience، وpnpm check، وpnpm build، وpnpm test؛ وتبقى تحذيرات الرسوم البيانية الحالية غير مرتبطة بالتغيير.
-
-## Production QA/E2E Audit — P7.3 + P7.4
-- [x] تثبيت الإصدار والروابط والأدوار والوحدات مع الالتزام بالاختبار القراءة فقط.
-- [x] تنفيذ مصفوفة الرحلات الحرجة للمصادقة واللوحة والمولد والمشترك والقراءة؛ فشل إنشاء المشترك وصُنّف FAIL.
-- [x] تنفيذ اختبارات Offline/Sync الآمنة دون إنشاء بيانات حقيقية أو تغيير Supabase؛ المزامنة الفعلية BLOCKED لعدم وجود مشترك QA.
-- [x] فحص الصلاحيات والعزل والأخطاء والاستجابة وتجربة الاستخدام.
-- [x] إعداد تقرير QA يصنف النتائج PASS وFAIL وBLOCKED ويوصي بجاهزية الإصدار.
-
-## QA E2E آمن ببيانات اختبار فقط
-- [x] إنشاء مساحة ومولد اختباريين موسومين `QA-2026-09-11` عبر المسار المصرح، مع حفظ معرفات التنظيف؛ فشل حفظ المشترك وتم تسجيل ذلك.
-- [x] اختبار رحلات القراءة والبحث واللوحة والفواتير والتحصيل قراءةً فقط؛ تعذر اختبار الكتابة التابعة بسبب فشل إنشاء المشترك.
-- [x] اختبار Offline/Sync قراءةً ومحاكاة offline/online محلياً؛ لم تُنشأ مسودة أو تُشغّل مزامنة فعلية بسبب غياب مشترك QA.
-- [x] فحص الحماية غير المصادق، عزل مساحة QA، أخطاء إنشاء المشترك/المولد، صفحات المالية، والاستجابة؛ الأدلة محفوظة في docs/qa-discovery-notes-2026-09-11.md.
-- [x] حُذفت بيانات QA فقط وتحقق Supabase من عدم بقاء tenant/user/Auth، وبقي حساب الأدمن فعالاً؛ تقرير الجاهزية في docs/qa-production-report-2026-09-11.md.
-
-## إغلاق الترحيل الكامل إلى Supabase
-- [ ] تدقيق PR #37 وProduction وPreview وتحديد الفرق القابل للنقل دون تكرار أو دمج تاريخي.
-- [ ] حصر مستدعي Drizzle/MySQL وDATABASE_URL في Runtime والتحقق من بدائل Supabase قبل الإزالة.
-- [ ] تنفيذ AST-safe retirement للملفات legacy فقط إذا كانت الفحوص تثبت عدم وجود callers.
-- [ ] تصفير legacy allowlist وتشغيل pnpm check وpnpm test وpnpm build واختبارات Supabase والأمن.
-- [ ] إنشاء نسخة قابلة للمراجعة وPR/Preview، مع إبقاء Production دون نشر تلقائي حتى اعتماد المستخدم.
-- [ ] معالجة أخطاء TypeScript الحالية في PR #37 (AdminAdvancedWorkspace وFinanceAdminPage وMessagingSettingsPage وMeterReadingsPage وPlatformAccessPanel وPlatformTweetSmsReport) ثم إعادة تشغيل retirement والاختبارات.
-
-## مقارنة Supabase staging وProduction
-- [x] تثبيت معرفات powerhub-staging-dr وProduction ومشاريع Vercel المرتبطة.
-- [x] مقارنة migrations وRPCs والجداول والـRLS بين البيئتين قراءةً فقط. اتضح أن staging لديه 51 migration و46 جدولاً، وProduction 90 migration و58 جدولاً، مع اختلافات RPC ومخطط مهمة.
-- [x] تحديد الفروقات القابلة للمصالحة والفروقات التي تحتاج migration أو مراجعة يدوية؛ staging ليس superset ولا يصلح للنسخ المباشر إلى Production.
-- [x] إعداد خطة نقل آمنة دون تطبيق أي تغيير على Production تلقائياً في docs/supabase-staging-production-reconciliation-2026-09-13.md.
+## Supabase reconciliation and PR #37 repair
+- [x] توثيق مقارنة `powerhub-staging-dr` وProduction: staging 51 migrations/46 tables، Production 90 migrations/58 tables، وstaging ليس superset. أُعيد توثيقه في docs/supabase-staging-production-reconciliation-2026-09-13.md.
+- [x] إصلاح أخطاء TypeScript التي أوقف بها Workflow retirement في PR #37؛ نجح `pnpm check` بعد إصلاح الواجهات المتأثرة.
+- [ ] إثبات مستدعي Drizzle/MySQL المتبقية وإزالة legacy runtime فقط بعد نجاح check والاختبارات.
+- [ ] إعادة تشغيل retirement واختبارات Supabase والأمن والبناء على فرع إصلاح منفصل.
+- [ ] إنشاء commit وPR/Preview دون دمج أو نشر Production تلقائياً.

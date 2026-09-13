@@ -62,13 +62,54 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     if (editing) updateSubscriber.mutate({ ...base, id: editing.id });
     else createSubscriber.mutate(base);
   };
-  const submitGenerator = (values: Values) => {
+  const submitGenerator = async (values: Values) => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      if (!user?.id) return toast.error("تعذر معرفة المستخدم الحالي لحفظ المسودة محلياً.");
+      try {
+        if (editing) {
+          await enqueueOfflineWork({
+            userId: user.id,
+            siteId: siteId!,
+            kind: "generator_update",
+            payload: {
+              generatorId: editing.id,
+              name: String(values.name),
+              ratedCapacityKw: String(values.ratedCapacityKw),
+              fuelLevelLiters: String(values.fuelLevelLiters),
+              operatingHours: String(values.operatingHours),
+              status: values.status as "active" | "maintenance" | "stopped" | "offline",
+              expectedUpdatedAt: new Date(editing.updatedAt).toISOString(),
+            },
+          });
+          setEditing(null);
+          toast.success("حُفظ تعديل المولد كمسودة محلية؛ سيُزامن تلقائياً عند عودة الاتصال.");
+        } else {
+          await enqueueOfflineWork({
+            userId: user.id,
+            siteId: siteId!,
+            kind: "generator_create",
+            payload: {
+              code: String(values.code),
+              name: String(values.name),
+              serialNumber: values.serialNumber ? String(values.serialNumber) : undefined,
+              ratedCapacityKw: String(values.ratedCapacityKw),
+              fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other",
+            },
+          });
+          toast.success("حُفظ المولد كمسودة محلية؛ سيُنشأ في الخادم عند عودة الاتصال.");
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "تعذر حفظ المسودة المحلية.");
+      }
+      return;
+    }
     if (editing) updateGenerator.mutate({ siteId: siteId!, id: editing.id, name: String(values.name), ratedCapacityKw: String(values.ratedCapacityKw), fuelLevelLiters: String(values.fuelLevelLiters), operatingHours: String(values.operatingHours), status: values.status as "active" | "maintenance" | "stopped" | "offline" });
     else createGenerator.mutate({ siteId: siteId!, code: String(values.code), name: String(values.name), serialNumber: values.serialNumber ? String(values.serialNumber) : undefined, ratedCapacityKw: String(values.ratedCapacityKw), fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other" });
   };
 
   if (loading) return <DashboardLayout><Loading /></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} /></DashboardLayout>;
+  if (!user) return <DashboardLayout><LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} /></DashboardLayout>;
   if (!sitesQuery.data?.length) return <DashboardLayout><EmptySetup /></DashboardLayout>;
   const title = kind === "subscribers" ? "المشتركون" : "المحطات والمولدات";
   const Icon = kind === "subscribers" ? UsersRound : Bolt;
@@ -76,7 +117,8 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
 
   return <DashboardLayout><div className="space-y-6 pb-12">
     <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></header>
-    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <>{user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<BulkSubscriberImport siteId={siteId!} onSaved={async () => { await refresh(); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace overview={financialOverviewQuery.data} siteId={siteId!} canRemind={can(role, "manageMessaging")} /></> : null}
+    {kind === "generators" && canEdit && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}
+    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { await refresh(); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace overview={financialOverviewQuery.data} siteId={siteId!} canRemind={can(role, "manageMessaging")} /></> : null}
     <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr]">
       {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <SubscriberEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} /> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
       <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex items-center justify-between border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل {title}</h2><span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">{data.length} سجل</span></div><div className="p-5">{data.length ? <div className="space-y-2">{data.map((item) => <RecordRow key={item.id} kind={kind} item={item} canEdit={canEdit} onEdit={() => setEditing(item)} />)}</div> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">لا توجد سجلات في {activeSite?.name}. {canEdit ? "استخدم النموذج لإضافة أول سجل." : ""}</div>}</div></CardContent></Card>

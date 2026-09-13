@@ -1,6 +1,3 @@
-import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
-
 export type PortalInvoicePdfData = {
   portal: { displayName: string; primaryColor: string; accentColor: string };
   subscriber: { fullName: string; subscriberNo: string; phone: string; address: string | null };
@@ -27,11 +24,12 @@ export type PortalInvoicePdfData = {
 const currency = (value: number, digits = 2) => new Intl.NumberFormat("ar", { maximumFractionDigits: digits }).format(Number(value || 0));
 const date = (value: Date | string) => new Intl.DateTimeFormat("ar", { dateStyle: "medium" }).format(new Date(value));
 const statusLabel: Record<string, string> = { paid: "مدفوعة بالكامل", partially_paid: "مدفوعة جزئياً", issued: "مستحقة", overdue: "متأخرة" };
-const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] || character);
+const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>'\"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '\"': "&quot;" })[character] || character);
 const safeColor = (color: string, fallback: string) => /^#[0-9a-fA-F]{6}$/.test(color) ? color : fallback;
-const filePart = (value: string) => value.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 90);
+const filePart = (value: string) => value.replace(/[\\/:*?\"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 90);
 
 export async function downloadSubscriberPortalInvoicePdf(data: PortalInvoicePdfData) {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
   const primary = safeColor(data.portal.primaryColor, "#0D1117");
   const accent = safeColor(data.portal.accentColor, "#F5B800");
   const root = document.createElement("section");

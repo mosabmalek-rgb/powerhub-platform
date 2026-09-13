@@ -150,7 +150,7 @@ describe("platform administration integration", () => {
     await expect(invitedCaller.staff.myAccess({ siteId: created.siteId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const platformInvitation = await platformOwnerCaller.invitePlatformAccess({ email: `${suffix}@example.com`, platformRole: "finance_admin", expiresInHours: 2 });
     await expect(platformOwnerCaller.platformAccessDirectory()).resolves.toMatchObject({ invitations: expect.arrayContaining([expect.objectContaining({ id: platformInvitation.id, platformRole: "finance_admin", status: "invited" })]) });
-    await db.update(users).set({ role: "admin", platformRole: "platform_admin" }).where(eq(users.id, managerUserId));
+    await db.update(users).set({ role: "admin", platformRole: "platform_admin", accountStatus: "active" }).where(eq(users.id, managerUserId));
     const [platformAdmin] = await db.select().from(users).where(eq(users.id, managerUserId));
     const platformAdminCaller = adminRouter.createCaller({ user: platformAdmin, req: {} as never, res: {} as never });
     await expect(platformAdminCaller.invitePlatformAccess({ email: `forbidden-${suffix}@example.com`, platformRole: "finance_admin" })).rejects.toMatchObject({ code: "FORBIDDEN" });

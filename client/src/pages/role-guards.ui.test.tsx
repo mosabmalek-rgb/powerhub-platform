@@ -15,6 +15,7 @@ import SubscriberPortalSettingsPage from "./SubscriberPortalSettingsPage";
 const mocks = vi.hoisted(() => ({
   activeRole: "viewer",
   site: { id: 1, name: "محطة الاختبار", code: "TEST-01" },
+  user: { id: 1, role: "owner", platformRole: "platform_owner", accountStatus: "active" },
   portalSettings: { portalCode: "test-portal", displayName: "بوابة الاختبار", primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true },
   subscribers: [] as any[],
   invoices: [] as Array<{ id: number; invoiceNo: string; billingPeriod: string; consumptionKwh: string; balanceDue: string; status: string }>,
@@ -41,7 +42,7 @@ class ResizeObserverMock {
 }
 vi.stubGlobal("ResizeObserver", ResizeObserverMock);
 
-vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false }) }));
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false, user: mocks.user }) }));
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/ui/switch", () => ({ Switch: ({ checked, onCheckedChange, ...props }: { checked: boolean; onCheckedChange: (value: boolean) => void; [key: string]: unknown }) => <button type="button" aria-pressed={checked} onClick={() => onCheckedChange(!checked)} {...props} /> }));
 vi.mock("qrcode.react", () => ({ QRCodeCanvas: ({ value }: { value: string }) => <canvas aria-label="رمز QR للرابط" data-value={value} /> }));
@@ -266,12 +267,13 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("heading", { name: "سجل التدقيق" })).toBeInTheDocument();
   });
 
-    it("shows the focused add-reading page without legacy meter forms to the viewer", () => {
+  it("shows the focused add-reading page without legacy meter forms to the viewer", () => {
     render(<MeterReadingsPage />);
     expect(screen.getByRole("heading", { name: "إضافة قراءة" })).toBeInTheDocument();
     expect(screen.queryByText("إضافة عداد")).not.toBeInTheDocument();
     expect(screen.queryByText("تسجيل قراءة جديدة")).not.toBeInTheDocument();
   });
+
   it("shows direct reading registration to the technician", () => {
     mocks.activeRole = "technician";
     render(<MeterReadingsPage />);

@@ -2,9 +2,9 @@ name: PowerHub CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, p4-production-excellence, p6-scale-operations]
   pull_request:
-    branches: [main]
+    branches: [main, p5-6-commercial-launch]
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ jobs:
   validate:
     name: TypeScript, tests, and production build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=4096
       VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
@@ -33,7 +33,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies

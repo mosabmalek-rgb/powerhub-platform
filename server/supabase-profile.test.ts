@@ -18,7 +18,7 @@ describe("ملف مستخدم Supabase", () => {
       updated_at: "2026-08-25T00:01:00.000Z",
       last_signed_in: "2026-08-25T00:02:00.000Z",
     });
-    expect(user).toMatchObject({ id: 7, openId: "ea9b9451-9e4a-45b5-be19-688c7ab7ccc7", role: "admin", platformRole: "platform_owner" });
+    expect(user).toMatchObject({ id: 7, openId: "ea9b9451-9e4a-45b5-be19-688c7ab7ccc7", role: "admin", platformRole: "platform_owner", accountStatus: "active" });
     expect(user.lastSignedIn).toBeInstanceOf(Date);
   });
 });

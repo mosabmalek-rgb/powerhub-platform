@@ -1,4 +1,11 @@
-export type OfflineWorkKind = "subscriber_create" | "subscriber_update" | "invoice_issue" | "payment_create";
+export type OfflineWorkKind =
+  | "subscriber_create"
+  | "subscriber_update"
+  | "generator_create"
+  | "generator_update"
+  | "invoice_issue"
+  | "payment_create";
+
 export type OfflineWorkStatus = "pending" | "conflict" | "failed" | "applied";
 
 export type SubscriberCreateDraft = {
@@ -11,6 +18,24 @@ export type SubscriberCreateDraft = {
 export type SubscriberUpdateDraft = SubscriberCreateDraft & {
   subscriberId: number;
   serviceStatus: "active" | "suspended" | "disconnected";
+  expectedUpdatedAt: string;
+};
+
+export type GeneratorCreateDraft = {
+  code: string;
+  name: string;
+  serialNumber?: string;
+  ratedCapacityKw: string;
+  fuelType: "diesel" | "gasoline" | "gas" | "other";
+};
+
+export type GeneratorUpdateDraft = {
+  generatorId: number;
+  name: string;
+  ratedCapacityKw: string;
+  fuelLevelLiters: string;
+  operatingHours: string;
+  status: "active" | "maintenance" | "stopped" | "offline";
   expectedUpdatedAt: string;
 };
 
@@ -27,7 +52,14 @@ export type PaymentDraft = {
   invoiceId?: number;
   paymentNo: string;
   amount: number;
-  paymentMethod: "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "wallet" | "bank_transfer" | "card";
+  paymentMethod:
+    | "cash"
+    | "jawwal_pay"
+    | "palpay"
+    | "bank_of_palestine"
+    | "wallet"
+    | "bank_transfer"
+    | "card";
   companyAccountId: number;
   transferFromAccount?: string;
   transferFromType?: "jawwal_pay" | "palpay" | "bank_of_palestine";
@@ -36,7 +68,13 @@ export type PaymentDraft = {
   receiptImageMime?: "image/jpeg" | "image/png" | "image/webp";
 };
 
-export type OfflineWorkPayload = SubscriberCreateDraft | SubscriberUpdateDraft | InvoiceIssueDraft | PaymentDraft;
+export type OfflineWorkPayload =
+  | SubscriberCreateDraft
+  | SubscriberUpdateDraft
+  | GeneratorCreateDraft
+  | GeneratorUpdateDraft
+  | InvoiceIssueDraft
+  | PaymentDraft;
 
 export type QueuedOfflineWork = {
   id: string;
@@ -59,13 +97,24 @@ const storeName = "operations";
 export class OfflineWorkQueueError extends Error {}
 
 export function assertOfflineWorkQueueAvailable() {
-  if (typeof indexedDB === "undefined") throw new OfflineWorkQueueError("لا يدعم هذا المتصفح حفظ المسودات دون اتصال.");
+  if (typeof indexedDB === "undefined") {
+    throw new OfflineWorkQueueError("لا يدعم هذا المتصفح حفظ المسودات دون اتصال.");
+  }
 }
 
-export function createOfflineWork(input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status">): QueuedOfflineWork {
+export function createOfflineWork(
+  input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status">,
+): QueuedOfflineWork {
   const id = crypto.randomUUID();
   const now = Date.now();
-  return { ...input, id, clientOperationId: id, createdAt: now, updatedAt: now, status: "pending" };
+  return {
+    ...input,
+    id,
+    clientOperationId: id,
+    createdAt: now,
+    updatedAt: now,
+    status: "pending",
+  };
 }
 
 function openDatabase() {
@@ -73,40 +122,65 @@ function openDatabase() {
     assertOfflineWorkQueueAvailable();
     const request = indexedDB.open(databaseName, 1);
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(storeName)) request.result.createObjectStore(storeName, { keyPath: "id" });
+      if (!request.result.objectStoreNames.contains(storeName)) {
+        request.result.createObjectStore(storeName, { keyPath: "id" });
+      }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new OfflineWorkQueueError("تعذر فتح طابور المسودات المحلي."));
+    request.onerror = () =>
+      reject(request.error ?? new OfflineWorkQueueError("تعذر فتح طابور المسودات المحلي."));
   });
 }
 
-async function transact<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>) {
+async function transact<T>(
+  mode: IDBTransactionMode,
+  action: (store: IDBObjectStore) => IDBRequest<T>,
+) {
   const database = await openDatabase();
   return new Promise<T>((resolve, reject) => {
     const transaction = database.transaction(storeName, mode);
     const request = action(transaction.objectStore(storeName));
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new OfflineWorkQueueError("تعذر تحديث طابور المسودات."));
+    request.onerror = () =>
+      reject(request.error ?? new OfflineWorkQueueError("تعذر تحديث طابور المسودات."));
     transaction.oncomplete = () => database.close();
-    transaction.onerror = () => { database.close(); reject(transaction.error ?? new OfflineWorkQueueError("تعذر حفظ المسودة المحلية.")); };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error ?? new OfflineWorkQueueError("تعذر حفظ المسودة المحلية."));
+    };
   });
 }
 
 export async function listOfflineWork(options: { userId: number; siteId?: number }) {
   const records = await transact<QueuedOfflineWork[]>("readonly", (store) => store.getAll());
-  return records.filter((record) => record.userId === options.userId && (options.siteId === undefined || record.siteId === options.siteId)).sort((a, b) => b.updatedAt - a.updatedAt);
+  return records
+    .filter(
+      (record) =>
+        record.userId === options.userId &&
+        (options.siteId === undefined || record.siteId === options.siteId),
+    )
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export async function enqueueOfflineWork(input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status">) {
+export async function enqueueOfflineWork(
+  input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status">,
+) {
   const record = createOfflineWork(input);
   await transact("readwrite", (store) => store.put(record));
   return record;
 }
 
-export async function updateOfflineWork(id: string, patch: Partial<Pick<QueuedOfflineWork, "status" | "error" | "appliedEntityId" | "appliedLabel" | "payload">>) {
+export async function updateOfflineWork(
+  id: string,
+  patch: Partial<
+    Pick<QueuedOfflineWork, "status" | "error" | "appliedEntityId" | "appliedLabel" | "payload">
+  >,
+) {
   const existing = await transact<QueuedOfflineWork | undefined>("readonly", (store) => store.get(id));
   if (!existing) return;
-  await transact("readwrite", (store) => store.put({ ...existing, ...patch, updatedAt: Date.now() }));
+  await transact("readwrite", (store) =>
+    store.put({ ...existing, ...patch, updatedAt: Date.now() }),
+  );
 }
 
 export async function removeOfflineWork(id: string) {
