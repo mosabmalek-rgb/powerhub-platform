@@ -16,7 +16,7 @@ const state = vi.hoisted(() => {
   const calls: string[] = [];
   const filters: Array<[string, string, unknown]> = [];
   const rows: Record<string, unknown[]> = {
-    platform_tweetsms_accounts: [{ id: 9, api_endpoint: "https://sms.example.test", sender_name: "PowerHub", low_balance_threshold: 100, last_provider_balance: 500, last_balance_checked_at: null, last_tested_at: null, last_error: null, is_active: false, credential_ciphertext: null, credential_iv: null }],
+    platform_tweetsms_accounts: [{ id: 9, api_endpoint: "https://sms.example.test", sender_name: "PowerHub", low_balance_threshold: 100, last_provider_balance: 500, last_balance_checked_at: null, last_tested_at: null, last_error: null, is_active: false, credential_ciphertext: "test-ciphertext", credential_iv: "test-iv" }],
     platform_sms_fallback_providers: [{ id: 10, name: "مزود احتياطي", provider_key: "backup_sms", api_endpoint: null, sender_name: null, priority: 1, integration_status: "pending_contract", is_active: false, credential_ciphertext: null, credential_iv: null, last_tested_at: null, last_error: null, updated_at: "2026-08-27T00:00:00.000Z" }],
     platform_role_policies: [{ id: 11, role: "accountant", capability: "managePayroll", is_allowed: true, updated_by_user_id: 1, updated_at: "2026-08-27T00:00:00.000Z" }],
     platform_settings: [{ id: 12, setting_key: "maintenance_mode", is_enabled: false, value: null, message: null, updated_by_user_id: 1, updated_at: "2026-08-27T00:00:00.000Z" }],
