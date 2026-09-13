@@ -2,8 +2,12 @@ name: PowerHub retire legacy once
 on:
   push:
     branches: [refactor/admin-supabase-migration]
+  workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: powerhub-retire-once-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   retire:
     runs-on: ubuntu-latest
