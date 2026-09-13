@@ -21,7 +21,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: refactor/admin-supabase-migration
-      - uses: pnpm/action-setup@v4
+      - name: Bootstrap pinned pnpm
+        run: npm install --global pnpm@10.4.1
       - uses: actions/setup-node@v4
         with:
           node-version: 24
