@@ -16,7 +16,11 @@ const adminRuntimeRecord = {
 delete adminRuntimeRecord.saveRolePolicy;
 Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, unknown>);
 
-const adminRuntimeRouter = (router(adminRuntimeRecord as Record<string, any>) as unknown) as typeof adminRouter;
+type AppAdminRouter = Omit<typeof adminRouter, "listComplaints"> & {
+  listComplaints: any;
+};
+
+const adminRuntimeRouter = (router(adminRuntimeRecord as Record<string, any>) as unknown) as AppAdminRouter;
 
 export const appRouter = router({
   system: systemRouter,
