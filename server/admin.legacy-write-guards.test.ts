@@ -9,7 +9,7 @@ vi.mock("./db", () => ({ getDb: state.getDb, syncSupabaseUser: vi.fn() }));
 import { adminRouter } from "./admin";
 
 const adminCaller = adminRouter.createCaller({
-  user: { id: 1, role: "admin", platformRole: "platform_admin" } as never,
+  user: { id: 1, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never,
   req: {} as never,
   res: {} as never,
 });
