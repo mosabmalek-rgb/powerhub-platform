@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { authenticatedProcedure, router } from "./_core/trpc";
-import { adminRouter } from "./admin";
+import type { adminRouter } from "./admin";
 import { adminRouterWithSupabaseTariffPolicy } from "./admin-tariff-policy-router";
 import { savePlatformSetting } from "./platform-setting-supabase";
 import { adminOwnerAccessRecoveryRouter } from "./admin-owner-access-recovery-router";
