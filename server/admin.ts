@@ -1,9 +1,15 @@
-import type { AdminRouter } from "./admin-runtime";
+import { router } from "./_core/trpc";
+import { adminRouter as adminRuntimeRouter } from "./admin-runtime";
 import { adminRouterWithSupabaseReadContracts } from "./admin-runtime-reads";
 
-type AdminSupabaseReadRouter = typeof adminRouterWithSupabaseReadContracts;
-type PowerHubAdminRouter = AdminRouter & AdminSupabaseReadRouter;
+const legacyAdminRecord = adminRuntimeRouter._def.record;
+const supabaseAdminRecord = adminRouterWithSupabaseReadContracts._def.record;
 
-export const adminRouter = adminRouterWithSupabaseReadContracts as unknown as PowerHubAdminRouter;
-export type { AdminRouter, PowerHubAdminRouter };
+export const adminRouter = router({
+  ...legacyAdminRecord,
+  ...supabaseAdminRecord,
+});
+
+export type AdminRouter = typeof adminRouter;
+export type LegacyAdminRouter = typeof adminRuntimeRouter;
 export { addSubscriptionPeriod, tenantStatusForSubscription, platformSmsFallbackProviderSummary } from "./admin-runtime";
