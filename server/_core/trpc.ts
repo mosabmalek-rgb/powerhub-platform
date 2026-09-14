@@ -2,6 +2,7 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { supabaseAdmin } from "../supabase-admin";
+import { requirePlatformCapability } from "../platform-capability";
 import type { TrpcContext } from "./context";
 
 const t = initTRPC.context<TrpcContext>().create({
@@ -45,8 +46,25 @@ const enforceMaintenanceMode = t.middleware(async opts => {
   return opts.next();
 });
 
+const requireSupportChatCapability = t.middleware(async opts => {
+  await requirePlatformCapability(opts.ctx.req, "manageSupportChat");
+  return opts.next();
+});
+
 export const authenticatedProcedure = t.procedure.use(requireUser);
 export const protectedProcedure = authenticatedProcedure.use(enforceMaintenanceMode);
+
+/**
+ * Dedicated authorization boundary for PowerHub Support Center / Chat.
+ *
+ * IMPORTANT: Do not replace this with adminProcedure, tenant RBAC,
+ * manageMessaging, or a users.role-based check. The capability resolver
+ * derives identity from the authenticated Supabase token and applies the
+ * explicit platform-scoped policy.
+ */
+export const platformSupportProcedure = authenticatedProcedure.use(
+  requireSupportChatCapability,
+);
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
