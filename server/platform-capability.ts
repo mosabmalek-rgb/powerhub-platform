@@ -3,6 +3,40 @@ import { createClient } from "@supabase/supabase-js";
 import type { Request } from "express";
 
 export type PlatformCapability = "manageSupportChat";
+export type SupportedPlatformRole =
+  | "platform_owner"
+  | "platform_admin"
+  | "finance_admin";
+
+export interface PlatformCapabilityDecisionInput {
+  accountStatus: string | null | undefined;
+  platformRole: SupportedPlatformRole | null | undefined;
+  capability: string;
+  policyAllowed: boolean;
+  tenantRole?: string | null;
+  tenantManageMessaging?: boolean;
+  actorUserId?: number | null;
+  authenticatedUserId?: number | null;
+}
+
+/**
+ * Pure authorization decision used by the server-side test matrix.
+ *
+ * The actor/tenant fields are intentionally non-authoritative. The database
+ * resolver remains the source of identity and policy truth in production.
+ */
+export function isPlatformCapabilityAllowed(
+  input: PlatformCapabilityDecisionInput,
+): boolean {
+  if (input.accountStatus !== "active") return false;
+  if (input.capability !== "manageSupportChat") return false;
+  if (!input.platformRole) return false;
+  if (!input.policyAllowed) return false;
+
+  // Tenant roles/capabilities and caller-supplied actor IDs never grant
+  // platform-scoped support access.
+  return true;
+}
 
 function getSupabasePublicConfig() {
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
@@ -31,7 +65,10 @@ export async function requirePlatformCapability(
   const authHeader = req.headers.authorization;
 
   if (typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
-    throw new TRPCError({ code: "UNAUTHORIZED", message: "Missing Supabase access token." });
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Missing Supabase access token.",
+    });
   }
 
   const { url, publishableKey } = getSupabasePublicConfig();
