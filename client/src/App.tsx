@@ -35,6 +35,7 @@ import QuickActionsPage from "./pages/QuickActionsPage";
 import OfflineSyncPage from "./pages/OfflineSyncPage";
 import SetupWizardPage from "./pages/SetupWizardPage";
 import TrialSubscriptionManagementPage from "./pages/TrialSubscriptionManagementPage";
+import SupportChatPage from "./pages/SupportChatPage";
 
 function Router() {
   return (
@@ -45,6 +46,7 @@ function Router() {
       <Route path={"/setup"}>{() => <RouteAccessGate><SetupWizardPage /></RouteAccessGate>}</Route>
       <Route path={"/quick-actions"}>{() => <RouteAccessGate><QuickActionsPage /></RouteAccessGate>}</Route>
       <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
+      <Route path={"/support-chat"}>{() => <RouteAccessGate><SupportChatPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/portal"} component={SubscriberPortalPage} />
       <Route path={"/portal-settings"}>{() => <RouteAccessGate><SubscriberPortalSettingsPage /></RouteAccessGate>}</Route>
