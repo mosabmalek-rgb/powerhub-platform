@@ -95,3 +95,5 @@ jobs:
           git add package.json pnpm-lock.yaml server scripts drizzle.config.ts drizzle/schema.ts drizzle/relations.ts .github/workflows/powerhub-remove-drizzle-once.yml
           git commit -m 'refactor(migration): remove legacy drizzle mysql tooling'
           git push origin HEAD:refactor/admin-supabase-migration
+
+# One-shot migration cleanup trigger.
