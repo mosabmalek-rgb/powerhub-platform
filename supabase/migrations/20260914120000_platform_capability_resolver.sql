@@ -56,6 +56,26 @@ revoke all on function private.powerhub_has_platform_capability(text) from publi
 revoke all on function private.powerhub_has_platform_capability(text) from anon;
 grant execute on function private.powerhub_has_platform_capability(text) to authenticated;
 
+-- Constrained API entrypoint for server-side callers using the authenticated
+-- Supabase client. It exposes only the caller-scoped boolean decision and
+-- delegates the privileged lookup to the private resolver.
+create or replace function public.powerhub_has_platform_capability(p_capability text)
+returns boolean
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select private.powerhub_has_platform_capability(p_capability)
+$$;
+
+comment on function public.powerhub_has_platform_capability(text) is
+  'Authenticated caller-scoped platform capability check. Does not accept an actor/user id and delegates authorization to the private resolver.';
+
+revoke all on function public.powerhub_has_platform_capability(text) from public;
+revoke all on function public.powerhub_has_platform_capability(text) from anon;
+grant execute on function public.powerhub_has_platform_capability(text) to authenticated;
+
 create index if not exists platform_capability_policies_lookup_idx
   on private.platform_capability_policies(platform_role, capability)
   where is_allowed = true;
