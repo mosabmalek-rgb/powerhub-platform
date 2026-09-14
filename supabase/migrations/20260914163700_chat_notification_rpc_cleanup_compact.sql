@@ -1,2 +1,0 @@
--- No-op marker. The authoritative notification RPC hardening is retained in the
--- consolidated migration immediately preceding the feature branch head.
