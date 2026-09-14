@@ -1,1 +1,0 @@
--- Cleanup marker; final authorization is enforced by the preceding migration.
