@@ -1,0 +1,316 @@
+-- PowerHub Smart Support Chat v1
+-- RLS + Realtime Authorization DRAFT — REVIEW ONLY
+-- NOT a Production migration.
+-- This document deliberately separates verified authorization from the still-open
+-- Platform Support Center capability decision.
+
+BEGIN;
+
+-- ============================================================================
+-- 1. VERIFIED IDENTITY / TENANT PRIMITIVES
+-- ============================================================================
+-- Existing Production helpers:
+--   private.powerhub_current_user_id() -> bigint
+--   private.powerhub_has_tenant_access(bigint) -> boolean
+--   private.powerhub_is_platform_admin() -> boolean
+--
+-- Important: powerhub_is_platform_admin() currently includes finance_admin.
+-- Therefore it MUST NOT be used as a blanket Support Center authorization rule.
+
+-- ============================================================================
+-- 2. TENANT-SCOPED CHAT ACCESS HELPER — DRAFT CONTRACT
+-- ============================================================================
+-- Purpose:
+--   Allow a tenant user to read a conversation only when the caller is an
+--   active member of the conversation's tenant AND is either:
+--     a) tenant owner, or
+--     b) an active staff assignment with effective manageMessaging capability.
+--
+-- This helper intentionally does not grant cross-tenant access.
+-- It also re-checks current membership rather than trusting participant rows.
+--
+-- Draft implementation shape (NOT TO BE APPLIED until reviewed):
+--
+-- create or replace function private.powerhub_chat_has_tenant_access(
+--   target_tenant_id bigint,
+--   target_conversation_id bigint default null
+-- ) returns boolean
+-- language sql stable security definer
+-- set search_path = public
+-- as $$
+--   with caller as (
+--     select private.powerhub_current_user_id() as user_id
+--   ),
+--   membership as (
+--     select tm.role
+--     from public.tenant_members tm, caller c
+--     where tm.tenant_id = target_tenant_id
+--       and tm.user_id = c.user_id
+--       and tm.is_active = true
+--       and tm.membership_status = 'active'
+--       and (tm.expires_at is null or tm.expires_at > now())
+--     limit 1
+--   )
+--   select exists (
+--     select 1 from membership m where m.role = 'owner'
+--   )
+--   or exists (
+--     select 1
+--     from public.staff_profiles sp, caller c
+--     where sp.tenant_id = target_tenant_id
+--       and sp.user_id = c.user_id
+--       and sp.is_active = true
+--       and not (
+--         sp.suspension_started_at is not null
+--         and sp.suspension_ends_at is not null
+--         and now() >= sp.suspension_started_at
+--         and now() < sp.suspension_ends_at
+--       )
+--       and (
+--         coalesce(sp.permissions, '[]'::jsonb) ? 'manageMessaging'
+--         or (
+--           jsonb_array_length(coalesce(sp.permissions, '[]'::jsonb)) = 0
+--           and sp.custom_role_id is not null
+--           and exists (
+--             select 1
+--             from public.custom_permission_roles cpr
+--             where cpr.id = sp.custom_role_id
+--               and cpr.tenant_id = target_tenant_id
+--               and cpr.is_active = true
+--               and coalesce(cpr.permissions, '[]'::jsonb) ? 'manageMessaging'
+--           )
+--         )
+--       )
+--   );
+-- $$;
+--
+-- Security review requirement:
+--   The final helper must preserve the existing server-side semantics in
+--   server/powerhub-supabase.ts, including active membership, suspension checks,
+--   direct permissions, and custom-role fallback.
+
+-- ============================================================================
+-- 3. PLATFORM SUPPORT CENTER — EXPLICIT OPEN GATE
+-- ============================================================================
+-- No verified Production SQL helper currently grants a dedicated Support Center
+-- capability. The existing manageMessaging capability is tenant-scoped and the
+-- existing platform-admin helper also includes finance_admin.
+--
+-- Therefore the following helper is a CONTRACT ONLY and must not be guessed:
+--
+-- private.powerhub_has_support_chat_access()
+--
+-- It must eventually evaluate a deliberately approved platform support scope,
+-- e.g. a future manageSupportChat capability, using the existing RBAC model.
+-- Creating chat_roles/chat_permissions is prohibited.
+--
+-- Until this gate is approved, Support Center cross-tenant SELECT policies remain
+-- intentionally UNIMPLEMENTED.
+
+-- ============================================================================
+-- 4. CHAT TABLE RLS — FOUNDATION POLICY SHAPE
+-- ============================================================================
+-- All nine foundation tables use RLS. No anon policy is created.
+-- Direct client mutations are denied by default; sensitive writes happen through
+-- reviewed SECURITY DEFINER RPCs.
+
+-- Conversations: tenant users may read conversations they are authorized to see.
+-- create/update/delete: RPC-only.
+--
+-- create policy chat_conversations_select on public.chat_conversations
+-- for select to authenticated
+-- using (
+--   private.powerhub_chat_has_tenant_access(tenant_id, id)
+--   or private.powerhub_has_support_chat_access()
+-- );
+
+-- Participants: read only when the parent conversation is accessible.
+-- create/update/delete: RPC-only.
+--
+-- create policy chat_participants_select on public.chat_participants
+-- for select to authenticated
+-- using (
+--   exists (
+--     select 1
+--     from public.chat_conversations c
+--     where c.id = conversation_id
+--       and c.tenant_id = tenant_id
+--       and (
+--         private.powerhub_chat_has_tenant_access(c.tenant_id, c.id)
+--         or private.powerhub_has_support_chat_access()
+--       )
+--   )
+-- );
+
+-- Messages: read only through parent conversation authorization.
+-- create/update/delete: RPC-only.
+--
+-- create policy chat_messages_select on public.chat_messages
+-- for select to authenticated
+-- using (
+--   exists (
+--     select 1
+--     from public.chat_conversations c
+--     where c.id = conversation_id
+--       and c.tenant_id = tenant_id
+--       and (
+--         private.powerhub_chat_has_tenant_access(c.tenant_id, c.id)
+--         or private.powerhub_has_support_chat_access()
+--       )
+--   )
+-- );
+
+-- Attachments: read only when the parent conversation is accessible.
+-- create/update/delete: RPC/server Storage boundary.
+--
+-- create policy chat_message_attachments_select on public.chat_message_attachments
+-- for select to authenticated
+-- using (
+--   private.powerhub_chat_has_tenant_access(tenant_id, conversation_id)
+--   or private.powerhub_has_support_chat_access()
+-- );
+
+-- Knowledge articles: authenticated users may read published content only.
+-- Draft/archive/management writes are RPC-only and require approved knowledge
+-- manager scope.
+--
+-- create policy chat_knowledge_articles_published_select
+-- on public.chat_knowledge_articles
+-- for select to authenticated
+-- using (status = 'published');
+
+-- Embeddings are intentionally NOT part of the foundation migration.
+-- No client RLS is defined here.
+
+-- Handoffs: readable only when the parent conversation is readable.
+-- create/update: RPC-only.
+--
+-- create policy chat_bot_handoffs_select on public.chat_bot_handoffs
+-- for select to authenticated
+-- using (
+--   private.powerhub_chat_has_tenant_access(tenant_id, conversation_id)
+--   or private.powerhub_has_support_chat_access()
+-- );
+
+-- Assignments: readable only by conversation participants with access OR the
+-- approved Support Center scope. Mutation is RPC-only.
+--
+-- create policy chat_support_assignments_select
+-- on public.chat_support_assignments
+-- for select to authenticated
+-- using (
+--   private.powerhub_chat_has_tenant_access(tenant_id, conversation_id)
+--   or private.powerhub_has_support_chat_access()
+-- );
+
+-- Feedback: readable only for the caller's own feedback context and an accessible
+-- conversation. Creation/update is RPC-only to prevent user spoofing.
+--
+-- create policy chat_bot_feedback_select on public.chat_bot_feedback
+-- for select to authenticated
+-- using (
+--   user_id = private.powerhub_current_user_id()
+--   and (
+--     private.powerhub_chat_has_tenant_access(tenant_id, conversation_id)
+--     or private.powerhub_has_support_chat_access()
+--   )
+-- );
+
+-- ============================================================================
+-- 5. DIRECT WRITE POLICY — DELIBERATELY NONE
+-- ============================================================================
+-- No INSERT/UPDATE/DELETE policies are proposed for chat operational tables.
+-- This is intentional:
+--   * sender_user_id must never be trusted from the browser;
+--   * tenant_id must be derived/validated server-side;
+--   * conversation state transitions must be validated transactionally;
+--   * support assignment must be authorization-checked;
+--   * audit events must be coupled to mutations.
+--
+-- RPCs will own these operations after their Security Contract is approved.
+
+-- ============================================================================
+-- 6. REALTIME AUTHORIZATION — PRIVATE CHANNELS
+-- ============================================================================
+-- Supabase requires RLS on realtime.messages for private channel authorization.
+-- The client must subscribe with config.private = true.
+-- The topic itself is NOT a security boundary; policies must map the topic back
+-- to the database authorization rules.
+
+-- Conversation receive policy — draft:
+-- create policy chat_conversation_receive
+-- on realtime.messages
+-- for select to authenticated
+-- using (
+--   extension = 'broadcast'
+--   and exists (
+--     select 1
+--     from public.chat_conversations c
+--     where (select realtime.topic()) = 'chat:conversation:' || c.id::text
+--       and (
+--         private.powerhub_chat_has_tenant_access(c.tenant_id, c.id)
+--         or private.powerhub_has_support_chat_access()
+--       )
+--   )
+-- );
+
+-- Support queue receive policy — draft:
+-- create policy chat_support_queue_receive
+-- on realtime.messages
+-- for select to authenticated
+-- using (
+--   extension = 'broadcast'
+--   and (select realtime.topic()) = 'chat:support:queue'
+--   and private.powerhub_has_support_chat_access()
+-- );
+
+-- No client INSERT policy is proposed for realtime.messages.
+-- Database/server-side broadcasts are preferred so clients cannot forge queue or
+-- conversation events.
+
+-- ============================================================================
+-- 7. REALTIME PAYLOAD CONTRACT
+-- ============================================================================
+-- Conversation events should expose minimal identifiers, for example:
+--   { event_type, conversation_id, message_id, created_at }
+--
+-- Do not broadcast full message bodies, context_snapshot, attachments, or other
+-- sensitive data unless a separate review proves it necessary.
+--
+-- Source of truth remains public.chat_* tables. Broadcast is a notification layer.
+
+-- ============================================================================
+-- 8. STORAGE AUTHORIZATION CONTRACT
+-- ============================================================================
+-- Existing bucket: powerhub-private (private, 10 MB, approved MIME allow-list).
+-- Required path:
+--   chat/{tenant_id}/{conversation_id}/{message_id}/{file}
+--
+-- Storage RLS must validate that the requested object belongs to an accessible
+-- chat conversation. Object path must not be treated as sufficient authorization.
+-- Downloads should use authenticated download or short-lived signed URLs.
+-- Public URLs are prohibited for chat attachments.
+
+-- ============================================================================
+-- 9. SECURITY REVIEW CHECKLIST
+-- ============================================================================
+-- [ ] Cross-tenant conversation SELECT denied.
+-- [ ] Cross-tenant message SELECT denied.
+-- [ ] Participant-row spoofing cannot grant access.
+-- [ ] manageMessaging cannot grant cross-tenant Support Center access.
+-- [ ] finance_admin cannot implicitly enter Support Center.
+-- [ ] Anonymous users have zero chat access.
+-- [ ] Browser cannot spoof sender_user_id via direct INSERT.
+-- [ ] Browser cannot spoof tenant_id via direct INSERT.
+-- [ ] Browser cannot forge support assignment/status changes.
+-- [ ] Support queue cannot be joined without dedicated support scope.
+-- [ ] Realtime topic spoofing cannot bypass conversation authorization.
+-- [ ] Realtime clients cannot forge authoritative events.
+-- [ ] Attachment path traversal / cross-tenant access is denied.
+-- [ ] Signed URLs are short-lived and never treated as permanent permissions.
+-- [ ] AI/service credentials never enter client payloads or audit logs.
+
+ROLLBACK NOTE:
+-- This is a review document. It must not be executed in Production.
+
+COMMIT;
