@@ -1,0 +1,4 @@
+-- Final state for chat notification RPC authorization is established by the
+-- preceding immutable migrations: private SECURITY DEFINER implementation,
+-- public SECURITY INVOKER wrapper, authenticated-only public execution.
+-- No Production migration is executed by this file.
