@@ -7,16 +7,11 @@ export function calculateInvoiceAmounts(input: {
   taxRate: number;
   discountAmount: number;
 }) {
-  const energyAmount = input.consumptionKwh * input.pricePerKwh;
-  const subtotal = energyAmount + input.fixedFee;
-  const taxAmount = subtotal * (input.taxRate / 100);
-  const totalAmount = Math.max(0, subtotal + taxAmount - input.discountAmount);
-
+  const energyAmount = Math.round(input.consumptionKwh * input.pricePerKwh * 100) / 100;
+  const subtotal = Math.round((energyAmount + input.fixedFee) * 100) / 100;
+  const taxAmount = Math.round(subtotal * (input.taxRate / 100) * 100) / 100;
+  const totalAmount = Math.max(0, Math.round((subtotal + taxAmount - input.discountAmount) * 100) / 100);
   return { energyAmount, subtotal, taxAmount, totalAmount };
-}
-
-export function generateInvoiceShareToken() {
-  return crypto.randomBytes(24).toString("base64url");
 }
 
 export function hashInvoiceShareToken(token: string) {
