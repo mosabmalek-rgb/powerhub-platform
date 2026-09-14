@@ -1,0 +1,4 @@
+-- Migration-chain note: the notification RPC hardening is intentionally split into
+-- small immutable migrations for auditability. The final public wrapper is
+-- SECURITY INVOKER + VOLATILE; the private mutation implementation is isolated
+-- from browser roles.
