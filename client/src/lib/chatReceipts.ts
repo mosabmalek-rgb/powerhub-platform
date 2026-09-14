@@ -26,22 +26,14 @@ export type ChatInboxNotification = {
 };
 
 export async function markChatMessageDelivered(messageId: number): Promise<ChatReceipt> {
-  const { data, error } = await supabase.rpc("chat_mark_delivered", {
-    p_message_id: messageId,
-  });
-  if (error || !data) {
-    throw error ?? new Error("Unable to mark chat message as delivered.");
-  }
+  const { data, error } = await supabase.rpc("chat_mark_delivered", { p_message_id: messageId });
+  if (error || !data) throw error ?? new Error("Unable to mark chat message as delivered.");
   return data as ChatReceipt;
 }
 
 export async function markChatMessageRead(messageId: number): Promise<ChatReceipt> {
-  const { data, error } = await supabase.rpc("chat_mark_read", {
-    p_message_id: messageId,
-  });
-  if (error || !data) {
-    throw error ?? new Error("Unable to mark chat message as read.");
-  }
+  const { data, error } = await supabase.rpc("chat_mark_read", { p_message_id: messageId });
+  if (error || !data) throw error ?? new Error("Unable to mark chat message as read.");
   return data as ChatReceipt;
 }
 
@@ -49,9 +41,7 @@ export async function markChatNotificationRead(notificationId: number): Promise<
   const { data, error } = await supabase.rpc("chat_mark_notification_read", {
     p_notification_id: notificationId,
   });
-  if (error || !data) {
-    throw error ?? new Error("Unable to mark notification as read.");
-  }
+  if (error || !data) throw error ?? new Error("Unable to mark notification as read.");
   return data as ChatInboxNotification;
 }
 
@@ -73,21 +63,62 @@ export async function listChatMessageReceipts(messageId: number): Promise<ChatRe
   return (data ?? []) as ChatReceipt[];
 }
 
+type ChatConversationEvent =
+  | {
+      event: "chat_message";
+      message_id: number;
+      conversation_id: number;
+      created_at: string;
+    }
+  | {
+      event: "chat_receipt";
+      message_id: number;
+      conversation_id: number;
+      user_id: number;
+      delivered_at: string | null;
+      read_at: string | null;
+    };
+
+type ChatNotificationEvent = {
+  event: "chat_notification";
+  notification_id: number;
+  conversation_id: number;
+  message_id: number | null;
+  created_at: string;
+};
+
 export function subscribeToChatConversation(
   conversationId: number,
-  onEvent: (payload: { event: string; message_id?: number; conversation_id?: number; created_at?: string }) => void,
+  onEvent: (payload: ChatConversationEvent) => void,
 ) {
   const channel = supabase.channel(`chat:conversation:${conversationId}`, {
     config: { private: true },
   });
 
-  channel.on("broadcast", { event: "chat" }, (payload) => {
-    onEvent(payload.payload as { event: string; message_id?: number; conversation_id?: number; created_at?: string });
+  channel.on("broadcast", { event: "chat_message" }, ({ payload }) => {
+    onEvent({ event: "chat_message", ...(payload as Omit<Extract<ChatConversationEvent, { event: "chat_message" }>, "event">) });
+  });
+
+  channel.on("broadcast", { event: "chat_receipt" }, ({ payload }) => {
+    onEvent({ event: "chat_receipt", ...(payload as Omit<Extract<ChatConversationEvent, { event: "chat_receipt" }>, "event">) });
   });
 
   void channel.subscribe();
+  return () => void supabase.removeChannel(channel);
+}
 
-  return () => {
-    void supabase.removeChannel(channel);
-  };
+export function subscribeToChatNotifications(
+  userId: number,
+  onNotification: (payload: ChatNotificationEvent) => void,
+) {
+  const channel = supabase.channel(`chat:user:${userId}`, {
+    config: { private: true },
+  });
+
+  channel.on("broadcast", { event: "chat_notification" }, ({ payload }) => {
+    onNotification({ event: "chat_notification", ...(payload as Omit<ChatNotificationEvent, "event">) });
+  });
+
+  void channel.subscribe();
+  return () => void supabase.removeChannel(channel);
 }
