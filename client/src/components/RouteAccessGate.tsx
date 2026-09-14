@@ -13,7 +13,7 @@ export function RouteAccessGate({ children, platformAdminOnly = false }: RouteAc
   const shouldRedirect = !loading && (!isAuthenticated || (platformAdminOnly && user?.role !== "admin"));
 
   useEffect(() => {
-    if (shouldRedirect) setLocation("/");
+    if (shouldRedirect) setLocation("/login");
   }, [setLocation, shouldRedirect]);
 
   if (loading || shouldRedirect) {

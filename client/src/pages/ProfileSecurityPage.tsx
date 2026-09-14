@@ -22,7 +22,7 @@ export default function ProfileSecurityPage() {
   const [confirmation, setConfirmation] = useState("");
   useEffect(() => setName(user?.name ?? ""), [user?.name]);
   const updateProfile = trpc.auth.updateProfile.useMutation({ onSuccess: async () => { await utils.auth.me.invalidate(); toast.success("تم حفظ بياناتك الشخصية."); }, onError: (error) => toast.error(error.message) });
-  const updatePassword = trpc.auth.updatePassword.useMutation({ onSuccess: async () => { setPassword(""); setConfirmation(""); await utils.auth.me.invalidate(); toast.success("تم تغيير كلمة المرور بنجاح."); if (user?.mustChangePassword) setLocation("/"); }, onError: (error) => toast.error(error.message) });
+  const updatePassword = trpc.auth.updatePassword.useMutation({ onSuccess: async () => { setPassword(""); setConfirmation(""); await utils.auth.me.invalidate(); toast.success("تم تغيير كلمة المرور بنجاح."); if (user?.mustChangePassword) window.location.assign("/workspace"); }, onError: (error) => toast.error(error.message) });
 
   if (loading) return <DashboardLayout><div className="grid min-h-[55vh] place-items-center"><Loader2 className="h-8 w-8 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated || !user) return null;

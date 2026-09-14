@@ -106,3 +106,13 @@
 تحتوي migrations في رأس `github/main` على مراجع كثيرة لـ`tenant_id` و`site_id`، لكن البحث المباشر لم يجد عبارات `ENABLE ROW LEVEL SECURITY` أو `CREATE POLICY` داخل ملفات migrations المفحوصة. هذا لا يثبت غياب الحماية الكاملة؛ قد تكون الحماية مبنية عبر RPCs وطبقات الخادم أو في migrations أخرى/بيئة Supabase. لذلك صُنّف إثبات RLS الإنتاجي والعزل بين مستأجرين `BLOCKED` حتى يتم اختبار قاعدة البيانات نفسها بحسابات/جلسات اختبار معزولة أو فحص SQL قراءة فقط.
 
 كما ظهر في رأس main مسار migration حديث للإثراء `20260914070201_admin_subscription_upgrade_enrichment_rpc.sql`، وهو دليل على أن فرع main الفعلي يختلف عن commit الوصف المرفق ويجب اعتماده كمصدر الحقيقة.
+
+## متابعة إصلاحات QA — 2026-09-14
+
+أُصلحت مشكلة استقرار الجلسة بتأكيد وجود جلسة Supabase بعد `signInWithPassword` وقبل الانتقال إلى `/workspace`، وتغيير `RouteAccessGate` لإعادة غير المصادق إلى `/login` مباشرةً بدلاً من الصفحة العامة. كما أصبح تغيير كلمة المرور الإجباري يعيد المستخدم إلى `/workspace` بعد نجاح التحديث، لتجنب سباق بين تحديث `auth.me` والتنقل.
+
+أُضيف `client/public/manifest.json` وربط به `client/index.html`، مع الإبقاء على `manifest.webmanifest` للتوافق، وأُضيف `client/public/robots.txt` بمحتوى فعلي. تحقق الخادم المحلي من `robots.txt` بحالة 200 و`Content-Type: text/plain`، ومن `manifest.json` بحالة 200 و`Content-Type: application/json`.
+
+بعد إعادة تشغيل خادم التطوير، عاد `/api/health` بحالة 200 و`status: ok`، وعاد `/api/ready` بحالة 200. لم يظهر خطأ `ERR_MODULE_NOT_FOUND` في التشغيل الجديد؛ كان السجل السابق متعلقاً بحالة watcher قديمة أثناء تغييرات الملفات.
+
+نجحت اختبارات Login وhealth الموجهة وعددها 6 اختبارات، ثم نجحت مجموعة Vitest الكاملة بعد تحديث توقعات RouteAccessGate، كما نجح `pnpm check` و`pnpm build`. بقيت تحذيرات حجم الحزم وتقسيمها غير مانعة، ولم يُنشر أي تغيير إلى Production.

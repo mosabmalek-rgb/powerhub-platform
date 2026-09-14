@@ -28,6 +28,10 @@ export default function LoginPage() {
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (signInError) throw signInError;
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) throw new Error("تعذر تثبيت جلسة الدخول. حاول مرة أخرى.");
+      // Wait for persisted session state before navigating so RouteAccessGate
+      // does not observe a stale unauthenticated snapshot.
       setLocation("/workspace");
     } catch (submitError) {
       setError(authMessage(submitError));
