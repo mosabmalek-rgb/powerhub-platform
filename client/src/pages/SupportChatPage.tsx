@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import {
   listChatMessageReceipts,
   markChatMessageDelivered,
+  markChatMessageRead,
   subscribeToChatConversation,
 } from "@/lib/chatReceipts";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -138,8 +139,12 @@ export default function SupportChatPage() {
           const row = data as MessageRow;
           setMessages((current) => current.some((item) => item.id === row.id) ? current : [...current, row].sort((a, b) => a.created_at.localeCompare(b.created_at)));
           if (row.sender_user_id !== user?.id) {
-            void markChatMessageDelivered(row.id).catch(() => undefined);
-            await supabase.rpc("chat_mark_read", { p_message_id: row.id }).catch(() => undefined);
+            try {
+              await markChatMessageDelivered(row.id);
+              await markChatMessageRead(row.id);
+            } catch {
+              // Receipt updates are best-effort; message access remains RLS-protected.
+            }
           }
           requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
         }
