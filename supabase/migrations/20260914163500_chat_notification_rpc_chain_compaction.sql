@@ -1,2 +1,0 @@
--- Migration-chain compaction marker. The implementation migration immediately
--- before this marker contains the authoritative security contract.
