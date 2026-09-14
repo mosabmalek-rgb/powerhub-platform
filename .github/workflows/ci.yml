@@ -7,7 +7,7 @@ on:
     branches: [main, p5-6-commercial-launch, refactor/admin-supabase-migration]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: powerhub-ci-${{ github.workflow }}-${{ github.ref }}
@@ -38,51 +38,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Retire legacy Drizzle/MySQL tooling
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f server/db.ts ]; then
-            patterns='drizzle-orm|mysql2|from ["'"'"']\.\.?/.*drizzle|from ["'"'"']\.\.?/db|require\([^)]*drizzle|require\([^)]*mysql|DATABASE_URL|getDb\('
-            matches=$(rg -n -S "$patterns" server scripts --glob '!server/db.ts' --glob '!server/admin.integration.test.ts' --glob '!server/demo-admin-visibility.integration.test.ts' --glob '!server/tenant-isolation.integration.test.ts' --glob '!server/supabase-invitation.integration.test.ts' --glob '!scripts/seed-demo-operational-data.mjs' || true)
-            if [ -n "$matches" ]; then
-              echo "$matches"
-              exit 1
-            fi
-            rm -f server/db.ts server/admin.integration.test.ts server/demo-admin-visibility.integration.test.ts server/tenant-isolation.integration.test.ts server/supabase-invitation.integration.test.ts scripts/seed-demo-operational-data.mjs drizzle.config.ts drizzle/schema.ts drizzle/relations.ts
-            node <<'NODE'
-            const fs = require('node:fs');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            for (const name of ['drizzle-orm', 'mysql2']) delete pkg.dependencies?.[name];
-            delete pkg.devDependencies?.['drizzle-kit'];
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-            NODE
-            pnpm install --lockfile-only
-            remaining=$(rg -n -S 'drizzle-orm|mysql2|DATABASE_URL|getDb\(|from ["'"'"']\.\.?/db' server scripts package.json || true)
-            if [ -n "$remaining" ]; then
-              echo "$remaining"
-              exit 1
-            fi
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add package.json pnpm-lock.yaml server scripts drizzle.config.ts drizzle/schema.ts drizzle/relations.ts
-            git commit -m 'refactor(migration): remove legacy drizzle mysql tooling'
-            git push origin "HEAD:${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          fi
-
-      - name: Remove one-shot legacy cleanup workflow
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f .github/workflows/powerhub-remove-drizzle-once.yml ]; then
-            rm -f .github/workflows/powerhub-remove-drizzle-once.yml
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add .github/workflows/powerhub-remove-drizzle-once.yml
-            git commit -m 'chore(ci): remove one-shot drizzle cleanup workflow'
-            git push origin "HEAD:${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          fi
 
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs
