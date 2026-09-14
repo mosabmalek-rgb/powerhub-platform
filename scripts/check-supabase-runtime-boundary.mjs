@@ -3,7 +3,7 @@ import path from "node:path";
 
 const root = path.resolve("server");
 const violations = [];
-const excluded = new Set(["db.ts"]);
+const excluded = new Set();
 const forbidden = [
   { label: "getDb()", regex: /\bgetDb\s*\(/ },
   { label: "./db import", regex: /from\s+["']\.\/db["']/ },
@@ -38,4 +38,4 @@ if (violations.length) {
   for (const item of violations) console.error(`- ${item}`);
   process.exit(1);
 }
-console.log("Supabase runtime boundary: PASS (no legacy DB/MySQL/Drizzle callers in server runtime)." );
+console.log("Supabase runtime boundary: PASS (no legacy DB/MySQL/Drizzle callers in server runtime).");
