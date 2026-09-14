@@ -3,10 +3,7 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const serverRoot = join(process.cwd(), "server");
-const allowedLegacyFiles = new Set([
-  "server/powerhub.ts",
-  "server/db.ts",
-]);
+const allowedLegacyFiles = new Set<string>();
 
 const forbiddenPatterns = [
   { label: "drizzle-orm runtime import", pattern: /from [\"']drizzle-orm(?:\/mysql2)?[\"']/ },
@@ -29,7 +26,9 @@ function collectTypeScriptFiles(dir: string): string[] {
 }
 
 describe("Supabase runtime boundary", () => {
-  it("keeps legacy MySQL/Drizzle dependencies inside the explicit migration allowlist", () => {
+  it("keeps the legacy MySQL/Drizzle migration allowlist empty", () => {
+    expect(allowedLegacyFiles).toEqual(new Set<string>());
+
     const violations: string[] = [];
 
     for (const file of collectTypeScriptFiles(serverRoot)) {
