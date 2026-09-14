@@ -3,6 +3,8 @@
 -- IMPORTANT: This file is intentionally NOT placed under supabase/migrations.
 -- Do NOT apply directly to Production. It must pass SQL/security review first.
 -- Source contract: Database Contract v1.1
+-- Foundation scope: NO pgvector dependency.
+-- Retrieval/embedding infrastructure is intentionally separated into a later gate.
 
 BEGIN;
 
@@ -47,7 +49,6 @@ CREATE TABLE public.chat_participants (
 
 CREATE INDEX chat_participants_user_conversation_idx
   ON public.chat_participants (user_id, conversation_id);
-
 CREATE INDEX chat_participants_conversation_idx
   ON public.chat_participants (conversation_id);
 
@@ -79,7 +80,6 @@ CREATE TABLE public.chat_messages (
 
 CREATE INDEX chat_messages_conversation_created_idx
   ON public.chat_messages (conversation_id, created_at DESC);
-
 CREATE INDEX chat_messages_tenant_created_idx
   ON public.chat_messages (tenant_id, created_at DESC);
 
@@ -126,19 +126,6 @@ CREATE TABLE public.chat_knowledge_articles (
 CREATE INDEX chat_knowledge_articles_status_category_idx
   ON public.chat_knowledge_articles (status, category);
 
-CREATE TABLE public.chat_knowledge_embeddings (
-  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  article_id bigint NOT NULL REFERENCES public.chat_knowledge_articles(id) ON DELETE CASCADE,
-  content_hash text NOT NULL,
-  embedding vector,
-  embedding_model text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (article_id, content_hash)
-);
-
--- Vector index intentionally omitted until the production embedding model and dimension are approved.
-
 CREATE TABLE public.chat_bot_handoffs (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   conversation_id bigint NOT NULL,
@@ -181,10 +168,8 @@ CREATE TABLE public.chat_support_assignments (
 
 CREATE INDEX chat_support_assignments_user_status_idx
   ON public.chat_support_assignments (assigned_user_id, status);
-
 CREATE INDEX chat_support_assignments_conversation_status_idx
   ON public.chat_support_assignments (conversation_id, status);
-
 CREATE UNIQUE INDEX chat_support_assignments_one_active_idx
   ON public.chat_support_assignments (conversation_id)
   WHERE status IN ('pending','active');
@@ -211,25 +196,24 @@ CREATE INDEX chat_bot_feedback_message_idx
 -- RLS CONTRACT (DRAFT)
 -- ---------------------------------------------------------------------------
 -- All chat tables must have RLS enabled and no anon policies.
--- Owner policies must use current tenant membership + participant membership.
--- Support policies must use the project's approved support capability helper.
--- IMPORTANT: the exact support capability source is NOT assumed here because the
--- current production dataset does not yet expose a stable support-role vocabulary.
--- This is a deliberate migration gate, not a permission to guess.
+-- Direct client writes are intentionally NOT granted in the foundation layer.
+-- Sensitive mutations will be exposed only through SECURITY DEFINER RPCs after
+-- their authorization/state-transition contract is reviewed.
+-- Tenant access reuses private.powerhub_has_tenant_access(bigint).
+-- Do NOT equate private.powerhub_is_platform_admin() with Support Center access:
+-- it currently includes platform_owner, platform_admin and finance_admin.
 
 ALTER TABLE public.chat_conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_participants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_message_attachments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_knowledge_articles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chat_knowledge_embeddings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_bot_handoffs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_support_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_bot_feedback ENABLE ROW LEVEL SECURITY;
 
--- Policies intentionally omitted from this review-only draft until the existing
--- support authorization contract is explicitly mapped. Adding guessed role checks
--- here would create a security regression.
+-- Exact policies live in docs/architecture/chat-rls-realtime-authorization-draft.sql.
+-- This foundation migration intentionally contains no guessed support-role policy.
 
 -- ---------------------------------------------------------------------------
 -- RPC CONTRACT (NO IMPLEMENTATION IN THIS DRAFT)
@@ -262,8 +246,18 @@ ALTER TABLE public.chat_bot_feedback ENABLE ROW LEVEL SECURITY;
 -- ---------------------------------------------------------------------------
 -- Reuse existing private bucket: powerhub-private.
 -- Chat paths: chat/{tenant_id}/{conversation_id}/{message_id}/{file}
--- Access through existing/private Storage policies + signed URLs.
+-- Access through private Storage RLS + signed URLs.
 -- Do not create a public chat bucket.
+
+-- ---------------------------------------------------------------------------
+-- RETRIEVAL / EMBEDDING GATE
+-- ---------------------------------------------------------------------------
+-- pgvector is NOT part of this foundation migration.
+-- A later migration may create chat_knowledge_embeddings only after:
+-- 1) vector extension availability is explicitly approved;
+-- 2) embedding provider/model is selected;
+-- 3) vector dimension is fixed;
+-- 4) retention/privacy and indexing strategy are reviewed.
 
 ROLLBACK NOTE:
 -- This is a design draft only. Any executable migration must have an explicit
