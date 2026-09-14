@@ -26,7 +26,7 @@ import { adminRouter } from "./admin";
 describe("طلبات ترقية الباقات الإدارية عبر Supabase", () => {
   it("يعرض الطلبات ومالك كل مساحة من Supabase دون MySQL", async () => {
     state.calls.splice(0);
-    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin" } as never, req: {} as never, res: {} as never });
+    const caller = adminRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.listSubscriptionUpgradeRequests()).resolves.toMatchObject([{
       id: 90, tenantId: 20, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار", ownerEmail: "owner@example.com", requestedPlan: "professional",
     }]);

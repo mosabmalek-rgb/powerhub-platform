@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, p4-production-excellence, p6-scale-operations]
   pull_request:
-    branches: [main, p5-6-commercial-launch]
+    branches: [main, p5-6-commercial-launch, refactor/admin-supabase-migration]
 
 permissions:
   contents: read
@@ -38,6 +38,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Supabase runtime boundary
+        run: node scripts/check-supabase-runtime-boundary.mjs
 
       - name: TypeScript check
         run: pnpm check

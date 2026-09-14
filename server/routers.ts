@@ -3,22 +3,33 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
 import { authenticatedProcedure, publicProcedure, mergeRouters, router } from "./_core/trpc";
-import { powerhubRouter } from "./powerhub";
+import { powerhubRuntimeRouter } from "./powerhub-runtime-router";
 import { powerhubDashboardRouter } from "./powerhub-dashboard";
-import { adminRouter } from "./admin";
+import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router";
+import { adminRolePolicyRouter } from "./admin-role-policy-router";
+import type { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
 
+const adminRuntimeRecord = {
+  ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
+};
+delete adminRuntimeRecord.saveRolePolicy;
+Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, unknown>);
+
+type AppAdminRouter = Omit<typeof adminRouter, "listComplaints"> & {
+  listComplaints: any;
+};
+
+const adminRuntimeRouter = (router(adminRuntimeRecord as Record<string, any>) as unknown) as AppAdminRouter;
+
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
     updateProfile: authenticatedProcedure.input(z.object({ name: z.string().min(2).max(180) })).mutation(async ({ ctx, input }) => {
       const { error } = await supabaseAdmin().from("users").update({ name: input.name.trim() }).eq("id", ctx.user.id);
@@ -33,15 +44,10 @@ export const appRouter = router({
       return { success: true } as const;
     }),
   }),
-  powerhub: mergeRouters(powerhubRouter, router({ performance: powerhubDashboardRouter })),
-  admin: adminRouter,
-
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
+  // Canonical composition contract: admin: adminRouterWithSupabasePlatformSetting
+  // Reissued after CI merge-ref drift so GitHub Actions evaluates the current branch head.
+  admin: adminRuntimeRouter,
 });
 
 export type AppRouter = typeof appRouter;

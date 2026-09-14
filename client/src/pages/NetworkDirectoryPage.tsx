@@ -109,6 +109,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
 
   if (loading) return <DashboardLayout><Loading /></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} /></DashboardLayout>;
+  if (!user) return <DashboardLayout><LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} /></DashboardLayout>;
   if (!sitesQuery.data?.length) return <DashboardLayout><EmptySetup /></DashboardLayout>;
   const title = kind === "subscribers" ? "المشتركون" : "المحطات والمولدات";
   const Icon = kind === "subscribers" ? UsersRound : Bolt;
