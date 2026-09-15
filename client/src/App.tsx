@@ -36,6 +36,7 @@ import OfflineSyncPage from "./pages/OfflineSyncPage";
 import SetupWizardPage from "./pages/SetupWizardPage";
 import TrialSubscriptionManagementPage from "./pages/TrialSubscriptionManagementPage";
 import SupportChatPage from "./pages/SupportChatPage";
+import SupportCenterPage from "./pages/SupportCenterPage";
 
 function Router() {
   return (
@@ -47,6 +48,7 @@ function Router() {
       <Route path={"/quick-actions"}>{() => <RouteAccessGate><QuickActionsPage /></RouteAccessGate>}</Route>
       <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
       <Route path={"/support-chat"}>{() => <RouteAccessGate><SupportChatPage /></RouteAccessGate>}</Route>
+      <Route path={"/support-center"}>{() => <RouteAccessGate><SupportCenterPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/portal"} component={SubscriberPortalPage} />
       <Route path={"/portal-settings"}>{() => <RouteAccessGate><SubscriberPortalSettingsPage /></RouteAccessGate>}</Route>
