@@ -89,8 +89,8 @@ export default function MarketingLandingPage() {
           </nav>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             <ThemeSelector compact />
-            <Button variant="ghost" onClick={startLogin} className="hidden whitespace-nowrap border border-[#F5B800]/65 bg-white/35 px-3 font-bold text-[#7d5500] shadow-[0_5px_16px_rgba(151,100,0,.1)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:border-[#F5B800] hover:bg-[#F5B800]/10 hover:text-[#7d5500] hover:shadow-[0_10px_24px_rgba(191,132,0,.2)] active:translate-y-0 active:scale-[.97] motion-reduce:transform-none motion-reduce:transition-none dark:bg-white/5 dark:text-[#F5B800] dark:hover:text-[#F5B800] md:inline-flex lg:px-4">تسجيل الدخول</Button>
-            <Button onClick={startLogin} className="whitespace-nowrap bg-[#F5B800] px-3 text-sm font-extrabold text-[#0D1117] shadow-[0_10px_32px_rgba(245,184,0,.2)] hover:bg-[#FFD45A] lg:px-4">أنشئ مساحتك <ArrowLeft className="mr-2 h-4 w-4" /></Button>
+            <Button variant="ghost" onClick={startLogin} className="inline-flex whitespace-nowrap border border-[#F5B800]/65 bg-white/35 px-3 text-sm font-bold text-[#7d5500] shadow-[0_5px_16px_rgba(151,100,0,.1)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:border-[#F5B800] hover:bg-[#F5B800]/10 hover:text-[#7d5500] hover:shadow-[0_10px_24px_rgba(191,132,0,.2)] active:translate-y-0 active:scale-[.97] motion-reduce:transform-none motion-reduce:transition-none dark:bg-white/5 dark:text-[#F5B800] dark:hover:text-[#F5B800] md:text-sm lg:px-4">تسجيل الدخول</Button>
+            <Button onClick={startLogin} className="hidden whitespace-nowrap bg-[#F5B800] px-3 text-sm font-extrabold text-[#0D1117] shadow-[0_10px_32px_rgba(245,184,0,.2)] hover:bg-[#FFD45A] sm:inline-flex lg:px-4">أنشئ مساحتك <ArrowLeft className="mr-2 h-4 w-4" /></Button>
           </div>
         </div>
       </header>
