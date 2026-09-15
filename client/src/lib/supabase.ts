@@ -28,6 +28,14 @@ function ensureAuthSubscription() {
   authSubscriptionReady = true;
 
   supabase.auth.onAuthStateChange((event, session) => {
+    // Supabase can deliver INITIAL_SESSION asynchronously. If a login has
+    // already established a session, do not let a stale null initialization
+    // event briefly erase it and make protected routes redirect to /login.
+    if (event === "INITIAL_SESSION" && session === null && currentSession !== null) {
+      sessionInitialized = true;
+      return;
+    }
+
     currentSession = session;
     sessionInitialized = true;
 

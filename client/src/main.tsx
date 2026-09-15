@@ -37,7 +37,14 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
   if (!isUnauthorized) return;
-  startLogin();
+
+  // A request can race the first Supabase auth event immediately after login.
+  // Do not redirect on that transient 401; only redirect after a fresh session
+  // read confirms that the browser is genuinely unauthenticated.
+  void getSupabaseSession().then((session) => {
+    if (session) return;
+    if (window.location.pathname !== "/login") window.location.assign("/login");
+  });
 };
 
 queryClient.getQueryCache().subscribe(event => {
