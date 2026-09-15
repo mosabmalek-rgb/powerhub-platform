@@ -51,7 +51,7 @@ describe("ملف مستخدم Supabase", () => {
       last_signed_in: "2026-01-01T00:00:00.000Z",
     };
     state.upsert.mockReturnValue({ select: () => ({ single: async () => ({ data: profile, error: null }) }) });
-    state.rpc.mockResolvedValue({ data: null, error: { code: "42883", message: "function does not exist" } });
+    state.rpc.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "Could not find the public.powerhub_accept_pending_platform_invitation() function in the schema cache" } });
 
     await expect(syncSupabaseProfile({ id: "auth-user-42", email: "USER@example.com", name: "User" })).resolves.toMatchObject({
       id: 42,
@@ -59,6 +59,28 @@ describe("ملف مستخدم Supabase", () => {
       accountStatus: "active",
     });
     expect(state.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps PostgreSQL undefined-function compatibility as a supported missing-RPC condition", async () => {
+    const profile = {
+      id: 43,
+      auth_user_id: "auth-user-43",
+      name: "User",
+      email: "user43@example.com",
+      login_method: "supabase",
+      role: "user" as const,
+      platform_role: null,
+      account_status: "active" as const,
+      must_change_password: false,
+      temporary_password_issued_at: null,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      last_signed_in: "2026-01-01T00:00:00.000Z",
+    };
+    state.upsert.mockReturnValue({ select: () => ({ single: async () => ({ data: profile, error: null }) }) });
+    state.rpc.mockResolvedValue({ data: null, error: { code: "42883", message: "function does not exist" } });
+
+    await expect(syncSupabaseProfile({ id: "auth-user-43", email: "user43@example.com", name: "User" })).resolves.toMatchObject({ id: 43 });
   });
 
   it("still surfaces invitation RPC failures other than missing-function compatibility gaps", async () => {

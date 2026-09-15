@@ -38,7 +38,12 @@ type SupabaseRpcError = {
 };
 
 function isMissingRpc(error: SupabaseRpcError | null | undefined) {
-  return error?.code === "42883";
+  if (!error) return false;
+  if (error.code === "42883" || error.code === "PGRST202") return true;
+
+  // PostgREST can expose the same missing/stale-RPC condition through the
+  // message when the schema cache cannot resolve the function signature.
+  return /could not find .* function in the schema cache/i.test(error.message ?? "");
 }
 
 export function mapSupabaseProfile(row: UserRow): SupabaseProfileUser {
