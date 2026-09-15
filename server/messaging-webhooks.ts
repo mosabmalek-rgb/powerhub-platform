@@ -63,10 +63,11 @@ export async function receiveWhatsAppWebhook(req: RawRequest, res: Response) {
   for (const change of changes) for (const status of change.value?.statuses ?? []) {
     if (!status.id) continue;
     const nextStatus = status.status === "delivered" ? "delivered" : status.status === "read" ? "read" : status.status === "failed" ? "failed" : "submitted";
-    const { error: updateError } = await supabaseAdmin().from("notification_messages")
-      .update({ status: nextStatus })
-      .eq("tenant_id", tenantId)
-      .eq("provider_message_id", status.id);
+    const { error: updateError } = await supabaseAdmin().rpc("powerhub_process_whatsapp_status", {
+      p_tenant_id: tenantId,
+      p_provider_message_id: status.id,
+      p_status: nextStatus,
+    });
     if (updateError) return res.status(503).json({ error: "database_unavailable" });
   }
   return res.status(200).json({ received: true });
