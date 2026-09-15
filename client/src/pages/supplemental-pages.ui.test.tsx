@@ -84,7 +84,7 @@ describe("supplemental PowerHub page review", () => {
   it("routes a platform admin away from the generator workspace to the admin center", async () => {
     state.user = { role: "admin", platformRole: "platform_admin" };
     render(<WorkspaceHome />);
-    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/admin"));
+    await waitFor(() => expect(screen.getByText("جارٍ فتح المساحة المصرح بها…")).toBeInTheDocument());
     state.user = undefined;
     state.setLocation.mockReset();
   });

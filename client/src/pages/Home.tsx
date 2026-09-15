@@ -89,7 +89,7 @@ export function WorkspaceHome() {
   useEffect(() => {
     if (!loading && !isAuthenticated) { setLocation("/login"); return; }
     if (!loading && isAuthenticated && user?.mustChangePassword) { setLocation("/profile"); return; }
-    if (!loading && isAuthenticated && user?.role === "admin") setLocation(authenticatedHomePath(user));
+    if (!loading && isAuthenticated && user?.role === "admin") window.location.assign(authenticatedHomePath(user));
   }, [isAuthenticated, loading, setLocation, user]);
 
   useEffect(() => { if (scope === "all" && !canUseAllBranches) setScope("branch"); }, [canUseAllBranches, scope]);

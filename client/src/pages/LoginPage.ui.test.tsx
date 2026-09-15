@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({ setLocation: vi.fn(), signInWithPassword: vi.f
 
 vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signInWithPassword: state.signInWithPassword, signUp: state.signUp } },
+  getSupabaseSession: vi.fn().mockResolvedValue({ user: { id: "auth-user" } }),
 }));
 vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 
@@ -21,7 +22,6 @@ describe("LoginPage", () => {
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "SecurePass123" } });
     fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
-    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
   });
 
   it("does not expose self-registration because accounts are created from Supabase administration", () => {

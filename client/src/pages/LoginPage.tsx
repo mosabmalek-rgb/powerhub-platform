@@ -2,7 +2,7 @@ import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseSession, supabase } from "@/lib/supabase";
 import { ArrowRight, KeyRound, Loader2, Mail, ShieldCheck } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { useLocation } from "wouter";
@@ -28,7 +28,11 @@ export default function LoginPage() {
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (signInError) throw signInError;
-      setLocation("/workspace");
+      const session = await getSupabaseSession();
+      if (!session) throw new Error("تعذر تثبيت جلسة الدخول. حاول مرة أخرى.");
+      // Use a full navigation after sign-in so the protected route boots from
+      // the persisted Supabase session instead of racing React route state.
+      window.location.assign("/workspace");
     } catch (submitError) {
       setError(authMessage(submitError));
     } finally {
