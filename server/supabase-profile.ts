@@ -32,6 +32,15 @@ type UserRow = {
   last_signed_in: string;
 };
 
+type SupabaseRpcError = {
+  code?: string;
+  message?: string;
+};
+
+function isMissingRpc(error: SupabaseRpcError | null | undefined) {
+  return error?.code === "42883";
+}
+
 export function mapSupabaseProfile(row: UserRow): SupabaseProfileUser {
   return {
     id: Number(row.id),
@@ -64,13 +73,17 @@ export async function syncSupabaseProfile(input: { id: string; email?: string | 
     p_auth_user_id: input.id,
     p_email: email,
   });
-  if (platformInvitationError) throw new Error(platformInvitationError.message || "تعذر معالجة دعوة الوصول إلى إدارة المنصة.");
+  if (platformInvitationError && !isMissingRpc(platformInvitationError)) {
+    throw new Error(platformInvitationError.message || "تعذر معالجة دعوة الوصول إلى إدارة المنصة.");
+  }
 
   const { error: tenantInvitationError } = await admin.rpc("powerhub_accept_pending_tenant_invitations", {
     p_auth_user_id: input.id,
     p_email: email,
   });
-  if (tenantInvitationError) throw new Error(tenantInvitationError.message || "تعذر معالجة دعوة الوصول إلى حساب المولد.");
+  if (tenantInvitationError && !isMissingRpc(tenantInvitationError)) {
+    throw new Error(tenantInvitationError.message || "تعذر معالجة دعوة الوصول إلى حساب المولد.");
+  }
 
   const platformAccepted = Boolean(platformInvitation?.[0]?.accepted);
   if (!platformAccepted) return mapSupabaseProfile(data as UserRow);
