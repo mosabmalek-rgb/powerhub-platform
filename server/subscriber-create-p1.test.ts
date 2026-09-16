@@ -25,4 +25,18 @@ describe("subscriber create P1 regression", () => {
     expect(migration).toContain("returns table (subscriber_id bigint, subscriber_no text, replayed boolean)");
     expect(migration).toContain("grant execute on function public.powerhub_create_subscriber(bigint, bigint, bigint, text, text, text, text, text, text, uuid, integer) to service_role;");
   });
+
+  it("locks the global subscriber reference contract", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20260914160000_powerhub_global_subscriber_numbers.sql"),
+      "utf8",
+    );
+
+    expect(migration).toContain("create sequence if not exists public.powerhub_subscriber_no_seq");
+    expect(migration).toContain("create unique index if not exists subscribers_subscriber_no_global_uidx");
+    expect(migration).toContain("check (subscriber_no ~ '^SUB-[0-9]{6}$')");
+    expect(migration).toContain("v_subscriber_no := 'SUB-' || lpad(v_sequence::text, 6, '0')");
+    expect(migration).toContain("if p_phone is null or btrim(p_phone) = '' then");
+    expect(migration).not.toContain("generateSubscriberReference(site.code)");
+  });
 });
