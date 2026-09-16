@@ -11,7 +11,7 @@ describe("subscriber numbering/contact contract", () => {
   });
 
   it("keeps WhatsApp optional", () => {
-    expect(migration).toContain("whatsapp_number is optional");
+    expect(migration).toContain("WhatsApp deliberately remains nullable/optional");
     expect(migration).toContain("comment on column public.subscribers.whatsapp_number");
   });
 });
