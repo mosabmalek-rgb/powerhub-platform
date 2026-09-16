@@ -16,8 +16,8 @@ create or replace function public.powerhub_create_generator_owner_subscription(
   p_plan text default 'starter',
   p_billing_cycle text default 'monthly',
   p_subscription_status text default 'trial',
-  p_trial_duration_days integer default 8,
-  p_ends_at timestamptz default null
+  p_ends_at timestamptz default null,
+  p_trial_duration_days integer default 8
 )
 returns table (tenant_id bigint, owner_user_id bigint, site_id bigint, subscription_id bigint)
 language plpgsql
@@ -166,8 +166,8 @@ begin
 end;
 $$;
 
-revoke all on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, integer, timestamptz) from public, anon, authenticated;
-grant execute on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, integer, timestamptz) to service_role;
+revoke all on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz, integer) from public, anon, authenticated;
+grant execute on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz, integer) to service_role;
 
-comment on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, integer, timestamptz)
+comment on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz, integer)
 is 'Creates a generator-owner subscription atomically with its active main branch named الفرع الرئيسي by default.';
