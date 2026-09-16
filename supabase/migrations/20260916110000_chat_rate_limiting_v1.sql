@@ -19,8 +19,6 @@ create table if not exists private.chat_rate_limit_buckets (
 
 revoke all on table private.chat_rate_limit_buckets from public, anon, authenticated;
 
-after statement;
-
 create index if not exists chat_rate_limit_buckets_user_updated_idx
   on private.chat_rate_limit_buckets (user_id, updated_at desc);
 
