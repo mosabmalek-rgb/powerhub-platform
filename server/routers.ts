@@ -9,6 +9,7 @@ import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting
 import { adminRolePolicyRouter } from "./admin-role-policy-router";
 import type { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
+import { supportRouter } from "./support-router";
 
 const adminRuntimeRecord = {
   ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
@@ -45,8 +46,7 @@ export const appRouter = router({
     }),
   }),
   powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
-  // Canonical composition contract: admin: adminRouterWithSupabasePlatformSetting
-  // Reissued after CI merge-ref drift so GitHub Actions evaluates the current branch head.
+  support: supportRouter,
   admin: adminRuntimeRouter,
 });
 
