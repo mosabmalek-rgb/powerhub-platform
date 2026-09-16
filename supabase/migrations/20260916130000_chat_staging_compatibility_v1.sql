@@ -36,13 +36,11 @@ grant execute on function
   private.chat_mark_notification_read(bigint)
 to authenticated;
 
--- Keep receipt/read implementation helpers private. Their public wrappers
--- should be converted to SECURITY DEFINER in a separate compatibility-safe
--- change before exposing them through authenticated SQL invocation.
+-- Keep receipt/read implementation helpers private. The public receipt/read
+-- wrappers were not part of the validated support-message positive path.
 revoke all on function private.chat_mark_delivered(bigint) from public, anon, authenticated;
 revoke all on function private.chat_mark_read(bigint) from public, anon, authenticated;
 revoke all on function private.chat_mark_read_up_to(bigint, bigint) from public, anon, authenticated;
-revoke all on function private.chat_receipts_for_message(bigint) from public, anon, authenticated;
 
 -- Realtime trigger compatibility: Supabase currently exposes the record-based
 -- broadcast_changes signature. Trigger functions must not be directly callable
