@@ -1,7 +1,7 @@
 # Admin Supabase Migration Status
 
 ## Scope
-This branch continues the Supabase-first admin runtime migration without touching Production. Guarded legacy writes are replaced one path at a time with atomic Supabase RPCs, runtime adapters, and regression tests.
+This document records the current Supabase-first migration state of the PowerHub production runtime. Production has received targeted reconciliation migrations where the live schema/RPC contract was missing or drifted from the repository history.
 
 ## Migrated admin/runtime paths
 - `setTenantMembershipStatus`
@@ -22,43 +22,63 @@ This branch continues the Supabase-first admin runtime migration without touchin
 - `createSmsPlan`
 - `updateSmsPlan`
 - `saveTenantBranchSettings`
-- Staff suspension / clear-suspension runtime bridge
-- Staff/RBAC RPC contracts: custom roles, staff permissions/status, existing-staff assignment
-- Company-account RPC contracts: create, movements, transfers, account settings
-- WhatsApp webhook persistence and Supabase Auth/profile/invitation synchronization
 
-Each migrated path is wired through the public tRPC procedure name and backed by a Supabase RPC or atomic Supabase write contract. Runtime tests are expected to assert that migrated paths do not fall back to Drizzle/MySQL.
+The Production database currently exposes the 18 admin RPC contracts above with `SECURITY DEFINER`, `EXECUTE` granted to `service_role`, and `EXECUTE` revoked from `public`, `anon`, and `authenticated`.
+
+## Production reconciliation state
+The following reconciliation migrations were applied directly to Production on 2026-09-16 because the corresponding runtime RPC contracts were missing or incomplete in the live database:
+
+- `reconcile_admin_membership_subscription_rpcs`
+- `reconcile_admin_platform_runtime_rpcs_20260912`
+- `reconcile_admin_settings_rpcs`
+- `reconcile_platform_access_and_sms_rpcs`
+- `reconcile_owner_access_rpcs`
+- `reconcile_admin_policy_rpcs`
+- `fix_tariff_policy_notification_contract`
+- `harden_public_powerhub_function_exec`
+
+These changes are being brought back under repository source control. The last item is now represented by:
+`supabase/migrations/20260916180420_harden_public_powerhub_function_exec.sql`.
+
+The remaining reconciliation SQL must be captured/verified against the existing repository migrations before the migration history is declared synchronized.
+
+## Migration-history drift
+Production migration history and repository migration filenames are not yet a one-to-one match. This is intentional during reconciliation and must not be “fixed” by blindly applying old migrations.
+
+Example: repository migration `0084_powerhub_admin_branch_settings.sql` contains the same `powerhub_admin_save_tenant_branch_settings` contract currently present in Production, but Production history records the function through a later reconciliation migration rather than version `0084`. The live function definition was compared with the repository definition and is semantically aligned.
+
+Where the live schema already matches the repository migration, the remaining operation is migration-history reconciliation using the Supabase migration tooling; do not modify `supabase_migrations.schema_migrations` directly from application SQL.
+
+## Security hardening
+A production privilege audit found four helper functions that were executable by `public`/`anon`/`authenticated` even though they are server-side/internal operations:
+
+- `powerhub_apply_trial_duration()`
+- `powerhub_apply_trial_duration_8_days()`
+- `powerhub_ensure_owner_main_site()`
+- `powerhub_subscriber_reference_immutable()`
+
+Execution is now revoked from `public`, `anon`, and `authenticated` and retained for `service_role` only. The change is source-controlled as migration `20260916180420_harden_public_powerhub_function_exec.sql`.
 
 ## Staging reconciliation
-`0089_reconcile_staff_rbac_and_company_account_rpcs` was added to the migration branch and applied to Staging only. The reconciliation is idempotent, does not alter existing table data, and restores the missing RPC contracts required by the runtime code.
-
-Verified in Staging:
-- Staff/RBAC and Company Accounts RPCs exist.
-- `SECURITY DEFINER = false` for the reconciled functions.
-- Execute is revoked from `public`, `anon`, and `authenticated`.
-- Execute is granted to `service_role` only.
-- `search_path` is fixed to `public, pg_temp` by the function definitions.
+`0089_reconcile_staff_rbac_and_company_account_rpcs` remains a Staging reconciliation migration. Its contracts are expected to remain service-role-only where they are server-side mutation paths.
 
 ## Remaining guarded legacy writes
-- `createGeneratorOwner` — legacy provisioning path; the newer `createGeneratorOwnerSubscription` is the canonical Supabase/Auth flow and should supersede the duplicate route rather than be rebuilt blindly.
-- `updateComplaint` — not migrated because Staging currently has no `public.complaints` table. The schema must be designed and reconciled before implementing a write RPC.
-- `server/powerhub.ts` and `server/admin.ts` still contain legacy source-level Drizzle/getDb paths; some are legacy procedures already shadowed by runtime overlays and some remain live candidates requiring procedure-by-procedure inventory.
-
-## Security contract for migrated RPCs
-- `SECURITY DEFINER` only where a transactional server-side mutation genuinely requires it; otherwise prefer `SECURITY INVOKER`.
-- fixed `search_path = public, pg_temp`
-- execution revoked from `public`, `anon`, and `authenticated`
-- execution granted only to `service_role` for the server-side RPC contract
-- actor and tenant/site scope validation inside PostgreSQL
-- audit/security events committed in the same transaction where applicable
+- `createGeneratorOwner` — legacy provisioning path; `createGeneratorOwnerSubscription` remains the canonical Supabase/Auth flow.
+- `updateComplaint` — not migrated because the required `public.complaints` schema contract is not established.
+- `server/powerhub.ts` and `server/admin.ts` still require procedure-by-procedure legacy access inventory; the existence of old imports is not by itself proof of a live Production dependency.
 
 ## CI / verification
-- The latest GitHub status inspected for the migration head did not provide a successful GitHub Actions run to rely on.
-- The available Vercel status was `failure` with `build-rate-limit`; this is not sufficient evidence of a TypeScript/build failure.
-- Do not mark final acceptance green until focused tests, `pnpm check`, `pnpm test`, `pnpm build`, Vercel Preview, security audit, and focused E2E are independently verified.
+GitHub Actions quota/startup failures previously observed are infrastructure/quota failures, not evidence of application-code failure. They must be rerun after quota availability returns.
 
-## Production
-No Production Supabase migration has been applied by this branch. No Production deployment or migration cutover is requested.
+Final acceptance still requires independent verification of:
+- focused Supabase runtime tests
+- `pnpm check`
+- `pnpm test`
+- `pnpm build`
+- Vercel Preview/deployment health
+- security audit
+- focused E2E
+- complete repository-vs-Production migration reconciliation
 
 ## Exit gate
-The migration is not considered complete until runtime inventory confirms zero Production `getDb()` / Drizzle / MySQL callers, zero Production `DATABASE_URL` dependency, no `shared/types -> drizzle/schema` runtime dependency, CI regression guards are active with an empty legacy allowlist, and focused E2E verification passes before any Production cutover.
+The migration is not considered complete until the repository migration history is reconciled with Production, all live Supabase RPC contracts are source-controlled, runtime inventory confirms no unintended Production Drizzle/MySQL/DATABASE_URL dependency, security grants are least-privilege, and focused end-to-end verification passes.
