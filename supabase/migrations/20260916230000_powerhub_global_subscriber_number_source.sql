@@ -113,7 +113,7 @@ begin
 end;
 $$;
 
-revoke execute on function public.powerhub_create_subscriber(bigint, bigint, bigint, text, text, text, text, text, text, uuid, integer) from public, anon, authenticated;
-grant execute on function public.powerhub_create_subscriber(bigint, bigint, bigint, text, text, text, text, text, text, uuid, integer) to service_role;
+revoke all on function public.powerhub_create_subscriber(bigint, bigint, bigint, text, text, text, text, text, uuid, integer) from public, anon, authenticated;
+grant execute on function public.powerhub_create_subscriber(bigint, bigint, bigint, text, text, text, text, text, uuid, integer) to service_role;
 revoke all on sequence public.subscriber_global_number_seq from public, anon, authenticated;
 grant usage, select on sequence public.subscriber_global_number_seq to service_role;
