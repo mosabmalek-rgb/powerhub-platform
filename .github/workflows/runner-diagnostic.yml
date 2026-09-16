@@ -1,0 +1,31 @@
+name: PowerHub Runner Diagnostic
+
+on:
+  push:
+    branches:
+      - ops/runner-diagnostic-20260916
+
+permissions:
+  contents: read
+
+jobs:
+  runner-smoke:
+    name: Hosted runner smoke (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Runner identity
+        run: |
+          echo "runner-started"
+          echo "runner_name=${RUNNER_NAME}"
+          echo "runner_os=${RUNNER_OS}"
+          echo "runner_arch=${RUNNER_ARCH}"
+          echo "runner_temp=${RUNNER_TEMP}"
+
+      - name: Basic runtime
+        run: |
+          set -euo pipefail
+          uname -a
+          node --version
+          npm --version
+          pwd
