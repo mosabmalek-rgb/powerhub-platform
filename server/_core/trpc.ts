@@ -23,6 +23,9 @@ const requireUser = t.middleware(async opts => {
   if (ctx.user.accountStatus === "locked" || ctx.user.accountStatus === "disabled") {
     throw new TRPCError({ code: "FORBIDDEN", message: ctx.user.accountStatus === "locked" ? "الحساب مقفل مؤقتاً. يرجى التواصل مع إدارة المنصة." : "هذا الحساب معطّل." });
   }
+  if (ctx.user.role === "admin" && !isActivePlatformAdmin(ctx.user)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "حساب المنصة الإداري غير نشط أو لا يملك دور منصة صالحاً." });
+  }
   if (ctx.user.mustChangePassword && !["auth.me", "auth.updatePassword", "auth.updateProfile", "auth.logout"].includes(opts.path)) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب تغيير كلمة المرور المؤقتة قبل استخدام مساحة التشغيل." });
   }
