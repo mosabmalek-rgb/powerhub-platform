@@ -15,8 +15,8 @@ type AdminRecord = Record<string, any>;
 
 function requirePlatformRoles(allowedRoles: PlatformRole[]) {
   return authenticatedProcedure.use(({ ctx, next }) => {
-    const role = (ctx.user.platformRole ?? "platform_admin") as PlatformRole;
-    if (ctx.user.role !== "admin" || !allowedRoles.includes(role) || ctx.user.accountStatus !== "active") {
+    const role = ctx.user.platformRole;
+    if (ctx.user.role !== "admin" || ctx.user.accountStatus !== "active" || !role || !allowedRoles.includes(role as PlatformRole)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
     }
     return next({ ctx });
