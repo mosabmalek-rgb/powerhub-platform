@@ -1,0 +1,1 @@
+See migration `20260917214500_harden_financial_table_write_boundary.sql` for the Production financial write boundary hardening.
