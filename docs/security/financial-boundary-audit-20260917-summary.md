@@ -1,0 +1,1 @@
+Production critical financial tables are now mutation-restricted to service_role. Direct client writes are revoked while existing RLS read boundaries and server-side RPC mutation paths remain available.
