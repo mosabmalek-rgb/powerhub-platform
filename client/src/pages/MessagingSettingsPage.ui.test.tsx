@@ -18,24 +18,17 @@ vi.mock("@/lib/trpc", () => ({
       dashboard: { financialOverview: { useQuery: () => ({ data: { month: { invoiced: 100, collectionRate: 55 }, outstanding: { overdue: 25, partialInvoices: 2 }, topDebtors: [{ subscriber: "مشترك متأخر", subscriberId: 11, invoiceId: 24, invoiceNo: "INV-24", outstanding: 25, isOverdue: true, ageDays: 7 }] } }) } },
       subscribers: { phoneReview: { useQuery: () => ({ data: [{ id: 11, fullName: "مشترك قديم", phone: "00970599000000", status: "ready", normalizedPhone: "+970599000000", reason: "يمكن توحيد الصيغة تلقائياً." }] }) }, applyPhoneNormalization: { useMutation: () => ({ mutate: state.mutate, isPending: false }) } },
       messaging: {
-        listConfigurations: { useQuery: () => ({ data: [{ channel: "whatsapp", provider: "meta_whatsapp_cloud", phoneNumberId: "123", templateName: "invoice_ready_ar", receiptTemplateName: "payment_receipt_ar", isActive: true }] }) },
         listScheduleRuns: { useQuery: () => ({ data: [], isLoading: false }) },
         smsQuota: { useQuery: () => ({ data: { total: 100, used: 10, remaining: 90, senderName: "MouldNorth", isActive: true, configured: true, lastError: null } }) },
         smsDailyUsage: { useQuery: () => ({ data: { points: [{ date: "2026-08-20", count: 3 }, { date: "2026-08-21", count: 4 }], total: 100, used: 10, remaining: 90 }, isLoading: false }) },
         deliveryPolicy: { useQuery: () => ({ data: state.policy }) },
         listInvoiceTemplates: { useQuery: () => ({ data: [{ channel: "whatsapp", body: "أهلاً {{subscriber_name}}، فاتورتك {{invoice_no}}", isActive: true }] }) },
         listPaymentReceiptTemplates: { useQuery: () => ({ data: [{ channel: "sms", body: "إيصال {{payment_no}}", isActive: true }] }) },
-        saveConfiguration: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
-        testConnection: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         saveInvoiceTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         savePaymentReceiptTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
-        configureInvoiceAutoSend: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
-        requestSmsPackage: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
       },
       notifications: {
         list: { useQuery: () => ({ data: [{ invoiceNo: "INV-01", subscriber: { fullName: "مشترك الاختبار" }, notification: { id: 8, channel: "whatsapp", recipient: "0790000000", status: "failed", attempts: 2, lastError: "رفض المزود", createdAt: new Date("2026-08-20") } }] }) },
-        retry: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
-        retryPaymentReceipt: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
       },
     },
   },
@@ -51,7 +44,7 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByText("قالب فاتورة WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة SMS")).toBeInTheDocument();
     expect(screen.getByText("قالب إيصال الدفع عبر SMS")).toBeInTheDocument();
-    expect(screen.getByText("اسم قالب إيصال الدفع المعتمد")).toBeInTheDocument();
+    expect(screen.queryByText("اسم قالب إيصال الدفع المعتمد")).not.toBeInTheDocument();
     expect(screen.getByText("حساب TweetSMS")).toBeInTheDocument();
     expect(screen.getByText("رصيد رسائل TweetSMS")).toBeInTheDocument();
     expect(screen.getByText("MouldNorth")).toBeInTheDocument();
@@ -65,14 +58,16 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getByRole("button", { name: "تسجيل تحصيل" })).toBeInTheDocument();
     expect(screen.getByText("إجمالي الرسائل المرسلة")).toBeInTheDocument();
     expect(screen.getAllByText("رفض المزود").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryAllByRole("button", { name: "إعادة إرسال" })).toHaveLength(0);
+    expect(screen.queryAllByRole("button", { name: "اختبار الاتصال" })).toHaveLength(0);
+    expect(screen.queryByText("الإرسال التلقائي بعد اعتماد القراءات")).not.toBeInTheDocument();
+    expect(screen.queryByText("سجل تشغيل المهام المجدولة")).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /قيمة الفاتورة/ })[0]);
     expect((document.querySelectorAll("textarea")[0] as HTMLTextAreaElement).value).toContain("{{total_amount}}");
     expect(screen.getAllByText("معاينة حية للرسالة النهائية")).toHaveLength(2);
     expect(screen.getByText(/رسالة SMS/)).toBeInTheDocument();
     fireEvent.change(document.querySelectorAll("textarea")[0], { target: { value: "مرحباً {{subscriber_name}}" } });
     expect(screen.getAllByText(/مرحباً أحمد علي/).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByRole("button", { name: "إعادة إرسال" }).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByRole("button", { name: "اختبار الاتصال" })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب WhatsApp" }));
     expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, channel: "whatsapp", isActive: true }));
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب إيصال SMS" }));
