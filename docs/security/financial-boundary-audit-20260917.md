@@ -1,0 +1,1 @@
+Financial boundary audit completed on 2026-09-17. Production direct write privileges for critical financial tables are restricted to service_role; application mutation paths use server-side RPC/admin access. RLS remains enabled for public business tables.
