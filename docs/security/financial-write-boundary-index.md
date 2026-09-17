@@ -1,0 +1,1 @@
+Canonical migration: `supabase/migrations/20260917214500_harden_financial_table_write_boundary.sql`.
