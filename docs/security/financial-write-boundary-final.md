@@ -1,0 +1,1 @@
+Final Production verification: critical financial tables are mutation-restricted to service_role. Direct public, anon, and authenticated writes are revoked.
