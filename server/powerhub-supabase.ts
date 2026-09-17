@@ -4,6 +4,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
 import { buildFinancialOverview } from "./financial-overview-utils";
+import { isActivePlatformAdmin } from "./platform-admin";
 
 const allCapabilities: PowerCapability[] = [
   "manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs",
@@ -72,12 +73,13 @@ export async function getSupabaseSite(siteId: number): Promise<SupabaseSite> {
 export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number }> {
   const admin = supabaseAdmin();
   const [{ data: user, error: userError }, site] = await Promise.all([
-    admin.from("users").select("role").eq("id", userId).maybeSingle(),
+    admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle(),
     getSupabaseSite(siteId),
   ]);
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المستخدم من Supabase." });
   if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "ملف المستخدم غير متاح." });
-  if (user.role === "admin") return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId };
+  const platformAdmin = isActivePlatformAdmin({ role: user.role, platformRole: user.platform_role, accountStatus: user.account_status });
+  if (platformAdmin) return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId };
 
   const { data: membership, error: membershipError } = await admin.from("tenant_members")
     .select("role").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle();
@@ -109,15 +111,16 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
 
 export async function requireSupabaseSiteRole(userId: number, siteId: number, allowed: PowerRole[], capability?: PowerCapability) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const { data: user, error: userError } = await supabaseAdmin().from("users").select("role").eq("id", userId).maybeSingle();
+  const { data: user, error: userError } = await supabaseAdmin().from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle();
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف المستخدم في Supabase." });
-  if (user?.role !== "admin" && !allowed.includes(access.role) && (!capability || !access.permissions.includes(capability))) {
+  const platformAdmin = isActivePlatformAdmin({ role: user?.role, platformRole: user?.platform_role, accountStatus: user?.account_status });
+  if (!platformAdmin && !allowed.includes(access.role) && (!capability || !access.permissions.includes(capability))) {
     throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
   }
-  if (user?.role !== "admin" && capability && access.permissions.length > 0 && !access.permissions.includes(capability)) {
+  if (!platformAdmin && capability && access.permissions.length > 0 && !access.permissions.includes(capability)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "هذه العملية غير موجودة ضمن الصلاحيات الممنوحة لهذا الحساب." });
   }
-  if (user?.role !== "admin" && capability) {
+  if (!platformAdmin && capability) {
     const { data: policy, error: policyError } = await supabaseAdmin().from("platform_role_policies")
       .select("is_allowed").eq("role", access.role).eq("capability", capability).maybeSingle();
     if (policyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
@@ -129,9 +132,9 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
 export async function requireSupabaseAllBranchesRole(userId: number, siteId: number, allowed: PowerRole[]) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   const admin = supabaseAdmin();
-  const { data: user, error: userError } = await admin.from("users").select("role").eq("id", userId).maybeSingle();
+  const { data: user, error: userError } = await admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle();
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف المستخدم في Supabase." });
-  if (user?.role === "admin") return { tenantId: access.tenantId, role: "owner" as const };
+  if (isActivePlatformAdmin({ role: user?.role, platformRole: user?.platform_role, accountStatus: user?.account_status })) return { tenantId: access.tenantId, role: "owner" as const };
   const { data: membership, error: membershipError } = await admin.from("tenant_members").select("role")
     .eq("tenant_id", access.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle();
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });

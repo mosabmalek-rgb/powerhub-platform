@@ -3,6 +3,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { supabaseAdmin } from "../supabase-admin";
 import { requirePlatformCapability } from "../platform-capability";
+import { isActivePlatformAdmin } from "../platform-admin";
 import type { TrpcContext } from "./context";
 
 const t = initTRPC.context<TrpcContext>().create({
@@ -12,13 +13,6 @@ const t = initTRPC.context<TrpcContext>().create({
 export const router = t.router;
 export const mergeRouters = t.mergeRouters;
 export const publicProcedure = t.procedure;
-
-const isActivePlatformAdmin = (user: TrpcContext["user"]) => Boolean(
-  user &&
-  user.role === "admin" &&
-  user.accountStatus === "active" &&
-  ["platform_owner", "platform_admin", "finance_admin"].includes(user.platformRole ?? ""),
-);
 
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;

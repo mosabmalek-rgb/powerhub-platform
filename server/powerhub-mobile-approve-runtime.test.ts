@@ -62,7 +62,7 @@ describe("mobile approval Supabase runtime", () => {
   });
 
   it("uses the atomic Supabase approval adapter and does not need the legacy db module", async () => {
-    const caller = testRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = testRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false }))
       .resolves.toMatchObject({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150, notificationMode: "deferred" });
 
@@ -78,7 +78,7 @@ describe("mobile approval Supabase runtime", () => {
   });
 
   it("passes the authenticated actor into notification dispatch for sendNow", async () => {
-    const caller = testRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = testRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: true }))
       .resolves.toMatchObject({ notificationMode: "immediate", deliveries: [{ notificationId: 91, status: "submitted" }] });
     expect(state.notify).toHaveBeenCalledWith(91, 1);
