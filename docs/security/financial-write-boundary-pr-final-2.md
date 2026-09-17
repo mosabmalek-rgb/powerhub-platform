@@ -1,0 +1,1 @@
+Critical financial tables: client writes revoked; service_role retained; RLS remains enabled.
