@@ -6,6 +6,7 @@ import { isActivePlatformAdmin } from "./platform-admin";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "_core", "trpc.ts"), "utf8");
+const legacyAdminSource = readFileSync(join(here, "admin-runtime.ts"), "utf8");
 
 describe("Platform-admin authorization boundary", () => {
   it("must require active account status and an allowed platform role", () => {
@@ -22,5 +23,10 @@ describe("Platform-admin authorization boundary", () => {
 
   it("must use the same active platform identity boundary for adminProcedure", () => {
     expect(source).toContain("if (!isActivePlatformAdmin(ctx.user))");
+  });
+
+  it("must not default a missing platform role to platform_admin in legacy admin procedures", () => {
+    expect(legacyAdminSource).not.toContain('ctx.user.platformRole ?? "platform_admin"');
+    expect(legacyAdminSource).toContain("!role || !allowedRoles.includes(role as PlatformRole)");
   });
 });
