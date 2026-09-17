@@ -1,0 +1,1 @@
+Critical financial tables are mutation-restricted to service_role in Production. Direct public, anon, and authenticated writes are revoked; server-side RPC/admin paths remain the supported mutation boundary.
