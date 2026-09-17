@@ -1,0 +1,1 @@
+Final audit note: Production critical financial tables are mutation-restricted to service_role; public, anon, and authenticated cannot directly INSERT, UPDATE, DELETE, or TRUNCATE them. Existing RLS and audited RPC paths remain in place.
