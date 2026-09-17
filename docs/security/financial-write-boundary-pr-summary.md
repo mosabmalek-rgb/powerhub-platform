@@ -1,0 +1,1 @@
+Production hardening summary: revoke direct writes to critical financial tables; reconcile platform access-role RPC return contract; verify RLS and service_role boundaries.
