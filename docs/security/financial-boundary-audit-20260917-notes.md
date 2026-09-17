@@ -1,0 +1,1 @@
+The Production audit confirmed that critical financial tables are no longer directly writable by public, anon, or authenticated roles. service_role retains mutation privileges. This complements the existing RPC and server-side authorization boundary.
