@@ -1,0 +1,1 @@
+Financial write boundary audit: direct client mutation privileges for critical financial tables were revoked in Production and recorded in migration source control.
