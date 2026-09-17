@@ -5,18 +5,17 @@ import { supabaseAdmin } from "./supabase-admin";
 import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 import { adminRouter } from "./admin-runtime";
+import { isPlatformRole } from "./platform-admin";
 
 const legacyRecord = (adminRouter as any)._def.record as Record<string, any>;
 const platformAdminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
-  const platformRole = ctx.user.platformRole ?? "platform_admin";
-  if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(platformRole) || ctx.user.accountStatus !== "active") {
+  if (!isPlatformRole(ctx.user, ["platform_owner", "platform_admin"])) {
     throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
   }
   return next({ ctx });
 });
 const platformFinanceProcedure = authenticatedProcedure.use(({ ctx, next }) => {
-  const platformRole = ctx.user.platformRole ?? "platform_admin";
-  if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin", "finance_admin"].includes(platformRole) || ctx.user.accountStatus !== "active") {
+  if (!isPlatformRole(ctx.user, ["platform_owner", "platform_admin", "finance_admin"])) {
     throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية المالية." });
   }
   return next({ ctx });

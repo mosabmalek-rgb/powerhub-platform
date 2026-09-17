@@ -15,6 +15,7 @@ import { normalizeInternationalPhone } from "../shared/phone";
 import { processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
 import { storageGet, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
+import { isActivePlatformAdmin } from "./platform-admin";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
@@ -776,7 +777,7 @@ export const powerhubRouter = router({
   }),
   sites: router({
     list: protectedProcedure.query(async ({ ctx }) => {
-      return listSupabaseAccessibleSites(ctx.user.id, ctx.user.role === "admin");
+      return listSupabaseAccessibleSites(ctx.user.id, isActivePlatformAdmin(ctx.user));
     }),
     branchPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);

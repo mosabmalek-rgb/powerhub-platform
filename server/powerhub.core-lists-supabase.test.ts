@@ -27,7 +27,7 @@ const state = vi.hoisted(() => {
       { id: 108, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "subscriber", entity_id: "30", action: "create", before_data: null, after_data: { subscriberNo: "MAIN-001" }, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
       { id: 109, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "meter_reading", entity_id: "60", action: "mobile_create", before_data: null, after_data: null, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
     ],
-    users: [{ id: 1, role: "admin", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, plan: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { starter: 1, professional: 3, enterprise: 10 } } }], tenant_branch_settings: [],
+    users: [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platform_role: "platform_admin", account_status: "active", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, plan: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { starter: 1, professional: 3, enterprise: 10 } } }], tenant_branch_settings: [],
     tenant_owner_profiles: [{ tenant_id: 20, company_name: "شركة المولد", report_logo_key: null }],
     staff_profiles: [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true }],
     mobile_sync_events: [{ id: 110, tenant_id: 20, site_id: 10, user_id: 1, event_type: "sync_cycle", status: "success", synced_count: 2, retryable_count: 0, needs_review_count: 0, error_code: null, error_message: null, app_version: "1.0.0", device_label: "هاتف فني", occurred_at: "2026-08-03T00:00:00.000Z" }],
@@ -161,7 +161,7 @@ import { powerhubRouter } from "./powerhub";
 
 describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   beforeEach(() => {
-    state.tables.users = [{ id: 1, role: "admin" }];
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.notification_messages = [{ id: 90, subscriber_id: 30, status: "failed" }];
     state.inserts.splice(0);
     state.updates.splice(0);
@@ -171,7 +171,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض الفروع والمشتركين والتعرفة والمولدات والقراءات دون استدعاء MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.sites.list()).resolves.toMatchObject([{ id: 10, tenantId: 20, createdAt: expect.any(Date) }]);
     await expect(caller.subscribers.list({ siteId: 10 })).resolves.toMatchObject([{ id: 30, subscriberNo: "MAIN-001", fullName: "مشترك الاختبار", createdAt: expect.any(Date) }]);
     await expect(caller.tariffs.list({ siteId: 10 })).resolves.toMatchObject([{ id: 40, pricePerKwh: "1.25", effectiveFrom: expect.any(Date) }]);
@@ -187,7 +187,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يعالج رسائل SMS المؤجلة ضمن الفرع عبر حجز Supabase دون الوصول إلى MySQL", async () => {
     state.tables.notification_messages = [{ id: 90, tenant_id: 20, invoice_id: 70, subscriber_id: 30, channel: "sms", status: "pending" }];
     notificationWorker.processQueue.mockResolvedValueOnce({ requested: 1, submitted: 1, failed: 0, skipped: 0, results: [{ notificationId: 90, status: "submitted" }] });
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.notifications.sendPendingSms({ siteId: 10, invoiceIds: [70] })).resolves.toMatchObject({ requested: 1, submitted: 1, failed: 0 });
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_queue_selected_invoice_sms", args: { p_user_id: 1, p_tenant_id: 20, p_site_id: 10, p_invoice_ids: [70] } });
     expect(notificationWorker.processQueue).toHaveBeenCalledWith(20, 1, [90]);
@@ -196,7 +196,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يجهز تذكير السداد وإيصال التحصيل عبر طابور SMS الذري دون مزود حي", async () => {
     notificationWorker.processById.mockResolvedValue({ status: "submitted" });
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.notifications.sendPaymentReminderSms({ siteId: 10, invoiceId: 70 })).resolves.toMatchObject({ notificationIds: [90], status: "submitted", channels: ["sms"] });
     await expect(caller.notifications.sendPaymentReceiptSms({ siteId: 10, paymentId: 81, channel: "sms" })).resolves.toMatchObject({ notificationId: 90, status: "submitted", channel: "sms" });
     expect(state.rpcCalls.filter((call) => call.name === "powerhub_queue_payment_sms")).toHaveLength(2);
@@ -224,7 +224,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض تقرير النطاق الزمني للفرع من Supabase دون استدعاء MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.reports.range({ siteId: 10, startDate: "2026-08-01", endDate: "2026-08-31" })).resolves.toMatchObject({
       range: { startDate: "2026-08-01", endDate: "2026-08-31" },
       summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
@@ -235,7 +235,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض طلب ترقية الباقة الحالي من Supabase ضمن نطاق الفرع دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscription.currentUpgradeRequest({ siteId: 10 })).resolves.toMatchObject({
       id: 109,
       currentPlan: "starter",
@@ -248,7 +248,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض التقرير الشهري للفرع من Supabase دون استدعاء MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.reports.monthly({ siteId: 10, billingPeriod: "2026-08" })).resolves.toMatchObject({
       summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
       collectors: [{ name: "محصل غير محدد", count: 1, amount: 25 }],
@@ -257,7 +257,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض تقرير جميع الأفرع من Supabase ضمن نطاق المستأجر", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.reports.allBranchesRange({ siteId: 10, startDate: "2026-08-01", endDate: "2026-08-31" })).resolves.toMatchObject({
       scope: { branchCount: 1 },
       summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
@@ -266,7 +266,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض ملخص لوحة التشغيل والنظرة المالية لجميع الأفرع من Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.dashboard.allBranchesSummary({ siteId: 10 })).resolves.toEqual({
       branchCount: 1,
       subscribers: 1,
@@ -290,7 +290,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("ينشئ تعرفة ومولداً ويحدّث المولد عبر Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.tariffs.create({ siteId: 10, name: "تعرفة جديدة", code: "NEW", pricePerKwh: 1.5, fixedFee: 0, taxRate: 0 })).resolves.toEqual({ id: 41 });
     await expect(caller.generators.create({ siteId: 10, code: "GEN-2", name: "مولد جديد", ratedCapacityKw: "200", fuelType: "diesel" })).resolves.toEqual({ id: 51 });
     await expect(caller.generators.update({ siteId: 10, id: 50, name: "مولد محدث", ratedCapacityKw: "160", fuelLevelLiters: "20", operatingHours: "10", status: "maintenance" })).resolves.toEqual({ success: true });
@@ -299,7 +299,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يحدّث إعدادات الفرع عبر Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.sites.updateAnomalyAlert({ siteId: 10, anomalyAlertPercent: 70 })).resolves.toEqual({ success: true, anomalyAlertPercent: 70 });
     await expect(caller.sites.updateBranch({ siteId: 10, name: "الفرع المحدث", code: "MAIN", city: "غزة", address: "العنوان", status: "active", invoiceDueDays: 21 })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual(expect.arrayContaining([
@@ -310,18 +310,18 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("ينشئ فرعاً عبر Supabase دون MySQL مع عضوية مالك صالحة", async () => {
     state.tables.tenant_members = [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.sites.create({ name: "الفرع الثاني", code: "BR2", city: "غزة", address: "العنوان" })).resolves.toEqual({ id: 11 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_site", args: expect.objectContaining({ p_tenant_id: 20, p_name: "الفرع الثاني", p_code: "BR2" }) })]);
   });
 
   it("يقرأ سياسة تعدد الأفرع من Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.sites.branchPolicy({ siteId: 10 })).resolves.toMatchObject({ isEnabled: true, planLimit: 3, maxBranches: 3, currentCount: 1, remaining: 2 });
   });
 
   it("يعرض إعدادات البوابة ونسبة التنبيه الشاذ من Supabase ضمن الفرع دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscriberPortal.settings({ siteId: 10 })).resolves.toMatchObject({
       siteId: 10, tenantId: 20, portalCode: "main", displayName: "الفرع الرئيسي", isEnabled: true,
     });
@@ -329,7 +329,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يحفظ إعدادات بوابة المشترك عبر RPC Supabase ذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscriberPortal.saveSettings({
       siteId: 10, portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true,
     })).resolves.toEqual({ success: true, portalCode: "main" });
@@ -340,12 +340,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض هوية التقارير من Supabase ضمن نطاق المستأجر دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.reportBranding.get({ siteId: 10 })).resolves.toEqual({ companyName: "شركة المولد", reportLogoKey: null, logoUrl: null });
   });
 
   it("يعرض سجل التدقيق من Supabase ضمن المستأجر والفرع دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     const logs = await caller.audit.list({ siteId: 10 });
     expect(logs).toEqual(expect.arrayContaining([expect.objectContaining({
       id: 108, tenantId: 20, siteId: 10, userId: 1, entityType: "subscriber", entityId: "30", action: "create",
@@ -353,8 +353,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض ملخص وقائمة المزامنة الميدانية والفنيين من Supabase دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin", name: "مدير المنصة", email: "admin@example.test" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", name: "مدير المنصة", email: "admin@example.test" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.mobileSync.summary({ siteId: 10, from: "2026-08-01T00:00:00.000Z", to: "2026-09-01T00:00:00.000Z" })).resolves.toMatchObject({
       cycles: 1, syncedReadings: 2, retryableReadings: 0, needsReviewReadings: 0, failedEvents: 0, activeTechnicians: 1,
     });
@@ -365,8 +365,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض قائمة القراءات الميدانية المتزامنة وتفاصيلها من Supabase دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin", name: "مدير المنصة", email: "admin@example.test" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", name: "مدير المنصة", email: "admin@example.test" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.mobileSync.readings({ siteId: 10, page: 1, pageSize: 25 })).resolves.toMatchObject([{
       id: 60, versionNo: 1, subscriberName: "مشترك الاختبار", subscriberNo: "MAIN-001", previousReading: 90, currentReading: 100, userId: 1,
     }]);
@@ -377,7 +377,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض الموظفين والسلف وكشوف الرواتب من Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.listEmployees({ siteId: 10, employmentStatus: "active" })).resolves.toMatchObject([{ id: 120, fullName: "محاسب الاختبار", baseWage: "1000" }]);
     await expect(caller.hr.listAdjustments({ siteId: 10, status: "open" })).resolves.toMatchObject([{
       adjustment: { id: 121, employeeId: 120, amount: "100", remainingAmount: "100" }, employee: { id: 120, fullName: "محاسب الاختبار" },
@@ -389,7 +389,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض سجل الحضور وملخص الموارد البشرية من Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.listAttendance({ siteId: 10, fromDate: "2026-08-01", toDate: "2026-08-31" })).resolves.toMatchObject([{
       attendance: { id: 124, employeeId: 120, regularHours: "8", overtimeHours: "1" }, employee: { id: 120, fullName: "محاسب الاختبار" },
     }]);
@@ -404,7 +404,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعطّل اختبار الرسائل والجدولة الموروثين صراحةً", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.messaging.testConnection({ siteId: 10, channel: "sms", provider: "tweetsms", credential: "credential-long-enough" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(caller.messaging.configureInvoiceAutoSend({ siteId: 10, enabled: false })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
@@ -415,14 +415,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { id: 91, tenant_id: 20, channel: "sms", status: "failed", created_at: "2026-08-25T09:00:00.000Z" },
     ];
     state.tables.sms_package_requests = [{ id: 97, tenant_id: 20, status: "approved", requested_messages: 500, approved_messages: 500, note: "مراجعة", created_at: "2026-08-20T00:00:00.000Z", reviewed_at: "2026-08-21T00:00:00.000Z" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.messaging.smsQuota({ siteId: 10 })).resolves.toMatchObject({ senderName: "PowerHub", total: 1000, used: 1, remaining: 999, configured: true });
     await expect(caller.messaging.smsDailyUsage({ siteId: 10 })).resolves.toMatchObject({ total: 1000, used: 1, remaining: 999, points: expect.any(Array) });
     await expect(caller.messaging.currentSmsPackageRequest({ siteId: 10 })).resolves.toMatchObject({ id: 97, status: "approved", requestedMessages: 500, approvedMessages: 500, createdAt: expect.any(Date) });
   });
 
   it("ينشئ طلب حزمة SMS عبر دالة Supabase الذرية دون MySQL أو مزود خارجي", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.messaging.requestSmsPackage({ siteId: 10, requestedMessages: 1000, note: "طلب اختبار" })).resolves.toEqual({ id: 98, status: "pending" });
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_request_sms_package", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_requested_messages: 1000 }) });
   });
@@ -433,7 +433,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.tables.platform_settings = [{ setting_key: "invoice_delivery_channels", is_enabled: false, value: { sms: false, whatsapp: false }, message: "الإرسال الخارجي معطل" }];
     state.tables.tenant_invoice_message_templates = [{ id: 97, tenant_id: 20, channel: "sms", event_type: "invoice_issued", body: "فاتورتك جاهزة", is_active: true, created_at: "2026-08-20T00:00:00.000Z", updated_at: "2026-08-20T00:00:00.000Z" }];
     state.tables.tenant_payment_receipt_message_templates = [{ id: 98, tenant_id: 20, channel: "sms", body: "تم استلام الدفعة", is_active: true, created_at: "2026-08-20T00:00:00.000Z", updated_at: "2026-08-20T00:00:00.000Z" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.messaging.listConfigurations({ siteId: 10 })).resolves.toMatchObject([{ id: 95, channel: "sms", isActive: false, updatedAt: expect.any(Date) }]);
     await expect(caller.messaging.listScheduleRuns({ siteId: 10, limit: 20 })).resolves.toMatchObject([{ id: 96, submitted: 0, startedAt: expect.any(Date), finishedAt: expect.any(Date) }]);
     await expect(caller.messaging.deliveryPolicy({ siteId: 10 })).resolves.toMatchObject({ configured: true, message: "الإرسال الخارجي معطل" });
@@ -443,7 +443,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يحفظ قوالب الرسائل في Supabase ويعطّل حفظ الاعتمادات الموروث", async () => {
     state.tables.platform_settings = [{ setting_key: "invoice_delivery_channels", is_enabled: true, value: { smsEnabled: true, whatsappEnabled: true }, message: null }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.messaging.saveInvoiceTemplate({ siteId: 10, channel: "sms", body: "مرحباً {{subscriber_name}}، فاتورتك {{invoice_no}} جاهزة.", isActive: true })).resolves.toEqual({ success: true });
     await expect(caller.messaging.savePaymentReceiptTemplate({ siteId: 10, body: "مرحباً {{subscriber_name}}، تم استلام دفعتك بنجاح.", isActive: true })).resolves.toEqual({ success: true });
     expect(state.inserts).toContainEqual({ table: "tenant_invoice_message_templates", values: expect.objectContaining({ tenant_id: 20, channel: "sms", event_type: "invoice_issued", is_active: true }) });
@@ -453,7 +453,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يعرض سجل الإشعارات من Supabase ويعطّل كل الإرسال وإعادة المحاولة الموروثة", async () => {
     state.tables.notification_messages = [{ id: 99, tenant_id: 20, invoice_id: 70, subscriber_id: 30, channel: "sms", event_type: "invoice_issued", recipient: "+970595000000", status: "failed", provider_message_id: null, payload: { invoiceNo: "MAIN-202608-0001" }, attempts: 1, last_error: "غير مهيأ", created_at: "2026-08-25T00:00:00.000Z", updated_at: "2026-08-25T00:00:00.000Z" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.notifications.list({ siteId: 10, eventType: "invoice_issued" })).resolves.toMatchObject([{ notification: { id: 99, status: "failed", createdAt: expect.any(Date) }, subscriber: { id: 30, fullName: "مشترك الاختبار" }, invoiceNo: "MAIN-202608-0001" }]);
     await expect(caller.notifications.retry({ siteId: 10, notificationId: 99 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(caller.notifications.retryFailedInvoiceNotification({ siteId: 10, notificationId: 99 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
@@ -466,17 +466,17 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض سجل عمليات الإرسال الجماعي وتفاصيله من Supabase دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin", name: "مالك الاختبار", email: "owner@example.com" }];
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", name: "مالك الاختبار", email: "owner@example.com" }];
     state.tables.audit_logs = [{ id: 109, tenant_id: 20, site_id: 10, user_id: 1, entity_type: "notification_batch", entity_id: "99", action: "send_deferred_invoice_notifications", metadata: { notificationIds: [99], requested: 1, submitted: 0, failed: 1 }, created_at: "2026-08-25T00:00:00.000Z" }];
     state.tables.notification_messages = [{ id: 99, tenant_id: 20, invoice_id: 70, subscriber_id: 30, channel: "sms", event_type: "invoice_issued", recipient: "+970595000000", status: "failed", provider_message_id: null, payload: {}, attempts: 1, last_error: "غير مهيأ", created_at: "2026-08-25T00:00:00.000Z", updated_at: "2026-08-25T00:00:00.000Z" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.notifications.listBulkInvoiceSends({ siteId: 10 })).resolves.toMatchObject([{ id: 109, action: "send_deferred_invoice_notifications", executorId: 1, executorName: "مالك الاختبار", createdAt: expect.any(Date) }]);
     await expect(caller.notifications.bulkInvoiceSendDetails({ siteId: 10, auditLogId: 109 })).resolves.toMatchObject({ operation: { id: 109, createdAt: expect.any(Date) }, items: [{ notificationId: 99, invoiceId: 70, invoiceNo: "MAIN-202608-0001", subscriberName: "مشترك الاختبار", status: "failed" }] });
   });
 
   it("يقرأ ويحفظ تفضيلات الإجراءات السريعة عبر Supabase دون MySQL", async () => {
     state.tables.user_quick_action_preferences = [{ user_id: 1, site_id: 10, action_ids: ["record_reading"], updated_at: "2026-08-01T00:00:00.000Z" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.quickActions.preferences({ siteId: 10 })).resolves.toEqual({ actionIds: ["record_reading"], updatedAt: expect.any(Date) });
     await expect(caller.quickActions.savePreferences({ siteId: 10, actionIds: ["record_reading", "collect_payment"] })).resolves.toEqual({ success: true, actionIds: ["record_reading", "collect_payment"] });
     expect(state.inserts).toContainEqual({ table: "user_quick_action_preferences", values: { user_id: 1, site_id: 10, action_ids: ["record_reading", "collect_payment"] } });
@@ -490,23 +490,23 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const staffCaller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
     await expect(staffCaller.staff.myAccess({ siteId: 10 })).resolves.toEqual({ role: "manager", permissions: ["manageSubscribers"], tenantId: 20 });
     await expect(staffCaller.staff.allBranchAccess({ siteId: 10 })).resolves.toEqual({ isGlobal: true });
-    state.tables.users = [{ id: 1, role: "admin" }];
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.audit_logs = [{ id: 121, tenant_id: 20, site_id: 10, user_id: 2, entity_type: "staff_profile", entity_id: "120", action: "update_permissions", after_data: { permissions: ["manageSubscribers"] }, metadata: { targetUserId: 2 }, created_at: "2026-08-26T00:00:00.000Z" }];
-    const ownerCaller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const ownerCaller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(ownerCaller.staff.permissionChanges({ siteId: 10, userId: 2 })).resolves.toMatchObject([{ id: 121, userId: 2, action: "update_permissions", createdAt: expect.any(Date), afterData: { permissions: ["manageSubscribers"] } }]);
   });
 
   it("يعرض كتالوج الصلاحيات والأدوار المخصصة النشطة من Supabase دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin" }];
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.custom_permission_roles = [{ id: 122, tenant_id: 20, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"], is_active: true }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.permissionCatalog({ siteId: 10 })).resolves.toContain("manageTeam");
     await expect(caller.staff.customRoles({ siteId: 10 })).resolves.toEqual([{ id: 122, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"], isActive: true }]);
   });
 
   it("يحفظ ويحذف الدور المخصص بمعاملات Supabase الذرية دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.saveCustomRole({ siteId: 10, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"] })).resolves.toEqual({ success: true, id: 122 });
     await expect(caller.staff.deleteCustomRole({ siteId: 10, roleId: 122 })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual(expect.arrayContaining([
@@ -516,15 +516,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعدّل صلاحيات الحساب الفرعي عبر معاملة Supabase الذرية دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.updatePermissions({ siteId: 10, profileId: 120, customRoleId: 122, permissions: ["collectPayments"] })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_update_staff_profile_permissions", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_actor_user_id: 1, p_profile_id: 120, p_custom_role_id: 122, p_permissions: ["collectPayments"] }) });
   });
 
   it("يوقف الحساب الفرعي ويرفع التوقيف ويحدث حالته عبر Supabase دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.suspend({ siteId: 10, profileId: 120, startsAt: "2026-08-10T10:00:00.000Z", endsAt: "2026-08-10T12:00:00.000Z" })).resolves.toMatchObject({ success: true, suspensionEndsAt: expect.any(Date) });
     await expect(caller.staff.clearSuspension({ siteId: 10, profileId: 120 })).resolves.toEqual({ success: true });
     await expect(caller.staff.setActive({ siteId: 10, profileId: 120, isActive: false })).resolves.toEqual({ success: true, isActive: false });
@@ -536,15 +536,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض سجل نشاط الحساب الفرعي من Supabase دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin" }];
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.audit_logs = [{ id: 125, tenant_id: 20, site_id: 10, user_id: 2, entity_type: "staff_profile", action: "update_permissions", metadata: { source: "team" }, after_data: { permissions: ["collectPayments"] }, created_at: "2026-08-10T12:00:00.000Z" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.activity({ siteId: 10, userId: 2 })).resolves.toMatchObject([{ id: 125, action: "update_permissions", entityType: "staff_profile", createdAt: expect.any(Date), metadata: { source: "team" } }]);
   });
 
   it("يعرض قائمة الحسابات ودليل التعيين من Supabase ضمن المستأجر والفرع فقط دون MySQL", async () => {
     state.tables.users = [
-      { id: 1, role: "admin", name: "مدير المنصة", email: "admin@example.com", auth_user_id: "00000000-0000-4000-8000-000000000001", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-05T00:00:00.000Z" },
+      { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", name: "مدير المنصة", email: "admin@example.com", auth_user_id: "00000000-0000-4000-8000-000000000001", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-05T00:00:00.000Z" },
       { id: 2, role: "user", name: "محاسب الفرع", email: "accountant@example.com", auth_user_id: "00000000-0000-4000-8000-000000000002", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-04T00:00:00.000Z" },
       { id: 3, role: "user", name: "موظف مستأجر آخر", email: "outside@example.com", auth_user_id: "00000000-0000-4000-8000-000000000003", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-06T00:00:00.000Z" },
     ];
@@ -556,13 +556,13 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { id: 126, tenant_id: 20, user_id: 2, site_id: 10, role: "accountant", custom_role_id: null, permissions: ["collectPayments"], suspension_started_at: null, suspension_ends_at: null, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
       { id: 127, tenant_id: 20, user_id: 3, site_id: 11, role: "collector", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
     ];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.list({ siteId: 10 })).resolves.toMatchObject([{ profile: { id: 126, tenantId: 20, siteId: 10, role: "accountant", createdAt: expect.any(Date) }, user: { id: 2, name: "محاسب الفرع", email: "accountant@example.com" } }]);
     await expect(caller.staff.directory({ siteId: 10 })).resolves.toEqual([{ id: 2, name: "محاسب الفرع", email: "accountant@example.com", role: "user" }]);
   });
 
   it("يقرأ سياسة أدوار وحدود الحسابات الفرعية من Supabase مع تجاوز المستأجر والعدد النشط", async () => {
-    state.tables.users = [{ id: 1, role: "admin" }];
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.tenant_subscriptions = [{ tenant_id: 20, plan: "professional" }];
     state.tables.tenants = [{ id: 20, plan: "starter" }];
     state.tables.platform_settings = [
@@ -576,29 +576,29 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { tenant_id: 20, user_id: 4, role: "member", is_active: false, membership_status: "active" },
       { tenant_id: 99, user_id: 5, role: "member", is_active: true, membership_status: "active" },
     ];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.allowedSubaccountRoles({ siteId: 10 })).resolves.toEqual({ roles: ["accountant"], limit: 3, currentCount: 2, remaining: 1 });
   });
 
   it("يعيّن حساباً موجوداً عبر معاملة Supabase الذرية دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.assign({ siteId: 10, userId: 2, role: "accountant", allBranches: true })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_assign_existing_staff", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_actor_user_id: 1, p_target_user_id: 2, p_role: "accountant", p_all_branches: true }) });
   });
 
   it("يعطّل إعادة تعيين كلمة المرور انتقالياً قبل أي استدعاء MySQL أو Supabase Auth", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.resetPassword({ siteId: 10, profileId: 70 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
   it("يعطّل إنشاء الحساب الفرعي انتقالياً قبل أي استدعاء MySQL أو Supabase Auth", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.create({ siteId: 10, name: "محاسب تجريبي", email: "accountant@example.com", temporaryPassword: "StrongPass1!", role: "accountant", allBranches: false })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))
       .resolves.toEqual({ id: 31, subscriberNo: "MAIN-NEW", referenceNotifications: [] });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_quota_limit: 100 }) })]);
@@ -606,21 +606,21 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يحدّث المشترك بالدالة الذرية في Supabase من دون استدعاء MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.update({ siteId: 10, id: 30, fullName: "مشترك محدث", phone: "+970595123456", address: "غزة", subscriptionType: "commercial", serviceStatus: "active", clientOperationId: "22222222-2222-4222-8222-222222222222", expectedUpdatedAt: new Date("2026-08-01T00:00:00.000Z") }))
       .resolves.toEqual({ success: true, updatedAt: new Date("2026-08-03T00:00:00.000Z") });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_service_status: "active" }) })]);
   });
 
   it("يسجل قراءة يدوية بالدالة الذرية في Supabase من دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.create({ siteId: 10, subscriberId: 30, readingValue: "115", captureMethod: "manual", clientOperationId: "33333333-3333-4333-8333-333333333333", notes: "قراءة دورية" }))
       .resolves.toEqual({ id: 61, consumptionKwh: 15, status: "pending_review", replayed: false });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_reading", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_reading_value: "115", p_can_override_same_day: false }) })]);
   });
 
   it("يعدّل ويحذف القراءة المعلقة بدوال Supabase الذرية من دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.updatePending({ siteId: 10, readingId: 60, baseVersion: 1, readingValue: "110", readingAt: new Date("2026-08-03T00:00:00.000Z"), notes: "تصحيح" }))
       .resolves.toEqual({ success: true, consumptionKwh: 20 });
     await expect(caller.readings.deletePending({ siteId: 10, readingId: 60, baseVersion: 2 })).resolves.toEqual({ success: true });
@@ -631,7 +631,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعتمد القراءة ويصدر فاتورتها عبر Supabase من دون MySQL أو عامل إرسال", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.approve({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false })).resolves.toEqual({ success: true });
     await expect(caller.invoices.createFromReading({ siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08", dueDate: new Date("2026-08-16T00:00:00.000Z"), discountAmount: 0, clientOperationId: "44444444-4444-4444-8444-444444444444" }))
       .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150 });
@@ -643,7 +643,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يسجل التحصيل الذري عبر Supabase من دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.payments.create({ siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0001", amount: 25, paymentMethod: "cash", companyAccountId: 90, clientOperationId: "55555555-5555-4555-8555-555555555555" }))
       .resolves.toEqual({ id: 81 });
     expect(state.rpcCalls).toEqual([
@@ -652,36 +652,36 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يسجل المصروف عبر Supabase مع حارس الفترة المالية", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.expenses.create({ siteId: 10, category: "fuel", description: "وقود التشغيل", amount: 50, referenceNo: "EXP-1" })).resolves.toEqual({ id: 82 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_expense", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_category: "fuel", p_amount: 50 }) })]);
   });
 
   it("ينشئ تسوية مالية بالدالة الذرية في Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.settlements.create({ siteId: 10, periodStart: "2026-08-01T00:00:00.000Z", periodEnd: "2026-08-31T23:59:59.999Z", totalCollected: 100, totalExpenses: 20, actualCash: 75, notes: "تسوية دورية" })).resolves.toEqual({ id: 97 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_financial_settlement", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_total_collected: 100, p_total_expenses: 20, p_actual_cash: 75 }) })]);
   });
 
   it("يغيّر حالة التسوية بالدالة الذرية في Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.settlements.setStatus({ siteId: 10, settlementId: 97, status: "approved" })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_set_financial_settlement_status", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_settlement_id: 97, p_status: "approved" }) })]);
   });
 
   it("يعرض قائمة التسويات من Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.settlements.list({ siteId: 10, branchId: 10 })).resolves.toMatchObject([{ id: 97, siteId: 10, totalCollected: "100", totalExpenses: "20", bookProfit: "80", status: "draft" }]);
   });
 
   it("ينفذ التصحيح الاستثنائي المقفل عبر Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.settlements.exceptionalEdit({ siteId: 10, entityType: "expense", entityId: 82, reason: "تصحيح مرجعي موثق للمصروف", changes: { description: "وصف مصحح" } })).resolves.toMatchObject({ success: true, before: { description: "وصف سابق" }, after: { description: "وصف مصحح" } });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_exceptional_locked_edit", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_entity_type: "expense", p_entity_id: 82 }) })]);
   });
 
   it("ينشئ حساب الشركة وحركاته وتحويله عبر Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.companyAccounts.create({ siteId: 10, name: "جوال بي 1", accountType: "jawwal_pay", phoneNumber: "+970595123456", openingBalance: 5, siteIds: [10] })).resolves.toEqual({ id: 92 });
     await expect(caller.companyAccounts.addMovement({ siteId: 10, accountId: 90, transactionType: "deposit", amount: 10, description: "إيداع" })).resolves.toEqual({ id: 93 });
     await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل داخلي" })).resolves.toEqual({ success: true });
@@ -693,7 +693,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يحدّث إعدادات حساب الشركة عبر Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.companyAccounts.updatePhone({ siteId: 10, accountId: 92, phoneNumber: "+970599000001" })).resolves.toEqual({ success: true });
     await expect(caller.companyAccounts.updateOpeningBalance({ siteId: 10, accountId: 92, openingBalance: 100 })).resolves.toEqual({ success: true });
     await expect(caller.companyAccounts.updateSites({ siteId: 10, accountId: 92, siteIds: [10] })).resolves.toEqual({ success: true });
@@ -705,14 +705,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض ويغلق جلسة التحصيل عبر Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.collectorSessions.list({ siteId: 10 })).resolves.toMatchObject([{ session: { id: 96, openedAt: expect.any(Date) }, collector: { id: 1 } }]);
     await expect(caller.collectorSessions.close({ siteId: 10, sessionId: 96, declaredCash: 10 })).resolves.toEqual({ expectedCash: 10, varianceAmount: 0 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_close_collector_session", args: expect.objectContaining({ p_session_id: 96, p_allow_foreign_close: true }) })]);
   });
 
   it("ينشئ موظفاً عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.createEmployee({
       siteId: 10, fullName: "فني جديد", identityNo: "123456789", phone: "0595000001", jobTitle: "technician",
       employmentStatus: "active", contractType: "monthly", baseWage: 1200, hireDate: "2026-08-15", notes: "تغطية ميدانية",
@@ -724,7 +724,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعدّل موظفاً عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.updateEmployee({ siteId: 10, employeeId: 120, fullName: "محاسب محدث", baseWage: 1300, phone: null }))
       .resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual([expect.objectContaining({
@@ -734,7 +734,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("ينشئ سلفة أو خصماً عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.createAdjustment({ siteId: 10, employeeId: 120, adjustmentType: "advance", amount: 250, reason: "سلفة تشغيلية موثقة" }))
       .resolves.toEqual({ id: 125 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({
@@ -744,7 +744,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("ينشئ مسودة رواتب عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.createPayrollDraft({
       siteId: 10, period: "2026-09", items: [{ employeeId: 120, extraAmount: 100, advanceDeduction: 0, otherDeduction: 0, notes: "مكافأة تشغيل" }],
     })).resolves.toEqual({ id: 126, totalNet: 1100 });
@@ -755,7 +755,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعتمد كشف الرواتب عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.approvePayroll({ siteId: 10, payrollRunId: 122 })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual([expect.objectContaining({
       name: "powerhub_approve_payroll",
@@ -764,7 +764,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يصرف كشف الرواتب عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.payPayroll({ siteId: 10, payrollRunId: 122, accountId: 90 })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual([expect.objectContaining({
       name: "powerhub_pay_payroll",
@@ -773,14 +773,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعطّل الاعتماد الجماعي للقراءات قبل أي وصول MySQL إلى حين تصميمه الذري", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.mobileSync.approveAllAndIssue({ siteId: 10, limit: 10, sendNow: false }))
       .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(state.rpcCalls).toEqual([]);
   });
 
   it("ينشئ طلب ترقية الباقة عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscription.requestUpgrade({ siteId: 10, requestedPlan: "professional" })).resolves.toEqual({ id: 127, requestedPlan: "professional", alreadyRequested: false });
     expect(state.rpcCalls).toEqual([expect.objectContaining({
       name: "powerhub_request_subscription_upgrade",
@@ -789,12 +789,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعرض حصة المشتركين من Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toEqual({ limit: 500, currentCount: 0, remaining: 500, plan: "professional" });
   });
 
   it("يحفظ الاستيراد الجماعي عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.bulkImport({ siteId: 10, updateExisting: false, rows: [{ sourceRow: 2, subscriberNo: "MAIN-NEW", fullName: "مشترك اختبار", phone: "+970595000111", subscriptionType: "residential" }] }))
       .resolves.toMatchObject({ created: [{ subscriberNo: "MAIN-NEW" }], updated: [], failed: [], notificationsQueued: 0 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_bulk_upsert_subscribers", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_update_existing: false, p_quota_limit: 100 }) })]);
@@ -804,12 +804,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يراجع أرقام المشتركين من Supabase دون MySQL", async () => {
     state.tables.subscribers = [{ ...state.tables.subscribers[0] as object, phone: "00970595000000" }];
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.phoneReview({ siteId: 10 })).resolves.toMatchObject([{ id: 30, subscriberNo: "MAIN-001", status: "ready", normalizedPhone: "+970595000000" }]);
   });
 
   it("يوحّد أرقام المشتركين عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.applyPhoneNormalization({ siteId: 10, subscriberIds: [30] })).resolves.toEqual({ updated: 1, skipped: 0 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({
       name: "powerhub_normalize_subscriber_phones",
@@ -818,7 +818,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("ينشئ ويقرأ رابط مشاركة فاتورة عبر Supabase دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     const shared = await caller.invoices.createShareLink({ siteId: 10, invoiceId: 70 });
     expect(shared.path).toMatch(/^\/invoice\/.+/);
     const result = await caller.invoices.publicByToken({ token: shared.token });
@@ -827,14 +827,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يعطّل اعتماد القراءة الميدانية الفردي غير الذري قبل أي وصول MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.mobileSync.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false }))
       .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(state.rpcCalls).toEqual([]);
   });
 
   it("يحدّث هوية التقارير عبر RPC Supabase الذرية دون MySQL", async () => {
-    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.reportBranding.update({ siteId: 10, companyName: "شركة الاختبار" })).resolves.toMatchObject({ companyName: "شركة الاختبار", reportLogoKey: null, logoUrl: null });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_report_branding", args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_company_name: "شركة الاختبار", p_report_logo_key: null } })]);
   });
