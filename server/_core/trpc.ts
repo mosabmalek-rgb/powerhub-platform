@@ -13,6 +13,13 @@ export const router = t.router;
 export const mergeRouters = t.mergeRouters;
 export const publicProcedure = t.procedure;
 
+const isActivePlatformAdmin = (user: TrpcContext["user"]) => Boolean(
+  user &&
+  user.role === "admin" &&
+  user.accountStatus === "active" &&
+  ["platform_owner", "platform_admin", "finance_admin"].includes(user.platformRole ?? ""),
+);
+
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
 
@@ -36,7 +43,10 @@ const requireUser = t.middleware(async opts => {
 
 const enforceMaintenanceMode = t.middleware(async opts => {
   const user = opts.ctx.user;
-  if (!user || user.role === "admin" || opts.path === "auth.me") return opts.next();
+  if (user?.role === "admin" && !isActivePlatformAdmin(user)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "حساب المنصة الإداري غير نشط أو لا يملك دور منصة صالحاً." });
+  }
+  if (!user || isActivePlatformAdmin(user) || opts.path === "auth.me") return opts.next();
   const { data: maintenance, error } = await supabaseAdmin().from("platform_settings")
     .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });
@@ -70,7 +80,7 @@ export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
-    if (!ctx.user || ctx.user.role !== 'admin') {
+    if (!isActivePlatformAdmin(ctx.user)) {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
 
