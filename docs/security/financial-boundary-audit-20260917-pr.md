@@ -1,0 +1,1 @@
+Production financial write boundary hardening was applied and verified. The canonical migration revokes direct client mutation privileges for critical financial tables while retaining service_role writes.
