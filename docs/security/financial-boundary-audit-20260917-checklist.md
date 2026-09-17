@@ -1,0 +1,5 @@
+- [x] Critical financial tables identified
+- [x] Direct client writes revoked in Production
+- [x] service_role write access retained
+- [x] Existing server/RPC mutation paths checked
+- [x] Production privileges re-queried after migration
