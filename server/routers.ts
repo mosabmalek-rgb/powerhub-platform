@@ -18,6 +18,7 @@ const adminRuntimeRecord = {
 delete adminRuntimeRecord.saveRolePolicy;
 const adminReadContracts = (adminRouterWithSupabaseReadContracts as any)._def.record as Record<string, unknown>;
 for (const key of [
+  "sendOwnerUsageAlert",
   "updateComplaint",
   "setTenantStatus",
   "setGeneratorStatus",
