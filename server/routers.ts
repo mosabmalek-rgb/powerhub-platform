@@ -42,6 +42,7 @@ for (const key of [
   "recordSecurityEvent",
   "saveSecuritySetting",
   "platformAccessDirectory",
+  "resetUserPassword",
 ]) {
   if (adminReadContracts[key]) adminRuntimeRecord[key] = adminReadContracts[key];
 }
