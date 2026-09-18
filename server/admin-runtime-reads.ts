@@ -390,7 +390,7 @@ export const adminRouterWithSupabaseReadContracts = router({
     }
     const row = data?.[0];
     return { ok: result.ok, balance: result.balance ?? null, message: result.message ?? null, accountActive: Boolean(row?.is_active) };
-  }),,
+  }),
   resetUserPassword: platformAdminProcedure.input(z.object({
     tenantId: z.number().int().positive(),
     targetUserId: z.number().int().positive(),
