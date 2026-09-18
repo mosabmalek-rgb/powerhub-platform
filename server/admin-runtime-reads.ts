@@ -44,9 +44,18 @@ function runtimeCentralTweetSmsCredentials() {
 
 type TweetSmsCredentialsShape = TweetSmsCredentials;
 
-async function writeGeneratorAudit(actorUserId: number, generator: { tenant_id: number; site_id: number }, generatorId: number, action: string, beforeStatus: string, afterStatus: string) {
-  const { error } = await supabaseAdmin().from("audit_logs").insert({ tenant_id: generator.tenant_id, site_id: generator.site_id, user_id: actorUserId, entity_type: "generator", entity_id: String(generatorId), action, before_data: { status: beforeStatus }, after_data: { status: afterStatus } });
-  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث حالة المولد لكن تعذر تسجيل التدقيق في Supabase." });
+async function writeGeneratorAuditBestEffort(actorUserId: number, generator: { tenant_id: number; site_id: number }, generatorId: number, action: string, beforeStatus: string, afterStatus: string) {
+  const { error } = await supabaseAdmin().from("audit_logs").insert({
+    tenant_id: generator.tenant_id,
+    site_id: generator.site_id,
+    user_id: actorUserId,
+    entity_type: "generator",
+    entity_id: String(generatorId),
+    action,
+    before_data: { status: beforeStatus },
+    after_data: { status: afterStatus },
+  });
+  if (error) console.error("[generator-status-audit] generator status changed but audit write failed", error);
 }
 
 function decryptTweetSmsCredentials(ciphertext: string, iv: string): TweetSmsCredentialsShape {
@@ -291,7 +300,7 @@ export const adminRouterWithSupabaseReadContracts = router({
     if (!generator) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود." });
     const { error: statusError } = await admin.from("generators").update({ status: input.status }).eq("id", input.id);
     if (statusError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالة المولد في Supabase." });
-    await writeGeneratorAudit(ctx.user.id, generator, input.id, "admin_set_generator_status", generator.status, input.status);
+    await writeGeneratorAuditBestEffort(ctx.user.id, generator, input.id, "admin_set_generator_status", generator.status, input.status);
     return { success: true as const };
   }),
 
@@ -304,7 +313,7 @@ export const adminRouterWithSupabaseReadContracts = router({
     const { data: updated, error: statusError } = await admin.from("generators").update({ status: "active" }).eq("id", input.generatorId).eq("status", "pending").select("id,status").maybeSingle();
     if (statusError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد المولد في Supabase." });
     if (!updated) throw new TRPCError({ code: "CONFLICT", message: "تغيرت حالة المولد قبل إتمام الاعتماد؛ أعد المحاولة." });
-    await writeGeneratorAudit(ctx.user.id, generator, input.generatorId, "admin_approve_pending_generator", "pending", "active");
+    await writeGeneratorAuditBestEffort(ctx.user.id, generator, input.generatorId, "admin_approve_pending_generator", "pending", "active");
     return { success: true as const, generatorId: input.generatorId, status: "active" as const };
   }),
 
