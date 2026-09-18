@@ -6,6 +6,7 @@ import { authenticatedProcedure, publicProcedure, mergeRouters, router } from ".
 import { powerhubRuntimeRouter } from "./powerhub-runtime-router";
 import { powerhubDashboardRouter } from "./powerhub-dashboard";
 import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router";
+import { adminRouterWithSupabaseReadContracts } from "./admin-runtime-reads";
 import { adminRolePolicyRouter } from "./admin-role-policy-router";
 import type { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
@@ -15,6 +16,34 @@ const adminRuntimeRecord = {
   ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
 };
 delete adminRuntimeRecord.saveRolePolicy;
+const adminReadContracts = (adminRouterWithSupabaseReadContracts as any)._def.record as Record<string, unknown>;
+for (const key of [
+  "updateComplaint",
+  "setTenantStatus",
+  "setGeneratorStatus",
+  "approvePendingGenerator",
+  "saveTweetSmsAccount",
+  "testTweetSmsAccount",
+  "savePlatformTweetSmsAccount",
+  "testPlatformTweetSmsAccount",
+  "platformTweetSmsReport",
+  "generatorDetails",
+  "financeOverview",
+  "platformConfiguration",
+  "listTariffPolicies",
+  "listComplaints",
+  "listTenantBranchSettings",
+  "globalSearch",
+  "operationalMonitoring",
+  "advancedDashboard",
+  "listNotifications",
+  "securityCenter",
+  "recordSecurityEvent",
+  "saveSecuritySetting",
+  "platformAccessDirectory",
+]) {
+  if (adminReadContracts[key]) adminRuntimeRecord[key] = adminReadContracts[key];
+}
 Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, unknown>);
 
 type AppAdminRouter = Omit<typeof adminRouter, "listComplaints"> & {
