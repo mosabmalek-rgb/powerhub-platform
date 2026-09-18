@@ -85,5 +85,5 @@ revoke all on function public.powerhub_create_and_issue_reading(
 ) from public, anon, authenticated;
 
 grant execute on function public.powerhub_create_and_issue_reading(
-  bigint,bigint,bigint,bigint,uuid,timestamptz,numeric,text,text,text,boolean,boolean,boolean,timestamptz,text,numeric
+  bigint,bigint,bigint,bigint,uuid,timestamptz,numeric,text,text,text,text,boolean,boolean,boolean,timestamptz,text,numeric
 ) to service_role;
