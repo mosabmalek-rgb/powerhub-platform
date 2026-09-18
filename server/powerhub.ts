@@ -2196,14 +2196,107 @@ export const powerhubRouter = router({
       };
     }),
     approveAndIssue: protectedProcedure.input(mobileSyncApproveInput).mutation(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اعتماد القراءة الميدانية وإصدار فاتورتها من هذا المسار متوقفان مؤقتاً إلى حين تنفيذ RPC Supabase ذرية. استخدم اعتماد القراءة وإصدار الفاتورة الفرديين من شاشة القراءات." });
+      const admin = supabaseAdmin();
+      const { data: reading, error: readingError } = await admin.from("meter_readings")
+        .select("id,version_no,reading_at").eq("id", input.readingId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (readingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءة الميدانية من Supabase." });
+      if (!reading) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
+
+      const readingAt = new Date(reading.reading_at);
+      const dueDate = new Date(readingAt);
+      dueDate.setDate(dueDate.getDate() + 14);
+      const { data, error } = await admin.rpc("powerhub_approve_and_issue_mobile_reading", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_reading_id: input.readingId,
+        p_base_version: input.baseVersion,
+        p_due_date: dueDate.toISOString(),
+        p_billing_period: readingAt.toISOString().slice(0, 7),
+        p_discount_amount: 0,
+      });
+      const row = (data as Array<{ invoice_id: number | string; invoice_no: string; total_amount: number | string; notification_ids?: unknown; already_processed?: boolean }> | null)?.[0];
+      if (!error && row) {
+        const notificationIds = Array.isArray(row.notification_ids) ? row.notification_ids.map(Number).filter(Number.isInteger) : [];
+        let delivery = { requested: 0, submitted: 0, failed: 0, skipped: 0 };
+        if (input.sendNow && notificationIds.length) {
+          const { data: smsRows, error: smsError } = await admin.from("notification_messages").select("id").eq("tenant_id", access.tenantId).eq("channel", "sms").in("id", notificationIds);
+          if (smsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم إصدار الفاتورة لكن تعذر تحديد رسائل SMS للإرسال." });
+          delivery = await processNotificationQueueForTenant(access.tenantId, ctx.user.id, (smsRows ?? []).map((item) => Number(item.id)).filter(Number.isInteger));
+        }
+        return {
+          success: true as const,
+          alreadyProcessed: Boolean(row.already_processed),
+          invoiceId: Number(row.invoice_id),
+          invoiceNo: row.invoice_no,
+          totalAmount: Number(row.total_amount),
+          notificationIds,
+          delivery,
+        };
+      }
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
+      if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع لا يتبع لمساحة صاحب المولد." });
+      if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "القراءة ليست بانتظار المراجعة أو تم اعتمادها مسبقاً." });
+      if (errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيرت القراءة قبل الاعتماد؛ حدّث البيانات ثم أعد المحاولة." });
+      if (errorText.includes("TARIFF_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة لهذا الفرع؛ أضف تعرفة فعالة قبل إصدار الفاتورة." });
+      if (errorText.includes("INVALID_BILLING_PERIOD") || errorText.includes("INVALID_DISCOUNT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات فترة الفوترة غير صالحة." });
+      if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "تعذر تثبيت رقم فاتورة فريد؛ أعد المحاولة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد القراءة وإصدار الفاتورة في Supabase." });
     }),
     approveAllAndIssue: protectedProcedure.input(mobileSyncBulkApprovalInput).mutation(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الاعتماد الجماعي متوقف مؤقتاً لحين تنفيذ معاملة Supabase ذرية مستقلة لكل قراءة. يمكنك اعتماد القراءة وإصدار فاتورتها فردياً بأمان." });
+      const admin = supabaseAdmin();
+      let query = admin.from("meter_readings").select("id,version_no,reading_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("status", "pending_review")
+        .order("reading_at", { ascending: true }).limit(input.limit);
+      if (input.from) query = query.gte("reading_at", input.from);
+      if (input.to) query = query.lte("reading_at", input.to);
+      const { data: rows, error: rowsError } = await query;
+      if (rowsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءات الميدانية المعلقة من Supabase." });
+
+      const results: Array<Record<string, unknown>> = [];
+      const smsNotificationIds: number[] = [];
+      for (const reading of rows ?? []) {
+        const readingAt = new Date(reading.reading_at);
+        const dueDate = new Date(readingAt);
+        dueDate.setDate(dueDate.getDate() + 14);
+        const { data, error } = await admin.rpc("powerhub_approve_and_issue_mobile_reading", {
+          p_tenant_id: access.tenantId,
+          p_site_id: input.siteId,
+          p_user_id: ctx.user.id,
+          p_reading_id: Number(reading.id),
+          p_base_version: Number(reading.version_no),
+          p_due_date: dueDate.toISOString(),
+          p_billing_period: readingAt.toISOString().slice(0, 7),
+          p_discount_amount: 0,
+        });
+        const row = (data as Array<{ invoice_id: number | string; invoice_no: string; total_amount: number | string; notification_ids?: unknown; already_processed?: boolean }> | null)?.[0];
+        if (error || !row) {
+          results.push({ readingId: Number(reading.id), success: false, error: error?.message ?? "تعذر اعتماد القراءة وإصدار الفاتورة." });
+          continue;
+        }
+        const ids = Array.isArray(row.notification_ids) ? row.notification_ids.map(Number).filter(Number.isInteger) : [];
+        smsNotificationIds.push(...ids);
+        results.push({ readingId: Number(reading.id), success: true, invoiceId: Number(row.invoice_id), invoiceNo: row.invoice_no, alreadyProcessed: Boolean(row.already_processed), notificationIds: ids });
+      }
+
+      let delivery = { requested: 0, submitted: 0, failed: 0, skipped: 0 };
+      if (input.sendNow && smsNotificationIds.length) {
+        const { data: smsRows, error: smsError } = await admin.from("notification_messages").select("id").eq("tenant_id", access.tenantId).eq("channel", "sms").in("id", Array.from(new Set(smsNotificationIds)));
+        if (smsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم اعتماد بعض القراءات لكن تعذر تجهيز رسائل SMS للإرسال." });
+        delivery = await processNotificationQueueForTenant(access.tenantId, ctx.user.id, (smsRows ?? []).map((item) => Number(item.id)).filter(Number.isInteger));
+      }
+      return {
+        requested: (rows ?? []).length,
+        approved: results.filter((item) => item.success).length,
+        failed: results.filter((item) => !item.success).length,
+        results,
+        delivery,
+      };
     }),
     technicians: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
