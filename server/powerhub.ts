@@ -1397,7 +1397,7 @@ export const powerhubRouter = router({
         p_receipt_image_key: receiptImageKey ?? null, p_receipt_image_hash: receiptImageHash ?? null, p_collector_session_id: collectorSessionId ?? null,
         p_client_operation_id: input.clientOperationId ?? null,
       });
-      if (!error && data?.[0]) return { id: Number((data[0] as { payment_id: number | string }).payment_id) };
+      if (!error && data?.[0]) {\n        const paymentResult = data[0] as { payment_id: number | string; replayed?: boolean };\n        if (paymentResult.replayed && receiptImageKey) {\n          try { await storageRemove(receiptImageKey); } catch {}\n        }\n        return { id: Number(paymentResult.payment_id) };\n      }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("DUPLICATE_PAYMENT_NO")) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
