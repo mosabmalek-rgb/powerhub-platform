@@ -649,6 +649,28 @@ export const powerhubRouter = router({
       return { success: true, isActive: input.isActive };
     }),
   }),
+  ownerAlerts: router({
+    list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().from("tenant_owner_alerts")
+        .select("id,title,message,severity,created_at,read_at,metadata")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .order("created_at", { ascending: false }).limit(50);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تنبيهات مساحة صاحب المولد." });
+      return (data ?? []).map((row) => ({ id: Number(row.id), title: row.title, message: row.message, severity: row.severity, createdAt: new Date(row.created_at), readAt: row.read_at ? new Date(row.read_at) : null, metadata: row.metadata }));
+    }),
+    markRead: protectedProcedure.input(siteScoped.extend({ alertId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().from("tenant_owner_alerts")
+        .update({ read_at: new Date().toISOString() })
+        .eq("id", input.alertId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .select("id").maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالة التنبيه." });
+      if (!data) throw new TRPCError({ code: "NOT_FOUND", message: "التنبيه غير موجود ضمن مساحة صاحب المولد." });
+      return { success: true as const };
+    }),
+  }),
+
   subscription: router({
     currentUpgradeRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
