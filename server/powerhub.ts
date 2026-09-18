@@ -357,7 +357,7 @@ export const powerhubRouter = router({
       if (!setting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting({ isEnabled: setting.is_enabled, value: setting.value }))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب لقناة معطلة من آدمن المنصة." });
       const { error } = await admin.from("tenant_invoice_message_templates").upsert({ tenant_id: scope.tenantId, channel: input.channel, event_type: "invoice_issued", body: input.body, is_active: input.isActive }, { onConflict: "tenant_id,channel,event_type" });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ قالب رسالة الفاتورة في Supabase." });
-      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "tenant_invoice_message_template", entityId: `${scope.tenantId}:${input.channel}`, action: "upsert", afterData: { channel: input.channel, isActive: input.isActive }, metadata: { bodyLength: input.body.length } });
+      await writeSupabaseAuditBestEffort({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "tenant_invoice_message_template", entityId: `${scope.tenantId}:${input.channel}`, action: "upsert", afterData: { channel: input.channel, isActive: input.isActive }, metadata: { bodyLength: input.body.length } });
       return { success: true };
     }),
     savePaymentReceiptTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
@@ -369,7 +369,7 @@ export const powerhubRouter = router({
       if (!setting || !isInvoiceDeliveryChannelEnabled("sms", invoiceDeliveryPolicyFromSetting({ isEnabled: setting.is_enabled, value: setting.value }))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب إيصال SMS لقناة معطلة من آدمن المنصة." });
       const { error } = await admin.from("tenant_payment_receipt_message_templates").upsert({ tenant_id: scope.tenantId, channel: "sms", body: input.body, is_active: input.isActive }, { onConflict: "tenant_id,channel" });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ قالب إيصال SMS في Supabase." });
-      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "tenant_payment_receipt_message_template", entityId: `${scope.tenantId}:sms`, action: "upsert", afterData: { channel: "sms", isActive: input.isActive }, metadata: { bodyLength: input.body.length } });
+      await writeSupabaseAuditBestEffort({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "tenant_payment_receipt_message_template", entityId: `${scope.tenantId}:sms`, action: "upsert", afterData: { channel: "sms", isActive: input.isActive }, metadata: { bodyLength: input.body.length } });
       return { success: true };
     }),
   }),
@@ -1872,7 +1872,7 @@ export const powerhubRouter = router({
       }
 
       const result = await processNotificationQueueForTenant(scope.tenantId, ctx.user.id, notificationIds);
-      await writeSupabaseAudit({
+      await writeSupabaseAuditBestEffort({
         userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "notification_batch",
         entityId: notificationIds.join(",") || "none", action: "send_deferred_invoice_notifications",
         metadata: { notificationIds, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, includeFailed: input.includeFailed, retryFailedOnly: input.retryFailedOnly, sendAll: input.sendAll },
