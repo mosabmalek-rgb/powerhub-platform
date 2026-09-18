@@ -195,6 +195,16 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.inserts).toContainEqual(expect.objectContaining({ table: "audit_logs" }));
   });
 
+  it("يعيد إرسال SMS الفاشل دون إعادة تحويله إلى pending", async () => {
+    state.tables.notification_messages = [{ id: 90, tenant_id: 20, invoice_id: 70, subscriber_id: 30, channel: "sms", status: "failed" }];
+    notificationWorker.processQueue.mockResolvedValueOnce({ requested: 1, submitted: 1, failed: 0, skipped: 0, results: [{ notificationId: 90, status: "submitted" }] });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.notifications.sendPendingSms({ siteId: 10, invoiceIds: [70], includeFailed: true, retryFailedOnly: true }))
+      .resolves.toMatchObject({ requested: 1, submitted: 1, failed: 0 });
+    expect(state.rpcCalls.find((call) => call.name === "powerhub_queue_selected_invoice_sms")).toBeUndefined();
+    expect(notificationWorker.processQueue).toHaveBeenCalledWith(20, 1, [90]);
+  });
+
   it("يجهز تذكير السداد وإيصال التحصيل عبر طابور SMS الذري دون مزود حي", async () => {
     notificationWorker.processById.mockResolvedValue({ status: "submitted" });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
