@@ -603,8 +603,41 @@ export const powerhubRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل نشاط الحساب الفرعي من Supabase." });
       return (data ?? []).map((entry) => ({ id: Number(entry.id), action: entry.action, entityType: entry.entity_type, createdAt: new Date(entry.created_at), metadata: entry.metadata, afterData: entry.after_data }));
     }),
-    resetPassword: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async () => {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إعادة تعيين كلمات المرور للحسابات الفرعية متوقفة مؤقتاً أثناء ترحيلها الآمن إلى Supabase Auth. لا تُنفّذ أي عملية على المسار الموروث." });
+    resetPassword: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const admin = supabaseAdmin();
+      const { data: profile, error: profileError } = await admin.from("staff_profiles")
+        .select("id,user_id,tenant_id,site_id,role,is_active")
+        .eq("id", input.profileId)
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .neq("role", "owner")
+        .eq("is_active", true)
+        .maybeSingle();
+      if (profileError || !profile) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+      const targetUserId = Number(profile.user_id);
+      const { data: prepared, error: prepareError } = await admin.rpc("powerhub_prepare_password_reset", {
+        p_actor_user_id: ctx.user.id,
+        p_tenant_id: access.tenantId,
+        p_target_user_id: targetUserId,
+        p_site_id: input.siteId,
+      });
+      if (prepareError || !prepared?.[0]) {
+        const message = prepareError?.message ?? "";
+        if (message.includes("PASSWORD_RESET_IN_PROGRESS")) throw new TRPCError({ code: "CONFLICT", message: "توجد عملية إعادة تعيين قيد التنفيذ لهذا الحساب. حاول بعد قليل." });
+        if (message.includes("PASSWORD_RESET_OWNER_TARGET_ONLY") || message.includes("PASSWORD_RESET_TARGET_OUT_OF_SCOPE") || message.includes("PASSWORD_RESET_STAFF_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن إعادة تعيين كلمة مرور هذا الحساب من نطاقك." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز إعادة تعيين كلمة المرور." });
+      }
+      const intentId = Number(prepared[0].intent_id);
+      const temporaryPassword = `PH-${crypto.randomBytes(12).toString("base64url")}`;
+      const { error: authError } = await admin.auth.admin.updateUserById(String(prepared[0].target_auth_user_id), { password: temporaryPassword });
+      if (authError) {
+        await admin.rpc("powerhub_complete_password_reset", { p_intent_id: intentId, p_actor_user_id: ctx.user.id, p_success: false, p_failure_reason: authError.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث كلمة مرور الحساب في Supabase Auth." });
+      }
+      const { error: completeError } = await admin.rpc("powerhub_complete_password_reset", { p_intent_id: intentId, p_actor_user_id: ctx.user.id, p_success: true });
+      if (completeError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث كلمة المرور لكن تعذر إكمال سجل التدقيق. لا تُجرِ إعادة تعيين أخرى حتى يتم التحقق من السجل." });
+      return { success: true as const, temporaryPassword };
     }),
     suspend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), startsAt: z.string().datetime(), endsAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
       const startsAt = new Date(input.startsAt); const endsAt = new Date(input.endsAt);
