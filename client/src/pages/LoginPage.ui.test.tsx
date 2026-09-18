@@ -24,6 +24,12 @@ describe("LoginPage", () => {
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
   });
 
+  it("does not expose self-service password recovery at the login screen", () => {
+    render(<LoginPage />);
+    expect(screen.queryByRole("button", { name: "نسيت كلمة المرور؟" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/استعادة كلمة المرور|رابط الاستعادة/)).not.toBeInTheDocument();
+  });
+
   it("does not expose self-registration because accounts are created from Supabase administration", () => {
     render(<LoginPage />);
     expect(screen.getByText(/تُنشأ الحسابات ودعوات الوصول/)).toBeInTheDocument();
