@@ -19,6 +19,8 @@ const retiredClientProcedures = [
   "trpc.admin.createGeneratorOwnerWithTemporaryPassword.useMutation",
   "trpc.admin.sendOwnerUsageAlert.useMutation",
   "trpc.admin.savePlatformSmsFallbackProvider.useMutation",
+  "trpc.powerhub.staff.create.useMutation",
+  "trpc.powerhub.staff.resetPassword.useMutation",
 ] as const;
 
 function listRuntimeSourceFiles(directory: string): string[] {
