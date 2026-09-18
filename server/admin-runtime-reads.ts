@@ -111,17 +111,21 @@ export const adminRouterWithSupabaseReadContracts = router({
   }),
 
   setTenantStatus: platformAdminProcedure.input(tenantStatusInput).mutation(async ({ ctx, input }) => {
-    const admin = supabaseAdmin();
-    const { data: tenant, error: tenantError } = await admin.from("tenants").select("id,status").eq("id", input.tenantId).maybeSingle();
-    if (tenantError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مساحة صاحب المولد من Supabase." });
-    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-    const { error: tenantUpdateError } = await admin.from("tenants").update({ status: input.status }).eq("id", input.tenantId);
-    if (tenantUpdateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالة المساحة في Supabase." });
-    const { error: subscriptionError } = await admin.from("tenant_subscriptions").update({ status: input.status }).eq("tenant_id", input.tenantId);
-    if (subscriptionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالة اشتراك المساحة في Supabase." });
-    const { error: auditError } = await admin.from("audit_logs").insert({ tenant_id: input.tenantId, entity_type: "tenant", entity_id: String(input.tenantId), action: "admin_set_tenant_status", before_data: { status: tenant.status }, after_data: { status: input.status }, user_id: ctx.user.id });
-    if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث الحالة لكن تعذر تسجيل التدقيق في Supabase." });
-    return { success: true as const };
+    const { data, error } = await supabaseAdmin().rpc("powerhub_set_tenant_status_atomic", {
+      p_tenant_id: input.tenantId,
+      p_status: input.status,
+      p_actor_user_id: ctx.user.id,
+    });
+    if (error) {
+      const message = error.message ?? "";
+      if (message.includes("TENANT_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+      if (message.includes("TENANT_SUBSCRIPTION_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يوجد اشتراك مرتبط بمساحة صاحب المولد." });
+      if (message.includes("INVALID_TENANT_STATUS")) throw new TRPCError({ code: "BAD_REQUEST", message: "حالة مساحة صاحب المولد غير صالحة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالة مساحة صاحب المولد بشكل ذري في Supabase." });
+    }
+    const row = data?.[0];
+    if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد عملية تحديث حالة المساحة نتيجة صالحة." });
+    return { success: true as const, previousStatus: row.previous_status, newStatus: row.new_status };
   }),
   platformTweetSmsReport: platformAdminProcedure.input(reportInput).query(async ({ input }) => {
     const { data, error } = await supabaseAdmin().rpc("powerhub_tweetsms_report", { p_from: input?.from?.toISOString() ?? null, p_to: input?.to?.toISOString() ?? null });
