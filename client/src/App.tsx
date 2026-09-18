@@ -22,8 +22,6 @@ import PublicInvoice from "./pages/PublicInvoice";
 import AdminConsolePage from "./pages/AdminConsolePage";
 import FinanceAdminPage from "./pages/FinanceAdminPage";
 import LoginPage from "./pages/LoginPage";
-import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import ResetPasswordPage from "./pages/ResetPasswordPage";
 import ProfileSecurityPage from "./pages/ProfileSecurityPage";
 import SubscriberPortalPage from "./pages/SubscriberPortalPage";
 import SubscriberPortalSettingsPage from "./pages/SubscriberPortalSettingsPage";
@@ -45,8 +43,6 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/login"} component={LoginPage} />
-      <Route path={"/forgot-password"} component={ForgotPasswordPage} />
-      <Route path={"/reset-password"} component={ResetPasswordPage} />
       <Route path={"/workspace"}>{() => <RouteAccessGate><WorkspaceHome /></RouteAccessGate>}</Route>
       <Route path={"/setup"}>{() => <RouteAccessGate><SetupWizardPage /></RouteAccessGate>}</Route>
       <Route path={"/quick-actions"}>{() => <RouteAccessGate><QuickActionsPage /></RouteAccessGate>}</Route>
