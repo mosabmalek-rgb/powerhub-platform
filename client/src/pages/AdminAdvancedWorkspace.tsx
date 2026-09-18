@@ -154,12 +154,90 @@ export function OwnerLifecyclePanel() {
 export function GeneralPlatformSettingsPanel() {
   const utils = trpc.useUtils();
   const configuration = trpc.admin.platformConfiguration.useQuery();
-  const save = trpc.admin.savePlatformSetting.useMutation({ onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); toast.success("تم حفظ الإعدادات العامة."); }, onError: (error) => toast.error(error.message) });
+  const publicOptionsMutation = trpc.admin.savePlatformSetting.useMutation();
+  const featureFlagsMutation = trpc.admin.savePlatformSetting.useMutation();
+  const [saving, setSaving] = useState(false);
   const publicOptions = configuration.data?.settings.find((setting) => setting.settingKey === "public_invoice_options");
   const featureFlags = configuration.data?.settings.find((setting) => setting.settingKey === "platform_feature_flags");
   const publicValue = (publicOptions?.value ?? {}) as Record<string, unknown>;
   const featuresValue = (featureFlags?.value ?? {}) as Record<string, unknown>;
-  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">إعدادات الصفحة العامة والميزات</h2><p className="mt-1 text-sm leading-7 text-slate-500">تتحكم هذه الخيارات بالعرض العام لروابط المشتركين وبالميزات المحلية المسموح بها، ولا تعدّل بيانات أي مستأجر.</p><form className="mt-5 grid gap-6 xl:grid-cols-2" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); save.mutate({ settingKey: "public_invoice_options", isEnabled: form.get("publicEnabled") === "on", message: String(form.get("publicMessage") || "") || undefined, value: { showPlatformBranding: form.get("showPlatformBranding") === "on", showSupportText: form.get("showSupportText") === "on" } }); save.mutate({ settingKey: "platform_feature_flags", isEnabled: true, value: { meterPhoto: form.get("meterPhoto") === "on", offlineReadings: form.get("offlineReadings") === "on", publicInvoices: form.get("publicInvoices") === "on" } }); }}><div className="rounded-2xl border border-white/8 bg-white/[.02] p-4"><h3 className="font-bold text-white">رابط الفاتورة العامة</h3><label className="mt-4 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={publicOptions?.isEnabled} name="publicEnabled" type="checkbox" className="accent-[#F5B800]" />إتاحة مظهر الرابط العام</label><label className="mt-3 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={Boolean(publicValue.showPlatformBranding)} name="showPlatformBranding" type="checkbox" className="accent-[#F5B800]" />إظهار هوية PowerHub</label><label className="mt-3 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={Boolean(publicValue.showSupportText)} name="showSupportText" type="checkbox" className="accent-[#F5B800]" />إظهار نص الدعم</label><Input name="publicMessage" defaultValue={publicOptions?.message ?? ""} placeholder="رسالة تظهر في الرابط العام" className={inputClass + " mt-4"} /></div><div className="rounded-2xl border border-white/8 bg-white/[.02] p-4"><h3 className="font-bold text-white">ميزات المنصة</h3><label className="mt-4 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={featuresValue.meterPhoto !== false} name="meterPhoto" type="checkbox" className="accent-[#F5B800]" />رفع صورة العداد</label><label className="mt-3 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={featuresValue.offlineReadings !== false} name="offlineReadings" type="checkbox" className="accent-[#F5B800]" />القراءات دون اتصال</label><label className="mt-3 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={featuresValue.publicInvoices !== false} name="publicInvoices" type="checkbox" className="accent-[#F5B800]" />روابط الفواتير العامة</label><Button disabled={save.isPending} className="mt-5 w-full bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">حفظ الإعدادات العامة</Button></div></form></CardContent></Card>;
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const publicInput = {
+      settingKey: "public_invoice_options",
+      isEnabled: form.get("publicEnabled") === "on",
+      message: String(form.get("publicMessage") || "") || undefined,
+      value: {
+        showPlatformBranding: form.get("showPlatformBranding") === "on",
+        showSupportText: form.get("showSupportText") === "on",
+      },
+    } as const;
+    const featureInput = {
+      settingKey: "platform_feature_flags",
+      isEnabled: true,
+      value: {
+        meterPhoto: form.get("meterPhoto") === "on",
+        offlineReadings: form.get("offlineReadings") === "on",
+        publicInvoices: form.get("publicInvoices") === "on",
+      },
+    } as const;
+
+    const previousPublicInput = {
+      settingKey: "public_invoice_options",
+      isEnabled: Boolean(publicOptions?.isEnabled),
+      message: publicOptions?.message ?? undefined,
+      value: {
+        showPlatformBranding: Boolean(publicValue.showPlatformBranding),
+        showSupportText: Boolean(publicValue.showSupportText),
+      },
+    } as const;
+
+    setSaving(true);
+    try {
+      await publicOptionsMutation.mutateAsync(publicInput);
+      try {
+        await featureFlagsMutation.mutateAsync(featureInput);
+      } catch (featureError) {
+        try {
+          await publicOptionsMutation.mutateAsync(previousPublicInput);
+        } catch {
+          throw new Error("تم حفظ إعداد واحد فقط وتعذر التراجع عنه؛ راجع إعدادات الصفحة العامة والميزات قبل المتابعة.");
+        }
+        throw featureError;
+      }
+      await utils.admin.platformConfiguration.invalidate();
+      toast.success("تم حفظ إعدادات الصفحة العامة والميزات معًا.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر حفظ إعدادات الصفحة العامة والميزات.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <h2 className="font-bold text-white">إعدادات الصفحة العامة والميزات</h2>
+    <p className="mt-1 text-sm leading-7 text-slate-500">تتحكم هذه الخيارات بالعرض العام لروابط المشتركين وبالميزات المحلية المسموح بها، ولا تعدّل بيانات أي مستأجر.</p>
+    <form className="mt-5 grid gap-6 xl:grid-cols-2" onSubmit={(event) => void submit(event)}>
+      <div className="rounded-2xl border border-white/8 bg-white/[.02] p-4">
+        <h3 className="font-bold text-white">رابط الفاتورة العامة</h3>
+        <label className="mt-4 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={publicOptions?.isEnabled} name="publicEnabled" type="checkbox" className="accent-[#F5B800]" />إتاحة مظهر الرابط العام</label>
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={Boolean(publicValue.showPlatformBranding)} name="showPlatformBranding" type="checkbox" className="accent-[#F5B800]" />إظهار هوية PowerHub</label>
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={Boolean(publicValue.showSupportText)} name="showSupportText" type="checkbox" className="accent-[#F5B800]" />إظهار نص الدعم</label>
+        <Input name="publicMessage" defaultValue={publicOptions?.message ?? ""} placeholder="رسالة تظهر في الرابط العام" className={inputClass + " mt-4"} />
+      </div>
+      <div className="rounded-2xl border border-white/8 bg-white/[.02] p-4">
+        <h3 className="font-bold text-white">ميزات المنصة</h3>
+        <label className="mt-4 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={featuresValue.meterPhoto !== false} name="meterPhoto" type="checkbox" className="accent-[#F5B800]" />رفع صورة العداد</label>
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={featuresValue.offlineReadings !== false} name="offlineReadings" type="checkbox" className="accent-[#F5B800]" />القراءات دون اتصال</label>
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-300"><input defaultChecked={featuresValue.publicInvoices !== false} name="publicInvoices" type="checkbox" className="accent-[#F5B800]" />روابط الفواتير العامة</label>
+        <Button type="submit" disabled={saving || publicOptionsMutation.isPending || featureFlagsMutation.isPending} className="mt-5 w-full bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">
+          {saving ? "جارٍ حفظ الإعدادات…" : "حفظ الإعدادات العامة"}
+        </Button>
+      </div>
+    </form>
+  </CardContent></Card>;
 }
 
 export function BranchFeaturePolicyPanel() {
