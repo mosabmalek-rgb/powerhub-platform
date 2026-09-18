@@ -153,7 +153,19 @@ export default function OperationsPage({ section }: { section: Section }) {
   const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تم تسجيل الدفعة."); }, onError: (e) => toast.error(e.message) });
   const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: async (result) => { await refreshOperational(); toast.success(result.status === "submitted" ? "أُرسل إيصال SMS إلى المزود." : "وُضع إيصال SMS في الطابور؛ راجع سجل الإشعارات."); }, onError: (error) => toast.error(error.message) });
   const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تم تسجيل المصروف."); }, onError: (e) => toast.error(e.message) });
-  const createLink = trpc.powerhub.invoices.createShareLink.useMutation({ onSuccess: async (result) => {\n    const url = `${window.location.origin}${result.path}`;\n    try {\n      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);\n      else {\n        const input = document.createElement("textarea"); input.value = url; input.style.position = "fixed"; input.style.opacity = "0"; document.body.appendChild(input); input.select();\n        const copied = document.execCommand("copy"); document.body.removeChild(input); if (!copied) throw new Error("copy_failed");\n      }\n      toast.success("تم نسخ رابط الفاتورة الآمن.");\n    } catch {\n      toast.error("تم إنشاء رابط الفاتورة، لكن تعذر نسخه تلقائياً. انسخه يدوياً من رابط الفاتورة.");\n    }\n  }, onError: (e) => toast.error(e.message) });
+  const createLink = trpc.powerhub.invoices.createShareLink.useMutation({ onSuccess: async (result) => {
+    const url = `${window.location.origin}${result.path}`;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+      else {
+        const input = document.createElement("textarea"); input.value = url; input.style.position = "fixed"; input.style.opacity = "0"; document.body.appendChild(input); input.select();
+        const copied = document.execCommand("copy"); document.body.removeChild(input); if (!copied) throw new Error("copy_failed");
+      }
+      toast.success("تم نسخ رابط الفاتورة الآمن.");
+    } catch {
+      toast.error("تم إنشاء رابط الفاتورة، لكن تعذر نسخه تلقائياً. انسخه يدوياً من رابط الفاتورة.");
+    }
+  }, onError: (e) => toast.error(e.message) });
 
   const siteOptions = sitesQuery.data ?? [];
   const activeSite = useMemo(() => siteOptions.find((site) => site.id === siteId), [siteId, siteOptions]);
