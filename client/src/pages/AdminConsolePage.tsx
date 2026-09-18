@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { AdvancedDashboard, BranchFeaturePolicyPanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OperationalMonitoringPanel, OwnerLifecyclePanel, OwnerManualLimitOverridesPanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, OwnerUsagePriorityFiltersPanel, OwnerUsageQuickActionsPanel, OwnerUsageReportPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
+import { AdvancedDashboard, BranchFeaturePolicyPanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OperationalMonitoringPanel, OwnerLifecyclePanel, OwnerManualLimitOverridesPanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, OwnerUsagePriorityFiltersPanel, OwnerUsageQuickActionsPanel, OwnerUsageReportPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionPackageCatalogPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
 import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import PlatformTweetSmsReport from "./PlatformTweetSmsReport";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
@@ -100,7 +100,7 @@ export default function AdminConsolePage() {
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
-    {tab === "settings" && <><PlatformControlPanel /><GeneralPlatformSettingsPanel /><BranchFeaturePolicyPanel /><OwnerSubaccountPolicyPanel /><OwnerSubaccountLimitPolicyPanel /><OwnerSubscriberLimitPolicyPanel /><OwnerManualLimitOverridesPanel /><SubscriptionUpgradeRequestsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
+    {tab === "settings" && <><PlatformControlPanel /><SubscriptionPackageCatalogPanel /><GeneralPlatformSettingsPanel /><BranchFeaturePolicyPanel /><OwnerSubaccountPolicyPanel /><OwnerSubaccountLimitPolicyPanel /><OwnerSubscriberLimitPolicyPanel /><OwnerManualLimitOverridesPanel /><SubscriptionUpgradeRequestsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
   </main></PlatformAdminLayout>;
 }
 
