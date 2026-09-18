@@ -24,7 +24,7 @@ export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSa
   const [result, setResult] = useState<ImportResult | null>(null);
   const importSubscribers = trpc.powerhub.subscribers.bulkImport.useMutation({
     onMutate: () => { setProgress(72); setProgressLabel("جارٍ حفظ المشتركين…"); },
-    onSuccess: async (value) => { setProgress(100); setProgressLabel("اكتمل الحفظ بنجاح"); setResult(value); await onSaved(); toast.success(`تمت إضافة ${value.created.length} وتحديث ${value.updated.length} مشتركاً.`); },
+    onSuccess: async (value) => { setProgress(100); setProgressLabel(value.failed.length ? "اكتمل الحفظ مع وجود صفوف تحتاج مراجعة" : "اكتمل الحفظ بنجاح"); setResult(value); await onSaved(); if (value.failed.length) toast.warning(`تمت إضافة ${value.created.length} وتحديث ${value.updated.length}، لكن ${value.failed.length} صفاً لم يُحفظ ويحتاج إلى مراجعة.`); else toast.success(`تمت إضافة ${value.created.length} وتحديث ${value.updated.length} مشتركاً.`); },
     onError: (error) => { setProgress(0); setProgressLabel(""); toast.error(error.message); },
   });
   const prepared = useMemo(() => prepareSubscriberImport(rows), [rows]);
