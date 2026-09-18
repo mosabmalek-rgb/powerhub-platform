@@ -1711,6 +1711,7 @@ export const powerhubRouter = router({
       invoiceIds: z.array(z.number().int().positive()).min(1).optional(),
       sendAll: z.boolean().default(false),
       includeFailed: z.boolean().default(false),
+      retryFailedOnly: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const admin = supabaseAdmin();
@@ -1744,7 +1745,7 @@ export const powerhubRouter = router({
         }
       }
 
-      const statuses = input.includeFailed ? ["pending", "failed"] : ["pending"];
+      const statuses = input.retryFailedOnly ? ["failed"] : input.includeFailed ? ["pending", "failed"] : ["pending"];
       const notificationIds: number[] = [];
       for (let offset = 0;; offset += 200) {
         let query = admin.from("notification_messages").select("id, invoice_id, subscriber_id")
@@ -1766,7 +1767,7 @@ export const powerhubRouter = router({
       await writeSupabaseAudit({
         userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "notification_batch",
         entityId: notificationIds.join(",") || "none", action: "send_deferred_invoice_notifications",
-        metadata: { notificationIds, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, includeFailed: input.includeFailed, sendAll: input.sendAll },
+        metadata: { notificationIds, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, includeFailed: input.includeFailed, retryFailedOnly: input.retryFailedOnly, sendAll: input.sendAll },
       });
       return result;
     }),
