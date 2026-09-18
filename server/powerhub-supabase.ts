@@ -464,3 +464,16 @@ export async function writeSupabaseAudit(input: { userId?: number; tenantId: num
   });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل التدقيق في Supabase." });
 }
+export async function writeSupabaseAuditBestEffort(input: { userId?: number; tenantId: number; siteId: number; entityType: string; entityId: string; action: string; beforeData?: unknown; afterData?: unknown; metadata?: unknown }) {
+  try {
+    await writeSupabaseAudit(input);
+  } catch (error) {
+    console.error("[audit-best-effort] operation succeeded but audit write failed", {
+      entityType: input.entityType,
+      entityId: input.entityId,
+      action: input.action,
+      error,
+    });
+  }
+}
+
