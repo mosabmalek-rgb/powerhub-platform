@@ -550,8 +550,51 @@ export const powerhubRouter = router({
         }
         return { success: true };
       }),
-    create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), email: z.string().email(), name: z.string().trim().min(2).max(160), temporaryPassword: z.string().min(8).max(128), role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) })).mutation(async () => {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إنشاء الحسابات الفرعية متوقف مؤقتاً أثناء ترحيله الآمن إلى Supabase Auth. لا تُنشأ حسابات من المسار الموروث." });
+    create: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      email: z.string().email(),
+      name: z.string().trim().min(2).max(160),
+      temporaryPassword: z.string().min(8).max(128),
+      role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]),
+      allBranches: z.boolean().default(false),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const admin = supabaseAdmin();
+      const { data: authData, error: authError } = await admin.auth.admin.createUser({
+        email: input.email.trim().toLowerCase(),
+        password: input.temporaryPassword,
+        email_confirm: true,
+        user_metadata: { name: input.name.trim(), full_name: input.name.trim() },
+      });
+      if (authError || !authData.user) {
+        const message = authError?.message ?? "تعذر إنشاء حساب المستخدم في Supabase Auth.";
+        throw new TRPCError({ code: authError?.status === 422 ? "CONFLICT" : "BAD_REQUEST", message });
+      }
+      const authUserId = authData.user.id;
+      try {
+        const { data: profile, error: profileError } = await admin.from("users")
+          .update({ name: input.name.trim(), email: input.email.trim().toLowerCase(), must_change_password: true, temporary_password_issued_at: new Date().toISOString(), account_status: "active" })
+          .eq("auth_user_id", authUserId)
+          .select("id")
+          .maybeSingle();
+        if (profileError || !profile) throw new Error("تعذر إنشاء ملف PowerHub للمستخدم الجديد.");
+        const { data, error } = await admin.rpc("powerhub_assign_existing_staff", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id,
+          p_target_user_id: Number(profile.id), p_role: input.role, p_all_branches: input.allBranches,
+        });
+        if (error || !data?.[0]?.profile_id) {
+          const message = error?.message ?? "تعذر ربط المستخدم بالفرع والدور المحددين.";
+          if (message.includes("SUBACCOUNT_ROLE_NOT_ALLOWED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة المنصة." });
+          if (message.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك." });
+          if (message.includes("TENANT_PLAN_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
+          if (message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة صاحب المولد." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر ربط الحساب الجديد بمساحة صاحب المولد." });
+        }
+        return { success: true as const, userId: Number(profile.id), profileId: Number(data[0].profile_id) };
+      } catch (error) {
+        await admin.auth.admin.deleteUser(authUserId).catch(() => undefined);
+        throw error;
+      }
     }),
     activity: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
