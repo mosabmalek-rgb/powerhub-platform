@@ -1211,6 +1211,55 @@ export const powerhubRouter = router({
       if (errorText.includes("READING_RESET_NOTES_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة قبل حفظها." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل القراءة في Supabase." });
     }),
+    createAndIssue: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date().optional(),
+      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(),
+      imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
+      notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+      const readingAt = input.readingAt ?? new Date();
+      let imageKey: string | undefined;
+      let imageHash: string | undefined;
+      try {
+        if (input.imageData) {
+          if (!input.imageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "نوع صورة القراءة غير مدعوم." });
+          const imageBytes = Buffer.from(input.imageData, "base64");
+          if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت." });
+          imageHash = createHash("sha256").update(imageBytes).digest("hex");
+          const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
+          const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${input.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
+          imageKey = stored.key;
+        }
+        const dueDate = new Date(readingAt);
+        dueDate.setDate(dueDate.getDate() + 14);
+        const { data, error } = await supabaseAdmin().rpc("powerhub_create_and_issue_reading", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
+          p_client_operation_id: input.clientOperationId ?? null, p_reading_at: readingAt.toISOString(), p_reading_value: input.readingValue,
+          p_capture_method: input.captureMethod, p_image_key: imageKey ?? "", p_image_hash: imageHash ?? "", p_notes: input.notes?.trim() ?? "",
+          p_is_reading_reset: input.isReadingReset, p_field_verified: input.fieldVerified,
+          p_can_override_same_day: input.overrideSameDay && ["owner", "manager", "accountant"].includes(access.role),
+          p_due_date: dueDate.toISOString(), p_billing_period: readingAt.toISOString().slice(0, 7), p_discount_amount: 0,
+        });
+        const row = (data as Array<{ reading_id: number|string; consumption_kwh: number|string; invoice_id: number|string; invoice_no: string; total_amount: number|string; notification_ids?: unknown; replayed?: boolean; already_processed?: boolean }> | null)?.[0];
+        if (!error && row) return {
+          id: Number(row.reading_id), consumptionKwh: Number(row.consumption_kwh), status: "approved" as const,
+          invoiceId: Number(row.invoice_id), invoiceNo: row.invoice_no, totalAmount: Number(row.total_amount),
+          notificationIds: Array.isArray(row.notification_ids) ? row.notification_ids.map(Number).filter(Number.isInteger) : [],
+          replayed: Boolean(row.replayed), alreadyProcessed: Boolean(row.already_processed),
+        };
+        const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (errorText.includes("TARIFF_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة لهذا الفرع؛ أضف تعرفة فعالة قبل إصدار الفاتورة." });
+        if (errorText.includes("SAME_DAY_READING_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا المشترك في اليوم نفسه." });
+        if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة السابقة المعتمدة." });
+        if (errorText.includes("READING_RESET_NOTES_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة." });
+        if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ القراءة وإصدار الفاتورة كعملية واحدة في Supabase." });
+      } catch (error) {
+        if (imageKey) { try { await storageRemove(imageKey); } catch {} }
+        throw error;
+      }
+    }),
     updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       const { data, error } = await supabaseAdmin().rpc("powerhub_update_pending_reading", {
