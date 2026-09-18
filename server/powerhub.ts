@@ -1381,6 +1381,7 @@ export const powerhubRouter = router({
         const stored = await storagePut(`payment-receipts/${ctx.user.id}/${input.paymentNo}-${Date.now()}.${extension}`, imageBytes, input.receiptImageMime);
         receiptImageKey = stored.key;
       }
+      try {
       let collectorSessionId: number | undefined;
       if (access.role === "collector") {
         const { data: openSession, error: sessionError } = await supabaseAdmin().from("collector_sessions").select("id")
@@ -1408,6 +1409,13 @@ export const powerhubRouter = router({
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تعديل أو إضافة بيانات مالية داخلها." });
       if (errorText.includes("COLLECTOR_SESSION_NOT_OPEN")) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل التحصيل في Supabase." });
+
+      } catch (error) {
+        if (receiptImageKey) {
+          try { await storageRemove(receiptImageKey); } catch {}
+        }
+        throw error;
+      }
     }),
   }),
 
