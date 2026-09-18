@@ -1716,7 +1716,14 @@ export const powerhubRouter = router({
       });
       const profile = (data as Array<{ company_name: string | null; report_logo_key: string | null }> | null)?.[0];
       if (!error && profile) {
-        const logoUrl = profile.report_logo_key ? (await storageGet(profile.report_logo_key)).url : null;
+        let logoUrl: string | null = null;
+        if (profile.report_logo_key) {
+          try {
+            logoUrl = (await storageGet(profile.report_logo_key)).url;
+          } catch (logoError) {
+            console.error("[report-branding] branding saved but logo URL retrieval failed", logoError);
+          }
+        }
         return { companyName: profile.company_name, reportLogoKey: profile.report_logo_key, logoUrl };
       }
       if (reportLogoKey) await storageRemove(reportLogoKey).catch(() => undefined);
