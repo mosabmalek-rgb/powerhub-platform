@@ -33,7 +33,9 @@ set search_path = public, pg_temp
 as $function$
 declare
   v_created record;
+  v_existing record;
   v_result record;
+  v_base_version integer;
 begin
   select *
     into v_created
@@ -54,6 +56,19 @@ begin
     p_can_override_same_day
   );
 
+  if v_created.replayed then
+    select version_no into v_base_version
+    from public.meter_readings
+    where id = v_created.reading_id
+      and tenant_id = p_tenant_id
+      and site_id = p_site_id;
+    if v_base_version is null then
+      raise exception 'READING_OUT_OF_SCOPE' using errcode='P0001';
+    end if;
+  else
+    v_base_version := 1;
+  end if;
+
   select *
     into v_result
   from public.powerhub_approve_and_issue_mobile_reading(
@@ -61,7 +76,7 @@ begin
     p_site_id,
     p_user_id,
     v_created.reading_id,
-    1,
+    v_base_version,
     p_due_date,
     p_billing_period,
     p_discount_amount
