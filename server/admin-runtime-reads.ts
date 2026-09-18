@@ -84,6 +84,30 @@ export const adminRouterWithSupabaseReadContracts = router({
     const row = data?.[0];
     return { ok: result.ok, balance: result.balance ?? null, message: result.message ?? null, accountActive: Boolean(row?.is_active) };
   }),
+  sendOwnerUsageAlert: platformAdminProcedure.input(z.object({
+    tenantId: z.number().int().positive(),
+    usagePercent: z.number().int().min(0).max(100),
+    message: z.string().trim().min(5).max(1200),
+  })).mutation(async ({ ctx, input }) => {
+    const admin = supabaseAdmin();
+    const { data: ownerSite, error: siteError } = await admin.from("sites")
+      .select("id,tenant_id").eq("tenant_id", input.tenantId).neq("status", "archived").order("id", { ascending: true }).limit(1).maybeSingle();
+    if (siteError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديد الفرع الرئيسي لصاحب المولد." });
+    if (!ownerSite) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد محطة نشطة لمساحة صاحب المولد." });
+    const severity = input.usagePercent >= 100 ? "critical" : input.usagePercent >= 80 ? "warning" : "info";
+    const { data, error } = await admin.from("tenant_owner_alerts").insert({
+      tenant_id: input.tenantId,
+      site_id: Number(ownerSite.id),
+      title: input.usagePercent >= 100 ? "تم بلوغ حد الاستهلاك" : "تنبيه استهلاك الباقة",
+      message: input.message,
+      severity,
+      created_by_user_id: ctx.user.id,
+      metadata: { usagePercent: input.usagePercent, source: "platform_admin" },
+    }).select("id").single();
+    if (error || !data) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ تنبيه صاحب المولد في Supabase." });
+    return { success: true as const, alertId: Number(data.id) };
+  }),
+
   setTenantStatus: platformAdminProcedure.input(tenantStatusInput).mutation(async ({ ctx, input }) => {
     const admin = supabaseAdmin();
     const { data: tenant, error: tenantError } = await admin.from("tenants").select("id,status").eq("id", input.tenantId).maybeSingle();
