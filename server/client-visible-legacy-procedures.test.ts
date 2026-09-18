@@ -17,9 +17,7 @@ const retiredClientProcedures = [
   "trpc.powerhub.notifications.sendPaymentReminder.useMutation",
   "trpc.powerhub.notifications.sendPaymentReceipt.useMutation",
   "trpc.admin.createGeneratorOwnerWithTemporaryPassword.useMutation",
-  "trpc.admin.sendOwnerUsageAlert.useMutation",
   "trpc.admin.savePlatformSmsFallbackProvider.useMutation",
-  "trpc.powerhub.staff.create.useMutation",
   "trpc.powerhub.staff.resetPassword.useMutation",
 ] as const;
 
