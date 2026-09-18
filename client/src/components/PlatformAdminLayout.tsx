@@ -57,7 +57,6 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
       { id: "invoiceDelivery", label: "إرسال الفواتير", icon: BellRing, detail: "إعداد WhatsApp وSMS للمشتركين" },
       { id: "tweetSms", label: "حسابات TweetSMS", icon: MessageSquareText, detail: "ربط الحسابات الفرعية وحصص الرسائل" },
       { id: "tweetSmsReport", label: "رصيد وتقارير TweetSMS", icon: FileBarChart, detail: "رصيد حساب المنصة واستهلاك الرسائل" },
-      { id: "smsFallback", label: "مزود SMS احتياطي", icon: MessageSquareText, detail: "تهيئة احتياطية آمنة بانتظار عقد API" },
       { id: "complaints", label: "الشكاوى", icon: Ticket, detail: "المتابعة والتعيين والردود" },
     ],
   },
