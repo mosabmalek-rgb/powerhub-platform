@@ -106,13 +106,18 @@ export async function processNotificationById(notificationId: number, actorUserI
 
 export async function processNotificationQueueForTenant(tenantId: number, actorUserId: number, notificationIds: number[]) {
   if (!Number.isInteger(tenantId) || tenantId < 1) throw new TRPCError({ code: "BAD_REQUEST", message: "المولد غير صالح." });
-  const uniqueIds = Array.from(new Set(notificationIds)).slice(0, 50);
-  const results = await Promise.all(uniqueIds.map(async (notificationId) => ({ notificationId, ...await processNotificationById(notificationId, actorUserId) })));
+  const uniqueIds = Array.from(new Set(notificationIds));
+  const allResults: Array<{ notificationId: number } & DispatchResult> = [];
+  for (let offset = 0; offset < uniqueIds.length; offset += 50) {
+    const batch = uniqueIds.slice(offset, offset + 50);
+    const results = await Promise.all(batch.map(async (notificationId) => ({ notificationId, ...await processNotificationById(notificationId, actorUserId) })));
+    allResults.push(...results);
+  }
   return {
-    requested: uniqueIds.length,
-    submitted: results.filter((result) => result.status === "submitted").length,
-    failed: results.filter((result) => result.status === "failed").length,
-    skipped: results.filter((result) => result.status === "skipped").length,
-    results,
+    requested: allResults.length,
+    submitted: allResults.filter((result) => result.status === "submitted").length,
+    failed: allResults.filter((result) => result.status === "failed").length,
+    skipped: allResults.filter((result) => result.status === "skipped").length,
+    results: allResults,
   };
 }
