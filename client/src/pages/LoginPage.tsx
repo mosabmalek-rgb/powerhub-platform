@@ -30,6 +30,8 @@ export default function LoginPage() {
       if (signInError) throw signInError;
       const session = await getSupabaseSession();
       if (!session) throw new Error("تعذر تثبيت جلسة الدخول. حاول مرة أخرى.");
+      // Use a full navigation after sign-in so the protected route boots from
+      // the persisted Supabase session instead of racing React route state.
       window.location.assign("/workspace");
     } catch (submitError) {
       setError(authMessage(submitError));
@@ -59,7 +61,7 @@ export default function LoginPage() {
           <p className="mt-2 text-sm leading-6 text-slate-400">أدخل بريدك وكلمة المرور للوصول إلى المساحة المصرح بها.</p>
           <form className="mt-7 space-y-5" onSubmit={submit}>
             <div className="space-y-2"><Label htmlFor="email" className="text-[#263546]">البريد الإلكتروني</Label><div className="relative"><Mail className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input id="email" type="email" autoComplete="email" dir="ltr" value={email} onChange={(event) => setEmail(event.target.value)} required className="h-11 border-[#d5dee8] bg-[#f8fafc] pr-10 text-[#17212b] placeholder:text-slate-400" placeholder="you@example.com" /></div></div>
-            <div className="space-y-2"><div className="flex items-center justify-between"><Label htmlFor="password" className="text-[#263546]">كلمة المرور</Label><button type="button" onClick={() => setLocation("/forgot-password")} className="text-xs font-extrabold text-[#b88700] transition hover:text-[#8d6a00] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-2">نسيت كلمة المرور؟</button></div><div className="relative"><KeyRound className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input id="password" type="password" autoComplete="current-password" dir="ltr" value={password} onChange={(event) => setPassword(event.target.value)} required className="h-11 border-[#d5dee8] bg-[#f8fafc] pr-10 text-[#17212b] placeholder:text-slate-400" placeholder="••••••••" /></div></div>
+            <div className="space-y-2"><Label htmlFor="password" className="text-[#263546]">كلمة المرور</Label><div className="relative"><KeyRound className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input id="password" type="password" autoComplete="current-password" dir="ltr" value={password} onChange={(event) => setPassword(event.target.value)} required className="h-11 border-[#d5dee8] bg-[#f8fafc] pr-10 text-[#17212b] placeholder:text-slate-400" placeholder="••••••••" /></div></div>
             {error && <p role="alert" className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-700">{error}</p>}
             <Button disabled={pending} type="submit" className="h-11 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ المتابعة…</> : "تسجيل الدخول"}</Button>
           </form>
