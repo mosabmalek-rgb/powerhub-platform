@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
@@ -629,7 +628,7 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز إعادة تعيين كلمة المرور." });
       }
       const intentId = Number(prepared[0].intent_id);
-      const temporaryPassword = `PH-${crypto.randomBytes(12).toString("base64url")}`;
+      const temporaryPassword = `PH-${randomBytes(12).toString("base64url")}`;
       const { error: authError } = await admin.auth.admin.updateUserById(String(prepared[0].target_auth_user_id), { password: temporaryPassword });
       if (authError) {
         await admin.rpc("powerhub_complete_password_reset", { p_intent_id: intentId, p_actor_user_id: ctx.user.id, p_success: false, p_failure_reason: authError.message });
