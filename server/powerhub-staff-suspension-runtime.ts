@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
-import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
+import { requireSupabaseSiteRole, writeSupabaseAuditBestEffort } from "./powerhub-supabase";
 import { supabaseAdmin } from "./supabase-admin";
 
 const suspendInput = z.object({
@@ -56,7 +56,7 @@ export const powerhubStaffSuspensionRuntimeRouter = router({
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث فترة التوقيف في Supabase." });
     }
 
-    await writeSupabaseAudit({
+    await writeSupabaseAuditBestEffort({
       userId: ctx.user.id,
       tenantId: access.tenantId,
       siteId: input.siteId,
