@@ -147,7 +147,7 @@ export async function platformSnapshotFromSupabase() {
     },
     users: {
       total: users.length, platformAdmins: users.filter((user) => user.role === "admin").length, activeStaff: staff.filter((item) => item.is_active === true).length,
-      staffDirectory: staff.map((item) => { const user = userById.get(numeric(item.user_id)); return { id: numeric(item.id), role: item.role, isActive: item.is_active, userName: user?.name ?? null, userEmail: user?.email ?? null, tenantName: tenantById.get(numeric(item.tenant_id)) ?? "—", siteName: siteById.get(numeric(item.site_id)) ?? "—" }; }),
+      staffDirectory: staff.map((item) => { const user = userById.get(numeric(item.user_id)); return { id: numeric(item.id), userId: numeric(item.user_id), role: item.role, isActive: item.is_active, userName: user?.name ?? null, userEmail: user?.email ?? null, tenantId: numeric(item.tenant_id), siteId: numeric(item.site_id), tenantName: tenantById.get(numeric(item.tenant_id)) ?? "—", siteName: siteById.get(numeric(item.site_id)) ?? "—" }; }),
       subscriberDirectory: subscribers.map((item) => ({ id: numeric(item.id), subscriberNo: item.subscriber_no, fullName: item.full_name, subscriptionType: item.subscription_type, serviceStatus: item.service_status, tenantName: tenantById.get(numeric(item.tenant_id)) ?? "—", siteName: siteById.get(numeric(item.site_id)) ?? "—" })),
     },
     finance: { ...finance, paymentMethods: Array.from(paymentMethods.values()), collectionsByGenerator: [] as Array<{ generatorId: number; generatorName: string; generatorCode: string; tenantName: string; count: number; amount: number }> },
