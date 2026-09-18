@@ -126,6 +126,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
       if (name === "powerhub_delete_pending_reading") return resolved(null);
       if (name === "powerhub_approve_reading") return resolved([{ reading_id: 60, version_no: 2 }]);
+      if (name === "powerhub_approve_and_issue_mobile_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, notification_ids: [], already_processed: false }]);
       if (name === "powerhub_issue_invoice_from_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, replayed: false }]);
       if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
       if (name === "powerhub_create_expense") return resolved([{ expense_id: 82 }]);
@@ -772,11 +773,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     })]);
   });
 
-  it("يعطّل الاعتماد الجماعي للقراءات قبل أي وصول MySQL إلى حين تصميمه الذري", async () => {
+  it("يعتمد القراءات الميدانية جماعياً عبر RPC Supabase الذرية", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.mobileSync.approveAllAndIssue({ siteId: 10, limit: 10, sendNow: false }))
-      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(state.rpcCalls).toEqual([]);
+      .resolves.toMatchObject({ requested: 1, approved: 1, failed: 0, results: [{ readingId: 60, success: true, invoiceId: 71 }] });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_approve_and_issue_mobile_reading", args: expect.objectContaining({ p_reading_id: 60, p_base_version: 1, p_billing_period: "2026-08" }) })]);
   });
 
   it("ينشئ طلب ترقية الباقة عبر RPC Supabase الذرية دون MySQL", async () => {
@@ -826,11 +827,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls.map((call) => call.name)).toEqual(["powerhub_create_invoice_share_link", "powerhub_get_shared_invoice_by_token_hash"]);
   });
 
-  it("يعطّل اعتماد القراءة الميدانية الفردي غير الذري قبل أي وصول MySQL", async () => {
+  it("يعتمد القراءة الميدانية الفردية ويصدر الفاتورة عبر RPC Supabase الذرية", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.mobileSync.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false }))
-      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(state.rpcCalls).toEqual([]);
+      .resolves.toMatchObject({ success: true, invoiceId: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150, notificationIds: [] });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_approve_and_issue_mobile_reading", args: expect.objectContaining({ p_reading_id: 60, p_base_version: 1, p_billing_period: "2026-08" }) })]);
   });
 
   it("يحدّث هوية التقارير عبر RPC Supabase الذرية دون MySQL", async () => {
