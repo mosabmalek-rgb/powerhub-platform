@@ -17,7 +17,7 @@ import { storageGet, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit, writeSupabaseAuditBestEffort } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
@@ -388,7 +388,7 @@ export const powerhubRouter = router({
       if (unavailable) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك حفظ إجراء لا تملك صلاحيته في هذا الفرع." });
       const { error } = await supabaseAdmin().from("user_quick_action_preferences").upsert({ user_id: ctx.user.id, site_id: input.siteId, action_ids: input.actionIds }, { onConflict: "user_id,site_id" });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ تفضيلات الإجراءات السريعة في Supabase." });
-      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "user_quick_action_preferences", entityId: `${ctx.user.id}:${input.siteId}`, action: "upsert", afterData: { actionIds: input.actionIds } });
+      await writeSupabaseAuditBestEffort({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "user_quick_action_preferences", entityId: `${ctx.user.id}:${input.siteId}`, action: "upsert", afterData: { actionIds: input.actionIds } });
       return { success: true, actionIds: input.actionIds };
     }),
   }),
@@ -1137,7 +1137,7 @@ export const powerhubRouter = router({
       }).select("id").single();
       if (error || !data) throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "رمز التعرفة مستخدم بالفعل في هذا الفرع." : "تعذر إنشاء التعرفة في Supabase." });
       const id = Number(data.id);
-      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "tariff", entityId: String(id), action: "create", afterData: input });
+      await writeSupabaseAuditBestEffort({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "tariff", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),
   }),
@@ -1159,7 +1159,7 @@ export const powerhubRouter = router({
       }).select("id").single();
       if (error || !data) throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "رمز أو اسم المولد مستخدم بالفعل." : "تعذر إنشاء المولد في Supabase." });
       const id = Number(data.id);
-      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "generator", entityId: String(id), action: "create", afterData: input });
+      await writeSupabaseAuditBestEffort({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "generator", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),
     update: protectedProcedure.input(z.object({
@@ -1178,7 +1178,7 @@ export const powerhubRouter = router({
         operating_hours: input.operatingHours, status: input.status,
       }).eq("id", input.id).eq("site_id", input.siteId);
       if (updateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث المولد في Supabase." });
-      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "generator", entityId: String(input.id), action: "update", beforeData: existing, afterData: input });
+      await writeSupabaseAuditBestEffort({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "generator", entityId: String(input.id), action: "update", beforeData: existing, afterData: input });
       return { success: true };
     }),
   }),
