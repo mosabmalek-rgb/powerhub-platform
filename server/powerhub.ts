@@ -983,7 +983,13 @@ export const powerhubRouter = router({
       if (!error && data?.[0]) {
         const row = data[0] as { subscriber_id: number | string; subscriber_no: string; replayed: boolean };
         const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
-        if (!row.replayed) await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } });
+        if (!row.replayed) {
+          try {
+            await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } });
+          } catch (alertError) {
+            console.error("[subscriber-quota-alert] subscriber creation succeeded but quota alert recording failed", alertError);
+          }
+        }
         return response;
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
@@ -1047,7 +1053,13 @@ export const powerhubRouter = router({
       const created = Array.isArray(row?.created) ? row.created : [];
       const updated = Array.isArray(row?.updated) ? row.updated : [];
       const failed = [...failureRows, ...(Array.isArray(row?.failed) ? row.failed : [])].sort((a, b) => Number(a.sourceRow) - Number(b.sourceRow));
-      if (created.length) await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + created.length, remaining: Math.max(0, quota.remaining - created.length) } });
+      if (created.length) {
+        try {
+          await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + created.length, remaining: Math.max(0, quota.remaining - created.length) } });
+        } catch (alertError) {
+          console.error("[subscriber-quota-alert] bulk subscriber import succeeded but quota alert recording failed", alertError);
+        }
+      }
       return { created, updated, failed, notificationsQueued: 0, message: "تم حفظ الاستيراد الجماعي ذرياً في Supabase دون إرسال رسائل تلقائية." };
     }),
     update: protectedProcedure.input(z.object({
