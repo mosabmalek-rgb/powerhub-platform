@@ -49,7 +49,7 @@ export function planReadyOperations(
   now = Date.now(),
 ): SyncPlanItem[] {
   return items
-    .filter((item) => item.status === "pending")
+    .filter((item) => item.status === "pending" || item.status === "failed")
     .map((item) => ({ item, metadata: metadataByOperationId.get(item.clientOperationId) ?? createSyncMetadata(item, now) }))
     .filter(({ metadata }) => metadata.nextAttemptAt <= now)
     .filter(({ metadata }) => areDependenciesSatisfied(metadata.dependsOn, completedIds))
