@@ -33,9 +33,93 @@ export default function BranchesPage() {
   const isEnabled = policy.data?.isEnabled ?? false;
   const maxBranches = policy.data?.maxBranches ?? 1;
   const canCreate = isEnabled && (policy.data?.remaining ?? 0) > 0;
-  return <DashboardLayout><main className="space-y-6 pb-12"><header className="rounded-[26px] border border-[#F5B800]/18 bg-[#111823] p-6 shadow-panel"><div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Store className="h-4 w-4" />إدارة المواقع متعددة الأفرع</div><h1 className="mt-2 text-2xl font-extrabold text-white">الأفرع</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">كل فرع نطاق مستقل للتشغيل: مشتركون وعدادات وفواتير وموظفون خاصون به، مع بقاء المولدات موارد تشغيلية داخل الفرع.</p></div><div className="rounded-2xl border border-white/8 bg-white/[.025] px-5 py-4"><p className="text-xs text-slate-500">الحد المتاح بحسب السياسة</p><p className="mt-1 text-2xl font-extrabold text-[#F5B800]">{policy.data?.currentCount ?? branches.length} <span className="text-sm font-medium text-slate-400">من {maxBranches} فرع</span></p><p className={`mt-2 text-xs font-bold ${isEnabled ? "text-emerald-300" : "text-amber-300"}`}>{isEnabled ? `يمكن إنشاء ${policy.data?.remaining ?? 0} فرع إضافي` : "الميزة غير مفعلة لهذا الحساب"}</p></div></div></header>
-    {!policy.isLoading && !isEnabled && <Card className="border-amber-400/20 bg-amber-400/[.04]"><CardContent className="flex gap-3 p-5"><XCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" /><div><h2 className="font-bold text-amber-100">إدارة الأفرع الإضافية غير متاحة حالياً</h2><p className="mt-1 text-sm leading-7 text-amber-100/75">يبقى الفرع الرئيسي والبيانات القائمة متاحة للقراءة وفق سياسة المنصة. يمكن لآدمن PowerHub تفعيل الميزة يدوياً أو عبر باقتك.</p></div></CardContent></Card>}
-    <div className="grid gap-6 xl:grid-cols-[.78fr_1.22fr]">{canCreate ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#F5B800]/10 text-[#F5B800]"><CirclePlus className="h-5 w-5" /></div><div><h2 className="font-bold text-white">إضافة فرع جديد</h2><p className="mt-1 text-sm text-slate-500">أدخل اسم الموقع ومعلوماته التشغيلية الأساسية.</p></div></div><form className="mt-6 space-y-4" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const name = String(form.get("name") || "").trim(); const code = `BR-${Date.now().toString(36).toUpperCase()}`; create.mutate({ name, code, city: String(form.get("city") || "").trim() || undefined, address: String(form.get("address") || "").trim() || undefined }); }}><Input required minLength={2} name="name" placeholder="اسم الفرع، مثال: فرع الكرادة" className={inputClass} disabled={!canCreate || create.isPending} /><Input name="city" placeholder="المدينة / المنطقة" className={inputClass} disabled={!canCreate || create.isPending} /><textarea name="address" placeholder="العنوان التفصيلي (اختياري)" disabled={!canCreate || create.isPending} className="min-h-24 w-full rounded-xl border border-white/10 bg-white/[0.025] p-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 disabled:cursor-not-allowed disabled:opacity-50" /><p className="rounded-xl border border-sky-400/15 bg-sky-400/[.04] p-3 text-xs leading-6 text-sky-100">يولّد النظام رمزاً داخلياً آمناً للفرع. بعد الإنشاء يمكنك تعيين الموظفين وإدارة المشتركين والفوترة من خلال الفلتر الخاص بهذا الفرع.</p><Button disabled={!canCreate || create.isPending} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]"><CirclePlus className="ml-2 h-4 w-4" />{create.isPending ? "جارٍ إنشاء الفرع…" : "إنشاء فرع"}</Button></form> : <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-start gap-3"><XCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" /><div><h2 className="font-bold text-white">{isEnabled ? "لا يوجد رصيد أفرع متاح حالياً" : "إضافة الأفرع غير متاحة حالياً"}</h2><p className="mt-2 text-sm leading-7 text-slate-400">{isEnabled ? "وصل الحساب إلى الحد الأقصى للأفرع المسموح به ضمن الباقة الحالية. لا توجد عملية إنشاء متاحة حتى يتوفر حد إضافي." : "ميزة الأفرع الإضافية غير مفعلة لهذا الحساب، لذلك لن نعرض نموذج إنشاء غير قابل للتنفيذ."}</p></div></div></CardContent></Card>}</CardContent></Card><section className="space-y-4">{branches.map((branch, index) => <BranchCard key={branch.id} branch={branch} isPrimary={index === 0} isEditing={editingId === branch.id} pending={update.isPending} onEdit={() => setEditingId(branch.id)} onCancel={() => setEditingId(null)} onSave={(values) => update.mutate({ siteId: branch.id, ...values })} />)}{!branches.length && <Card className="border-white/8 bg-[#111823]"><CardContent className="p-10 text-center text-slate-500">لا توجد أفرع مهيأة لهذا الحساب بعد.</CardContent></Card>}</section></div></main></DashboardLayout>;
+  return (
+    <DashboardLayout>
+      <main className="space-y-6 pb-12">
+        <header className="rounded-[26px] border border-[#F5B800]/18 bg-[#111823] p-6 shadow-panel">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Store className="h-4 w-4" />إدارة المواقع متعددة الأفرع</div>
+              <h1 className="mt-2 text-2xl font-extrabold text-white">الأفرع</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">كل فرع نطاق مستقل للتشغيل: مشتركون وعدادات وفواتير وموظفون خاصون به، مع بقاء المولدات موارد تشغيلية داخل الفرع.</p>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-white/[.025] px-5 py-4">
+              <p className="text-xs text-slate-500">الحد المتاح بحسب السياسة</p>
+              <p className="mt-1 text-2xl font-extrabold text-[#F5B800]">{policy.data?.currentCount ?? branches.length} <span className="text-sm font-medium text-slate-400">من {maxBranches} فرع</span></p>
+              <p className={`mt-2 text-xs font-bold ${isEnabled ? "text-emerald-300" : "text-amber-300"}`}>{isEnabled ? `يمكن إنشاء ${policy.data?.remaining ?? 0} فرع إضافي` : "الميزة غير مفعلة لهذا الحساب"}</p>
+            </div>
+          </div>
+        </header>
+
+        {!policy.isLoading && !isEnabled ? (
+          <Card className="border-amber-400/20 bg-amber-400/[.04]">
+            <CardContent className="flex gap-3 p-5">
+              <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+              <div>
+                <h2 className="font-bold text-amber-100">إدارة الأفرع الإضافية غير متاحة حالياً</h2>
+                <p className="mt-1 text-sm leading-7 text-amber-100/75">يبقى الفرع الرئيسي والبيانات القائمة متاحة للقراءة وفق سياسة المنصة. يمكن لآدمن PowerHub تفعيل الميزة يدوياً أو عبر باقتك.</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <div className="grid gap-6 xl:grid-cols-[.78fr_1.22fr]">
+          {canCreate ? (
+            <Card className="border-white/8 bg-[#111823] shadow-panel">
+              <CardContent className="p-5">
+                <div className="flex items-center gap-3">
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#F5B800]/10 text-[#F5B800]"><CirclePlus className="h-5 w-5" /></div>
+                  <div><h2 className="font-bold text-white">إضافة فرع جديد</h2><p className="mt-1 text-sm text-slate-500">أدخل اسم الموقع ومعلوماته التشغيلية الأساسية.</p></div>
+                </div>
+                <form className="mt-6 space-y-4" onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                  event.preventDefault();
+                  const form = new FormData(event.currentTarget);
+                  const name = String(form.get("name") || "").trim();
+                  const code = `BR-${Date.now().toString(36).toUpperCase()}`;
+                  create.mutate({ name, code, city: String(form.get("city") || "").trim() || undefined, address: String(form.get("address") || "").trim() || undefined });
+                }}>
+                  <Input required minLength={2} name="name" placeholder="اسم الفرع، مثال: فرع الكرادة" className={inputClass} disabled={create.isPending} />
+                  <Input name="city" placeholder="المدينة / المنطقة" className={inputClass} disabled={create.isPending} />
+                  <textarea name="address" placeholder="العنوان التفصيلي (اختياري)" disabled={create.isPending} className="min-h-24 w-full rounded-xl border border-white/10 bg-white/[0.025] p-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 disabled:cursor-not-allowed disabled:opacity-50" />
+                  <p className="rounded-xl border border-sky-400/15 bg-sky-400/[.04] p-3 text-xs leading-6 text-sky-100">يولّد النظام رمزاً داخلياً آمناً للفرع. بعد الإنشاء يمكنك تعيين الموظفين وإدارة المشتركين والفوترة من خلال الفلتر الخاص بهذا الفرع.</p>
+                  <Button disabled={create.isPending} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]"><CirclePlus className="ml-2 h-4 w-4" />{create.isPending ? "جارٍ إنشاء الفرع…" : "إنشاء فرع"}</Button>
+                </form>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-white/8 bg-[#111823] shadow-panel">
+              <CardContent className="p-5">
+                <div className="flex items-start gap-3">
+                  <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+                  <div>
+                    <h2 className="font-bold text-white">{isEnabled ? "لا يوجد رصيد أفرع متاح حالياً" : "إضافة الأفرع غير متاحة حالياً"}</h2>
+                    <p className="mt-2 text-sm leading-7 text-slate-400">{isEnabled ? "وصل الحساب إلى الحد الأقصى للأفرع المسموح به ضمن الباقة الحالية. لا توجد عملية إنشاء متاحة حتى يتوفر حد إضافي." : "ميزة الأفرع الإضافية غير مفعلة لهذا الحساب، لذلك لن نعرض نموذج إنشاء غير قابل للتنفيذ."}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <section className="space-y-4">
+            {branches.map((branch, index) => (
+              <BranchCard
+                key={branch.id}
+                branch={branch}
+                isPrimary={index === 0}
+                isEditing={editingId === branch.id}
+                pending={update.isPending}
+                onEdit={() => setEditingId(branch.id)}
+                onCancel={() => setEditingId(null)}
+                onSave={(values) => update.mutate({ siteId: branch.id, ...values })}
+              />
+            ))}
+            {!branches.length ? <Card className="border-white/8 bg-[#111823]"><CardContent className="p-10 text-center text-slate-500">لا توجد أفرع مهيأة لهذا الحساب بعد.</CardContent></Card> : null}
+          </section>
+        </div>
+      </main>
+    </DashboardLayout>
+  );
+
 }
 
 function BranchCard({ branch, isPrimary, isEditing, pending, onEdit, onCancel, onSave }: { branch: { id: number; name: string; code: string; city: string | null; address: string | null; status: "active" | "inactive" | "archived"; invoiceDueDays: number; createdAt: Date }; isPrimary: boolean; isEditing: boolean; pending: boolean; onEdit: () => void; onCancel: () => void; onSave: (values: { name: string; city?: string; address?: string; status: "active" | "inactive" | "archived"; invoiceDueDays: number }) => void }) {
