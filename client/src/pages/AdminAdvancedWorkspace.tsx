@@ -52,11 +52,32 @@ function GeneratorRank({ rows, color }: { rows: Array<{ generatorName: string; c
 function QuickList({ title, rows }: { title: string; rows: Array<{ title: string; detail: string; meta: string }> }) { return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h3 className="font-bold text-white">{title}</h3><div className="mt-4 space-y-3">{rows.map((row, index) => <div key={`${row.title}-${index}`} className="rounded-xl border border-white/8 bg-white/[.02] p-3"><div className="flex items-center justify-between gap-3"><p className="font-bold text-sm text-white">{row.title}</p><Badge className="bg-white/5 text-slate-300">{row.meta}</Badge></div><p className="mt-1 text-xs text-slate-500">{row.detail}</p></div>)}{!rows.length && <p className="py-6 text-center text-sm text-slate-500">لا توجد بيانات حتى الآن.</p>}</div></CardContent></Card>; }
 
 export function ComplaintsPanel() {
-  const utils = trpc.useUtils();
   const complaints = trpc.admin.listComplaints.useQuery(undefined);
-  const users = trpc.admin.userDirectory.useQuery({});
-  const update = trpc.admin.updateComplaint.useMutation({ onSuccess: () => { void utils.admin.listComplaints.invalidate(); toast.success("تم تحديث الشكوى."); }, onError: (error) => toast.error(error.message) });
-  return <section className="space-y-6"><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-center justify-between"><div><h2 className="font-bold text-white">الشكاوى</h2><p className="mt-1 text-sm text-slate-500">تعيين الموظف وتغيير الحالة وتسجيل الرد ضمن سجل مركزي.</p></div><Badge className="bg-rose-400/10 text-rose-300">{format((complaints.data ?? []).filter((item) => ["open", "assigned", "in_progress"].includes(item.status)).length)} مفتوحة</Badge></div><div className="mt-5 space-y-4">{(complaints.data ?? []).map((complaint) => <form key={complaint.id} onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); update.mutate({ id: complaint.id, status: String(form.get("status")) as "open", assignedUserId: form.get("assignedUserId") ? Number(form.get("assignedUserId")) : null, response: String(form.get("response") || "") || undefined }); }} className="rounded-2xl border border-white/8 bg-white/[.02] p-4"><div className="flex flex-col justify-between gap-3 md:flex-row"><div><p className="font-bold text-white">{complaint.title}</p><p className="mt-1 text-sm text-slate-400">{complaint.tenantName} · {complaint.siteName} · {complaint.subscriberName ?? "بدون مشترك"}</p><p className="mt-2 text-sm text-slate-500">{complaint.description}</p></div><Badge className="h-fit bg-white/5 text-slate-300">{complaintStatus[complaint.status]}</Badge></div><div className="mt-4 grid gap-3 md:grid-cols-3"><select name="assignedUserId" defaultValue={complaint.assignedUserId ?? ""} className={inputClass}><option value="">غير مسند</option>{(users.data ?? []).map((user) => <option key={user.id} value={user.id}>{user.name ?? user.email ?? `مستخدم #${user.id}`}</option>)}</select><select name="status" defaultValue={complaint.status} className={inputClass}><option value="open">مفتوحة</option><option value="assigned">مُسندة</option><option value="in_progress">قيد المعالجة</option><option value="resolved">محلولة</option><option value="closed">مغلقة</option></select><Button disabled={update.isPending} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">حفظ المعالجة</Button></div><textarea name="response" defaultValue={complaint.response ?? ""} placeholder="رد الآدمن أو الموظف" className="mt-3 min-h-20 w-full rounded-xl border border-white/10 bg-[#0D1117]/40 p-3 text-sm text-white outline-none" /></form>)}{!complaints.data?.length && <p className="py-12 text-center text-slate-500">لا توجد شكاوى مسجلة بعد.</p>}</div></CardContent></Card></section>;
+  return <section className="space-y-6"><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <h2 className="font-bold text-white">الشكاوى</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-500">عرض سجل الشكاوى وحالتها الحالية من Supabase.</p>
+      </div>
+      <Badge className={(complaints.data ?? []).some((item) => ["open", "assigned", "in_progress"].includes(item.status)) ? "bg-rose-400/10 text-rose-300" : "bg-emerald-400/10 text-emerald-300"}>
+        {format((complaints.data ?? []).filter((item) => ["open", "assigned", "in_progress"].includes(item.status)).length)} مفتوحة
+      </Badge>
+    </div>
+    <div className="mt-5 space-y-3">
+      {(complaints.data ?? []).map((complaint) => <article key={complaint.id} className="rounded-2xl border border-white/8 bg-white/[.02] p-4">
+        <div className="flex flex-col justify-between gap-3 md:flex-row">
+          <div>
+            <p className="font-bold text-white">{complaint.title}</p>
+            <p className="mt-1 text-sm text-slate-400">{complaint.tenantName} · {complaint.siteName} · {complaint.subscriberName ?? "بدون مشترك"}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-500">{complaint.description}</p>
+            {complaint.response ? <p className="mt-3 rounded-xl border border-white/8 bg-black/10 p-3 text-sm leading-6 text-slate-300"><span className="font-bold text-white">رد مسجل:</span> {complaint.response}</p> : null}
+          </div>
+          <Badge className="h-fit bg-white/5 text-slate-300">{complaintStatus[complaint.status]}</Badge>
+        </div>
+      </article>)}
+      {!complaints.data?.length ? <p className="py-12 text-center text-slate-500">لا توجد شكاوى مسجلة بعد.</p> : null}
+    </div>
+  </CardContent></Card></section>;
 }
 
 export function PlatformControlPanel() {
