@@ -1718,7 +1718,7 @@ export const powerhubRouter = router({
       const invoiceIds = Array.from(new Set(input.invoiceIds ?? []));
       if (input.sendAll && invoiceIds.length) throw new TRPCError({ code: "BAD_REQUEST", message: "استخدم تحديد الفواتير أو الإرسال للجميع، وليس الاثنين معاً." });
 
-      if (invoiceIds.length || input.sendAll) {
+      if (!input.retryFailedOnly && (invoiceIds.length || input.sendAll)) {
         let ids = invoiceIds;
         if (input.sendAll) {
           const { data: invoices, error: invoiceError } = await admin.from("invoices")
