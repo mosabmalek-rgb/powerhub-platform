@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { authenticatedProcedure, router } from "./_core/trpc";
@@ -389,5 +390,35 @@ export const adminRouterWithSupabaseReadContracts = router({
     }
     const row = data?.[0];
     return { ok: result.ok, balance: result.balance ?? null, message: result.message ?? null, accountActive: Boolean(row?.is_active) };
-  }),
+  }),,
+  resetUserPassword: platformAdminProcedure.input(z.object({
+    tenantId: z.number().int().positive(),
+    targetUserId: z.number().int().positive(),
+    siteId: z.number().int().positive().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const admin = supabaseAdmin();
+    const { data: prepared, error: prepareError } = await admin.rpc("powerhub_prepare_password_reset", {
+      p_actor_user_id: ctx.user.id,
+      p_tenant_id: input.tenantId,
+      p_target_user_id: input.targetUserId,
+      p_site_id: input.siteId ?? null,
+    });
+    if (prepareError || !prepared?.[0]) {
+      const message = prepareError?.message ?? "";
+      if (message.includes("PASSWORD_RESET_IN_PROGRESS")) throw new TRPCError({ code: "CONFLICT", message: "توجد عملية إعادة تعيين قيد التنفيذ لهذا الحساب. حاول بعد قليل." });
+      if (message.includes("PASSWORD_RESET_TARGET_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب المطلوب غير موجود." });
+      if (message.includes("PASSWORD_RESET_TARGET_NOT_ELIGIBLE") || message.includes("PASSWORD_RESET_TARGET_OUT_OF_SCOPE") || message.includes("PASSWORD_RESET_TARGET_SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الحساب المطلوب غير صالح لإعادة التعيين أو خارج نطاق مساحة صاحب المولد." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز إعادة تعيين كلمة المرور." });
+    }
+    const intentId = Number(prepared[0].intent_id);
+    const temporaryPassword = `PH-${crypto.randomBytes(12).toString("base64url")}`;
+    const { error: authError } = await admin.auth.admin.updateUserById(String(prepared[0].target_auth_user_id), { password: temporaryPassword });
+    if (authError) {
+      await admin.rpc("powerhub_complete_password_reset", { p_intent_id: intentId, p_actor_user_id: ctx.user.id, p_success: false, p_failure_reason: authError.message });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث كلمة مرور الحساب في Supabase Auth." });
+    }
+    const { error: completeError } = await admin.rpc("powerhub_complete_password_reset", { p_intent_id: intentId, p_actor_user_id: ctx.user.id, p_success: true });
+    if (completeError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث كلمة المرور لكن تعذر إكمال سجل التدقيق. لا تُجرِ إعادة تعيين أخرى حتى يتم التحقق من السجل." });
+    return { success: true as const, temporaryPassword };
+  })
 });
