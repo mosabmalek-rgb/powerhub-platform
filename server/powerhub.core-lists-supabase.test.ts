@@ -598,9 +598,9 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_assign_existing_staff", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_actor_user_id: 1, p_target_user_id: 2, p_role: "accountant", p_all_branches: true }) });
   });
 
-  it("يعطّل إعادة تعيين كلمة المرور انتقالياً قبل أي استدعاء MySQL أو Supabase Auth", async () => {
+  it("لا يسمح لآدمن غير المالك بإعادة تعيين كلمة مرور حساب فرعي", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
-    await expect(caller.staff.resetPassword({ siteId: 10, profileId: 70 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.staff.resetPassword({ siteId: 10, profileId: 70 })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("يعطّل إنشاء الحساب الفرعي انتقالياً قبل أي استدعاء MySQL أو Supabase Auth", async () => {
