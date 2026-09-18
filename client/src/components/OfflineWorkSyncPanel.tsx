@@ -95,6 +95,25 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       const allItems = await listOfflineWork({ userId, siteId });
       const pendingItems = allItems.filter((item) => item.status === "pending" || item.status === "failed");
       if (!pendingItems.length) return;
+
+      // Manual retry is an explicit user action. Reset a previously failed operation's
+      // local retry budget while keeping the same clientOperationId, so the server-side
+      // mutation remains idempotent across every retry.
+      const storedMetadata = await listSyncMetadata({ userId, siteId });
+      const retryAt = Date.now();
+      for (const item of pendingItems.filter((entry) => entry.status === "failed")) {
+        const existing = storedMetadata.find((record) => record.operationId === item.clientOperationId);
+        if (!existing) continue;
+        await upsertSyncMetadata({
+          ...existing,
+          attempts: 0,
+          nextAttemptAt: retryAt,
+          outcome: "pending",
+          lastError: undefined,
+          updatedAt: retryAt,
+        });
+      }
+
       const metadataByOperationId = await buildMetadata(pendingItems);
       const completedIds = new Set(allItems.filter((item) => item.status === "applied").map((item) => item.clientOperationId));
       const results = await executeReadyOperations({ items: pendingItems, metadataByOperationId, completedIds, transport, now: Date.now() });
