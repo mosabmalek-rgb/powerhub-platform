@@ -64,12 +64,28 @@ export default function BulkReadingEntry({ siteId, subscribers, readings, onSave
   const saveValid = async () => {
     if (!validRows.length) { toast.error("لا توجد قراءات سليمة للحفظ."); return; }
     let saved = 0;
+    let failed = 0;
     for (const row of validRows) {
-      try { await create.mutateAsync({ siteId, subscriberId: row.subscriberId!, readingValue: row.readingValue, readingAt: new Date(`${row.readingDate}T12:00:00`), captureMethod: "manual", notes: row.notes || undefined, clientOperationId: crypto.randomUUID() }); saved += 1; }
-      catch (error) { toast.error(`${row.subscriberName ?? row.reference}: ${error instanceof Error ? error.message : "تعذر الحفظ."}`); }
+      try {
+        await create.mutateAsync({
+          siteId,
+          subscriberId: row.subscriberId!,
+          readingValue: row.readingValue,
+          readingAt: new Date(`${row.readingDate}T12:00:00`),
+          captureMethod: "manual",
+          notes: row.notes || undefined,
+          clientOperationId: crypto.randomUUID(),
+        });
+        saved += 1;
+      } catch (error) {
+        failed += 1;
+        toast.error(`${row.subscriberName ?? row.reference}: ${error instanceof Error ? error.message : "تعذر الحفظ."}`);
+      }
     }
     await onSaved();
-    toast.success(`حُفظت ${saved} قراءة سليمة بانتظار المراجعة.`);
+    if (failed === 0) toast.success(`حُفظت ${saved} قراءة سليمة بانتظار المراجعة.`);
+    else if (saved > 0) toast.warning(`حُفظت ${saved} قراءة، لكن فشل حفظ ${failed} قراءة وتحتاج إلى مراجعة.`);
+    else toast.error(`تعذر حفظ القراءات: فشل حفظ ${failed} قراءة.`);
   };
   return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="flex items-center gap-2 font-bold text-white"><FileSpreadsheet className="h-4 w-4 text-[#F5B800]" />إدخال قراءات جماعي</h2><p className="mt-1 text-xs leading-5 text-slate-500">ارفع Excel: الرقم المرجعي، القراءة الحالية، تاريخ القراءة، ملاحظات؛ أو أدخل الجدول السريع أدناه.</p></div><label><input className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => void loadWorkbook(event.target.files?.[0])} /><span className="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border border-[#F5B800]/35 px-4 text-sm font-bold text-[#F5B800] hover:bg-[#F5B800]/10">{isParsing ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <UploadCloud className="ml-2 h-4 w-4" />}رفع ملف Excel</span></label><Button type="button" variant="outline" onClick={() => void downloadTemplate()} className="mt-3 border-white/15 text-slate-300 hover:border-[#F5B800]/50 hover:text-[#F5B800]"><Download className="ml-2 h-4 w-4" />تنزيل قالب Excel فارغ</Button></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[860px] text-sm"><thead className="text-right text-xs text-slate-500"><tr><th className="pb-3">الرقم المرجعي</th><th className="pb-3">القراءة الحالية</th><th className="pb-3">التاريخ</th><th className="pb-3">ملاحظة</th><th className="pb-3">الحالة / الاستهلاك</th></tr></thead><tbody>{rows.map((row, index) => { const preview = prepared.find((entry) => entry.reference === row.reference && entry.readingValue === row.readingValue && entry.readingDate === row.readingDate); return <tr key={index} className="border-t border-white/7"><td className="py-2"><input value={row.reference} onChange={(event) => setRow(index, "reference", event.target.value)} className={inputClass} dir="ltr" /></td><td className="py-2"><input value={row.readingValue} onChange={(event) => setRow(index, "readingValue", event.target.value)} className={inputClass} dir="ltr" /></td><td className="py-2"><input type="date" value={row.readingDate} onChange={(event) => setRow(index, "readingDate", event.target.value)} className={inputClass} /></td><td className="py-2"><input value={row.notes ?? ""} onChange={(event) => setRow(index, "notes", event.target.value)} className={inputClass} /></td><td className={`py-2 text-xs ${preview?.status === "error" ? "text-rose-300" : "text-emerald-300"}`}>{preview ? preview.status === "ready" ? `${preview.subscriberName} · ${preview.consumption?.toFixed(3)} kWh` : preview.error : "أدخل البيانات للمراجعة"}</td></tr>; })}</tbody></table></div><div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-500">القراءات السليمة: <strong className="text-emerald-300">{validRows.length}</strong> · تحتاج مراجعة: <strong className="text-rose-300">{prepared.filter((row) => row.status === "error").length}</strong></p><div className="flex gap-2"><Button variant="outline" onClick={() => setRows((current) => [...current, blankRow()])} className="border-white/15 text-slate-300"><Plus className="ml-2 h-4 w-4" />صف جديد</Button><Button disabled={create.isPending || !validRows.length} onClick={() => void saveValid()} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">حفظ القراءات السليمة</Button></div></div></CardContent></Card>;
 }
