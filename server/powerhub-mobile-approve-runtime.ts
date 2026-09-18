@@ -3,7 +3,7 @@ import { z } from "zod";
 import { protectedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { approveAndIssueMobileReadingSupabase } from "./powerhub-mobile-approval-supabase";
-import { getSupabaseSite, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseSite, requireSupabaseSiteRole, writeSupabaseAuditBestEffort } from "./powerhub-supabase";
 import { processNotificationById } from "./notification-worker";
 
 const mobileSyncApproveInput = z.object({
@@ -88,7 +88,7 @@ export const approveAndIssueMobileReadingRuntime = protectedProcedure
       : await dispatchQueuedNotifications(result.notificationIds, ctx.user.id);
     const notificationMode = input.sendNow === false ? "deferred" : "immediate";
 
-    await writeSupabaseAudit({
+    await writeSupabaseAuditBestEffort({
       userId: ctx.user.id,
       tenantId: access.tenantId,
       siteId: input.siteId,
