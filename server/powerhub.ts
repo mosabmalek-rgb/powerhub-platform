@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
+import { completePasswordResetWithRetry } from "./password-reset-runtime";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
@@ -634,8 +635,8 @@ export const powerhubRouter = router({
         await admin.rpc("powerhub_complete_password_reset", { p_intent_id: intentId, p_actor_user_id: ctx.user.id, p_success: false, p_failure_reason: authError.message });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث كلمة مرور الحساب في Supabase Auth." });
       }
-      const { error: completeError } = await admin.rpc("powerhub_complete_password_reset", { p_intent_id: intentId, p_actor_user_id: ctx.user.id, p_success: true });
-      if (completeError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث كلمة المرور لكن تعذر إكمال سجل التدقيق. لا تُجرِ إعادة تعيين أخرى حتى يتم التحقق من السجل." });
+      const completion = await completePasswordResetWithRetry(intentId, ctx.user.id, true);
+      if (!completion.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث كلمة المرور، لكن تعذر تأكيد عملية التدقيق بعد إعادة المحاولة. لا تُجرِ إعادة تعيين أخرى لهذا الحساب حتى يتم التحقق من العملية." });
       return { success: true as const, temporaryPassword };
     }),
     suspend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), startsAt: z.string().datetime(), endsAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
