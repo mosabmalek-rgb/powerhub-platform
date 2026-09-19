@@ -1279,17 +1279,23 @@ export const powerhubRouter = router({
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), name: z.string().min(2).max(160), code: z.string().min(2).max(50),
       pricePerKwh: z.number().min(0), fixedFee: z.number().min(0).default(0), taxRate: z.number().min(0).max(100).default(0),
+      clientOperationId: z.string().uuid(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageTariffs");
-      const { data, error } = await supabaseAdmin().from("tariffs").insert({
-        tenant_id: access.tenantId, site_id: input.siteId, name: input.name.trim(), code: input.code.trim().toUpperCase(),
-        price_per_kwh: input.pricePerKwh, fixed_fee: input.fixedFee, tax_rate: input.taxRate,
-      }).select("id").single();
-      if (error || !data) throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "رمز التعرفة مستخدم بالفعل في هذا الفرع." : "تعذر إنشاء التعرفة في Supabase." });
-      const id = Number(data.id);
-      await writeSupabaseAuditBestEffort({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "tariff", entityId: String(id), action: "create", afterData: input });
-      return { id };
-    }),
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_tariff_idempotent", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_name: input.name, p_code: input.code, p_price_per_kwh: input.pricePerKwh,
+        p_fixed_fee: input.fixedFee, p_tax_rate: input.taxRate, p_client_operation_id: input.clientOperationId,
+      });
+      if (!error && data?.[0]) {
+        const row=data[0] as { tariff_id:number|string; replayed?:boolean };
+        return { id:Number(row.tariff_id), replayed:Boolean(row.replayed) };
+      }
+      const message=String(error?.message??"");
+      if (message.includes("TARIFF_OPERATION_CONFLICT")) throw new TRPCError({code:"CONFLICT",message:"معرّف العملية مستخدم لبيانات تعرفة مختلفة."});
+      if (message.includes("TARIFF_CODE_EXISTS") || error?.code==="23505") throw new TRPCError({code:"CONFLICT",message:"رمز التعرفة مستخدم بالفعل في هذا الفرع."});
+      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر إنشاء التعرفة في Supabase."});
+    }),,
   }),
 
   generators: router({
