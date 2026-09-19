@@ -46,16 +46,16 @@ function quickUpgradeOwnerPlanRpcError(error: { message?: string } | null) {
   if (message.includes("SITE_NOT_FOUND")) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن ترقية الباقة قبل وجود فرع/محطة مرتبطة بالمساحة." });
   }
-  if (message.includes("PLAN_NOT_UPGRADE")) {
+  if (message.includes("PACKAGE_NOT_UPGRADE")) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من الباقة الحالية." });
   }
-  if (message.includes("INVALID_PLAN")) {
+  if (message.includes("INVALID_PACKAGE_CODE")) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "خطة الاشتراك غير صالحة." });
   }
   rpcError("quickUpgradeOwnerPlan", error);
 }
 
-function reviewSmsPackageRpcError(error: { message?: string } | null) {
+function reviewSmsPackageRpcErrorfunction reviewSmsPackageRpcError(error: { message?: string } | null) {
   const message = error?.message?.trim() ?? "";
   if (message.includes("REQUEST_NOT_FOUND")) {
     throw new TRPCError({ code: "NOT_FOUND", message: "طلب حزمة الرسائل غير موجود." });
