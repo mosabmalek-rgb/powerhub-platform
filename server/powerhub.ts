@@ -32,6 +32,139 @@ export const quickActionCapabilityById = {
 export const quickActionIds = Object.keys(quickActionCapabilityById) as Array<keyof typeof quickActionCapabilityById>;
 const quickActionIdSchema = z.enum(["add_subscriber", "record_reading", "create_invoice", "collect_payment", "record_expense", "send_notification"]);
 function sessionCookie(req: { headers?: { cookie?: string } }) { return (req.headers?.cookie ?? "").split(";").map((part) => part.trim()).find((part) => part.startsWith(`${COOKIE_NAME}=`))?.slice(COOKIE_NAME.length + 1) ?? ""; }
+async function getOfflineReplayForScope(input: {
+  userId: number;
+  tenantId: number;
+  siteId: number;
+  clientOperationId?: string;
+  expectedOperationType: string;
+}) {
+  if (!input.clientOperationId) return null;
+  const { data, error } = await supabaseAdmin()
+    .from("offline_sync_operations")
+    .select("tenant_id, site_id, operation_type, response")
+    .eq("user_id", input.userId)
+    .eq("client_operation_id", input.clientOperationId)
+    .maybeSingle();
+  if (error) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "تعذر التحقق من مفتاح المزامنة في Supabase.",
+    });
+  }
+  if (!data) return null;
+  if (
+    Number(data.tenant_id) !== input.tenantId ||
+    Number(data.site_id) !== input.siteId ||
+    data.operation_type !== input.expectedOperationType
+  ) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "مفتاح عملية المزامنة مرتبط بنطاق أو نوع عملية مختلف.",
+    });
+  }
+  return data.response as Record<string, unknown>;
+}
+
+async function reconcilePaymentAfterError(input: {
+  userId: number;
+  tenantId: number;
+  siteId: number;
+  clientOperationId?: string;
+}) {
+  if (!input.clientOperationId) return { resolved: false as const };
+  const admin = supabaseAdmin();
+  const { data: op, error: opError } = await admin
+    .from("offline_sync_operations")
+    .select("tenant_id, site_id, operation_type, response")
+    .eq("user_id", input.userId)
+    .eq("client_operation_id", input.clientOperationId)
+    .maybeSingle();
+  if (opError) return { resolved: false as const };
+  if (op) {
+    if (
+      Number(op.tenant_id) !== input.tenantId ||
+      Number(op.site_id) !== input.siteId ||
+      op.operation_type !== "payment_create"
+    ) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "مفتاح عملية المزامنة مرتبط بنطاق أو نوع عملية مختلف.",
+      });
+    }
+    const id = Number((op.response as Record<string, unknown> | null)?.id);
+    if (Number.isInteger(id) && id > 0) return { resolved: true as const, id };
+  }
+  const { data: payment, error: paymentError } = await admin
+    .from("payments")
+    .select("id, tenant_id, site_id")
+    .eq("tenant_id", input.tenantId)
+    .eq("site_id", input.siteId)
+    .eq("client_operation_id", input.clientOperationId)
+    .maybeSingle();
+  if (!paymentError && payment) return { resolved: true as const, id: Number(payment.id) };
+  return { resolved: false as const };
+}
+
+async function reconcileReadingAfterError(input: {
+  tenantId: number;
+  siteId: number;
+  subscriberId: number;
+  clientOperationId?: string;
+  issueInvoice: boolean;
+}) {
+  if (!input.clientOperationId) return { resolved: false as const };
+  const admin = supabaseAdmin();
+  const { data: subscriber, error: subscriberError } = await admin
+    .from("subscribers")
+    .select("id, tenant_id, site_id")
+    .eq("id", input.subscriberId)
+    .eq("tenant_id", input.tenantId)
+    .eq("site_id", input.siteId)
+    .maybeSingle();
+  if (subscriberError || !subscriber) return { resolved: false as const };
+
+  const { data: reading, error: readingError } = await admin
+    .from("meter_readings")
+    .select("id, consumption_kwh, status")
+    .eq("tenant_id", input.tenantId)
+    .eq("subscriber_id", input.subscriberId)
+    .eq("client_operation_id", input.clientOperationId)
+    .maybeSingle();
+  if (readingError || !reading) return { resolved: false as const };
+
+  if (!input.issueInvoice) {
+    return {
+      resolved: true as const,
+      id: Number(reading.id),
+      consumptionKwh: Number(reading.consumption_kwh ?? 0),
+      status: String(reading.status),
+      invoice: null,
+    };
+  }
+
+  const { data: invoice, error: invoiceError } = await admin
+    .from("invoices")
+    .select("id, invoice_no, total_amount")
+    .eq("tenant_id", input.tenantId)
+    .eq("site_id", input.siteId)
+    .eq("reading_id", Number(reading.id))
+    .maybeSingle();
+  if (invoiceError || !invoice) return { resolved: false as const };
+
+  return {
+    resolved: true as const,
+    id: Number(reading.id),
+    consumptionKwh: Number(reading.consumption_kwh ?? 0),
+    status: String(reading.status),
+    invoice: {
+      id: Number(invoice.id),
+      invoiceNo: String(invoice.invoice_no),
+      totalAmount: Number(invoice.total_amount),
+    },
+  };
+}
+
 const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
 export const ownerSubaccountRoles = ["manager", "accountant", "collector", "technician", "viewer"] as const;
@@ -962,14 +1095,9 @@ export const powerhubRouter = router({
     }).omit({ code: true })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const admin = supabaseAdmin();
-      if (input.clientOperationId) {
-        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
-          .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
-        if (appliedError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مفتاح المزامنة في Supabase." });
-        if (applied) {
-          if (applied.operation_type !== "subscriber_create") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
-          return applied.response as { id: number; subscriberNo: string; referenceNotifications: Array<{ notificationId: number; status: string; error?: string }> };
-        }
+      const replay = await getOfflineReplayForScope({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, clientOperationId: input.clientOperationId, expectedOperationType: "subscriber_create" });
+      if (replay) {
+        return replay as { id: number; subscriberNo: string; referenceNotifications: Array<{ notificationId: number; status: string; error?: string }> };
       }
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
       if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
@@ -1069,15 +1197,10 @@ export const powerhubRouter = router({
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageSubscribers");
       const admin = supabaseAdmin();
-      if (input.clientOperationId) {
-        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
-          .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
-        if (appliedError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مفتاح المزامنة في Supabase." });
-        if (applied) {
-          if (applied.operation_type !== "subscriber_update") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
-          const response = applied.response as { success: true; updatedAt: string | Date };
-          return { success: true as const, updatedAt: new Date(response.updatedAt) };
-        }
+      const replay = await getOfflineReplayForScope({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, clientOperationId: input.clientOperationId, expectedOperationType: "subscriber_update" });
+      if (replay) {
+        const response = replay as { success: true; updatedAt: string | Date };
+        return { success: true as const, updatedAt: new Date(response.updatedAt) };
       }
       const phone = normalizeInternationalPhone(input.phone);
       const { data, error } = await admin.rpc("powerhub_update_subscriber", {
@@ -1323,6 +1446,10 @@ export const powerhubRouter = router({
       billingPeriod: z.string().regex(/^\d{4}-\d{2}$/), dueDate: z.date(), discountAmount: z.number().min(0).default(0), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+      const replay = await getOfflineReplayForScope({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, clientOperationId: input.clientOperationId, expectedOperationType: "invoice_issue" });
+      if (replay) {
+        return { id: Number(replay.id), invoiceNo: String(replay.invoiceNo), totalAmount: Number(replay.totalAmount) };
+      }
       const { data, error } = await supabaseAdmin().rpc("powerhub_issue_invoice_from_reading", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_tariff_id: input.tariffId,
         p_billing_period: input.billingPeriod, p_due_date: input.dueDate.toISOString(), p_discount_amount: input.discountAmount, p_client_operation_id: input.clientOperationId ?? null,
@@ -1382,6 +1509,8 @@ export const powerhubRouter = router({
       if ((hasTransferSource && !input.transferFromType) || (!hasTransferSource && input.transferFromType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "حدد نوع الحساب المحوِّل فقط عند إدخال رقمه." });
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      const replay = await getOfflineReplayForScope({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, clientOperationId: input.clientOperationId, expectedOperationType: "payment_create" });
+      if (replay) return { id: Number(replay.id) };
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
       if (input.receiptImageData) {
