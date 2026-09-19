@@ -335,10 +335,11 @@ export function OwnerUsageQuickActionsPanel() {
   const rows = (owners.data ?? []).map((owner: any) => {
     const branch = branchByTenant.get(owner.tenant.id);
     const smsAccount = smsByTenant.get(owner.tenant.id);
-    const plan = owner.subscription?.plan ?? owner.tenant.plan;
-    const subscriberLimit = ({ starter: 100, professional: 500, enterprise: 2000 } as Record<string, number>)[plan] ?? 0;
-    const subscriber = subscriberLimit ? Math.min(100, Math.round(Number(owner.subscribers?.total ?? 0) / subscriberLimit * 100)) : 0;
-    const branchLimit = Number(branch?.maxBranchesOverride ?? ({ starter: 1, professional: 3, enterprise: 10 } as Record<string, number>)[plan] ?? 0);
+    const packageCode = owner.subscription?.packageCode ?? ({ starter: "basic", professional: "advanced", enterprise: "business" } as Record<string, string>)[owner.subscription?.plan ?? owner.tenant.plan] ?? "basic";
+    const packageSubscribersFloor = ({ basic: 150, advanced: 300, professional: 500, business: 750, vip: 900 } as Record<string, number>)[packageCode] ?? 0;
+    const subscriberLimitMode = packageCode === "vip" ? "minimum" : "maximum";
+    const subscriber = packageSubscribersFloor ? (subscriberLimitMode === "minimum" ? Math.min(100, Math.round(Number(owner.subscribers?.total ?? 0) / packageSubscribersFloor * 100)) : Math.min(100, Math.round(Number(owner.subscribers?.total ?? 0) / packageSubscribersFloor * 100))) : 0;
+    const branchLimit = Number(branch?.maxBranchesOverride ?? ({ basic: 1, advanced: 1, professional: 1, business: 1, vip: 2 } as Record<string, number>)[packageCode] ?? 0);
     const branchPercent = branchLimit ? Math.min(100, Math.round(Number(branch?.currentBranchCount ?? 0) / branchLimit * 100)) : 0;
     const smsPercent = Number(smsAccount?.monthlyLimit ?? 0) ? Math.min(100, Math.round(Number(smsAccount?.usedThisMonth ?? 0) / Number(smsAccount.monthlyLimit) * 100)) : 0;
     return { owner, priority: Math.max(subscriber, branchPercent, smsPercent) };
@@ -352,13 +353,14 @@ export function OwnerUsageQuickActionsPanel() {
     <div className="mt-5 space-y-3">
       {rows.map(({ owner, priority }) => {
         const tenantId = Number(owner.tenant.id);
-        const plan = owner.subscription?.plan ?? owner.tenant.plan;
-        const nextPlan = plan === "starter" ? "professional" : plan === "professional" ? "enterprise" : null;
+        const packageCode = owner.subscription?.packageCode ?? ({ starter: "basic", professional: "advanced", enterprise: "business" } as Record<string, string>)[owner.subscription?.plan ?? owner.tenant.plan] ?? "basic";
+        const packageOrder = ["basic", "advanced", "professional", "business", "vip"];
+        const nextPlan = packageOrder[packageOrder.indexOf(packageCode) + 1] ?? null;
         return <div key={tenantId} className="rounded-2xl border border-white/8 bg-white/[.02] p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <p className="font-bold text-white">{owner.owner?.fullName ?? owner.tenant.name}</p>
-              <p className="mt-1 text-xs text-slate-500">{owner.tenant.name} · استهلاك أعلى {priority}% · باقة {plan}</p>
+              <p className="mt-1 text-xs text-slate-500">{owner.tenant.name} · استهلاك أعلى {priority}% · الباقة {packageCode}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {nextPlan
