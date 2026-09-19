@@ -64,8 +64,24 @@ export const adminRouter = router({
       authUserId=authData.user.id;
     }
     const {data,error}=await admin.rpc("powerhub_admin_complete_generator_owner_provisioning",{p_actor_user_id:ctx.user.id,p_client_operation_id:input.clientOperationId,p_auth_user_id:authUserId,p_tenant_name:companyName,p_slug:`owner-${input.clientOperationId.replaceAll("-","")}`,p_company_name:companyName,p_owner_name:ownerName,p_identity_ciphertext:identity.ciphertext,p_identity_iv:identity.iv,p_identity_last4:identityNumber.slice(-4),p_owner_phone:ownerPhone,p_owner_whatsapp:ownerWhatsapp,p_owner_email:email,p_site_name:"الفرع الرئيسي",p_site_code:`SITE-${input.clientOperationId.slice(0,8).toUpperCase()}`,p_plan:input.plan,p_billing_cycle:"monthly",p_subscription_status:"trial",p_trial_duration_days:input.trialDurationDays});
-    if(error||!data?.[0]) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:error?.message||"تعذر إكمال إنشاء اشتراك صاحب المولد. يمكن إعادة المحاولة بنفس رقم العملية."});
-    return data[0];
+    if(error){
+      const message=error.message??"";
+      if(message.includes("GENERATOR_OWNER_PROVISIONING_OPERATION_CONFLICT")||message.includes("PROVISIONING_AUTH_USER_CONFLICT")||message.includes("PROVISIONING_EMAIL_CONFLICT")){
+        throw new TRPCError({code:"CONFLICT",message:"معرّف عملية إنشاء صاحب المولد مستخدم لطلب مختلف."});
+      }
+      if(message.includes("OWNER_PHONE_ALREADY_PROVISIONED")||message.includes("OWNER_EMAIL_ALREADY_PROVISIONED")||message.includes("TENANT_SLUG_ALREADY_EXISTS")||message.includes("AUTH_USER_ALREADY_MAPPED")){
+        throw new TRPCError({code:"CONFLICT",message:"بيانات صاحب المولد مرتبطة بعملية أو حساب موجود مسبقاً."});
+      }
+      if(message.includes("INVALID_PLAN")||message.includes("INVALID_BILLING_CYCLE")||message.includes("INVALID_SUBSCRIPTION_STATUS")||message.includes("INVALID_TRIAL_DURATION")){
+        throw new TRPCError({code:"BAD_REQUEST",message:"بيانات الاشتراك غير صالحة."});
+      }
+      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر إكمال إنشاء اشتراك صاحب المولد. يمكن إعادة المحاولة بنفس رقم العملية."});
+    }
+    const row=(data as Array<{success?:boolean;tenant_id?:number;owner_user_id?:number;site_id?:number;subscription_id?:number;replayed?:boolean}>|null)?.[0];
+    if(!row || row.success!==true || row.tenant_id===undefined || row.owner_user_id===undefined || row.site_id===undefined || row.subscription_id===undefined || typeof row.replayed!=="boolean"){
+      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"أعادت معاملة إنشاء صاحب المولد نتيجة غير مكتملة."});
+    }
+    return row;
   }),
   overview: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive().optional()}).optional()).query(async ({input}) => { const owners=await ownerOverviewFromSupabase(input?.tenantId); const totals=owners.reduce((a,item)=>({generatorOwners:a.generatorOwners+1,residential:a.residential+item.subscribers.residential,commercial:a.commercial+item.subscribers.commercial,subscribers:a.subscribers+item.subscribers.total,activeSubscriptions:a.activeSubscriptions+(item.subscription?.status==="active"||item.subscription?.status==="trial"?1:0)}),{generatorOwners:0,residential:0,commercial:0,subscribers:0,activeSubscriptions:0}); return {totals,owners}; }),
   listOwners: platformAdminProcedure.query(async ()=>ownerOverviewFromSupabase()),
