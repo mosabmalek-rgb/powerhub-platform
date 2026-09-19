@@ -112,9 +112,6 @@ where not exists (
   select 1 from public.platform_settings where setting_key = 'subscription_package_catalog'
 );
 
-create index if not exists idx_tenant_subscriptions_package_code
-  on public.tenant_subscriptions(package_code);
-
 comment on column public.tenant_subscriptions.package_code is
   'Authoritative PowerHub commercial package identity; plan is retained as legacy compatibility.';
 
