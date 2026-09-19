@@ -1,4 +1,4 @@
-export type BulkReadingDraft = { reference: string; readingValue: string; readingDate: string; notes?: string };
+export type BulkReadingDraft = { reference: string; readingValue: string; readingDate: string; notes?: string; clientOperationId?: string };
 export type BulkReadingPrepared = BulkReadingDraft & { subscriberId?: number; subscriberName?: string; previousValue?: number; consumption?: number; status: "ready" | "error"; error?: string };
 
 type SubscriberDirectory = { id: number; subscriberNo: string; fullName: string };
