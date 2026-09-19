@@ -25,10 +25,10 @@ export async function setPlatformAccessRole(input: {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث دور حساب إدارة المنصة في Supabase." });
   }
 
-  const row = data?.[0] as { success?: boolean; platform_role?: string } | undefined;
-  if (!row || row.success !== true || typeof row.platform_role !== "string") {
+  const row = data?.[0] as { success?: boolean; platform_role?: string; replayed?: boolean } | undefined;
+  if (!row || row.success !== true || typeof row.platform_role !== "string" || typeof row.replayed !== "boolean") {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير صالحة لتحديث دور الحساب." });
   }
 
-  return { success: true, platformRole: row.platform_role as PlatformAccessRole };
+  return { success: true, platformRole: row.platform_role as PlatformAccessRole, replayed: row.replayed };
 }
