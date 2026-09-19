@@ -1606,13 +1606,13 @@ export const powerhubRouter = router({
         throw error;
       }
     }),
-    updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+    updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date(), notes: z.string().max(1000).optional(), clientOperationId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       const { data, error } = await supabaseAdmin().rpc("powerhub_update_pending_reading", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId,
-        p_base_version: input.baseVersion, p_reading_value: input.readingValue, p_reading_at: input.readingAt.toISOString(), p_notes: input.notes?.trim() ?? "",
+        p_base_version: input.baseVersion, p_reading_value: input.readingValue, p_reading_at: input.readingAt.toISOString(), p_notes: input.notes?.trim() ?? "", p_client_operation_id: input.clientOperationId, p_request_fingerprint: createHash("sha256").update(JSON.stringify({ siteId: input.siteId, readingId: input.readingId, baseVersion: input.baseVersion, readingValue: input.readingValue, readingAt: input.readingAt.toISOString(), notes: input.notes?.trim() ?? "" })).digest("hex"),
       });
-      if (!error && data?.[0]) return { success: true, consumptionKwh: Number((data[0] as { consumption_kwh: number | string }).consumption_kwh) };
+      if (!error && data?.[0]) { const row = data[0] as { consumption_kwh?: number|string; updated_at?: string; replayed?: boolean }; if (row.consumption_kwh === undefined || typeof row.updated_at !== "string" || typeof row.replayed !== "boolean") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير مكتملة لتعديل القراءة." }); return { success: true, consumptionKwh: Number(row.consumption_kwh), updatedAt: row.updated_at, replayed: row.replayed }; }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
       if (errorText.includes("READING_ALREADY_PROCESSED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تعديل قراءة معتمدة أو مرفوضة من هذه الواجهة." });
@@ -1620,12 +1620,12 @@ export const powerhubRouter = router({
       if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة المعدلة أقل من القراءة السابقة المعتمدة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تعديل القراءة في Supabase." });
     }),
-    deletePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    deletePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), clientOperationId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "recordReadings");
-      const { error } = await supabaseAdmin().rpc("powerhub_delete_pending_reading", {
-        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion, p_client_operation_id: input.clientOperationId,
+      const { data, error } = await supabaseAdmin().rpc("powerhub_delete_pending_reading", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion, p_client_operation_id: input.clientOperationId, p_request_fingerprint: createHash("sha256").update(JSON.stringify({ siteId: input.siteId, readingId: input.readingId, baseVersion: input.baseVersion })).digest("hex"),
       });
-      if (!error) return { success: true };
+      if (!error) { const row = (data as Array<{ deleted_reading_id?: number|string; replayed?: boolean }> | null)?.[0]; if (!row || row.deleted_reading_id === undefined || typeof row.replayed !== "boolean") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير مكتملة لحذف القراءة." }); return { success: true, deletedReadingId: Number(row.deleted_reading_id), replayed: row.replayed };
       const errorText = `${error.code ?? ""} ${error.message ?? ""}`;
       if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
       if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن حذف القراءات بانتظار المراجعة فقط." });
