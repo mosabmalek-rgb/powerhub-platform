@@ -274,14 +274,56 @@ export function OwnerUsagePriorityFiltersPanel() {
 }
 
 export function OwnerUsageQuickActionsPanel() {
-  const utils = trpc.useUtils(); const owners = trpc.admin.listOwners.useQuery(); const branches = trpc.admin.listTenantBranchSettings.useQuery(); const sms = trpc.admin.listTweetSmsAccounts.useQuery(); const configuration = trpc.admin.platformConfiguration.useQuery();
-  const upgrade = trpc.admin.quickUpgradeOwnerPlan.useMutation({ onSuccess: () => { void utils.admin.listOwners.invalidate(); toast.success("تمت ترقية باقة صاحب المولد وتسجيل العملية."); }, onError: (error) => toast.error(error.message) });
-  const alert = trpc.admin.sendOwnerUsageAlert.useMutation({ onSuccess: () => { toast.success("تم إرسال تنبيه الاستهلاك إلى مساحة صاحب المولد."); }, onError: (error) => toast.error(error.message) });
-  const saveLimit = trpc.admin.savePlatformSetting.useMutation({ onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); void utils.admin.listOwners.invalidate(); toast.success("تم حفظ حد المشتركين الفردي."); }, onError: (error) => toast.error(error.message) });
-  const setting = configuration.data?.settings.find((item) => item.settingKey === "owner_limit_overrides"); const currentValue = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value) ? setting.value as Record<string, unknown> : {}; const overrides = (currentValue.overrides && typeof currentValue.overrides === "object" && !Array.isArray(currentValue.overrides) ? currentValue.overrides : {}) as Record<string, Record<string, unknown>>;
-  const branchByTenant = new Map((branches.data ?? []).map((item: any) => [item.tenantId, item])); const smsByTenant = new Map((sms.data ?? []).map((item: any) => [item.tenantId, item]));
-  const rows = (owners.data ?? []).map((owner: any) => { const branch = branchByTenant.get(owner.tenant.id); const smsAccount = smsByTenant.get(owner.tenant.id); const limit = Number(overrides[String(owner.tenant.id)]?.subscriberLimit ?? ({ starter: 100, professional: 500, enterprise: 2000 } as Record<string, number>)[owner.subscription?.plan ?? owner.tenant.plan] ?? 0); const subscriber = limit ? Math.min(100, Math.round(Number(owner.subscribers?.total ?? 0) / limit * 100)) : 0; const branchLimit = Number(branch?.maxBranchesOverride ?? ({ starter: 1, professional: 3, enterprise: 10 } as Record<string, number>)[owner.subscription?.plan ?? owner.tenant.plan] ?? 0); const branchPercent = branchLimit ? Math.min(100, Math.round(Number(branch?.currentBranchCount ?? 0) / branchLimit * 100)) : 0; const smsPercent = Number(smsAccount?.monthlyLimit ?? 0) ? Math.min(100, Math.round(Number(smsAccount?.usedThisMonth ?? 0) / Number(smsAccount.monthlyLimit) * 100)) : 0; return { owner, limit, priority: Math.max(subscriber, branchPercent, smsPercent) }; }).filter((row) => row.priority >= 80).sort((a, b) => b.priority - a.priority);
-  return <Card className="border-rose-400/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div><h2 className="font-bold text-white">إجراءات سريعة للحدود والباقات</h2><p className="mt-1 text-sm leading-6 text-slate-400">تظهر للمالكين المتجاوزين 80%. يمكنك ترقية الباقة أو تعديل الحد أو إرسال تنبيه مباشر يظهر داخل مساحة صاحب المولد.</p></div><div className="mt-5 space-y-3">{rows.map(({ owner, limit, priority }) => { const tenantId = owner.tenant.id; const plan = owner.subscription?.plan ?? owner.tenant.plan; const nextPlan = plan === "starter" ? "professional" : plan === "professional" ? "enterprise" : null; const currentOverride = overrides[String(tenantId)] ?? {}; return <div key={tenantId} className="rounded-2xl border border-white/8 bg-white/[.02] p-4"><div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"><div><p className="font-bold text-white">{owner.owner?.fullName ?? owner.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{owner.tenant.name} · استهلاك أعلى {priority}% · باقة {plan}</p></div><div className="flex flex-wrap gap-2">{nextPlan ? <Button size="sm" disabled={upgrade.isPending} onClick={() => upgrade.mutate({ tenantId, plan: nextPlan, note: `ترقية سريعة من تقرير الاستهلاك (${priority}%).` })} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">ترقية إلى {nextPlan}</Button> : <Badge className="bg-sky-400/10 text-sky-300">أعلى باقة</Badge>}<Button size="sm" variant="outline" disabled={alert.isPending} onClick={() => alert.mutate({ tenantId, usagePercent: priority, message: priority >= 100 ? "بلغ استهلاكك أحد حدود الباقة الحالية. يرجى مراجعة الاستخدام أو التواصل مع إدارة PowerHub." : `بلغ استهلاكك ${priority}% من أحد حدود الباقة الحالية. يرجى مراجعة الاستخدام أو طلب الترقية.` })} className="border-rose-400/30 text-rose-200 hover:bg-rose-400/10 hover:text-rose-100">{alert.isPending ? "جارٍ الإرسال…" : "إرسال تنبيه"}</Button></div></div><form className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-white/8 bg-black/10 p-3" onSubmit={(event) => { event.preventDefault(); const value = Number(new FormData(event.currentTarget).get("limit")); const nextOverrides = { ...overrides, [String(tenantId)]: { ...currentOverride, subscriberLimit: value } }; saveLimit.mutate({ settingKey: "owner_limit_overrides", isEnabled: true, value: { overrides: nextOverrides } }); }}><label className="text-xs text-slate-400">حد المشتركين الفردي<Input name="limit" type="number" min="0" max="100000" defaultValue={limit} className={`${inputClass} mt-1 w-40`} /></label><Button size="sm" type="submit" disabled={saveLimit.isPending} className="bg-sky-500 text-white hover:bg-sky-400">زيادة/حفظ الحد</Button></form></div>; })}{!rows.length && <p className="rounded-xl border border-dashed border-white/10 py-8 text-center text-sm text-slate-500">لا يوجد مالكون تجاوزوا 80% حالياً.</p>}</div></CardContent></Card>;
+  const utils = trpc.useUtils();
+  const owners = trpc.admin.listOwners.useQuery();
+  const branches = trpc.admin.listTenantBranchSettings.useQuery();
+  const sms = trpc.admin.listTweetSmsAccounts.useQuery();
+  const upgrade = trpc.admin.quickUpgradeOwnerPlan.useMutation({
+    onSuccess: () => { void utils.admin.listOwners.invalidate(); toast.success("تمت ترقية باقة صاحب المولد وتسجيل العملية."); },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const branchByTenant = new Map((branches.data ?? []).map((item: any) => [item.tenantId, item]));
+  const smsByTenant = new Map((sms.data ?? []).map((item: any) => [item.tenantId, item]));
+  const rows = (owners.data ?? []).map((owner: any) => {
+    const branch = branchByTenant.get(owner.tenant.id);
+    const smsAccount = smsByTenant.get(owner.tenant.id);
+    const plan = owner.subscription?.plan ?? owner.tenant.plan;
+    const subscriberLimit = ({ starter: 100, professional: 500, enterprise: 2000 } as Record<string, number>)[plan] ?? 0;
+    const subscriber = subscriberLimit ? Math.min(100, Math.round(Number(owner.subscribers?.total ?? 0) / subscriberLimit * 100)) : 0;
+    const branchLimit = Number(branch?.maxBranchesOverride ?? ({ starter: 1, professional: 3, enterprise: 10 } as Record<string, number>)[plan] ?? 0);
+    const branchPercent = branchLimit ? Math.min(100, Math.round(Number(branch?.currentBranchCount ?? 0) / branchLimit * 100)) : 0;
+    const smsPercent = Number(smsAccount?.monthlyLimit ?? 0) ? Math.min(100, Math.round(Number(smsAccount?.usedThisMonth ?? 0) / Number(smsAccount.monthlyLimit) * 100)) : 0;
+    return { owner, priority: Math.max(subscriber, branchPercent, smsPercent) };
+  }).filter((row) => row.priority >= 80).sort((a, b) => b.priority - a.priority);
+
+  return <Card className="border-rose-400/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <div>
+      <h2 className="font-bold text-white">إجراءات سريعة للحدود والباقات</h2>
+      <p className="mt-1 text-sm leading-6 text-slate-400">تظهر للمالكين المتجاوزين 80%. الترقية السريعة فقط متاحة هنا؛ إجراءات التنبيه وتعديل الحدود القديمة مخفية حتى يتوفر لها مسار Supabase معتمد.</p>
+    </div>
+    <div className="mt-5 space-y-3">
+      {rows.map(({ owner, priority }) => {
+        const tenantId = Number(owner.tenant.id);
+        const plan = owner.subscription?.plan ?? owner.tenant.plan;
+        const nextPlan = plan === "starter" ? "professional" : plan === "professional" ? "enterprise" : null;
+        return <div key={tenantId} className="rounded-2xl border border-white/8 bg-white/[.02] p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="font-bold text-white">{owner.owner?.fullName ?? owner.tenant.name}</p>
+              <p className="mt-1 text-xs text-slate-500">{owner.tenant.name} · استهلاك أعلى {priority}% · باقة {plan}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {nextPlan
+                ? <Button size="sm" disabled={upgrade.isPending} onClick={() => upgrade.mutate({ tenantId, plan: nextPlan, note: `ترقية سريعة من تقرير الاستهلاك (${priority}%).` })} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">ترقية إلى {nextPlan}</Button>
+                : <Badge className="bg-sky-400/10 text-sky-300">أعلى باقة</Badge>}
+            </div>
+          </div>
+        </div>;
+      })}
+      {!rows.length && <p className="rounded-xl border border-dashed border-white/10 py-8 text-center text-sm text-slate-500">لا يوجد مالكون تجاوزوا 80% حالياً.</p>}
+    </div>
+  </CardContent></Card>;
 }
 
 
