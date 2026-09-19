@@ -15,11 +15,17 @@ export default function PendingReadingsReview({ siteId, rows, canReview, onUpdat
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState<{ value: string; date: string; notes: string }>({ value: "", date: dateValue(new Date()), notes: "" });
   const approvalOperationsRef = useRef(new Map<number, { baseVersion: number; id: string }>());
+  const updateOperationsRef = useRef(new Map<number, { fingerprint: string; id: string }>());
   const update = trpc.powerhub.readings.updatePending.useMutation();
   const approve = trpc.powerhub.readings.approve.useMutation();
   const startEdit = (row: Row) => { setEditing(row.reading.id); setDraft({ value: String(row.reading.readingValue), date: dateValue(row.reading.readingAt), notes: row.reading.notes ?? "" }); };
   const save = async (row: Row) => {
-    try { await update.mutateAsync({ siteId, readingId: row.reading.id, baseVersion: row.reading.versionNo, readingValue: draft.value, readingAt: new Date(`${draft.date}T12:00:00`), notes: draft.notes || undefined }); setEditing(null); await onUpdated(); toast.success("تم حفظ تعديل القراءة وهي بانتظار الاعتماد."); }
+    const baseVersion = Number(row.reading.versionNo);
+    const fingerprint = JSON.stringify({ siteId, readingId: row.reading.id, baseVersion, readingValue: draft.value, readingAt: new Date(`${draft.date}T12:00:00`).toISOString(), notes: draft.notes || "" });
+    const current = updateOperationsRef.current.get(Number(row.reading.id));
+    const operation = current?.fingerprint === fingerprint ? current : { fingerprint, id: crypto.randomUUID() };
+    updateOperationsRef.current.set(Number(row.reading.id), operation);
+    try { await update.mutateAsync({ siteId, readingId: row.reading.id, baseVersion, readingValue: draft.value, readingAt: new Date(`${draft.date}T12:00:00`), notes: draft.notes || undefined, clientOperationId: operation.id }); updateOperationsRef.current.delete(Number(row.reading.id)); setEditing(null); await onUpdated(); toast.success("تم حفظ تعديل القراءة وهي بانتظار الاعتماد."); }
     catch (error) { toast.error(error instanceof Error ? error.message : "تعذر حفظ التعديل."); }
   };
   const confirm = async (row: Row) => {

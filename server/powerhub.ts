@@ -1684,13 +1684,14 @@ export const powerhubRouter = router({
       if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
       if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن حذف القراءات بانتظار المراجعة فقط." });
       if (errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تم تحديث القراءة من جهة أخرى؛ حدّث البيانات ثم أعد المحاولة." });
+      if (errorText.includes("OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف العملية مستخدم لطلب حذف مختلف." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حذف القراءة في Supabase." });
     }),
-    approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) }))
+    approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), clientOperationId: z.string().uuid(), sendNow: z.boolean().default(true) }))
       .mutation(async ({ ctx, input }) => {
         const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
         const { data, error } = await supabaseAdmin().rpc("powerhub_approve_reading", {
-          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion,
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion, p_client_operation_id: input.clientOperationId,
         });
         if (!error && data?.[0]) {
           const row = data[0] as { reading_id?: number | string; version_no?: number; replayed?: boolean };
@@ -1701,6 +1702,7 @@ export const powerhubRouter = router({
         if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
         if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن اعتماد القراءات بانتظار المراجعة فقط." });
         if (errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث البيانات ثم أعد المحاولة." });
+        if (errorText.includes("OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف العملية مستخدم لطلب اعتماد مختلف." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد القراءة في Supabase." });
       }),
   }),
