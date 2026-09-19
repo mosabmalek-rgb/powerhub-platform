@@ -4,6 +4,7 @@ const state = vi.hoisted(() => {
   const inserts: Array<{ table: string; values: unknown }> = [];
   const updates: Array<{ table: string; values: unknown }> = [];
   const rpcCalls: Array<{ name: string; args: unknown }> = [];
+  const queueFailureInvoiceIds = new Set<number>();
   const site = { id: 10, tenant_id: 20, name: "الفرع الرئيسي", code: "MAIN", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
   const subscriber = { id: 30, tenant_id: 20, site_id: 10, subscriber_no: "MAIN-001", client_operation_id: null, full_name: "مشترك الاختبار", phone: "+970595000000", whatsapp_number: null, address: null, subscription_type: "residential", service_status: "active", created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" };
   const tables: Record<string, unknown[]> = {
@@ -141,6 +142,11 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_company_account") return resolved([{ account_id: 92 }]);
       if (name === "powerhub_add_account_movement") return resolved([{ transaction_id: 93 }]);
       if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
+      if (name === "powerhub_queue_selected_invoice_sms") {
+        const invoiceIds = ((args as { p_invoice_ids?: number[] })?.p_invoice_ids ?? []);
+        if (invoiceIds.some((id) => queueFailureInvoiceIds.has(Number(id)))) return Promise.resolve({ data: null, error: { code: "P0001", message: "INVOICE_NOT_SENDABLE" } });
+        return resolved(invoiceIds.map((invoiceId) => ({ notification_id: invoiceId, invoice_id: invoiceId, queued: true })));
+      }
       if (name === "powerhub_queue_payment_sms") return resolved([{ notification_id: 90, queued: true }]);
       if (name === "powerhub_close_collector_session") return resolved([{ expected_cash: 10, variance_amount: 0 }]);
       if (name === "powerhub_request_sms_package") return resolved([{ request_id: 98, request_status: "pending" }]);
@@ -151,7 +157,7 @@ const state = vi.hoisted(() => {
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
-  return { client, tables, inserts, updates, rpcCalls };
+  return { client, tables, inserts, updates, rpcCalls, queueFailureInvoiceIds };
 });
 
 const notificationWorker = vi.hoisted(() => ({ processQueue: vi.fn(), processById: vi.fn() }));
@@ -171,6 +177,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.rpcCalls.splice(0);
     notificationWorker.processQueue.mockReset();
     notificationWorker.processById.mockReset();
+    state.queueFailureInvoiceIds.clear();
   });
 
   it("يعرض الفروع والمشتركين والتعرفة والمولدات والقراءات دون استدعاء MySQL", async () => {
