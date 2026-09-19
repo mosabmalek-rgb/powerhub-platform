@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedOwnerSubaccountRoles, branchLimitForPackage, branchLimitForPlan, defaultBranchLimits, defaultOwnerSubaccountLimits, defaultOwnerSubscriberLimits, ownerSubaccountLimitForPlan, ownerSubaccountRoles, ownerSubscriberLimitForPlan, resolveBranchPolicy } from "./powerhub";
+import { allowedOwnerSubaccountRoles, branchLimitForPackage, branchLimitForPlan, defaultBranchLimits, defaultOwnerSubaccountLimits, defaultOwnerSubscriberLimits, ownerSubaccountLimitForPackage, ownerSubaccountLimitForPlan, ownerSubaccountRoles, ownerSubscriberLimitForPackage, ownerSubscriberLimitForPlan, resolveBranchPolicy } from "./powerhub";
 
 describe("سياسة الحسابات الفرعية لمالك المولد", () => {
   it("تتيح أدوار الحسابات الفرعية القياسية عند عدم وجود إعداد مركزي", () => {
