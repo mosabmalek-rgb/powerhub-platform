@@ -442,7 +442,7 @@ export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
   return { limit, currentCount, remaining: Math.max(0, limit - currentCount), packageCode };
 }
 
-export async function recordSupabaseSubscriberQuotaAlert(input: { tenantId: number; siteId: number; userId: number; quota: { limit: number; currentCount: number; remaining: number; plan: string } }) {
+export async function recordSupabaseSubscriberQuotaAlert(input: { tenantId: number; siteId: number; userId: number; quota: { limit: number; currentCount: number; remaining: number; packageCode: string } }) {
   if (!Number.isFinite(input.quota.limit) || input.quota.limit <= 0 || input.quota.currentCount <= 0) return;
   const percentage = Math.min(100, Math.round((input.quota.currentCount / input.quota.limit) * 100));
   const threshold = percentage >= 100 ? 100 : percentage >= 80 ? 80 : 0;
@@ -454,7 +454,7 @@ export async function recordSupabaseSubscriberQuotaAlert(input: { tenantId: numb
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تنبيه حصة المشتركين في Supabase." });
   if (!existing) await writeSupabaseAudit({
     userId: input.userId, tenantId: input.tenantId, siteId: input.siteId, entityType: "owner_quota_alert", entityId: String(input.tenantId), action,
-    metadata: { threshold, percentage, current: input.quota.currentCount, limit: input.quota.limit, remaining: input.quota.remaining, plan: input.quota.plan, automatic: true },
+    metadata: { threshold, percentage, current: input.quota.currentCount, limit: input.quota.limit, remaining: input.quota.remaining, packageCode: input.quota.packageCode, automatic: true },
   });
 }
 
