@@ -474,7 +474,7 @@ $function$;
 
 revoke execute on function public.powerhub_admin_begin_generator_owner_provisioning(bigint,uuid,text,text) from public,anon,authenticated;
 grant execute on function public.powerhub_admin_begin_generator_owner_provisioning(bigint,uuid,text,text) to service_role;
-revoke execute on function public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,integer) from public,anon,authenticated;
+revoke execute on function public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz,integer) from public,anon,authenticated;
 grant execute on function public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,integer) to service_role;
 
 revoke execute on function public.powerhub_create_generator_owner_subscription(bigint,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz,integer) from public,anon,authenticated;
