@@ -4,7 +4,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { sendTweetSms, type TweetSmsCredentials } from "./tweetsms-client";
 import { normalizeInternationalPhone } from "../shared/phone";
 
-type DispatchResult = { status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string };
+type DispatchResult = { status: "submitted" | "failed" | "needs_review" | "skipped"; providerMessageId?: string | null; error?: string };
 type SmsClaim = {
   notification_id: number;
   tenant_id: number;
@@ -82,23 +82,49 @@ export async function processNotificationById(notificationId: number, actorUserI
       message: claim.rendered_text,
       recipient: normalizeInternationalPhone(claim.recipient),
     });
-    if (!providerResult.ok) throw new Error(providerResult.message);
+    if (!providerResult.ok) {
+      sendError = providerResult.message;
+      if (providerResult.deliveryUncertain) {
+        const { data: uncertainFinish, error: uncertainFinishError } = await admin.rpc("powerhub_finish_sms_notification", {
+          p_user_id: actorUserId,
+          p_notification_id: claim.notification_id,
+          p_attempt_number: claim.attempt_number,
+          p_success: false,
+          p_provider_message_id: providerResult.providerMessageId ?? null,
+          p_error: sendError,
+          p_delivery_uncertain: true,
+        });
+        if (uncertainFinishError || !(uncertainFinish as unknown[] | null)?.[0]) {
+          return { status: "needs_review", error: "无法确认短信是否已被供应商接受；请检查供应商发送记录，且不要立即重新发送。" };
+        }
+        return { status: "needs_review", error: sendError };
+      }
+      throw new Error(providerResult.message);
+    }
     sent = true;
     providerMessageId = providerResult.providerMessageId ?? null;
   } catch (cause) {
     sendError = cause instanceof Error ? cause.message.slice(0, 2000) : "فشل غير معروف عند الاتصال بمزود الرسائل.";
   }
 
-  const { data: rawFinish, error: finishError } = await admin.rpc("powerhub_finish_sms_notification", {
-    p_user_id: actorUserId,
-    p_notification_id: claim.notification_id,
-    p_attempt_number: claim.attempt_number,
-    p_success: sent,
-    p_provider_message_id: providerMessageId,
-    p_error: sendError,
-  });
+  let rawFinish: unknown;
+  let finishError: { message?: string } | null = null;
+  for (let finishAttempt = 0; finishAttempt < 2; finishAttempt += 1) {
+    const finishResult = await admin.rpc("powerhub_finish_sms_notification", {
+      p_user_id: actorUserId,
+      p_notification_id: claim.notification_id,
+      p_attempt_number: claim.attempt_number,
+      p_success: sent,
+      p_provider_message_id: providerMessageId,
+      p_error: sendError,
+      p_delivery_uncertain: false,
+    });
+    rawFinish = finishResult.data;
+    finishError = finishResult.error;
+    if (!finishError && (rawFinish as unknown[] | null)?.[0]) break;
+  }
   if (finishError || !(rawFinish as unknown[] | null)?.[0]) {
-    return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال؛ لا تعاود المحاولة قبل مراجعة سجل التدقيق." };
+    return { status: "needs_review", error: "تعذر تثبيت نتيجة الإرسال؛ لا تعاود المحاولة قبل مراجعة سجل التدقيق." };
   }
   if (!sent) return { status: "failed", error: sendError ?? "رفض مزود TweetSMS الإرسال." };
   return { status: "submitted", providerMessageId };
@@ -117,6 +143,7 @@ export async function processNotificationQueueForTenant(tenantId: number, actorU
     requested: allResults.length,
     submitted: allResults.filter((result) => result.status === "submitted").length,
     failed: allResults.filter((result) => result.status === "failed").length,
+    needsReview: allResults.filter((result) => result.status === "needs_review").length,
     skipped: allResults.filter((result) => result.status === "skipped").length,
     results: allResults,
   };
