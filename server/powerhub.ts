@@ -2127,12 +2127,14 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
       return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: input.branchId, from, to });
     }),
-    create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), name: z.string().trim().min(2).max(120), accountType: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]), phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً."), openingBalance: z.number().nonnegative().default(0), color: z.string().trim().max(20).optional(), siteIds: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
+    create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), name: z.string().trim().min(2).max(120), accountType: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]), phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً."), openingBalance: z.number().nonnegative().default(0), color: z.string().trim().max(20).optional(), siteIds: z.array(z.number().int().positive()).min(1), clientOperationId: z.string().uuid().optional() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageExpenses");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_company_account", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_name: input.name, p_account_type: input.accountType, p_phone_number: input.phoneNumber, p_opening_balance: input.openingBalance, p_color: input.color ?? "#64748b", p_site_ids: input.siteIds });
-      if (!error && data?.[0]) return { id: Number((data[0] as { account_id: number | string }).account_id) };
+      const operationId = input.clientOperationId ?? crypto.randomUUID();
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_company_account_online", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_name: input.name, p_account_type: input.accountType, p_phone_number: input.phoneNumber, p_opening_balance: input.openingBalance, p_color: input.color ?? "#64748b", p_site_ids: input.siteIds, p_client_operation_id: operationId });
+      if (!error && data?.[0]) return { id: Number((data[0] as { account_id: number | string }).account_id), replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("ACCOUNT_SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "أحد الفروع المحددة لا يتبع مساحة الشركة." });
+      if (errorText.includes("COMPANY_ACCOUNT_OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح العملية مرتبط بإنشاء حساب مختلف؛ أعد تحميل الصفحة ثم حاول بعملية جديدة." });
       if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "يوجد حساب من النوع والرقم نفسيهما ضمن مساحة الشركة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء حساب الشركة في Supabase." });
     }),
