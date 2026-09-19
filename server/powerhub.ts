@@ -1638,7 +1638,11 @@ export const powerhubRouter = router({
         const { data, error } = await supabaseAdmin().rpc("powerhub_approve_reading", {
           p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion,
         });
-        if (!error && data?.[0]) return { success: true, replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
+        if (!error && data?.[0]) {
+          const row = data[0] as { reading_id?: number | string; version_no?: number };
+          if (row.reading_id === undefined || typeof row.version_no !== "number") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير مكتملة لاعتماد القراءة." });
+          return { success: true, readingId: Number(row.reading_id), versionNo: row.version_no, replayed: false };
+        }
         const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
         if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
         if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن اعتماد القراءات بانتظار المراجعة فقط." });
