@@ -126,7 +126,7 @@ export async function updateSubscription(input: {
 export async function quickUpgradeOwnerPlan(input: {
   actorUserId: number;
   tenantId: number;
-  plan: AdminSubscriptionPlan;
+  packageCode: AdminSubscriptionPlan;
   note: string;
   clientOperationId: string;
 }) {
