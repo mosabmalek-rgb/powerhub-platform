@@ -674,7 +674,7 @@ export const powerhubRouter = router({
     }),
     updatePermissions: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), customRoleId: z.number().int().positive().nullable().optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const { error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_permissions", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_permissions", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_profile_id: input.profileId,
         p_custom_role_id: input.customRoleId ?? null, p_permissions: input.permissions,
       });
