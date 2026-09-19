@@ -25,11 +25,13 @@ describe("Mobile API v1 contract", () => {
     expect(hashMobileToken("refresh-token-example")).not.toBe(hashMobileToken("different-token"));
   });
 
-  it("requires the separate field-app permission in addition to recording permission", () => {
+  it("allows only the technician role into the field app", () => {
     expect(hasFieldAppAccess("technician", ["recordReadings"])).toBe(false);
     expect(hasFieldAppAccess("technician", ["accessFieldApp"])).toBe(false);
     expect(hasFieldAppAccess("technician", ["recordReadings", "accessFieldApp"])).toBe(true);
-    expect(hasFieldAppAccess("collector", ["recordReadings", "accessFieldApp"])).toBe(true);
+    expect(hasFieldAppAccess("owner", ["recordReadings", "accessFieldApp"])).toBe(false);
+    expect(hasFieldAppAccess("manager", ["recordReadings", "accessFieldApp"])).toBe(false);
+    expect(hasFieldAppAccess("collector", ["recordReadings", "accessFieldApp"])).toBe(false);
   });
 
   it("accepts bounded sync telemetry and rejects invalid event identity, branch, and counts", () => {

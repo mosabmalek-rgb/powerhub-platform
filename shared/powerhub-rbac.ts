@@ -27,7 +27,7 @@ export const powerRoleLabels: Record<PowerRole, string> = {
   manager: "مدير",
   accountant: "محاسب",
   collector: "محصل",
-  technician: "فني",
+  technician: "مدخل قراءة عداد (فني)",
   viewer: "مشاهد",
 };
 

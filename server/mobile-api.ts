@@ -72,7 +72,7 @@ export function hashMobileToken(value: string) {
 }
 
 export function hasFieldAppAccess(role: PowerRole, permissions: readonly PowerCapability[] | null | undefined) {
-  return can(role, "recordReadings", permissions) && can(role, "accessFieldApp", permissions);
+  return role === "technician" && can(role, "recordReadings", permissions) && can(role, "accessFieldApp", permissions);
 }
 
 function newRefreshToken() {
@@ -177,7 +177,12 @@ async function availableTenantsForUser(userId: number) {
 async function createSession(scope: MobileScope, deviceLabel?: string) {
   const refreshToken = newRefreshToken();
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const { data: session, error } = await supabaseAdmin().from("mobile_api_sessions")
+  const admin = supabaseAdmin();
+  const { error: revokeError } = await admin.from("mobile_api_sessions")
+    .update({ revoked_at: isoNow() })
+    .eq("user_id", scope.userId).eq("tenant_id", scope.tenantId).is("revoked_at", null);
+  if (revokeError) throw new Error(revokeError.message || "تعذر إغلاق جلسة الجهاز السابق.");
+  const { data: session, error } = await admin.from("mobile_api_sessions")
     .insert({ user_id: scope.userId, tenant_id: scope.tenantId, refresh_token_hash: hashMobileToken(refreshToken), device_label: deviceLabel, expires_at: expiresAt })
     .select("id")
     .single();
