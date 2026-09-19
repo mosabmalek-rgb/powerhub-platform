@@ -1208,13 +1208,17 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
       const admin=supabaseAdmin();
       const [subscription,platformSetting,tenantSetting,branchRows]=await Promise.all([
-        admin.from("tenant_subscriptions").select("plan").eq("tenant_id",access.tenantId).maybeSingle(),
+        admin.from("tenant_subscriptions").select("plan, package_code").eq("tenant_id",access.tenantId).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key","branch_feature").maybeSingle(),
         admin.from("tenant_branch_settings").select("is_enabled_override, max_branches_override, disabled_behavior").eq("tenant_id",access.tenantId).maybeSingle(),
         admin.from("sites").select("id").eq("tenant_id",access.tenantId).neq("status","archived"),
       ]);
       if(subscription.error||platformSetting.error||tenantSetting.error||branchRows.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سياسة الفروع من Supabase."});
-      return resolveBranchPolicy({plan:(subscription.data?.plan??"starter") as SubscriptionPlan,platformSetting:platformSetting.data?{isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,tenantSetting:tenantSetting.data?{isEnabledOverride:tenantSetting.data.is_enabled_override,maxBranchesOverride:tenantSetting.data.max_branches_override,disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended"}:null,currentCount:(branchRows.data??[]).length});
+      const plan=(subscription.data?.plan??"starter") as SubscriptionPlan;
+      const packageCode=typeof subscription.data?.package_code==="string" && packageCodes.includes(subscription.data.package_code as PackageCode)
+        ? subscription.data.package_code as PackageCode
+        : legacyPlanToPackageCode[plan];
+      return resolveBranchPolicy({plan,packageCode,platformSetting:platformSetting.data?{isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,tenantSetting:tenantSetting.data?{isEnabledOverride:tenantSetting.data.is_enabled_override,maxBranchesOverride:tenantSetting.data.max_branches_override,disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended"}:null,currentCount:(branchRows.data??[]).length});
     }),
     create: protectedProcedure.input(siteInput.extend({ clientOperationId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
       const admin=supabaseAdmin();
