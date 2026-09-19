@@ -37,6 +37,12 @@ describe("offline sync engine", () => {
     expect(planReadyOperations([b, a], meta, new Set(["a"]), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["a", "b"]);
   });
 
+  it("does not plan rejected operations for retry", () => {
+    const a = { ...item("a", 100), status: "rejected" as const };
+    const metadata = new Map([["a", { ...createSyncMetadata(a, 0), nextAttemptAt: 0 }]]);
+    expect(planReadyOperations([a], metadata, new Set(), 100)).toHaveLength(0);
+  });
+
   it("replans failed operations when their retry window is open", () => {
     const a = { ...item("a", 100), status: "failed" as const };
     const metadata = new Map([["a", { ...createSyncMetadata(a, 0), attempts: 5, nextAttemptAt: 0 }]]);
