@@ -4,7 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { z } from "zod";
 import crypto from "node:crypto";
 import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
-import { storagePut } from "./storage";
+import { storagePutAtKey } from "./storage";
 import { supabaseAdmin } from "./supabase-admin";
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
@@ -323,7 +323,7 @@ export function registerMobileApi(app: Express) {
       if (!imageBytes.byteLength || imageBytes.byteLength > 7 * 1024 * 1024) return sendError(res, 413, "IMAGE_TOO_LARGE", "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت.");
       imageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
       const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-      imageKey = (await storagePut(`subscriber-readings/mobile/${context.scope.userId}/${subscriber.id}-${Date.now()}.${extension}`, imageBytes, input.imageMime)).key;
+      const deterministicImageKey = `subscriber-readings/mobile/${context.scope.tenantId}/${subscriber.id}/${input.clientOperationId}-${imageHash}.${extension}`;\n      try {\n        imageKey = (await storagePutAtKey(deterministicImageKey, imageBytes, input.imageMime)).key;\n      } catch (uploadError) {\n        const message = uploadError instanceof Error ? uploadError.message : String(uploadError);\n        if (!message.toLowerCase().includes("already exists")) throw uploadError;\n        imageKey = deterministicImageKey;\n      }
     }
     const notes = [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ");
     const { data: inserted, error: insertError } = await admin.rpc("powerhub_mobile_create_reading", {
