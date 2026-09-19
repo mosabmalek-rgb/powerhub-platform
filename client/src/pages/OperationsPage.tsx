@@ -152,8 +152,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   const addTariff = trpc.powerhub.tariffs.create.useMutation({ onSuccess: async () => { await utils.powerhub.tariffs.list.invalidate(); toast.success("تمت إضافة التعرفة."); }, onError: (e) => toast.error(e.message) });
   const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تم تسجيل الدفعة."); }, onError: (e) => toast.error(e.message) });
   const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: async (result) => { await refreshOperational(); toast.success(result.status === "submitted" ? "أُرسل إيصال SMS إلى المزود." : "وُضع إيصال SMS في الطابور؛ راجع سجل الإشعارات."); }, onError: (error) => toast.error(error.message) });
-  const expenseOperationId = useRef<string | null>(null);
-  const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: async (result) => { await refreshOperational(); expenseOperationId.current = null; toast.success(result.replayed ? "تم تأكيد المصروف السابق بعد إعادة المحاولة." : "تم تسجيل المصروف."); }, onError: (e) => toast.error(e.message) });
+  const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: async (result) => { await refreshOperational(); toast.success(result.replayed ? "تم تأكيد المصروف السابق بعد إعادة المحاولة." : "تم تسجيل المصروف."); }, onError: (e) => toast.error(e.message) });
   const createLink = trpc.powerhub.invoices.createShareLink.useMutation({ onSuccess: async (result) => {
     const url = `${window.location.origin}${result.path}`;
     try {
