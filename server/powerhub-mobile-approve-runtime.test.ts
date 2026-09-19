@@ -77,6 +77,21 @@ describe("mobile approval Supabase runtime", () => {
     expect(state.notify).not.toHaveBeenCalled();
   });
 
+  it("does not write a second audit event when the atomic RPC reports a replay", async () => {
+    state.approve.mockResolvedValue({
+      invoiceId: 71,
+      invoiceNo: "PH-MAIN-202608-00002",
+      totalAmount: 150,
+      notificationIds: [],
+      alreadyProcessed: true,
+    });
+    const caller = testRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
+    await expect(caller.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false }))
+      .resolves.toMatchObject({ id: 71, alreadyProcessed: true });
+    expect(state.audit).not.toHaveBeenCalled();
+    expect(state.notify).not.toHaveBeenCalled();
+  });
+
   it("passes the authenticated actor into notification dispatch for sendNow", async () => {
     const caller = testRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: true }))
