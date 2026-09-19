@@ -230,18 +230,27 @@ export function registerMobileApi(app: Express) {
   app.post("/api/mobile/v1/auth/refresh", async (req, res) => {
     const parsed = refreshSchema.safeParse(req.body);
     if (!parsed.success) return sendError(res, 400, "INVALID_REFRESH_TOKEN", "رمز التجديد غير صالح.");
-    const admin = supabaseAdmin();
-    const { data: session, error } = await admin.from("mobile_api_sessions").select("id, user_id, tenant_id")
-      .eq("refresh_token_hash", hashMobileToken(parsed.data.refreshToken)).is("revoked_at", null).gt("expires_at", isoNow()).maybeSingle();
-    if (error) return sendSupabaseError(res, error);
-    if (!session) return sendError(res, 401, "REFRESH_TOKEN_EXPIRED", "انتهت جلسة الموبايل. سجّل الدخول مجدداً.");
     try {
+      const admin = supabaseAdmin();
+      const refreshTokenHash = hashMobileToken(parsed.data.refreshToken);
+      const refreshToken = newRefreshToken();
+      const { data: rotation, error } = await admin.rpc("powerhub_mobile_rotate_refresh_token", {
+        p_refresh_token_hash: refreshTokenHash,
+        p_new_refresh_token_hash: hashMobileToken(refreshToken),
+      });
+      if (error) {
+        if (error.message.includes("REFRESH_TOKEN_INVALID")) {
+          return sendError(res, 401, "REFRESH_TOKEN_EXPIRED", "انتهت جلسة الموبايل أو تم استهلاك رمز التجديد. سجّل الدخول مجدداً.");
+        }
+        return sendSupabaseError(res, error);
+      }
+      const session = Array.isArray(rotation) ? rotation[0] : rotation;
+      if (!session?.success || session.session_id === undefined || session.user_id === undefined || session.tenant_id === undefined) {
+        return sendError(res, 401, "REFRESH_TOKEN_EXPIRED", "انتهت جلسة الموبايل. سجّل الدخول مجدداً.");
+      }
       const scope = await resolveMobileScope(toNumber(session.user_id), toNumber(session.tenant_id));
       if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يمكن متابعة جلسة هذا الحساب.");
-      const refreshToken = newRefreshToken();
-      const { error: updateError } = await admin.from("mobile_api_sessions").update({ refresh_token_hash: hashMobileToken(refreshToken), last_used_at: isoNow() }).eq("id", session.id);
-      if (updateError) return sendSupabaseError(res, updateError);
-      return res.json({ accessToken: await issueAccessToken({ userId: scope.userId, tenantId: scope.tenantId, sessionId: toNumber(session.id) }), refreshToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, user: mobileUserPayload(scope) });
+      return res.json({ accessToken: await issueAccessToken({ userId: scope.userId, tenantId: scope.tenantId, sessionId: toNumber(session.session_id) }), refreshToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, user: mobileUserPayload(scope) });
     } catch (scopeError) {
       return sendSupabaseError(res, scopeError instanceof Error ? scopeError : null);
     }
