@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { Building2, CirclePlus, Loader2, MapPin, PencilLine, ShieldCheck, Store, XCircle } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
@@ -20,10 +20,11 @@ export default function BranchesPage() {
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const [anchorSiteId, setAnchorSiteId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const createOperationRef = useRef<{ fingerprint: string; id: string } | null>(null);
   useEffect(() => { if (!anchorSiteId && sites.data?.[0]) setAnchorSiteId(sites.data[0].id); }, [anchorSiteId, sites.data]);
   const policy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: anchorSiteId ?? 0 }, { enabled: Boolean(anchorSiteId && isAuthenticated) });
   const refresh = async () => { await Promise.all([utils.powerhub.sites.list.invalidate(), utils.powerhub.sites.branchPolicy.invalidate()]); };
-  const create = trpc.powerhub.sites.create.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(result.replayed ? "تم تأكيد إنشاء الفرع السابق بعد إعادة المحاولة." : "تم إنشاء الفرع الجديد بنجاح."); }, onError: (error) => toast.error(error.message) });
+  const create = trpc.powerhub.sites.create.useMutation({ onSuccess: async (result) => { createOperationRef.current = null; await refresh(); toast.success(result.replayed ? "تم تأكيد إنشاء الفرع السابق بعد إعادة المحاولة." : "تم إنشاء الفرع الجديد بنجاح."); }, onError: (error) => toast.error(error.message) });
   const update = trpc.powerhub.sites.updateBranch.useMutation({ onSuccess: async () => { await refresh(); setEditingId(null); toast.success("تم تحديث بيانات الفرع."); }, onError: (error) => toast.error(error.message) });
 
   if (loading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
@@ -76,7 +77,10 @@ export default function BranchesPage() {
                   const form = new FormData(event.currentTarget);
                   const name = String(form.get("name") || "").trim();
                   const code = `BR-${Date.now().toString(36).toUpperCase()}`;
-                  create.mutate({ name, code, city: String(form.get("city") || "").trim() || undefined, address: String(form.get("address") || "").trim() || undefined, clientOperationId: crypto.randomUUID() });
+                  const payload = { name, code, city: String(form.get("city") || "").trim() || undefined, address: String(form.get("address") || "").trim() || undefined };
+                    const fingerprint = JSON.stringify(payload);
+                    if (createOperationRef.current?.fingerprint !== fingerprint) createOperationRef.current = { fingerprint, id: crypto.randomUUID() };
+                    create.mutate({ ...payload, clientOperationId: createOperationRef.current.id });
                 }}>
                   <Input required minLength={2} name="name" placeholder="اسم الفرع، مثال: فرع الكرادة" className={inputClass} disabled={create.isPending} />
                   <Input name="city" placeholder="المدينة / المنطقة" className={inputClass} disabled={create.isPending} />
