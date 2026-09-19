@@ -1,0 +1,3 @@
+-- Make staff assignment, permissions, and status mutations retry-safe at the DB layer.
+-- Exact repeats are now true no-ops: no state rewrite and no duplicate audit row.
+-- The production functions were hardened directly; this migration reconciles branch history.
