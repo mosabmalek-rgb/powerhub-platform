@@ -86,8 +86,8 @@ export async function setTenantMembershipStatus(input: {
   });
   rpcError("setTenantMembershipStatus", error);
   const row = data?.[0] as { success?: boolean; membership_id?: number|string; site_id?: number|string; status?: string; replayed?: boolean } | undefined;
-  if (!row || row.success !== true || row.membership_id === undefined || row.site_id === undefined || typeof row.status !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid membership status result." });
-  return { success: true, membershipId: Number(row.membership_id), siteId: Number(row.site_id), status: row.status, replayed: Boolean(row.replayed) };
+  if (!row || row.success !== true || row.membership_id === undefined || row.site_id === undefined || typeof row.status !== "string" || typeof row.replayed !== "boolean") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid membership status result." });
+  return { success: true, membershipId: Number(row.membership_id), siteId: Number(row.site_id), status: row.status, replayed: row.replayed };
 }
 
 export async function attachOwnerUser(input: {
@@ -104,8 +104,8 @@ export async function attachOwnerUser(input: {
   });
   rpcError("attachOwnerUser", error);
   const row = data?.[0] as { success?: boolean; site_id?: number|string; replayed?: boolean } | undefined;
-  if (!row || row.success !== true || row.site_id === undefined) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid owner attachment result." });
-  return { success: true, siteId: Number(row.site_id), replayed: Boolean(row.replayed) };
+  if (!row || row.success !== true || row.site_id === undefined || typeof row.replayed !== "boolean") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid owner attachment result." });
+  return { success: true, siteId: Number(row.site_id), replayed: row.replayed };
 }
 
 export async function updateSubscription(input: {
@@ -120,7 +120,7 @@ export async function updateSubscription(input: {
   rpcError("updateSubscription", error);
   const row = data?.[0] as { success?: boolean; subscription_id?: number|string; site_id?: number|string; replayed?: boolean } | undefined;
   if (!row || row.success !== true || !row.subscription_id) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid subscription update result." });
-  return { success: true, subscriptionId: Number(row.subscription_id), siteId: Number(row.site_id), replayed: Boolean(row.replayed) };
+  return { success: true, subscriptionId: Number(row.subscription_id), siteId: Number(row.site_id), replayed: row.replayed };
 }
 
 export async function quickUpgradeOwnerPlan(input: {
@@ -139,7 +139,7 @@ export async function quickUpgradeOwnerPlan(input: {
   });
   quickUpgradeOwnerPlanRpcError(error);
   const row = data?.[0] as { success?: boolean; plan?: string; replayed?: boolean } | undefined;
-  if (!row || row.success !== true || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid quick upgrade result." });
+  if (!row || row.success !== true || typeof row.plan !== "string" || typeof row.replayed !== "boolean") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid quick upgrade result." });
   return { success: true, plan: row.plan as AdminSubscriptionPlan, replayed: Boolean(row.replayed) };
 }
 
@@ -177,7 +177,7 @@ export async function reviewSmsPackageRequest(input: {
   });
   reviewSmsPackageRpcError(error);
   const row = data?.[0] as { success?: boolean; tenant_id?: number | string; site_id?: number | string; status?: string; approved_messages?: number; replayed?: boolean } | undefined;
-  if (!row || row.success !== true || typeof row.status !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid SMS package review result." });
+  if (!row || row.success !== true || typeof row.status !== "string" || typeof row.replayed !== "boolean") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid SMS package review result." });
   return {
     success: true,
     tenantId: Number(row.tenant_id),
