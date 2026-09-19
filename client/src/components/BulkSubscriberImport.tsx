@@ -81,6 +81,7 @@ export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSa
   const saveValid = () => {
     if (!validRows.length) return;
     importSubscribers.mutate({
+      clientOperationId: crypto.randomUUID(),
       siteId,
       updateExisting,
       rows: validRows.map((row) => ({
