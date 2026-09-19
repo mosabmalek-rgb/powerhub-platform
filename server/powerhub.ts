@@ -1663,22 +1663,24 @@ export const powerhubRouter = router({
       if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "تعذر إنشاء رقم فاتورة فريد؛ أعد المحاولة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إصدار الفاتورة في Supabase." });
     }),
-    createShareLink: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive(), expiresAt: z.date().optional() }))
+    createShareLink: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive(), expiresAt: z.date().optional(), clientOperationId: z.string().uuid() }))
       .mutation(async ({ ctx, input }) => {
         const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const token = generateInvoiceShareToken();
-          const { data, error } = await supabaseAdmin().rpc("powerhub_create_invoice_share_link", {
-            p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_invoice_id: input.invoiceId,
-            p_token_hash: hashInvoiceShareToken(token), p_token_preview: token.slice(0, 8), p_expires_at: input.expiresAt?.toISOString() ?? null,
-          });
-          if (!error && Number((data as Array<{ share_link_id: number | string }> | null)?.[0]?.share_link_id)) return { token, path: `/invoice/${token}` };
-          const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
-          if (error?.code === "23505" && attempt < 2) continue;
-          if (errorText.includes("INVOICE_NOT_SHAREABLE")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن مشاركة فاتورة غير صادرة أو ملغاة." });
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء رابط مشاركة الفاتورة في Supabase." });
+        const token = generateInvoiceShareToken();
+        const { data, error } = await supabaseAdmin().rpc("powerhub_create_invoice_share_link", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_invoice_id: input.invoiceId,
+          p_token_hash: hashInvoiceShareToken(token), p_token_preview: token.slice(0, 8),
+          p_expires_at: input.expiresAt?.toISOString() ?? null, p_client_operation_id: input.clientOperationId,
+        });
+        if (!error) {
+          const row = (data as Array<{ share_link_id: number | string; replayed: boolean }> | null)?.[0];
+          if (row?.share_link_id) return { token, path: `/invoice/${token}`, replayed: Boolean(row.replayed) };
         }
-        throw new TRPCError({ code: "CONFLICT", message: "تعذر إنشاء رابط مشاركة فريد للفاتورة؛ أعد المحاولة." });
+        const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (errorText.includes("INVOICE_NOT_SHAREABLE")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن مشاركة فاتورة غير صادرة أو ملغاة." });
+        if (errorText.includes("INVOICE_SHARE_OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح العملية مستخدم لرابط فاتورة مختلف." });
+        if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "تعذر تثبيت رابط المشاركة؛ أعد المحاولة بنفس العملية." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء رابط مشاركة الفاتورة في Supabase." });
       }),
     publicByToken: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", { p_token_hash: hashInvoiceShareToken(input.token) });
