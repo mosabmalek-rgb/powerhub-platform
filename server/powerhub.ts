@@ -689,7 +689,7 @@ export const powerhubRouter = router({
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) }))
       .mutation(async ({ ctx, input }) => {
         const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-        const { error } = await supabaseAdmin().rpc("powerhub_assign_existing_staff", {
+        const { data, error } = await supabaseAdmin().rpc("powerhub_assign_existing_staff", {
           p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_target_user_id: input.userId,
           p_role: input.role, p_all_branches: input.allBranches,
         });
@@ -702,7 +702,9 @@ export const powerhubRouter = router({
           if (error.message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة صاحب المولد." });
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تعيين الحساب الفرعي في Supabase." });
         }
-        return { success: true };
+        const row = (data as Array<{ profile_id?: number; target_user_id?: number; replayed?: boolean }> | null)?.[0];
+        if (!row?.profile_id || row.target_user_id !== input.userId || row.replayed === undefined) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة تعيين الحساب غير مكتملة." });
+        return { success: true, replayed: row.replayed };
       }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
