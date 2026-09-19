@@ -1309,22 +1309,27 @@ export const powerhubRouter = router({
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), name: z.string().min(2).max(160), ratedCapacityKw: z.string().regex(/^\d+(\.\d{1,3})?$/),
-      fuelLevelLiters: z.string().regex(/^\d+(\.\d{1,2})?$/), operatingHours: z.string().regex(/^\d+(\.\d{1,2})?$/), status: z.enum(["active", "maintenance", "stopped", "offline"]),
+      fuelLevelLiters: z.string().regex(/^\d+(\.\d{1,2})?$/), operatingHours: z.string().regex(/^\d+(\.\d{1,2})?$/), status: z.enum(["active", "maintenance", "stopped", "offline"]), clientOperationId: z.string().uuid(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
       const admin = supabaseAdmin();
+      const operationId = input.clientOperationId;
       const { data: existing, error: existingError } = await admin.from("generators")
         .select("id, tenant_id, site_id, name, rated_capacity_kw, fuel_level_liters, operating_hours, status")
         .eq("id", input.id).eq("site_id", input.siteId).maybeSingle();
       if (existingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المولد من Supabase." });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود ضمن المحطة المحددة." });
-      const { error: updateError } = await admin.from("generators").update({
-        name: input.name.trim(), rated_capacity_kw: input.ratedCapacityKw, fuel_level_liters: input.fuelLevelLiters,
-        operating_hours: input.operatingHours, status: input.status,
-      }).eq("id", input.id).eq("site_id", input.siteId);
-      if (updateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث المولد في Supabase." });
-      await writeSupabaseAuditBestEffort({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "generator", entityId: String(input.id), action: "update", beforeData: existing, afterData: input });
-      return { success: true };
+      const { data, error } = await admin.rpc("powerhub_update_generator_online", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_generator_id: input.id,
+        p_name: input.name, p_rated_capacity_kw: input.ratedCapacityKw, p_fuel_level_liters: input.fuelLevelLiters,
+        p_operating_hours: input.operatingHours, p_status: input.status, p_expected_updated_at: existing.updated_at,
+        p_client_operation_id: operationId,
+      });
+      if (!error && data?.[0]) return { success: true as const, replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
+      const errorText = String(error?.message ?? "");
+      if (errorText.includes("GENERATOR_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيرت بيانات المولد على الخادم؛ راجع التعديل ثم أعد المحاولة." });
+      if (errorText.includes("GENERATOR_OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف العملية مستخدم لبيانات مختلفة؛ لم يتم تنفيذ تعديل آخر." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث المولد في Supabase." });
     }),
   }),
 
