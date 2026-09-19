@@ -1,0 +1,3 @@
+-- Reconcile production SMS package request/review retry contract.
+-- powerhub_request_sms_package now returns already_requested on an exact replay.
+-- Existing pending requests remain protected by a tenant advisory lock.
