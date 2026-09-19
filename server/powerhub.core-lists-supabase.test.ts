@@ -321,7 +321,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يحدّث إعدادات الفرع عبر Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.sites.updateAnomalyAlert({ siteId: 10, anomalyAlertPercent: 70 })).resolves.toEqual({ success: true, anomalyAlertPercent: 70 });
-    await expect(caller.sites.updateBranch({ siteId: 10, name: "الفرع المحدث", code: "MAIN", city: "غزة", address: "العنوان", status: "active", invoiceDueDays: 21 })).resolves.toEqual({ success: true });
+    await expect(caller.sites.updateBranch({ siteId: 10, name: "الفرع المحدث", code: "MAIN", city: "غزة", address: "العنوان", status: "active", invoiceDueDays: 21 })).resolves.toEqual({ success: true, readingId: 60, versionNo: 2, replayed: false });
     expect(state.rpcCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "powerhub_update_site_anomaly", args: expect.objectContaining({ p_tenant_id: 20, p_anomaly_alert_percent: 70 }) }),
       expect.objectContaining({ name: "powerhub_update_site", args: expect.objectContaining({ p_invoice_due_days: 21, p_status: "active" }) }),
@@ -645,14 +645,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       .resolves.toEqual({ success: true, consumptionKwh: 20 });
     await expect(caller.readings.deletePending({ siteId: 10, readingId: 60, baseVersion: 2 })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual([
-      expect.objectContaining({ name: "powerhub_update_pending_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1 }) }),
+      expect.objectContaining({ name: "powerhub_update_pending_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1, p_client_operation_id: "44444444-4444-4444-8444-444444444444" }) }),
       expect.objectContaining({ name: "powerhub_delete_pending_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 2 }) }),
     ]);
   });
 
   it("يعتمد القراءة ويصدر فاتورتها عبر Supabase من دون MySQL أو عامل إرسال", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
-    await expect(caller.readings.approve({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false })).resolves.toEqual({ success: true });
+    await expect(caller.readings.approve({ siteId: 10, readingId: 60, baseVersion: 1, clientOperationId: "44444444-4444-4444-8444-444444444444", sendNow: false })).resolves.toEqual({ success: true });
     await expect(caller.invoices.createFromReading({ siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08", dueDate: new Date("2026-08-16T00:00:00.000Z"), discountAmount: 0, clientOperationId: "44444444-4444-4444-8444-444444444444" }))
       .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150 });
     expect(state.rpcCalls).toEqual([
