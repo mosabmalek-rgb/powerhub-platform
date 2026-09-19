@@ -251,7 +251,7 @@ export const adminRouterWithSupabaseReadContracts = router({
     const tenantsResult = await admin.from("tenants").select("id,name").order("name", { ascending: true });
     const ownersResult = await admin.from("tenant_owner_profiles").select("tenant_id,full_name");
     const settingsResult = await admin.from("tenant_branch_settings").select("tenant_id,is_enabled_override,max_branches_override,disabled_behavior");
-    const sitesResult = await admin.from("sites").select("id,tenant_id,status").eq("status", "archived");
+    const sitesResult = await admin.from("sites").select("id,tenant_id,status").neq("status", "archived");
     if (tenantsResult.error || ownersResult.error || settingsResult.error || sitesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات الفروع من Supabase." });
     const owners = new Map((ownersResult.data ?? []).map((row) => [Number(row.tenant_id), row.full_name]));
     const settings = new Map((settingsResult.data ?? []).map((row) => [Number(row.tenant_id), row]));
