@@ -3,6 +3,7 @@ import { ThemeSelector } from "@/components/ThemeSelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { startLogin } from "@/const";
+import { trpc } from "@/lib/trpc";
 import {
   ArrowLeft,
   BarChart3,
@@ -33,13 +34,15 @@ const features = [
   { icon: Landmark, title: "عدة مولدات ومحطات", text: "تجميع آمن للمواقع والمولدات والتعرفة ضمن نموذج مستأجر واحد قابل للنمو." },
 ];
 
-const plans = [
+const fallbackPlans = [
   {
     name: "الأساسية",
     description: "لبداية منظمة مع محطة تشغيل واحدة.",
     accent: "border-white/10 bg-white/[0.025]",
     items: ["المشتركون والعدادات", "القراءات والفوترة", "روابط الفواتير", "تقارير تشغيلية أساسية"],
     action: "ابدأ بمساحتك",
+    price: 143,
+    currency: "ILS",
   },
   {
     name: "الاحترافية",
@@ -48,6 +51,8 @@ const plans = [
     highlighted: true,
     items: ["كل ميزات الأساسية", "جلسات المحصل والإغلاق", "تقارير وتحليلات متقدمة", "إدارة فريق المحطة"],
     action: "اختر الاحترافية",
+    price: 251,
+    currency: "ILS",
   },
   {
     name: "الشركات",
@@ -55,6 +60,8 @@ const plans = [
     accent: "border-white/10 bg-white/[0.025]",
     items: ["محطات ومولدات متعددة", "صلاحيات تشغيلية دقيقة", "مركز قيادة إداري", "تهيئة حسب نطاق العمل"],
     action: "تحدث إلينا",
+    price: 323,
+    currency: "ILS",
   },
 ];
 
@@ -70,6 +77,17 @@ function SectionTitle({ eyebrow, title, description }: { eyebrow: string; title:
 
 export default function MarketingLandingPage() {
   const [, setLocation] = useLocation();
+  const catalog = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000, retry: 1 });
+  const plans = catalog.data?.packages?.map((pkg, index) => ({
+    name: String(pkg.name),
+    description: `حل ${String(pkg.name)} لإدارة مشروع بيع الكهرباء بالكيلوواط.`,
+    accent: index === 1 ? "border-[#F5B800]/55 bg-[#F5B800]/[0.055] shadow-[0_20px_70px_rgba(245,184,0,0.08)]" : "border-white/10 bg-white/[0.025]",
+    highlighted: index === 1,
+    items: [`${Number(pkg.platformUsers ?? 0)} مستخدمو منصة`, `${Number(pkg.fieldUsers ?? 0)} مستخدمون ميدانيون`, `${Number(pkg.branches ?? 0)} فرع${Number(pkg.branches ?? 0) === 1 ? "" : "ان"}`, `${Number(pkg.includedMessages ?? 0).toLocaleString("ar")} رسالة SMS`],
+    action: index === 1 ? "اختر الباقة" : "ابدأ بمساحتك",
+    price: Number(pkg.price),
+    currency: catalog.data?.currency ?? "ILS",
+  })) ?? fallbackPlans;
   const goToFeatures = () => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" });
 
   return (
@@ -159,7 +177,7 @@ export default function MarketingLandingPage() {
         <div className="container">
           <SectionTitle eyebrow="نطاقات مرنة" title="باقة تناسب حجم تشغيلك" description="تُضبط خطة الاشتراك وفق عدد المحطات والمولدات ومتطلبات التشغيل؛ لا تعرض هذه الصفحة سعراً ثابتاً قبل تحديد نطاق العمل." />
           <div className="mx-auto mt-12 grid max-w-6xl gap-5 lg:grid-cols-3">
-            {plans.map((plan) => <article key={plan.name} className={`relative rounded-3xl border p-6 ${plan.accent}`}>{plan.highlighted && <Badge className="absolute -top-3 right-6 bg-[#F5B800] px-3 py-1 text-[#0D1117] hover:bg-[#F5B800]">للعمليات النشطة</Badge>}<h3 className="text-2xl font-extrabold text-white">{plan.name}</h3><p className="mt-3 min-h-12 text-sm leading-6 text-slate-400">{plan.description}</p><div className="my-6 h-px bg-white/8" /><ul className="space-y-3">{plan.items.map((item) => <li key={item} className="flex items-start gap-2 text-sm text-slate-200"><Check className="mt-0.5 h-4 w-4 shrink-0 text-[#F5B800]" />{item}</li>)}</ul><Button onClick={startLogin} variant={plan.highlighted ? "default" : "outline"} className={plan.highlighted ? "mt-8 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#FFD45A]" : "mt-8 w-full border-white/15 bg-white/[0.02] font-bold text-white hover:bg-white/8 hover:text-white"}>{plan.action}</Button></article>)}
+            {plans.map((plan) => <article key={plan.name} className={`relative rounded-3xl border p-6 ${plan.accent}`}>{plan.highlighted && <Badge className="absolute -top-3 right-6 bg-[#F5B800] px-3 py-1 text-[#0D1117] hover:bg-[#F5B800]">للعمليات النشطة</Badge>}<h3 className="text-2xl font-extrabold text-white">{plan.name}</h3><p className="mt-3 min-h-12 text-sm leading-6 text-slate-400">{plan.description}</p><p className="mt-4 text-3xl font-black text-[#F5B800]" dir="ltr">{Number(plan.price).toLocaleString("ar-IQ")} <span className="text-sm">{plan.currency === "ILS" ? "₪" : plan.currency}</span><span className="mr-1 text-xs font-normal text-slate-400">شهرياً</span></p><div className="my-6 h-px bg-white/8" /><ul className="space-y-3">{plan.items.map((item) => <li key={item} className="flex items-start gap-2 text-sm text-slate-200"><Check className="mt-0.5 h-4 w-4 shrink-0 text-[#F5B800]" />{item}</li>)}</ul><Button onClick={startLogin} variant={plan.highlighted ? "default" : "outline"} className={plan.highlighted ? "mt-8 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#FFD45A]" : "mt-8 w-full border-white/15 bg-white/[0.02] font-bold text-white hover:bg-white/8 hover:text-white"}>{plan.action}</Button></article>)}
           </div>
         </div>
       </section>

@@ -9,6 +9,7 @@ const oauthMocks = vi.hoisted(() => ({ startLogin: vi.fn(), setLocation: vi.fn()
 
 vi.mock("@/const", () => ({ startLogin: oauthMocks.startLogin }));
 vi.mock("wouter", () => ({ useLocation: () => ["/", oauthMocks.setLocation] }));
+vi.mock("@/lib/trpc", () => ({ trpc: { powerhub: { publicPackageCatalog: { useQuery: () => ({ data: { currency: "ILS", packages: [{ name: "الأساسية", price: 143, platformUsers: 2, fieldUsers: 1, branches: 1, includedMessages: 600 }, { name: "الاحترافية", price: 251, platformUsers: 3, fieldUsers: 2, branches: 1, includedMessages: 1200 }, { name: "الشركات", price: 323, platformUsers: 3, fieldUsers: 3, branches: 1, includedMessages: 1800 }] } }) } } } }));
 
 afterEach(() => {
   cleanup();
