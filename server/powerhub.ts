@@ -1281,8 +1281,6 @@ export const powerhubRouter = router({
         ? (packageInfo.features as Record<string, unknown>).subscribers : undefined;
       const catalogLimit = featureSubscribers && typeof featureSubscribers === "object" && !Array.isArray(featureSubscribers)
         ? (featureSubscribers as Record<string, unknown>).limit : packageInfo.includedSubscribers;
-      const catalogMode = featureSubscribers && typeof featureSubscribers === "object" && !Array.isArray(featureSubscribers)
-        ? String((featureSubscribers as Record<string, unknown>).mode ?? "maximum") : String(packageInfo.subscriberLimitMode ?? "maximum");
       const overridesValue = overridesPolicyResponse.data?.value;
       const overridesObject = overridesValue && typeof overridesValue === "object" && !Array.isArray(overridesValue) ? overridesValue as Record<string, unknown> : {};
       const perTenantOverrides = overridesObject.overrides;
