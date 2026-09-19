@@ -169,18 +169,11 @@ const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
 export const ownerSubaccountRoles = ["manager", "accountant", "collector", "technician", "viewer"] as const;
 export type OwnerSubaccountRole = typeof ownerSubaccountRoles[number];
-export type SubscriptionPlan = "starter" | "professional" | "enterprise";
 export type PackageCode = "basic" | "advanced" | "professional" | "business" | "vip";
 export const packageCodes = ["basic", "advanced", "professional", "business", "vip"] as const;
-export const legacyPlanToPackageCode: Record<SubscriptionPlan, PackageCode> = {
-  starter: "basic",
-  professional: "advanced",
-  enterprise: "business",
-};
 export const defaultOwnerSubaccountLimits: Record<PackageCode, number> = { basic: 2, advanced: 2, professional: 3, business: 3, vip: 4 };
 export const defaultOwnerSubscriberLimits: Record<PackageCode, number> = { basic: 150, advanced: 300, professional: 500, business: 750, vip: 900 };
 export const defaultBranchLimits: Record<PackageCode, number> = { basic: 1, advanced: 1, professional: 1, business: 1, vip: 2 };
-export const legacyBranchLimits: Record<SubscriptionPlan, number> = { starter: 1, professional: 1, enterprise: 1 };
 
 export function allowedOwnerSubaccountRoles(setting?: { isEnabled: boolean; value: unknown } | null): OwnerSubaccountRole[] {
   if (!setting) return [...ownerSubaccountRoles];
@@ -204,8 +197,6 @@ export function ownerSubscriberLimitForPackage(packageCode: PackageCode, setting
   const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : defaultOwnerSubscriberLimits[packageCode];
 }
-export function ownerSubaccountLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number { return ownerSubaccountLimitForPackage(legacyPlanToPackageCode[plan], setting); }
-export function ownerSubscriberLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number { return ownerSubscriberLimitForPackage(legacyPlanToPackageCode[plan], setting); }
 
 export function branchLimitForPackage(packageCode: PackageCode, setting?: { value: unknown } | null): number {
   const value = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
@@ -219,26 +210,13 @@ export function branchLimitForPackage(packageCode: PackageCode, setting?: { valu
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000 ? parsed : defaultBranchLimits[packageCode];
 }
 
-export function branchLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number {
-  const value = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
-    ? setting.value as Record<string, unknown>
-    : {};
-  const legacyFallback = value.legacyFallback;
-  const candidate = legacyFallback && typeof legacyFallback === "object" && !Array.isArray(legacyFallback)
-    ? (legacyFallback as Record<string, unknown>)[plan]
-    : undefined;
-  const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
-  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000 ? parsed : legacyBranchLimits[plan];
-}
-
 export function resolveBranchPolicy(input: {
-  plan: SubscriptionPlan;
-  packageCode?: PackageCode | null;
+  packageCode: PackageCode;
   platformSetting?: { isEnabled: boolean; value: unknown } | null;
   tenantSetting?: { isEnabledOverride: boolean | null; maxBranchesOverride: number | null; disabledBehavior: "read_only" | "suspended" } | null;
   currentCount?: number;
 }) {
-  const planLimit = input.packageCode ? branchLimitForPackage(input.packageCode, input.platformSetting) : branchLimitForPlan(input.plan, input.platformSetting);
+  const planLimit = branchLimitForPackage(input.packageCode, input.platformSetting);
   const overrideLimit = input.tenantSetting?.maxBranchesOverride;
   const maxBranches = Number.isInteger(overrideLimit) && (overrideLimit ?? 0) >= 1 ? overrideLimit! : planLimit;
   const platformEnabled = input.platformSetting?.isEnabled ?? false;
@@ -624,8 +602,7 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const admin = supabaseAdmin();
       const [subscriptionResult, tenantResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult] = await Promise.all([
-        admin.from("tenant_subscriptions").select("plan, package_code").eq("tenant_id", access.tenantId).order("created_at",{ ascending: false }).order("id",{ ascending: false }).limit(1).maybeSingle(),
-        admin.from("tenants").select("plan").eq("id", access.tenantId).maybeSingle(),
+        admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).order("created_at",{ ascending: false }).order("id",{ ascending: false }).limit(1).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key", "owner_subaccount_roles").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_subaccount_limits").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
@@ -634,9 +611,10 @@ export const powerhubRouter = router({
       if (subscriptionResult.error || tenantResult.error || rolesPolicyResult.error || limitsPolicyResult.error || overridesResult.error || membersResult.error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحسابات الفرعية من Supabase." });
       }
-      const plan = subscriptionResult.data?.plan ?? tenantResult.data?.plan;
-      if (plan !== "starter" && plan !== "professional" && plan !== "enterprise") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
-      const packageCode = typeof subscriptionResult.data?.package_code === "string" && packageCodes.includes(subscriptionResult.data.package_code as PackageCode) ? subscriptionResult.data.package_code as PackageCode : legacyPlanToPackageCode[plan];
+      const packageCode = typeof subscriptionResult.data?.package_code === "string" && packageCodes.includes(subscriptionResult.data.package_code as PackageCode)
+        ? subscriptionResult.data.package_code as PackageCode
+        : null;
+      if (!packageCode) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
       const policyOverrides = overridesResult.data?.value && typeof overridesResult.data.value === "object" && !Array.isArray(overridesResult.data.value)
         ? (overridesResult.data.value as Record<string, unknown>).overrides : undefined;
       const override = policyOverrides && typeof policyOverrides === "object" && !Array.isArray(policyOverrides)
@@ -1030,7 +1008,7 @@ export const powerhubRouter = router({
     currentUpgradeRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { data, error } = await supabaseAdmin().from("subscription_upgrade_requests")
-        .select("id, current_plan, requested_plan, status, note, created_at, reviewed_at")
+        .select("id, current_package_code, requested_package_code, status, note, created_at, reviewed_at")
         .eq("tenant_id", access.tenantId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -1039,8 +1017,8 @@ export const powerhubRouter = router({
       if (!data) return null;
       return {
         id: Number(data.id),
-        currentPlan: data.current_plan,
-        requestedPlan: data.requested_plan,
+        currentPlan: data.current_package_code,
+        requestedPlan: data.requested_package_code,
         status: data.status,
         note: data.note,
         createdAt: new Date(data.created_at),
@@ -1050,13 +1028,13 @@ export const powerhubRouter = router({
     requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPlan: z.enum(["basic", "advanced", "professional", "business", "vip"]) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
       const { data, error } = await supabaseAdmin().rpc("powerhub_request_subscription_upgrade", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_plan: input.requestedPlan });
-      const result = (data as Array<{ request_id: number | string; requested_plan: string; already_requested: boolean }> | null)?.[0];
-      if (!error && result?.request_id) return { id: Number(result.request_id), requestedPlan: result.requested_plan, alreadyRequested: result.already_requested };
+      const result = (data as Array<{ request_id: number | string; requested_package_code: string; already_requested: boolean }> | null)?.[0];
+      if (!error && result?.request_id) return { id: Number(result.request_id), requestedPlan: result.requested_package_code, alreadyRequested: result.already_requested };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
       if (errorText.includes("SUBSCRIBER_LIMIT_NOT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يتاح طلب الترقية من هذا الزر عند بلوغ الحد الأقصى للمشتركين." });
-      if (errorText.includes("REQUESTED_PLAN_NOT_HIGHER") || errorText.includes("INVALID_REQUESTED_PLAN")) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من باقتك الحالية." });
-      if (errorText.includes("TENANT_PLAN_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
+      if (errorText.includes("REQUESTED_PACKAGE_NOT_HIGHER") || errorText.includes("INVALID_REQUESTED_PACKAGE_CODE")) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من باقتك الحالية." });
+      if (errorText.includes("TENANT_PACKAGE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء طلب ترقية الباقة في Supabase." });
     }),
   }),
@@ -1202,17 +1180,17 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
       const admin=supabaseAdmin();
       const [subscription,platformSetting,tenantSetting,branchRows]=await Promise.all([
-        admin.from("tenant_subscriptions").select("plan, package_code").eq("tenant_id",access.tenantId).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle(),
+        admin.from("tenant_subscriptions").select("package_code").eq("tenant_id",access.tenantId).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key","branch_feature").maybeSingle(),
         admin.from("tenant_branch_settings").select("is_enabled_override, max_branches_override, disabled_behavior").eq("tenant_id",access.tenantId).maybeSingle(),
         admin.from("sites").select("id").eq("tenant_id",access.tenantId).neq("status","archived"),
       ]);
       if(subscription.error||platformSetting.error||tenantSetting.error||branchRows.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سياسة الفروع من Supabase."});
-      const plan=(subscription.data?.plan??"starter") as SubscriptionPlan;
       const packageCode=typeof subscription.data?.package_code==="string" && packageCodes.includes(subscription.data.package_code as PackageCode)
         ? subscription.data.package_code as PackageCode
-        : legacyPlanToPackageCode[plan];
-      return resolveBranchPolicy({plan,packageCode,platformSetting:platformSetting.data?{isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,tenantSetting:tenantSetting.data?{isEnabledOverride:tenantSetting.data.is_enabled_override,maxBranchesOverride:tenantSetting.data.max_branches_override,disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended"}:null,currentCount:(branchRows.data??[]).length});
+        : null;
+      if (!packageCode) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا توجد باقة صالحة لمساحة صاحب المولد."});
+      return resolveBranchPolicy({packageCode,platformSetting:platformSetting.data?{isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,tenantSetting:tenantSetting.data?{isEnabledOverride:tenantSetting.data.is_enabled_override,maxBranchesOverride:tenantSetting.data.max_branches_override,disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended"}:null,currentCount:(branchRows.data??[]).length});
     }),
     create: protectedProcedure.input(siteInput.extend({ clientOperationId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
       const admin=supabaseAdmin();
@@ -1263,8 +1241,7 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       const admin = supabaseAdmin();
       const [subscriptionResponse, tenantResponse, catalogResponse, overridesPolicyResponse, countResponse] = await Promise.all([
-        admin.from("tenant_subscriptions").select("plan, package_code").eq("tenant_id", access.tenantId).order("created_at",{ ascending: false }).order("id",{ ascending: false }).limit(1).maybeSingle(),
-        admin.from("tenants").select("plan").eq("id", access.tenantId).maybeSingle(),
+        admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).order("created_at",{ ascending: false }).order("id",{ ascending: false }).limit(1).maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "subscription_package_catalog").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
         admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", access.tenantId),
