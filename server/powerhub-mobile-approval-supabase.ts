@@ -58,15 +58,25 @@ export async function approveAndIssueMobileReadingSupabase(input: {
     already_processed: boolean;
   }> | null)?.[0];
 
-  if (!row?.invoice_id || !row.invoice_no) {
+  if (
+    row?.invoice_id === undefined ||
+    typeof row.invoice_no !== "string" ||
+    row.total_amount === undefined ||
+    !Array.isArray(row.notification_ids) ||
+    typeof row.already_processed !== "boolean"
+  ) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة اعتماد القراءة نتيجة صالحة." });
+  }
+  const notificationIds = row.notification_ids.map(Number);
+  if (notificationIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت دالة اعتماد القراءة معرفات إشعارات غير صالحة." });
   }
 
   return {
     invoiceId: Number(row.invoice_id),
     invoiceNo: row.invoice_no,
     totalAmount: Number(row.total_amount),
-    notificationIds: (row.notification_ids ?? []).map(Number),
-    alreadyProcessed: Boolean(row.already_processed),
+    notificationIds,
+    alreadyProcessed: row.already_processed,
   };
 }
