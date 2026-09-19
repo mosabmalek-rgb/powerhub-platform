@@ -124,8 +124,8 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_bulk_upsert_subscribers") return resolved([{ created: [{ id: 31, sourceRow: 2, fullName: "مشترك اختبار", subscriberNo: "MAIN-NEW" }], updated: [], failed: [] }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
-      if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
-      if (name === "powerhub_delete_pending_reading") return resolved(null);
+      if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z", replayed: false }]);
+      if (name === "powerhub_delete_pending_reading") return resolved([{ deleted_reading_id: 60, replayed: false }]);
       if (name === "powerhub_approve_reading") return resolved([{ reading_id: 60, version_no: 2 }]);
       if (name === "powerhub_approve_and_issue_mobile_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, notification_ids: [], already_processed: false }]);
       if (name === "powerhub_issue_invoice_from_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, replayed: false }]);
@@ -416,7 +416,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.hr.overview({ siteId: 10, period: "2026-08" })).resolves.toMatchObject({
       employees: [{ status: "active", count: 1, wages: 1000 }], payroll: { count: 1, totalGross: 1000, totalDeductions: 100, totalNet: 900 },
     });
-    await expect(caller.hr.upsertAttendance({ siteId: 10, employeeId: 120, workDate: "2026-08-03", regularHours: 8, overtimeHours: 1, absentDays: 0 })).resolves.toEqual({ success: true });
+    await expect(caller.hr.upsertAttendance({ siteId: 10, employeeId: 120, workDate: "2026-08-03", regularHours: 8, overtimeHours: 1, absentDays: 0 })).resolves.toEqual({ success: true, deletedReadingId: 60, replayed: false });
     expect(state.rpcCalls).toContainEqual(expect.objectContaining({
       name: "powerhub_upsert_employee_attendance",
       args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_employee_id: 120, p_work_date: "2026-08-03" }),
@@ -641,12 +641,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يعدّل ويحذف القراءة المعلقة بدوال Supabase الذرية من دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
-    await expect(caller.readings.updatePending({ siteId: 10, readingId: 60, baseVersion: 1, readingValue: "110", readingAt: new Date("2026-08-03T00:00:00.000Z"), notes: "تصحيح" }))
-      .resolves.toEqual({ success: true, consumptionKwh: 20 });
-    await expect(caller.readings.deletePending({ siteId: 10, readingId: 60, baseVersion: 2 })).resolves.toEqual({ success: true });
+    await expect(caller.readings.updatePending({ siteId: 10, readingId: 60, baseVersion: 1, readingValue: "110", readingAt: new Date("2026-08-03T00:00:00.000Z"), notes: "تصحيح", clientOperationId: "55555555-5555-4555-8555-555555555555" }))
+      .resolves.toEqual({ success: true, consumptionKwh: 20, updatedAt: "2026-08-04T00:00:00.000Z", replayed: false });
+    await expect(caller.readings.deletePending({ siteId: 10, readingId: 60, baseVersion: 2, clientOperationId: "66666666-6666-4666-8666-666666666666" })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_update_pending_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1, p_client_operation_id: "44444444-4444-4444-8444-444444444444" }) }),
-      expect.objectContaining({ name: "powerhub_delete_pending_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 2 }) }),
+      expect.objectContaining({ name: "powerhub_delete_pending_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 2, p_client_operation_id: "66666666-6666-4666-8666-666666666666" }) }),
     ]);
   });
 
@@ -656,7 +656,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.invoices.createFromReading({ siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08", dueDate: new Date("2026-08-16T00:00:00.000Z"), discountAmount: 0, clientOperationId: "44444444-4444-4444-8444-444444444444" }))
       .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150 });
     expect(state.rpcCalls).toEqual([
-      expect.objectContaining({ name: "powerhub_approve_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1 }) }),
+      expect.objectContaining({ name: "powerhub_approve_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1, p_client_operation_id: "55555555-5555-4555-8555-555555555555" }) }),
       expect.objectContaining({ name: "powerhub_issue_invoice_from_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_tariff_id: 40, p_billing_period: "2026-08" }) }),
     ]);
     expect(state.inserts.some((entry) => entry.table === "notification_messages")).toBe(false);
