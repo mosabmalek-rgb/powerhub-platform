@@ -26,9 +26,9 @@ export async function setPlatformAccessRole(input: {
   }
 
   const row = data?.[0] as { success?: boolean; platform_role?: string } | undefined;
-  if (!row || typeof row.platform_role !== "string") {
+  if (!row || row.success !== true || typeof row.platform_role !== "string") {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير صالحة لتحديث دور الحساب." });
   }
 
-  return { success: Boolean(row.success), platformRole: row.platform_role as PlatformAccessRole };
+  return { success: true, platformRole: row.platform_role as PlatformAccessRole };
 }
