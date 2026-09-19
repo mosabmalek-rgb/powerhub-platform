@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { supabaseAdmin } from "./supabase-admin";
 
-export type AdminSubscriptionPlan = "starter" | "professional" | "enterprise";
+export type AdminSubscriptionPlan = "basic" | "advanced" | "professional" | "business" | "vip" | "starter" | "enterprise";
 export type AdminSubscriptionStatus = "trial" | "active" | "overdue" | "suspended" | "cancelled";
 export type AdminBillingCycle = "monthly" | "yearly";
 
