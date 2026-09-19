@@ -405,12 +405,15 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function configuredSubscriberLimit(plan: string, value: unknown) {
-  const defaults: Record<string, number> = { basic: 150, advanced: 300, professional: 500, business: 750, vip: 900 };
-  const limits = objectValue(objectValue(value).limits);
-  const candidate = limits[plan];
+function configuredSubscriberLimit(packageCode: string, catalogValue: unknown) {
+  const catalog = objectValue(catalogValue);
+  const packages = Array.isArray(catalog.packages) ? catalog.packages : [];
+  const pkg = packages.find((item) => item && typeof item === "object" && !Array.isArray(item) && String((item as Record<string, unknown>).code) === packageCode) as Record<string, unknown> | undefined;
+  const features = objectValue(pkg?.features);
+  const subscribers = objectValue(features.subscribers);
+  const candidate = subscribers.limit ?? pkg?.includedSubscribers;
   const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : (defaults[plan] ?? defaults.basic);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : 150;
 }
 
 function subscriberOverride(tenantId: number, value: unknown) {
@@ -421,18 +424,22 @@ function subscriberOverride(tenantId: number, value: unknown) {
 
 export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
   const admin = supabaseAdmin();
-  const [tenantResult, limitsResult, overridesResult, countResult] = await Promise.all([
+  const [tenantResult, subscriptionResult, catalogResult, overridesResult, countResult] = await Promise.all([
     admin.from("tenants").select("plan").eq("id", tenantId).maybeSingle(),
-    admin.from("platform_settings").select("value").eq("setting_key", "owner_subscriber_limits").maybeSingle(),
+    admin.from("tenant_subscriptions").select("plan,package_code").eq("tenant_id", tenantId).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle(),
+    admin.from("platform_settings").select("value").eq("setting_key", "subscription_package_catalog").maybeSingle(),
     admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
     admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
   ]);
-  if (tenantResult.error || limitsResult.error || overridesResult.error || countResult.error) {
+  if (tenantResult.error || subscriptionResult.error || catalogResult.error || overridesResult.error || countResult.error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
   }
   if (!tenantResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-  const plan = tenantResult.data.plan;
-  const limit = subscriberOverride(tenantId, overridesResult.data?.value) ?? configuredSubscriberLimit(plan, limitsResult.data?.value);
+  const plan = subscriptionResult.data?.plan ?? tenantResult.data.plan;
+  const rawPackage = subscriptionResult.data?.package_code;
+  const packageCode = rawPackage && ["basic","advanced","professional","business","vip"].includes(rawPackage)
+    ? rawPackage : ({ starter:"basic", professional:"advanced", enterprise:"business" } as Record<string,string>)[plan] ?? "basic";
+  const limit = subscriberOverride(tenantId, overridesResult.data?.value) ?? configuredSubscriberLimit(packageCode, catalogResult.data?.value);
   const currentCount = countResult.count ?? 0;
   return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
 }
