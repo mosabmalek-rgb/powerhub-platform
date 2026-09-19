@@ -23,7 +23,7 @@ export default function BranchesPage() {
   useEffect(() => { if (!anchorSiteId && sites.data?.[0]) setAnchorSiteId(sites.data[0].id); }, [anchorSiteId, sites.data]);
   const policy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: anchorSiteId ?? 0 }, { enabled: Boolean(anchorSiteId && isAuthenticated) });
   const refresh = async () => { await Promise.all([utils.powerhub.sites.list.invalidate(), utils.powerhub.sites.branchPolicy.invalidate()]); };
-  const create = trpc.powerhub.sites.create.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم إنشاء الفرع الجديد بنجاح."); }, onError: (error) => toast.error(error.message) });
+  const create = trpc.powerhub.sites.create.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(result.replayed ? "تم تأكيد إنشاء الفرع السابق بعد إعادة المحاولة." : "تم إنشاء الفرع الجديد بنجاح."); }, onError: (error) => toast.error(error.message) });
   const update = trpc.powerhub.sites.updateBranch.useMutation({ onSuccess: async () => { await refresh(); setEditingId(null); toast.success("تم تحديث بيانات الفرع."); }, onError: (error) => toast.error(error.message) });
 
   if (loading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
@@ -76,7 +76,7 @@ export default function BranchesPage() {
                   const form = new FormData(event.currentTarget);
                   const name = String(form.get("name") || "").trim();
                   const code = `BR-${Date.now().toString(36).toUpperCase()}`;
-                  create.mutate({ name, code, city: String(form.get("city") || "").trim() || undefined, address: String(form.get("address") || "").trim() || undefined });
+                  create.mutate({ name, code, city: String(form.get("city") || "").trim() || undefined, address: String(form.get("address") || "").trim() || undefined, clientOperationId: crypto.randomUUID() });
                 }}>
                   <Input required minLength={2} name="name" placeholder="اسم الفرع، مثال: فرع الكرادة" className={inputClass} disabled={create.isPending} />
                   <Input name="city" placeholder="المدينة / المنطقة" className={inputClass} disabled={create.isPending} />
