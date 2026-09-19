@@ -26,7 +26,9 @@ export default function MobileReadingDetailPage() {
     try {
       const result = await approveAndIssue.mutateAsync({ siteId, readingId, baseVersion: row.versionNo, sendNow });
       const delivery = result.delivery;
-      if (delivery.failed) toast.warning(`تم إصدار الفاتورة ${result.invoiceNo}، لكن تعذر إرسال ${delivery.failed} إشعاراً؛ يمكنك إعادة المحاولة من سجل الرسائل.`);
+      if (result.alreadyProcessed) {
+        toast.info(`العملية مكتملة مسبقاً: الفاتورة ${result.invoiceNo} موجودة بالفعل. لم تُنشأ فاتورة جديدة.`);
+      } else if (delivery.failed) toast.warning(`تم إصدار الفاتورة ${result.invoiceNo}، لكن تعذر إرسال ${delivery.failed} إشعاراً؛ يمكنك إعادة المحاولة من سجل الرسائل.`);
       else if (delivery.submitted) toast.success(`تم اعتماد القراءة وإصدار الفاتورة ${result.invoiceNo} وإرسال ${delivery.submitted} إشعار.`);
       else toast.success(`تم اعتماد القراءة وإصدار الفاتورة ${result.invoiceNo}.`);
       await detail.refetch();
