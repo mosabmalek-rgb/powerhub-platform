@@ -10,7 +10,7 @@ begin
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='public' and p.proname='powerhub_enforce_field_user_quota' and p.prokind='f'
   order by p.oid desc limit 1;
-  if v_sql is not null then
+  if v_sql is not null and v_sql like '%v_package_code%' then
     v_sql:=replace(v_sql,
       $a$where package->>'legacyPlan' = v_plan$a$,
       $b$where package->>'code' = coalesce(v_package_code,
