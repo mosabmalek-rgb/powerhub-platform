@@ -664,7 +664,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يسجل المصروف عبر Supabase مع حارس الفترة المالية", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
-    await expect(caller.expenses.create({ siteId: 10, category: "fuel", description: "وقود التشغيل", amount: 50, referenceNo: "EXP-1" })).resolves.toEqual({ id: 82 });
+    await expect(caller.expenses.create({ siteId: 10, category: "fuel", description: "وقود التشغيل", amount: 50, referenceNo: "EXP-1", clientOperationId: "33333333-3333-4333-8333-333333333333" })).resolves.toEqual({ id: 82, replayed: false });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_expense", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_category: "fuel", p_amount: 50 }) })]);
   });
 
