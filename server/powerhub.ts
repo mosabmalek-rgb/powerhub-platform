@@ -2213,22 +2213,24 @@ export const powerhubRouter = router({
         createdAt: new Date(employee.created_at), updatedAt: new Date(employee.updated_at),
       }));
     }),
-    createEmployee: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), fullName: z.string().trim().min(2).max(180), identityNo: z.string().trim().max(80).optional(), phone: z.string().trim().max(40).optional(), jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]), employmentStatus: z.enum(["active", "suspended", "ended"]).default("active"), contractType: z.enum(["daily", "monthly", "collection_percentage"]), baseWage: z.number().min(0).max(100000000), hireDate: z.string().optional(), notes: z.string().trim().max(2000).optional(), linkedUserId: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => {
+    createEmployee: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), fullName: z.string().trim().min(2).max(180), identityNo: z.string().trim().max(80).optional(), phone: z.string().trim().max(40).optional(), jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]), employmentStatus: z.enum(["active", "suspended", "ended"]).default("active"), contractType: z.enum(["daily", "monthly", "collection_percentage"]), baseWage: z.number().min(0).max(100000000), hireDate: z.string().optional(), notes: z.string().trim().max(2000).optional(), linkedUserId: z.number().int().positive().optional(), clientOperationId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const hireDate = input.hireDate ? new Date(input.hireDate) : null;
       if (input.hireDate && Number.isNaN(hireDate?.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ التعيين غير صحيح." });
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_employee", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_employee_online", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_full_name: input.fullName,
         p_identity_no: input.identityNo ?? null, p_phone: input.phone ?? null, p_job_title: input.jobTitle,
         p_employment_status: input.employmentStatus, p_contract_type: input.contractType, p_base_wage: input.baseWage,
         p_hire_date: input.hireDate ?? null, p_notes: input.notes ?? null, p_linked_user_id: input.linkedUserId ?? null,
+        p_client_operation_id: input.clientOperationId,
       });
-      const result = (data as Array<{ employee_id: number | string }> | null)?.[0];
-      if (!error && result?.employee_id) return { id: Number(result.employee_id) };
-      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      const result = (data as Array<{ employee_id: number | string; replayed?: boolean }> | null)?.[0];
+      if (!error && result?.employee_id) return { id: Number(result.employee_id), replayed: Boolean(result.replayed) };
+      const errorText = String(error?.code ?? "") + " " + String(error?.message ?? "");
       if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
       if (errorText.includes("LINKED_USER_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "حساب الدخول المحدد ليس ضمن مساحة الشركة." });
       if (errorText.includes("INVALID_EMPLOYEE_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات الموظف غير صحيحة." });
+      if (errorText.includes("EMPLOYEE_OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف العملية مستخدم لبيانات موظف مختلفة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء الموظف في Supabase." });
     }),
     listAdjustments: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), employeeId: z.number().int().positive().optional(), status: z.enum(["open", "settled", "cancelled"]).optional() })).query(async ({ ctx, input }) => {
