@@ -64,6 +64,7 @@ export default function CompanyAccountsPage() {
   const [target, setTarget] = useState("");
   const [pendingAction, setPendingAction] = useState<PendingAccountAction | null>(null);
   const [movementOperationId, setMovementOperationId] = useState<string | null>(null);
+  const [createOperationId, setCreateOperationId] = useState<string | null>(null);
 
   const accounts = trpc.powerhub.companyAccounts.list.useQuery(
     { siteId, branchId: branchFilter ? Number(branchFilter) : undefined, fromDate: fromDate || undefined, toDate: toDate || undefined },
@@ -75,8 +76,9 @@ export default function CompanyAccountsPage() {
   const updateSites = trpc.powerhub.companyAccounts.updateSites.useMutation({ onSuccess: () => { toast.success("تم تحديث الفروع المرتبطة."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updatePhone = trpc.powerhub.companyAccounts.updatePhone.useMutation({ onSuccess: () => { toast.success("تم حفظ رقم الجوال."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const create = trpc.powerhub.companyAccounts.create.useMutation({
-    onSuccess: () => {
-      toast.success("تم إنشاء الحساب وحفظ رصيده الافتتاحي.");
+    onSuccess: (result) => {
+      setCreateOperationId(null);
+      toast.success(result.replayed ? "تم تأكيد إنشاء الحساب السابق بعد إعادة المحاولة." : "تم إنشاء الحساب وحفظ رصيده الافتتاحي.");
       setShowCreate(false);
       setName("");
       setNewPhone("");
@@ -148,7 +150,9 @@ export default function CompanyAccountsPage() {
   const submitCreate = () => {
     const value = Number(createOpeningBalance);
     if (!Number.isFinite(value) || value < 0) return toast.error("أدخل رصيداً افتتاحياً صحيحاً يساوي صفراً أو أكثر.");
-    create.mutate({ siteId, name: name.trim(), accountType: accountType as "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "other", phoneNumber: newPhone, openingBalance: value, siteIds: selectedSites.length ? selectedSites : [siteId] });
+    const operationId = createOperationId ?? globalThis.crypto.randomUUID();
+    setCreateOperationId(operationId);
+    create.mutate({ siteId, name: name.trim(), accountType: accountType as "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "other", phoneNumber: newPhone, openingBalance: value, siteIds: selectedSites.length ? selectedSites : [siteId], clientOperationId: operationId });
   };
 
   const submitMovement = () => {
