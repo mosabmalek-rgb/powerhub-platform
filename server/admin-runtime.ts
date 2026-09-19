@@ -42,7 +42,7 @@ const retiredMutation = (operation: string) => platformAdminProcedure.input(z.an
 
 export const adminRouter = router({
   createGeneratorOwnerSubscription: platformAdminProcedure.input(z.object({
-    companyName:z.string().min(2).max(180), ownerName:z.string().min(2).max(180), identityNumber:z.string().min(4).max(50), ownerPhone:z.string().min(5).max(30), ownerWhatsapp:z.preprocess(v=>typeof v==="string"&&!v.trim()?undefined:v,z.string().min(5).max(30).optional()), ownerEmail:z.string().email(), temporaryPassword:z.string().min(8).max(128), plan:planSchema.default("starter"), trialDurationDays:z.number().int().min(1).max(3650).default(8), clientOperationId:z.string().uuid(),
+    companyName:z.string().min(2).max(180), ownerName:z.string().min(2).max(180), identityNumber:z.string().min(4).max(50), ownerPhone:z.string().min(5).max(30), ownerWhatsapp:z.preprocess(v=>typeof v==="string"&&!v.trim()?undefined:v,z.string().min(5).max(30).optional()), ownerEmail:z.string().email(), temporaryPassword:z.string().min(8).max(128), packageCode:z.enum(["basic","advanced","professional","business","vip"]).default("basic"), trialDurationDays:z.number().int().min(1).max(3650).default(8), clientOperationId:z.string().uuid(),
   })).mutation(async ({ctx,input}) => {
     const email=input.ownerEmail.trim().toLowerCase();
     const companyName=input.companyName.trim();
@@ -50,7 +50,7 @@ export const adminRouter = router({
     const identityNumber=input.identityNumber.trim();
     const ownerPhone=input.ownerPhone.trim();
     const ownerWhatsapp=input.ownerWhatsapp?.trim()||null;
-    const fingerprintPayload={companyName,ownerName,identityNumber,ownerPhone,ownerWhatsapp,email,temporaryPasswordDigest:crypto.createHash("sha256").update(input.temporaryPassword).digest("hex"),plan:input.plan,trialDurationDays:input.trialDurationDays};
+    const fingerprintPayload={companyName,ownerName,identityNumber,ownerPhone,ownerWhatsapp,email,temporaryPasswordDigest:crypto.createHash("sha256").update(input.temporaryPassword).digest("hex"),packageCode:input.packageCode,trialDurationDays:input.trialDurationDays};
     const requestFingerprint=crypto.createHash("sha256").update(JSON.stringify(fingerprintPayload)).digest("hex");
     const identity=encryptTenantCredential(identityNumber);
     const admin=supabaseAdmin();
@@ -63,7 +63,7 @@ export const adminRouter = router({
       if(authError||!authData.user) throw new TRPCError({code:authError?.status===422?"CONFLICT":"BAD_REQUEST",message:authError?.message||"تعذر إنشاء حساب صاحب المولد في Supabase Auth."});
       authUserId=authData.user.id;
     }
-    const {data,error}=await admin.rpc("powerhub_admin_complete_generator_owner_provisioning",{p_actor_user_id:ctx.user.id,p_client_operation_id:input.clientOperationId,p_auth_user_id:authUserId,p_tenant_name:companyName,p_slug:`owner-${input.clientOperationId.replaceAll("-","")}`,p_company_name:companyName,p_owner_name:ownerName,p_identity_ciphertext:identity.ciphertext,p_identity_iv:identity.iv,p_identity_last4:identityNumber.slice(-4),p_owner_phone:ownerPhone,p_owner_whatsapp:ownerWhatsapp,p_owner_email:email,p_site_name:"الفرع الرئيسي",p_site_code:`SITE-${input.clientOperationId.slice(0,8).toUpperCase()}`,p_plan:input.plan,p_billing_cycle:"monthly",p_subscription_status:"trial",p_trial_duration_days:input.trialDurationDays});
+    const {data,error}=await admin.rpc("powerhub_admin_complete_generator_owner_provisioning",{p_actor_user_id:ctx.user.id,p_client_operation_id:input.clientOperationId,p_auth_user_id:authUserId,p_tenant_name:companyName,p_slug:`owner-${input.clientOperationId.replaceAll("-","")}`,p_company_name:companyName,p_owner_name:ownerName,p_identity_ciphertext:identity.ciphertext,p_identity_iv:identity.iv,p_identity_last4:identityNumber.slice(-4),p_owner_phone:ownerPhone,p_owner_whatsapp:ownerWhatsapp,p_owner_email:email,p_site_name:"الفرع الرئيسي",p_site_code:`SITE-${input.clientOperationId.slice(0,8).toUpperCase()}`,p_plan:input.packageCode,p_billing_cycle:"monthly",p_subscription_status:"trial",p_trial_duration_days:input.trialDurationDays});
     if(error){
       const message=error.message??"";
       if(message.includes("GENERATOR_OWNER_PROVISIONING_OPERATION_CONFLICT")||message.includes("PROVISIONING_AUTH_USER_CONFLICT")||message.includes("PROVISIONING_EMAIL_CONFLICT")){
