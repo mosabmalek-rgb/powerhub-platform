@@ -275,7 +275,7 @@ end;
 $$;
 
 revoke execute on function public.powerhub_exceptional_locked_edit(bigint,bigint,bigint,text,bigint,text,text,text,timestamptz,text) from public, anon, authenticated;
-grant execute on function public.powerhub_exceptional_locked_edit(bigint,bigint,bigint,text,bigint,text,text,timestamptz,text) to service_role;
+grant execute on function public.powerhub_exceptional_locked_edit(bigint,bigint,bigint,text,bigint,text,text,text,timestamptz,text) to service_role;
 
 
 create or replace function public.powerhub_approve_payroll(
