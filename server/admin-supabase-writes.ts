@@ -86,8 +86,8 @@ export async function setTenantMembershipStatus(input: {
   });
   rpcError("setTenantMembershipStatus", error);
   const row = data?.[0];
-  if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُرجع Supabase نتيجة صالحة." });
-  return { success: Boolean(row.success), membershipId: Number(row.membership_id), siteId: Number(row.site_id), status: row.status as string };
+  if (!row || row.success !== true) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful membership status result." });
+  return { success: true, membershipId: Number(row.membership_id), siteId: Number(row.site_id), status: row.status as string };
 }
 
 export async function attachOwnerUser(input: {
@@ -104,8 +104,8 @@ export async function attachOwnerUser(input: {
   });
   rpcError("attachOwnerUser", error);
   const row = data?.[0];
-  if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُرجع Supabase نتيجة صالحة." });
-  return { success: Boolean(row.success), siteId: Number(row.site_id) };
+  if (!row || row.success !== true) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful owner attachment result." });
+  return { success: true, siteId: Number(row.site_id) };
 }
 
 export async function updateSubscription(input: {
@@ -157,8 +157,8 @@ export async function reviewSubscriptionUpgradeRequest(input: {
   });
   reviewSubscriptionRpcError(error);
   const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
-  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription review result." });
-  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
+  if (!row || row.success !== true || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid subscription review result." });
+  return { success: true, plan: row.plan as AdminSubscriptionPlan };
 }
 
 export async function reviewSmsPackageRequest(input: {
@@ -177,9 +177,9 @@ export async function reviewSmsPackageRequest(input: {
   });
   reviewSmsPackageRpcError(error);
   const row = data?.[0] as { success?: boolean; tenant_id?: number | string; site_id?: number | string; status?: string; approved_messages?: number } | undefined;
-  if (!row || typeof row.status !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid SMS package review result." });
+  if (!row || row.success !== true || typeof row.status !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid SMS package review result." });
   return {
-    success: Boolean(row.success),
+    success: true,
     tenantId: Number(row.tenant_id),
     siteId: Number(row.site_id),
     status: row.status as "approved" | "rejected",
