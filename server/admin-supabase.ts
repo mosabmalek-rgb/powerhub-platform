@@ -4,7 +4,7 @@ import { supabaseAdmin } from "./supabase-admin";
 type TenantRow = { id: number | string; name: string; slug: string; status: string; created_at: string; updated_at: string };
 type OwnerRow = { id: number | string; tenant_id: number | string; owner_user_id: number | string | null; full_name: string; phone: string; whatsapp_number: string | null; email: string | null; company_name: string | null; report_logo_key: string | null; identity_number_last4: string | null; invited_at: string | null; claimed_at: string | null; created_at: string; updated_at: string };
 type UserRow = { id: number | string; name: string | null; email: string | null; last_signed_in: string };
-type SubscriptionRow = { id: number | string; tenant_id: number | string; package_code: string | null; status: string; billing_cycle: string; started_at: string; ends_at: string; auto_renew: boolean; renewal_count: number; last_renewed_at: string | null; notes: string | null; sms_plan_id: number | string | null; package_code: string | null; created_at: string; updated_at: string };
+type SubscriptionRow = { id: number | string; tenant_id: number | string; status: string; billing_cycle: string; started_at: string; ends_at: string; auto_renew: boolean; renewal_count: number; last_renewed_at: string | null; notes: string | null; sms_plan_id: number | string | null; package_code: string | null; created_at: string; updated_at: string };
 type SubscriberRow = { tenant_id: number | string; subscription_type: "residential" | "commercial" };
 
 const numberId = (value: string | number | null) => value === null ? null : Number(value);
