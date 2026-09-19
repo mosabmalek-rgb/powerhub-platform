@@ -13,7 +13,7 @@ import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
 import { normalizeInternationalPhone } from "../shared/phone";
 import { processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
-import { storageGet, storagePut, storageRemove } from "./storage";
+import { storageGet, storagePutAtKey, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
@@ -1512,7 +1512,7 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date().optional(),
-      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
+      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
       const readingAt = input.readingAt ?? new Date();
@@ -1536,8 +1536,14 @@ export const powerhubRouter = router({
         if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت." });
         imageHash = createHash("sha256").update(imageBytes).digest("hex");
         const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-        const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${input.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
-        imageKey = stored.key;
+        const deterministicImageKey = `subscriber-readings/${access.tenantId}/${input.subscriberId}/${input.clientOperationId}-${imageHash}.${extension}`;
+        try {
+          imageKey = (await storagePutAtKey(deterministicImageKey, imageBytes, input.imageMime)).key;
+        } catch (uploadError) {
+          const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
+          if (!message.toLowerCase().includes("already exists")) throw uploadError;
+          imageKey = deterministicImageKey;
+        }
       }
       const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
@@ -1547,7 +1553,10 @@ export const powerhubRouter = router({
         p_can_override_same_day: input.overrideSameDay && ["owner", "manager", "accountant"].includes(access.role),
       });
       if (!error && data?.[0]) {
-        const row = data[0] as { reading_id: number | string; consumption_kwh: number | string; status: "pending_review"; replayed: boolean };
+        const row = data[0] as { reading_id?: number | string; consumption_kwh?: number | string; status?: string; replayed?: boolean };
+        if (row.reading_id === undefined || row.consumption_kwh === undefined || row.status !== "pending_review" || typeof row.replayed !== "boolean") {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير مكتملة لتسجيل القراءة." });
+        }
         return { id: Number(row.reading_id), consumptionKwh: Number(row.consumption_kwh), status: row.status, replayed: row.replayed };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
@@ -1559,7 +1568,7 @@ export const powerhubRouter = router({
     }),
     createAndIssue: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date().optional(),
-      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(),
+      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid(),
       imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
       notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
@@ -1574,8 +1583,14 @@ export const powerhubRouter = router({
           if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت." });
           imageHash = createHash("sha256").update(imageBytes).digest("hex");
           const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-          const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${input.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
-          imageKey = stored.key;
+          const deterministicImageKey = `subscriber-readings/${access.tenantId}/${input.subscriberId}/${input.clientOperationId}-${imageHash}.${extension}`;
+          try {
+            imageKey = (await storagePutAtKey(deterministicImageKey, imageBytes, input.imageMime)).key;
+          } catch (uploadError) {
+            const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
+            if (!message.toLowerCase().includes("already exists")) throw uploadError;
+            imageKey = deterministicImageKey;
+          }
         }
         const dueDate = new Date(readingAt);
         dueDate.setDate(dueDate.getDate() + 14);
@@ -1587,14 +1602,24 @@ export const powerhubRouter = router({
           p_can_override_same_day: input.overrideSameDay && ["owner", "manager", "accountant"].includes(access.role),
           p_due_date: dueDate.toISOString(), p_billing_period: readingAt.toISOString().slice(0, 7), p_discount_amount: 0,
         });
-        const row = (data as Array<{ reading_id: number|string; consumption_kwh: number|string; invoice_id: number|string; invoice_no: string; total_amount: number|string; notification_ids?: unknown; replayed?: boolean; already_processed?: boolean }> | null)?.[0];
-        if (!error && row) return {
-          id: Number(row.reading_id), consumptionKwh: Number(row.consumption_kwh), status: "approved" as const,
-          invoiceId: Number(row.invoice_id), invoiceNo: row.invoice_no, totalAmount: Number(row.total_amount),
-          notificationIds: Array.isArray(row.notification_ids) ? row.notification_ids.map(Number).filter(Number.isInteger) : [],
-          replayed: Boolean(row.replayed), alreadyProcessed: Boolean(row.already_processed),
-        };
+        const row = (data as Array<{ reading_id?: number|string; consumption_kwh?: number|string; invoice_id?: number|string; invoice_no?: string; total_amount?: number|string; notification_ids?: unknown; replayed?: boolean; already_processed?: boolean }> | null)?.[0];
+        if (!error && row) {
+          if (row.reading_id === undefined || row.consumption_kwh === undefined || row.invoice_id === undefined || typeof row.invoice_no !== "string" ||
+              row.total_amount === undefined || !Array.isArray(row.notification_ids) || typeof row.replayed !== "boolean" || typeof row.already_processed !== "boolean") {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير مكتملة لإنشاء القراءة والفاتورة." });
+          }
+          const notificationIds = row.notification_ids.map(Number);
+          if (notificationIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase معرفات إشعارات غير صالحة." });
+          }
+          return {
+            id: Number(row.reading_id), consumptionKwh: Number(row.consumption_kwh), status: "approved" as const,
+            invoiceId: Number(row.invoice_id), invoiceNo: row.invoice_no, totalAmount: Number(row.total_amount),
+            notificationIds, replayed: row.replayed, alreadyProcessed: row.already_processed,
+          };
+        }
         const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (errorText.includes("OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف العملية مستخدم لطلب قراءة مختلف." });
         if (errorText.includes("TARIFF_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة لهذا الفرع؛ أضف تعرفة فعالة قبل إصدار الفاتورة." });
         if (errorText.includes("SAME_DAY_READING_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا المشترك في اليوم نفسه." });
         if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة السابقة المعتمدة." });
