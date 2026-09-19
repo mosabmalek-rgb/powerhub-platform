@@ -44,8 +44,8 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
 
   const createSubscriber = trpc.powerhub.subscribers.create.useMutation({ onSuccess: async (created) => { await refresh(); toast.success(`تمت إضافة المشترك. الرقم المرجعي: ${created.subscriberNo}`); const sent = created.referenceNotifications?.filter((item) => item.status === "submitted").length ?? 0; const failed = created.referenceNotifications?.filter((item) => item.status === "failed").length ?? 0; if (sent) toast.success(`أُرسلت رسالة الرقم المرجعي عبر ${sent} قناة مفعلة.`); else if (failed) toast.warning("سُجلت محاولة إرسال الرقم المرجعي؛ راجع سبب الفشل في سجل الإشعارات."); else toast.message("لا توجد قناة WhatsApp أو SMS مفعلة؛ الرقم المرجعي ظاهر في سجل المشتركين."); }, onError: (e) => toast.error(e.message) });
   const updateSubscriber = trpc.powerhub.subscribers.update.useMutation({ onSuccess: async () => { await refresh(); setEditing(null); toast.success("تم تحديث المشترك."); }, onError: (e) => toast.error(e.message) });
-  const createGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت إضافة المولد."); }, onError: (e) => toast.error(e.message) });
-  const updateGenerator = trpc.powerhub.generators.update.useMutation({ onSuccess: async () => { await refresh(); setEditing(null); toast.success("تم تحديث المولد."); }, onError: (e) => toast.error(e.message) });
+  const createGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(result.replayed ? "تم تأكيد إنشاء المولد السابق بعد إعادة المحاولة." : "تمت إضافة المولد."); }, onError: (e) => toast.error(e.message) });
+  const updateGenerator = trpc.powerhub.generators.update.useMutation({ onSuccess: async (result) => { await refresh(); setEditing(null); toast.success(result.replayed ? "تم تأكيد تعديل المولد السابق بعد إعادة المحاولة." : "تم تحديث المولد."); }, onError: (e) => toast.error(e.message) });
 
   const submitSubscriber = async (values: Values) => {
     const base = { siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone), address: values.address ? String(values.address) : undefined, subscriptionType: values.subscriptionType as "residential" | "commercial", serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected" };
@@ -103,8 +103,8 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
       }
       return;
     }
-    if (editing) updateGenerator.mutate({ siteId: siteId!, id: editing.id, name: String(values.name), ratedCapacityKw: String(values.ratedCapacityKw), fuelLevelLiters: String(values.fuelLevelLiters), operatingHours: String(values.operatingHours), status: values.status as "active" | "maintenance" | "stopped" | "offline" });
-    else createGenerator.mutate({ siteId: siteId!, code: String(values.code), name: String(values.name), serialNumber: values.serialNumber ? String(values.serialNumber) : undefined, ratedCapacityKw: String(values.ratedCapacityKw), fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other" });
+    if (editing) updateGenerator.mutate({ siteId: siteId!, id: editing.id, name: String(values.name), ratedCapacityKw: String(values.ratedCapacityKw), fuelLevelLiters: String(values.fuelLevelLiters), operatingHours: String(values.operatingHours), status: values.status as "active" | "maintenance" | "stopped" | "offline", clientOperationId: crypto.randomUUID() });
+    else createGenerator.mutate({ siteId: siteId!, code: String(values.code), name: String(values.name), serialNumber: values.serialNumber ? String(values.serialNumber) : undefined, ratedCapacityKw: String(values.ratedCapacityKw), fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other", clientOperationId: crypto.randomUUID() });
   };
 
   if (loading) return <DashboardLayout><Loading /></DashboardLayout>;
