@@ -15,6 +15,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   ShieldCheck,
+  Settings2,
   Ticket,
   UsersRound,
   Zap,
@@ -46,6 +47,7 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
       { id: "generators", label: "إدارة المولدات", icon: Zap, detail: "المولدات النشطة والموقوفة والمحظورة" },
       { id: "ownerSubscription", label: "اشتراك صاحب مولد", icon: Building2, detail: "إضافة المالك والباقات والتجديد" },
       { id: "users", label: "إدارة المستخدمين", icon: UsersRound, detail: "أصحاب المولدات والموظفون والصلاحيات" },
+      { id: "branchSettings", label: "سياسة الأفرع", icon: Settings2, detail: "تفعيل الأفرع وحدودها لكل باقة وصاحب مولد" },
     ],
   },
   {
