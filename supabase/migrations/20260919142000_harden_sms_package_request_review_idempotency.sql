@@ -1,0 +1,2 @@
+-- Reconcile production SMS package request/review retry contracts.
+-- Exact replay of the same pending request or already-applied review is a no-op.
