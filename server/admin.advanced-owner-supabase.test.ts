@@ -29,6 +29,15 @@ describe("إنشاء صاحب مولد عبر Supabase Auth وRPC ذري", () =>
     expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_complete_generator_owner_provisioning", expect.objectContaining({ p_actor_user_id: 1, p_client_operation_id: "11111111-1111-4111-8111-111111111111", p_auth_user_id: "new-auth-user", p_owner_email: input.ownerEmail, p_plan: "starter", p_trial_duration_days: 8 }));
     expect(state.authDeleteUser).not.toHaveBeenCalled();
   });
+  it("يعيد تأكيد provisioning المكتمل دون إنشاء مستخدم Auth جديد", async () => {
+    state.rpc.mockImplementation(async (name: string) => name === "powerhub_admin_begin_generator_owner_provisioning"
+      ? { data: [{ client_operation_id: "11111111-1111-4111-8111-111111111111", auth_user_id: "existing-auth-user", status: "completed", replayed: true }], error: null }
+      : { data: [{ success: true, tenant_id: 101, owner_user_id: 202, site_id: 303, subscription_id: 404, replayed: true }], error: null });
+    await expect(caller().createGeneratorOwnerSubscription({ ...input, clientOperationId: "11111111-1111-4111-8111-111111111111" }))
+      .resolves.toMatchObject({ tenant_id: 101, subscription_id: 404, replayed: true });
+    expect(state.authCreateUser).not.toHaveBeenCalled();
+  });
+
   it("يمرر مدة تجربة مخصصة إلى المعاملة الذرية", async () => {
     await expect(caller().createGeneratorOwnerSubscription({ ...input, trialDurationDays: 21, clientOperationId: "11111111-1111-4111-8111-111111111111" })).resolves.toMatchObject({ subscription_id: 404 });
     expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_complete_generator_owner_provisioning", expect.objectContaining({ p_trial_duration_days: 21 }));
