@@ -81,7 +81,14 @@ async function request(endpoint: string | undefined, path: string, credentials: 
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { /* TweetSMS may return plain status text. */ }
   const parsed = extractResult(text, body);
-  if (!response.ok) return { ok: false, code: parsed.code, message: parsed.detail || `رفض TweetSMS الطلب (${response.status}).`, providerMessageId: parsed.providerMessageId, balance: parsed.balance };
+  if (!response.ok) return {
+    ok: false,
+    code: parsed.code,
+    message: parsed.detail || `رفض TweetSMS الطلب (${response.status}).`,
+    providerMessageId: parsed.providerMessageId,
+    balance: parsed.balance,
+    ...(deliveryUncertainOnError && response.status >= 500 ? { deliveryUncertain: true } : {}),
+  };
   const ok = parsed.code === 999;
   return {
     ok,
