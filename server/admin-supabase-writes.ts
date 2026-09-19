@@ -128,17 +128,19 @@ export async function quickUpgradeOwnerPlan(input: {
   tenantId: number;
   plan: AdminSubscriptionPlan;
   note: string;
+  clientOperationId: string;
 }) {
-  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_quick_upgrade_owner_plan", {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_quick_upgrade_owner_plan_idempotent", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
     p_plan: input.plan,
     p_note: input.note,
+    p_client_operation_id: input.clientOperationId,
   });
   quickUpgradeOwnerPlanRpcError(error);
-  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
+  const row = data?.[0] as { success?: boolean; plan?: string; replayed?: boolean } | undefined;
   if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
-  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
+  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan, replayed: Boolean(row.replayed) };
 }
 
 export async function reviewSubscriptionUpgradeRequest(input: {
