@@ -1625,7 +1625,7 @@ export const powerhubRouter = router({
       const { data, error } = await supabaseAdmin().rpc("powerhub_delete_pending_reading", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion, p_client_operation_id: input.clientOperationId, p_request_fingerprint: createHash("sha256").update(JSON.stringify({ siteId: input.siteId, readingId: input.readingId, baseVersion: input.baseVersion })).digest("hex"),
       });
-      if (!error) { const row = (data as Array<{ deleted_reading_id?: number|string; replayed?: boolean }> | null)?.[0]; if (!row || row.deleted_reading_id === undefined || typeof row.replayed !== "boolean") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير مكتملة لحذف القراءة." }); return { success: true, deletedReadingId: Number(row.deleted_reading_id), replayed: row.replayed };
+      if (!error) { const row = (data as Array<{ deleted_reading_id?: number|string; replayed?: boolean }> | null)?.[0]; if (!row || row.deleted_reading_id === undefined || typeof row.replayed !== "boolean") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير مكتملة لحذف القراءة." }); return { success: true, deletedReadingId: Number(row.deleted_reading_id), replayed: row.replayed }; }
       const errorText = `${error.code ?? ""} ${error.message ?? ""}`;
       if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
       if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يمكن حذف القراءات بانتظار المراجعة فقط." });
