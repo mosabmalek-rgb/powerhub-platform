@@ -108,42 +108,19 @@ export function GeneratorDirectorySearch({ rows }: { rows: Array<{ id: number; n
 }
 
 export function PasswordResetManagementPanel() {
-  const utils = trpc.useUtils();
-  const owners = trpc.admin.listOwners.useQuery();
-  const snapshot = trpc.admin.platformSnapshot.useQuery();
-  const reset = trpc.admin.resetUserPassword.useMutation({
-    onSuccess: (result, input) => {
-      const owner = (owners.data ?? []).find((row: any) => Number(row.tenant.id) === input.tenantId && Number(row.owner?.ownerUserId) === input.targetUserId);
-      const staff = (snapshot.data?.users?.staffDirectory ?? []).find((row: any) => Number(row.tenantId) === input.tenantId && Number(row.userId) === input.targetUserId);
-      setResetResult({ name: owner?.owner?.fullName ?? staff?.userName ?? staff?.userEmail ?? "الحساب", password: result.temporaryPassword });
-      void utils.admin.listOwners.invalidate();
-      void utils.admin.platformSnapshot.invalidate();
-    },
-    onError: (error) => toast.error(error.message),
-  });
-  const [resetResult, setResetResult] = useState<{ name: string; password: string } | null>(null);
-  const ownerRows = (owners.data ?? []).filter((row: any) => row.owner?.ownerUserId).map((row: any) => ({
-    key: `owner-${row.tenant.id}`,
-    tenantId: Number(row.tenant.id),
-    userId: Number(row.owner.ownerUserId),
-    siteId: row.site?.id ? Number(row.site.id) : undefined,
-    name: row.owner.fullName,
-    email: row.ownerAccount?.email ?? row.owner.email ?? "—",
-    type: "مالك المولد",
-  }));
-  const staffRows = (snapshot.data?.users?.staffDirectory ?? []).filter((row: any) => row.isActive && Number(row.userId) > 0 && row.role !== "owner").map((row: any) => ({
-    key: `staff-${row.id}`,
-    tenantId: Number(row.tenantId),
-    userId: Number(row.userId),
-    siteId: Number(row.siteId),
-    name: row.userName ?? row.userEmail ?? `مستخدم #${row.userId}`,
-    email: row.userEmail ?? "—",
-    type: "مستخدم فرعي",
-  }));
-  const rows = [...ownerRows, ...staffRows];
-  return <Card className="border-violet-400/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-start justify-between gap-4"><div><h2 className="font-bold text-white">إعادة تعيين كلمات المرور</h2><p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">إعادة تعيين فعلية عبر Supabase Auth لمالك المولد أو المستخدم الفرعي. تُنشأ كلمة مرور مؤقتة وتظهر مرة واحدة فقط، ويُلزم الحساب بتغييرها بعد الدخول.</p></div><KeyRound className="h-5 w-5 text-violet-300" /></div><div className="mt-5 space-y-3">{rows.map((row) => <div key={row.key} className="flex flex-col gap-3 rounded-xl border border-white/8 bg-white/[.02] p-4 md:flex-row md:items-center md:justify-between"><div><p className="font-bold text-white">{row.name}</p><p className="mt-1 text-xs text-slate-500">{row.type} · {row.email}</p></div><Button type="button" size="sm" disabled={reset.isPending} onClick={() => reset.mutate({ tenantId: row.tenantId, targetUserId: row.userId, siteId: row.siteId })} className="bg-violet-500 font-bold text-white hover:bg-violet-400">إعادة كلمة المرور</Button></div>)}{!rows.length && <p className="rounded-xl border border-dashed border-white/10 py-8 text-center text-sm text-slate-500">لا توجد حسابات مؤهلة لإعادة التعيين.</p>}</div><Dialog open={Boolean(resetResult)} onOpenChange={(open) => { if (!open) setResetResult(null); }}><DialogContent dir="rtl" className="max-w-md border-violet-400/25 bg-[#111823] text-white shadow-2xl"><DialogHeader><DialogTitle className="text-xl font-extrabold">تمت إعادة التعيين</DialogTitle><DialogDescription className="leading-7 text-slate-300">كلمة المرور المؤقتة للحساب <strong className="text-white">«{resetResult?.name}»</strong> لن تُعرض مرة أخرى بعد إغلاق هذه النافذة.</DialogDescription></DialogHeader><div className="rounded-xl border border-violet-400/25 bg-violet-400/[.05] p-4 text-center"><p className="mb-2 text-xs text-slate-400">كلمة المرور المؤقتة</p><p dir="ltr" className="select-all font-mono text-lg font-bold tracking-wide text-white">{resetResult?.password}</p></div><DialogFooter className="mt-3 grid grid-cols-2 gap-3"><Button type="button" variant="outline" onClick={() => setResetResult(null)} className="border-white/15 text-slate-200 hover:bg-white/5">إغلاق</Button><Button type="button" onClick={() => { if (resetResult?.password) void navigator.clipboard?.writeText(resetResult.password); toast.success("تم نسخ كلمة المرور المؤقتة."); }} className="bg-violet-500 font-bold text-white hover:bg-violet-400">نسخ كلمة المرور</Button></DialogFooter></DialogContent></Dialog></CardContent></Card>;
+  return <Card className="border-violet-400/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <h2 className="font-bold text-white">إعادة تعيين كلمات المرور</h2>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">إجراء إعادة تعيين كلمات المرور الإدارية متوقف حالياً أثناء ترحيل مسارات المصادقة. لا يوجد زر تشغيلي ظاهر لمسار غير متاح، ولا يتم استخدام مسار MySQL القديم.</p>
+      </div>
+      <KeyRound className="h-5 w-5 text-violet-300" />
+    </div>
+    <div className="mt-5 rounded-xl border border-dashed border-violet-400/25 bg-violet-400/[.04] p-4 text-sm leading-7 text-slate-400">
+      لا توجد عملية إعادة تعيين قابلة للتنفيذ في هذه النسخة. إعادة التعيين الذاتية للحسابات ومسار الإدارة البديل سيبقيان مخفيين حتى يكتمل عقد Supabase Auth المعتمد.
+    </div>
+  </CardContent></Card>;
 }
-
 export function OwnerLifecyclePanel() {
   const utils = trpc.useUtils();
   const owners = trpc.admin.listOwners.useQuery();
