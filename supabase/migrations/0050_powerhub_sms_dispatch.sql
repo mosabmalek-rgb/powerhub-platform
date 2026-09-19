@@ -67,7 +67,7 @@ begin
     from public.notification_messages as messages
     where messages.tenant_id = v_message.tenant_id and messages.channel = 'sms'
       and messages.id <> v_message.id and messages.created_at >= date_trunc('month', now())
-      and messages.status in ('processing', 'submitted', 'delivered', 'read');
+      and messages.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review');
   if v_used_segments + v_segment_count > v_account.monthly_limit then raise exception 'SMS_QUOTA_EXCEEDED' using errcode = 'P0001'; end if;
 
   update public.notification_messages as messages
