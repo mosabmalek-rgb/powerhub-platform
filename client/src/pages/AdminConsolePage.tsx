@@ -194,7 +194,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
         const data = new FormData(event.currentTarget);
         const payload = {
           tenantId,
-          plan: String(data.get("plan")),
+          packageCode: String(data.get("packageCode")),
           status: String(data.get("status")),
           billingCycle: String(data.get("billingCycle")),
           endsAt: new Date(`${String(data.get("endsAt"))}T23:59:59`),
@@ -208,7 +208,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
         updateOperationRefs.current.set(tenantId, operation);
         onUpdate({ ...payload, clientOperationId: operation.id });
       }}>
-        <select name="plan" defaultValue={row.subscription?.packageCode ?? ""} className={inputClass}><option value="starter">Starter</option><option value="professional">Professional</option><option value="enterprise">Enterprise</option></select>
+        <select name="plan" defaultValue={row.subscription?.packageCode ?? ""} className={inputClass}><option value="basic">الناشئة</option><option value="advanced">النمو</option><option value="professional">الاحتراف</option><option value="business">الأعمال</option><option value="vip">الذهبية</option></select>
         <select name="smsPlanId" defaultValue={row.subscription?.smsPlanId ?? ""} className={inputClass}><option value="">بدون خطة SMS مخصصة</option>{smsPlans.filter((plan: any) => plan.isActive).map((plan: any) => <option key={plan.id} value={plan.id}>{plan.name} · {formatNumber(plan.includedMessages)} رسالة</option>)}</select>
         <select name="status" defaultValue={row.subscription?.status ?? "trial"} className={inputClass}><option value="trial">تجريبي</option><option value="active">فعّال</option><option value="overdue">متأخر</option><option value="suspended">معلّق</option><option value="cancelled">ملغي</option></select>
         <select name="billingCycle" defaultValue={row.subscription?.billingCycle ?? "monthly"} className={inputClass}><option value="monthly">شهري</option><option value="yearly">سنوي</option></select>
