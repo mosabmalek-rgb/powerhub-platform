@@ -1350,6 +1350,15 @@ export const powerhubRouter = router({
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
       const readingAt = input.readingAt ?? new Date();
+      const replay = await getOfflineReplayForScope({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, clientOperationId: input.clientOperationId, expectedOperationType: "reading_issue" });
+      if (replay) {
+        return {
+          id: Number(replay.readingId), consumptionKwh: Number(replay.consumptionKwh), status: "approved" as const,
+          invoiceId: Number(replay.invoiceId), invoiceNo: String(replay.invoiceNo), totalAmount: Number(replay.totalAmount),
+          notificationIds: Array.isArray(replay.notificationIds) ? replay.notificationIds.map(Number).filter(Number.isInteger) : [],
+          replayed: true, alreadyProcessed: true,
+        };
+      }
       let imageKey: string | undefined;
       let imageHash: string | undefined;
       if (input.imageData) {
