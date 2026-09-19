@@ -170,9 +170,17 @@ const readingRoles = rolesWith("recordReadings");
 export const ownerSubaccountRoles = ["manager", "accountant", "collector", "technician", "viewer"] as const;
 export type OwnerSubaccountRole = typeof ownerSubaccountRoles[number];
 export type SubscriptionPlan = "starter" | "professional" | "enterprise";
+export type PackageCode = "basic" | "advanced" | "professional" | "business" | "vip";
+export const packageCodes = ["basic", "advanced", "professional", "business", "vip"] as const;
+export const legacyPlanToPackageCode: Record<SubscriptionPlan, PackageCode> = {
+  starter: "basic",
+  professional: "advanced",
+  enterprise: "business",
+};
 export const defaultOwnerSubaccountLimits: Record<SubscriptionPlan, number> = { starter: 2, professional: 5, enterprise: 15 };
 export const defaultOwnerSubscriberLimits: Record<SubscriptionPlan, number> = { starter: 100, professional: 500, enterprise: 2000 };
-export const defaultBranchLimits: Record<SubscriptionPlan, number> = { starter: 1, professional: 3, enterprise: 10 };
+export const defaultBranchLimits: Record<PackageCode, number> = { basic: 1, advanced: 1, professional: 1, business: 1, vip: 2 };
+export const legacyBranchLimits: Record<SubscriptionPlan, number> = { starter: 1, professional: 1, enterprise: 1 };
 
 export function allowedOwnerSubaccountRoles(setting?: { isEnabled: boolean; value: unknown } | null): OwnerSubaccountRole[] {
   if (!setting) return [...ownerSubaccountRoles];
@@ -206,24 +214,38 @@ export function ownerSubscriberLimitForPlan(plan: SubscriptionPlan, setting?: { 
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : defaultOwnerSubscriberLimits[plan];
 }
 
-export function branchLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number {
-  const rawLimits = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
-    ? (setting.value as Record<string, unknown>).defaultLimit
-    : undefined;
-  const candidate = rawLimits && typeof rawLimits === "object" && !Array.isArray(rawLimits)
-    ? (rawLimits as Record<string, unknown>)[plan]
+export function branchLimitForPackage(packageCode: PackageCode, setting?: { value: unknown } | null): number {
+  const value = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
+    ? setting.value as Record<string, unknown>
+    : {};
+  const packageLimits = value.packageLimits;
+  const candidate = packageLimits && typeof packageLimits === "object" && !Array.isArray(packageLimits)
+    ? (packageLimits as Record<string, unknown>)[packageCode]
     : undefined;
   const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
-  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000 ? parsed : defaultBranchLimits[plan];
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000 ? parsed : defaultBranchLimits[packageCode];
+}
+
+export function branchLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number {
+  const value = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
+    ? setting.value as Record<string, unknown>
+    : {};
+  const legacyFallback = value.legacyFallback;
+  const candidate = legacyFallback && typeof legacyFallback === "object" && !Array.isArray(legacyFallback)
+    ? (legacyFallback as Record<string, unknown>)[plan]
+    : undefined;
+  const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000 ? parsed : legacyBranchLimits[plan];
 }
 
 export function resolveBranchPolicy(input: {
   plan: SubscriptionPlan;
+  packageCode?: PackageCode | null;
   platformSetting?: { isEnabled: boolean; value: unknown } | null;
   tenantSetting?: { isEnabledOverride: boolean | null; maxBranchesOverride: number | null; disabledBehavior: "read_only" | "suspended" } | null;
   currentCount?: number;
 }) {
-  const planLimit = branchLimitForPlan(input.plan, input.platformSetting);
+  const planLimit = input.packageCode ? branchLimitForPackage(input.packageCode, input.platformSetting) : branchLimitForPlan(input.plan, input.platformSetting);
   const overrideLimit = input.tenantSetting?.maxBranchesOverride;
   const maxBranches = Number.isInteger(overrideLimit) && (overrideLimit ?? 0) >= 1 ? overrideLimit! : planLimit;
   const platformEnabled = input.platformSetting?.isEnabled ?? false;
