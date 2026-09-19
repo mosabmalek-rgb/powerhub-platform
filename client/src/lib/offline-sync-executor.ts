@@ -30,6 +30,7 @@ export type SyncExecutionResult = {
   item: QueuedOfflineWork;
   metadata: SyncExecutionMetadata;
   outcome: SyncOutcome;
+  transportResult?: SyncTransportResult;
 };
 
 export async function executeReadyOperations({
@@ -87,7 +88,7 @@ export async function executeReadyOperations({
           lastError: undefined,
         };
         completed.add(item.clientOperationId);
-        results.push({ item, metadata: completedMetadata, outcome });
+        results.push({ item, metadata: completedMetadata, outcome, transportResult });
         continue;
       }
 
@@ -112,6 +113,7 @@ export async function executeReadyOperations({
           lastError: transportResult.message,
         },
         outcome,
+        transportResult,
       });
     }
   }
