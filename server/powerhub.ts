@@ -1711,7 +1711,7 @@ export const powerhubRouter = router({
     }),
     createFromReading: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), readingId: z.number().int().positive(), tariffId: z.number().int().positive(),
-      billingPeriod: z.string().regex(/^\d{4}-\d{2}$/), dueDate: z.date(), discountAmount: z.number().min(0).default(0), clientOperationId: z.string().uuid().optional(),
+      billingPeriod: z.string().regex(/^\d{4}-\d{2}$/), dueDate: z.date(), discountAmount: z.number().min(0).default(0), clientOperationId: z.string().uuid(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
       const replay = await getOfflineReplayForScope({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, clientOperationId: input.clientOperationId, expectedOperationType: "invoice_issue" });
@@ -1720,7 +1720,7 @@ export const powerhubRouter = router({
       }
       const { data, error } = await supabaseAdmin().rpc("powerhub_issue_invoice_from_reading", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_tariff_id: input.tariffId,
-        p_billing_period: input.billingPeriod, p_due_date: input.dueDate.toISOString(), p_discount_amount: input.discountAmount, p_client_operation_id: input.clientOperationId ?? null,
+        p_billing_period: input.billingPeriod, p_due_date: input.dueDate.toISOString(), p_discount_amount: input.discountAmount, p_client_operation_id: input.clientOperationId,
       });
       if (!error && data?.[0]) {
         const row = data[0] as { invoice_id: number | string; invoice_no: string; total_amount: number | string };
