@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import type { QueuedReading } from "@/lib/offline-reading-queue";
 import { AlertCircle, Calculator, CheckCircle2, FileText, ImagePlus, Loader2, Pencil, Save, Search, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
@@ -32,6 +32,7 @@ export default function ReadingWorkflowPanel({ siteId, role, anomalyAlertPercent
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isOcrRunning, setIsOcrRunning] = useState(false);
+  const operationRef = useRef<{ fingerprint: string; id: string } | null>(null);
   const create = trpc.powerhub.readings.create.useMutation();
   const createAndIssue = trpc.powerhub.readings.createAndIssue.useMutation();
   const updatePending = trpc.powerhub.readings.updatePending.useMutation();
@@ -115,7 +116,11 @@ export default function ReadingWorkflowPanel({ siteId, role, anomalyAlertPercent
       if (shouldIssue) {
         const tariff = (tariffs.data ?? []).find((entry) => entry.isActive);
         if (!canIssue || !tariff) throw new Error("يلزم وجود تعرفة فعالة وصلاحية اعتماد القراءة لإصدار الفاتورة فوراً.");
-        const result = await createAndIssue.mutateAsync({ siteId, subscriberId: Number(subscriberId), readingValue, readingAt: new Date(`${readingDate}T12:00:00`), captureMethod: imageData ? "photo" : "manual", imageData, imageMime: imageData ? selectedImage?.type as "image/jpeg" | "image/png" | "image/webp" : undefined, notes: notes || undefined, isReadingReset, overrideSameDay, fieldVerified, clientOperationId: crypto.randomUUID() });
+        const payload = { siteId, subscriberId: Number(subscriberId), readingValue, readingAt: new Date(`${readingDate}T12:00:00`), captureMethod: imageData ? "photo" : "manual", imageData, imageMime: imageData ? selectedImage?.type as "image/jpeg" | "image/png" | "image/webp" : undefined, notes: notes || undefined, isReadingReset, overrideSameDay, fieldVerified };
+        const fingerprint = JSON.stringify({ ...payload, imageData: Boolean(imageData) });
+        if (operationRef.current?.fingerprint !== fingerprint) operationRef.current = { fingerprint, id: crypto.randomUUID() };
+        const result = await createAndIssue.mutateAsync({ ...payload, clientOperationId: operationRef.current.id });
+        operationRef.current = null;
         const message = result.replayed ? "تمت استعادة نتيجة العملية السابقة بنجاح: القراءة والفاتورة موجودتان بالفعل." : "تم حفظ القراءة واعتمادها وإصدار الفاتورة كعملية واحدة.";
         setErrors({}); setSuccessMessage(message); toast.success(message);
         setReadingValue(""); setNotes(""); setFieldVerified(false); setIsReadingReset(false); setOverrideSameDay(false); setSelectedImage(null); if (imagePreview) URL.revokeObjectURL(imagePreview); setImagePreview(null);
@@ -123,7 +128,11 @@ export default function ReadingWorkflowPanel({ siteId, role, anomalyAlertPercent
         return;
       }
 
-      const created = await create.mutateAsync({ siteId, subscriberId: Number(subscriberId), readingValue, readingAt: new Date(`${readingDate}T12:00:00`), captureMethod: imageData ? "photo" : "manual", imageData, imageMime: imageData ? selectedImage?.type as "image/jpeg" | "image/png" | "image/webp" : undefined, notes: notes || undefined, isReadingReset, overrideSameDay, fieldVerified, clientOperationId: crypto.randomUUID() });
+      const payload = { siteId, subscriberId: Number(subscriberId), readingValue, readingAt: new Date(`${readingDate}T12:00:00`), captureMethod: imageData ? "photo" : "manual", imageData, imageMime: imageData ? selectedImage?.type as "image/jpeg" | "image/png" | "image/webp" : undefined, notes: notes || undefined, isReadingReset, overrideSameDay, fieldVerified };
+      const fingerprint = JSON.stringify({ ...payload, imageData: Boolean(imageData) });
+      if (operationRef.current?.fingerprint !== fingerprint) operationRef.current = { fingerprint, id: crypto.randomUUID() };
+      const created = await create.mutateAsync({ ...payload, clientOperationId: operationRef.current.id });
+      operationRef.current = null;
       let message = "تم حفظ القراءة بانتظار المراجعة.";
       setErrors({});
       setSuccessMessage(message);
