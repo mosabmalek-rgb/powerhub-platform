@@ -1262,25 +1262,34 @@ export const powerhubRouter = router({
     quota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       const admin = supabaseAdmin();
-      const [subscriptionResponse, tenantResponse, limitPolicyResponse, overridesPolicyResponse, countResponse] = await Promise.all([
+      const [subscriptionResponse, tenantResponse, catalogResponse, overridesPolicyResponse, countResponse] = await Promise.all([
         admin.from("tenant_subscriptions").select("plan, package_code").eq("tenant_id", access.tenantId).order("created_at",{ ascending: false }).order("id",{ ascending: false }).limit(1).maybeSingle(),
         admin.from("tenants").select("plan").eq("id", access.tenantId).maybeSingle(),
-        admin.from("platform_settings").select("value").eq("setting_key", "owner_subscriber_limits").maybeSingle(),
+        admin.from("platform_settings").select("value").eq("setting_key", "subscription_package_catalog").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
         admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", access.tenantId),
       ]);
-      if (subscriptionResponse.error || tenantResponse.error || limitPolicyResponse.error || overridesPolicyResponse.error || countResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
+      if (subscriptionResponse.error || tenantResponse.error || catalogResponse.error || overridesPolicyResponse.error || countResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
       const plan = subscriptionResponse.data?.plan ?? tenantResponse.data?.plan;
       if (plan !== "starter" && plan !== "professional" && plan !== "enterprise") throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
       const packageCode = typeof subscriptionResponse.data?.package_code === "string" && packageCodes.includes(subscriptionResponse.data.package_code as PackageCode) ? subscriptionResponse.data.package_code as PackageCode : legacyPlanToPackageCode[plan];
-      const policyValue = limitPolicyResponse.data?.value;
+      const catalogValue = catalogResponse.data?.value;
+      const catalogPackages = catalogValue && typeof catalogValue === "object" && !Array.isArray(catalogValue) && Array.isArray((catalogValue as Record<string, unknown>).packages)
+        ? (catalogValue as Record<string, unknown>).packages as Array<Record<string, unknown>> : [];
+      const packageInfo = catalogPackages.find((item) => item.code === packageCode) ?? {};
+      const featureSubscribers = packageInfo.features && typeof packageInfo.features === "object" && !Array.isArray(packageInfo.features)
+        ? (packageInfo.features as Record<string, unknown>).subscribers : undefined;
+      const catalogLimit = featureSubscribers && typeof featureSubscribers === "object" && !Array.isArray(featureSubscribers)
+        ? (featureSubscribers as Record<string, unknown>).limit : packageInfo.includedSubscribers;
+      const catalogMode = featureSubscribers && typeof featureSubscribers === "object" && !Array.isArray(featureSubscribers)
+        ? String((featureSubscribers as Record<string, unknown>).mode ?? "maximum") : String(packageInfo.subscriberLimitMode ?? "maximum");
       const overridesValue = overridesPolicyResponse.data?.value;
       const overridesObject = overridesValue && typeof overridesValue === "object" && !Array.isArray(overridesValue) ? overridesValue as Record<string, unknown> : {};
       const perTenantOverrides = overridesObject.overrides;
       const override = perTenantOverrides && typeof perTenantOverrides === "object" && !Array.isArray(perTenantOverrides) ? (perTenantOverrides as Record<string, unknown>)[String(access.tenantId)] : undefined;
       const requestedOverrideLimit = override && typeof override === "object" && !Array.isArray(override) ? (override as Record<string, unknown>).subscriberLimit : undefined;
       const parsedOverrideLimit = typeof requestedOverrideLimit === "number" ? requestedOverrideLimit : typeof requestedOverrideLimit === "string" ? Number(requestedOverrideLimit) : NaN;
-      const limit = Number.isInteger(parsedOverrideLimit) && parsedOverrideLimit >= 0 && parsedOverrideLimit <= 100000 ? parsedOverrideLimit : ownerSubscriberLimitForPackage(packageCode, { value: policyValue });
+      const limit = Number.isInteger(parsedOverrideLimit) && parsedOverrideLimit >= 0 && parsedOverrideLimit <= 100000 ? parsedOverrideLimit : Number.isInteger(Number(catalogLimit)) && Number(catalogLimit) >= 0 ? Number(catalogLimit) : ownerSubscriberLimitForPackage(packageCode, null);
       const currentCount = countResponse.count ?? 0;
       return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
     }),
