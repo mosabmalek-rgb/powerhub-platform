@@ -42,21 +42,30 @@ const retiredMutation = (operation: string) => platformAdminProcedure.input(z.an
 
 export const adminRouter = router({
   createGeneratorOwnerSubscription: platformAdminProcedure.input(z.object({
-    companyName:z.string().min(2).max(180), ownerName:z.string().min(2).max(180), identityNumber:z.string().min(4).max(50), ownerPhone:z.string().min(5).max(30), ownerWhatsapp:z.preprocess(v=>typeof v==="string"&&!v.trim()?undefined:v,z.string().min(5).max(30).optional()), ownerEmail:z.string().email(), temporaryPassword:z.string().min(8).max(128), plan:planSchema.default("starter"), trialDurationDays:z.number().int().min(1).max(3650).default(8),
+    companyName:z.string().min(2).max(180), ownerName:z.string().min(2).max(180), identityNumber:z.string().min(4).max(50), ownerPhone:z.string().min(5).max(30), ownerWhatsapp:z.preprocess(v=>typeof v==="string"&&!v.trim()?undefined:v,z.string().min(5).max(30).optional()), ownerEmail:z.string().email(), temporaryPassword:z.string().min(8).max(128), plan:planSchema.default("starter"), trialDurationDays:z.number().int().min(1).max(3650).default(8), clientOperationId:z.string().uuid(),
   })).mutation(async ({ctx,input}) => {
     const email=input.ownerEmail.trim().toLowerCase();
-    const identity=encryptTenantCredential(input.identityNumber.trim());
+    const companyName=input.companyName.trim();
+    const ownerName=input.ownerName.trim();
+    const identityNumber=input.identityNumber.trim();
+    const ownerPhone=input.ownerPhone.trim();
+    const ownerWhatsapp=input.ownerWhatsapp?.trim()||null;
+    const fingerprintPayload={companyName,ownerName,identityNumber,ownerPhone,ownerWhatsapp,email,temporaryPasswordDigest:crypto.createHash("sha256").update(input.temporaryPassword).digest("hex"),plan:input.plan,trialDurationDays:input.trialDurationDays};
+    const requestFingerprint=crypto.createHash("sha256").update(JSON.stringify(fingerprintPayload)).digest("hex");
+    const identity=encryptTenantCredential(identityNumber);
     const admin=supabaseAdmin();
-    const {data:authData,error:authError}=await admin.auth.admin.createUser({email,password:input.temporaryPassword,email_confirm:true,user_metadata:{name:input.ownerName.trim(),must_change_password:true}});
-    if(authError||!authData.user) throw new TRPCError({code:authError?.status===422?"CONFLICT":"BAD_REQUEST",message:authError?.message||"تعذر إنشاء حساب صاحب المولد في Supabase Auth."});
-    try {
-      const {data,error}=await admin.rpc("powerhub_create_generator_owner_subscription",{p_actor_user_id:ctx.user.id,p_auth_user_id:authData.user.id,p_tenant_name:input.companyName.trim(),p_slug:`owner-${crypto.randomUUID().replaceAll("-","")}`,p_company_name:input.companyName.trim(),p_owner_name:input.ownerName.trim(),p_identity_ciphertext:identity.ciphertext,p_identity_iv:identity.iv,p_identity_last4:input.identityNumber.trim().slice(-4),p_owner_phone:input.ownerPhone.trim(),p_owner_whatsapp:input.ownerWhatsapp?.trim()||null,p_owner_email:email,p_site_name:"الفرع الرئيسي",p_site_code:`SITE-${crypto.randomUUID().slice(0,8).toUpperCase()}`,p_plan:input.plan,p_billing_cycle:"monthly",p_subscription_status:"trial",p_trial_duration_days:input.trialDurationDays});
-      if(error||!data?.[0]) throw error??new Error("لم تُرجع معاملة Supabase نتيجة صالحة.");
-      return data[0];
-    } catch(error) {
-      await admin.auth.admin.deleteUser(authData.user.id);
-      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:error instanceof Error?error.message:"تعذر إكمال إنشاء اشتراك صاحب المولد."});
+    const {data:beginData,error:beginError}=await admin.rpc("powerhub_admin_begin_generator_owner_provisioning",{p_actor_user_id:ctx.user.id,p_client_operation_id:input.clientOperationId,p_owner_email:email,p_request_fingerprint:requestFingerprint});
+    if(beginError||!beginData?.[0]) throw new TRPCError({code:beginError?.message?.includes("OPERATION_CONFLICT")?"CONFLICT":beginError?.message?.includes("AUTH_EMAIL_ALREADY_EXISTS")||beginError?.message?.includes("OWNER_EMAIL_ALREADY_PROVISIONED")?"CONFLICT":"INTERNAL_SERVER_ERROR",message:beginError?.message||"تعذر بدء عملية إنشاء اشتراك صاحب المولد."});
+    const begin=beginData[0] as {auth_user_id?:string|null;status?:string;replayed?:boolean};
+    let authUserId=begin.auth_user_id ?? null;
+    if(!authUserId){
+      const {data:authData,error:authError}=await admin.auth.admin.createUser({email,password:input.temporaryPassword,email_confirm:true,user_metadata:{name:ownerName,must_change_password:true,provisioning_operation_id:input.clientOperationId}});
+      if(authError||!authData.user) throw new TRPCError({code:authError?.status===422?"CONFLICT":"BAD_REQUEST",message:authError?.message||"تعذر إنشاء حساب صاحب المولد في Supabase Auth."});
+      authUserId=authData.user.id;
     }
+    const {data,error}=await admin.rpc("powerhub_admin_complete_generator_owner_provisioning",{p_actor_user_id:ctx.user.id,p_client_operation_id:input.clientOperationId,p_auth_user_id:authUserId,p_tenant_name:companyName,p_slug:`owner-${input.clientOperationId.replaceAll("-","")}`,p_company_name:companyName,p_owner_name:ownerName,p_identity_ciphertext:identity.ciphertext,p_identity_iv:identity.iv,p_identity_last4:identityNumber.slice(-4),p_owner_phone:ownerPhone,p_owner_whatsapp:ownerWhatsapp,p_owner_email:email,p_site_name:"الفرع الرئيسي",p_site_code:`SITE-${input.clientOperationId.slice(0,8).toUpperCase()}`,p_plan:input.plan,p_billing_cycle:"monthly",p_subscription_status:"trial",p_trial_duration_days:input.trialDurationDays});
+    if(error||!data?.[0]) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:error?.message||"تعذر إكمال إنشاء اشتراك صاحب المولد. يمكن إعادة المحاولة بنفس رقم العملية."});
+    return data[0];
   }),
   overview: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive().optional()}).optional()).query(async ({input}) => { const owners=await ownerOverviewFromSupabase(input?.tenantId); const totals=owners.reduce((a,item)=>({generatorOwners:a.generatorOwners+1,residential:a.residential+item.subscribers.residential,commercial:a.commercial+item.subscribers.commercial,subscribers:a.subscribers+item.subscribers.total,activeSubscriptions:a.activeSubscriptions+(item.subscription?.status==="active"||item.subscription?.status==="trial"?1:0)}),{generatorOwners:0,residential:0,commercial:0,subscribers:0,activeSubscriptions:0}); return {totals,owners}; }),
   listOwners: platformAdminProcedure.query(async ()=>ownerOverviewFromSupabase()),
