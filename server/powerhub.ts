@@ -2182,19 +2182,31 @@ export const powerhubRouter = router({
           if (invoiceError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جميع الفواتير المؤهلة من Supabase." });
           ids = (invoices ?? []).map((row) => Number(row.id)).filter(Number.isInteger);
         }
-        for (let offset = 0; offset < ids.length; offset += 200) {
-          const chunk = ids.slice(offset, offset + 200);
+        const queueFailures: Array<{ invoiceId: number; reason: string }> = [];
+        const queueChunk = async (chunk: number[]) => {
           const { error: queueError } = await admin.rpc("powerhub_queue_selected_invoice_sms", {
             p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_invoice_ids: chunk,
           });
-          if (queueError) {
-            const errorText = `${queueError.code ?? ""} ${queueError.message ?? ""}`;
-            if (errorText.includes("INVOICE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "إحدى الفواتير لا تتبع للفرع المحدد." });
-            if (errorText.includes("INVOICE_NOT_SENDABLE")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن إرسال فاتورة مسودة أو ملغاة." });
-            if (errorText.includes("SMS_CHANNEL_DISABLED")) throw new TRPCError({ code: "FORBIDDEN", message: "إرسال SMS معطّل من إعدادات المنصة." });
-            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز إشعارات SMS للفواتير المحددة." });
+          if (!queueError) return;
+          const errorText = `${queueError.code ?? ""} ${queueError.message ?? ""}`;
+          if (errorText.includes("SMS_CHANNEL_DISABLED")) throw new TRPCError({ code: "FORBIDDEN", message: "إرسال SMS معطّل من إعدادات المنصة." });
+          if (errorText.includes("MESSAGING_PERMISSION_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إدارة الرسائل ضمن هذا الفرع." });
+          if (chunk.length > 1 && (errorText.includes("INVOICE_OUT_OF_SCOPE") || errorText.includes("INVOICE_NOT_SENDABLE") || errorText.includes("SUBSCRIBER_OUT_OF_SCOPE") || errorText.includes("NOTIFICATION_NEEDS_REVIEW"))) {
+            for (const invoiceId of chunk) await queueChunk([invoiceId]);
+            return;
           }
-        }
+          const failedInvoiceId = chunk.length === 1 ? chunk[0] : 0;
+          if (failedInvoiceId) {
+            if (errorText.includes("INVOICE_OUT_OF_SCOPE")) queueFailures.push({ invoiceId: failedInvoiceId, reason: "الفاتورة لا تتبع للفرع المحدد." });
+            else if (errorText.includes("INVOICE_NOT_SENDABLE")) queueFailures.push({ invoiceId: failedInvoiceId, reason: "الفاتورة مسودة أو ملغاة ولا يمكن إرسالها." });
+            else if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE")) queueFailures.push({ invoiceId: failedInvoiceId, reason: "المشترك المرتبط بالفاتورة خارج نطاق الفرع." });
+            else if (errorText.includes("NOTIFICATION_NEEDS_REVIEW")) queueFailures.push({ invoiceId: failedInvoiceId, reason: "الرسالة السابقة تحتاج مراجعة قبل أي إعادة إرسال." });
+            else queueFailures.push({ invoiceId: failedInvoiceId, reason: "تعذر تجهيز إشعار SMS لهذه الفاتورة." });
+            return;
+          }
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز إشعارات SMS للفواتير المحددة." });
+        };
+        for (let offset = 0; offset < ids.length; offset += 200) await queueChunk(ids.slice(offset, offset + 200));
       }
 
       const statuses = input.retryFailedOnly ? ["failed"] : input.includeFailed ? ["pending", "failed"] : ["pending"];
@@ -2221,7 +2233,7 @@ export const powerhubRouter = router({
         entityId: notificationIds.join(",") || "none", action: "send_deferred_invoice_notifications",
         metadata: { notificationIds, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, includeFailed: input.includeFailed, retryFailedOnly: input.retryFailedOnly, sendAll: input.sendAll },
       });
-      return result;
+      return { ...result, queueFailed: queueFailures.length, queueFailures };
     }),
     retry: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
     retryFailedInvoiceNotification: protectedProcedure.input(retryFailedInvoiceNotificationInput).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
