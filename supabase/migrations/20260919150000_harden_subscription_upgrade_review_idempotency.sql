@@ -79,3 +79,52 @@ revoke execute on function public.powerhub_admin_renew_subscription_idempotent(b
 grant execute on function public.powerhub_admin_renew_subscription_idempotent(bigint,bigint,integer,text) to service_role;
 revoke execute on function public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint,text) from public,anon,authenticated;
 grant execute on function public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint,text) to service_role;
+
+
+create or replace function public.powerhub_admin_quick_upgrade_owner_plan_idempotent(
+  p_actor_user_id bigint,p_tenant_id bigint,p_plan text,p_note text,p_client_operation_id text
+)
+returns table(success boolean,plan text,replayed boolean)
+language plpgsql security definer set search_path=public,pg_temp
+as $function$
+declare
+ v_actor_platform_role text;v_tenant public.tenants%rowtype;v_subscription public.tenant_subscriptions%rowtype;
+ v_site_id bigint;v_current_rank integer;v_requested_rank integer;v_op public.offline_sync_operations%rowtype;
+begin
+ if nullif(trim(p_client_operation_id),'') is null then raise exception 'CLIENT_OPERATION_REQUIRED' using errcode='P0001'; end if;
+ select u.platform_role into v_actor_platform_role from public.users u where u.id=p_actor_user_id and u.role='admin' and u.account_status='active' and u.platform_role in('platform_owner','platform_admin');
+ if v_actor_platform_role is null then raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501'; end if;
+ if p_plan not in('starter','professional','enterprise') then raise exception 'INVALID_PLAN' using errcode='22023'; end if;
+ perform pg_advisory_xact_lock(hashtext('subscription-quick-upgrade:'||p_actor_user_id::text||':'||trim(p_client_operation_id))::bigint);
+ select * into v_op from public.offline_sync_operations where user_id=p_actor_user_id and client_operation_id=trim(p_client_operation_id) for update;
+ if found then
+   if v_op.operation_type<>'subscription_quick_upgrade' or v_op.tenant_id<>p_tenant_id or v_op.response->>'plan'<>p_plan or coalesce(v_op.response->>'note','')<>coalesce(p_note,'') then raise exception 'SUBSCRIPTION_QUICK_UPGRADE_OPERATION_CONFLICT' using errcode='P0001'; end if;
+   return query select true,p_plan,true; return;
+ end if;
+ select * into v_tenant from public.tenants t where t.id=p_tenant_id for update;
+ if not found then raise exception 'TENANT_NOT_FOUND' using errcode='P0002'; end if;
+ select * into v_subscription from public.tenant_subscriptions ts where ts.tenant_id=p_tenant_id order by created_at desc,id desc limit 1 for update;
+ if not found then raise exception 'SUBSCRIPTION_NOT_FOUND' using errcode='P0002'; end if;
+ if v_tenant.plan is distinct from v_subscription.plan then raise exception 'SUBSCRIPTION_PLAN_DRIFT' using errcode='P0001'; end if;
+ select s.id into v_site_id from public.sites s where s.tenant_id=p_tenant_id order by s.id limit 1;
+ if v_site_id is null then raise exception 'SITE_NOT_FOUND' using errcode='P0002'; end if;
+ v_current_rank:=case v_tenant.plan when 'starter' then 1 when 'professional' then 2 when 'enterprise' then 3 end;
+ v_requested_rank:=case p_plan when 'starter' then 1 when 'professional' then 2 when 'enterprise' then 3 end;
+ if p_plan=v_tenant.plan then
+   insert into public.offline_sync_operations(tenant_id,site_id,user_id,client_operation_id,operation_type,entity_type,entity_id,response)
+   values(p_tenant_id,v_site_id,p_actor_user_id,trim(p_client_operation_id),'subscription_quick_upgrade','tenant_subscription',v_subscription.id,jsonb_build_object('plan',p_plan,'note',coalesce(p_note,'')));
+   return query select true,p_plan,false; return;
+ end if;
+ if v_requested_rank<=v_current_rank then raise exception 'PLAN_NOT_UPGRADE' using errcode='22023'; end if;
+ update public.tenants set plan=p_plan,updated_at=now() where id=p_tenant_id;
+ update public.tenant_subscriptions set plan=p_plan,updated_at=now() where id=v_subscription.id;
+ insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data)
+ values(p_tenant_id,v_site_id,p_actor_user_id,v_actor_platform_role,'tenant_subscription',v_subscription.id::text,'platform_admin_quick_upgrade_owner_plan',jsonb_build_object('fromPlan',v_tenant.plan,'toPlan',p_plan,'note',p_note));
+ insert into public.offline_sync_operations(tenant_id,site_id,user_id,client_operation_id,operation_type,entity_type,entity_id,response)
+ values(p_tenant_id,v_site_id,p_actor_user_id,trim(p_client_operation_id),'subscription_quick_upgrade','tenant_subscription',v_subscription.id,jsonb_build_object('plan',p_plan,'note',coalesce(p_note,'')));
+ return query select true,p_plan,false;
+end;
+$function$;
+
+revoke execute on function public.powerhub_admin_quick_upgrade_owner_plan_idempotent(bigint,bigint,text,text,text) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_quick_upgrade_owner_plan_idempotent(bigint,bigint,text,text,text) to service_role;
