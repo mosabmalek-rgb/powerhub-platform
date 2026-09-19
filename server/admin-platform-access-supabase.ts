@@ -47,7 +47,7 @@ export async function invitePlatformAccessSupabase(input: {
   });
   if (error) mapRpcError(error.message, "تعذر إنشاء دعوة وصول إدارة المنصة.");
   const row = Array.isArray(data) ? data[0] : data;
-  if (!row || typeof row.id !== "number" || typeof row.email !== "string" || typeof row.platform_role !== "string" || typeof row.status !== "string" || typeof row.expires_at !== "string") {
+  if (!row || typeof row.id !== "number" || typeof row.email !== "string" || typeof row.platform_role !== "string" || typeof row.status !== "string" || typeof row.expires_at !== "string" || typeof row.replayed !== "boolean") {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت دالة دعوة وصول المنصة نتيجة غير صالحة." });
   }
   return {
@@ -56,7 +56,7 @@ export async function invitePlatformAccessSupabase(input: {
     platformRole: row.platform_role as PlatformAccessRole,
     expiresAt: new Date(row.expires_at),
     status: row.status as "invited",
-    replayed: row.replayed === true,
+    replayed: row.replayed,
   };
 }
 
