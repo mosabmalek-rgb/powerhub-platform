@@ -141,7 +141,7 @@ begin
     raise exception 'INVALID_SITE_INPUT' using errcode='P0001';
   end if;
 
-  perform pg_advisory_xact_lock(p_tenant_id,hashtext('branch-policy'));
+  perform pg_advisory_xact_lock(hashtextextended('branch-policy:'||p_tenant_id::text,0));
 
   select ts.plan, ts.package_code
     into v_plan, v_package_code
