@@ -1027,7 +1027,7 @@ export const powerhubRouter = router({
     }),
     requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPlan: z.enum(["basic", "advanced", "professional", "business", "vip"]) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_request_subscription_upgrade", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_plan: input.requestedPlan });
+      const { data, error } = await supabaseAdmin().rpc("powerhub_request_subscription_upgrade", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_package_code: input.requestedPlan });
       const result = (data as Array<{ request_id: number | string; requested_package_code: string; already_requested: boolean }> | null)?.[0];
       if (!error && result?.request_id) return { id: Number(result.request_id), requestedPlan: result.requested_package_code, alreadyRequested: result.already_requested };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
