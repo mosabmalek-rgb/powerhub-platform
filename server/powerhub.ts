@@ -262,7 +262,7 @@ const siteInput = z.object({
 const siteScoped = z.object({ siteId: z.number().int().positive() });
 export const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) });
 export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.number().int().positive() });
-export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) });
+export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), clientOperationId: z.string().uuid(), sendNow: z.boolean().default(true) });
 export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100), sendNow: z.boolean().default(true) });
 export const sendDeferredInvoiceNotificationsInput = z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(200), invoiceIds: z.array(z.number().int().positive()).min(1).max(200).optional() });
 export const retryFailedInvoiceNotificationInput = siteScoped.extend({ notificationId: z.number().int().positive() });
@@ -1615,15 +1615,15 @@ export const powerhubRouter = router({
       if (!error && data?.[0]) return { success: true, consumptionKwh: Number((data[0] as { consumption_kwh: number | string }).consumption_kwh) };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
-      if (errorText.includes("READING_NOT_PENDING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تعديل قراءة معتمدة أو مرفوضة من هذه الواجهة." });
-      if (errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث الصفحة ثم أعد المحاولة." });
+      if (errorText.includes("READING_ALREADY_PROCESSED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تعديل قراءة معتمدة أو مرفوضة من هذه الواجهة." });
+      if (errorText.includes("READING_VERSION_CONFLICT") || errorText.includes("OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تم تعديل القراءة من جهة أخرى؛ حدّث الصفحة ثم أعد المحاولة." });
       if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة المعدلة أقل من القراءة السابقة المعتمدة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تعديل القراءة في Supabase." });
     }),
     deletePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "recordReadings");
       const { error } = await supabaseAdmin().rpc("powerhub_delete_pending_reading", {
-        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion,
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion, p_client_operation_id: input.clientOperationId,
       });
       if (!error) return { success: true };
       const errorText = `${error.code ?? ""} ${error.message ?? ""}`;
@@ -1639,9 +1639,9 @@ export const powerhubRouter = router({
           p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion,
         });
         if (!error && data?.[0]) {
-          const row = data[0] as { reading_id?: number | string; version_no?: number };
-          if (row.reading_id === undefined || typeof row.version_no !== "number") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير مكتملة لاعتماد القراءة." });
-          return { success: true, readingId: Number(row.reading_id), versionNo: row.version_no, replayed: false };
+          const row = data[0] as { reading_id?: number | string; version_no?: number; replayed?: boolean };
+          if (row.reading_id === undefined || typeof row.version_no !== "number" || typeof row.replayed !== "boolean") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير مكتملة لاعتماد القراءة." });
+          return { success: true, readingId: Number(row.reading_id), versionNo: row.version_no, replayed: row.replayed };
         }
         const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
         if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
