@@ -109,7 +109,7 @@ const state = vi.hoisted(() => {
       });
       if (name === "powerhub_save_site_portal_settings") return resolved([{ portal_code: "main" }]);
       if (name === "powerhub_upsert_employee_attendance") return resolved([{ attendance_id: 124, mutation: "update" }]);
-      if (name === "powerhub_create_employee") return resolved([{ employee_id: 125 }]);
+      if (name === "powerhub_create_employee_online") return resolved([{ employee_id: 125, replayed: false }]);
       if (name === "powerhub_update_employee") return resolved([{ employee_id: 120 }]);
       if (name === "powerhub_create_employee_adjustment") return resolved([{ adjustment_id: 125 }]);
       if (name === "powerhub_create_payroll_draft") return resolved([{ payroll_run_id: 126, total_net: 1100 }]);
@@ -727,7 +727,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("ينشئ موظفاً عبر RPC Supabase الذرية دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.createEmployee({
-      siteId: 10, fullName: "فني جديد", identityNo: "123456789", phone: "0595000001", jobTitle: "technician",
+      siteId: 10, clientOperationId: "66666666-6666-4666-8666-666666666666", fullName: "فني جديد", identityNo: "123456789", phone: "0595000001", jobTitle: "technician",
       employmentStatus: "active", contractType: "monthly", baseWage: 1200, hireDate: "2026-08-15", notes: "تغطية ميدانية",
     })).resolves.toEqual({ id: 125 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({
