@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import PlatformAdminLayout from "@/components/PlatformAdminLayout";
+import { SubscriptionPackageCatalogPanel } from "@/components/SubscriptionPackageCatalogPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
