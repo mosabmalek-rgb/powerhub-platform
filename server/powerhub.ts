@@ -369,7 +369,7 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       const [accountResult, usageResult] = await Promise.all([
         admin.from("tenant_tweetsms_accounts").select("sender_name, monthly_limit, is_active, credential_ciphertext, last_error").eq("tenant_id", scope.tenantId).maybeSingle(),
-        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read"]),
+        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
       ]);
       if (accountResult.error || usageResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة الرسائل من Supabase." });
       const account = accountResult.data;
