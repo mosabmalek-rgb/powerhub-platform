@@ -9,7 +9,7 @@ import { toast } from "sonner";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const today = () => new Date().toISOString().slice(0, 10);
-const blankRow = (): BulkReadingDraft => ({ reference: "", readingValue: "", readingDate: today(), notes: "" });
+const blankRow = (): BulkReadingDraft => ({ reference: "", readingValue: "", readingDate: today(), notes: "", clientOperationId: crypto.randomUUID() });
 
 export default function BulkReadingEntry({ siteId, subscribers, readings, onSaved }: { siteId: number; subscribers: any[]; readings: any[]; onSaved: () => Promise<void> }) {
   const [rows, setRows] = useState<BulkReadingDraft[]>([blankRow(), blankRow(), blankRow()]);
@@ -36,7 +36,7 @@ export default function BulkReadingEntry({ siteId, subscribers, readings, onSave
         const rawDate = cells[3];
         const readingDate = rawDate instanceof Date ? rawDate.toISOString().slice(0, 10) : String(rawDate ?? "").trim();
         const notes = String(cells[4] ?? "").trim();
-        if (reference || readingValue || readingDate || notes) parsed.push({ reference, readingValue, readingDate, notes });
+        if (reference || readingValue || readingDate || notes) parsed.push({ reference, readingValue, readingDate, notes, clientOperationId: crypto.randomUUID() });
       });
       if (!parsed.length) throw new Error("لم نعثر على صفوف قراءة. استخدم الأعمدة: الرقم المرجعي، القراءة الحالية، تاريخ القراءة، ملاحظات.");
       setRows(parsed);
@@ -74,7 +74,7 @@ export default function BulkReadingEntry({ siteId, subscribers, readings, onSave
           readingAt: new Date(`${row.readingDate}T12:00:00`),
           captureMethod: "manual",
           notes: row.notes || undefined,
-          clientOperationId: crypto.randomUUID(),
+          clientOperationId: row.clientOperationId ?? crypto.randomUUID(),
         });
         saved += 1;
       } catch (error) {
