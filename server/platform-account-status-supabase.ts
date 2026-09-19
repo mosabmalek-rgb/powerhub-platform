@@ -26,9 +26,9 @@ export async function setPlatformAccountStatus(input: {
   }
 
   const row = data?.[0] as { success?: boolean; account_status?: string } | undefined;
-  if (!row || row.success !== true || typeof row.account_status !== "string") {
+  if (!row || row.success !== true || typeof row.account_status !== "string" || typeof row.replayed !== "boolean") {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير صالحة لتحديث حالة الحساب." });
   }
 
-  return { success: true, accountStatus: row.account_status as PlatformAccountStatus };
+  return { success: true, accountStatus: row.account_status as PlatformAccountStatus, replayed: row.replayed };
 }
