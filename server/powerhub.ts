@@ -1530,6 +1530,7 @@ export const powerhubRouter = router({
       }
       let imageKey: string | undefined;
       let imageHash: string | undefined;
+      let rpcStarted = false;
       if (input.imageData) {
         if (!input.imageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "نوع صورة القراءة غير مدعوم." });
         const imageBytes = Buffer.from(input.imageData, "base64");
@@ -1545,6 +1546,7 @@ export const powerhubRouter = router({
           imageKey = deterministicImageKey;
         }
       }
+      rpcStarted = true;
       const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
         p_client_operation_id: input.clientOperationId ?? null, p_reading_at: readingAt.toISOString(), p_reading_value: input.readingValue,
@@ -1565,6 +1567,15 @@ export const powerhubRouter = router({
       if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة. فعّل خيار إعادة ضبط سجل القراءة وسجل ملاحظة للتأكيد." });
       if (errorText.includes("READING_RESET_NOTES_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة قبل حفظها." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل القراءة في Supabase." });
+      } catch (error) {
+        if (rpcStarted) {
+          const reconciled = await reconcileReadingAfterError({ tenantId: access.tenantId, siteId: input.siteId, subscriberId: input.subscriberId, clientOperationId: input.clientOperationId, issueInvoice: false });
+          if (reconciled.resolved) return { id: reconciled.id, consumptionKwh: reconciled.consumptionKwh, status: reconciled.status, replayed: true, alreadyProcessed: true };
+        } else if (imageKey) {
+          try { await storageRemove(imageKey); } catch {}
+        }
+        throw error;
+      }
     }),
     createAndIssue: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date().optional(),
@@ -1576,6 +1587,7 @@ export const powerhubRouter = router({
       const readingAt = input.readingAt ?? new Date();
       let imageKey: string | undefined;
       let imageHash: string | undefined;
+      let rpcStarted = false;
       try {
         if (input.imageData) {
           if (!input.imageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "نوع صورة القراءة غير مدعوم." });
@@ -1594,6 +1606,7 @@ export const powerhubRouter = router({
         }
         const dueDate = new Date(readingAt);
         dueDate.setDate(dueDate.getDate() + 14);
+        rpcStarted = true;
         const { data, error } = await supabaseAdmin().rpc("powerhub_create_and_issue_reading", {
           p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
           p_client_operation_id: input.clientOperationId ?? null, p_reading_at: readingAt.toISOString(), p_reading_value: input.readingValue,
@@ -1627,7 +1640,22 @@ export const powerhubRouter = router({
         if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ القراءة وإصدار الفاتورة كعملية واحدة في Supabase." });
       } catch (error) {
-        if (imageKey) { try { await storageRemove(imageKey); } catch {} }
+        if (rpcStarted) {
+          const reconciled = await reconcileReadingAfterError({ tenantId: access.tenantId, siteId: input.siteId, subscriberId: input.subscriberId, clientOperationId: input.clientOperationId, issueInvoice: true });
+          if (reconciled.resolved && reconciled.invoice) return {
+            id: reconciled.id,
+            consumptionKwh: reconciled.consumptionKwh,
+            status: "approved" as const,
+            invoiceId: reconciled.invoice.id,
+            invoiceNo: reconciled.invoice.invoiceNo,
+            totalAmount: reconciled.invoice.totalAmount,
+            notificationIds: [],
+            replayed: true,
+            alreadyProcessed: true,
+          };
+        } else if (imageKey) {
+          try { await storageRemove(imageKey); } catch {}
+        }
         throw error;
       }
     }),
