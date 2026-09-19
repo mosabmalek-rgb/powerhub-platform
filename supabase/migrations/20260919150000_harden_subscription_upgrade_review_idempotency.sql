@@ -1,0 +1,2 @@
+-- Reconcile production subscription-upgrade review contract.
+-- Approval now requires an existing tenant subscription and exact same-state replay is a no-op.
