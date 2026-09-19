@@ -1301,6 +1301,7 @@ export const powerhubRouter = router({
     bulkImport: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       updateExisting: z.boolean().default(false),
+      clientOperationId: z.string().uuid(),
       rows: z.array(z.object({
         sourceRow: z.number().int().min(2),
         subscriberNo: z.string().trim().max(80).optional(),
@@ -1334,6 +1335,11 @@ export const powerhubRouter = router({
         accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, whatsappNumber, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType });
       }
       if (!accepted.length) return { created: [], updated: [], failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لا توجد صفوف صالحة للحفظ." };
+      const requestFingerprint = createHash("sha256").update(JSON.stringify({
+        siteId: input.siteId,
+        updateExisting: input.updateExisting,
+        rows: accepted,
+      })).digest("hex");
       const { data, error } = await supabaseAdmin().rpc("powerhub_bulk_upsert_subscribers", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
@@ -1341,6 +1347,8 @@ export const powerhubRouter = router({
         p_rows: accepted,
         p_update_existing: input.updateExisting,
         p_quota_limit: quota.limit,
+        p_client_operation_id: input.clientOperationId,
+        p_request_fingerprint: requestFingerprint,
       });
       if (error) {
         const errorText = String(error?.code ?? "") + " " + String(error?.message ?? "");
@@ -1349,18 +1357,18 @@ export const powerhubRouter = router({
         if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "يوجد رقم مرجعي مكرر في الملف أو قاعدة البيانات. عدّل الملف وأعد المحاولة." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ الاستيراد الجماعي في Supabase." });
       }
-      const row = (data as Array<{ created?: unknown; updated?: unknown; failed?: unknown }> | null)?.[0];
+      const row = (data as Array<{ created?: unknown; updated?: unknown; failed?: unknown; replayed?: boolean }> | null)?.[0];
       const created = Array.isArray(row?.created) ? row.created : [];
       const updated = Array.isArray(row?.updated) ? row.updated : [];
       const failed = [...failureRows, ...(Array.isArray(row?.failed) ? row.failed : [])].sort((a, b) => Number(a.sourceRow) - Number(b.sourceRow));
-      if (created.length) {
+      if (created.length && row?.replayed !== true) {
         try {
           await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + created.length, remaining: Math.max(0, quota.remaining - created.length) } });
         } catch (alertError) {
           console.error("[subscriber-quota-alert] bulk subscriber import succeeded but quota alert recording failed", alertError);
         }
       }
-      return { created, updated, failed, notificationsQueued: 0, message: "تم حفظ الاستيراد الجماعي ذرياً في Supabase دون إرسال رسائل تلقائية." };
+      return { created, updated, failed, replayed: row?.replayed === true, notificationsQueued: 0, message: row?.replayed === true ? "تمت إعادة تأكيد استيراد جماعي سابق بنفس العملية." : "تم حفظ الاستيراد الجماعي ذرياً في Supabase دون إرسال رسائل تلقائية." };
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
