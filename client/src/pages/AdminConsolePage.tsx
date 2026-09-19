@@ -54,6 +54,8 @@ export default function AdminConsolePage() {
   const renewSubscription = trpc.admin.renewSubscription.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(`تم التجديد حتى ${formatDate(result.endsAt)}.`); }, onError: (error) => toast.error(error.message) });
   const attachOwner = trpc.admin.attachOwnerUser.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم ربط حساب المالك بالمساحة والمحطة."); }, onError: (error) => toast.error(error.message) });
   const reviewSmsRequest = trpc.admin.reviewSmsPackageRequest.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت مراجعة طلب الحزمة وتحديث حالته."); }, onError: (error) => toast.error(error.message) });
+  const createSmsPlan = trpc.admin.createSmsPlan.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم إنشاء باقة SMS."); }, onError: (error) => toast.error(error.message) });
+  const updateSmsPlan = trpc.admin.updateSmsPlan.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تحديث باقة SMS."); }, onError: (error) => toast.error(error.message) });
   const overviewRows = overview.data?.owners ?? [];
   const reportRows = owners.data ?? [];
   const eligibleUsers = useMemo(() => (users.data ?? []).filter((candidate) => candidate.role !== "admin"), [users.data]);
@@ -82,21 +84,79 @@ export default function AdminConsolePage() {
     {tab === "reports" && <><AdminReportsExports rows={reportRows} /><ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} /></>}
     {tab === "invoiceDelivery" && <InvoiceDeliverySettingsPanel />}
     {tab === "tweetSms" && <TweetSmsAccountsCenter accounts={tweetSmsAccounts.data ?? []} />}
-    {tab === "smsPlans" && <SmsPlansCenter plans={smsPlans.data ?? []} requests={smsRequests.data ?? []} pending={reviewSmsRequest.isPending} onReview={reviewSmsRequest.mutate} />}
+    {tab === "smsPlans" && <SmsPlansCenter plans={smsPlans.data ?? []} requests={smsRequests.data ?? []} pending={reviewSmsRequest.isPending || createSmsPlan.isPending || updateSmsPlan.isPending} onReview={reviewSmsRequest.mutate} onCreatePlan={createSmsPlan.mutate} onUpdatePlan={updateSmsPlan.mutate} />}
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} />}
   </main></PlatformAdminLayout>;
 }
 
-function SmsPlansCenter({ plans, requests, pending, onReview }: any) {
+function SmsPlansCenter({ plans, requests, pending, onReview, onCreatePlan, onUpdatePlan }: any) {
   return <section className="space-y-6">
-    <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-center gap-3"><MessageSquareText className="h-5 w-5 text-[#F5B800]" /><div><h2 className="font-bold text-white">باقات رسائل SMS الحالية</h2><p className="mt-1 text-sm text-slate-500">عرض الباقات وطلبات الرصيد الإضافي. إنشاء الباقات وتعديلها غير متاحان من هذا المسار القديم.</p></div></div></CardContent></Card>
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{plans.map((plan: any) => <Card key={plan.id} className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-white">{plan.name}</p><p className="mt-1 text-xs text-slate-500" dir="ltr">{plan.code}</p></div><Badge className={plan.isActive ? "bg-emerald-400/10 text-emerald-300" : "bg-slate-400/10 text-slate-400"}>{plan.isActive ? "نشطة" : "متوقفة"}</Badge></div><p className="mt-5 font-display text-3xl font-extrabold text-[#F5B800]">{formatNumber(plan.includedMessages)} <span className="text-xs text-slate-500">رسالة</span></p><p className="mt-2 min-h-10 text-sm leading-6 text-slate-400">{plan.description ?? "دون وصف"}</p></CardContent></Card>)}{!plans.length && <Card className="border-white/8 bg-[#111823] md:col-span-2 xl:col-span-3"><CardContent className="p-8 text-center text-sm text-slate-500">لم تتم إضافة باقات SMS بعد.</CardContent></Card>}</div>
-    <Card className="border-sky-400/15 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">طلبات شراء الحزم الإضافية</h2><p className="mt-1 text-sm text-slate-500">راجع الطلب ثم اعتمد الرصيد أو ارفضه عبر المسار الحي.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="px-5 py-3">المالك</th><th className="px-4 py-3">المساحة</th><th className="px-4 py-3">المطلوب</th><th className="px-4 py-3">الحالة</th><th className="px-4 py-3">الإجراء</th></tr></thead><tbody>{requests.map((row: any) => <tr key={row.request.id} className="border-t border-white/7"><td className="px-5 py-4 font-bold text-white">{row.ownerName ?? "—"}</td><td className="px-4 py-4 text-slate-300">{row.tenantName}</td><td className="px-4 py-4 text-[#F5B800]">{formatNumber(row.request.requestedMessages)}</td><td className="px-4 py-4 text-slate-400">{row.request.status === "pending" ? "قيد المراجعة" : row.request.status === "approved" ? `معتمد: ${formatNumber(row.request.approvedMessages)}` : row.request.status === "rejected" ? "مرفوض" : "ملغى"}</td><td className="px-4 py-4">{row.request.status === "pending" ? <div className="flex gap-2"><Button size="sm" disabled={pending} onClick={() => onReview({ id: row.request.id, status: "approved", approvedMessages: row.request.requestedMessages })} className="bg-emerald-400 text-[#0D1117] hover:bg-emerald-300">اعتماد وإضافة الرصيد</Button><Button size="sm" variant="outline" disabled={pending} onClick={() => onReview({ id: row.request.id, status: "rejected", approvedMessages: 0 })} className="border-rose-400/30 text-rose-300 hover:bg-rose-400/10 hover:text-rose-200">رفض</Button></div> : "—"}</td></tr>)}{!requests.length && <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-slate-500">لا توجد طلبات حزم إضافية.</td></tr>}</tbody></table></div></CardContent></Card>
+    <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel">
+      <CardContent className="p-5">
+        <div className="flex items-center gap-3"><MessageSquareText className="h-5 w-5 text-[#F5B800]" /><div><h2 className="font-bold text-white">إدارة باقات SMS</h2><p className="mt-1 text-sm text-slate-500">تعريف الباقات المركزية فقط. ربط الباقة بالاشتراك يتم من شاشة اشتراكات أصحاب المولدات، والاستهلاك يُحتسب تلقائيًا من الباقة والإضافيات المعتمدة.</p></div></div>
+      </CardContent>
+    </Card>
+
+    <Card className="border-white/8 bg-[#111823] shadow-panel">
+      <CardContent className="p-5">
+        <h3 className="font-bold text-white">إنشاء باقة جديدة</h3>
+        <form className="mt-4 grid gap-3 md:grid-cols-4" onSubmit={(event: FormEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          onCreatePlan({
+            code: String(data.get("code")).trim(),
+            name: String(data.get("name")).trim(),
+            description: String(data.get("description") || "").trim() || undefined,
+            includedMessages: Number(data.get("includedMessages")),
+            isActive: true,
+          });
+          event.currentTarget.reset();
+        }}>
+          <Input required name="code" placeholder="starter-sms" dir="ltr" className={inputClass} />
+          <Input required name="name" placeholder="الباقة الأساسية" className={inputClass} />
+          <Input required name="includedMessages" type="number" min="0" step="1" placeholder="عدد الرسائل الشهرية" dir="ltr" className={inputClass} />
+          <div className="flex gap-2"><Input name="description" placeholder="وصف اختياري" className={inputClass} /><Button type="submit" disabled={pending} className="shrink-0 bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">إنشاء</Button></div>
+        </form>
+      </CardContent>
+    </Card>
+
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {plans.map((plan: any) => <Card key={plan.id} className="border-white/8 bg-[#111823] shadow-panel">
+        <CardContent className="p-5">
+          <form className="space-y-3" onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            onUpdatePlan({
+              id: plan.id,
+              name: String(data.get("name")).trim(),
+              description: String(data.get("description") || "").trim() || undefined,
+              includedMessages: Number(data.get("includedMessages")),
+              isActive: data.get("isActive") === "on",
+            });
+          }}>
+            <div className="flex items-center justify-between gap-3"><span className="text-xs text-slate-500" dir="ltr">{plan.code}</span><label className="flex items-center gap-2 text-xs text-slate-400"><input name="isActive" type="checkbox" defaultChecked={plan.isActive} className="accent-[#F5B800]" />نشطة</label></div>
+            <Input required name="name" defaultValue={plan.name} className={inputClass} />
+            <Input required name="includedMessages" type="number" min="0" step="1" defaultValue={plan.includedMessages} dir="ltr" className={inputClass} />
+            <Input name="description" defaultValue={plan.description ?? ""} className={inputClass} />
+            <div className="flex items-center justify-between gap-3"><p className="text-xs text-slate-500">الحد الأساسي الشهري: {formatNumber(plan.includedMessages)}</p><Button type="submit" size="sm" disabled={pending} variant="outline" className="border-white/10 text-white hover:bg-white/5 hover:text-white">حفظ التعديل</Button></div>
+          </form>
+        </CardContent>
+      </Card>)}
+      {!plans.length && <Card className="border-white/8 bg-[#111823] md:col-span-2 xl:col-span-3"><CardContent className="p-8 text-center text-sm text-slate-500">لم تتم إضافة باقات SMS بعد.</CardContent></Card>}
+    </div>
+
+    <Card className="border-sky-400/15 bg-[#111823] shadow-panel">
+      <CardContent className="p-0">
+        <div className="border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">طلبات الحزم الإضافية</h2><p className="mt-1 text-sm text-slate-500">الاعتماد يضيف الرصيد إلى حصة الشهر الحالية للاشتراك، ولا يغيّر الباقة الأساسية.</p></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="px-5 py-3">المالك</th><th className="px-4 py-3">المساحة</th><th className="px-4 py-3">المطلوب</th><th className="px-4 py-3">الحالة</th><th className="px-4 py-3">الإجراء</th></tr></thead>
+          <tbody>{requests.map((row: any) => <tr key={row.request.id} className="border-t border-white/7"><td className="px-5 py-4 font-bold text-white">{row.ownerName ?? "—"}</td><td className="px-4 py-4 text-slate-300">{row.tenantName}</td><td className="px-4 py-4 text-[#F5B800]">{formatNumber(row.request.requestedMessages)}</td><td className="px-4 py-4 text-slate-400">{row.request.status === "pending" ? "قيد المراجعة" : row.request.status === "approved" ? `معتمد: ${formatNumber(row.request.approvedMessages)}` : row.request.status === "rejected" ? "مرفوض" : "ملغى"}</td><td className="px-4 py-4">{row.request.status === "pending" ? <div className="flex gap-2"><Button size="sm" disabled={pending} onClick={() => onReview({ id: row.request.id, status: "approved", approvedMessages: row.request.requestedMessages })} className="bg-emerald-400 text-[#0D1117] hover:bg-emerald-300">اعتماد وإضافة الرصيد</Button><Button size="sm" variant="outline" disabled={pending} onClick={() => onReview({ id: row.request.id, status: "rejected", approvedMessages: 0 })} className="border-rose-400/30 text-rose-300 hover:bg-rose-400/10 hover:text-rose-200">رفض</Button></div> : "—"}</td></tr>)}{!requests.length && <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-slate-500">لا توجد طلبات حزم إضافية.</td></tr>}</tbody>
+        </table></div>
+      </CardContent>
+    </Card>
   </section>;
 }
-
 function TweetSmsAccountsCenter({ accounts }: any) {
   return <section className="space-y-6"><Card className="border-[#F5B800]/25 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-start gap-3"><MessageSquareText className="mt-0.5 h-5 w-5 text-[#F5B800]" /><div><h2 className="font-bold text-white">حسابات TweetSMS لأصحاب المولدات</h2><p className="mt-1 max-w-3xl text-sm leading-7 text-slate-400">عرض حالة الحسابات وحصص الرسائل فقط. إدارة المفاتيح وفحص المزود متوقفة في المسار القديم، لذلك لا تظهر أزرار تنفيذ غير قابلة للعمل.</p></div></div></CardContent></Card><div className="space-y-4">{accounts.map((account: any) => <Card key={account.tenantId} className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><p className="font-bold text-white">{account.ownerName ?? account.tenantName}</p><p className="mt-1 text-xs text-slate-500">{account.tenantName} · <span dir="ltr">{account.ownerPhone ?? "—"}</span></p></div><div className="flex flex-wrap gap-2"><Badge className={account.isActive ? "bg-emerald-400/10 text-emerald-300" : "bg-slate-400/10 text-slate-400"}>{account.isActive ? "الإرسال نشط" : "الإرسال موقوف"}</Badge><Badge className={account.configured ? "bg-sky-400/10 text-sky-300" : "bg-amber-400/10 text-amber-200"}>{account.configured ? "بيانات API محفوظة" : "بانتظار API"}</Badge></div></div><div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><div><p className="text-xs text-slate-500">اسم المرسل</p><p className="mt-1 font-bold text-white" dir="ltr">{account.senderName ?? "—"}</p></div><div><p className="text-xs text-slate-500">الحد الشهري</p><p className="mt-1 font-bold text-[#F5B800]">{formatNumber(account.monthlyLimit)} شريحة</p></div><div><p className="text-xs text-slate-500">المستخدم هذا الشهر</p><p className="mt-1 font-bold text-white">{formatNumber(account.usedThisMonth)} شريحة</p></div><div><p className="text-xs text-slate-500">المتبقي</p><p className="mt-1 font-bold text-emerald-300">{formatNumber(account.remaining)} شريحة</p></div></div>{account.lastError ? <p className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[.05] px-3 py-2 text-xs leading-6 text-amber-200">آخر نتيجة: {account.lastError}</p> : null}</CardContent></Card>)}{!accounts.length && <Card className="border-white/8 bg-[#111823]"><CardContent className="p-10 text-center text-sm text-slate-500">لا توجد حسابات أصحاب مولدات مهيأة بعد.</CardContent></Card>}</div></section>;
 }
