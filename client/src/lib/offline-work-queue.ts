@@ -6,7 +6,7 @@ export type OfflineWorkKind =
   | "invoice_issue"
   | "payment_create";
 
-export type OfflineWorkStatus = "pending" | "conflict" | "failed" | "applied";
+export type OfflineWorkStatus = "pending" | "conflict" | "failed" | "rejected" | "applied";
 
 export type SubscriberCreateDraft = {
   fullName: string;
@@ -176,11 +176,35 @@ export async function updateOfflineWork(
     Pick<QueuedOfflineWork, "status" | "error" | "appliedEntityId" | "appliedLabel" | "payload">
   >,
 ) {
-  const existing = await transact<QueuedOfflineWork | undefined>("readonly", (store) => store.get(id));
-  if (!existing) return;
-  await transact("readwrite", (store) =>
-    store.put({ ...existing, ...patch, updatedAt: Date.now() }),
-  );
+  const database = await openDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(storeName, "readwrite");
+    const store = transaction.objectStore(storeName);
+    const request = store.get(id);
+
+    request.onsuccess = () => {
+      const existing = request.result as QueuedOfflineWork | undefined;
+      if (!existing) return;
+      store.put({ ...existing, ...patch, updatedAt: Date.now() });
+    };
+    request.onerror = () => {
+      transaction.abort();
+    };
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      const error = transaction.error;
+      database.close();
+      reject(error ?? new OfflineWorkQueueError("تعذر تحديث حالة المسودة المحلية."));
+    };
+    transaction.onabort = () => {
+      const error = transaction.error;
+      database.close();
+      reject(error ?? new OfflineWorkQueueError("تم إلغاء تحديث حالة المسودة المحلية."));
+    };
+  });
 }
 
 export async function removeOfflineWork(id: string) {
