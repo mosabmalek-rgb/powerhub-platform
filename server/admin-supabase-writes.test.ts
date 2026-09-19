@@ -39,6 +39,13 @@ describe("Supabase atomic admin write RPCs", () => {
     expect(rpc).toHaveBeenCalledWith("powerhub_admin_attach_owner_user", expect.objectContaining({ p_actor_user_id: 1, p_tenant_id: 6, p_user_id: 13, p_site_id: 5 }));
   });
 
+  it("maps quick owner upgrade to the retry-safe Supabase RPC", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: true, plan: "professional", replayed: true }], error: null });
+    const { quickUpgradeOwnerPlan } = await import("./admin-supabase-writes");
+    await expect(quickUpgradeOwnerPlan({ actorUserId: 1, tenantId: 6, plan: "professional", note: "qa", clientOperationId: "00000000-0000-4000-8000-000000000003" })).resolves.toEqual({ success: true, plan: "professional", replayed: true });
+    expect(rpc).toHaveBeenCalledWith("powerhub_admin_quick_upgrade_owner_plan_idempotent", expect.objectContaining({ p_actor_user_id: 1, p_tenant_id: 6, p_plan: "professional", p_client_operation_id: "00000000-0000-4000-8000-000000000003" }));
+  });
+
   it("maps subscription updates to the retry-safe Supabase RPC", async () => {
     rpc.mockResolvedValueOnce({ data: [{ success: true, subscription_id: 9, site_id: 5, replayed: false }], error: null });
     const { updateSubscription } = await import("./admin-supabase-writes");
