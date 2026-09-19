@@ -10,7 +10,7 @@ function item(id: string, createdAt: number): QueuedOfflineWork {
     userId: 7,
     siteId: 11,
     kind: "subscriber_create",
-    payload: { name: id, phone: "", subscriptionType: "residential" },
+    payload: { fullName: id, phone: "", subscriptionType: "residential" },
     createdAt,
     updatedAt: createdAt,
     status: "pending",
@@ -97,7 +97,7 @@ describe("executeReadyOperations", () => {
     expect(results[1].metadata.attempts).toBe(0);
   });
 
-  it("maps transport error codes through the central classifier", async () => {
+  it("preserves server-applied metadata for local reconciliation", async () => {\n    const a = item("a", 1);\n\n    const [result] = await executeReadyOperations({\n      items: [a],\n      metadataByOperationId: new Map([[a.clientOperationId, createSyncMetadata(a, 0)]]),\n      transport: async () => ({ outcome: "applied", appliedEntityId: 123, appliedLabel: "SUB-000123" }),\n      now: 100,\n    });\n\n    expect(result.outcome).toBe("applied");\n    expect(result.transportResult).toMatchObject({ appliedEntityId: 123, appliedLabel: "SUB-000123" });\n    expect(result.metadata.nextAttemptAt).toBe(Number.POSITIVE_INFINITY);\n  });\n\n  it("does not turn a local reconciliation failure into a retryable server result", async () => {\n    const a = item("a", 1);\n    const transport = vi.fn(async () => ({ outcome: "already_applied" as const, appliedEntityId: 456, appliedLabel: "SUB-000456" }));\n\n    const [result] = await executeReadyOperations({\n      items: [a],\n      metadataByOperationId: new Map([[a.clientOperationId, createSyncMetadata(a, 0)]]),\n      transport,\n      now: 100,\n    });\n\n    expect(result.outcome).toBe("already_applied");\n    expect(result.transportResult).toMatchObject({ appliedEntityId: 456, appliedLabel: "SUB-000456" });\n    expect(result.metadata.nextAttemptAt).toBe(Number.POSITIVE_INFINITY);\n    expect(transport).toHaveBeenCalledTimes(1);\n  });\n\n  it("maps transport error codes through the central classifier", async () => {
     const a = item("a", 1);
 
     const [result] = await executeReadyOperations({
