@@ -406,11 +406,11 @@ function objectValue(value: unknown): Record<string, unknown> {
 }
 
 function configuredSubscriberLimit(plan: string, value: unknown) {
-  const defaults: Record<string, number> = { starter: 100, professional: 500, enterprise: 2000 };
+  const defaults: Record<string, number> = { basic: 150, advanced: 300, professional: 500, business: 750, vip: 900 };
   const limits = objectValue(objectValue(value).limits);
   const candidate = limits[plan];
   const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : (defaults[plan] ?? defaults.starter);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : (defaults[plan] ?? defaults.basic);
 }
 
 function subscriberOverride(tenantId: number, value: unknown) {
