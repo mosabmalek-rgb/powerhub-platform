@@ -24,6 +24,7 @@ declare
   v_platform_role text;
 begin
   if p_client_operation_id is not null then
+    perform pg_advisory_xact_lock(hashtext('subscriber-update:' || p_user_id::text || ':' || p_client_operation_id::text));
     select response into v_response
     from public.offline_sync_operations
     where user_id = p_user_id and client_operation_id = p_client_operation_id::text
