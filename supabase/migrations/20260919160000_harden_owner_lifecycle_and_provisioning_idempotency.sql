@@ -474,7 +474,7 @@ $function$;
 
 revoke execute on function public.powerhub_admin_begin_generator_owner_provisioning(bigint,uuid,text,text) from public,anon,authenticated;
 grant execute on function public.powerhub_admin_begin_generator_owner_provisioning(bigint,uuid,text,text) to service_role;
-revoke execute on function public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz,integer) from public,anon,authenticated;
+do $declare r record; begin for r in select oid::regprocedure as signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='powerhub_admin_complete_generator_owner_provisioning' loop execute format('revoke execute on function %s from public,anon,authenticated',r.signature); end loop; end$;
 grant execute on function public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,integer) to service_role;
 
 revoke execute on function public.powerhub_create_generator_owner_subscription(bigint,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz,integer) from public,anon,authenticated;
