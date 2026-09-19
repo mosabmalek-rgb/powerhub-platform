@@ -424,24 +424,22 @@ function subscriberOverride(tenantId: number, value: unknown) {
 
 export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
   const admin = supabaseAdmin();
-  const [tenantResult, subscriptionResult, catalogResult, overridesResult, countResult] = await Promise.all([
-    admin.from("tenants").select("plan").eq("id", tenantId).maybeSingle(),
-    admin.from("tenant_subscriptions").select("plan,package_code").eq("tenant_id", tenantId).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle(),
+  const [subscriptionResult, catalogResult, overridesResult, countResult] = await Promise.all([
+    admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", tenantId).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle(),
     admin.from("platform_settings").select("value").eq("setting_key", "subscription_package_catalog").maybeSingle(),
     admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
     admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
   ]);
-  if (tenantResult.error || subscriptionResult.error || catalogResult.error || overridesResult.error || countResult.error) {
+  if (subscriptionResult.error || catalogResult.error || overridesResult.error || countResult.error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
   }
-  if (!tenantResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-  const plan = subscriptionResult.data?.plan ?? tenantResult.data.plan;
-  const rawPackage = subscriptionResult.data?.package_code;
-  const packageCode = rawPackage && ["basic","advanced","professional","business","vip"].includes(rawPackage)
-    ? rawPackage : ({ starter:"basic", professional:"advanced", enterprise:"business" } as Record<string,string>)[plan] ?? "basic";
+  const packageCode = subscriptionResult.data?.package_code;
+  if (!packageCode || !["basic","advanced","professional","business","vip"].includes(packageCode)) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
+  }
   const limit = subscriberOverride(tenantId, overridesResult.data?.value) ?? configuredSubscriberLimit(packageCode, catalogResult.data?.value);
   const currentCount = countResult.count ?? 0;
-  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
+  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), packageCode };
 }
 
 export async function recordSupabaseSubscriberQuotaAlert(input: { tenantId: number; siteId: number; userId: number; quota: { limit: number; currentCount: number; remaining: number; plan: string } }) {
