@@ -1,3 +1,5 @@
+drop function if exists public.powerhub_admin_attach_owner_user(bigint,bigint,bigint,bigint);
+
 create or replace function public.powerhub_admin_attach_owner_user(p_actor_user_id bigint,p_tenant_id bigint,p_user_id bigint,p_site_id bigint default null)
 returns table(success boolean,site_id bigint,replayed boolean)
 language plpgsql security definer set search_path=public,pg_temp as $$
@@ -30,6 +32,8 @@ begin
 end;$$;
 revoke all on function public.powerhub_admin_attach_owner_user(bigint,bigint,bigint,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_admin_attach_owner_user(bigint,bigint,bigint,bigint) to service_role;
+
+drop function if exists public.powerhub_admin_set_tenant_membership_status(bigint,bigint,bigint,text);
 
 create or replace function public.powerhub_admin_set_tenant_membership_status(p_actor_user_id bigint,p_tenant_id bigint,p_user_id bigint,p_status text)
 returns table(success boolean,membership_id bigint,site_id bigint,status text,replayed boolean)
