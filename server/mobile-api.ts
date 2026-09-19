@@ -300,22 +300,13 @@ export function registerMobileApi(app: Express) {
     if (!parsed.success) return sendError(res, 400, "INVALID_READING", "بيانات القراءة غير صالحة.");
     const input = parsed.data;
     if (!context.scope.branchIds.includes(input.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية تسجيل قراءة لهذا الفرع.");
-    const admin = supabaseAdmin();
-    const { data: existing, error: existingError } = await admin.from("meter_readings").select("id, status, consumption_kwh")
-      .eq("tenant_id", context.scope.tenantId).eq("client_operation_id", input.clientOperationId).maybeSingle();
-    if (existingError) return sendSupabaseError(res, existingError);
-    if (existing) return res.status(200).json({ id: toNumber(existing.id), status: existing.status, consumptionKwh: existing.consumption_kwh, replayed: true });
-    const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id")
+        const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id")
       .eq("id", input.subscriberId).eq("tenant_id", context.scope.tenantId).eq("site_id", input.branchId).eq("service_status", "active").maybeSingle();
     if (subscriberError) return sendSupabaseError(res, subscriberError);
     if (!subscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
     const readingAt = new Date(input.readingAt);
     const dayStart = new Date(readingAt); dayStart.setUTCHours(0, 0, 0, 0);
     const nextDay = new Date(dayStart); nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-    const { data: sameDayReading, error: sameDayError } = await admin.from("meter_readings").select("id")
-      .eq("subscriber_id", subscriber.id).gte("reading_at", dayStart.toISOString()).lt("reading_at", nextDay.toISOString()).neq("status", "rejected").limit(1).maybeSingle();
-    if (sameDayError) return sendSupabaseError(res, sameDayError);
-    if (sameDayReading) return sendError(res, 409, "READING_ALREADY_EXISTS_TODAY", "توجد قراءة غير مرفوضة لهذا المشترك في اليوم نفسه.");
     const { data: previous, error: previousError } = await admin.from("meter_readings").select("reading_value")
       .eq("subscriber_id", subscriber.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
     if (previousError) return sendSupabaseError(res, previousError);
@@ -335,17 +326,37 @@ export function registerMobileApi(app: Express) {
       imageKey = (await storagePut(`subscriber-readings/mobile/${context.scope.userId}/${subscriber.id}-${Date.now()}.${extension}`, imageBytes, input.imageMime)).key;
     }
     const notes = [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ");
-    const { data: inserted, error: insertError } = await admin.from("meter_readings").insert({
-      tenant_id: context.scope.tenantId, subscriber_id: subscriber.id, client_operation_id: input.clientOperationId, reading_at: readingAt.toISOString(), reading_value: input.readingValue,
-      previous_reading_value: previous?.reading_value ?? null, consumption_kwh: String(consumptionKwh), capture_method: input.captureMethod, image_key: imageKey, image_hash: imageHash, entered_by_user_id: context.scope.userId, notes,
-    }).select("id, status, consumption_kwh").single();
-    if (insertError || !inserted) return sendSupabaseError(res, insertError, "تعذر تسجيل القراءة.");
-    try {
-      await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "subscriber_reading", entityId: String(inserted.id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: input.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
-      return res.status(201).json({ id: toNumber(inserted.id), status: inserted.status, consumptionKwh: inserted.consumption_kwh, replayed: false });
-    } catch (auditError) {
-      return sendSupabaseError(res, auditError instanceof Error ? auditError : null, "تم حفظ القراءة لكن تعذر تسجيل التدقيق.");
+    const { data: inserted, error: insertError } = await admin.rpc("powerhub_mobile_create_reading", {
+      p_tenant_id: context.scope.tenantId,
+      p_site_id: input.branchId,
+      p_user_id: context.scope.userId,
+      p_subscriber_id: subscriber.id,
+      p_client_operation_id: input.clientOperationId,
+      p_reading_at: readingAt.toISOString(),
+      p_reading_value: input.readingValue,
+      p_previous_reading_value: previous?.reading_value ?? null,
+      p_consumption_kwh: consumptionKwh,
+      p_capture_method: input.captureMethod,
+      p_image_key: imageKey ?? null,
+      p_image_hash: imageHash ?? null,
+      p_notes: notes,
+      p_same_day_key: readingAt.toISOString().slice(0, 10),
+    });
+    if (insertError) {
+      if (insertError.message.includes("OPERATION_CONFLICT")) return sendError(res, 409, "OPERATION_CONFLICT", "معرّف العملية مستخدم لعملية قراءة مختلفة.");
+      if (insertError.message.includes("READING_ALREADY_EXISTS_TODAY")) return sendError(res, 409, "READING_ALREADY_EXISTS_TODAY", "توجد قراءة غير مرفوضة لهذا المشترك في اليوم نفسه.");
+      return sendSupabaseError(res, insertError, "تعذر تسجيل القراءة.");
     }
+    const result = Array.isArray(inserted) ? inserted[0] : inserted;
+    if (!result?.success || result.reading_id === undefined || typeof result.replayed !== "boolean") {
+      return sendError(res, 500, "INVALID_READING_RESULT", "تعذر التحقق من نتيجة تسجيل القراءة.");
+    }
+    return res.status(result.replayed ? 200 : 201).json({
+      id: toNumber(result.reading_id),
+      status: result.status,
+      consumptionKwh: result.consumption_kwh,
+      replayed: result.replayed === true,
+    });
   });
 
   app.post("/api/mobile/v1/sync-events", async (req, res) => {
