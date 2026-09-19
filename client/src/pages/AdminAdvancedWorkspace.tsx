@@ -221,24 +221,65 @@ export function BranchFeaturePolicyPanel() {
   const utils = trpc.useUtils();
   const configuration = trpc.admin.platformConfiguration.useQuery();
   const tenantSettings = trpc.admin.listTenantBranchSettings.useQuery();
-  const saveFeature = trpc.admin.savePlatformSetting.useMutation({ onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); void utils.admin.listTenantBranchSettings.invalidate(); toast.success("تم حفظ سياسة الأفرع."); }, onError: (error) => toast.error(error.message) });
-  const saveTenant = trpc.admin.saveTenantBranchSettings.useMutation({ onSuccess: () => { void utils.admin.listTenantBranchSettings.invalidate(); toast.success("تم تحديث إعدادات الأفرع لصاحب المولد."); }, onError: (error) => toast.error(error.message) });
+  const saveFeature = trpc.admin.savePlatformSetting.useMutation({
+    onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); void utils.admin.listTenantBranchSettings.invalidate(); toast.success("تم حفظ سياسة الأفرع."); },
+    onError: (error) => toast.error(error.message),
+  });
+  const saveTenant = trpc.admin.saveTenantBranchSettings.useMutation({
+    onSuccess: () => { void utils.admin.listTenantBranchSettings.invalidate(); toast.success("تم تحديث إعدادات الأفرع لصاحب المولد."); },
+    onError: (error) => toast.error(error.message),
+  });
   const feature = configuration.data?.settings.find((item) => item.settingKey === "branch_feature");
   const featureValue = feature?.value && typeof feature.value === "object" && !Array.isArray(feature.value) ? feature.value as Record<string, unknown> : {};
-  const storedLimits = featureValue.defaultLimit && typeof featureValue.defaultLimit === "object" && !Array.isArray(featureValue.defaultLimit) ? featureValue.defaultLimit as Record<string, unknown> : {};
-  const limit = (plan: "starter" | "professional" | "enterprise", fallback: number) => typeof storedLimits[plan] === "number" || typeof storedLimits[plan] === "string" ? Number(storedLimits[plan]) : fallback;
-  const planLimits = { starter: limit("starter", 1), professional: limit("professional", 3), enterprise: limit("enterprise", 10) };
-  return <section className="space-y-6"><Card className="border-[#F5B800]/25 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="font-bold text-white">ميزة الأفرع متعددة المواقع</h2><p className="mt-1 max-w-3xl text-sm leading-7 text-slate-400">الأفرع نطاقات تشغيل مستقلة داخل حساب صاحب المولد. يُعزل المشتركون والعدادات والفواتير والموظفون بحسب الفرع، بينما يرى المالك الملخص المجمّع.</p></div><Badge className={feature?.isEnabled ? "w-fit bg-emerald-400/10 text-emerald-300" : "w-fit bg-amber-400/10 text-amber-300"}>{feature?.isEnabled ? "الميزة مفعلة على المنصة" : "الميزة متوقفة على المنصة"}</Badge></div><form key={feature?.updatedAt ?? "branch-feature-loading"} className="mt-5 grid gap-4 md:grid-cols-3" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); saveFeature.mutate({ settingKey: "branch_feature", isEnabled: form.get("enabled") === "on", message: "إدارة الأفرع المتعددة لصاحب المولد", value: { defaultLimit: { starter: Number(form.get("starter")), professional: Number(form.get("professional")), enterprise: Number(form.get("enterprise")) } } }); }}><label className="md:col-span-3 flex items-center justify-between gap-4 rounded-2xl border border-[#F5B800]/25 bg-[#F5B800]/[.05] p-4 text-sm text-white"><span><strong className="block">تفعيل ميزة الأفرع</strong><span className="mt-1 block text-xs leading-6 text-slate-400">عند الإيقاف لا يمكن إنشاء أفرع جديدة، ويطبّق سلوك الحساب الذي تحدده لكل مستأجر على الأفرع القائمة.</span></span><input defaultChecked={feature?.isEnabled ?? false} name="enabled" type="checkbox" className="h-4 w-4 accent-[#F5B800]" /></label><label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">Starter — الفرع الرئيسي</span><Input required min="1" max="1000" name="starter" type="number" defaultValue={planLimits.starter} className={inputClass} /></label><label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">Professional</span><Input required min="1" max="1000" name="professional" type="number" defaultValue={planLimits.professional} className={inputClass} /></label><label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">Enterprise</span><Input required min="1" max="1000" name="enterprise" type="number" defaultValue={planLimits.enterprise} className={inputClass} /></label><Button disabled={saveFeature.isPending} className="md:col-span-3 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">حفظ سياسة الأفرع وحدود الباقات</Button></form></CardContent></Card><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-white">التفعيل والحد اليدوي لكل صاحب مولد</h2><p className="mt-1 text-sm leading-7 text-slate-500">يمكنك توريث سياسة الباقة أو تفعيل الميزة أو إيقافها يدوياً وتحديد حد مختلف للأفرع.</p></div><Badge className="w-fit bg-white/5 text-slate-300">{format(tenantSettings.data?.length)} حساباً</Badge></div><div className="mt-5 space-y-3">{(tenantSettings.data ?? []).map((tenant) => { const inheritedLimit = planLimits[tenant.plan as keyof typeof planLimits]; const effectiveLimit = tenant.maxBranchesOverride ?? inheritedLimit; const effectiveEnabled = tenant.isEnabledOverride ?? Boolean(feature?.isEnabled && inheritedLimit > 1); return <form key={tenant.tenantId} className="grid gap-3 rounded-2xl border border-white/8 bg-white/[.02] p-4 lg:grid-cols-[1.5fr_.9fr_.8fr_.8fr_auto] lg:items-end" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const state = String(form.get("enabledState")); const max = String(form.get("maxBranches") || "").trim(); saveTenant.mutate({ tenantId: tenant.tenantId, isEnabledOverride: state === "inherit" ? null : state === "enabled", maxBranchesOverride: max ? Number(max) : null, disabledBehavior: String(form.get("disabledBehavior")) as "read_only" | "suspended" }); }}><div><p className="font-bold text-white">{tenant.ownerName ?? tenant.tenantName}</p><p className="mt-1 text-xs text-slate-500">{tenant.tenantName} · {tenant.plan} · {tenant.currentBranchCount} / {effectiveLimit} فرع</p></div><label><span className="mb-1 block text-xs text-slate-500">التفعيل</span><select name="enabledState" defaultValue={tenant.isEnabledOverride === null ? "inherit" : tenant.isEnabledOverride ? "enabled" : "disabled"} className={inputClass}><option value="inherit">توريث الباقة</option><option value="enabled">مفعّل يدوياً</option><option value="disabled">متوقف يدوياً</option></select></label><label><span className="mb-1 block text-xs text-slate-500">الحد اليدوي</span><Input name="maxBranches" type="number" min="1" max="1000" placeholder={`الباقة: ${inheritedLimit}`} defaultValue={tenant.maxBranchesOverride ?? ""} className={inputClass} /></label><label><span className="mb-1 block text-xs text-slate-500">عند الإيقاف</span><select name="disabledBehavior" defaultValue={tenant.disabledBehavior ?? "read_only"} className={inputClass}><option value="read_only">قراءة فقط</option><option value="suspended">تجميد</option></select></label><Button disabled={saveTenant.isPending} size="sm" className="bg-white/8 text-white hover:bg-white/12">حفظ</Button><p className="lg:col-span-5 text-xs text-slate-500">الحالة الفعلية: <span className={effectiveEnabled ? "font-bold text-emerald-300" : "font-bold text-amber-300"}>{effectiveEnabled ? "مفعّل" : "متوقف"}</span>{tenant.maxBranchesOverride ? " · حد يدوي مطبق" : " · حد الباقة مطبق"}</p></form>; })}{!tenantSettings.data?.length && <p className="py-10 text-center text-sm text-slate-500">لا توجد حسابات أصحاب مولدات بعد.</p>}</div></CardContent></Card></section>;
+  const packageLimits = featureValue.packageLimits && typeof featureValue.packageLimits === "object" && !Array.isArray(featureValue.packageLimits) ? featureValue.packageLimits as Record<string, unknown> : {};
+  const packages = [
+    { code: "basic", name: "الناشئة", fallback: 1 },
+    { code: "advanced", name: "النمو", fallback: 1 },
+    { code: "professional", name: "الاحتراف", fallback: 1 },
+    { code: "business", name: "الأعمال", fallback: 1 },
+    { code: "vip", name: "الذهبية / VIP", fallback: 2 },
+  ] as const;
+  const limit = (code: string, fallback: number) => typeof packageLimits[code] === "number" || typeof packageLimits[code] === "string" ? Number(packageLimits[code]) : fallback;
+  const planLimits = Object.fromEntries(packages.map((item) => [item.code, limit(item.code, item.fallback)]));
+  return <section className="space-y-6">
+    <Card className="border-[#F5B800]/25 bg-[#111823] shadow-panel">
+      <CardContent className="p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div><h2 className="font-bold text-white">ميزة الأفرع متعددة المواقع</h2><p className="mt-1 max-w-3xl text-sm leading-7 text-slate-400">السياسة التشغيلية الحالية مبنية على رمز الباقة: الناشئة والنمو والاحتراف والأعمال = فرع واحد، والذهبية / VIP = فرعان. الحماية النهائية يفرضها PostgreSQL.</p></div>
+          <Badge className={feature?.isEnabled ? "w-fit bg-emerald-400/10 text-emerald-300" : "w-fit bg-amber-400/10 text-amber-300"}>{feature?.isEnabled ? "الميزة مفعلة على المنصة" : "الميزة متوقفة على المنصة"}</Badge>
+        </div>
+        <form key={feature?.updatedAt ?? "branch-feature-loading"} className="mt-5 grid gap-4 md:grid-cols-5" onSubmit={(event: FormEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          saveFeature.mutate({ settingKey: "branch_feature", isEnabled: form.get("enabled") === "on", message: "إدارة الأفرع المتعددة لصاحب المولد", value: { packageLimits: Object.fromEntries(packages.map((item) => [item.code, Number(form.get(item.code))])), legacyFallback: { starter: 1, professional: 1, enterprise: 1 } } });
+        }}>
+          <label className="md:col-span-5 flex items-center justify-between gap-4 rounded-2xl border border-[#F5B800]/25 bg-[#F5B800]/[.05] p-4 text-sm text-white"><span><strong className="block">تفعيل ميزة الأفرع</strong><span className="mt-1 block text-xs leading-6 text-slate-400">عند الإيقاف لا يمكن إنشاء أفرع جديدة. إعدادات Tenant Override تبقى مستقلة وصريحة.</span></span><input defaultChecked={feature?.isEnabled ?? false} name="enabled" type="checkbox" className="h-4 w-4 accent-[#F5B800]" /></label>
+          {packages.map((item) => <label key={item.code} className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{item.name} <span className="font-normal text-slate-600">({item.code})</span></span><Input required min="1" max="1000" name={item.code} type="number" defaultValue={planLimits[item.code]} className={inputClass} /></label>)}
+          <Button disabled={saveFeature.isPending} className="md:col-span-5 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">حفظ سياسة الأفرع وحدود الباقات</Button>
+        </form>
+      </CardContent>
+    </Card>
+    <Card className="border-white/8 bg-[#111823] shadow-panel">
+      <CardContent className="p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-white">التفعيل والحد اليدوي لكل صاحب مولد</h2><p className="mt-1 text-sm leading-7 text-slate-500">يمكنك توريث سياسة الباقة أو استخدام Override إداري صريح. الحد اليدوي لا يُفترض أنه جزء من الباقة.</p></div><Badge className="w-fit bg-white/5 text-slate-300">{format(tenantSettings.data?.length)} حساباً</Badge></div>
+        <div className="mt-5 space-y-3">{(tenantSettings.data ?? []).map((tenant) => {
+          const code = ["basic","advanced","professional","business","vip"].includes(String((tenant as any).packageCode)) ? String((tenant as any).packageCode) : "basic";
+          const inheritedLimit = Number(planLimits[code] ?? 1);
+          const effectiveLimit = tenant.maxBranchesOverride ?? inheritedLimit;
+          const effectiveEnabled = tenant.isEnabledOverride ?? Boolean(feature?.isEnabled);
+          return <form key={tenant.tenantId} className="grid gap-3 rounded-2xl border border-white/8 bg-white/[.02] p-4 lg:grid-cols-[1.5fr_.9fr_.8fr_.8fr_auto] lg:items-end" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const state = String(form.get("enabledState")); const max = String(form.get("maxBranches") || "").trim(); saveTenant.mutate({ tenantId: tenant.tenantId, isEnabledOverride: state === "inherit" ? null : state === "enabled", maxBranchesOverride: max ? Number(max) : null, disabledBehavior: String(form.get("disabledBehavior")) as "read_only" | "suspended" }); }}>
+            <div><p className="font-bold text-white">{tenant.ownerName ?? tenant.tenantName}</p><p className="mt-1 text-xs text-slate-500">{tenant.tenantName} · {code} · {tenant.currentBranchCount} / {effectiveLimit} فرع</p></div>
+            <label><span className="mb-1 block text-xs text-slate-500">التفعيل</span><select name="enabledState" defaultValue={tenant.isEnabledOverride === null ? "inherit" : tenant.isEnabledOverride ? "enabled" : "disabled"} className={inputClass}><option value="inherit">توريث الباقة</option><option value="enabled">مفعّل يدوياً</option><option value="disabled">متوقف يدوياً</option></select></label>
+            <label><span className="mb-1 block text-xs text-slate-500">الحد اليدوي</span><Input name="maxBranches" type="number" min="1" max="1000" placeholder={`الباقة: ${inheritedLimit}`} defaultValue={tenant.maxBranchesOverride ?? ""} className={inputClass} /></label>
+            <label><span className="mb-1 block text-xs text-slate-500">عند الإيقاف</span><select name="disabledBehavior" defaultValue={tenant.disabledBehavior ?? "read_only"} className={inputClass}><option value="read_only">قراءة فقط</option><option value="suspended">تجميد</option></select></label>
+            <Button disabled={saveTenant.isPending} size="sm" className="bg-white/8 text-white hover:bg-white/12">حفظ</Button>
+            <p className="lg:col-span-5 text-xs text-slate-500">الحالة الفعلية: <span className={effectiveEnabled ? "font-bold text-emerald-300" : "font-bold text-amber-300"}>{effectiveEnabled ? "مفعّل" : "متوقف"}</span>{tenant.maxBranchesOverride ? " · حد يدوي مطبق" : " · حد الباقة مطبق"}</p>
+          </form>;
+        })}{!tenantSettings.data?.length && <p className="py-10 text-center text-sm text-slate-500">لا توجد حسابات أصحاب مولدات بعد.</p>}</div>
+      </CardContent>
+    </Card>
+  </section>;
 }
-
-const ownerSubaccountRoleOptions: Array<{ id: Exclude<PowerRole, "owner">; label: string }> = [
-  { id: "manager", label: "مدير" },
-  { id: "accountant", label: "محاسب" },
-  { id: "collector", label: "محصل" },
-  { id: "technician", label: "فني" },
-  { id: "viewer", label: "مشاهد" },
-];
-
 export function OwnerUsageReportPanel() {
   const owners = trpc.admin.listOwners.useQuery();
   const branches = trpc.admin.listTenantBranchSettings.useQuery();
