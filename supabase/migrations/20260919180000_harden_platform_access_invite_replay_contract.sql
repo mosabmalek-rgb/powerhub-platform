@@ -25,6 +25,7 @@ begin
   if nullif(trim(p_client_operation_id),'') is null then raise exception 'INVALID_OPERATION_ID'; end if;
   if nullif(trim(p_request_fingerprint),'') is null then raise exception 'INVALID_REQUEST_FINGERPRINT'; end if;
   perform pg_advisory_xact_lock(hashtextextended('platform-access-invite:'||trim(p_client_operation_id),0));
+  perform pg_advisory_xact_lock(hashtextextended('platform-access-invite-email:'||lower(trim(p_email)),0));
   select u.platform_role,u.account_status into v_role,v_account_status from public.users u where u.id=p_actor_user_id and u.role='admin';
   if v_role is null or v_role<>'platform_owner' or v_account_status<>'active' then raise exception 'PLATFORM_OWNER_REQUIRED'; end if;
   if p_platform_role not in ('platform_admin','finance_admin') then raise exception 'INVALID_PLATFORM_ROLE'; end if;
