@@ -12,7 +12,7 @@ import { inviteTenantAccess } from "./invite-tenant-access-supabase";
 
 describe("inviteTenantAccess Supabase adapter", () => {
   it("creates the invitation through the Supabase RPC only", async () => {
-    state.rpc.mockResolvedValue({ data: [{ invitation_id: 41, email: "staff@example.test", expires_at: "2026-09-15T10:00:00.000Z", status: "invited" }], error: null });
+    state.rpc.mockResolvedValue({ data: [{ invitation_id: 41, email: "staff@example.test", expires_at: "2026-09-15T10:00:00.000Z", status: "invited", replayed: false }], error: null });
     const result = await inviteTenantAccess({
       actorUserId: 1,
       tenantId: 20,
@@ -21,7 +21,7 @@ describe("inviteTenantAccess Supabase adapter", () => {
       tenantRole: "member",
       siteRole: "accountant",
       tokenHash: "a".repeat(64),
-      expiresAt: new Date("2026-09-15T10:00:00.000Z"),
+      expiresAt: new Date("2026-09-15T10:00:00.000Z"), clientOperationId: "550e8400-e29b-41d4-a716-446655440000",
     });
     expect(result).toMatchObject({ id: 41, email: "staff@example.test", status: "invited" });
     expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_invite_tenant_access", expect.objectContaining({ p_actor_user_id: 1, p_tenant_id: 20, p_site_id: 30 }));
