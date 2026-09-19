@@ -119,8 +119,8 @@ export async function updateSubscription(input: {
   });
   rpcError("updateSubscription", error);
   const row = data?.[0] as { success?: boolean; subscription_id?: number|string; site_id?: number|string; replayed?: boolean } | undefined;
-  if (!row || !row.subscription_id) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُرجع Supabase نتيجة صالحة." });
-  return { success: Boolean(row.success), subscriptionId: Number(row.subscription_id), siteId: Number(row.site_id), replayed: Boolean(row.replayed) };
+  if (!row || row.success !== true || !row.subscription_id) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid subscription update result." });
+  return { success: true, subscriptionId: Number(row.subscription_id), siteId: Number(row.site_id), replayed: Boolean(row.replayed) };
 }
 
 export async function quickUpgradeOwnerPlan(input: {
@@ -139,8 +139,8 @@ export async function quickUpgradeOwnerPlan(input: {
   });
   quickUpgradeOwnerPlanRpcError(error);
   const row = data?.[0] as { success?: boolean; plan?: string; replayed?: boolean } | undefined;
-  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
-  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan, replayed: Boolean(row.replayed) };
+  if (!row || row.success !== true || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid quick upgrade result." });
+  return { success: true, plan: row.plan as AdminSubscriptionPlan, replayed: Boolean(row.replayed) };
 }
 
 export async function reviewSubscriptionUpgradeRequest(input: {
@@ -210,8 +210,8 @@ export async function renewSubscription(input: { actorUserId: number; tenantId: 
   });
   renewSubscriptionRpcError(error);
   const row = data?.[0] as { success?: boolean; ends_at?: string; replayed?: boolean } | undefined;
-  if (!row || typeof row.ends_at !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription renewal result." });
-  return { success: Boolean(row.success), endsAt: new Date(row.ends_at), replayed: Boolean(row.replayed) };
+  if (!row || row.success !== true || typeof row.ends_at !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid subscription renewal result." });
+  return { success: true, endsAt: new Date(row.ends_at), replayed: Boolean(row.replayed) };
 }
 
 
