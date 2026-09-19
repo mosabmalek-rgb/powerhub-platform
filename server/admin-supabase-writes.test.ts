@@ -65,6 +65,30 @@ describe("Supabase atomic admin write RPCs", () => {
     expect(retryMigration).toContain("subscription_upgrade_review");
   });
 
+  it("rejects a false-success membership result", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: false, membership_id: 7, site_id: 5, status: "active" }], error: null });
+    const { setTenantMembershipStatus } = await import("./admin-supabase-writes");
+    await expect(setTenantMembershipStatus({ actorUserId: 1, tenantId: 6, userId: 13, status: "active" })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+
+  it("rejects a false-success owner attachment result", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: false, site_id: 5 }], error: null });
+    const { attachOwnerUser } = await import("./admin-supabase-writes");
+    await expect(attachOwnerUser({ actorUserId: 1, tenantId: 6, userId: 13, siteId: 5 })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+
+  it("rejects a false-success subscription review result", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: false, plan: "professional" }], error: null });
+    const { reviewSubscriptionUpgradeRequest } = await import("./admin-supabase-writes");
+    await expect(reviewSubscriptionUpgradeRequest({ actorUserId: 1, requestId: 90, decision: "approved" })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+
+  it("rejects a false-success SMS package review result", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: false, tenant_id: 6, site_id: 5, status: "approved", approved_messages: 1000 }], error: null });
+    const { reviewSmsPackageRequest } = await import("./admin-supabase-writes");
+    await expect(reviewSmsPackageRequest({ actorUserId: 1, requestId: 90, status: "approved", approvedMessages: 1000 })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+
   it("normalizes unexpected Supabase errors without exposing database details", async () => {
     rpc.mockResolvedValueOnce({ data: null, error: { message: "unexpected database detail" } });
     const { setTenantMembershipStatus } = await import("./admin-supabase-writes");
