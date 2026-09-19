@@ -9,7 +9,7 @@ import { useState } from "react";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const statusLabel: Record<string, string> = { trial: "تجريبي", active: "فعّال", overdue: "متأخر", suspended: "معلّق", cancelled: "ملغي" };
-const planLabel: Record<string, string> = { starter: "Starter", professional: "Professional", enterprise: "Enterprise" };
+const planLabel: Record<string, string> = { basic: "الناشئة", advanced: "النمو", professional: "الاحتراف", business: "الأعمال", vip: "الذهبية / VIP", starter: "الناشئة", enterprise: "الأعمال" };
 function dateInputValue(value?: string | Date | null) { if (!value) return ""; const d = new Date(value); return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10); }
 
 export default function TrialSubscriptionManagementPage() {
