@@ -35,6 +35,7 @@ type PendingAccountAction = {
   amount: number;
   description: string;
   targetAccountId?: number;
+  operationId: string;
 };
 
 export default function CompanyAccountsPage() {
@@ -62,6 +63,7 @@ export default function CompanyAccountsPage() {
   const [mode, setMode] = useState<"deposit" | "withdrawal" | "transfer">("deposit");
   const [target, setTarget] = useState("");
   const [pendingAction, setPendingAction] = useState<PendingAccountAction | null>(null);
+  const [movementOperationId, setMovementOperationId] = useState<string | null>(null);
 
   const accounts = trpc.powerhub.companyAccounts.list.useQuery(
     { siteId, branchId: branchFilter ? Number(branchFilter) : undefined, fromDate: fromDate || undefined, toDate: toDate || undefined },
@@ -84,8 +86,8 @@ export default function CompanyAccountsPage() {
     },
     onError: (error) => toast.error(error.message),
   });
-  const movement = trpc.powerhub.companyAccounts.addMovement.useMutation({ onSuccess: () => { toast.success("تم تسجيل حركة الحساب."); setAmount(""); setDescription(""); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
-  const transfer = trpc.powerhub.companyAccounts.transfer.useMutation({ onSuccess: () => { toast.success("تم تنفيذ التحويل بين الحسابات."); setAmount(""); setDescription(""); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
+  const movement = trpc.powerhub.companyAccounts.addMovement.useMutation({ onSuccess: () => { toast.success("تم تسجيل حركة الحساب."); setAmount(""); setDescription(""); setMovementOperationId(null); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
+  const transfer = trpc.powerhub.companyAccounts.transfer.useMutation({ onSuccess: () => { toast.success("تم تنفيذ التحويل بين الحسابات."); setAmount(""); setDescription(""); setPendingAction(null); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
 
   const rows = accounts.data ?? [];
   const filtered = useMemo(() => rows.filter((account) => `${account.name} ${account.phoneNumber ?? ""} ${labels[account.accountType] ?? account.accountType}`.toLowerCase().includes(search.toLowerCase().trim())), [rows, search]);
@@ -155,24 +157,25 @@ export default function CompanyAccountsPage() {
     if ((mode === "withdrawal" || mode === "transfer") && value > Number(selectedAccount.balance)) return toast.error("المبلغ يتجاوز الرصيد المتاح في الحساب.");
     if (mode === "transfer") {
       if (!target) return toast.error("اختر الحساب المستقبِل للتحويل.");
-      setPendingAction({ kind: "transfer", amount: value, description: description.trim(), targetAccountId: Number(target) });
+      setPendingAction({ kind: "transfer", amount: value, description: description.trim(), targetAccountId: Number(target), operationId: globalThis.crypto.randomUUID() });
       return;
     }
     if (mode === "withdrawal") {
-      setPendingAction({ kind: "withdrawal", amount: value, description: description.trim() });
+      setPendingAction({ kind: "withdrawal", amount: value, description: description.trim(), operationId: globalThis.crypto.randomUUID() });
       return;
     }
-    movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: mode, amount: value, description: description.trim() });
+    const operationId = movementOperationId ?? globalThis.crypto.randomUUID();
+    setMovementOperationId(operationId);
+    movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: mode, amount: value, description: description.trim(), clientOperationId: operationId });
   };
 
   const confirmPendingAction = () => {
     if (!selectedAccount || !pendingAction) return;
     if (pendingAction.kind === "transfer" && pendingAction.targetAccountId) {
-      transfer.mutate({ siteId, fromAccountId: selectedAccount.id, toAccountId: pendingAction.targetAccountId, amount: pendingAction.amount, description: pendingAction.description });
+      transfer.mutate({ siteId, fromAccountId: selectedAccount.id, toAccountId: pendingAction.targetAccountId, amount: pendingAction.amount, description: pendingAction.description, clientOperationId: pendingAction.operationId });
     } else {
-      movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: "withdrawal", amount: pendingAction.amount, description: pendingAction.description });
+      movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: "withdrawal", amount: pendingAction.amount, description: pendingAction.description, clientOperationId: pendingAction.operationId });
     }
-    setPendingAction(null);
   };
 
   const exportCsv = () => {
