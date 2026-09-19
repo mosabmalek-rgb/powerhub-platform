@@ -717,69 +717,43 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       const email = input.email.trim().toLowerCase();
 
-      const replay = await getOfflineReplayForScope({
-        userId: ctx.user.id,
-        tenantId: access.tenantId,
-        siteId: input.siteId,
-        clientOperationId: input.clientOperationId,
-        expectedOperationType: "staff_create",
-      });
-      if (replay) {
-        return {
-          success: true as const,
-          replayed: true as const,
-          userId: Number(replay.userId),
-          profileId: Number(replay.profileId),
-        };
-      }
-
-      async function reconcileExistingUser(userId: number) {
-        const { data: membership, error: membershipError } = await admin.from("tenant_members")
-          .select("role, is_active, membership_status")
+      const existingOperation = await admin.from("offline_sync_operations")
+        .select("id, tenant_id, site_id, operation_type, entity_id, response")
+        .eq("user_id", ctx.user.id)
+        .eq("client_operation_id", input.clientOperationId)
+        .maybeSingle();
+      if (existingOperation.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالة عملية إنشاء الحساب الفرعي." });
+      if (existingOperation.data) {
+        const op = existingOperation.data;
+        if (Number(op.tenant_id) !== access.tenantId || Number(op.site_id) !== input.siteId || op.operation_type !== "staff_create") {
+          throw new TRPCError({ code: "CONFLICT", message: "مفتاح العملية مرتبط بنطاق أو نوع مختلف." });
+        }
+        const stored = op.response as { state?: string; userId?: number; profileId?: number } | null;
+        if (!stored?.userId || !stored?.profileId) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "حالة العملية المحفوظة غير صالحة. أوقف إعادة المحاولة بهذه العملية وراجع سجل التدقيق." });
+        }
+        const { data: existingProfile, error: existingProfileError } = await admin.from("staff_profiles")
+          .select("id, user_id, tenant_id, site_id, role, is_active")
+          .eq("id", Number(stored.profileId))
           .eq("tenant_id", access.tenantId)
-          .eq("user_id", userId)
+          .eq("user_id", Number(stored.userId))
           .maybeSingle();
-        if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية الحساب الحالي." });
+        if (existingProfileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف الحساب الفرعي المحفوظ." });
+        if (!existingProfile) throw new TRPCError({ code: "NOT_FOUND", message: "لم يعد ملف الحساب الفرعي المرتبط بالعملية موجوداً." });
 
-        const expectedSiteId = input.allBranches ? null : input.siteId;
-        const { data: profiles, error: profilesError } = await admin.from("staff_profiles")
-          .select("id, role, site_id, is_active")
-          .eq("tenant_id", access.tenantId)
-          .eq("user_id", userId)
-          .or(expectedSiteId === null ? "site_id.is.null" : "site_id.eq." + input.siteId);
-        if (profilesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق الحساب الحالي." });
-
-        const exact = (profiles ?? []).find((profile) =>
-          profile.role === input.role &&
-          Boolean(profile.is_active) &&
-          ((expectedSiteId === null && profile.site_id === null) || (expectedSiteId !== null && Number(profile.site_id) === input.siteId))
-        );
-
-        if (exact && membership?.role === "member" && membership.is_active && membership.membership_status === "active") {
-          const response = { userId, profileId: Number(exact.id) };
-          const { error: opError } = await admin.from("offline_sync_operations").insert({
-            tenant_id: access.tenantId,
-            site_id: input.siteId,
-            user_id: ctx.user.id,
-            client_operation_id: input.clientOperationId,
-            operation_type: "staff_create",
-            entity_type: "staff_profile",
-            entity_id: Number(exact.id),
-            response,
-          });
-          if (opError && opError.code !== "23505") {
-            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم العثور على الحساب، لكن تعذر تثبيت حالة إعادة المحاولة." });
-          }
-          return { ...response, replayed: true as const };
+        const { data: assigned, error: assignError } = await admin.rpc("powerhub_assign_existing_staff", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id,
+          p_target_user_id: Number(stored.userId), p_role: input.role, p_all_branches: input.allBranches,
+        });
+        if (assignError || !assigned?.[0]?.profile_id) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تم حفظ عملية إنشاء الحساب، لكن لم يكتمل ربط الدور. أعد المحاولة بنفس العملية بعد معالجة السبب." });
         }
-
-        if (membership?.role === "owner") {
-          throw new TRPCError({ code: "CONFLICT", message: "هذا البريد مرتبط بحساب مالك داخل مساحة الشركة ولا يمكن إنشاء حساب فرعي به." });
-        }
-        if (membership?.role === "member" && membership.is_active && membership.membership_status === "active") {
-          throw new TRPCError({ code: "CONFLICT", message: "هذا البريد مرتبط بالفعل بحساب فرعي نشط؛ استخدم تعيين الدور لتعديل نطاقه بدلاً من إنشاء حساب جديد." });
-        }
-        throw new TRPCError({ code: "CONFLICT", message: "يوجد حساب PowerHub بهذا البريد الإلكتروني. استخدم تعيين دور لحساب موجود بدلاً من إنشاء حساب جديد." });
+        const finalProfileId = Number(assigned[0].profile_id);
+        await admin.from("offline_sync_operations").update({
+          entity_id: finalProfileId,
+          response: { state: "completed", userId: Number(stored.userId), profileId: finalProfileId },
+        }).eq("id", Number(op.id));
+        return { success: true as const, replayed: true as const, userId: Number(stored.userId), profileId: finalProfileId };
       }
 
       const { data: existingUser, error: existingUserError } = await admin.from("users")
@@ -787,90 +761,139 @@ export const powerhubRouter = router({
         .eq("email", email)
         .maybeSingle();
       if (existingUserError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من البريد الإلكتروني في Supabase." });
+
+      let powerhubUserId: number;
+      let authUserId: string | null = null;
+
       if (existingUser) {
-        const reconciled = await reconcileExistingUser(Number(existingUser.id));
-        return { success: true as const, ...reconciled };
-      }
-
-      const { data: authData, error: authError } = await admin.auth.admin.createUser({
-        email,
-        password: input.temporaryPassword,
-        email_confirm: true,
-        user_metadata: { name: input.name.trim(), full_name: input.name.trim() },
-      });
-      if (authError || !authData.user) {
-        if (authError?.status === 422) {
-          const { data: concurrentUser, error: concurrentUserError } = await admin.from("users")
-            .select("id, auth_user_id, email")
-            .eq("email", email)
-            .maybeSingle();
-          if (concurrentUserError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حساب تم إنشاؤه بالتوازي." });
-          if (concurrentUser) {
-            const reconciled = await reconcileExistingUser(Number(concurrentUser.id));
-            return { success: true as const, ...reconciled };
+        powerhubUserId = Number(existingUser.id);
+      } else {
+        const { data: authData, error: authError } = await admin.auth.admin.createUser({
+          email,
+          password: input.temporaryPassword,
+          email_confirm: true,
+          user_metadata: { name: input.name.trim(), full_name: input.name.trim() },
+        });
+        if (authError || !authData.user) {
+          if (authError?.status === 422) {
+            const { data: concurrentUser, error: concurrentUserError } = await admin.from("users")
+              .select("id, auth_user_id, email")
+              .eq("email", email)
+              .maybeSingle();
+            if (concurrentUserError || !concurrentUser) {
+              throw new TRPCError({ code: "CONFLICT", message: "يوجد حساب بالمعلومات نفسها أو تعذر التحقق من الحساب الذي أنشئ بالتوازي." });
+            }
+            powerhubUserId = Number(concurrentUser.id);
+          } else {
+            throw new TRPCError({ code: authError?.status === 422 ? "CONFLICT" : "BAD_REQUEST", message: authError?.message ?? "تعذر إنشاء حساب المستخدم في Supabase Auth." });
           }
+        } else {
+          authUserId = authData.user.id;
+          const { data: profile, error: profileError } = await admin.from("users")
+            .update({
+              name: input.name.trim(),
+              email,
+              must_change_password: true,
+              temporary_password_issued_at: new Date().toISOString(),
+              account_status: "active",
+            })
+            .eq("auth_user_id", authUserId)
+            .select("id")
+            .maybeSingle();
+          if (profileError || !profile) {
+            await admin.auth.admin.deleteUser(authUserId).catch(() => undefined);
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء ملف PowerHub للمستخدم الجديد." });
+          }
+          powerhubUserId = Number(profile.id);
         }
-        const message = authError?.message ?? "تعذر إنشاء حساب المستخدم في Supabase Auth.";
-        throw new TRPCError({ code: authError?.status === 422 ? "CONFLICT" : "BAD_REQUEST", message });
       }
 
-      const authUserId = authData.user.id;
-      try {
-        const { data: profile, error: profileError } = await admin.from("users")
-          .update({
-            name: input.name.trim(),
-            email,
-            must_change_password: true,
-            temporary_password_issued_at: new Date().toISOString(),
-            account_status: "active",
-          })
-          .eq("auth_user_id", authUserId)
-          .select("id")
-          .maybeSingle();
-        if (profileError || !profile) throw new Error("تعذر إنشاء ملف PowerHub للمستخدم الجديد.");
+      const { data: provisionedProfile, error: provisionError } = await admin.from("staff_profiles")
+        .select("id, user_id, tenant_id, site_id, role, is_active")
+        .eq("tenant_id", access.tenantId)
+        .eq("user_id", powerhubUserId)
+        .or(input.allBranches ? "site_id.is.null" : "site_id.eq." + input.siteId)
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (provisionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف الحساب الفرعي قبل إكمال الإنشاء." });
 
-        const { data, error } = await admin.rpc("powerhub_assign_existing_staff", {
-          p_tenant_id: access.tenantId,
-          p_site_id: input.siteId,
-          p_actor_user_id: ctx.user.id,
-          p_target_user_id: Number(profile.id),
-          p_role: input.role,
-          p_all_branches: input.allBranches,
-        });
-
-        if (error || !data?.[0]?.profile_id) {
-          const message = error?.message ?? "تعذر ربط المستخدم بالفرع والدور المحددين.";
-          if (message.includes("SUBACCOUNT_ROLE_NOT_ALLOWED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة المنصة." });
-          if (message.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك." });
-          if (message.includes("TENANT_PLAN_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
-          if (message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة صاحب المولد." });
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر ربط الحساب الجديد بمساحة صاحب المولد." });
-        }
-
-        const userId = Number(profile.id);
-        const profileId = Number(data[0].profile_id);
-        const { error: opError } = await admin.from("offline_sync_operations").insert({
+      let profileId = provisionedProfile ? Number(provisionedProfile.id) : null;
+      if (!profileId) {
+        const { data: placeholderProfile, error: placeholderError } = await admin.from("staff_profiles").insert({
           tenant_id: access.tenantId,
-          site_id: input.siteId,
-          user_id: ctx.user.id,
-          client_operation_id: input.clientOperationId,
-          operation_type: "staff_create",
-          entity_type: "staff_profile",
-          entity_id: profileId,
-          response: { userId, profileId },
-        });
-        if (opError) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "تم إنشاء الحساب وربطه، لكن تعذر تثبيت عقد إعادة المحاولة. أعد المحاولة بنفس العملية فقط.",
-          });
+          site_id: input.allBranches ? null : input.siteId,
+          user_id: powerhubUserId,
+          role: input.role,
+          is_active: false,
+        }).select("id").single();
+        if (placeholderError || !placeholderProfile) {
+          if (authUserId) await admin.auth.admin.deleteUser(authUserId).catch(() => undefined);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حجز ملف الحساب الفرعي قبل إتمام الإنشاء." });
         }
-
-        return { success: true as const, replayed: false as const, userId, profileId };
-      } catch (error) {
-        await admin.auth.admin.deleteUser(authUserId).catch(() => undefined);
-        throw error;
+        profileId = Number(placeholderProfile.id);
       }
+
+      const { data: operationRow, error: operationInsertError } = await admin.from("offline_sync_operations").insert({
+        tenant_id: access.tenantId,
+        site_id: input.siteId,
+        user_id: ctx.user.id,
+        client_operation_id: input.clientOperationId,
+        operation_type: "staff_create",
+        entity_type: "staff_profile",
+        entity_id: profileId,
+        response: {
+          state: "provisioning",
+          userId: powerhubUserId,
+          profileId,
+          email,
+          requestedRole: input.role,
+          allBranches: input.allBranches,
+        },
+      }).select("id").single();
+
+      if (operationInsertError) {
+        if (operationInsertError.code === "23505") {
+          return { success: true as const, replayed: true as const, userId: powerhubUserId, profileId };
+        }
+        if (authUserId) {
+          await admin.from("staff_profiles").delete().eq("id", profileId).eq("tenant_id", access.tenantId).eq("user_id", powerhubUserId);
+          await admin.auth.admin.deleteUser(authUserId).catch(() => undefined);
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حجز مفتاح العملية لإنشاء الحساب الفرعي." });
+      }
+
+      const { data: assigned, error: assignError } = await admin.rpc("powerhub_assign_existing_staff", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_actor_user_id: ctx.user.id,
+        p_target_user_id: powerhubUserId,
+        p_role: input.role,
+        p_all_branches: input.allBranches,
+      });
+
+      if (assignError || !assigned?.[0]?.profile_id) {
+        await admin.from("offline_sync_operations").update({
+          response: {
+            state: "ready_to_retry",
+            userId: powerhubUserId,
+            profileId,
+            email,
+            requestedRole: input.role,
+            allBranches: input.allBranches,
+            lastError: assignError?.message ?? "STAFF_ASSIGNMENT_FAILED",
+          },
+        }).eq("id", Number(operationRow.id));
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تم حجز إنشاء الحساب، لكن تعذر إكمال ربط الدور. أعد المحاولة بنفس العملية بعد معالجة السبب." });
+      }
+
+      const finalProfileId = Number(assigned[0].profile_id);
+      await admin.from("offline_sync_operations").update({
+        entity_id: finalProfileId,
+        response: { state: "completed", userId: powerhubUserId, profileId: finalProfileId },
+      }).eq("id", Number(operationRow.id));
+
+      return { success: true as const, replayed: false as const, userId: powerhubUserId, profileId: finalProfileId };
     }),
     activity: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
