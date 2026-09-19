@@ -45,6 +45,22 @@ describe("approveAndIssueMobileReadingSupabase", () => {
     }));
   });
 
+  it("rejects an invalid invoice payload instead of producing false success", async () => {
+    state.rpc.mockResolvedValue({
+      data: [{ invoice_id: "not-a-number", invoice_no: "PH-1", total_amount: "150.00", notification_ids: [], already_processed: false }],
+      error: null,
+    });
+    await expect(approveAndIssueMobileReadingSupabase({
+      tenantId: 20,
+      siteId: 10,
+      userId: 1,
+      readingId: 60,
+      baseVersion: 1,
+      dueDate: new Date("2026-08-16T00:00:00.000Z"),
+      billingPeriod: "2026-08",
+    })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+
   it("maps optimistic-concurrency conflicts to CONFLICT", async () => {
     state.rpc.mockResolvedValue({ data: null, error: { message: "READING_VERSION_CONFLICT" } });
     await expect(approveAndIssueMobileReadingSupabase({

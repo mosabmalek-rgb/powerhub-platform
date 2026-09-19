@@ -2808,26 +2808,106 @@ export const powerhubRouter = router({
           p_billing_period: readingAt.toISOString().slice(0, 7),
           p_discount_amount: 0,
         });
-        const row = (data as Array<{ invoice_id: number | string; invoice_no: string; total_amount: number | string; notification_ids?: unknown; already_processed?: boolean }> | null)?.[0];
+        const row = (data as Array<{
+          invoice_id?: number | string;
+          invoice_no?: string;
+          total_amount?: number | string;
+          notification_ids?: unknown;
+          already_processed?: boolean;
+        }> | null)?.[0];
+
         if (error || !row) {
           results.push({ readingId: Number(reading.id), success: false, error: error?.message ?? "تعذر اعتماد القراءة وإصدار الفاتورة." });
           continue;
         }
-        const ids = Array.isArray(row.notification_ids) ? row.notification_ids.map(Number).filter(Number.isInteger) : [];
+
+        const invoiceId = Number(row.invoice_id);
+        const totalAmount = Number(row.total_amount);
+        if (
+          !Number.isInteger(invoiceId) ||
+          invoiceId <= 0 ||
+          typeof row.invoice_no !== "string" ||
+          !Number.isFinite(totalAmount) ||
+          !Array.isArray(row.notification_ids) ||
+          typeof row.already_processed !== "boolean"
+        ) {
+          results.push({ readingId: Number(reading.id), success: false, error: "أعادت Supabase نتيجة غير مكتملة لاعتماد القراءة وإصدار الفاتورة." });
+          continue;
+        }
+
+        const ids = row.notification_ids.map(Number);
+        if (ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+          results.push({ readingId: Number(reading.id), success: false, error: "أعادت Supabase معرفات إشعارات غير صالحة." });
+          continue;
+        }
+
         smsNotificationIds.push(...ids);
-        results.push({ readingId: Number(reading.id), success: true, invoiceId: Number(row.invoice_id), invoiceNo: row.invoice_no, alreadyProcessed: Boolean(row.already_processed), notificationIds: ids });
+        results.push({
+          readingId: Number(reading.id),
+          success: true,
+          invoiceId,
+          invoiceNo: row.invoice_no,
+          totalAmount,
+          alreadyProcessed: row.already_processed,
+          notificationIds: ids,
+        });
       }
 
-      let delivery = { requested: 0, submitted: 0, failed: 0, skipped: 0 };
+      let delivery: { requested: number; submitted: number; failed: number; skipped: number; error?: string } = {
+        requested: 0,
+        submitted: 0,
+        failed: 0,
+        skipped: 0,
+      };
+
       if (input.sendNow && smsNotificationIds.length) {
-        const { data: smsRows, error: smsError } = await admin.from("notification_messages").select("id").eq("tenant_id", access.tenantId).eq("channel", "sms").in("id", Array.from(new Set(smsNotificationIds)));
-        if (smsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم اعتماد بعض القراءات لكن تعذر تجهيز رسائل SMS للإرسال." });
-        delivery = await processNotificationQueueForTenant(access.tenantId, ctx.user.id, (smsRows ?? []).map((item) => Number(item.id)).filter(Number.isInteger));
+        try {
+          const ids = Array.from(new Set(smsNotificationIds));
+          const { data: smsRows, error: smsError } = await admin.from("notification_messages")
+            .select("id")
+            .eq("tenant_id", access.tenantId)
+            .eq("channel", "sms")
+            .in("id", ids);
+          if (smsError) {
+            delivery = {
+              requested: ids.length,
+              submitted: 0,
+              failed: 0,
+              skipped: ids.length,
+              error: "تعذر تحديد رسائل SMS للإرسال بعد اعتماد القراءات.",
+            };
+          } else {
+            try {
+              delivery = await processNotificationQueueForTenant(
+                access.tenantId,
+                ctx.user.id,
+                (smsRows ?? []).map((item) => Number(item.id)).filter(Number.isInteger),
+              );
+            } catch (deliveryError) {
+              delivery = {
+                requested: ids.length,
+                submitted: 0,
+                failed: 0,
+                skipped: ids.length,
+                error: deliveryError instanceof Error ? deliveryError.message : "تعذر بدء إرسال إشعارات الفواتير.",
+              };
+            }
+          }
+        } catch (deliveryError) {
+          delivery = {
+            requested: smsNotificationIds.length,
+            submitted: 0,
+            failed: 0,
+            skipped: smsNotificationIds.length,
+            error: deliveryError instanceof Error ? deliveryError.message : "تعذر تجهيز إشعارات الفواتير.",
+          };
+        }
       }
+
       return {
         requested: (rows ?? []).length,
-        approved: results.filter((item) => item.success).length,
-        failed: results.filter((item) => !item.success).length,
+        approved: results.filter((item) => item.success === true).length,
+        failed: results.filter((item) => item.success !== true).length,
         results,
         delivery,
       };

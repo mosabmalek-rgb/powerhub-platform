@@ -129,6 +129,23 @@ describe("executeReadyOperations", () => {
     expect(transport).toHaveBeenCalledTimes(1);
   });
 
+  it("does not duplicate a terminal operation when the same clientOperationId is already completed", async () => {
+    const a = item("same-operation", 1);
+    const transport = vi.fn(async () => ({ outcome: "applied" as const, appliedEntityId: 101 }));
+    const metadata = new Map([[a.clientOperationId, createSyncMetadata(a, 0)]]);
+
+    const results = await executeReadyOperations({
+      items: [a],
+      metadataByOperationId: metadata,
+      completedIds: new Set([a.clientOperationId]),
+      transport,
+      now: 100,
+    });
+
+    expect(results).toEqual([]);
+    expect(transport).not.toHaveBeenCalled();
+  });
+
   it("maps transport error codes through the central classifier", async () => {
     const a = item("a", 1);
 

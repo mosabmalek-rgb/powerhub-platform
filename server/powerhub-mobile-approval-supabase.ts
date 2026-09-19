@@ -67,15 +67,20 @@ export async function approveAndIssueMobileReadingSupabase(input: {
   ) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة اعتماد القراءة نتيجة صالحة." });
   }
+  const invoiceId = Number(row.invoice_id);
+  const totalAmount = Number(row.total_amount);
+  if (!Number.isInteger(invoiceId) || invoiceId <= 0 || !Number.isFinite(totalAmount)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت دالة اعتماد القراءة بيانات فاتورة غير صالحة." });
+  }
   const notificationIds = row.notification_ids.map(Number);
   if (notificationIds.some((id) => !Number.isInteger(id) || id <= 0)) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت دالة اعتماد القراءة معرفات إشعارات غير صالحة." });
   }
 
   return {
-    invoiceId: Number(row.invoice_id),
+    invoiceId,
     invoiceNo: row.invoice_no,
-    totalAmount: Number(row.total_amount),
+    totalAmount,
     notificationIds,
     alreadyProcessed: row.already_processed,
   };

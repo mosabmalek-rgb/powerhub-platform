@@ -323,7 +323,14 @@ export function registerMobileApi(app: Express) {
       if (!imageBytes.byteLength || imageBytes.byteLength > 7 * 1024 * 1024) return sendError(res, 413, "IMAGE_TOO_LARGE", "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت.");
       imageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
       const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-      const deterministicImageKey = `subscriber-readings/mobile/${context.scope.tenantId}/${subscriber.id}/${input.clientOperationId}-${imageHash}.${extension}`;\n      try {\n        imageKey = (await storagePutAtKey(deterministicImageKey, imageBytes, input.imageMime)).key;\n      } catch (uploadError) {\n        const message = uploadError instanceof Error ? uploadError.message : String(uploadError);\n        if (!message.toLowerCase().includes("already exists")) throw uploadError;\n        imageKey = deterministicImageKey;\n      }
+      const deterministicImageKey = `subscriber-readings/mobile/${context.scope.tenantId}/${subscriber.id}/${input.clientOperationId}-${imageHash}.${extension}`;
+      try {
+        imageKey = (await storagePutAtKey(deterministicImageKey, imageBytes, input.imageMime)).key;
+      } catch (uploadError) {
+        const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
+        if (!message.toLowerCase().includes("already exists")) throw uploadError;
+        imageKey = deterministicImageKey;
+      }
     }
     const notes = [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ");
     const { data: inserted, error: insertError } = await admin.rpc("powerhub_mobile_create_reading", {
@@ -376,7 +383,18 @@ export function registerMobileApi(app: Express) {
       synced_count: input.syncedCount, retryable_count: input.retryableCount, needs_review_count: input.needsReviewCount, error_code: input.errorCode, error_message: input.errorMessage,
       app_version: input.appVersion, device_label: input.deviceLabel, metadata: input.metadata, occurred_at: input.occurredAt ?? isoNow(),
     }).select("id").single();
-    if (insertError || !inserted) return sendSupabaseError(res, insertError, "تعذر تسجيل حدث المزامنة.");
+    if (insertError) {
+      if (insertError.code === "23505") {
+        const { data: replayed, error: replayLookupError } = await admin.from("mobile_sync_events")
+          .select("id")
+          .eq("tenant_id", context.scope.tenantId)
+          .eq("event_key", input.eventKey)
+          .maybeSingle();
+        if (!replayLookupError && replayed) return res.status(200).json({ id: toNumber(replayed.id), replayed: true });
+      }
+      return sendSupabaseError(res, insertError, "تعذر تسجيل حدث المزامنة.");
+    }
+    if (!inserted) return sendSupabaseError(res, null, "تعذر تسجيل حدث المزامنة.");
     try {
       await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "mobile_sync_event", entityId: String(inserted.id), action: input.eventType, afterData: { status: input.status, syncedCount: input.syncedCount, retryableCount: input.retryableCount, needsReviewCount: input.needsReviewCount, errorCode: input.errorCode } });
       return res.status(201).json({ id: toNumber(inserted.id), replayed: false });

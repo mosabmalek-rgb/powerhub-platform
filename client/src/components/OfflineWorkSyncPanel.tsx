@@ -115,7 +115,14 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       for (const result of results) {
         const current = storedAfter.find((row) => row.operationId === result.item.clientOperationId);
         await upsertSyncMetadata({ operationId: result.item.clientOperationId, userId, siteId: result.item.siteId, kind: result.item.kind, dependsOn: result.metadata.dependsOn, attempts: result.metadata.attempts, nextAttemptAt: result.metadata.nextAttemptAt, outcome: result.outcome, ...(result.metadata.lastError ? { lastError: result.metadata.lastError } : {}), updatedAt: Date.now(), ...(current?.tenantId !== undefined ? { tenantId: current.tenantId } : {}) });
-        if (result.outcome === "applied" || result.outcome === "already_applied") {\n          try {\n            await updateOfflineWork(result.item.id, { status: "applied", error: undefined, ...(result.transportResult?.appliedEntityId !== undefined ? { appliedEntityId: result.transportResult.appliedEntityId } : {}), ...(result.transportResult?.appliedLabel ? { appliedLabel: result.transportResult.appliedLabel } : {}), ...(result.transportResult?.sanitizedPayload ? { payload: result.transportResult.sanitizedPayload } : {}) });\n          } catch (localError) {\n            toast.warning("نُفذت العملية على الخادم، لكن تعذر تحديث سجلها المحلي. لن تُعاد العملية تلقائياً.");\n          }\n        }\n        if (result.outcome === "retryable") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "تعذر مزامنة العملية مؤقتاً." });
+        if (result.outcome === "applied" || result.outcome === "already_applied") {
+          try {
+            await updateOfflineWork(result.item.id, { status: "applied", error: undefined, ...(result.transportResult?.appliedEntityId !== undefined ? { appliedEntityId: result.transportResult.appliedEntityId } : {}), ...(result.transportResult?.appliedLabel ? { appliedLabel: result.transportResult.appliedLabel } : {}), ...(result.transportResult?.sanitizedPayload ? { payload: result.transportResult.sanitizedPayload } : {}) });
+          } catch (localError) {
+            toast.warning("نُفذت العملية على الخادم، لكن تعذر تحديث سجلها المحلي. لن تُعاد العملية تلقائياً.");
+          }
+        }
+        if (result.outcome === "retryable") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "تعذر مزامنة العملية مؤقتاً." });
         else if (result.outcome === "conflict") await updateOfflineWork(result.item.id, { status: "conflict", error: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة." });
         else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "rejected", error: result.metadata.lastError ?? "رفض الخادم العملية؛ صحّح البيانات ثم أنشئ عملية جديدة." });
       }
