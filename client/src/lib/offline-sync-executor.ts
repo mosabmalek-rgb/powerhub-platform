@@ -12,6 +12,9 @@ export type SyncTransportResult = {
   outcome: SyncOutcome;
   errorCode?: string;
   message?: string;
+  appliedEntityId?: number;
+  appliedLabel?: string;
+  sanitizedPayload?: QueuedOfflineWork["payload"];
 };
 
 export type SyncTransport = (
