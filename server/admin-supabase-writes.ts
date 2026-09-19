@@ -109,31 +109,18 @@ export async function attachOwnerUser(input: {
 }
 
 export async function updateSubscription(input: {
-  actorUserId: number;
-  tenantId: number;
-  plan: AdminSubscriptionPlan;
-  status: AdminSubscriptionStatus;
-  billingCycle: AdminBillingCycle;
-  endsAt: Date;
-  autoRenew: boolean;
-  notes?: string;
-  smsPlanId?: number | null;
+  actorUserId: number; tenantId: number; plan: AdminSubscriptionPlan; status: AdminSubscriptionStatus;
+  billingCycle: AdminBillingCycle; endsAt: Date; autoRenew: boolean; notes?: string; smsPlanId?: number | null; clientOperationId: string;
 }) {
-  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_update_subscription", {
-    p_actor_user_id: input.actorUserId,
-    p_tenant_id: input.tenantId,
-    p_plan: input.plan,
-    p_status: input.status,
-    p_billing_cycle: input.billingCycle,
-    p_ends_at: input.endsAt.toISOString(),
-    p_auto_renew: input.autoRenew,
-    p_notes: input.notes ?? null,
-    p_sms_plan_id: input.smsPlanId ?? null,
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_update_subscription_idempotent", {
+    p_actor_user_id: input.actorUserId, p_tenant_id: input.tenantId, p_plan: input.plan, p_status: input.status,
+    p_billing_cycle: input.billingCycle, p_ends_at: input.endsAt.toISOString(), p_auto_renew: input.autoRenew,
+    p_notes: input.notes ?? null, p_sms_plan_id: input.smsPlanId ?? null, p_client_operation_id: input.clientOperationId,
   });
   rpcError("updateSubscription", error);
-  const row = data?.[0];
-  if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُرجع Supabase نتيجة صالحة." });
-  return { success: Boolean(row.success), subscriptionId: Number(row.subscription_id), siteId: Number(row.site_id) };
+  const row = data?.[0] as { success?: boolean; subscription_id?: number|string; site_id?: number|string; replayed?: boolean } | undefined;
+  if (!row || !row.subscription_id) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُرجع Supabase نتيجة صالحة." });
+  return { success: Boolean(row.success), subscriptionId: Number(row.subscription_id), siteId: Number(row.site_id), replayed: Boolean(row.replayed) };
 }
 
 export async function quickUpgradeOwnerPlan(input: {
@@ -215,18 +202,15 @@ function renewSubscriptionRpcError(error: { message?: string } | null) {
   rpcError("renewSubscription", error);
 }
 
-export async function renewSubscription(input: {
-  actorUserId: number;
-  tenantId: number;
-  periods: number;
-}) {
-  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_renew_subscription", {
-    p_actor_user_id: input.actorUserId,
-    p_tenant_id: input.tenantId,
-    p_periods: input.periods,
+export async function renewSubscription(input: { actorUserId: number; tenantId: number; periods: number; clientOperationId: string }) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_renew_subscription_idempotent", {
+    p_actor_user_id: input.actorUserId, p_tenant_id: input.tenantId, p_periods: input.periods, p_client_operation_id: input.clientOperationId,
   });
   renewSubscriptionRpcError(error);
-  const row = data?.[0] as { success?: boolean; ends_at?: string } | undefined;
+  const row = data?.[0] as { success?: boolean; ends_at?: string; replayed?: boolean } | undefined;
   if (!row || typeof row.ends_at !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription renewal result." });
-  return { success: Boolean(row.success), endsAt: new Date(row.ends_at) };
+  return { success: Boolean(row.success), endsAt: new Date(row.ends_at), replayed: Boolean(row.replayed) };
 }
+
+
+
