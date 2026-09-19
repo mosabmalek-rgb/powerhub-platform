@@ -278,8 +278,13 @@ export function OwnerUsageQuickActionsPanel() {
   const owners = trpc.admin.listOwners.useQuery();
   const branches = trpc.admin.listTenantBranchSettings.useQuery();
   const sms = trpc.admin.listTweetSmsAccounts.useQuery();
+  const upgradeOperationRefs = useRef(new Map<number, { fingerprint: string; id: string }>());
   const upgrade = trpc.admin.quickUpgradeOwnerPlan.useMutation({
-    onSuccess: () => { void utils.admin.listOwners.invalidate(); toast.success("تمت ترقية باقة صاحب المولد وتسجيل العملية."); },
+    onSuccess: (result) => {
+      void utils.admin.listOwners.invalidate();
+      if (result.replayed) toast.info("تم تأكيد الترقية السابقة.");
+      else toast.success("تمت ترقية باقة صاحب المولد وتسجيل العملية.");
+    },
     onError: (error) => toast.error(error.message),
   });
 
@@ -315,7 +320,7 @@ export function OwnerUsageQuickActionsPanel() {
             </div>
             <div className="flex flex-wrap gap-2">
               {nextPlan
-                ? <Button size="sm" disabled={upgrade.isPending} onClick={() => upgrade.mutate({ tenantId, plan: nextPlan, note: `ترقية سريعة من تقرير الاستهلاك (${priority}%).` })} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">ترقية إلى {nextPlan}</Button>
+                ? <Button size="sm" disabled={upgrade.isPending} onClick={() => { const note = `ترقية سريعة من تقرير الاستهلاك (${priority}%).`; const fingerprint = JSON.stringify({ tenantId, plan: nextPlan, note }); const current = upgradeOperationRefs.current.get(tenantId); const operation = current?.fingerprint === fingerprint ? current : { fingerprint, id: crypto.randomUUID() }; upgradeOperationRefs.current.set(tenantId, operation); upgrade.mutate({ tenantId, plan: nextPlan, note, clientOperationId: operation.id }); }} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">ترقية إلى {nextPlan}</Button>
                 : <Badge className="bg-sky-400/10 text-sky-300">أعلى باقة</Badge>}
             </div>
           </div>
