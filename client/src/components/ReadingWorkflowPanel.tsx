@@ -33,6 +33,7 @@ export default function ReadingWorkflowPanel({ siteId, role, anomalyAlertPercent
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isOcrRunning, setIsOcrRunning] = useState(false);
   const operationRef = useRef<{ fingerprint: string; id: string } | null>(null);
+  const pendingMutationOperationsRef = useRef(new Map<string, { fingerprint: string; id: string }>());
   const create = trpc.powerhub.readings.create.useMutation();
   const createAndIssue = trpc.powerhub.readings.createAndIssue.useMutation();
   const updatePending = trpc.powerhub.readings.updatePending.useMutation();
@@ -98,7 +99,15 @@ export default function ReadingWorkflowPanel({ siteId, role, anomalyAlertPercent
     try {
       if (editingId !== null) {
         if (shouldIssue) { setErrors({ reading: "لا يمكن إصدار فاتورة من وضع تعديل القراءة. احفظ التعديل ثم اعتمده من قائمة المراجعة." }); return; }
-        await updatePending.mutateAsync({ siteId, readingId: editingId, baseVersion: Number(readings.find((row) => row.reading.id === editingId)?.reading.versionNo ?? 1), readingValue, readingAt: new Date(`${readingDate}T12:00:00`), notes: notes || undefined });
+        const baseVersion = Number(readings.find((row) => row.reading.id === editingId)?.reading.versionNo ?? 1);
+        const updateAt = new Date(`${readingDate}T12:00:00`);
+        const updateFingerprint = JSON.stringify({ siteId, readingId: editingId, baseVersion, readingValue, readingAt: updateAt.toISOString(), notes: notes || "" });
+        const updateKey = `update:${editingId}`;
+        const currentUpdate = pendingMutationOperationsRef.current.get(updateKey);
+        const updateOperation = currentUpdate?.fingerprint === updateFingerprint ? currentUpdate : { fingerprint: updateFingerprint, id: crypto.randomUUID() };
+        pendingMutationOperationsRef.current.set(updateKey, updateOperation);
+        const updateResult = await updatePending.mutateAsync({ siteId, readingId: editingId, baseVersion, readingValue, readingAt: updateAt, notes: notes || undefined, clientOperationId: updateOperation.id });
+        pendingMutationOperationsRef.current.delete(updateKey);
         const message = "تم تعديل القراءة بنجاح.";
         setSuccessMessage(message); toast.success(message); setEditingId(null); setReadingValue(""); setNotes(""); setErrors({}); await onSaved(); return;
       }
