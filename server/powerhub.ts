@@ -228,6 +228,25 @@ async function getVerifiedPortalInvoice(input: z.infer<typeof subscriberPortalLo
 }
 
 export const powerhubRouter = router({
+  publicPackageCatalog: publicProcedure.query(async () => {
+    const fallback = {
+      currency: "ILS",
+      version: 1,
+      packages: [
+        { code: "basic", name: "الأساسية", originalPrice: 119, price: 143, includedMessages: 600, smsCost: 54, grossProfit: 89, platformUsers: 2, fieldUsers: 1, branches: 1, includedSubscribers: 0, active: true },
+        { code: "advanced", name: "المتقدمة", originalPrice: 209, price: 251, includedMessages: 1200, smsCost: 108, grossProfit: 143, platformUsers: 3, fieldUsers: 2, branches: 1, includedSubscribers: 0, active: true },
+        { code: "business", name: "الأعمال", originalPrice: 269, price: 323, includedMessages: 1800, smsCost: 162, grossProfit: 161, platformUsers: 3, fieldUsers: 3, branches: 1, includedSubscribers: 0, active: true },
+        { code: "institutional", name: "المؤسسات", originalPrice: 339, price: 407, includedMessages: 2500, smsCost: 225, grossProfit: 182, platformUsers: 4, fieldUsers: 3, branches: 2, includedSubscribers: 0, active: true },
+      ],
+      addons: {},
+      smsAddons: [],
+    };
+    const { data, error } = await supabaseAdmin().from("platform_settings").select("is_enabled,value,message").eq("setting_key", "subscription_package_catalog").maybeSingle();
+    if (error || !data?.is_enabled || !data.value || typeof data.value !== "object" || Array.isArray(data.value)) return fallback;
+    const value = data.value as Record<string, unknown>;
+    const packages = Array.isArray(value.packages) ? value.packages.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && item.active !== false && typeof item.name === "string" && typeof item.price === "number")) : [];
+    return { currency: typeof value.currency === "string" ? value.currency : fallback.currency, version: Number(value.version ?? 1), message: data.message ?? null, packages: packages.length ? packages : fallback.packages, addons: value.addons ?? fallback.addons, smsAddons: value.smsAddons ?? fallback.smsAddons };
+  }),
   messaging: router({
     smsQuota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");
