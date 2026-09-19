@@ -9,6 +9,7 @@ export type TweetSmsResult = {
   message: string;
   providerMessageId?: string;
   balance?: number;
+  deliveryUncertain?: boolean;
 };
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -59,13 +60,23 @@ function extractResult(text: string, body: unknown): { code: number | null; deta
   return { code: match ? Number(match[1]) : null, detail: text };
 }
 
-async function request(endpoint: string | undefined, path: string, credentials: TweetSmsCredentials, fields: Record<string, string | undefined>, fetcher: FetchLike = fetch): Promise<TweetSmsResult> {
+async function request(endpoint: string | undefined, path: string, credentials: TweetSmsCredentials, fields: Record<string, string | undefined>, fetcher: FetchLike = fetch, deliveryUncertainOnError = false): Promise<TweetSmsResult> {
   const form = new URLSearchParams({ api_key: credentials.apiKey });
   for (const [key, value] of Object.entries(fields)) if (value) form.set(key, value);
   if (credentials.apiSecret && path === "chk_balance") form.set("token", credentials.apiSecret);
   const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
   if (credentials.apiSecret && path === "chk_balance") headers["X-Auth-Token"] = credentials.apiSecret;
-  const response = await fetcher(`${apiBase(endpoint)}/${path}`, { method: "POST", headers, body: form.toString(), signal: AbortSignal.timeout(15_000) });
+  let response: Response;
+  try {
+    response = await fetcher(`${apiBase(endpoint)}/${path}`, { method: "POST", headers, body: form.toString(), signal: AbortSignal.timeout(15_000) });
+  } catch (error) {
+    return {
+      ok: false,
+      code: null,
+      message: error instanceof Error ? error.message.slice(0, 1000) : "تعذر تحديد نتيجة الإرسال من مزود TweetSMS.",
+      ...(deliveryUncertainOnError ? { deliveryUncertain: true } : {}),
+    };
+  }
   const text = await response.text();
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { /* TweetSMS may return plain status text. */ }
