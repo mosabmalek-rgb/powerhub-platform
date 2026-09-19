@@ -85,9 +85,9 @@ export async function setTenantMembershipStatus(input: {
     p_status: input.status,
   });
   rpcError("setTenantMembershipStatus", error);
-  const row = data?.[0];
-  if (!row || row.success !== true) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful membership status result." });
-  return { success: true, membershipId: Number(row.membership_id), siteId: Number(row.site_id), status: row.status as string };
+  const row = data?.[0] as { success?: boolean; membership_id?: number|string; site_id?: number|string; status?: string; replayed?: boolean } | undefined;
+  if (!row || row.success !== true || row.membership_id === undefined || row.site_id === undefined || typeof row.status !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid membership status result." });
+  return { success: true, membershipId: Number(row.membership_id), siteId: Number(row.site_id), status: row.status, replayed: Boolean(row.replayed) };
 }
 
 export async function attachOwnerUser(input: {
@@ -103,9 +103,9 @@ export async function attachOwnerUser(input: {
     p_site_id: input.siteId ?? null,
   });
   rpcError("attachOwnerUser", error);
-  const row = data?.[0];
-  if (!row || row.success !== true) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful owner attachment result." });
-  return { success: true, siteId: Number(row.site_id) };
+  const row = data?.[0] as { success?: boolean; site_id?: number|string; replayed?: boolean } | undefined;
+  if (!row || row.success !== true || row.site_id === undefined) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid owner attachment result." });
+  return { success: true, siteId: Number(row.site_id), replayed: Boolean(row.replayed) };
 }
 
 export async function updateSubscription(input: {
