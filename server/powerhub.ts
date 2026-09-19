@@ -624,7 +624,7 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const admin = supabaseAdmin();
       const [subscriptionResult, tenantResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult] = await Promise.all([
-        admin.from("tenant_subscriptions").select("plan").eq("tenant_id", access.tenantId).maybeSingle(),
+        admin.from("tenant_subscriptions").select("plan, package_code").eq("tenant_id", access.tenantId).order("created_at",{ ascending: false }).order("id",{ ascending: false }).limit(1).maybeSingle(),
         admin.from("tenants").select("plan").eq("id", access.tenantId).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key", "owner_subaccount_roles").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_subaccount_limits").maybeSingle(),
@@ -636,6 +636,7 @@ export const powerhubRouter = router({
       }
       const plan = subscriptionResult.data?.plan ?? tenantResult.data?.plan;
       if (plan !== "starter" && plan !== "professional" && plan !== "enterprise") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
+      const packageCode = typeof subscriptionResult.data?.package_code === "string" && packageCodes.includes(subscriptionResult.data.package_code as PackageCode) ? subscriptionResult.data.package_code as PackageCode : legacyPlanToPackageCode[plan];
       const policyOverrides = overridesResult.data?.value && typeof overridesResult.data.value === "object" && !Array.isArray(overridesResult.data.value)
         ? (overridesResult.data.value as Record<string, unknown>).overrides : undefined;
       const override = policyOverrides && typeof policyOverrides === "object" && !Array.isArray(policyOverrides)
@@ -645,7 +646,7 @@ export const powerhubRouter = router({
       const overrideRoles = Array.isArray(overrideRecord.allowedRoles) ? overrideRecord.allowedRoles.filter((role): role is string => typeof role === "string") : undefined;
       const roles = overrideRoles ? globalRoles.filter((role) => overrideRoles.includes(role)) : globalRoles;
       const overrideLimit = typeof overrideRecord.subaccountLimit === "number" && Number.isInteger(overrideRecord.subaccountLimit) && overrideRecord.subaccountLimit >= 0 ? overrideRecord.subaccountLimit : undefined;
-      const limit = overrideLimit ?? ownerSubaccountLimitForPlan(plan, limitsPolicyResult.data ? { value: limitsPolicyResult.data.value } : null);
+      const limit = overrideLimit ?? ownerSubaccountLimitForPackage(packageCode, limitsPolicyResult.data ? { value: limitsPolicyResult.data.value } : null);
       const currentCount = (membersResult.data ?? []).length;
       return { roles, limit, currentCount, remaining: Math.max(0, limit - currentCount) };
     }),
@@ -1262,7 +1263,7 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       const admin = supabaseAdmin();
       const [subscriptionResponse, tenantResponse, limitPolicyResponse, overridesPolicyResponse, countResponse] = await Promise.all([
-        admin.from("tenant_subscriptions").select("plan").eq("tenant_id", access.tenantId).maybeSingle(),
+        admin.from("tenant_subscriptions").select("plan, package_code").eq("tenant_id", access.tenantId).order("created_at",{ ascending: false }).order("id",{ ascending: false }).limit(1).maybeSingle(),
         admin.from("tenants").select("plan").eq("id", access.tenantId).maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_subscriber_limits").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
@@ -1271,6 +1272,7 @@ export const powerhubRouter = router({
       if (subscriptionResponse.error || tenantResponse.error || limitPolicyResponse.error || overridesPolicyResponse.error || countResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
       const plan = subscriptionResponse.data?.plan ?? tenantResponse.data?.plan;
       if (plan !== "starter" && plan !== "professional" && plan !== "enterprise") throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
+      const packageCode = typeof subscriptionResponse.data?.package_code === "string" && packageCodes.includes(subscriptionResponse.data.package_code as PackageCode) ? subscriptionResponse.data.package_code as PackageCode : legacyPlanToPackageCode[plan];
       const policyValue = limitPolicyResponse.data?.value;
       const overridesValue = overridesPolicyResponse.data?.value;
       const overridesObject = overridesValue && typeof overridesValue === "object" && !Array.isArray(overridesValue) ? overridesValue as Record<string, unknown> : {};
@@ -1278,7 +1280,7 @@ export const powerhubRouter = router({
       const override = perTenantOverrides && typeof perTenantOverrides === "object" && !Array.isArray(perTenantOverrides) ? (perTenantOverrides as Record<string, unknown>)[String(access.tenantId)] : undefined;
       const requestedOverrideLimit = override && typeof override === "object" && !Array.isArray(override) ? (override as Record<string, unknown>).subscriberLimit : undefined;
       const parsedOverrideLimit = typeof requestedOverrideLimit === "number" ? requestedOverrideLimit : typeof requestedOverrideLimit === "string" ? Number(requestedOverrideLimit) : NaN;
-      const limit = Number.isInteger(parsedOverrideLimit) && parsedOverrideLimit >= 0 && parsedOverrideLimit <= 100000 ? parsedOverrideLimit : ownerSubscriberLimitForPlan(plan, { value: policyValue });
+      const limit = Number.isInteger(parsedOverrideLimit) && parsedOverrideLimit >= 0 && parsedOverrideLimit <= 100000 ? parsedOverrideLimit : ownerSubscriberLimitForPackage(packageCode, { value: policyValue });
       const currentCount = countResponse.count ?? 0;
       return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
     }),
