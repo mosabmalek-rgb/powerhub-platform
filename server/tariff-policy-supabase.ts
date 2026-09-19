@@ -29,7 +29,7 @@ export async function createTariffPolicy(input: {
   }
 
   const row = data?.[0] as { success?: boolean; policy_id?: number | string; queued_notifications?: number } | undefined;
-  if (!row || row.success !== true || row.policy_id === undefined) {
+  if (!row || row.success !== true || row.policy_id === undefined || typeof row.queued_notifications !== "number") {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير صالحة لإنشاء سياسة التسعير." });
   }
 
