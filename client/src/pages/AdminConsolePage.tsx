@@ -1,14 +1,13 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import PlatformAdminLayout from "@/components/PlatformAdminLayout";
-import { SubscriptionPackageCatalogPanel } from "@/components/SubscriptionPackageCatalogPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { AdvancedDashboard, BranchFeaturePolicyPanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OperationalMonitoringPanel, OwnerLifecyclePanel, PasswordResetManagementPanel, OwnerManualLimitOverridesPanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, OwnerUsagePriorityFiltersPanel, OwnerUsageQuickActionsPanel, OwnerUsageReportPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
+import { AdvancedDashboard, BranchFeaturePolicyPanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OperationalMonitoringPanel, OwnerLifecyclePanel, PasswordResetManagementPanel, OwnerManualLimitOverridesPanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, OwnerUsagePriorityFiltersPanel, OwnerUsageQuickActionsPanel, OwnerUsageReportPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionPackageCatalogPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
 import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
 import ExcelJS from "exceljs";
