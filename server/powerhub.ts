@@ -1294,17 +1294,18 @@ export const powerhubRouter = router({
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), code: z.string().min(2).max(50), name: z.string().min(2).max(160),
       serialNumber: z.string().max(100).optional(), ratedCapacityKw: z.string().regex(/^\d+(\.\d{1,3})?$/),
-      fuelType: z.enum(["diesel", "gasoline", "gas", "other"]).default("diesel"),
+      fuelType: z.enum(["diesel", "gasoline", "gas", "other"]).default("diesel"), clientOperationId: z.string().uuid(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
-      const { data, error } = await supabaseAdmin().from("generators").insert({
-        tenant_id: access.tenantId, site_id: input.siteId, code: input.code.trim().toUpperCase(), name: input.name.trim(),
-        serial_number: input.serialNumber?.trim() || null, rated_capacity_kw: input.ratedCapacityKw, fuel_type: input.fuelType,
-      }).select("id").single();
-      if (error || !data) throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "رمز أو اسم المولد مستخدم بالفعل." : "تعذر إنشاء المولد في Supabase." });
-      const id = Number(data.id);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_generator_online", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_code: input.code,
+        p_name: input.name, p_serial_number: input.serialNumber ?? null, p_rated_capacity_kw: input.ratedCapacityKw,
+        p_fuel_type: input.fuelType, p_client_operation_id: input.clientOperationId,
+      });
+      if (error || !data?.[0]) throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : error?.message?.includes("GENERATOR_OPERATION_CONFLICT") ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "رمز أو اسم المولد مستخدم بالفعل." : error?.message?.includes("GENERATOR_OPERATION_CONFLICT") ? "معرّف العملية مستخدم لبيانات مولد مختلفة." : "تعذر إنشاء المولد في Supabase." });
+      const id = Number((data[0] as { generator_id: number | string }).generator_id);
       await writeSupabaseAuditBestEffort({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "generator", entityId: String(id), action: "create", afterData: input });
-      return { id };
+      return { id, replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), name: z.string().min(2).max(160), ratedCapacityKw: z.string().regex(/^\d+(\.\d{1,3})?$/),
