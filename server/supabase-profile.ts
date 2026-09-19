@@ -90,7 +90,8 @@ export async function syncSupabaseProfile(input: { id: string; email?: string | 
     throw new Error(tenantInvitationError.message || "تعذر معالجة دعوة الوصول إلى حساب المولد.");
   }
 
-  const platformAccepted = Boolean(platformInvitation?.[0]?.accepted);
+  const platformAccepted = platformInvitation?.[0]?.accepted === true;
+  const platformInvitationReplayed = platformInvitation?.[0]?.replayed === true;
   if (!platformAccepted) return mapSupabaseProfile(data as UserRow);
 
   const { data: refreshed, error: refreshError } = await admin.from("users")
