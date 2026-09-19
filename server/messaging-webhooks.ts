@@ -63,10 +63,23 @@ export async function receiveWhatsAppWebhook(req: RawRequest, res: Response) {
   for (const change of changes) for (const status of change.value?.statuses ?? []) {
     if (!status.id) continue;
     const nextStatus = status.status === "delivered" ? "delivered" : status.status === "read" ? "read" : status.status === "failed" ? "failed" : "submitted";
+    const current = await supabaseAdmin().from("notification_messages")
+      .select("id,status")
+      .eq("tenant_id", tenantId)
+      .eq("provider_message_id", status.id)
+      .eq("channel", "whatsapp")
+      .maybeSingle();
+    if (current.error) return res.status(503).json({ error: "database_unavailable" });
+    if (!current.data) continue;
+    const currentStatus = current.data.status;
+    const rank: Record<string, number> = { pending: 0, processing: 1, submitted: 2, delivered: 3, read: 4, failed: -1, needs_review: -1 };
+    if ((rank[nextStatus] ?? 0) <= (rank[currentStatus] ?? 0) && nextStatus !== "failed") continue;
     const { error: updateError } = await supabaseAdmin().from("notification_messages")
       .update({ status: nextStatus })
       .eq("tenant_id", tenantId)
-      .eq("provider_message_id", status.id);
+      .eq("provider_message_id", status.id)
+      .eq("channel", "whatsapp")
+      .in("status", ["pending", "processing", "submitted", "delivered"]);
     if (updateError) return res.status(503).json({ error: "database_unavailable" });
   }
   return res.status(200).json({ received: true });
