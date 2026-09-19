@@ -176,7 +176,7 @@ export async function reviewSmsPackageRequest(input: {
     p_note: input.note ?? null,
   });
   reviewSmsPackageRpcError(error);
-  const row = data?.[0] as { success?: boolean; tenant_id?: number | string; site_id?: number | string; status?: string; approved_messages?: number } | undefined;
+  const row = data?.[0] as { success?: boolean; tenant_id?: number | string; site_id?: number | string; status?: string; approved_messages?: number; replayed?: boolean } | undefined;
   if (!row || row.success !== true || typeof row.status !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid SMS package review result." });
   return {
     success: true,
@@ -184,6 +184,7 @@ export async function reviewSmsPackageRequest(input: {
     siteId: Number(row.site_id),
     status: row.status as "approved" | "rejected",
     approvedMessages: Number(row.approved_messages ?? 0),
+    replayed: Boolean(row.replayed),
   };
 }
 
