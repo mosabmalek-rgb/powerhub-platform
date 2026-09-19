@@ -7,7 +7,7 @@ import { encryptTenantCredential } from "./tenant-crypto";
 import { ownerOverviewFromSupabase, platformSnapshotFromSupabase } from "./admin-supabase";
 import { attachOwnerUser as attachOwnerUserSupabase, quickUpgradeOwnerPlan as quickUpgradeOwnerPlanSupabase, renewSubscription as renewSubscriptionSupabase, reviewSmsPackageRequest as reviewSmsPackageRequestSupabase, reviewSubscriptionUpgradeRequest as reviewSubscriptionUpgradeRequestSupabase, setTenantMembershipStatus as setTenantMembershipStatusSupabase, updateSubscription as updateSubscriptionSupabase } from "./admin-supabase-writes";
 
-const planSchema = z.enum(["starter", "professional", "enterprise"]);
+const planSchema = z.enum(["basic", "advanced", "professional", "business", "vip", "starter", "enterprise"]);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
 const billingCycleSchema = z.enum(["monthly", "yearly"]);
 type PlatformRole = "platform_owner" | "platform_admin" | "finance_admin";
