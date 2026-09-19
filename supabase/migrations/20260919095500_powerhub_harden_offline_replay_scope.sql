@@ -256,6 +256,15 @@ begin
     where user_id = p_user_id and client_operation_id = p_client_operation_id::text
     limit 1;
     if found then
+      if not exists (
+        select 1 from public.offline_sync_operations op
+        where op.user_id = p_user_id
+          and op.client_operation_id = p_client_operation_id::text
+          and op.tenant_id = p_tenant_id
+          and op.site_id = p_site_id
+          and op.operation_type = 'subscriber_update'
+          and op.entity_id = p_subscriber_id
+      ) then raise exception 'SUBSCRIBER_OPERATION_SCOPE_CONFLICT' using errcode = 'P0001'; end if;
       if coalesce(v_response->>'updatedAt', '') = '' then
         raise exception 'INVALID_SUBSCRIBER_OPERATION_REPLAY' using errcode = 'P0001';
       end if;
