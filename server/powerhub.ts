@@ -1630,11 +1630,11 @@ export const powerhubRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جلسة التحصيل من Supabase." });
       return data ? { id: Number(data.id), tenantId: Number(data.tenant_id), siteId: Number(data.site_id), collectorUserId: Number(data.collector_user_id), status: data.status, openingCash: String(data.opening_cash), expectedCash: String(data.expected_cash), declaredCash: data.declared_cash === null ? null : String(data.declared_cash), varianceAmount: data.variance_amount === null ? null : String(data.variance_amount), openedAt: new Date(data.opened_at), closedAt: data.closed_at ? new Date(data.closed_at) : null, notes: data.notes, closedByUserId: data.closed_by_user_id === null ? null : Number(data.closed_by_user_id), createdAt: new Date(data.created_at), updatedAt: new Date(data.updated_at) } : null;
     }),
-    open: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), openingCash: z.number().min(0).default(0), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+    open: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), openingCash: z.number().min(0).default(0), notes: z.string().max(1000).optional(), clientOperationId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       if (access.role !== "collector") throw new TRPCError({ code: "FORBIDDEN", message: "جلسة التحصيل الميدانية مخصصة لدور المحصل." });
-      const { data, error } = await supabaseAdmin().rpc("powerhub_open_collector_session", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_opening_cash: input.openingCash, p_notes: input.notes ?? null });
-      if (!error && data?.[0]) return { id: Number((data[0] as { session_id: number | string }).session_id) };
+      const { data, error } = await supabaseAdmin().rpc("powerhub_open_collector_session", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_opening_cash: input.openingCash, p_notes: input.notes ?? null, p_client_operation_id: input.clientOperationId });
+      if (!error && data?.[0]) return { id: Number((data[0] as { session_id: number | string }).session_id), replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
       if (`${error?.message ?? ""}`.includes("COLLECTOR_SESSION_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "لديك جلسة تحصيل مفتوحة بالفعل لهذه المحطة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر فتح جلسة التحصيل في Supabase." });
     }),
