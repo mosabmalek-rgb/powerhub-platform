@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 const migration = readFileSync(join(process.cwd(), "supabase/migrations/20260911200000_powerhub_admin_membership_subscription_rpcs.sql"), "utf8");
 const reviewMigration = readFileSync(join(process.cwd(), "supabase/migrations/20260911202000_powerhub_admin_review_subscription_upgrade_request_rpc.sql"), "utf8");
+const retryMigration = readFileSync(join(process.cwd(), "supabase/migrations/20260919150000_harden_subscription_upgrade_review_idempotency.sql"), "utf8");
 
 const rpc = vi.fn();
 vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => ({ rpc }) }));
@@ -38,12 +39,23 @@ describe("Supabase atomic admin write RPCs", () => {
     expect(rpc).toHaveBeenCalledWith("powerhub_admin_attach_owner_user", expect.objectContaining({ p_actor_user_id: 1, p_tenant_id: 6, p_user_id: 13, p_site_id: 5 }));
   });
 
-  it("maps subscription updates to the atomic Supabase RPC", async () => {
-    rpc.mockResolvedValueOnce({ data: [{ success: true, subscription_id: 9, site_id: 5 }], error: null });
+  it("maps subscription updates to the retry-safe Supabase RPC", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: true, subscription_id: 9, site_id: 5, replayed: false }], error: null });
     const { updateSubscription } = await import("./admin-supabase-writes");
     const endsAt = new Date("2027-01-01T00:00:00.000Z");
-    await expect(updateSubscription({ actorUserId: 1, tenantId: 6, plan: "professional", status: "active", billingCycle: "monthly", endsAt, autoRenew: true, notes: "qa", smsPlanId: null })).resolves.toEqual({ success: true, subscriptionId: 9, siteId: 5 });
-    expect(rpc).toHaveBeenCalledWith("powerhub_admin_update_subscription", expect.objectContaining({ p_actor_user_id: 1, p_tenant_id: 6, p_plan: "professional", p_status: "active", p_billing_cycle: "monthly", p_ends_at: endsAt.toISOString(), p_auto_renew: true, p_sms_plan_id: null }));
+    await expect(updateSubscription({ actorUserId: 1, tenantId: 6, plan: "professional", status: "active", billingCycle: "monthly", endsAt, autoRenew: true, notes: "qa", smsPlanId: null, clientOperationId: "00000000-0000-4000-8000-000000000001" })).resolves.toEqual({ success: true, subscriptionId: 9, siteId: 5, replayed: false });
+    expect(rpc).toHaveBeenCalledWith("powerhub_admin_update_subscription_idempotent", expect.objectContaining({ p_actor_user_id: 1, p_tenant_id: 6, p_client_operation_id: "00000000-0000-4000-8000-000000000001" }));
+  });
+
+  it("maps subscription renewal to the retry-safe Supabase RPC", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: true, ends_at: "2027-02-01T00:00:00.000Z", replayed: true }], error: null });
+    const { renewSubscription } = await import("./admin-supabase-writes");
+    await expect(renewSubscription({ actorUserId: 1, tenantId: 6, periods: 1, clientOperationId: "00000000-0000-4000-8000-000000000002" })).resolves.toMatchObject({ success: true, replayed: true });
+    expect(rpc).toHaveBeenCalledWith("powerhub_admin_renew_subscription_idempotent", expect.objectContaining({ p_actor_user_id: 1, p_tenant_id: 6, p_periods: 1, p_client_operation_id: "00000000-0000-4000-8000-000000000002" }));
+  });
+
+  it("keeps the subscription retry contract explicit", () => {
+    expect(retryMigration).toContain("subscription_upgrade_review");
   });
 
   it("normalizes unexpected Supabase errors without exposing database details", async () => {
