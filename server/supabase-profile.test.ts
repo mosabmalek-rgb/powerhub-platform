@@ -59,6 +59,14 @@ describe("ملف مستخدم Supabase", () => {
       accountStatus: "active",
     });
     expect(state.rpc).toHaveBeenCalledTimes(2);
+    expect(state.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ auth_user_id: "auth-user-42", email: "user@example.com", login_method: "supabase" }),
+      { onConflict: "auth_user_id" },
+    );
+    const profileWrite = state.upsert.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(profileWrite).not.toHaveProperty("role");
+    expect(profileWrite).not.toHaveProperty("platform_role");
+    expect(profileWrite).not.toHaveProperty("account_status");
   });
 
   it("keeps PostgreSQL undefined-function compatibility as a supported missing-RPC condition", async () => {
