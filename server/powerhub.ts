@@ -424,10 +424,10 @@ export const powerhubRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلب حزمة الرسائل من Supabase." });
       return data ? { id: Number(data.id), status: data.status, requestedMessages: data.requested_messages, approvedMessages: data.approved_messages, note: data.note, createdAt: new Date(data.created_at), reviewedAt: data.reviewed_at ? new Date(data.reviewed_at) : null } : null;
     }),
-    requestSmsPackage: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestedMessages: z.number().int().min(1).max(100000000), note: z.string().max(1000).optional(), clientOperationId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    requestSmsPackage: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestedMessages: z.number().int().min(1).max(100000000), note: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const { data, error } = await supabaseAdmin().rpc("powerhub_request_sms_package", {
-        p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_messages: input.requestedMessages, p_note: input.note ?? null, p_client_operation_id: input.clientOperationId,
+        p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_messages: input.requestedMessages, p_note: input.note ?? null,
       });
       if (error) {
         if (error.message.includes("SMS_PACKAGE_REQUEST_PENDING")) throw new TRPCError({ code: "CONFLICT", message: "لديك طلب حزمة قيد المراجعة بالفعل." });
