@@ -1633,16 +1633,18 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), generatorId: z.number().int().positive().optional(), category: z.enum(["fuel", "maintenance", "payroll", "parts", "transport", "other"]),
-      description: z.string().min(2).max(255), amount: z.number().positive(), referenceNo: z.string().max(120).optional(),
+      description: z.string().min(2).max(255), amount: z.number().positive(), referenceNo: z.string().max(120).optional(), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageExpenses");
       const { data, error } = await supabaseAdmin().rpc("powerhub_create_expense", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_generator_id: input.generatorId ?? null,
         p_category: input.category, p_description: input.description, p_amount: input.amount, p_reference_no: input.referenceNo ?? null,
+        p_client_operation_id: input.clientOperationId ?? null,
       });
-      if (!error && data?.[0]) return { id: Number((data[0] as { expense_id: number | string }).expense_id) };
+      if (!error && data?.[0]) return { id: Number((data[0] as { expense_id: number | string }).expense_id), replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("GENERATOR_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
+      if (errorText.includes("EXPENSE_OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف العملية مستخدم لمصروف ببيانات مختلفة؛ لم يتم إنشاء مصروف جديد." });
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تعديل أو إضافة بيانات مالية داخلها." });
       if (errorText.includes("INVALID_EXPENSE_AMOUNT") || errorText.includes("INVALID_EXPENSE_CATEGORY")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات المصروف غير صالحة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل المصروف في Supabase." });
