@@ -45,8 +45,9 @@ export async function saveRolePolicy(input: {
     role?: string;
     capability?: string;
     is_allowed?: boolean;
+    replayed?: boolean;
   } | undefined;
-  if (!row || row.success !== true || row.policy_id === undefined) {
+  if (!row || row.success !== true || row.policy_id === undefined || typeof row.replayed !== "boolean") {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت Supabase نتيجة غير صالحة لسياسة الصلاحيات." });
   }
 
@@ -56,5 +57,6 @@ export async function saveRolePolicy(input: {
     role: row.role,
     capability: row.capability,
     isAllowed: row.is_allowed,
+    replayed: row.replayed,
   };
 }
