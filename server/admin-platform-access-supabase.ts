@@ -7,8 +7,8 @@ export type PlatformAccountStatus = "active" | "locked" | "disabled";
 
 function mapRpcError(message: string, fallback: string): never {
   if (message.includes("PLATFORM_OWNER_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذه العملية متاحة لمالك المنصة فقط." });
-  if (message.includes("TARGET_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب إدارة المنصة غير موجود." });
-  if (message.includes("TARGET_IS_OWNER")) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تعديل مالك المنصة من هذا المسار." });
+  if (message.includes("TARGET_NOT_FOUND") || message.includes("ACCOUNT_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب إدارة المنصة غير موجود." });
+  if (message.includes("TARGET_IS_OWNER") || message.includes("PLATFORM_OWNER_PROTECTED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تعديل مالك المنصة من هذا المسار." });
   if (message.includes("SELF_MODIFICATION") || message.includes("SELF_ROLE_CHANGE")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تعديل حالة أو دور حسابك من هذه العملية." });
   if (message.includes("FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
   if (message.includes("DUPLICATE_INVITATION")) throw new TRPCError({ code: "CONFLICT", message: "توجد دعوة وصول نشطة بالفعل لهذا البريد الإلكتروني." });
