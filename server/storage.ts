@@ -14,6 +14,21 @@ function appendHashSuffix(relKey: string): string {
   return `${relKey.slice(0, lastDot)}_${hash}${relKey.slice(lastDot)}`;
 }
 
+export async function storagePutAtKey(
+  relKey: string,
+  data: Buffer | Uint8Array | string,
+  contentType = "application/octet-stream",
+): Promise<{ key: string; url: string }> {
+  const key = normalizeKey(relKey);
+  const { data: uploaded, error } = await supabaseAdmin().storage
+    .from(STORAGE_BUCKET)
+    .upload(key, data, { contentType, upsert: false });
+  if (error || !uploaded) {
+    throw new Error(`Supabase Storage upload failed: ${error?.message ?? "unknown error"}`);
+  }
+  return { key: uploaded.path, url: await storageGetSignedUrl(uploaded.path) };
+}
+
 export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
