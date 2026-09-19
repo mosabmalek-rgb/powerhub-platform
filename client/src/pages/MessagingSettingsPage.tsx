@@ -22,7 +22,7 @@ const defaultTemplates: Record<Channel, string> = {
 const variableLabels = ["{{subscriber_name}}", "{{invoice_no}}", "{{billing_period}}", "{{total_amount}}", "{{due_date}}"];
 const variableButtonLabels: Record<string, string> = { "{{subscriber_name}}": "اسم المشترك", "{{invoice_no}}": "رقم الفاتورة", "{{billing_period}}": "فترة الفوترة", "{{total_amount}}": "قيمة الفاتورة", "{{due_date}}": "تاريخ الاستحقاق" };
 const previewValues: Record<string, string> = { subscriber_name: "أحمد علي", invoice_no: "INV-2026-00125", billing_period: "آب 2026", total_amount: "33,000 د.ع", due_date: "31 آب 2026" };
-const statusLabels: Record<string, string> = { pending: "بانتظار المعالجة", submitted: "قيد الإرسال", delivered: "تم التسليم", read: "مقروءة", failed: "فشلت" };
+const statusLabels: Record<string, string> = { pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "قيد الإرسال", delivered: "تم التسليم", read: "مقروءة", failed: "فشلت", needs_review: "تحتاج مراجعة قبل إعادة الإرسال" };
 const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|invoice_no|billing_period|total_amount|due_date)\s*}}/g, (_, key) => previewValues[key] ?? "");
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
