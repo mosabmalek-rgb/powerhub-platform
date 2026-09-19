@@ -78,9 +78,22 @@ describe("Supabase atomic admin write RPCs", () => {
   });
 
   it("rejects a false-success subscription review result", async () => {
-    rpc.mockResolvedValueOnce({ data: [{ success: false, plan: "professional" }], error: null });
+    rpc.mockResolvedValueOnce({ data: [{ success: false, plan: "professional", replayed: false }], error: null });
     const { reviewSubscriptionUpgradeRequest } = await import("./admin-supabase-writes");
     await expect(reviewSubscriptionUpgradeRequest({ actorUserId: 1, requestId: 90, decision: "approved" })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+
+
+  it("accepts subscription review replay state", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: true, plan: "professional", replayed: true }], error: null });
+    const { reviewSubscriptionUpgradeRequest } = await import("./admin-supabase-writes");
+    await expect(reviewSubscriptionUpgradeRequest({ actorUserId: 1, requestId: 90, decision: "approved" })).resolves.toMatchObject({ success: true, replayed: true });
+  });
+
+  it("accepts SMS package review replay state", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: true, tenant_id: 6, site_id: 5, status: "approved", approved_messages: 1000, replayed: true }], error: null });
+    const { reviewSmsPackageRequest } = await import("./admin-supabase-writes");
+    await expect(reviewSmsPackageRequest({ actorUserId: 1, requestId: 90, status: "approved", approvedMessages: 1000 })).resolves.toMatchObject({ success: true, replayed: true });
   });
 
   it("rejects a false-success SMS package review result", async () => {
