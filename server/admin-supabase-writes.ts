@@ -156,9 +156,9 @@ export async function reviewSubscriptionUpgradeRequest(input: {
     p_note: input.note ?? null,
   });
   reviewSubscriptionRpcError(error);
-  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
+  const row = data?.[0] as { success?: boolean; plan?: string; replayed?: boolean } | undefined;
   if (!row || row.success !== true || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned a non-successful or invalid subscription review result." });
-  return { success: true, plan: row.plan as AdminSubscriptionPlan };
+  return { success: true, plan: row.plan as AdminSubscriptionPlan, replayed: Boolean(row.replayed) };
 }
 
 export async function reviewSmsPackageRequest(input: {
