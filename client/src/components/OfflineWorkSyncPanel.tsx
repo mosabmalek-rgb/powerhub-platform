@@ -50,38 +50,32 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       if (item.kind === "subscriber_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft;
         const result = await createSubscriber.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
-        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.subscriberNo });
-        return { outcome: "applied" };
+        return { outcome: "applied", appliedEntityId: result.id, appliedLabel: result.subscriberNo };
       }
       if (item.kind === "subscriber_update") {
         const payload = item.payload as import("@/lib/offline-work-queue").SubscriberUpdateDraft;
         await updateSubscriber.mutateAsync({ siteId: item.siteId, id: payload.subscriberId, fullName: payload.fullName, phone: payload.phone, address: payload.address, subscriptionType: payload.subscriptionType, serviceStatus: payload.serviceStatus, expectedUpdatedAt: new Date(payload.expectedUpdatedAt), clientOperationId: item.clientOperationId });
-        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: payload.subscriberId, appliedLabel: payload.fullName });
-        return { outcome: "applied" };
+        return { outcome: "applied", appliedEntityId: payload.subscriberId, appliedLabel: payload.fullName };
       }
       if (item.kind === "generator_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorCreateDraft;
         const result = await syncGeneratorCreate({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
-        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
-        return { outcome: "applied" };
+        return { outcome: "applied", appliedEntityId: result.id, appliedLabel: result.name };
       }
       if (item.kind === "generator_update") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorUpdateDraft;
         const result = await syncGeneratorUpdate({ siteId: item.siteId, generatorId: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, expectedUpdatedAt: payload.expectedUpdatedAt, clientOperationId: item.clientOperationId });
-        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
-        return { outcome: "applied" };
+        return { outcome: "applied", appliedEntityId: result.id, appliedLabel: result.name };
       }
       if (item.kind === "invoice_issue") {
         const payload = item.payload as import("@/lib/offline-work-queue").InvoiceIssueDraft;
         const result = await issueInvoice.mutateAsync({ siteId: item.siteId, ...payload, dueDate: new Date(payload.dueDate), clientOperationId: item.clientOperationId });
-        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.invoiceNo });
-        return { outcome: "applied" };
+        return { outcome: "applied", appliedEntityId: result.id, appliedLabel: result.invoiceNo };
       }
       const payload = item.payload as import("@/lib/offline-work-queue").PaymentDraft;
       const result = await createPayment.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
       const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...sanitizedPayload } = payload;
-      await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: payload.paymentNo, payload: sanitizedPayload });
-      return { outcome: "applied" };
+      return { outcome: "applied", appliedEntityId: result.id, appliedLabel: payload.paymentNo, sanitizedPayload };
     } catch (error) {
       return { outcome: "retryable", errorCode: getErrorCode(error), message: getErrorMessage(error) };
     }
@@ -121,7 +115,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       for (const result of results) {
         const current = storedAfter.find((row) => row.operationId === result.item.clientOperationId);
         await upsertSyncMetadata({ operationId: result.item.clientOperationId, userId, siteId: result.item.siteId, kind: result.item.kind, dependsOn: result.metadata.dependsOn, attempts: result.metadata.attempts, nextAttemptAt: result.metadata.nextAttemptAt, outcome: result.outcome, ...(result.metadata.lastError ? { lastError: result.metadata.lastError } : {}), updatedAt: Date.now(), ...(current?.tenantId !== undefined ? { tenantId: current.tenantId } : {}) });
-        if (result.outcome === "retryable") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "تعذر مزامنة العملية مؤقتاً." });
+        if (result.outcome === "applied" || result.outcome === "already_applied") {\n          try {\n            await updateOfflineWork(result.item.id, { status: "applied", error: undefined, ...(result.transportResult?.appliedEntityId !== undefined ? { appliedEntityId: result.transportResult.appliedEntityId } : {}), ...(result.transportResult?.appliedLabel ? { appliedLabel: result.transportResult.appliedLabel } : {}), ...(result.transportResult?.sanitizedPayload ? { payload: result.transportResult.sanitizedPayload } : {}) });\n          } catch (localError) {\n            toast.warning("نُفذت العملية على الخادم، لكن تعذر تحديث سجلها المحلي. لن تُعاد العملية تلقائياً.");\n          }\n        }\n        if (result.outcome === "retryable") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "تعذر مزامنة العملية مؤقتاً." });
         else if (result.outcome === "conflict") await updateOfflineWork(result.item.id, { status: "conflict", error: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة." });
         else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "rejected", error: result.metadata.lastError ?? "رفض الخادم العملية؛ صحّح البيانات ثم أنشئ عملية جديدة." });
       }
