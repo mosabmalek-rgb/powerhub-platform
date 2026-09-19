@@ -65,6 +65,19 @@ describe("Supabase atomic admin write RPCs", () => {
     expect(retryMigration).toContain("subscription_upgrade_review");
   });
 
+
+  it("accepts owner attachment replay state", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: true, site_id: 5, replayed: true }], error: null });
+    const { attachOwnerUser } = await import("./admin-supabase-writes");
+    await expect(attachOwnerUser({ actorUserId: 1, tenantId: 6, userId: 13, siteId: 5 })).resolves.toMatchObject({ success: true, replayed: true });
+  });
+
+  it("accepts membership status replay state", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ success: true, membership_id: 7, site_id: 5, status: "active", replayed: true }], error: null });
+    const { setTenantMembershipStatus } = await import("./admin-supabase-writes");
+    await expect(setTenantMembershipStatus({ actorUserId: 1, tenantId: 6, userId: 13, status: "active" })).resolves.toMatchObject({ success: true, replayed: true });
+  });
+
   it("rejects a false-success membership result", async () => {
     rpc.mockResolvedValueOnce({ data: [{ success: false, membership_id: 7, site_id: 5, status: "active" }], error: null });
     const { setTenantMembershipStatus } = await import("./admin-supabase-writes");
