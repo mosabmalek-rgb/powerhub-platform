@@ -177,8 +177,8 @@ export const legacyPlanToPackageCode: Record<SubscriptionPlan, PackageCode> = {
   professional: "advanced",
   enterprise: "business",
 };
-export const defaultOwnerSubaccountLimits: Record<SubscriptionPlan, number> = { starter: 2, professional: 5, enterprise: 15 };
-export const defaultOwnerSubscriberLimits: Record<SubscriptionPlan, number> = { starter: 100, professional: 500, enterprise: 2000 };
+export const defaultOwnerSubaccountLimits: Record<PackageCode, number> = { basic: 2, advanced: 2, professional: 3, business: 3, vip: 4 };
+export const defaultOwnerSubscriberLimits: Record<PackageCode, number> = { basic: 150, advanced: 300, professional: 500, business: 750, vip: 900 };
 export const defaultBranchLimits: Record<PackageCode, number> = { basic: 1, advanced: 1, professional: 1, business: 1, vip: 2 };
 export const legacyBranchLimits: Record<SubscriptionPlan, number> = { starter: 1, professional: 1, enterprise: 1 };
 
@@ -192,27 +192,20 @@ export function allowedOwnerSubaccountRoles(setting?: { isEnabled: boolean; valu
   return ownerSubaccountRoles.filter((role) => values.includes(role));
 }
 
-export function ownerSubaccountLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number {
-  const rawLimits = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
-    ? (setting.value as Record<string, unknown>).limits
-    : undefined;
-  const candidate = rawLimits && typeof rawLimits === "object" && !Array.isArray(rawLimits)
-    ? (rawLimits as Record<string, unknown>)[plan]
-    : undefined;
+export function ownerSubaccountLimitForPackage(packageCode: PackageCode, setting?: { value: unknown } | null): number {
+  const rawLimits = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value) ? (setting.value as Record<string, unknown>).limits : undefined;
+  const candidate = rawLimits && typeof rawLimits === "object" && !Array.isArray(rawLimits) ? (rawLimits as Record<string, unknown>)[packageCode] : undefined;
   const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 999 ? parsed : defaultOwnerSubaccountLimits[plan];
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 999 ? parsed : defaultOwnerSubaccountLimits[packageCode];
 }
-
-export function ownerSubscriberLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number {
-  const rawLimits = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
-    ? (setting.value as Record<string, unknown>).limits
-    : undefined;
-  const candidate = rawLimits && typeof rawLimits === "object" && !Array.isArray(rawLimits)
-    ? (rawLimits as Record<string, unknown>)[plan]
-    : undefined;
+export function ownerSubscriberLimitForPackage(packageCode: PackageCode, setting?: { value: unknown } | null): number {
+  const rawLimits = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value) ? (setting.value as Record<string, unknown>).limits : undefined;
+  const candidate = rawLimits && typeof rawLimits === "object" && !Array.isArray(rawLimits) ? (rawLimits as Record<string, unknown>)[packageCode] : undefined;
   const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : defaultOwnerSubscriberLimits[plan];
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : defaultOwnerSubscriberLimits[packageCode];
 }
+export function ownerSubaccountLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number { return ownerSubaccountLimitForPackage(legacyPlanToPackageCode[plan], setting); }
+export function ownerSubscriberLimitForPlan(plan: SubscriptionPlan, setting?: { value: unknown } | null): number { return ownerSubscriberLimitForPackage(legacyPlanToPackageCode[plan], setting); }
 
 export function branchLimitForPackage(packageCode: PackageCode, setting?: { value: unknown } | null): number {
   const value = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
