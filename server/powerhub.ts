@@ -1350,12 +1350,15 @@ export const powerhubRouter = router({
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
       const readingAt = input.readingAt ?? new Date();
-      const replay = await getOfflineReplayForScope({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, clientOperationId: input.clientOperationId, expectedOperationType: "reading_issue" });
-      if (replay) {
+      const existingReading = await reconcileReadingAfterError({
+        tenantId: access.tenantId, siteId: input.siteId, subscriberId: input.subscriberId,
+        clientOperationId: input.clientOperationId, issueInvoice: true,
+      });
+      if (existingReading.resolved && existingReading.invoice) {
         return {
-          id: Number(replay.readingId), consumptionKwh: Number(replay.consumptionKwh), status: "approved" as const,
-          invoiceId: Number(replay.invoiceId), invoiceNo: String(replay.invoiceNo), totalAmount: Number(replay.totalAmount),
-          notificationIds: Array.isArray(replay.notificationIds) ? replay.notificationIds.map(Number).filter(Number.isInteger) : [],
+          id: existingReading.id, consumptionKwh: existingReading.consumptionKwh, status: "approved" as const,
+          invoiceId: existingReading.invoice.id, invoiceNo: existingReading.invoice.invoiceNo,
+          totalAmount: existingReading.invoice.totalAmount, notificationIds: [],
           replayed: true, alreadyProcessed: true,
         };
       }
@@ -1552,7 +1555,7 @@ export const powerhubRouter = router({
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
       const replay = await getOfflineReplayForScope({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, clientOperationId: input.clientOperationId, expectedOperationType: "payment_create" });
-      if (replay) return { id: Number(replay.id) };
+      if (replay) return { id: Number(replay.id), replayed: true };
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
       if (input.receiptImageData) {
@@ -1585,7 +1588,7 @@ export const powerhubRouter = router({
         if (paymentResult.replayed && receiptImageKey) {
           try { await storageRemove(receiptImageKey); } catch {}
         }
-        return { id: Number(paymentResult.payment_id) };
+        return { id: Number(paymentResult.payment_id), replayed: Boolean(paymentResult.replayed) };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("DUPLICATE_PAYMENT_NO")) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
