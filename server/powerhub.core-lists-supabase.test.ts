@@ -808,9 +808,9 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يحفظ الاستيراد الجماعي عبر RPC Supabase الذرية دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin" } as never, req: {} as never, res: {} as never });
-    await expect(caller.subscribers.bulkImport({ siteId: 10, updateExisting: false, rows: [{ sourceRow: 2, subscriberNo: "MAIN-NEW", fullName: "مشترك اختبار", phone: "+970595000111", subscriptionType: "residential" }] }))
+    await expect(caller.subscribers.bulkImport({ clientOperationId: "77777777-7777-4777-8777-777777777777", siteId: 10, updateExisting: false, rows: [{ sourceRow: 2, subscriberNo: "MAIN-NEW", fullName: "مشترك اختبار", phone: "+970595000111", subscriptionType: "residential" }] }))
       .resolves.toMatchObject({ created: [{ subscriberNo: "MAIN-NEW" }], updated: [], failed: [], notificationsQueued: 0 });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_bulk_upsert_subscribers", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_update_existing: false, p_quota_limit: 100 }) })]);
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_bulk_upsert_subscribers", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_update_existing: false, p_quota_limit: 100, p_client_operation_id: "77777777-7777-4777-8777-777777777777", p_request_fingerprint: expect.any(String) }) })]);
     expect(state.inserts.filter((entry) => entry.table === "subscribers")).toEqual([]);
     expect(state.updates).toEqual([]);
   });
