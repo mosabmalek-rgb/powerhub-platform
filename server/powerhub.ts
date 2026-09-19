@@ -1295,7 +1295,7 @@ export const powerhubRouter = router({
       if (message.includes("TARIFF_OPERATION_CONFLICT")) throw new TRPCError({code:"CONFLICT",message:"معرّف العملية مستخدم لبيانات تعرفة مختلفة."});
       if (message.includes("TARIFF_CODE_EXISTS") || error?.code==="23505") throw new TRPCError({code:"CONFLICT",message:"رمز التعرفة مستخدم بالفعل في هذا الفرع."});
       throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر إنشاء التعرفة في Supabase."});
-    }),,
+    }),
   }),
 
   generators: router({
