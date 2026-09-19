@@ -14,7 +14,6 @@ import {
   MessageSquareText,
   PanelRightClose,
   PanelRightOpen,
-  Settings2,
   ShieldCheck,
   Ticket,
   UsersRound,
@@ -56,7 +55,6 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
       { id: "reports", label: "التقارير والإحصائيات", icon: FileBarChart, detail: "أداء المولدات والاستهلاك والنمو" },
       { id: "invoiceDelivery", label: "إرسال الفواتير", icon: BellRing, detail: "إعداد WhatsApp وSMS للمشتركين" },
       { id: "tweetSms", label: "حسابات TweetSMS", icon: MessageSquareText, detail: "ربط الحسابات الفرعية وحصص الرسائل" },
-      { id: "tweetSmsReport", label: "رصيد وتقارير TweetSMS", icon: FileBarChart, detail: "رصيد حساب المنصة واستهلاك الرسائل" },
       { id: "complaints", label: "الشكاوى", icon: Ticket, detail: "المتابعة والتعيين والردود" },
     ],
   },
@@ -65,7 +63,6 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { id: "notifications", label: "التنبيهات والإشعارات", icon: BellRing, detail: "التنبيهات وسجل الرسائل" },
       { id: "security", label: "الأمان والسجلات", icon: ShieldCheck, detail: "التدقيق والنسخ الاحتياطي والحماية" },
-      { id: "settings", label: "إعدادات المنصة", icon: Settings2, detail: "الهوية والصفحة العامة والتكاملات" },
       { id: "trialManagement", label: "إدارة التجارب", icon: CalendarClock, detail: "مدة التجربة وتاريخ انتهاء الاشتراكات" },
     ],
   },
