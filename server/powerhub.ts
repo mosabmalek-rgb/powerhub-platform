@@ -1042,14 +1042,20 @@ export const powerhubRouter = router({
       if(subscription.error||platformSetting.error||tenantSetting.error||branchRows.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سياسة الفروع من Supabase."});
       return resolveBranchPolicy({plan:(subscription.data?.plan??"starter") as SubscriptionPlan,platformSetting:platformSetting.data?{isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,tenantSetting:tenantSetting.data?{isEnabledOverride:tenantSetting.data.is_enabled_override,maxBranchesOverride:tenantSetting.data.max_branches_override,disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended"}:null,currentCount:(branchRows.data??[]).length});
     }),
-    create: protectedProcedure.input(siteInput).mutation(async ({ ctx, input }) => {
+    create: protectedProcedure.input(siteInput.extend({ clientOperationId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
       const admin=supabaseAdmin();
       const {data:membership,error:membershipError}=await admin.from("tenant_members").select("tenant_id, role").eq("user_id",ctx.user.id).eq("is_active",true).eq("membership_status","active").eq("role","owner").maybeSingle();
       if(membershipError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من عضوية مالك المولد في Supabase."});
       if(!membership) throw new TRPCError({code:"FORBIDDEN",message:"إنشاء فرع جديد متاح لصاحب مولد لديه مساحة نشطة فقط."});
-      const {data,error}=await admin.rpc("powerhub_create_site",{p_tenant_id:Number(membership.tenant_id),p_user_id:ctx.user.id,p_name:input.name,p_code:input.code,p_city:input.city??null,p_address:input.address??null});
-      if(error) throw new TRPCError({code:error.message.includes("FEATURE_DISABLED")?"FORBIDDEN":error.message.includes("LIMIT_REACHED")?"PRECONDITION_FAILED":"BAD_REQUEST",message:error.message.includes("FEATURE_DISABLED")?"ميزة تعدد الأفرع غير مفعّلة لحسابك من إدارة المنصة.":error.message.includes("LIMIT_REACHED")?"وصلت إلى الحد الأقصى للأفرع في اشتراكك.":"تعذر إنشاء الفرع في Supabase."});
-      const id=Number((data as Array<{site_id:number}>|null)?.[0]?.site_id); if(!id) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة الفروع استجابة صالحة."}); return {id};
+      const {data,error}=await admin.rpc("powerhub_create_site_online",{p_tenant_id:Number(membership.tenant_id),p_user_id:ctx.user.id,p_name:input.name,p_code:input.code,p_city:input.city??null,p_address:input.address??null,p_client_operation_id:input.clientOperationId});
+      const result=(data as Array<{site_id:number|string;replayed?:boolean}>|null)?.[0];
+      if(!error && result?.site_id) return {id:Number(result.site_id),replayed:Boolean(result.replayed)};
+      const message=String(error?.message??"");
+      if(message.includes("FEATURE_DISABLED")) throw new TRPCError({code:"FORBIDDEN",message:"ميزة تعدد الأفرع غير مفعّلة لحسابك من إدارة المنصة."});
+      if(message.includes("LIMIT_REACHED")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"وصلت إلى الحد الأقصى للأفرع في اشتراكك."});
+      if(message.includes("SITE_OPERATION_CONFLICT")) throw new TRPCError({code:"CONFLICT",message:"معرّف العملية مستخدم لبيانات فرع مختلفة."});
+      if(message.includes("SITE_CODE_EXISTS")) throw new TRPCError({code:"CONFLICT",message:"رمز الفرع مستخدم بالفعل."});
+      throw new TRPCError({code:"BAD_REQUEST",message:"تعذر إنشاء الفرع في Supabase."});
     }),
     anomalyAlert: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
