@@ -1,3 +1,5 @@
+drop function if exists public.powerhub_admin_review_subscription_upgrade_request(bigint,bigint,text,text);
+
 create or replace function public.powerhub_admin_review_subscription_upgrade_request(
   p_actor_user_id bigint,p_request_id bigint,p_decision text,p_note text default null)
 returns table(success boolean,plan text,replayed boolean)
@@ -34,6 +36,8 @@ begin
 end;$$;
 revoke all on function public.powerhub_admin_review_subscription_upgrade_request(bigint,bigint,text,text) from public,anon,authenticated;
 grant execute on function public.powerhub_admin_review_subscription_upgrade_request(bigint,bigint,text,text) to service_role;
+
+drop function if exists public.powerhub_admin_review_sms_package_request(bigint,bigint,text,integer,text);
 
 create or replace function public.powerhub_admin_review_sms_package_request(
  p_actor_user_id bigint,p_request_id bigint,p_status text,p_approved_messages integer,p_note text default null)
