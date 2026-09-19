@@ -657,7 +657,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150 });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_approve_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1, p_client_operation_id: "55555555-5555-4555-8555-555555555555" }) }),
-      expect.objectContaining({ name: "powerhub_issue_invoice_from_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_tariff_id: 40, p_billing_period: "2026-08" }) }),
+      expect.objectContaining({ name: "powerhub_issue_invoice_from_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_tariff_id: 40, p_billing_period: "2026-08", p_client_operation_id: expect.any(String) }) }),
     ]);
     expect(state.inserts.some((entry) => entry.table === "notification_messages")).toBe(false);
   });
