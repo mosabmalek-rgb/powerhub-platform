@@ -1531,7 +1531,8 @@ export const powerhubRouter = router({
       let imageKey: string | undefined;
       let imageHash: string | undefined;
       let rpcStarted = false;
-      if (input.imageData) {
+      try {
+        if (input.imageData) {
         if (!input.imageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "نوع صورة القراءة غير مدعوم." });
         const imageBytes = Buffer.from(input.imageData, "base64");
         if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت." });
