@@ -15,14 +15,14 @@ describe("سياسة الحسابات الفرعية لمالك المولد", (
   });
 
   it("تستخدم حدود الباقات الافتراضية أو الأرقام المعتمدة من آدمن المنصة", () => {
-    expect(ownerSubaccountLimitForPlan("starter")).toBe(defaultOwnerSubaccountLimits.starter);
-    expect(ownerSubaccountLimitForPlan("professional", { value: { limits: { professional: 8 } } })).toBe(8);
+    expect(ownerSubaccountLimitForPackage("basic")).toBe(defaultOwnerSubaccountLimits.basic);
+    expect(ownerSubaccountLimitForPackage("professional", { value: { limits: { professional: 8 } } })).toBe(8);
     expect(ownerSubaccountLimitForPlan("enterprise", { value: { limits: { enterprise: -1 } } })).toBe(defaultOwnerSubaccountLimits.enterprise);
   });
 
   it("تستخدم حصة المشتركين الافتراضية أو الحد المخصص لكل باقة", () => {
-    expect(ownerSubscriberLimitForPlan("starter")).toBe(defaultOwnerSubscriberLimits.starter);
-    expect(ownerSubscriberLimitForPlan("professional", { value: { limits: { professional: 750 } } })).toBe(750);
+    expect(ownerSubscriberLimitForPackage("basic")).toBe(defaultOwnerSubscriberLimits.basic);
+    expect(ownerSubscriberLimitForPackage("professional", { value: { limits: { professional: 750 } } })).toBe(750);
     expect(ownerSubscriberLimitForPlan("enterprise", { value: { limits: { enterprise: 100001 } } })).toBe(defaultOwnerSubscriberLimits.enterprise);
   });
 
