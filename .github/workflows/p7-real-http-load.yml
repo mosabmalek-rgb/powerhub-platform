@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - scale/p7-real-http-load
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
