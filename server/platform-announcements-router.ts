@@ -140,14 +140,26 @@ export const platformAnnouncementsRouter = router({
       return visible.map((row) => mapAnnouncement(row, readMap.get(Number(row.id)) ?? null));
     }),
     markRead: authenticatedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-      const { data: announcement, error: announcementError } = await supabaseAdmin()
-        .from("platform_announcements")
-        .select("id,status,published_at")
-        .eq("id", input.id)
-        .in("status", ["published", "scheduled"])
-        .single();
-      if (announcementError || !announcement) throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
-      const { error } = await supabaseAdmin().from("platform_announcement_reads").upsert(
+      const admin = supabaseAdmin();
+      const [{ data: announcement, error: announcementError }, { data: profiles }, { data: account }] = await Promise.all([
+        admin.from("platform_announcements")
+          .select("id,status,published_at,audience_roles")
+          .eq("id", input.id)
+          .eq("status", "published")
+          .not("published_at", "is", null)
+          .lte("published_at", new Date().toISOString())
+          .single(),
+        admin.from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true),
+        admin.from("users").select("platform_role,account_status").eq("id", ctx.user.id).single(),
+      ]);
+      if (announcementError || !announcement || !account || account.account_status !== "active") {
+        throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
+      }
+      const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
+      if (account.platform_role) roles.add(account.platform_role);
+      const visible = announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role));
+      if (!visible) throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
+      const { error } = await admin.from("platform_announcement_reads").upsert(
         { announcement_id: input.id, user_id: ctx.user.id, read_at: new Date().toISOString() },
         { onConflict: "announcement_id,user_id" },
       );
