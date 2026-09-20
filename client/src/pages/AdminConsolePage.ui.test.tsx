@@ -49,7 +49,7 @@ vi.mock("@/lib/trpc", () => ({
       updateComplaint: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       listTariffPolicies: { useQuery: () => ({ data: [] }) },
       createTariffPolicy: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      platformConfiguration: { useQuery: () => ({ data: { settings: [{ id: 11, settingKey: "invoice_delivery_channels", isEnabled: true, message: "", value: { whatsappEnabled: true, smsEnabled: true } }], recoveries: [], currentTariff: null } }) },
+      platformConfiguration: { useQuery: () => ({ data: { settings: [{ id: 11, settingKey: "invoice_delivery_channels", isEnabled: true, message: "", value: { whatsappEnabled: true, smsEnabled: true } }, { id: 12, settingKey: "subscriber_portal_logo", isEnabled: false, message: "إتاحة شعار صاحب المولد في صفحة الاستعلامات العامة.", value: {} }], recoveries: [], currentTariff: null } }) },
       savePlatformSetting: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       listTenantBranchSettings: { useQuery: () => ({ data: [] }) },
       saveTenantBranchSettings: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
@@ -131,6 +131,8 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("أحداث الأمان والنسخ الاحتياطي")).toBeInTheDocument();
     fireEvent.click(sidebarNav("إعدادات المنصة"));
     expect(screen.getByText("وضع صيانة المنصة")).toBeInTheDocument();
+    fireEvent.click(sidebarNav("شعار صفحة الاستعلامات"));
+    expect(screen.getByText("شعار صاحب المولد في صفحة الاستعلامات")).toBeInTheDocument();
   });
 
   it("يعرض صفراً لنسبة التحصيل عند وصول قيمة غير رقمية من قراءة التحليلات", () => {
