@@ -1306,7 +1306,7 @@ export const powerhubRouter = router({
       return subscribers.map((subscriber) => ({ ...subscriber, invoices: (invoices ?? []).filter((invoice) => Number(invoice.subscriber_id) === Number(subscriber.id)) }));
     }),
     list: protectedProcedure.input(siteScoped.extend({ status: z.enum(["pending","approved","rejected","all"]).default("pending") })).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
       let query = supabaseAdmin().from("payment_documentation_requests")
         .select("id, tenant_id, site_id, subscriber_id, invoice_id, destination_account_id, invoice_no_snapshot, subscriber_name_snapshot, subscriber_no_snapshot, billing_period_snapshot, previous_reading_snapshot, current_reading_snapshot, consumption_kwh_snapshot, price_per_kwh_snapshot, consumption_value_snapshot, invoice_total_snapshot, invoice_balance_snapshot, payment_amount, payment_method, sender_phone, reference_no, receipt_image_key, receipt_image_hash, status, rejection_reason, submitted_by_user_id, reviewed_by_user_id, reviewed_at, payment_id, submitted_at, created_at, updated_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("submitted_at", { ascending: false }).limit(200);
@@ -1373,7 +1373,7 @@ export const powerhubRouter = router({
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إرسال طلب توثيق الدفع." });
     }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_approve_payment_documentation", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_request_id: input.requestId });
       if (error || !data?.[0]) {
         const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
@@ -1404,7 +1404,7 @@ export const powerhubRouter = router({
       return { paymentId };
     }),
     receiptUrl: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
       const { data, error } = await supabaseAdmin().from("payment_documentation_requests")
         .select("receipt_image_key")
         .eq("id", input.requestId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
@@ -1413,7 +1413,7 @@ export const powerhubRouter = router({
       catch { throw new TRPCError({ code: "NOT_FOUND", message: "تعذر فتح صورة التحويل." }); }
     }),
     reject: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive(), rejectionReason: z.string().trim().min(2).max(1000) })).mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_reject_payment_documentation", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_request_id: input.requestId, p_rejection_reason: input.rejectionReason });
       if (error || !data?.[0]) {
         const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
