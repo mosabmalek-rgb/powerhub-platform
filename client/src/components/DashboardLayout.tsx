@@ -163,6 +163,9 @@ function DashboardLayoutContent({
   const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
   const isMobile = useIsMobile();
   const approvedSmsRequest = smsApprovalQuery.data?.status === "approved" ? smsApprovalQuery.data : null;
+  const announcementsQuery = trpc.platformAnnouncements.inbox.list.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 60000 });
+  const unreadAnnouncements = (announcementsQuery.data ?? []).filter((item) => !item.readAt).length;
+  const latestAnnouncements = (announcementsQuery.data ?? []).slice(0, 5);
   useEffect(() => { if (approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId) toast.success(`تم اعتماد حزمة الرسائل وإضافة ${Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيدك.`); }, [approvedSmsRequest, dismissedSmsApprovalId]);
 
   useEffect(() => {
