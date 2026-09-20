@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { AdvancedDashboard, BranchFeaturePolicyPanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OperationalMonitoringPanel, OwnerLifecyclePanel, PasswordResetManagementPanel, OwnerManualLimitOverridesPanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, OwnerUsagePriorityFiltersPanel, OwnerUsageQuickActionsPanel, OwnerUsageReportPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionPackageCatalogPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
+import { AdvancedDashboard, BranchFeaturePolicyPanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OperationalMonitoringPanel, OwnerLifecyclePanel, PasswordResetManagementPanel, OwnerManualLimitOverridesPanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, OwnerUsagePriorityFiltersPanel, OwnerUsageQuickActionsPanel, OwnerUsageReportPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionPackageCatalogPanel, SubscriptionUpgradeRequestsPanel, SubscriberPortalLogoFeaturePanel } from "./AdminAdvancedWorkspace";
 import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
 import ExcelJS from "exceljs";
@@ -17,7 +17,7 @@ import { Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, Fil
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "branchSettings" | "packageSettings" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "smsPlans" | "complaints" | "notifications" | "security";
+type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "branchSettings" | "packageSettings" | "subscriberPortalLogo" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "smsPlans" | "complaints" | "notifications" | "security";
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const formatNumber = (value: unknown) => new Intl.NumberFormat("ar").format(Number(value ?? 0));
 const formatDate = (value: Date | string | null | undefined) => value ? new Date(value).toLocaleDateString("ar-IQ", { year: "numeric", month: "short", day: "numeric" }) : "—";
@@ -82,6 +82,7 @@ export default function AdminConsolePage() {
     {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter userSummary={snapshot.data?.users} /><OwnerLifecyclePanel /><PasswordResetManagementPanel /></>}
      {tab === "branchSettings" && <BranchFeaturePolicyPanel />}
     {tab === "packageSettings" && <SubscriptionPackageCatalogPanel />}
+    {tab === "subscriberPortalLogo" && <SubscriberPortalLogoFeaturePanel />}
     {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} plans={smsPlans.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutate} />}
     {tab === "reports" && <><AdminReportsExports rows={reportRows} /><ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} /></>}
     {tab === "invoiceDelivery" && <InvoiceDeliverySettingsPanel />}
