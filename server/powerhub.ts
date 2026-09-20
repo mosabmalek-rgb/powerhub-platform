@@ -1404,7 +1404,7 @@ export const powerhubRouter = router({
       return { paymentId };
     }),
     receiptUrl: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
       const { data, error } = await supabaseAdmin().from("payment_documentation_requests")
         .select("receipt_image_key")
         .eq("id", input.requestId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
