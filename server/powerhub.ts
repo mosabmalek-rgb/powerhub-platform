@@ -1346,6 +1346,12 @@ export const powerhubRouter = router({
   }),
 
   paymentDocumentation: router({
+    access: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "collectPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId });
+      if (error || !data?.[0]) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع الإلكتروني." });
+      return { allowed: Boolean(data[0].allowed), policy: String(data[0].policy ?? "not_included"), packageCode: data[0].package_code ? String(data[0].package_code) : null, entitlementEnabled: Boolean(data[0].entitlement_enabled) };
+    }),
     searchSubscriber: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), query: z.string().trim().min(1).max(120) })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"], "collectPayments");
       const q = input.query.trim();
@@ -1395,6 +1401,15 @@ export const powerhubRouter = router({
         id: Number(row.id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number,
       }));
     }),
+    ownerFeature: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), isEnabled: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_owner_set_payment_documentation", { p_user_id: ctx.user.id, p_site_id: input.siteId, p_is_enabled: input.isEnabled });
+      if (error) {
+        if (error.message.includes("FEATURE_NOT_AVAILABLE")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "توثيق الدفع غير متاح ضمن باقتك الحالية." });
+        throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تعديل إتاحة توثيق الدفع لهذا الحساب." });
+      }
+      const row = data?.[0];
+      return { success: true, allowed: Boolean(row?.is_enabled), policy: String(row?.policy ?? "not_included") };
+    }),
     submit: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive(),
       destinationAccountId: z.number().int().positive(), paymentAmount: z.number().positive(),
@@ -1404,6 +1419,8 @@ export const powerhubRouter = router({
       receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      const feature = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId });
+      if (feature.error || !feature.data?.[0]?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة لهذا الاشتراك." });
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
       if (input.receiptImageData) {
