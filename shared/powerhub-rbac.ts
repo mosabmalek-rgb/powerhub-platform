@@ -50,7 +50,7 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   manageTariffs: ["owner", "manager", "accountant"],
   issueInvoices: ["owner", "manager", "accountant"],
   collectPayments: ["owner", "manager", "accountant", "collector"],
-  approvePaymentDocumentation: ["owner", "manager", "accountant"],
+  approvePaymentDocumentation: [],
   manageExpenses: ["owner", "manager", "accountant"],
   managePayroll: ["owner", "accountant"],
   manageTeam: ["owner"],
