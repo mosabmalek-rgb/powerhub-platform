@@ -38,13 +38,13 @@ const listTenantFeatureEntitlementsProcedure = authenticatedProcedure
     if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(ctx.user.platformRole ?? "") || ctx.user.accountStatus !== "active") {
       throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
     }
-    const { data, error } = await supabaseAdmin().from("tenant_feature_entitlements").select("tenant_id,feature_key,is_enabled,activated_at,activated_by_user_id").eq("feature_key", "subscriber_portal_logo");
-    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إتاحة شعار بوابة الاستعلام." });
+    const { data, error } = await supabaseAdmin().from("tenant_feature_entitlements").select("tenant_id,feature_key,is_enabled,activated_at,activated_by_user_id").in("feature_key", ["subscriber_portal_logo", "payment_documentation"]);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إتاحة الميزات لأصحاب المولدات." });
     return (data ?? []).map((row) => ({ tenantId: Number(row.tenant_id), featureKey: row.feature_key, isEnabled: Boolean(row.is_enabled), activatedAt: row.activated_at, activatedByUserId: row.activated_by_user_id ? Number(row.activated_by_user_id) : null }));
   });
 
 const setTenantFeatureEntitlementProcedure = authenticatedProcedure
-  .input(z.object({ tenantId: z.number().int().positive(), featureKey: z.literal("subscriber_portal_logo"), isEnabled: z.boolean() }))
+  .input(z.object({ tenantId: z.number().int().positive(), featureKey: z.enum(["subscriber_portal_logo", "payment_documentation"]), isEnabled: z.boolean() }))
   .mutation(async ({ ctx, input }) => {
     if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(ctx.user.platformRole ?? "") || ctx.user.accountStatus !== "active") {
       throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
@@ -53,9 +53,9 @@ const setTenantFeatureEntitlementProcedure = authenticatedProcedure
       p_actor_user_id: ctx.user.id, p_tenant_id: input.tenantId, p_feature_key: input.featureKey, p_is_enabled: input.isEnabled,
     });
     if (error) {
-      if (error.message.includes("FEATURE_NOT_INCLUDED_IN_PACKAGE")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تفعيل الشعار لأن الباقة الحالية تخفي هذه الميزة." });
+      if (error.message.includes("FEATURE_NOT_INCLUDED_IN_PACKAGE")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تفعيل الميزة لأن الباقة الحالية لا تتيحها." });
       if (error.message.includes("TENANT_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "صاحب المولد غير موجود." });
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث إتاحة شعار بوابة الاستعلام." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث إتاحة الميزة لصاحب المولد." });
     }
     const row = data?.[0];
     return { success: true, tenantId: Number(row?.tenant_id), featureKey: row?.feature_key, isEnabled: Boolean(row?.is_enabled), policy: row?.policy ?? "not_included" };
