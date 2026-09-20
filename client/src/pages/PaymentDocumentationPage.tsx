@@ -28,7 +28,7 @@ export default function PaymentDocumentationPage() {
   const [file,setFile]=useState<File|null>(null);
 
   const search = trpc.powerhub.paymentDocumentation.searchSubscriber.useQuery({siteId,query:query.trim()},{enabled:Boolean(siteId&&query.trim().length>=2)});
-  const accounts = trpc.powerhub.paymentDocumentation.availableAccounts.useQuery({siteId},{enabled:Boolean(siteId)});
+  const accounts = trpc.powerhub.paymentDocumentation.availableAccounts.useQuery({siteId: siteId ?? 0},{enabled:Boolean(siteId)});
   const submit = trpc.powerhub.paymentDocumentation.submit.useMutation({
     onSuccess:()=>{toast.success("تم إرسال طلب الدفع بنجاح. سيتم التحقق لاعتماد الدفع. دمتم بخير 🌷");setInvoice(null);setFile(null);setAmount("");setReferenceNo("");setSenderPhone("");},
     onError:e=>toast.error(e.message)
@@ -48,7 +48,7 @@ export default function PaymentDocumentationPage() {
       receiptImageData=await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(",")[1]??"");r.onerror=reject;r.readAsDataURL(file);});
       receiptImageMime=file.type as any;
     }
-    submit.mutate({siteId,subscriberId:Number(selected.id),invoiceId:Number(invoice.id),destinationAccountId:Number(accountId),paymentAmount:Number(amount),paymentMethod:method as any,senderPhone:senderPhone||undefined,referenceNo:referenceNo||undefined,receiptImageData,receiptImageMime});
+    submit.mutate({siteId: siteId ?? 0,subscriberId:Number(selected.id),invoiceId:Number(invoice.id),destinationAccountId:Number(accountId),paymentAmount:Number(amount),paymentMethod:method as any,senderPhone:senderPhone||undefined,referenceNo:referenceNo||undefined,receiptImageData,receiptImageMime});
   }
 
   return <DashboardLayout><div className="space-y-6 p-6" dir="rtl">
