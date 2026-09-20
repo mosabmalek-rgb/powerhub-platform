@@ -99,7 +99,7 @@ begin
   if p_name is null or char_length(btrim(p_name))<2 or char_length(btrim(p_name))>120 or p_permissions is null or jsonb_typeof(p_permissions)<>'array' or jsonb_array_length(p_permissions)<1 then raise exception 'INVALID_CUSTOM_ROLE_INPUT' using errcode='P0001'; end if;
   if exists(select 1 from jsonb_array_elements_text(p_permissions) capability(value) where capability.value not in (
     'manageSubscribers','manageGenerators','recordReadings','accessFieldApp','approveReadings','manageTariffs','issueInvoices','collectPayments','approvePaymentDocumentation','manageExpenses','managePayroll','manageTeam','manageMessaging','viewAudit'
-  )) then raise exception 'INVALID_CUSTOM_ROLE_CAPABILITY' using errcode='P0001'); end if;
+  )) then raise exception 'INVALID_CUSTOM_ROLE_CAPABILITY' using errcode='P0001'; end if;
   perform pg_advisory_xact_lock(p_tenant_id,hashtext('custom-permission-role'));
   if p_role_id is null then
     insert into public.custom_permission_roles(tenant_id,name,description,permissions,is_active,created_by_user_id) values(p_tenant_id,btrim(p_name),nullif(btrim(coalesce(p_description,'')),''),p_permissions,true,p_user_id) returning id into v_role_id;
