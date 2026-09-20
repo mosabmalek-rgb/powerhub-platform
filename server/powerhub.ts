@@ -1285,6 +1285,97 @@ export const powerhubRouter = router({
     }),
   }),
 
+  paymentDocumentation: router({
+    list: protectedProcedure.input(siteScoped.extend({ status: z.enum(["pending","approved","rejected","all"]).default("pending") })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      let query = supabaseAdmin().from("payment_documentation_requests")
+        .select("id, tenant_id, site_id, subscriber_id, invoice_id, destination_account_id, invoice_no_snapshot, subscriber_name_snapshot, subscriber_no_snapshot, billing_period_snapshot, previous_reading_snapshot, current_reading_snapshot, consumption_kwh_snapshot, price_per_kwh_snapshot, consumption_value_snapshot, invoice_total_snapshot, invoice_balance_snapshot, payment_amount, payment_method, sender_phone, reference_no, receipt_image_key, receipt_image_hash, status, rejection_reason, submitted_by_user_id, reviewed_by_user_id, reviewed_at, payment_id, submitted_at, created_at, updated_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("submitted_at", { ascending: false }).limit(200);
+      if (input.status !== "all") query = query.eq("status", input.status);
+      const { data, error } = await query;
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات توثيق الدفع." });
+      return data ?? [];
+    }),
+    submit: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive(),
+      destinationAccountId: z.number().int().positive(), paymentAmount: z.number().positive(),
+      paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]),
+      senderPhone: z.string().trim().regex(/^\\+?[0-9]{7,20}$/, "رقم الجوال المحوِّل يجب أن يكون صحيحاً.").optional(),
+      referenceNo: z.string().trim().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(),
+      receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      let receiptImageKey: string | undefined;
+      let receiptImageHash: string | undefined;
+      if (input.receiptImageData) {
+        if (!input.receiptImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة التحويل." });
+        const imageBytes = Buffer.from(input.receiptImageData, "base64");
+        if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا تتجاوز صورة التحويل 7 ميغابايت." });
+        receiptImageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
+        const extension = input.receiptImageMime === "image/png" ? "png" : input.receiptImageMime === "image/webp" ? "webp" : "jpg";
+        const stored = await storagePut(`payment-documentation/${access.tenantId}/${input.siteId}/${ctx.user.id}/${crypto.randomUUID()}.${extension}`, imageBytes, input.receiptImageMime);
+        receiptImageKey = stored.key;
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_submit_payment_documentation", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
+        p_invoice_id: input.invoiceId, p_destination_account_id: input.destinationAccountId, p_payment_amount: input.paymentAmount,
+        p_payment_method: input.paymentMethod, p_sender_phone: input.senderPhone ?? null, p_reference_no: input.referenceNo ?? null,
+        p_receipt_image_key: receiptImageKey ?? null, p_receipt_image_hash: receiptImageHash ?? null, p_client_operation_id: input.clientOperationId ?? null,
+      });
+      if (!error && data?.[0]) return { id: Number((data[0] as { request_id: number | string }).request_id), replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
+      const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (text.includes("INVOICE_OUT_OF_SCOPE") || text.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة أو المشترك لا يتبعان للمحطة المحددة." });
+      if (text.includes("INVOICE_ALREADY_PAID")) throw new TRPCError({ code: "CONFLICT", message: "الفاتورة مسددة بالكامل." });
+      if (text.includes("PAYMENT_AMOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "CONFLICT", message: "مبلغ الدفع يتجاوز الرصيد الحالي للفاتورة." });
+      if (text.includes("COMPANY_ACCOUNT_NOT_ENABLED")) throw new TRPCError({ code: "BAD_REQUEST", message: "الحساب المستقبِل غير مفعّل لتوثيق الدفع الإلكتروني." });
+      if (text.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة الدفع لا تطابق نوع الحساب المستقبِل." });
+      if (text.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الحساب المستقبِل غير متاح في هذه المحطة." });
+      if (text.includes("PAYMENT_DOCUMENTATION_ALREADY_PENDING")) throw new TRPCError({ code: "CONFLICT", message: "يوجد طلب توثيق قيد التحقق لهذه الفاتورة بالفعل." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إرسال طلب توثيق الدفع." });
+    }),
+    approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_approve_payment_documentation", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_request_id: input.requestId });
+      if (error || !data?.[0]) {
+        const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (text.includes("NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "طلب توثيق الدفع غير موجود." });
+        if (text.includes("REJECTED")) throw new TRPCError({ code: "CONFLICT", message: "لا يمكن اعتماد طلب مرفوض." });
+        if (text.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن اعتماد الدفع." });
+        if (text.includes("INVOICE_BALANCE_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد الفاتورة؛ راجع الطلب قبل الاعتماد." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد طلب توثيق الدفع." });
+      }
+      const paymentId = Number((data[0] as { payment_id: number | string }).payment_id);
+      const payment = await supabaseAdmin().from("payments").select("id, invoice_id, subscriber_id, payment_no, amount").eq("id", paymentId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (payment.error || !payment.data?.invoice_id || !payment.data?.subscriber_id) return { paymentId };
+      const [{ data: invoice }, { data: subscriber }, { data: template }] = await Promise.all([
+        supabaseAdmin().from("invoices").select("id, invoice_no, balance_due").eq("id", Number(payment.data.invoice_id)).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle(),
+        supabaseAdmin().from("subscribers").select("id, full_name, phone").eq("id", Number(payment.data.subscriber_id)).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle(),
+        supabaseAdmin().from("tenant_payment_receipt_message_templates").select("body").eq("tenant_id", access.tenantId).eq("channel", "sms").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      if (invoice && subscriber?.phone) {
+        try {
+          const recipient = normalizeInternationalPhone(subscriber.phone);
+          const receipt = { subscriberName: subscriber.full_name, paymentNo: String(payment.data.payment_no), paymentAmount: Number(payment.data.amount), invoiceNo: String(invoice.invoice_no), balanceDue: Number(invoice.balance_due) };
+          const renderedText = renderPaymentReceiptTemplate(template?.body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
+          const { data: queueRows } = await supabaseAdmin().rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId, p_event_type: "payment_received", p_invoice_id: Number(invoice.id), p_payment_id: paymentId, p_operation_key: `payment_receipt:${paymentId}`, p_rendered_text: renderedText });
+          void recipient;
+          void queueRows;
+        } catch { /* approval remains authoritative; SMS is a secondary notification path */ }
+      }
+      return { paymentId };
+    }),
+    reject: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive(), rejectionReason: z.string().trim().min(2).max(1000) })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_reject_payment_documentation", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_request_id: input.requestId, p_rejection_reason: input.rejectionReason });
+      if (error || !data?.[0]) {
+        const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (text.includes("ALREADY_APPROVED")) throw new TRPCError({ code: "CONFLICT", message: "تم اعتماد الطلب مسبقاً ولا يمكن رفضه." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر رفض طلب توثيق الدفع." });
+      }
+      return { requestId: Number((data[0] as { request_id: number | string }).request_id) };
+    }),
+  }),
+
   collectorSessions: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
