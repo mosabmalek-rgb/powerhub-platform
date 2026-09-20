@@ -67,7 +67,7 @@ const menuGroups = [
   {
     label: "الرقابة",
     items: [
-      { icon: BellRing, label: "الإشعارات", path: "/notifications" },
+      { icon: BellRing, label: "الإشعارات", path: "/announcements" },
       { icon: Palette, label: "بوابة المشتركين", path: "/portal-settings" },
       { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
       { icon: ClipboardCheck, label: "مراجعة توثيق الدفع", path: "/payment-documentation/review", capability: "approvePaymentDocumentation" as PowerCapability },
