@@ -133,8 +133,6 @@ import { REPORT_METRICS, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPT
 import { loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import ExcelJS from "exceljs";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 import { ArrowDownLeft, ArrowUpRight, CalendarDays, CircleDollarSign, CloudOff, Download, FileBarChart2, FileSpreadsheet, FileText, GitCompareArrows, ImagePlus, Layers3, Loader2, RefreshCw, Save } from "lucide-react";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
