@@ -16,6 +16,7 @@ export type PowerCapability =
   | "manageTariffs"
   | "issueInvoices"
   | "collectPayments"
+  | "approvePaymentDocumentation"
   | "manageExpenses"
   | "managePayroll"
   | "manageTeam"
@@ -49,6 +50,7 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   manageTariffs: ["owner", "manager", "accountant"],
   issueInvoices: ["owner", "manager", "accountant"],
   collectPayments: ["owner", "manager", "accountant", "collector"],
+  approvePaymentDocumentation: ["owner", "manager", "accountant"],
   manageExpenses: ["owner", "manager", "accountant"],
   managePayroll: ["owner", "accountant"],
   manageTeam: ["owner"],
@@ -65,6 +67,7 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   manageTariffs: "إدارة التعرفات",
   issueInvoices: "إصدار الفواتير",
   collectPayments: "تسجيل التحصيلات",
+  approvePaymentDocumentation: "اعتماد توثيق الدفع الإلكتروني",
   manageExpenses: "إدارة المصروفات",
   managePayroll: "اعتماد وصرف الرواتب",
   manageTeam: "إدارة الحسابات الفرعية",
