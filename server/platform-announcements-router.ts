@@ -37,7 +37,7 @@ export const platformAnnouncementsRouter = router({
     list: adminProcedure.query(async () => {
       const { data, error } = await supabaseAdmin()
         .from("platform_announcements")
-        .select("id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at")
+        .select("id,title,body,announcement_type,status,published_at,scheduled_at,audience_roles,created_by_user_id,created_at,updated_at")
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعلانات المنصة." });
@@ -83,7 +83,7 @@ export const platformAnnouncementsRouter = router({
     })).mutation(async ({ ctx, input }) => {
       const { data, error } = await supabaseAdmin()
         .from("platform_announcements")
-        .update({ title: input.title, body: input.body, announcement_type: input.type, audience_roles: input.audienceRoles, status: input.status, scheduled_at: input.status === "scheduled" ? input.scheduledAt : null, published_at: null, updated_by_user_id: ctx.user.id })
+        .update({ title: input.title, body: input.body, announcement_type: input.type, audience_roles: input.audienceRoles, status: input.status, scheduled_at: input.status === "scheduled" ? input.scheduledAt : null, published_at: input.status === "published" ? new Date().toISOString() : null, updated_by_user_id: ctx.user.id })
         .eq("id", input.id)
         .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
         .single();
