@@ -8,6 +8,7 @@ import MarketingLandingPage from "./MarketingLandingPage";
 const oauthMocks = vi.hoisted(() => ({ startLogin: vi.fn(), setLocation: vi.fn() }));
 
 vi.mock("@/const", () => ({ startLogin: oauthMocks.startLogin }));
+vi.mock("@/lib/trpc", () => ({ trpc: { powerhub: { publicPackageCatalog: { useQuery: () => ({ data: { currency: "ILS", packages: [{ code: "basic", name: "الناشئة", price: 123, includedSubscribers: 150, subscribersLimitMode: "maximum", platformUsers: 2, fieldUsers: 1, includedMessages: 600, branches: 1 }, { code: "advanced", name: "النمو", price: 234, includedSubscribers: 300, subscribersLimitMode: "maximum", platformUsers: 2, fieldUsers: 2, includedMessages: 1200, branches: 1 }, { code: "professional", name: "الاحتراف", price: 345, includedSubscribers: 500, subscribersLimitMode: "maximum", platformUsers: 3, fieldUsers: 3, includedMessages: 2000, branches: 1 }, { code: "business", name: "الأعمال", price: 456, includedSubscribers: 750, subscribersLimitMode: "maximum", platformUsers: 3, fieldUsers: 4, includedMessages: 3000, branches: 1 }, { code: "vip", name: "الذهبية / VIP", price: 567, includedSubscribers: 900, subscribersLimitMode: "minimum", platformUsers: 4, fieldUsers: 4, includedMessages: 4000, branches: 2 }] } }) } } } }));
 vi.mock("wouter", () => ({ useLocation: () => ["/", oauthMocks.setLocation] }));
 
 afterEach(() => {
@@ -23,9 +24,13 @@ describe("PowerHub marketing landing page", () => {
     expect(screen.getByRole("heading", { name: /كل كيلوواط/ })).toBeInTheDocument();
     expect(screen.getByText("إدارة المشتركين")).toBeInTheDocument();
     expect(screen.getByText("تحصيل منضبط")).toBeInTheDocument();
-    expect(screen.getByText("الأساسية")).toBeInTheDocument();
-    expect(screen.getByText("الاحترافية")).toBeInTheDocument();
-    expect(screen.getByText("الشركات")).toBeInTheDocument();
+    expect(screen.getByText("الناشئة")).toBeInTheDocument();
+    expect(screen.getByText("النمو")).toBeInTheDocument();
+    expect(screen.getByText("الاحتراف")).toBeInTheDocument();
+    expect(screen.getByText("الأعمال")).toBeInTheDocument();
+    expect(screen.getByText("الذهبية / VIP")).toBeInTheDocument();
+    expect(screen.getByText("345")).toBeInTheDocument();
+    expect(screen.getByText("567")).toBeInTheDocument();
     expect(screen.queryByText("آراء العملاء")).not.toBeInTheDocument();
   });
 
