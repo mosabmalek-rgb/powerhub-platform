@@ -1,0 +1,61 @@
+name: PowerHub P7 Diagnostic
+
+on:
+  push:
+    branches:
+      - scale/p7-real-http-load
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    name: HTTP diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Runner diagnostics
+        run: |
+          set -euxo pipefail
+          node --version
+          npm --version
+          curl --version | head -n 1
+
+      - name: Production health
+        run: |
+          set -euxo pipefail
+          curl --fail --silent --show-error --retry 3 --retry-all-errors https://powerhub-platform.vercel.app/api/health
+          echo
+          curl --fail --silent --show-error --retry 3 --retry-all-errors https://powerhub-platform.vercel.app/api/ready
+          echo
+
+      - name: Node fetch diagnostic
+        run: |
+          node --input-type=module <<'NODE'
+          const urls = [
+            "https://powerhub-platform.vercel.app/api/health",
+            "https://powerhub-platform.vercel.app/api/ready",
+            "https://powerhub-platform.vercel.app/",
+            "https://powerhub-platform.vercel.app/login"
+          ];
+          for (const url of urls) {
+            const started = performance.now();
+            const response = await fetch(url, {redirect:"manual", cache:"no-store"});
+            const body = await response.text();
+            console.log(JSON.stringify({
+              url,
+              status: response.status,
+              contentType: response.headers.get("content-type"),
+              bytes: body.length,
+              latencyMs: Number((performance.now()-started).toFixed(2))
+            }));
+          }
+          NODE
