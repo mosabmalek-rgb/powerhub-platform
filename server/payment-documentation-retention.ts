@@ -73,6 +73,7 @@ export async function cleanupPaymentDocumentationReceiptImages(batchSize = DEFAU
       .select("id, payment_id, receipt_image_key, status")
       .eq("status", "rejected")
       .not("receipt_image_key", "is", null)
+      .is("receipt_image_deleted_at", null)
       .order("updated_at", { ascending: true })
       .limit(limit),
     admin.from("payment_documentation_requests")
