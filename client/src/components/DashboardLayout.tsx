@@ -61,7 +61,7 @@ const menuGroups = [
       { icon: BriefcaseBusiness, label: "الرواتب والأجور", path: "/payroll" },
       { icon: ChartNoAxesCombined, label: "لوحة المالية", path: "/financial-dashboard" },
       { icon: ChartNoAxesCombined, label: "التسويات المالية", path: "/financial-settlements" },
-      { icon: ChartNoAxesCombined, label: "التقارير", path: "/reports" },
+      { icon: ChartNoAxesCombined, label: "التقارير", path: "/reports" }, { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },
     ],
   },
   {
@@ -150,12 +150,14 @@ function DashboardLayoutContent({
   const smsApprovalQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && smsAccess.data?.role === "owner"), refetchInterval: 15000 });
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
   const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
+  const paymentDocumentationAccess = trpc.powerhub.paymentDocumentation.access.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const operationalGroups = menuGroups.map((group) => group.label === "إدارة الشبكة" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
   const visibleMenuGroups = displayUser.role === "admin" ? [...operationalGroups, platformAdminGroup] : operationalGroups;
   const permissionAwareGroups = visibleMenuGroups.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
       const capability = (item as { capability?: PowerCapability }).capability;
+      if (item.path === "/payment-documentation" && displayUser.role !== "admin") return Boolean(paymentDocumentationAccess.data?.allowed);
       if (!capability || displayUser.role === "admin") return true;
       return can(activeAccess.data?.role, capability, activeAccess.data?.permissions);
     }),
