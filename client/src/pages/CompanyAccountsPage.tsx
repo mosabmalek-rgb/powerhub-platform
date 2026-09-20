@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards } from "lucide-react";
 import ExcelJS from "exceljs";
-import jsPDF from "jspdf";
+import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { type ElementType, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
@@ -213,24 +213,7 @@ export default function CompanyAccountsPage() {
     toast.success("تم تصدير كشف الحساب إلى Excel.");
   };
 
-  const exportPdf = () => {
-    const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-    pdf.setFontSize(16);
-    pdf.text("PowerHub - Company Accounts", 770, 35, { align: "right" });
-    pdf.setFontSize(9);
-    pdf.text(`Accounts: ${filtered.length}`, 770, 52, { align: "right" });
-    let y = 80;
-    pdf.text("Account | Type | Phone | Branches | Balance", 770, y, { align: "right" });
-    y += 18;
-    filtered.forEach((row) => {
-      if (y > 540) { pdf.addPage(); y = 40; }
-      const line = [row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "-", row.linkedSites.map((site) => site.siteName).join(" / ") || "-", Number(row.balance).toLocaleString("en-US")].join(" | ");
-      pdf.text(line.slice(0, 145), 770, y, { align: "right" });
-      y += 14;
-    });
-    pdf.save("كشف-حسابات-الشركة.pdf");
-    toast.success("تم تصدير كشف الحساب إلى PDF.");
-  };
+  const exportPdf = async () => { if (!accountsRef.current) return; try { await downloadReportHtmlAsPdf(accountsRef.current, "كشف-حسابات-الشركة.pdf", { landscape: true, title: "كشف حسابات الشركة - PowerHub" }); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
 
   const exportTransactionsExcel = async () => {
     if (!selectedAccount) return;
@@ -253,25 +236,7 @@ export default function CompanyAccountsPage() {
     toast.success("تم تصدير حركات الحساب إلى Excel.");
   };
 
-  const exportTransactionsPdf = () => {
-    if (!selectedAccount) return;
-    const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-    pdf.setFontSize(16);
-    pdf.text(`PowerHub - ${selectedAccount.name}`, 770, 35, { align: "right" });
-    pdf.setFontSize(9);
-    pdf.text(`Opening balance: ${Number(selectedAccount.openingBalance ?? 0).toLocaleString("en-US")}`, 770, 52, { align: "right" });
-    let y = 80;
-    pdf.text("Date | Type | Amount | Running balance | Description | Reference", 770, y, { align: "right" });
-    y += 18;
-    transactionRows.forEach((row) => {
-      if (y > 540) { pdf.addPage(); y = 40; }
-      const line = [new Date(row.occurredAt).toLocaleDateString("en-US"), row.transactionType, Number(row.amount).toFixed(2), Number(cumulativeById.get(row.id) ?? 0).toFixed(2), row.description, row.referenceNo ?? "-"].join(" | ");
-      pdf.text(line.slice(0, 150), 770, y, { align: "right" });
-      y += 14;
-    });
-    pdf.save(`حركات-${selectedAccount.name}.pdf`);
-    toast.success("تم تصدير حركات الحساب إلى PDF.");
-  };
+  const exportTransactionsPdf = async () => { if (!selectedAccount || !transactionsRef.current) return; try { await downloadReportHtmlAsPdf(transactionsRef.current, `حركات-${selectedAccount.name}.pdf`, { landscape: true, title: `حركات حساب ${selectedAccount.name} - PowerHub` }); toast.success("تم تصدير حركات الحساب إلى PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
 
   return (
     <DashboardLayout>
