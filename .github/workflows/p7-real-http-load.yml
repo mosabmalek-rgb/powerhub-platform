@@ -32,8 +32,21 @@ jobs:
         with:
           node-version: 24
 
+      - name: Runner diagnostics
+        run: |
+          node --version
+          npm --version
+          getent hosts powerhub-platform.vercel.app || true
+          curl -I --max-time 15 --retry 2 --retry-delay 1 "$POWERHUB_PRODUCTION_URL/api/ready"
+
       - name: Run real HTTP load
         run: node scripts/p7-real-http-load.mjs
+
+      - name: Validate result file
+        if: always()
+        run: |
+          test -f p7-load-results.json || exit 1
+          node -e "const r=require('./p7-load-results.json'); console.log(JSON.stringify({pass:r.pass,maxErrorRatePct:r.maxErrorRatePct,stages:r.stages.map(s=>({concurrency:s.concurrency,errorRatePct:s.errorRatePct,p95Ms:s.p95Ms,p99Ms:s.p99Ms,throughputRps:s.throughputRps}))},null,2))"
 
       - name: Upload load results
         if: always()
