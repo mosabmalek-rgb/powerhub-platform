@@ -78,7 +78,7 @@ export const platformAnnouncementsRouter = router({
       body: z.string().trim().min(2).max(10000),
       type: announcementType,
       audienceRoles: audienceSchema,
-      status: z.enum(["draft", "scheduled"]),
+      status: z.enum(["draft", "scheduled", "published"]),
       scheduledAt: z.string().datetime().nullable().optional(),
     })).mutation(async ({ ctx, input }) => {
       const { data, error } = await supabaseAdmin()
