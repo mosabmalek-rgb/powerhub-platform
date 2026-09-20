@@ -324,7 +324,7 @@ export async function getSupabaseFinancialOverview(site: SupabaseSite) {
 export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; from?: Date | null; to?: Date | null }) {
   const admin = supabaseAdmin();
   let { data: accountRows, error: accountsError } = await admin.from("company_accounts")
-    .select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, created_at, updated_at")
+    .select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
     .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
   if (accountsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة من Supabase." });
   if (!(accountRows ?? []).length) {
@@ -370,7 +370,7 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
       const amount = Number(transaction.amount ?? 0);
       return ["deposit", "transfer_in", "collection"].includes(String(transaction.transactionType)) ? total + amount : total - amount;
     }, Number(row.opening_balance));
-    return [{ id, tenantId: Number(row.tenant_id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number, color: row.color, openingBalance: String(row.opening_balance), isActive: row.is_active, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at), linkedSites, balance, transactions }];
+    return [{ id, tenantId: Number(row.tenant_id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number, color: row.color, openingBalance: String(row.opening_balance), isActive: row.is_active, allowPaymentDocumentation: Boolean(row.allow_payment_documentation), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at), linkedSites, balance, transactions }];
   });
 }
 
