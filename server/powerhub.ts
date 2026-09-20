@@ -1479,15 +1479,31 @@ export const powerhubRouter = router({
     }),
     reject: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive(), rejectionReason: z.string().trim().min(2).max(1000) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
+      const request = await supabaseAdmin().from("payment_documentation_requests")
+        .select("receipt_image_key, status")
+        .eq("id", input.requestId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (request.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلب توثيق الدفع." });
       const { data, error } = await supabaseAdmin().rpc("powerhub_reject_payment_documentation", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_request_id: input.requestId, p_rejection_reason: input.rejectionReason });
       if (error || !data?.[0]) {
         const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
         if (text.includes("ALREADY_APPROVED")) throw new TRPCError({ code: "CONFLICT", message: "تم اعتماد الطلب مسبقاً ولا يمكن رفضه." });
+        if (text.includes("NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "طلب توثيق الدفع غير موجود." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر رفض طلب توثيق الدفع." });
       }
+      if (request.data?.receipt_image_key) {
+        try {
+          await storageRemove(request.data.receipt_image_key);
+          const deletedAt = new Date().toISOString();
+          const cleanup = await supabaseAdmin().from("payment_documentation_requests")
+            .update({ receipt_image_key: null, receipt_image_deleted_at: deletedAt, updated_at: deletedAt })
+            .eq("id", input.requestId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("status", "rejected");
+          if (cleanup.error) throw cleanup.error;
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم رفض الطلب لكن تعذر حذف صورة التوثيق فوراً؛ ستتم إعادة المحاولة تلقائياً." });
+        }
+      }
       return { requestId: Number((data[0] as { request_id: number | string }).request_id) };
-    }),
-  }),
+    }),  }),
 
   collectorSessions: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
