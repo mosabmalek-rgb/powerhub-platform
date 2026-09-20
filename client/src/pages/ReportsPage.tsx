@@ -10,6 +10,7 @@ import { trpc } from "@/lib/trpc";
 import { listOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { REPORT_METRICS, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS, formatReportDate, formatReportPeriod } from "@/lib/report-design-system";
 import { loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
+import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import ExcelJS from "exceljs";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
