@@ -78,11 +78,12 @@ export const platformAnnouncementsRouter = router({
       body: z.string().trim().min(2).max(10000),
       type: announcementType,
       audienceRoles: audienceSchema,
+      status: z.enum(["draft", "scheduled"]),
       scheduledAt: z.string().datetime().nullable().optional(),
     })).mutation(async ({ ctx, input }) => {
       const { data, error } = await supabaseAdmin()
         .from("platform_announcements")
-        .update({ title: input.title, body: input.body, announcement_type: input.type, audience_roles: input.audienceRoles, scheduled_at: input.scheduledAt ?? null, updated_by_user_id: ctx.user.id })
+        .update({ title: input.title, body: input.body, announcement_type: input.type, audience_roles: input.audienceRoles, status: input.status, scheduled_at: input.status === "scheduled" ? input.scheduledAt : null, published_at: null, updated_by_user_id: ctx.user.id })
         .eq("id", input.id)
         .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
         .single();
@@ -94,8 +95,7 @@ export const platformAnnouncementsRouter = router({
         .from("platform_announcements")
         .update({ status: "published", published_at: new Date().toISOString(), scheduled_at: null, updated_by_user_id: ctx.user.id })
         .eq("id", input.id)
-        .eq("status", "scheduled")
-        .lte("scheduled_at", new Date().toISOString())
+        .in("status", ["draft", "scheduled"])
         .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
         .single();
       if (error) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر نشر الإعلان؛ قد يكون مؤرشفًا أو غير موجود." });
