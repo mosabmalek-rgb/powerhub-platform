@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Settings2,
   PackageCheck,
+  Image as ImageIcon,
   Ticket,
   UsersRound,
   Zap,
@@ -50,6 +51,7 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
       { id: "users", label: "إدارة المستخدمين", icon: UsersRound, detail: "أصحاب المولدات والموظفون والصلاحيات" },
       { id: "branchSettings", label: "سياسة الأفرع", icon: Settings2, detail: "تفعيل الأفرع وحدودها لكل باقة وصاحب مولد" },
       { id: "packageSettings", label: "ميزات وأعداد الباقات", icon: PackageCheck, detail: "التحكم المركزي بالمشتركين والرسائل والمستخدمين والفروع" },
+      { id: "subscriberPortalLogo", label: "شعار صفحة الاستعلامات", icon: ImageIcon, detail: "إتاحة شعار خاص لأصحاب المولدات في بوابة المشتركين" },
     ],
   },
   {
