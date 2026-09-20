@@ -188,8 +188,14 @@ export async function getValidOfflineAuthLease(expectedUserId?: string): Promise
       }
       return null;
     }
-    if (expectedUserId && stored.userId !== expectedUserId) return null;
-    if (!(await verifyLease(stored))) return null;
+
+    if (expectedUserId && stored.userId !== expectedUserId) {
+      return null;
+    }
+
+    if (!(await verifyLease(stored))) {
+      return null;
+    }
 
     return {
       userId: stored.userId,
