@@ -13,7 +13,7 @@ import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
 import { normalizeInternationalPhone } from "../shared/phone";
 import { processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
-import { storageGet, storagePut, storageRemove } from "./storage";
+import { storageGet, storageGetSignedUrl, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { isActivePlatformAdmin } from "./platform-admin";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
@@ -1315,6 +1315,26 @@ export const powerhubRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات توثيق الدفع." });
       return data ?? [];
     }),
+    availableAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"], "collectPayments");
+      const { data, error } = await supabaseAdmin().from("company_accounts")
+        .select("id, name, account_type, phone_number")
+        .eq("tenant_id", access.tenantId)
+        .eq("is_active", true)
+        .eq("allow_payment_documentation", true)
+        .order("id", { ascending: true });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الدفع المفعلة." });
+      const ids = (data ?? []).map((row) => Number(row.id));
+      if (!ids.length) return [];
+      const { data: links, error: linkError } = await supabaseAdmin().from("company_account_sites")
+        .select("account_id, site_id")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("account_id", ids);
+      if (linkError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ربط حسابات الدفع بالمحطة." });
+      const linked = new Set((links ?? []).map((row) => Number(row.account_id)));
+      return (data ?? []).filter((row) => linked.has(Number(row.id))).map((row) => ({
+        id: Number(row.id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number,
+      }));
+    }),
     submit: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive(),
       destinationAccountId: z.number().int().positive(), paymentAmount: z.number().positive(),
@@ -1382,6 +1402,15 @@ export const powerhubRouter = router({
         } catch { /* approval remains authoritative; SMS is a secondary notification path */ }
       }
       return { paymentId };
+    }),
+    receiptUrl: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      const { data, error } = await supabaseAdmin().from("payment_documentation_requests")
+        .select("receipt_image_key")
+        .eq("id", input.requestId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (error || !data?.receipt_image_key) throw new TRPCError({ code: "NOT_FOUND", message: "صورة التحويل غير متاحة." });
+      try { return { url: await storageGetSignedUrl(data.receipt_image_key) }; }
+      catch { throw new TRPCError({ code: "NOT_FOUND", message: "تعذر فتح صورة التحويل." }); }
     }),
     reject: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive(), rejectionReason: z.string().trim().min(2).max(1000) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
