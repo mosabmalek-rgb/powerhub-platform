@@ -166,7 +166,7 @@ function isDuplicateKeyError(error: unknown) {
 async function getEnabledPortal(portalCode: string) {
   const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_portal_theme", { p_portal_code: portalCode });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات بوابة المشتركين من Supabase." });
-  const portal = (data as Array<{ portal_code: string; display_name: string | null; primary_color: string; accent_color: string; site_name: string; city: string | null }> | null)?.[0];
+  const portal = (data as Array<{ portal_code: string; display_name: string | null; primary_color: string; accent_color: string; site_name: string; city: string | null; logo_key: string | null }> | null)?.[0];
   if (!portal) throw new TRPCError({ code: "NOT_FOUND", message: "رابط بوابة المشتركين غير متاح." });
   return {
     portalCode: portal.portal_code,
@@ -175,6 +175,7 @@ async function getEnabledPortal(portalCode: string) {
     accentColor: portal.accent_color,
     siteName: portal.site_name,
     city: portal.city,
+    logoUrl: portal.logo_key ? (await storageGetSignedUrl(portal.logo_key)) : null,
   };
 }
 
@@ -186,7 +187,7 @@ async function getVerifiedPortalSubscriber(input: z.infer<typeof subscriberPorta
   });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من بيانات بوابة المشترك في Supabase." });
   const result = data as {
-    portal?: { portalCode: string; displayName: string; primaryColor: string; accentColor: string; city: string | null };
+    portal?: { portalCode: string; displayName: string; primaryColor: string; accentColor: string; city: string | null; logoKey?: string | null };
     subscriber?: { subscriberNo: string; fullName: string; phone: string; address: string | null; subscriptionType: string; serviceStatus: string; joinedAt: string };
     invoices?: Array<{ invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; consumptionKwh: number | string; totalAmount: number | string; paidAmount: number | string; balanceDue: number | string; status: string }>;
     payments?: Array<{ id: number; paymentNo: string; amount: number | string; paymentMethod: string; status: string; paidAt: string; invoiceNo: string | null }>;
@@ -665,14 +666,15 @@ export const powerhubRouter = router({
     list: publicProcedure.query(async () => {
       const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_portal_list");
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بوابات المشتركين من Supabase." });
-      return ((data ?? []) as Array<{ portal_code: string; display_name: string | null; primary_color: string; accent_color: string; site_name: string; city: string | null }>).map((portal) => ({
+      return Promise.all(((data ?? []) as Array<{ portal_code: string; display_name: string | null; primary_color: string; accent_color: string; site_name: string; city: string | null; logo_key: string | null }>).map(async (portal) => ({
         portalCode: portal.portal_code,
         displayName: portal.display_name,
         primaryColor: portal.primary_color,
         accentColor: portal.accent_color,
         siteName: portal.site_name,
         city: portal.city,
-      }));
+        logoUrl: portal.logo_key ? await storageGetSignedUrl(portal.logo_key) : null,
+      })));
     }),
     theme: publicProcedure.input(z.object({ portalCode: portalCodeInput })).query(async ({ input }) => {
       const portal = await getEnabledPortal(input.portalCode);
@@ -748,23 +750,70 @@ export const powerhubRouter = router({
     }),
     settings: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
-      const [site, settingResult] = await Promise.all([
+      const admin = supabaseAdmin();
+      const [site, settingResult, logoAccessResult] = await Promise.all([
         getSupabaseSite(input.siteId),
-        supabaseAdmin().from("site_portal_settings")
-          .select("site_id, tenant_id, portal_code, display_name, primary_color, accent_color, is_enabled")
-          .eq("site_id", input.siteId)
-          .eq("tenant_id", access.tenantId)
-          .maybeSingle(),
+        admin.from("site_portal_settings").select("site_id, tenant_id, portal_code, display_name, primary_color, accent_color, is_enabled, logo_key").eq("site_id", input.siteId).eq("tenant_id", access.tenantId).maybeSingle(),
+        admin.rpc("powerhub_subscriber_portal_logo_access", { p_tenant_id: access.tenantId }),
       ]);
-      if (settingResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات بوابة المشتركين من Supabase." });
+      if (settingResult.error || logoAccessResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات بوابة المشتركين من Supabase." });
+      const logoAccess = (logoAccessResult.data as Array<{ allowed: boolean; policy: string; package_code: string | null; entitlement_enabled: boolean }> | null)?.[0];
       const setting = settingResult.data;
+      const logoUrl = setting?.logo_key && logoAccess?.allowed ? await storageGetSignedUrl(setting.logo_key) : null;
       return setting ? {
         siteId: Number(setting.site_id), tenantId: Number(setting.tenant_id), portalCode: setting.portal_code,
         displayName: setting.display_name, primaryColor: setting.primary_color, accentColor: setting.accent_color, isEnabled: setting.is_enabled,
+        logoUrl, logoConfigured: Boolean(setting.logo_key), logoFeatureAllowed: Boolean(logoAccess?.allowed), logoPolicy: logoAccess?.policy ?? "not_included",
+        packageCode: logoAccess?.package_code ?? null, logoEntitlementEnabled: Boolean(logoAccess?.entitlement_enabled),
       } : {
         siteId: site.id, tenantId: site.tenantId, portalCode: site.code.toLowerCase(), displayName: site.name,
         primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true,
+        logoUrl: null, logoConfigured: false, logoFeatureAllowed: Boolean(logoAccess?.allowed), logoPolicy: logoAccess?.policy ?? "not_included",
+        packageCode: logoAccess?.package_code ?? null, logoEntitlementEnabled: Boolean(logoAccess?.entitlement_enabled),
       };
+    }),
+    uploadLogo: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      logoData: z.string().min(100).max(4_500_000),
+      logoMime: z.enum(["image/png", "image/jpeg", "image/webp"]),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      const admin = supabaseAdmin();
+      const { data: featureData, error: featureError } = await admin.rpc("powerhub_subscriber_portal_logo_access", { p_tenant_id: access.tenantId });
+      if (featureError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة ميزة شعار بوابة الاستعلام." });
+      const feature = (featureData as Array<{ allowed: boolean; policy: string }> | null)?.[0];
+      if (!feature?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: feature?.policy === "addon" ? "ميزة الشعار إضافة غير مفعلة لهذا الاشتراك من إدارة المنصة." : "ميزة شعار بوابة الاستعلام غير متاحة ضمن اشتراكك الحالي." });
+      const bytes = Buffer.from(input.logoData, "base64");
+      if (!bytes.length || bytes.length > 3 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ألا يتجاوز حجم الشعار 3 ميغابايت." });
+      const extension = input.logoMime === "image/png" ? "png" : input.logoMime === "image/jpeg" ? "jpg" : "webp";
+      const uploaded = await storagePut(\`tenant-portal-branding/\${access.tenantId}/logo-\${Date.now()}.\${extension}\`, bytes, input.logoMime);
+      try {
+        const { data, error } = await admin.rpc("powerhub_update_site_portal_logo", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_logo_key: uploaded.key });
+        if (error) throw error;
+        const row = (data as Array<{ logo_key: string | null; previous_logo_key: string | null }> | null)?.[0];
+        if (!row) throw new Error("EMPTY_LOGO_RESULT");
+        if (row.previous_logo_key && row.previous_logo_key !== uploaded.key) await storageRemove(row.previous_logo_key).catch(() => undefined);
+        return { success: true, logoUrl: await storageGetSignedUrl(uploaded.key) };
+      } catch (error) {
+        await storageRemove(uploaded.key).catch(() => undefined);
+        const message = error instanceof Error ? error.message : "";
+        if (message.includes("PORTAL_LOGO_FEATURE_NOT_ALLOWED")) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة شعار بوابة الاستعلام غير متاحة ضمن اشتراكك الحالي." });
+        if (message.includes("OWNER_ACCESS_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذه العملية متاحة لمالك مساحة المولد فقط." });
+        if (message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة ضمن نطاقك." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ شعار بوابة الاستعلام." });
+      }
+    }),
+    removeLogo: protectedProcedure.input(siteScoped).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      const admin = supabaseAdmin();
+      const { data, error } = await admin.rpc("powerhub_update_site_portal_logo", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_logo_key: null });
+      if (error) {
+        if (error.message.includes("OWNER_ACCESS_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذه العملية متاحة لمالك مساحة المولد فقط." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إزالة شعار بوابة الاستعلام." });
+      }
+      const row = (data as Array<{ previous_logo_key: string | null }> | null)?.[0];
+      if (row?.previous_logo_key) await storageRemove(row.previous_logo_key).catch(() => undefined);
+      return { success: true };
     }),
     saveSettings: protectedProcedure.input(siteScoped.extend({
       portalCode: z.string().trim().min(2).max(50).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
