@@ -1410,8 +1410,9 @@ export const powerhubRouter = router({
         if (!input.receiptImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة التحويل." });
         const imageBytes = Buffer.from(input.receiptImageData, "base64");
         if (imageBytes.byteLength === 0 || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا تتجاوز صورة التحويل 7 ميغابايت." });
+        if (!["image/jpeg", "image/webp"].includes(input.receiptImageMime)) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب إرسال صورة التحويل بصيغة JPG أو WebP بعد المعالجة." });
         receiptImageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
-        const extension = input.receiptImageMime === "image/png" ? "png" : input.receiptImageMime === "image/webp" ? "webp" : "jpg";
+        const extension = input.receiptImageMime === "image/webp" ? "webp" : "jpg";
         const stored = await storagePut(`payment-documentation/${access.tenantId}/${input.siteId}/${ctx.user.id}/${crypto.randomUUID()}.${extension}`, imageBytes, input.receiptImageMime);
         receiptImageKey = stored.key;
       }
