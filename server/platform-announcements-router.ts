@@ -12,6 +12,8 @@ const adminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
 
 const announcementType = z.enum(["news", "announcement", "maintenance", "alert"]);
 const announcementStatus = z.enum(["draft", "published", "archived"]);
+const audienceRole = z.enum(["all", "owner", "manager", "accountant", "collector", "technician", "viewer", "platform_owner", "platform_admin", "finance_admin"]);
+const audienceSchema = z.array(audienceRole).min(1).max(7).refine((roles) => roles.includes("all") ? roles.length === 1 : true, "all cannot be combined with specific roles");
 
 function mapAnnouncement(row: any, readAt?: string | null) {
   return {
@@ -25,6 +27,7 @@ function mapAnnouncement(row: any, readAt?: string | null) {
     updatedAt: row.updated_at,
     createdByUserId: Number(row.created_by_user_id),
     readAt: readAt ?? null,
+    audienceRoles: row.audience_roles ?? ["all"],
   };
 }
 
@@ -43,6 +46,7 @@ export const platformAnnouncementsRouter = router({
       title: z.string().trim().min(2).max(180),
       body: z.string().trim().min(2).max(10000),
       type: announcementType.default("news"),
+      audienceRoles: audienceSchema.default(["all"]),
       status: z.enum(["draft", "published"]).default("draft"),
     })).mutation(async ({ ctx, input }) => {
       const published = input.status === "published";
@@ -52,6 +56,7 @@ export const platformAnnouncementsRouter = router({
           title: input.title,
           body: input.body,
           announcement_type: input.type,
+          audience_roles: input.audienceRoles,
           status: input.status,
           published_at: published ? new Date().toISOString() : null,
           created_by_user_id: ctx.user.id,
@@ -67,10 +72,11 @@ export const platformAnnouncementsRouter = router({
       title: z.string().trim().min(2).max(180),
       body: z.string().trim().min(2).max(10000),
       type: announcementType,
+      audienceRoles: audienceSchema,
     })).mutation(async ({ ctx, input }) => {
       const { data, error } = await supabaseAdmin()
         .from("platform_announcements")
-        .update({ title: input.title, body: input.body, announcement_type: input.type, updated_by_user_id: ctx.user.id })
+        .update({ title: input.title, body: input.body, announcement_type: input.type, audience_roles: input.audienceRoles, updated_by_user_id: ctx.user.id })
         .eq("id", input.id)
         .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
         .single();
@@ -101,22 +107,28 @@ export const platformAnnouncementsRouter = router({
   }),
   inbox: router({
     list: authenticatedProcedure.query(async ({ ctx }) => {
+      const { data: profiles } = await supabaseAdmin().from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true);
+      const { data: account } = await supabaseAdmin().from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single();
+      if (!account || account.account_status !== "active") return [];
+      const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
+      if (account.platform_role) roles.add(account.platform_role);
       const { data, error } = await supabaseAdmin()
         .from("platform_announcements")
-        .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
+        .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at,audience_roles")
         .eq("status", "published")
         .not("published_at", "is", null)
         .lte("published_at", new Date().toISOString())
         .order("published_at", { ascending: false })
         .limit(100);
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الإشعارات الداخلية." });
-      const ids = (data ?? []).map((row) => Number(row.id));
+      const visible = (data ?? []).filter((row) => row.audience_roles?.includes("all") || row.audience_roles?.some((r: string) => roles.has(r)));
+      const ids = visible.map((row) => Number(row.id));
       const reads = ids.length
         ? await supabaseAdmin().from("platform_announcement_reads").select("announcement_id,read_at").eq("user_id", ctx.user.id).in("announcement_id", ids)
         : { data: [], error: null };
       if (reads.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حالة القراءة." });
       const readMap = new Map((reads.data ?? []).map((row) => [Number(row.announcement_id), row.read_at]));
-      return (data ?? []).map((row) => mapAnnouncement(row, readMap.get(Number(row.id)) ?? null));
+      return visible.map((row) => mapAnnouncement(row, readMap.get(Number(row.id)) ?? null));
     }),
     markRead: authenticatedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const { data: announcement, error: announcementError } = await supabaseAdmin()
