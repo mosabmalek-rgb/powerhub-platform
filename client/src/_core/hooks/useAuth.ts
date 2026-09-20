@@ -60,6 +60,8 @@ export function useAuth(options?: UseAuthOptions) {
       setSessionReady(true);
       if (!session) {
         setCachedUser(null);
+        setOfflineLeaseUserId(null);
+        void revokeOfflineAuthLease();
       } else {
         setOfflineLeaseUserId(session.user.id);
         void getOfflineAuthUser<CachedAuthUser>(session.user.id).then((cached) => {
