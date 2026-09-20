@@ -53,9 +53,27 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/[...path]" },
-    { "source": "/brand-assets/:path*", "destination": "/api/brand-assets/:path*" },
-    { "source": "/manus-storage/:path*", "destination": "/api/manus-storage/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/[...path]"
+    },
+    {
+      "source": "/brand-assets/:path*",
+      "destination": "/api/brand-assets/:path*"
+    },
+    {
+      "source": "/manus-storage/:path*",
+      "destination": "/api/manus-storage/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/scheduled/payment-documentation-retention",
+      "schedule": "30 2 * * *"
+    }
   ]
 }
