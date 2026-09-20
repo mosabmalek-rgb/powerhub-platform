@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
+import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
 import { Loader2, Search, Upload, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -44,9 +45,13 @@ export default function PaymentDocumentationPage() {
     let receiptImageData:string|undefined;
     let receiptImageMime:any;
     if(file){
-      if(file.size>7*1024*1024)return toast.error("حجم صورة التحويل يجب ألا يتجاوز 7 ميغابايت.");
-      receiptImageData=await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(",")[1]??"");r.onerror=reject;r.readAsDataURL(file);});
-      receiptImageMime=file.type as any;
+      try {
+        const prepared = await preparePaymentReceiptImage(file);
+        receiptImageData = prepared.data;
+        receiptImageMime = prepared.mime;
+      } catch (error) {
+        return toast.error(error instanceof Error ? error.message : "تعذر تجهيز صورة التحويل.");
+      }
     }
     submit.mutate({siteId: siteId ?? 0,subscriberId:Number(selected.id),invoiceId:Number(invoice.id),destinationAccountId:Number(accountId),paymentAmount:Number(amount),paymentMethod:method as any,senderPhone:senderPhone||undefined,referenceNo:referenceNo||undefined,receiptImageData,receiptImageMime});
   }
