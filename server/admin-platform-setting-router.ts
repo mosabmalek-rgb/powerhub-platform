@@ -4,6 +4,7 @@ import { authenticatedProcedure, router } from "./_core/trpc";
 import type { adminRouter } from "./admin";
 import { adminRouterWithSupabaseTariffPolicy } from "./admin-tariff-policy-router";
 import { savePlatformSetting } from "./platform-setting-supabase";
+import { supabaseAdmin } from "./supabase-admin";
 import { adminOwnerAccessRecoveryRouter } from "./admin-owner-access-recovery-router";
 import { adminRolePolicyRouter } from "./admin-role-policy-router";
 import { adminRouterWithSupabasePlatformAccess } from "./admin-platform-access-router";
