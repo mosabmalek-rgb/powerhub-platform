@@ -1286,6 +1286,25 @@ export const powerhubRouter = router({
   }),
 
   paymentDocumentation: router({
+    searchSubscriber: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), query: z.string().trim().min(1).max(120) })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"], "collectPayments");
+      const q = input.query.trim();
+      const admin = supabaseAdmin();
+      const { data: subscribers, error: subscriberError } = await admin.from("subscribers")
+        .select("id, full_name, subscriber_no, phone, whatsapp_number, service_status")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .or(`full_name.ilike.%${q.replace(/[%_]/g, "")}%,subscriber_no.ilike.%${q.replace(/[%_]/g, "")}%`)
+        .limit(20);
+      if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر البحث عن المشترك." });
+      if (!subscribers?.length) return [];
+      const ids = subscribers.map((row) => Number(row.id));
+      const { data: invoices, error: invoiceError } = await admin.from("invoices")
+        .select("id, subscriber_id, invoice_no, billing_period, issue_date, due_date, previous_reading, current_reading, consumption_kwh, price_per_kwh, fixed_fee, tax_amount, discount_amount, total_amount, paid_amount, balance_due, status")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("subscriber_id", ids)
+        .order("issue_date", { ascending: false }).limit(200);
+      if (invoiceError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فواتير المشترك." });
+      return subscribers.map((subscriber) => ({ ...subscriber, invoices: (invoices ?? []).filter((invoice) => Number(invoice.subscriber_id) === Number(subscriber.id)) }));
+    }),
     list: protectedProcedure.input(siteScoped.extend({ status: z.enum(["pending","approved","rejected","all"]).default("pending") })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
       let query = supabaseAdmin().from("payment_documentation_requests")
