@@ -425,9 +425,9 @@ export const powerhubRouter = router({
     permissionChanges: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive().optional() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "viewAudit");
       let query = supabaseAdmin().from("audit_logs").select("id, user_id, action, created_at, after_data, metadata")
-        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("action", ["update_permissions", "create", "update"])
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("entity_type", "staff_profile").eq("action", "update_permissions")
         .order("created_at", { ascending: false }).limit(100);
-      if (input.userId) query = query.eq("user_id", input.userId);
+      if (input.userId) query = query.eq("after_data->>targetUserId", String(input.userId));
       const { data, error } = await query;
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل تغييرات الصلاحيات من Supabase." });
       return (data ?? []).map((row) => ({ id: Number(row.id), userId: row.user_id === null ? null : Number(row.user_id), action: row.action, createdAt: new Date(row.created_at), afterData: row.after_data, metadata: row.metadata }));
