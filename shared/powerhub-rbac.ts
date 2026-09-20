@@ -76,7 +76,7 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
 };
 
 export function can(role: PowerRole | undefined | null, capability: PowerCapability, permissions?: readonly PowerCapability[] | null) {
-  if (permissions?.length) return permissions.includes(capability);
+  if (permissions !== undefined && permissions !== null) return permissions.includes(capability);
   return Boolean(role && capabilityRoles[capability].includes(role));
 }
 
