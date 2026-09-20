@@ -4,6 +4,7 @@ const LEASE_STORE = "lease";
 const KEY_STORE = "keys";
 const LEASE_KEY = "active";
 const DEVICE_KEY = "device-hmac";
+const DEVICE_ID_KEY = "device-id";
 
 export const OFFLINE_AUTH_LEASE_MS = 48 * 60 * 60 * 1000;
 
@@ -20,6 +21,11 @@ type StoredLease = OfflineAuthLease & {
 type StoredKey = {
   id: typeof DEVICE_KEY;
   key: CryptoKey;
+};
+
+type StoredDeviceId = {
+  id: typeof DEVICE_ID_KEY;
+  value: string;
 };
 
 function assertBrowserCrypto() {
@@ -97,6 +103,20 @@ async function deleteRecord(storeName: string, key: IDBValidKey) {
       reject(transaction.error ?? new Error("تعذر إلغاء المصادقة المحلية."));
     };
   });
+}
+
+async function getDeviceId() {
+  const stored = await readRecord<StoredDeviceId>(KEY_STORE, DEVICE_ID_KEY);
+  if (stored?.value) return stored.value;
+  const value = crypto.randomUUID();
+  await writeRecord(KEY_STORE, { id: DEVICE_ID_KEY, value } satisfies StoredDeviceId);
+  return value;
+}
+
+export async function getPowerHubDeviceId() {
+  assertBrowserCrypto();
+  assertIndexedDb();
+  return getDeviceId();
 }
 
 async function getDeviceKey() {
