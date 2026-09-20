@@ -52,10 +52,7 @@ export function useAuth(options?: UseAuthOptions) {
       }
       const cached = await getOfflineAuthUser<CachedAuthUser>(session.user.id);
       if (active && cached) setCachedUser(cached);
-      if (active) {
-        setOfflineLeaseUserId(session.user.id);
-        void renewOfflineAuthLease(session.user.id);
-      }
+      if (active) setOfflineLeaseUserId(session.user.id);
     });
 
     const unsubscribe = subscribeSupabaseAuthState((event, session) => {
@@ -65,7 +62,6 @@ export function useAuth(options?: UseAuthOptions) {
         setCachedUser(null);
       } else {
         setOfflineLeaseUserId(session.user.id);
-        void renewOfflineAuthLease(session.user.id);
         void getOfflineAuthUser<CachedAuthUser>(session.user.id).then((cached) => {
           if (cached) setCachedUser(cached);
         });
@@ -94,6 +90,15 @@ export function useAuth(options?: UseAuthOptions) {
     void getSupabaseSession().then((session) => {
       const userId = session?.user.id;
       if (userId) void persistOfflineAuthUser(userId, meQuery.data);
+    });
+    // meQuery.data is returned by the authenticated PowerHub API, so this is
+    // the point at which the browser has actually completed an online check.
+    // Only this confirmed online response may renew the 48-hour offline lease.
+    void getSupabaseSession().then((session) => {
+      const userId = session?.user.id;
+      if (userId && typeof navigator !== "undefined" && navigator.onLine) {
+        void renewOfflineAuthLease(userId);
+      }
     });
   }, [meQuery.data]);
 
