@@ -1228,7 +1228,7 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
       const feature = await supabaseAdmin().from("platform_settings").select("is_enabled").eq("setting_key", "subscriber_portal_logo").maybeSingle();
       if (feature.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالة ميزة الشعار." });
-      if (feature.data?.is_enabled !== true) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة شعار صفحة الاستعلامات غير مفعّلة من إدارة المنصة." });
+      if (!input.remove && feature.data?.is_enabled !== true) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة شعار صفحة الاستعلامات غير مفعّلة من إدارة المنصة." });
       let logoKey: string | null = null;
       if (!input.remove && input.logoData && input.logoMime) {
         const bytes = Buffer.from(input.logoData, "base64");
