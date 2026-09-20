@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { can, type PowerCapability } from "@shared/powerhub-rbac";
 import { PowerHubLogo } from "./PowerHubLogo";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -68,6 +69,7 @@ const menuGroups = [
       { icon: BellRing, label: "الإشعارات", path: "/notifications" },
       { icon: Palette, label: "بوابة المشتركين", path: "/portal-settings" },
       { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
+      { icon: ClipboardCheck, label: "مراجعة توثيق الدفع", path: "/payment-documentation/review", capability: "approvePaymentDocumentation" as PowerCapability },
       { icon: RadioTower, label: "الميدان والمزامنة", path: "/mobile-sync" },
       { icon: CloudOff, label: "مسودات دون اتصال", path: "/offline-sync" },
       { icon: Settings2, label: "الإعدادات", path: "/settings" },
@@ -147,7 +149,15 @@ function DashboardLayoutContent({
   const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const operationalGroups = menuGroups.map((group) => group.label === "إدارة الشبكة" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
   const visibleMenuGroups = displayUser.role === "admin" ? [...operationalGroups, platformAdminGroup] : operationalGroups;
-  const activeMenuItem = visibleMenuGroups.flatMap(group => group.items).find(item => item.path === location);
+  const permissionAwareGroups = visibleMenuGroups.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => {
+      const capability = (item as { capability?: PowerCapability }).capability;
+      if (!capability || displayUser.role === "admin") return true;
+      return can(smsAccess.data?.role, capability, smsAccess.data?.permissions);
+    }),
+  })).filter((group) => group.items.length > 0);
+  const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
   const isMobile = useIsMobile();
   const approvedSmsRequest = smsApprovalQuery.data?.status === "approved" ? smsApprovalQuery.data : null;
   useEffect(() => { if (approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId) toast.success(`تم اعتماد حزمة الرسائل وإضافة ${Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيدك.`); }, [approvedSmsRequest, dismissedSmsApprovalId]);
@@ -220,7 +230,7 @@ function DashboardLayoutContent({
           </SidebarHeader>
 
           <SidebarContent className="gap-0 py-3">
-            {visibleMenuGroups.map(group => (
+            {permissionAwareGroups.map(group => (
               <div key={group.label} className="mb-3">
                 {!isCollapsed && <p className="px-4 pb-2 pt-2 text-[10px] font-bold tracking-[0.13em] text-slate-500">{group.label}</p>}
                 <SidebarMenu className="px-2 py-0">
