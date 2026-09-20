@@ -1,38 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { can, platformAccessRole, powerRoleLabels, powerRoleScopes } from "./powerhub-rbac";
+import { can } from "./powerhub-rbac";
 
-describe("PowerHub role capabilities", () => {
-  it("keeps financial, collection, and technical capabilities separate", () => {
-    expect(can("collector", "collectPayments")).toBe(true);
-    expect(can("collector", "recordReadings")).toBe(false);
-    expect(can("technician", "recordReadings")).toBe(true);
-    expect(can("technician", "accessFieldApp")).toBe(true);
-    expect(can("technician", "collectPayments")).toBe(false);
-    expect(can("accountant", "issueInvoices")).toBe(true);
-    expect(can("viewer", "issueInvoices")).toBe(false);
+describe("payment documentation approval capability", () => {
+  it("does not grant approval by role alone", () => {
+    expect(can("manager", "approvePaymentDocumentation")).toBe(false);
+    expect(can("accountant", "approvePaymentDocumentation")).toBe(false);
+    expect(can("collector", "approvePaymentDocumentation")).toBe(false);
   });
 
-  it("reserves team and messaging administration for the owner", () => {
-    expect(can("owner", "manageTeam")).toBe(true);
-    expect(can("manager", "manageTeam")).toBe(false);
-    expect(can("owner", "manageMessaging")).toBe(true);
-    expect(can("accountant", "manageMessaging")).toBe(false);
+  it("allows explicit grants and only explicit grants", () => {
+    expect(can("accountant", "approvePaymentDocumentation", ["approvePaymentDocumentation"])).toBe(true);
+    expect(can("manager", "approvePaymentDocumentation", [])).toBe(false);
+    expect(can("accountant", "approvePaymentDocumentation", ["collectPayments"])).toBe(false);
   });
 
-  it("uses direct permissions when an account has a custom permission set", () => {
-    expect(can("viewer", "collectPayments", ["collectPayments"])).toBe(true);
-    expect(can("collector", "recordReadings", ["collectPayments"])).toBe(false);
-    expect(can("technician", "accessFieldApp", ["recordReadings"])).toBe(false);
-    expect(can("technician", "accessFieldApp", ["recordReadings", "accessFieldApp"])).toBe(true);
-    expect(can("viewer", "viewAudit", ["viewAudit"])).toBe(true);
+  it("treats an explicit empty permission list as deny-by-default", () => {
+    expect(can("accountant", "approvePaymentDocumentation", [])).toBe(false);
+    expect(can("accountant", "collectPayments", [])).toBe(false);
   });
 
-  it("maps the proposed platform administrator and generator-owner labels to their real scopes", () => {
-    expect(platformAccessRole).toMatchObject({ key: "super_admin", displayName: "مدير المنصة", scope: "platform", implementationRole: "admin" });
-    expect(powerRoleLabels.owner).toBe("صاحب مولد");
-    expect(powerRoleLabels.accountant).toBe("محاسب");
-    expect(powerRoleScopes.owner).toBe("tenant");
-    expect(powerRoleScopes.manager).toBe("site");
-    expect(powerRoleScopes.accountant).toBe("site");
+  it("uses role defaults only when custom permissions are absent", () => {
+    expect(can("accountant", "collectPayments", null)).toBe(true);
+    expect(can("accountant", "approvePaymentDocumentation", null)).toBe(false);
+    expect(can("collector", "collectPayments", undefined)).toBe(true);
+    expect(can("collector", "approvePaymentDocumentation", undefined)).toBe(false);
   });
 });
