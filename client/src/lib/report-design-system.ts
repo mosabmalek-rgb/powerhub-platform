@@ -25,7 +25,7 @@ export const REPORT_METRICS = [
   { key: "operatingProfit", label: "صافي التدفق التشغيلي" },
 ] as const;
 
-export function formatReportDate(value: string | Date | null | undefined): string {
+export function formatReportDate(value: string | number | Date | null | undefined): string {
   if (!value) return "—";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
