@@ -1,12 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import PlatformAdminLayout from "@/components/PlatformAdminLayout";
 import { Archive, BellRing, CalendarDays, CheckCircle2, FileText, Loader2, Megaphone, Pencil, Plus, Send, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 const typeLabels: Record<string, string> = { news: "خبر", announcement: "إعلان", maintenance: "صيانة", alert: "تنبيه" };
