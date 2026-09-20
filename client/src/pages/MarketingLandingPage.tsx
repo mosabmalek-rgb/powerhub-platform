@@ -33,29 +33,12 @@ const features = [
   { icon: Landmark, title: "عدة مولدات ومحطات", text: "تجميع آمن للمواقع والمولدات والتعرفة ضمن نموذج مستأجر واحد قابل للنمو." },
 ];
 
-const plans = [
-  {
-    name: "الأساسية",
-    description: "لبداية منظمة مع محطة تشغيل واحدة.",
-    accent: "border-white/10 bg-white/[0.025]",
-    items: ["المشتركون والعدادات", "القراءات والفوترة", "روابط الفواتير", "تقارير تشغيلية أساسية"],
-    action: "ابدأ بمساحتك",
-  },
-  {
-    name: "الاحترافية",
-    description: "للتشغيل اليومي الذي يحتاج تدقيقاً وتحليلاً أعمق.",
-    accent: "border-[#F5B800]/55 bg-[#F5B800]/[0.055] shadow-[0_20px_70px_rgba(245,184,0,0.08)]",
-    highlighted: true,
-    items: ["كل ميزات الأساسية", "جلسات المحصل والإغلاق", "تقارير وتحليلات متقدمة", "إدارة فريق المحطة"],
-    action: "اختر الاحترافية",
-  },
-  {
-    name: "الشركات",
-    description: "لشبكات متعددة ومتابعة مركزية مخصصة.",
-    accent: "border-white/10 bg-white/[0.025]",
-    items: ["محطات ومولدات متعددة", "صلاحيات تشغيلية دقيقة", "مركز قيادة إداري", "تهيئة حسب نطاق العمل"],
-    action: "تحدث إلينا",
-  },
+const fallbackPlans = [
+  { code: "basic", name: "الناشئة", description: "لبداية منظمة مع ما يصل إلى 150 مشتركاً.", accent: "border-white/10 bg-white/[0.025]", highlighted: false, action: "ابدأ بمساحتك", price: 123, currency: "ILS", items: ["حتى 150 مشتركاً", "مستخدم منصة: 2", "مستخدم ميداني: 1", "600 رسالة SMS", "فرع واحد"] },
+  { code: "advanced", name: "النمو", description: "للتشغيل المتنامي مع حدود استخدام أوسع.", accent: "border-white/10 bg-white/[0.025]", highlighted: false, action: "ابدأ بمساحتك", price: 234, currency: "ILS", items: ["حتى 300 مشترك", "مستخدمو منصة: 2", "مستخدمون ميدانيون: 2", "1,200 رسالة SMS", "فرع واحد"] },
+  { code: "professional", name: "الاحتراف", description: "لتشغيل يومي أكثر تقدماً ودعماً أولوياً.", accent: "border-[#F5B800]/55 bg-[#F5B800]/[0.055] shadow-[0_20px_70px_rgba(245,184,0,0.08)]", highlighted: true, action: "اختر الباقة", price: 345, currency: "ILS", items: ["حتى 500 مشترك", "مستخدمو منصة: 3", "مستخدمون ميدانيون: 3", "2,000 رسالة SMS", "فرع واحد"] },
+  { code: "business", name: "الأعمال", description: "لتشغيل أكبر مع دعم أولوية وميزات إضافية.", accent: "border-white/10 bg-white/[0.025]", highlighted: false, action: "ابدأ بمساحتك", price: 456, currency: "ILS", items: ["حتى 750 مشتركاً", "مستخدمو منصة: 3", "مستخدمون ميدانيون: 4", "3,000 رسالة SMS", "فرع واحد"] },
+  { code: "vip", name: "الذهبية / VIP", description: "للتشغيل الأعلى مع حد أدنى 900 مشترك وفرعين.", accent: "border-white/10 bg-white/[0.025]", highlighted: false, action: "تواصل معنا", price: 567, currency: "ILS", items: ["900+ مشترك", "مستخدمو منصة: 4", "مستخدمون ميدانيون: 4", "4,000 رسالة SMS", "فرعان"] },
 ];
 
 function SectionTitle({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
@@ -70,6 +53,24 @@ function SectionTitle({ eyebrow, title, description }: { eyebrow: string; title:
 
 export default function MarketingLandingPage() {
   const [, setLocation] = useLocation();
+  const catalog = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000, retry: 1 });
+  const plans = catalog.data?.packages?.map((pkg, index) => ({
+    code: String(pkg.code),
+    name: String(pkg.name),
+    description: `باقة ${String(pkg.name)} لإدارة مشروع بيع الكهرباء بالكيلوواط.`,
+    accent: index === 2 ? "border-[#F5B800]/55 bg-[#F5B800]/[0.055] shadow-[0_20px_70px_rgba(245,184,0,0.08)]" : "border-white/10 bg-white/[0.025]",
+    highlighted: index === 2,
+    items: [
+      `${Number(pkg.includedSubscribers ?? 0).toLocaleString("ar")} ${String(pkg.subscribersLimitMode) === "minimum" ? "+ مشترك" : "مشترك كحد أقصى"}`,
+      `مستخدمو المنصة: ${Number(pkg.platformUsers ?? 0)}`,
+      `مستخدمون ميدانيون: ${Number(pkg.fieldUsers ?? 0)}`,
+      `${Number(pkg.includedMessages ?? 0).toLocaleString("ar")} رسالة SMS`,
+      `${Number(pkg.branches ?? 0)} ${Number(pkg.branches ?? 0) === 1 ? "فرع" : "فرعان"}`,
+    ],
+    action: index === 2 ? "اختر الباقة" : "ابدأ بمساحتك",
+    price: Number(pkg.price),
+    currency: catalog.data?.currency ?? "ILS",
+  })) ?? fallbackPlans;
   const goToFeatures = () => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" });
 
   return (
