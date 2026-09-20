@@ -18,11 +18,12 @@ import jsPDF from "jspdf";
 import { Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, FileSpreadsheet, FileText, Loader2, MessageSquareText, Plus, RefreshCw, ShieldAlert, UsersRound } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { formatReportDate } from "@/lib/report-design-system";
 
 type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "smsFallback" | "smsPlans" | "complaints" | "notifications" | "announcements" | "security" | "settings";
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const formatNumber = (value: unknown) => new Intl.NumberFormat("ar").format(Number(value ?? 0));
-const formatDate = (value: Date | string | null | undefined) => value ? new Date(value).toLocaleDateString("ar-IQ", { year: "numeric", month: "short", day: "numeric" }) : "—";
+const formatDate = (value: Date | string | null | undefined) => value ? formatReportDate(value) : "—";
 const paymentMethodLabels: Record<string, string> = { cash: "نقدي", wallet: "محفظة", bank_transfer: "تحويل بنكي", card: "بطاقة" };
 const notificationStatusLabels: Record<string, string> = { pending: "بانتظار المعالجة", submitted: "مرسلة للمزود", delivered: "تم التسليم", read: "مقروءة", failed: "فاشلة" };
 
