@@ -4,13 +4,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getSupabaseSession, supabase } from "@/lib/supabase";
 import { ArrowRight, KeyRound, Loader2, Mail, ShieldCheck } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
 function authMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "تعذر إتمام العملية، حاول مرة أخرى.";
   if (/invalid login credentials/i.test(message)) return "البريد الإلكتروني أو كلمة المرور غير صحيحين.";
   if (/email not confirmed/i.test(message)) return "يرجى تأكيد البريد الإلكتروني من الرسالة المرسلة قبل تسجيل الدخول.";
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return "لا يوجد اتصال بالإنترنت. إذا كانت جلستك السابقة ما تزال محفوظة على هذا الجهاز، أعد فتح PowerHub وسيتم الدخول تلقائيًا. أما تسجيل الدخول بعد تسجيل الخروج فيتطلب اتصالًا بالإنترنت.";
+  }
   return message;
 }
 
@@ -21,11 +24,39 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  useEffect(() => {
+    let active = true;
+    void getSupabaseSession()
+      .then((session) => {
+        if (!active || !session) return;
+        // A persisted, still-valid Supabase session is the trusted sign-in state
+        // for this device. Reuse it instead of forcing a network login.
+        window.location.replace("/workspace");
+      })
+      .catch(() => {
+        // Offline with no usable persisted session: remain on the login form.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
     setPending(true);
     try {
+      const existingSession = await getSupabaseSession().catch(() => null);
+      if (existingSession) {
+        window.location.assign("/workspace");
+        return;
+      }
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        throw new Error("لا يوجد اتصال بالإنترنت.");
+      }
+
       const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (signInError) throw signInError;
       const session = await getSupabaseSession();
