@@ -493,3 +493,14 @@ button:focus-visible, [role="button"]:focus-visible, a:focus-visible, input:focu
   outline: 3px solid rgba(184, 132, 0, .45);
   outline-offset: 2px;
 }
+
+/* Arabic date controls: keep the browser's day/month/year segments in natural LTR order
+   even when the surrounding PowerHub workspace is RTL. */
+input[type="date"],
+input[type="month"],
+input[type="week"],
+input[type="datetime-local"] {
+  direction: ltr !important;
+  text-align: left !important;
+  unicode-bidi: isolate;
+}
