@@ -214,8 +214,9 @@ export function SubscriberPortalLogoFeaturePanel() {
   const utils = trpc.useUtils();
   const configuration = trpc.admin.platformConfiguration.useQuery();
   const owners = trpc.admin.listOwners.useQuery();
+  const entitlements = trpc.admin.listTenantFeatureEntitlements.useQuery();
   const setEntitlement = trpc.admin.setTenantFeatureEntitlement.useMutation({
-    onSuccess: () => { void utils.admin.listOwners.invalidate(); toast.success("تم تحديث إتاحة شعار بوابة الاستعلام."); },
+    onSuccess: () => { void utils.admin.listTenantFeatureEntitlements.invalidate(); toast.success("تم تحديث إتاحة شعار بوابة الاستعلام."); },
     onError: (error) => toast.error(error.message),
   });
   const feature = configuration.data?.settings.find((item) => item.settingKey === "subscriber_portal_logo");
@@ -238,7 +239,7 @@ export function SubscriberPortalLogoFeaturePanel() {
       <div className="mt-5 space-y-3">{(owners.data ?? []).map((row: any) => {
         const plan = row.subscription?.packageCode ?? row.subscription?.plan ?? row.tenant?.plan;
         const policy = policyFor(plan);
-        const currentlyEnabled = Boolean(row.logoEntitlement?.isEnabled);
+        const currentlyEnabled = Boolean((entitlements.data ?? []).find((item: any) => item.tenantId === row.tenant.id)?.isEnabled);
         const usable = feature?.isEnabled && policy !== "not_included";
         return <div key={row.tenant.id} className="grid gap-3 rounded-2xl border border-white/8 bg-white/[.02] p-4 lg:grid-cols-[1.4fr_.7fr_.7fr_auto] lg:items-center">
           <div><p className="font-bold text-white">{row.owner?.fullName ?? row.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{row.tenant.name} · {plan ?? "—"} · سياسة الشعار: {policy === "included" ? "مشمولة" : policy === "addon" ? "إضافة" : "مخفية"}</p></div>
