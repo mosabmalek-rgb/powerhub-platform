@@ -21,6 +21,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, BriefcaseBusiness, ClipboardCheck, ChartNoAxesCombined, Fuel, Gauge,
@@ -143,6 +144,8 @@ function DashboardLayoutContent({
   const accountRoleLabel = user ? (user.role === "admin" ? platformRoleLabel : "مساحة تشغيل المولد") : "وضع معاينة آمن";
   const workspaceSites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: Boolean(user && user.role !== "admin") });
   const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
+  const { branchId: activeSiteId } = useBranchFilter(workspaceSites.data);
+  const activeAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: activeSiteId ?? 0 }, { enabled: Boolean(activeSiteId && user?.role !== "admin") });
   const smsAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const smsApprovalQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && smsAccess.data?.role === "owner"), refetchInterval: 15000 });
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
@@ -154,7 +157,7 @@ function DashboardLayoutContent({
     items: group.items.filter((item) => {
       const capability = (item as { capability?: PowerCapability }).capability;
       if (!capability || displayUser.role === "admin") return true;
-      return can(smsAccess.data?.role, capability, smsAccess.data?.permissions);
+      return can(activeAccess.data?.role, capability, activeAccess.data?.permissions);
     }),
   })).filter((group) => group.items.length > 0);
   const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
