@@ -87,7 +87,12 @@ let activeOfflineUserId: string | null = null;
 async function bootstrapOfflineState() {
   try {
     const session = await getSupabaseSession();
-    activeOfflineUserId = session?.user.id ?? null;
+    if (session?.user.id) {
+      activeOfflineUserId = session.user.id;
+    } else {
+      const offlineLease = await getValidOfflineAuthLease();
+      activeOfflineUserId = offlineLease?.userId ?? null;
+    }
     if (activeOfflineUserId) await hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
   } catch (error) {
     console.warn("[PowerHub] Offline cache bootstrap skipped", error);
@@ -127,6 +132,6 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     // Versioned URL forces an immediate Service Worker update after changing
     // cache semantics, even when a legacy worker had cached /sw.js itself.
-    void navigator.serviceWorker.register("/sw.js?v=3").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
+    void navigator.serviceWorker.register("/sw.js?v=4").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
   });
 }
