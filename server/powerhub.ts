@@ -291,8 +291,12 @@ function isDuplicateKeyError(error: unknown) {
 async function getEnabledPortal(portalCode: string) {
   const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_portal_theme", { p_portal_code: portalCode });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات بوابة المشتركين من Supabase." });
-  const portal = (data as Array<{ portal_code: string; display_name: string | null; primary_color: string; accent_color: string; site_name: string; city: string | null }> | null)?.[0];
+  const portal = (data as Array<{ portal_code: string; display_name: string | null; primary_color: string; accent_color: string; site_name: string; city: string | null; logo_key: string | null }> | null)?.[0];
   if (!portal) throw new TRPCError({ code: "NOT_FOUND", message: "رابط بوابة المشتركين غير متاح." });
+  let logoUrl: string | null = null;
+  if (portal.logo_key) {
+    try { logoUrl = (await storageGet(portal.logo_key)).url; } catch (error) { console.error("[subscriber-portal-logo] signed URL failed", error); }
+  }
   return {
     portalCode: portal.portal_code,
     displayName: portal.display_name,
@@ -300,7 +304,13 @@ async function getEnabledPortal(portalCode: string) {
     accentColor: portal.accent_color,
     siteName: portal.site_name,
     city: portal.city,
+    logoUrl,
   };
+}
+
+async function signedPortalLogoUrl(logoKey: string | null | undefined) {
+  if (!logoKey) return null;
+  try { return (await storageGet(logoKey)).url; } catch (error) { console.error("[subscriber-portal-logo] signed URL failed", error); return null; }
 }
 
 async function getVerifiedPortalSubscriber(input: z.infer<typeof subscriberPortalLookupInput>) {
@@ -311,7 +321,7 @@ async function getVerifiedPortalSubscriber(input: z.infer<typeof subscriberPorta
   });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من بيانات بوابة المشترك في Supabase." });
   const result = data as {
-    portal?: { portalCode: string; displayName: string; primaryColor: string; accentColor: string; city: string | null };
+    portal?: { portalCode: string; displayName: string; primaryColor: string; accentColor: string; city: string | null; logoKey?: string | null };
     subscriber?: { subscriberNo: string; fullName: string; phone: string; address: string | null; subscriptionType: string; serviceStatus: string; joinedAt: string };
     invoices?: Array<{ invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; consumptionKwh: number | string; totalAmount: number | string; paidAmount: number | string; balanceDue: number | string; status: string }>;
     payments?: Array<{ id: number; paymentNo: string; amount: number | string; paymentMethod: string; status: string; paidAt: string; invoiceNo: string | null }>;
@@ -338,7 +348,7 @@ async function getVerifiedPortalInvoice(input: z.infer<typeof subscriberPortalLo
   });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفاتورة من Supabase." });
   const result = data as {
-    portal?: { displayName: string; primaryColor: string; accentColor: string };
+    portal?: { displayName: string; primaryColor: string; accentColor: string; logoKey?: string | null };
     subscriber?: { fullName: string; subscriberNo: string; phone: string; address: string | null };
     invoice?: { invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; previousReading: number | string | null; currentReading: number | string | null; consumptionKwh: number | string; pricePerKwh: number | string; fixedFee: number | string; taxAmount: number | string; discountAmount: number | string; totalAmount: number | string; paidAmount: number | string; balanceDue: number | string; status: string };
     lines?: Array<{ description: string; quantity: number | string; unitPrice: number | string; amount: number | string }>;
@@ -1088,6 +1098,7 @@ export const powerhubRouter = router({
         primaryColor: portal.primaryColor,
         accentColor: portal.accentColor,
         city: portal.city,
+        logoUrl: portal.logoUrl,
       };
     }),
     lookup: publicProcedure.input(subscriberPortalLookupInput).query(async ({ input }) => {
@@ -1096,7 +1107,7 @@ export const powerhubRouter = router({
       const currentInvoice = subscriberInvoices.find((invoice) => invoice.billingPeriod === currentPeriod);
       const outstandingBalance = subscriberInvoices.reduce((total, invoice) => total + Number(invoice.balanceDue || 0), 0);
       return {
-        portal: { portalCode: portal.portalCode, displayName: portal.displayName, primaryColor: portal.primaryColor, accentColor: portal.accentColor, city: portal.city },
+        portal: { portalCode: portal.portalCode, displayName: portal.displayName, primaryColor: portal.primaryColor, accentColor: portal.accentColor, city: portal.city, logoUrl: portal.logoKey ? await signedPortalLogoUrl(portal.logoKey) : null },
         subscriber: {
           subscriberNo: subscriber.subscriberNo,
           fullName: subscriber.fullName,
@@ -1130,7 +1141,7 @@ export const powerhubRouter = router({
     invoice: publicProcedure.input(subscriberPortalLookupInput.extend({ invoiceNo: z.string().trim().min(1).max(60) })).query(async ({ input }) => {
       const { portal, subscriber, invoice, lines } = await getVerifiedPortalInvoice(input);
       return {
-        portal,
+        portal: { ...portal, logoUrl: await signedPortalLogoUrl(portal.logoKey) },
         subscriber,
         invoice: {
           invoiceNo: invoice.invoiceNo,
@@ -1154,22 +1165,27 @@ export const powerhubRouter = router({
     }),
     settings: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
-      const [site, settingResult] = await Promise.all([
+      const [site, settingResult, featureResult] = await Promise.all([
         getSupabaseSite(input.siteId),
         supabaseAdmin().from("site_portal_settings")
-          .select("site_id, tenant_id, portal_code, display_name, primary_color, accent_color, is_enabled")
+          .select("site_id, tenant_id, portal_code, display_name, primary_color, accent_color, is_enabled, logo_key")
           .eq("site_id", input.siteId)
           .eq("tenant_id", access.tenantId)
           .maybeSingle(),
+        supabaseAdmin().from("platform_settings").select("is_enabled").eq("setting_key", "subscriber_portal_logo").maybeSingle(),
       ]);
-      if (settingResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات بوابة المشتركين من Supabase." });
+      if (settingResult.error || featureResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات بوابة المشتركين من Supabase." });
       const setting = settingResult.data;
       return setting ? {
         siteId: Number(setting.site_id), tenantId: Number(setting.tenant_id), portalCode: setting.portal_code,
         displayName: setting.display_name, primaryColor: setting.primary_color, accentColor: setting.accent_color, isEnabled: setting.is_enabled,
+        logoUrl: setting.logo_key && featureResult.data?.is_enabled ? await signedPortalLogoUrl(setting.logo_key) : null,
+        logoConfigured: Boolean(setting.logo_key),
+        logoFeatureEnabled: featureResult.data?.is_enabled === true,
       } : {
         siteId: site.id, tenantId: site.tenantId, portalCode: site.code.toLowerCase(), displayName: site.name,
         primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true,
+        logoUrl: null, logoConfigured: false, logoFeatureEnabled: featureResult.data?.is_enabled === true,
       };
     }),
     saveSettings: protectedProcedure.input(siteScoped.extend({
@@ -1199,6 +1215,41 @@ export const powerhubRouter = router({
       const portalCode = (data as Array<{ portal_code: string }> | null)?.[0]?.portal_code;
       if (!portalCode) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة البوابة رمز الرابط المحفوظ." });
       return { success: true, portalCode };
+    }),
+    updateLogo: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      logoData: z.string().min(20).max(4_500_000).optional(),
+      logoMime: z.enum(["image/png", "image/jpeg", "image/webp"]).optional(),
+      remove: z.boolean().default(false),
+    }).superRefine((input, ctx) => {
+      if (!input.remove && (!input.logoData || !input.logoMime)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["logoData"], message: "اختر شعاراً صالحاً أو فعّل الحذف." });
+      if (input.remove && input.logoData) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["logoData"], message: "لا تجمع بين الحذف ورفع شعار جديد." });
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      const feature = await supabaseAdmin().from("platform_settings").select("is_enabled").eq("setting_key", "subscriber_portal_logo").maybeSingle();
+      if (feature.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالة ميزة الشعار." });
+      if (feature.data?.is_enabled !== true) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة شعار صفحة الاستعلامات غير مفعّلة من إدارة المنصة." });
+      let logoKey: string | null = null;
+      if (!input.remove && input.logoData && input.logoMime) {
+        const bytes = Buffer.from(input.logoData, "base64");
+        if (!bytes.length || bytes.length > 3 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ألا يتجاوز حجم الشعار 3 ميغابايت." });
+        const extension = input.logoMime === "image/png" ? "png" : input.logoMime === "image/jpeg" ? "jpg" : "webp";
+        const uploaded = await storagePut(`tenant-portal-branding/${access.tenantId}/logo-${Date.now()}.${extension}`, bytes, input.logoMime);
+        logoKey = uploaded.key;
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_site_portal_logo", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_logo_key: logoKey,
+      });
+      const row = (data as Array<{ site_id: number | string; logo_key: string | null; previous_logo_key: string | null }> | null)?.[0];
+      if (error || !row) {
+        if (logoKey) await storageRemove(logoKey).catch(() => undefined);
+        const message = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (message.includes("PORTAL_LOGO_FEATURE_DISABLED")) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة شعار صفحة الاستعلامات غير مفعّلة من إدارة المنصة." });
+        if (message.includes("OWNER_ACCESS_REQUIRED") || message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إدارة شعار صفحة الاستعلامات." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ شعار صفحة الاستعلامات." });
+      }
+      if (row.previous_logo_key && row.previous_logo_key !== row.logo_key) await storageRemove(row.previous_logo_key).catch(() => undefined);
+      return { success: true, logoUrl: row.logo_key ? await signedPortalLogoUrl(row.logo_key) : null };
     }),
   }),
   sites: router({
