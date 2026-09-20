@@ -1,0 +1,26 @@
+name: PowerHub P7 Runner Sanity
+
+on:
+  push:
+    branches:
+      - scale/p7-real-http-load
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node sanity
+        run: |
+          node --version
+          npm --version
+          uname -a
+          echo "RUNNER_SANITY_OK"
