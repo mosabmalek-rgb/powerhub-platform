@@ -261,7 +261,19 @@ function DashboardLayoutContent({
             ))}
           </SidebarContent>
 
-          <SidebarFooter className="border-t border-white/8 p-3">
+          <SidebarFooter className="border-t border-white/8 p-3 space-y-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (user) void logout();
+              }}
+              disabled={!user}
+              aria-label="تسجيل الخروج"
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold text-rose-300 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40 group-data-[collapsible=icon]:justify-center"
+            >
+              <LogOut className="h-4 w-4 shrink-0" />
+              <span className="group-data-[collapsible=icon]:hidden">تسجيل الخروج</span>
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Tooltip>
@@ -292,15 +304,6 @@ function DashboardLayoutContent({
                 >
                   {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#F5B800]" /> : <Moon className="mr-2 h-4 w-4 text-[#F5B800]" />}
                   <span>{theme === "dark" ? "التبديل إلى الوضع النهاري" : "التبديل إلى الوضع الليلي"}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    if (user) logout();
-                  }}
-                  className="cursor-pointer text-rose-300 focus:text-rose-200"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>تسجيل الخروج</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -344,6 +347,18 @@ function DashboardLayoutContent({
                 <button type="button" onClick={() => setLocation("/announcements")} className="w-full border-t border-white/8 px-3 py-3 text-center text-xs font-bold text-[#F5B800] hover:bg-white/5">عرض جميع الإشعارات</button>
               </DropdownMenuContent>
             </DropdownMenu>
+            <button
+              type="button"
+              onClick={() => {
+                if (user) void logout();
+              }}
+              disabled={!user}
+              aria-label="تسجيل الخروج"
+              className="flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-bold text-rose-300 hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-40"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>خروج</span>
+            </button>
           </div>
         )}
         {approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId ? <div className="sticky top-0 z-30 border-b border-emerald-300/25 bg-emerald-400/[.10] px-4 py-3 text-emerald-100 shadow-lg sm:px-6"><div className="mx-auto flex max-w-7xl items-center justify-between gap-3" dir="rtl"><div className="flex min-w-0 items-center gap-3"><CircleCheck className="h-5 w-5 shrink-0 text-emerald-300" /><p className="text-sm font-bold">تم اعتماد طلب شحن الرسائل وإضافة {Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيد SMS.</p></div><button type="button" aria-label="إغلاق إشعار اعتماد الرسائل" onClick={() => { const id = String(approvedSmsRequest.id); setDismissedSmsApprovalId(id); localStorage.setItem("powerhub.sms-approval-notice-dismissed", id); }} className="rounded-lg p-1 text-emerald-200 transition hover:bg-emerald-300/15 hover:text-white"><X className="h-4 w-4" /></button></div></div> : null}
