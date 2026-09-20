@@ -244,7 +244,7 @@ export function SubscriberPortalLogoFeaturePanel() {
       <div className="mt-5 space-y-3">{(owners.data ?? []).map((row: any) => {
         const plan = row.subscription?.packageCode ?? row.subscription?.plan ?? row.tenant?.plan;
         const policy = policyFor(plan);
-        const currentlyEnabled = Boolean((entitlements.data ?? []).find((item: any) => item.tenantId === row.tenant.id)?.isEnabled);
+        const currentlyEnabled = Boolean((entitlements.data ?? []).find((item: any) => item.tenantId === row.tenant.id && item.featureKey === "subscriber_portal_logo")?.isEnabled);
         const usable = feature?.isEnabled && policy !== "not_included";
         return <div key={row.tenant.id} className="grid gap-3 rounded-2xl border border-white/8 bg-white/[.02] p-4 lg:grid-cols-[1.4fr_.7fr_.7fr_auto] lg:items-center">
           <div><p className="font-bold text-white">{row.owner?.fullName ?? row.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{row.tenant.name} · {plan ?? "—"} · سياسة الشعار: {policy === "included" ? "مشمولة" : policy === "addon" ? "إضافة" : "مخفية"}</p></div>
