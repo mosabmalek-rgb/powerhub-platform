@@ -38,6 +38,7 @@ import TrialSubscriptionManagementPage from "./pages/TrialSubscriptionManagement
 import SupportChatPage from "./pages/SupportChatPage";
 import SupportCenterPage from "./pages/SupportCenterPage";
 import PaymentDocumentationPage from "./pages/PaymentDocumentationPage";
+import PaymentDocumentationReviewPage from "./pages/PaymentDocumentationReviewPage";
 
 function Router() {
   return (
@@ -63,6 +64,7 @@ function Router() {
       <Route path={"/reports"}>{() => <RouteAccessGate><ReportsPage /></RouteAccessGate>}</Route>
       <Route path={"/financial-dashboard"}>{() => <RouteAccessGate><FinancialDashboardPage /></RouteAccessGate>}</Route>
       <Route path={"/financial-settlements"}>{() => <RouteAccessGate><FinancialSettlementsPage /></RouteAccessGate>}</Route>
+      <Route path={"/payment-documentation/review"}>{() => <RouteAccessGate><PaymentDocumentationReviewPage /></RouteAccessGate>}</Route>
       <Route path={"/payment-documentation"}>{() => <RouteAccessGate><PaymentDocumentationPage /></RouteAccessGate>}</Route>
       <Route path={"/company-accounts"}>{() => <RouteAccessGate><CompanyAccountsPage /></RouteAccessGate>}</Route>
       <Route path={"/notifications"}>{() => <RouteAccessGate><MessagingSettingsPage /></RouteAccessGate>}</Route>
