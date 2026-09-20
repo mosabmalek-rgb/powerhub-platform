@@ -110,6 +110,7 @@ export function useAuth(options?: UseAuthOptions) {
     }
 
     try {
+      await utils.auth.releaseDevice.mutateAsync();
       await supabaseSignOutSafely();
     } finally {
       setCachedUser(null);
