@@ -5,6 +5,7 @@ import { supabaseAdmin } from "../supabase-admin";
 import { requirePlatformCapability } from "../platform-capability";
 import { isActivePlatformAdmin } from "../platform-admin";
 import type { TrpcContext } from "./context";
+import { z } from "zod";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -14,12 +15,30 @@ export const router = t.router;
 export const mergeRouters = t.mergeRouters;
 export const publicProcedure = t.procedure;
 
+async function enforceSingleDeviceSession(ctx: TrpcContext) {
+  const deviceId = ctx.req.headers["x-powerhub-device-id"];
+  if (typeof deviceId !== "string" || !/^[0-9a-f-]{36}$/i.test(deviceId)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "تعذر التحقق من جهاز الدخول. أعد تحميل PowerHub وحاول مرة أخرى." });
+  }
+  const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
+    p_user_id: ctx.user!.openId,
+    p_device_id: deviceId,
+    p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+  });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الجهاز." });
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row?.allowed) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
+  }
+}
+
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
 
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
+  await enforceSingleDeviceSession(ctx);
   if (ctx.user.accountStatus === "locked" || ctx.user.accountStatus === "disabled") {
     throw new TRPCError({ code: "FORBIDDEN", message: ctx.user.accountStatus === "locked" ? "الحساب مقفل مؤقتاً. يرجى التواصل مع إدارة المنصة." : "هذا الحساب معطّل." });
   }
