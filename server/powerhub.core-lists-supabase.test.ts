@@ -174,6 +174,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.sites.list()).resolves.toMatchObject([{ id: 10, tenantId: 20, createdAt: expect.any(Date) }]);
     await expect(caller.subscribers.list({ siteId: 10 })).resolves.toMatchObject([{ id: 30, subscriberNo: "MAIN-001", fullName: "مشترك الاختبار", createdAt: expect.any(Date) }]);
+    await expect(caller.subscribers.accountStatement({ siteId: 10, subscriberId: 30 })).resolves.toMatchObject({
+      subscriber: { id: 30, subscriberNo: "MAIN-001", fullName: "مشترك الاختبار" },
+      summary: { invoiceCount: 1, paymentCount: 1, readingCount: 1, totalInvoiced: 100, totalCollected: 25, totalOutstanding: 75, totalConsumptionKwh: 10 },
+      limits: { visiblePerSection: 20, invoiceHasMore: false, paymentHasMore: false, readingHasMore: false },
+      invoices: [{ invoiceNo: "MAIN-202608-0001", balanceDue: "75" }],
+      payments: [{ paymentNo: "PAY-202608-0001", invoiceNo: "MAIN-202608-0001", amount: "25" }],
+      readings: [{ id: 60, readingValue: "100", consumptionKwh: "10" }],
+    });
     await expect(caller.tariffs.list({ siteId: 10 })).resolves.toMatchObject([{ id: 40, pricePerKwh: "1.25", effectiveFrom: expect.any(Date) }]);
     await expect(caller.generators.list({ siteId: 10 })).resolves.toMatchObject([{ id: 50, ratedCapacityKw: "150", createdAt: expect.any(Date) }]);
     await expect(caller.readings.list({ siteId: 10 })).resolves.toMatchObject([{ reading: { id: 60, consumptionKwh: "10", readingAt: expect.any(Date) }, subscriber: { id: 30, fullName: "مشترك الاختبار" } }]);
