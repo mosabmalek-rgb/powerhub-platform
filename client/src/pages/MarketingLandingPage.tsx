@@ -39,7 +39,7 @@ const fallbackPlans = [
     name: "الأساسية",
     description: "لبداية منظمة مع محطة تشغيل واحدة.",
     accent: "border-white/10 bg-white/[0.025]",
-    items: ["المشتركون والعدادات", "القراءات والفوترة", "روابط الفواتير", "تقارير تشغيلية أساسية"],
+    items: ["حتى 150 مشترك", "المشتركون والعدادات", "القراءات والفوترة", "روابط الفواتير", "تقارير تشغيلية أساسية"],
     action: "ابدأ بمساحتك",
     price: 143,
     currency: "ILS",
@@ -49,7 +49,7 @@ const fallbackPlans = [
     description: "للتشغيل اليومي الذي يحتاج تدقيقاً وتحليلاً أعمق.",
     accent: "border-[#F5B800]/55 bg-[#F5B800]/[0.055] shadow-[0_20px_70px_rgba(245,184,0,0.08)]",
     highlighted: true,
-    items: ["كل ميزات الأساسية", "جلسات المحصل والإغلاق", "تقارير وتحليلات متقدمة", "إدارة فريق المحطة"],
+    items: ["حتى 500 مشترك", "كل ميزات الأساسية", "جلسات المحصل والإغلاق", "تقارير وتحليلات متقدمة", "إدارة فريق المحطة"],
     action: "اختر الاحترافية",
     price: 251,
     currency: "ILS",
@@ -58,7 +58,7 @@ const fallbackPlans = [
     name: "الشركات",
     description: "لشبكات متعددة ومتابعة مركزية مخصصة.",
     accent: "border-white/10 bg-white/[0.025]",
-    items: ["محطات ومولدات متعددة", "صلاحيات تشغيلية دقيقة", "مركز قيادة إداري", "تهيئة حسب نطاق العمل"],
+    items: ["حتى 750 مشترك", "محطات ومولدات متعددة", "صلاحيات تشغيلية دقيقة", "مركز قيادة إداري", "تهيئة حسب نطاق العمل"],
     action: "تحدث إلينا",
     price: 323,
     currency: "ILS",
@@ -83,7 +83,17 @@ export default function MarketingLandingPage() {
     description: `حل ${String(pkg.name)} لإدارة مشروع بيع الكهرباء بالكيلوواط.`,
     accent: index === 1 ? "border-[#F5B800]/55 bg-[#F5B800]/[0.055] shadow-[0_20px_70px_rgba(245,184,0,0.08)]" : "border-white/10 bg-white/[0.025]",
     highlighted: index === 1,
-    items: [`${Number(pkg.platformUsers ?? 0)} مستخدمو منصة`, `${Number(pkg.fieldUsers ?? 0)} مستخدمون ميدانيون`, `${Number(pkg.branches ?? 0)} فرع${Number(pkg.branches ?? 0) === 1 ? "" : "ان"}`, `${Number(pkg.includedMessages ?? 0).toLocaleString("ar")} رسالة SMS`],
+    items: [
+      Number(pkg.includedSubscribers ?? 0) > 0
+        ? (pkg.subscribersLimitMode === "minimum"
+          ? `ابتداءً من ${Number(pkg.includedSubscribers).toLocaleString("ar")} مشترك`
+          : `حتى ${Number(pkg.includedSubscribers).toLocaleString("ar")} مشترك`)
+        : "المشتركون والعدادات",
+      `${Number(pkg.platformUsers ?? 0)} مستخدمو منصة`,
+      `${Number(pkg.fieldUsers ?? 0)} مستخدمون ميدانيون`,
+      `${Number(pkg.branches ?? 0)} فرع${Number(pkg.branches ?? 0) === 1 ? "" : "ان"}`,
+      `${Number(pkg.includedMessages ?? 0).toLocaleString("ar")} رسالة SMS`,
+    ],
     action: index === 1 ? "اختر الباقة" : "ابدأ بمساحتك",
     price: Number(pkg.price),
     currency: catalog.data?.currency ?? "ILS",
