@@ -1356,7 +1356,6 @@ export const powerhubRouter = router({
   paymentDocumentation: router({
     access: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "collectPayments");
-      await requirePaymentDocumentationFeature(access.tenantId);
       const { data, error } = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId });
       if (error || !data?.[0]) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع الإلكتروني." });
       return { allowed: Boolean(data[0].allowed), policy: String(data[0].policy ?? "not_included"), packageCode: data[0].package_code ? String(data[0].package_code) : null, entitlementEnabled: Boolean(data[0].entitlement_enabled) };
