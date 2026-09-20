@@ -71,6 +71,7 @@ export default function CompanyAccountsPage() {
   const refreshAccounts = () => void utils.powerhub.companyAccounts.list.invalidate();
   const updateOpeningBalance = trpc.powerhub.companyAccounts.updateOpeningBalance.useMutation({ onSuccess: () => { toast.success("تم حفظ الرصيد الافتتاحي."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updateSites = trpc.powerhub.companyAccounts.updateSites.useMutation({ onSuccess: () => { toast.success("تم تحديث الفروع المرتبطة."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
+  const updatePaymentDocumentationVisibility = trpc.powerhub.companyAccounts.updatePaymentDocumentationVisibility.useMutation({ onSuccess: () => { toast.success("تم تحديث إعداد ظهور الحساب في توثيق الدفع."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updatePhone = trpc.powerhub.companyAccounts.updatePhone.useMutation({ onSuccess: () => { toast.success("تم حفظ رقم الجوال."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const create = trpc.powerhub.companyAccounts.create.useMutation({
     onSuccess: () => {
@@ -135,6 +136,15 @@ export default function CompanyAccountsPage() {
     setMovementToDate("");
     setMode("deposit");
     setTarget("");
+  };
+
+  const togglePaymentDocumentation = () => {
+    if (!selectedAccount) return;
+    updatePaymentDocumentationVisibility.mutate({
+      siteId,
+      accountId: selectedAccount.id,
+      allow: !Boolean(selectedAccount.allowPaymentDocumentation),
+    });
   };
 
   const saveOpeningBalance = () => {
