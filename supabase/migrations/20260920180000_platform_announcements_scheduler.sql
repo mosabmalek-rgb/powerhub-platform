@@ -1,7 +1,5 @@
 -- Platform announcements: durable background scheduler.
 -- Production uses Supabase pg_cron; no external scheduler secret is required.
-create extension if not exists pg_cron;
-
 create or replace function public.powerhub_publish_due_platform_announcements()
 returns integer
 language plpgsql
