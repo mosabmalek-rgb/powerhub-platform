@@ -41,7 +41,7 @@ begin
 
   if p_capability not in (
     'manageSubscribers', 'manageGenerators', 'recordReadings', 'accessFieldApp',
-    'approveReadings', 'manageTariffs', 'issueInvoices', 'collectPayments',
+    'approveReadings', 'manageTariffs', 'issueInvoices', 'collectPayments', 'approvePaymentDocumentation',
     'manageExpenses', 'managePayroll', 'manageTeam', 'manageMessaging', 'viewAudit'
   ) then
     raise exception 'INVALID_CAPABILITY' using errcode = 'P0001';
