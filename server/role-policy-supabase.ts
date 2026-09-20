@@ -13,6 +13,7 @@ export async function saveRolePolicy(input: {
     | "manageTariffs"
     | "issueInvoices"
     | "collectPayments"
+    | "approvePaymentDocumentation"
     | "manageExpenses"
     | "managePayroll"
     | "manageTeam"
