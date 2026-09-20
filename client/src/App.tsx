@@ -40,6 +40,7 @@ import SupportCenterPage from "./pages/SupportCenterPage";
 import PaymentDocumentationPage from "./pages/PaymentDocumentationPage";
 import PaymentDocumentationReviewPage from "./pages/PaymentDocumentationReviewPage";
 import PlatformAnnouncementsPage from "./pages/PlatformAnnouncementsPage";
+import AnnouncementsPage from "./pages/AnnouncementsPage";
 
 function Router() {
   return (
@@ -69,6 +70,7 @@ function Router() {
       <Route path={"/payment-documentation"}>{() => <RouteAccessGate><PaymentDocumentationPage /></RouteAccessGate>}</Route>
       <Route path={"/company-accounts"}>{() => <RouteAccessGate><CompanyAccountsPage /></RouteAccessGate>}</Route>
       <Route path={"/notifications"}>{() => <RouteAccessGate><MessagingSettingsPage /></RouteAccessGate>}</Route>
+      <Route path={"/announcements"}>{() => <RouteAccessGate><AnnouncementsPage /></RouteAccessGate>}</Route>
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync/readings/:readingId"}>{() => <RouteAccessGate><MobileReadingDetailPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync"}>{() => <RouteAccessGate><MobileSyncPage /></RouteAccessGate>}</Route>
