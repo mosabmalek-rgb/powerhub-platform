@@ -213,6 +213,7 @@ export function OwnerManualLimitOverridesPanel() {
 export function SubscriberPortalLogoFeaturePanel() {
   const utils = trpc.useUtils();
   const configuration = trpc.admin.platformConfiguration.useQuery();
+  const saveFeature = trpc.admin.savePlatformSetting.useMutation({ onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); toast.success("تم تحديث الإتاحة العامة لشعار بوابة الاستعلام."); }, onError: (error) => toast.error(error.message) });
   const owners = trpc.admin.listOwners.useQuery();
   const entitlements = trpc.admin.listTenantFeatureEntitlements.useQuery();
   const setEntitlement = trpc.admin.setTenantFeatureEntitlement.useMutation({
@@ -232,6 +233,10 @@ export function SubscriberPortalLogoFeaturePanel() {
         <div><h2 className="font-bold text-white">شعار بوابة الاستعلام — التحكم الإداري</h2><p className="mt-1 max-w-4xl text-sm leading-7 text-slate-400">يمكن لآدمن المنصة إيقاف الميزة بالكامل، وتحديد سياسة الشعار لكل باقة من نظام الباقات، ثم تفعيل الإضافة أو إخفائها لحساب صاحب مولد محدد.</p></div>
         <Badge className={feature?.isEnabled ? "w-fit bg-emerald-400/10 text-emerald-300" : "w-fit bg-amber-400/10 text-amber-300"}>{feature?.isEnabled ? "الميزة متاحة على المنصة" : "الميزة مخفية على المنصة"}</Badge>
       </div>
+      <form className="mt-5 rounded-2xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-4" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); saveFeature.mutate({ settingKey: "subscriber_portal_logo", isEnabled: form.get("enabled") === "on", message: "إتاحة شعار صاحب المولد في صفحة الاستعلامات العامة.", value: { feature: "subscriber_portal_logo" } }); }}>
+        <div className="flex items-center justify-between gap-4"><div><p className="font-bold text-white">الإتاحة العامة للميزة</p><p className="mt-1 text-xs leading-5 text-slate-400">عند الإيقاف تختفي الميزة عن جميع الباقات والحسابات حتى لو كانت سياسة الباقة تسمح بها.</p></div><input defaultChecked={feature?.isEnabled ?? false} name="enabled" type="checkbox" className="h-5 w-5 accent-[#F5B800]" /></div>
+        <Button disabled={saveFeature.isPending} className="mt-4 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{saveFeature.isPending ? "جارٍ الحفظ…" : "حفظ الإتاحة العامة"}</Button>
+      </form>
       <div className="mt-5 rounded-2xl border border-white/8 bg-white/[.02] p-4 text-sm text-slate-300">
         <p className="font-bold text-white">سياسة الباقات الحالية</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-3">{packages.map((item) => <div key={String(item.code)} className="rounded-xl border border-white/8 p-3"><p className="font-bold text-white">{String(item.name ?? item.code)}</p><p className="mt-1 text-xs text-slate-500">{String(item.code)} · {item.logoPolicy === "included" ? "مشمولة" : item.logoPolicy === "addon" ? "إضافة" : "مخفية"}</p></div>)}</div>
