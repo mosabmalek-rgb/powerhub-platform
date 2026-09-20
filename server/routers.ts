@@ -10,6 +10,7 @@ import { adminRolePolicyRouter } from "./admin-role-policy-router";
 import type { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
 import { supportRouter } from "./support-router";
+import { platformAnnouncementsRouter } from "./platform-announcements-router";
 
 const adminRuntimeRecord = {
   ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
@@ -47,6 +48,7 @@ export const appRouter = router({
   }),
   powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
   support: supportRouter,
+  platformAnnouncements: platformAnnouncementsRouter,
   admin: adminRuntimeRouter,
 });
 
