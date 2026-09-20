@@ -8,6 +8,7 @@ import App from "./App";
 import { startLogin } from "./const";
 import { getSupabaseAccessToken, getSupabaseSession, subscribeSupabaseAuthState } from "./lib/supabase";
 import { hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
+import { getPowerHubDeviceId } from "./lib/offline-auth";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -70,7 +71,11 @@ const trpcClient = trpc.createClient({
       transformer: superjson,
       async headers() {
         const token = await getSupabaseAccessToken();
-        return token ? { Authorization: `Bearer ${token}` } : {};
+        const deviceId = await getPowerHubDeviceId().catch(() => null);
+        return {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(deviceId ? { "x-powerhub-device-id": deviceId } : {}),
+        };
       },
       fetch(input, init) {
         return globalThis.fetch(input, {
