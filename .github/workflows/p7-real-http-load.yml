@@ -1,0 +1,41 @@
+name: PowerHub P7 Real HTTP Load
+
+on:
+  push:
+    branches:
+      - scale/p7-real-http-load
+
+permissions:
+  contents: read
+
+concurrency:
+  group: powerhub-p7-load
+  cancel-in-progress: true
+
+jobs:
+  load:
+    name: Real HTTP 50/100/250/500
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      POWERHUB_PRODUCTION_URL: https://powerhub-platform.vercel.app
+      LOADTEST_TIMEOUT_MS: 15000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Run real HTTP load
+        run: node scripts/p7-real-http-load.mjs
+
+      - name: Upload load results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p7-load-results
+          path: p7-load-results.json
+          if-no-files-found: warn
