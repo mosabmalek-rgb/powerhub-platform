@@ -21,6 +21,14 @@ import { COOKIE_NAME } from "../shared/const";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
+async function requirePaymentDocumentationFeature(tenantId: number) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: tenantId });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع الإلكتروني." });
+  if (!data?.[0]?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة لهذا الاشتراك." });
+  return data[0] as { allowed: boolean; policy: string; package_code: string | null; entitlement_enabled: boolean };
+}
+
+
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
 export const quickActionCapabilityById = {
   add_subscriber: "manageSubscribers",
@@ -1348,12 +1356,14 @@ export const powerhubRouter = router({
   paymentDocumentation: router({
     access: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "collectPayments");
+      await requirePaymentDocumentationFeature(access.tenantId);
       const { data, error } = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId });
       if (error || !data?.[0]) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع الإلكتروني." });
       return { allowed: Boolean(data[0].allowed), policy: String(data[0].policy ?? "not_included"), packageCode: data[0].package_code ? String(data[0].package_code) : null, entitlementEnabled: Boolean(data[0].entitlement_enabled) };
     }),
     searchSubscriber: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), query: z.string().trim().min(1).max(120) })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"], "collectPayments");
+      await requirePaymentDocumentationFeature(access.tenantId);
       const q = input.query.trim();
       const admin = supabaseAdmin();
       const { data: subscribers, error: subscriberError } = await admin.from("subscribers")
@@ -1373,6 +1383,7 @@ export const powerhubRouter = router({
     }),
     list: protectedProcedure.input(siteScoped.extend({ status: z.enum(["pending","approved","rejected","all"]).default("pending") })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
+      await requirePaymentDocumentationFeature(access.tenantId);
       let query = supabaseAdmin().from("payment_documentation_requests")
         .select("id, tenant_id, site_id, subscriber_id, invoice_id, destination_account_id, invoice_no_snapshot, subscriber_name_snapshot, subscriber_no_snapshot, billing_period_snapshot, previous_reading_snapshot, current_reading_snapshot, consumption_kwh_snapshot, price_per_kwh_snapshot, consumption_value_snapshot, invoice_total_snapshot, invoice_balance_snapshot, payment_amount, payment_method, sender_phone, reference_no, receipt_image_key, receipt_image_hash, status, rejection_reason, submitted_by_user_id, reviewed_by_user_id, reviewed_at, payment_id, submitted_at, created_at, updated_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("submitted_at", { ascending: false }).limit(200);
@@ -1383,6 +1394,7 @@ export const powerhubRouter = router({
     }),
     availableAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"], "collectPayments");
+      await requirePaymentDocumentationFeature(access.tenantId);
       const { data, error } = await supabaseAdmin().from("company_accounts")
         .select("id, name, account_type, phone_number")
         .eq("tenant_id", access.tenantId)
@@ -1419,6 +1431,7 @@ export const powerhubRouter = router({
       receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      await requirePaymentDocumentationFeature(access.tenantId);
       const feature = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId });
       if (feature.error || !feature.data?.[0]?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة لهذا الاشتراك." });
       let receiptImageKey: string | undefined;
@@ -1456,6 +1469,7 @@ export const powerhubRouter = router({
     }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
+      await requirePaymentDocumentationFeature(access.tenantId);
       const { data, error } = await supabaseAdmin().rpc("powerhub_approve_payment_documentation", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_request_id: input.requestId });
       if (error || !data?.[0]) {
         const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
@@ -1487,6 +1501,7 @@ export const powerhubRouter = router({
     }),
     receiptUrl: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
+      await requirePaymentDocumentationFeature(access.tenantId);
       const { data, error } = await supabaseAdmin().from("payment_documentation_requests")
         .select("receipt_image_key")
         .eq("id", input.requestId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
@@ -1496,6 +1511,7 @@ export const powerhubRouter = router({
     }),
     reject: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive(), rejectionReason: z.string().trim().min(2).max(1000) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
+      await requirePaymentDocumentationFeature(access.tenantId);
       const request = await supabaseAdmin().from("payment_documentation_requests")
         .select("receipt_image_key, status")
         .eq("id", input.requestId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
@@ -1525,6 +1541,7 @@ export const powerhubRouter = router({
   collectorSessions: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      await requirePaymentDocumentationFeature(access.tenantId);
       let query = supabaseAdmin().from("collector_sessions").select("id, tenant_id, site_id, collector_user_id, status, opening_cash, expected_cash, declared_cash, variance_amount, opened_at, closed_at, notes, closed_by_user_id, created_at, updated_at").eq("site_id", input.siteId).order("opened_at", { ascending: false }).limit(100);
       if (access.role === "collector") query = query.eq("collector_user_id", ctx.user.id);
       const { data, error } = await query;
@@ -1537,12 +1554,14 @@ export const powerhubRouter = router({
     }),
     current: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      await requirePaymentDocumentationFeature(access.tenantId);
       const { data, error } = await supabaseAdmin().from("collector_sessions").select("id, tenant_id, site_id, collector_user_id, status, opening_cash, expected_cash, declared_cash, variance_amount, opened_at, closed_at, notes, closed_by_user_id, created_at, updated_at").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("collector_user_id", ctx.user.id).eq("status", "open").maybeSingle();
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جلسة التحصيل من Supabase." });
       return data ? { id: Number(data.id), tenantId: Number(data.tenant_id), siteId: Number(data.site_id), collectorUserId: Number(data.collector_user_id), status: data.status, openingCash: String(data.opening_cash), expectedCash: String(data.expected_cash), declaredCash: data.declared_cash === null ? null : String(data.declared_cash), varianceAmount: data.variance_amount === null ? null : String(data.variance_amount), openedAt: new Date(data.opened_at), closedAt: data.closed_at ? new Date(data.closed_at) : null, notes: data.notes, closedByUserId: data.closed_by_user_id === null ? null : Number(data.closed_by_user_id), createdAt: new Date(data.created_at), updatedAt: new Date(data.updated_at) } : null;
     }),
     open: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), openingCash: z.number().min(0).default(0), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      await requirePaymentDocumentationFeature(access.tenantId);
       if (access.role !== "collector") throw new TRPCError({ code: "FORBIDDEN", message: "جلسة التحصيل الميدانية مخصصة لدور المحصل." });
       const { data, error } = await supabaseAdmin().rpc("powerhub_open_collector_session", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_opening_cash: input.openingCash, p_notes: input.notes ?? null });
       if (!error && data?.[0]) return { id: Number((data[0] as { session_id: number | string }).session_id) };
@@ -1551,6 +1570,7 @@ export const powerhubRouter = router({
     }),
     close: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), sessionId: z.number().int().positive(), declaredCash: z.number().min(0), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      await requirePaymentDocumentationFeature(access.tenantId);
       const { data, error } = await supabaseAdmin().rpc("powerhub_close_collector_session", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_session_id: input.sessionId, p_declared_cash: input.declaredCash, p_notes: input.notes ?? null, p_allow_foreign_close: access.role !== "collector" });
       if (!error && data?.[0]) return { expectedCash: Number((data[0] as { expected_cash: number | string }).expected_cash), varianceAmount: Number((data[0] as { variance_amount: number | string }).variance_amount) };
       const errorText = `${error?.message ?? ""}`;
