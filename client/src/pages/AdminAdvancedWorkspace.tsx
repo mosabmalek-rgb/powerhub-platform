@@ -213,33 +213,33 @@ export function OwnerManualLimitOverridesPanel() {
 export function SubscriberPortalLogoFeaturePanel() {
   const utils = trpc.useUtils();
   const configuration = trpc.admin.platformConfiguration.useQuery();
-  const saveFeature = trpc.admin.savePlatformSetting.useMutation({ onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); toast.success("تم تحديث الإتاحة العامة لشعار بوابة الاستعلام."); }, onError: (error) => toast.error(error.message) });
+  const saveFeature = trpc.admin.savePlatformSetting.useMutation({ onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); toast.success("تم تحديث الإتاحة العامة لتوثيق الدفع الإلكتروني."); }, onError: (error) => toast.error(error.message) });
   const owners = trpc.admin.listOwners.useQuery();
   const entitlements = trpc.admin.listTenantFeatureEntitlements.useQuery();
   const setEntitlement = trpc.admin.setTenantFeatureEntitlement.useMutation({
-    onSuccess: () => { void utils.admin.listTenantFeatureEntitlements.invalidate(); toast.success("تم تحديث إتاحة شعار بوابة الاستعلام."); },
+    onSuccess: () => { void utils.admin.listTenantFeatureEntitlements.invalidate(); toast.success("تم تحديث إتاحة توثيق الدفع الإلكتروني."); },
     onError: (error) => toast.error(error.message),
   });
-  const feature = configuration.data?.settings.find((item) => item.settingKey === "subscriber_portal_logo");
+  const feature = configuration.data?.settings.find((item) => item.settingKey === "payment_documentation");
   const catalog = configuration.data?.settings.find((item) => item.settingKey === "subscription_package_catalog");
   const packages = Array.isArray((catalog?.value as any)?.packages) ? (catalog?.value as any).packages as Array<Record<string, unknown>> : [];
   const policyFor = (code: string | null | undefined) => {
     const row = packages.find((item) => item.code === code);
-    return String(row?.logoPolicy ?? "not_included");
+    return String(row?.paymentDocumentationPolicy ?? "not_included");
   };
   return <Card className="border-[#F5B800]/25 bg-[#111823] shadow-panel">
     <CardContent className="p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div><h2 className="font-bold text-white">شعار بوابة الاستعلام — التحكم الإداري</h2><p className="mt-1 max-w-4xl text-sm leading-7 text-slate-400">يمكن لآدمن المنصة إيقاف الميزة بالكامل، وتحديد سياسة الشعار لكل باقة من نظام الباقات، ثم تفعيل الإضافة أو إخفائها لحساب صاحب مولد محدد.</p></div>
+        <div><h2 className="font-bold text-white">توثيق الدفع الإلكتروني — التحكم الإداري</h2><p className="mt-1 max-w-4xl text-sm leading-7 text-slate-400">يمكن لآدمن المنصة إيقاف الميزة بالكامل، وتحديد سياسة الشعار لكل باقة من نظام الباقات، ثم تفعيل الإضافة أو إخفائها لحساب صاحب مولد محدد.</p></div>
         <Badge className={feature?.isEnabled ? "w-fit bg-emerald-400/10 text-emerald-300" : "w-fit bg-amber-400/10 text-amber-300"}>{feature?.isEnabled ? "الميزة متاحة على المنصة" : "الميزة مخفية على المنصة"}</Badge>
       </div>
-      <form className="mt-5 rounded-2xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-4" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); saveFeature.mutate({ settingKey: "subscriber_portal_logo", isEnabled: form.get("enabled") === "on", message: "إتاحة شعار صاحب المولد في صفحة الاستعلامات العامة.", value: { feature: "subscriber_portal_logo" } }); }}>
+      <form className="mt-5 rounded-2xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-4" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); saveFeature.mutate({ settingKey: "payment_documentation", isEnabled: form.get("enabled") === "on", message: "إتاحة توثيق الدفع الإلكتروني لأصحاب المولدات.", value: { feature: "payment_documentation" } }); }}>
         <div className="flex items-center justify-between gap-4"><div><p className="font-bold text-white">الإتاحة العامة للميزة</p><p className="mt-1 text-xs leading-5 text-slate-400">عند الإيقاف تختفي الميزة عن جميع الباقات والحسابات حتى لو كانت سياسة الباقة تسمح بها.</p></div><input defaultChecked={feature?.isEnabled ?? false} name="enabled" type="checkbox" className="h-5 w-5 accent-[#F5B800]" /></div>
         <Button disabled={saveFeature.isPending} className="mt-4 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{saveFeature.isPending ? "جارٍ الحفظ…" : "حفظ الإتاحة العامة"}</Button>
       </form>
       <div className="mt-5 rounded-2xl border border-white/8 bg-white/[.02] p-4 text-sm text-slate-300">
         <p className="font-bold text-white">سياسة الباقات الحالية</p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">{packages.map((item) => <div key={String(item.code)} className="rounded-xl border border-white/8 p-3"><p className="font-bold text-white">{String(item.name ?? item.code)}</p><p className="mt-1 text-xs text-slate-500">{String(item.code)} · {item.logoPolicy === "included" ? "مشمولة" : item.logoPolicy === "addon" ? "إضافة" : "مخفية"}</p></div>)}</div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">{packages.map((item) => <div key={String(item.code)} className="rounded-xl border border-white/8 p-3"><p className="font-bold text-white">{String(item.name ?? item.code)}</p><p className="mt-1 text-xs text-slate-500">{String(item.code)} · {item.paymentDocumentationPolicy === "included" ? "مشمولة" : item.paymentDocumentationPolicy === "addon" ? "إضافة" : "مخفية"}</p></div>)}</div>
       </div>
       <div className="mt-5 space-y-3">{(owners.data ?? []).map((row: any) => {
         const plan = row.subscription?.packageCode ?? row.subscription?.plan ?? row.tenant?.plan;
@@ -250,7 +250,7 @@ export function SubscriberPortalLogoFeaturePanel() {
           <div><p className="font-bold text-white">{row.owner?.fullName ?? row.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{row.tenant.name} · {plan ?? "—"} · سياسة الشعار: {policy === "included" ? "مشمولة" : policy === "addon" ? "إضافة" : "مخفية"}</p></div>
           <Badge className={usable ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-slate-500"}>{usable ? (policy === "addon" ? "إضافة متاحة" : "مشمولة") : "غير متاحة"}</Badge>
           <Badge className={currentlyEnabled ? "bg-sky-400/10 text-sky-300" : "bg-white/5 text-slate-500"}>{currentlyEnabled ? "مفعلة للحساب" : "غير مفعلة للحساب"}</Badge>
-          <Button size="sm" disabled={!usable || setEntitlement.isPending} onClick={() => setEntitlement.mutate({ tenantId: row.tenant.id, featureKey: "subscriber_portal_logo", isEnabled: !currentlyEnabled })} className="bg-white/8 text-white hover:bg-white/12">{currentlyEnabled ? "إخفاء الشعار" : "تفعيل الشعار"}</Button>
+          <Button size="sm" disabled={!usable || setEntitlement.isPending} onClick={() => setEntitlement.mutate({ tenantId: row.tenant.id, featureKey: "payment_documentation", isEnabled: !currentlyEnabled })} className="bg-white/8 text-white hover:bg-white/12">{currentlyEnabled ? "إخفاء الشعار" : "تفعيل الشعار"}</Button>
         </div>;
       })}</div>
     </CardContent>
