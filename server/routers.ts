@@ -50,7 +50,24 @@ export const appRouter = router({
       return { released: Boolean(data) } as const;
     }),
 
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(async ({ ctx }) => {
+      if (!ctx.user) return null;
+      const deviceId = ctx.req.headers["x-powerhub-device-id"];
+      if (typeof deviceId !== "string" || !z.string().uuid().safeParse(deviceId).success) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "تعذر التحقق من جهاز الدخول." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
+        p_user_id: ctx.user.openId,
+        p_device_id: deviceId,
+        p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الجهاز." });
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row?.allowed) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
+      }
+      return ctx.user;
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
