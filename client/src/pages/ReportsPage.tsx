@@ -12,6 +12,127 @@ import { REPORT_METRICS, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPT
 import { loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import ExcelJS from "exceljs";
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, CircleDollarSign, CloudOff, Download, FileBarChart2, FileSpreadsheet, FileText, GitCompareArrows, ImagePlus, Layers3, Loader2, RefreshCw, Save } from "lucide-react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { toast } from "sonner";
+
+const inputClass = "h-10 rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none focus:border-[#F5B800]/70";
+const currentDate = new Date().toISOString().slice(0, 10);
+const currentMonthStart = `${currentDate.slice(0, 7)}-01`;
+const number = (value: unknown, digits = 2) => new Intl.NumberFormat("ar", { maximumFractionDigits: digits }).format(Number(value ?? 0));
+const reportMetrics = REPORT_METRICS;
+const paymentProviderLabels = REPORT_PAYMENT_METHOD_LABELS;
+
+type FinancialSummary = { invoiced: number; collected: number; outstanding: number; energyKwh: number; expenseTotal: number; operatingProfit: number };
+type FinancialReport = {
+  range: { startDate: string; endDate: string };
+  summary: FinancialSummary;
+  collectors: { name: string; count: number; amount: number }[];
+  topDebtors: { subscriber: string; invoiceNo: string; balanceDue: number; dueDate?: Date; branchName?: string }[];
+  scope?: { branchCount: number };
+  branchSummaries?: { siteId: number; branchName: string; invoiced: number; collected: number; outstanding: number; energyKwh: number; expenseTotal: number; operatingProfit: number }[];
+  paymentDetails?: { siteId?: number; paymentNo: string; amount: number; paymentMethod: string; paidAt: Date; transferFromAccount?: string | null; transferFromType?: string | null; transferToAccount?: string | null; transferToType?: string | null }[];
+};
+
+type ReportSection = "summary" | "branches" | "collectors" | "payments";
+const reportSectionLabels: Record<ReportSection, string> = { summary: "الملخص المالي", branches: "تفصيل الأفرع", collectors: "أداء المحصلين", payments: "تفاصيل الدفعات والتحويلات" };
+function financialRows(report: FinancialReport, scopeName: string, sections: ReportSection[] = ["summary", "branches", "collectors", "payments"]) {
+  const branchRows = report.branchSummaries ?? [];
+  const paymentRows = (report.paymentDetails ?? []).map((payment) => [payment.paymentNo, payment.amount, payment.paymentMethod, payment.transferFromAccount ?? "—", payment.transferFromType ?? "—", payment.transferToAccount ?? "—", payment.transferToType ?? "—"]);
+  return [["تقرير PowerHub المالي", ""], ["النطاق", scopeName], ["بداية الفترة", report.range.startDate], ["نهاية الفترة", report.range.endDate], ...(sections.includes("summary") ? [[], ["المؤشر", "القيمة"], ["إجمالي الفوترة", report.summary.invoiced], ["إجمالي التحصيل", report.summary.collected], ["الأرصدة المستحقة", report.summary.outstanding], ["الاستهلاك kWh", report.summary.energyKwh], ["المصروفات", report.summary.expenseTotal], ["صافي التدفق التشغيلي", report.summary.operatingProfit]] : []), ...(sections.includes("branches") && branchRows.length ? [[], ["تفصيل الأفرع", "الفوترة", "التحصيل", "الأرصدة المستحقة", "المصروفات", "صافي التدفق التشغيلي"], ...branchRows.map((branch) => [branch.branchName, branch.invoiced, branch.collected, branch.outstanding, branch.expenseTotal, branch.operatingProfit])] : []), ...(sections.includes("collectors") ? [[], ["المحصل", "عدد الدفعات", "قيمة التحصيل"], ...report.collectors.map((row) => [row.name, row.count, row.amount])] : []), ...(sections.includes("payments") && paymentRows.length ? [[], ["رقم الإيصال", "المبلغ", "الطريقة", "الحساب المحوِّل", "نوعه", "الحساب المستقبِل", "نوعه"], ...paymentRows] : [])];
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+}
+
+function readBase64(file: File) { return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error("تعذر قراءة ملف الشعار.")); reader.onload = () => resolve(String(reader.result).split(",")[1] ?? ""); reader.readAsDataURL(file); }); }
+function difference(value: number, baseline: number) { const amount = value - baseline; const percent = baseline === 0 ? (value === 0 ? 0 : null) : (amount / Math.abs(baseline)) * 100; return { amount, percent }; }
+
+export default function ReportsPage() {
+  const { isAuthenticated, loading, user } = useAuth();
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
+  const { branchId, setBranchId } = useBranchFilter(sitesQuery.data);
+  const [scope, setScope] = useState<"branch" | "all">("branch");
+  const [startDate, setStartDate] = useState(currentMonthStart);
+  const [endDate, setEndDate] = useState(currentDate);
+  const [reportPaymentProvider, setReportPaymentProvider] = useState("all");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewZoom, setPreviewZoom] = useState(100);
+  const [selectedReportSections, setSelectedReportSections] = useState<ReportSection[]>(["summary", "branches", "collectors", "payments"]);
+  const [reportKind, setReportKind] = useState<"daily" | "monthly" | "custom">("monthly");
+  const [comparisonMode, setComparisonMode] = useState<"period" | "branch">("period");
+  const [comparisonSiteId, setComparisonSiteId] = useState<number | null>(null);
+  const [comparisonStartDate, setComparisonStartDate] = useState(currentMonthStart);
+  const [comparisonEndDate, setComparisonEndDate] = useState(currentDate);
+  const [companyNameDraft, setCompanyNameDraft] = useState("");
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const [cachedSnapshot, setCachedSnapshot] = useState<CachedReportSnapshot | null>(null);
+  const [pendingPaymentDrafts, setPendingPaymentDrafts] = useState<QueuedOfflineWork[]>([]);
+  const pdfRef = useRef<HTMLDivElement>(null);
+  const accessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: branchId ?? 0 }, { enabled: Boolean(branchId && isAuthenticated) });
+  const roleQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: branchId ?? 0 }, { enabled: Boolean(branchId && isAuthenticated) });
+  const canUseAllBranches = accessQuery.data?.isGlobal === true && (sitesQuery.data?.length ?? 0) > 1;
+  const canCompareBranches = canUseAllBranches;
+  const canManageBranding = roleQuery.data?.role === "owner";
+  const baseEnabled = Boolean(branchId && isAuthenticated && startDate <= endDate);
+  const branchReportQuery = trpc.powerhub.reports.range.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "branch" });
+  const allReportQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "all" && canUseAllBranches });
+  const activeQuery = scope === "all" ? allReportQuery : branchReportQuery;
+  const liveReport = activeQuery.data as FinancialReport | undefined;
+  const report = liveReport ?? cachedSnapshot?.report as FinancialReport | undefined;
+  const usingCachedReport = !liveReport && Boolean(cachedSnapshot);
+  const scopeName = scope === "all" ? `جميع الأفرع (${report?.scope?.branchCount ?? sitesQuery.data?.length ?? 0})` : sitesQuery.data?.find((site) => site.id === branchId)?.name ?? "الفرع المحدد";
+  const alternateBranchId = comparisonSiteId ?? (sitesQuery.data ?? []).find((site) => site.id !== branchId)?.id ?? null;
+  const comparisonPeriodEnabled = baseEnabled && comparisonMode === "period" && comparisonStartDate <= comparisonEndDate;
+  const comparisonBranchEnabled = Boolean(isAuthenticated && comparisonMode === "branch" && canCompareBranches && alternateBranchId && startDate <= endDate);
+  const comparisonPeriodBranchQuery = trpc.powerhub.reports.range.useQuery({ siteId: branchId ?? 0, startDate: comparisonStartDate, endDate: comparisonEndDate }, { enabled: comparisonPeriodEnabled && scope === "branch" });
+  const comparisonPeriodAllQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate: comparisonStartDate, endDate: comparisonEndDate }, { enabled: comparisonPeriodEnabled && scope === "all" && canUseAllBranches });
+  const comparisonBranchQuery = trpc.powerhub.reports.range.useQuery({ siteId: alternateBranchId ?? 0, startDate, endDate }, { enabled: comparisonBranchEnabled });
+  const comparisonReport = (comparisonMode === "branch" ? comparisonBranchQuery.data : scope === "all" ? comparisonPeriodAllQuery.data : comparisonPeriodBranchQuery.data) as FinancialReport | undefined;
+  const comparisonIsFetching = comparisonMode === "branch" ? comparisonBranchQuery.isFetching : scope === "all" ? comparisonPeriodAllQuery.isFetching : comparisonPeriodBranchQuery.isFetching;
+  const comparisonScopeName = comparisonMode === "branch" ? sitesQuery.data?.find((site) => site.id === alternateBranchId)?.name ?? "الفرع المقارن" : `${scopeName} — ${comparisonStartDate} إلى ${comparisonEndDate}`;
+  const brandingQuery = trpc.powerhub.reportBranding.get.useQuery({ siteId: branchId ?? 0 }, { enabled: Boolean(branchId && isAuthenticated) });
+  const brandingMutation = trpc.powerhub.reportBranding.update.useMutation({ onSuccess: async () => { await brandingQuery.refetch(); toast.success("تم تحديث هوية التقرير الرسمية."); }, onError: (error) => toast.error(error.message) });
+
+  useEffect(() => { if (scope === "all" && !canUseAllBranches) setScope("branch"); }, [canUseAllBranches, scope]);
+  useEffect(() => { if (comparisonMode === "branch" && !canCompareBranches) setComparisonMode("period"); }, [canCompareBranches, comparisonMode]);
+  useEffect(() => { const candidate = (sitesQuery.data ?? []).find((site) => site.id !== branchId)?.id ?? null; if (candidate && (comparisonSiteId === null || comparisonSiteId === branchId)) setComparisonSiteId(candidate); }, [branchId, comparisonSiteId, sitesQuery.data]);
+  useEffect(() => { if (brandingQuery.data?.companyName) setCompanyNameDraft(brandingQuery.data.companyName); }, [brandingQuery.data?.companyName]);
+  useEffect(() => {
+    const online = () => setIsOnline(true); const offline = () => setIsOnline(false);
+    window.addEventListener("online", online); window.addEventListener("offline", offline);
+    return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); };
+  }, []);
+  useEffect(() => {
+    if (!user?.id || !branchId) return;
+    const input = { userId: user.id, siteId: branchId, scope, startDate, endDate } as const;
+    if (liveReport) { void saveReportSnapshot({ ...input, report: liveReport }).then(setCachedSnapshot).catch(() => undefined); }
+    else { void loadReportSnapshot(input).then((snapshot) => setCachedSnapshot(snapshot ?? null)).catch(() => setCachedSnapshot(null)); }
+    void listOfflineWork({ userId: user.id, siteId: branchId }).then((items) => setPendingPaymentDrafts(items.filter((item) => item.kind === "payment_create" && item.status !== "applied"))).catch(() => setPendingPaymentDrafts([]));
+  }, [branchId, endDate, liveReport, scope, startDate, user?.id]);
+
+  const clearReportFilters = () => { setScope("branch"); setStartDate(currentMonthStart); setEndDate(currentDate); setReportPaymentProvider("all"); setReportKind("monthly"); };
+  const reportFilterLabel = reportPaymentProvider === "all" ? "كل طرق الدفع" : (paymentProviderLabels[reportPaymentProvider] ?? reportPaymentProvider);
+  const filteredExportReport = report ? { ...report, paymentDetails: (report.paymentDetails ?? []).filter((payment) => reportPaymentProvider === "all" || payment.paymentMethod === reportPaymentProvider) } : null;
+  const printReport = () => { if (!pdfRef.current) return; const printWindow = window.open("", "_blank", "width=1000,height=800"); if (!printWindow) return toast.error("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مجدداً."); printWindow.document.write(`<html dir="rtl"><head><title>تقرير PowerHub</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#0D1117}img{max-width:100px}table{border-collapse:collapse;width:100%}td,th{padding:8px;border:1px solid #ddd}@media print{button{display:none}}</style></head><body>${pdfRef.current.innerHTML}</body></html>`); printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); };
+  const downloadCsv = () => { if (!liveReport) return toast.error("التصدير الرسمي يتطلب اتصالاً وتقريراً حديثاً من الخادم."); const rows = financialRows(filteredExportReport ?? liveReport, scopeName, selectedReportSections); rows.splice(1, 0, ["طريقة الدفع", reportFilterLabel]); const csv = "\uFEFF" + rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n"); triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), `powerhub-financial-${scope === "all" ? "all-branches" : `branch-${branchId}`}-${startDate}_to_${endDate}-${reportPaymentProvider}.csv`); toast.success("تم تصدير التقرير المالي المفلتر بصيغة CSV."); };
+  const downloadExcel = async () => { if (!liveReport) return toast.error("التصدير الرسمي يتطلب اتصالاً وتقريراً حديثاً من الخادم."); try { const workbook = new ExcelJS.Workbook(); workbook.creator = "PowerHub"; workbook.created = new Date(); const sheet = workbook.addWorksheet("التقرير المالي", { views: [{ rightToLeft: true }] }); sheet.addRow(["معايير التصفية", `الفترة: ${formatReportPeriod(startDate, endDate)} | طريقة الدفع: ${reportFilterLabel}`]); financialRows(filteredExportReport ?? liveReport, scopeName, selectedReportSections).forEach((row) => sheet.addRow(row)); sheet.columns = [{ width: 30 }, { width: 22 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }]; [1, 6].forEach((rowNumber) => { const row = sheet.getRow(rowNumber); row.font = { bold: true, color: { argb: "FFFFFFFF" } }; row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; row.height = 24; }); for (let index = 1; index <= sheet.rowCount; index += 1) sheet.getRow(index).alignment = { vertical: "middle", horizontal: "right" }; const buffer = await workbook.xlsx.writeBuffer(); triggerDownload(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `powerhub-financial-${scope === "all" ? "all-branches" : `branch-${branchId}`}-${startDate}_to_${endDate}.xlsx`); toast.success("تم تجهيز تقرير Excel المالي."); } catch { toast.error("تعذر تجهيز ملف Excel. حاول مرة أخرى."); } };
+  const downloadPdf = async () => { if (!pdfRef.current || !liveReport) return toast.error("تصدير PDF الرسمي يتطلب اتصالاً وتقريراً حديثاً من الخادم."); try { await downloadReportHtmlAsPdf(pdfRef.current, `تقرير-مالي-${startDate}.pdf`, { title: "تقرير مالي رسمي من PowerHub" }); toast.success("تم تصدير التقرير بصيغة PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };rt { useAuth } from "@/_core/hooks/useAuth";
+import DashboardLayout from "@/components/DashboardLayout";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { startLogin } from "@/const";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { trpc } from "@/lib/trpc";
+import { listOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
+import { REPORT_METRICS, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS, formatReportDate, formatReportPeriod } from "@/lib/report-design-system";
+import { loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
+import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
+import ExcelJS from "exceljs";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { ArrowDownLeft, ArrowUpRight, CalendarDays, CircleDollarSign, CloudOff, Download, FileBarChart2, FileSpreadsheet, FileText, GitCompareArrows, ImagePlus, Layers3, Loader2, RefreshCw, Save } from "lucide-react";
