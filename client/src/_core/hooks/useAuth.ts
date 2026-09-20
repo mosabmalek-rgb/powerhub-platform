@@ -105,12 +105,19 @@ export function useAuth(options?: UseAuthOptions) {
   }, [meQuery.data]);
 
   const logout = useCallback(async () => {
-    await supabaseSignOutSafely();
-    setCachedUser(null);
-    utils.auth.me.setData(undefined, null);
-    await utils.auth.me.invalidate();
-    await revokeOfflineAuthLease();
-    setOfflineLeaseUserId(null);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("powerhub:explicit-logout", "1");
+    }
+
+    try {
+      await supabaseSignOutSafely();
+    } finally {
+      setCachedUser(null);
+      setOfflineLeaseUserId(null);
+      await revokeOfflineAuthLease();
+      utils.auth.me.setData(undefined, null);
+      await utils.auth.me.invalidate();
+    }
   }, [utils]);
 
   const user = meQuery.data ?? cachedUser;
@@ -153,5 +160,7 @@ export function useAuth(options?: UseAuthOptions) {
 
 async function supabaseSignOutSafely() {
   const { supabase } = await import("@/lib/supabase");
-  await supabase.auth.signOut();
+  // Logout is device-local by design: remove the current browser session
+  // deterministically, without terminating other active devices.
+  await supabase.auth.signOut({ scope: "local" });
 }
