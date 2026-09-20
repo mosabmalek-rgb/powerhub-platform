@@ -9,7 +9,7 @@ create or replace function public.powerhub_update_staff_profile_permissions(
   p_custom_role_id bigint,
   p_permissions jsonb
 )
-returns table(profile_id bigint, target_user_id bigint)
+returns table(profile_id bigint, target_user_id bigint, replayed boolean)
 language plpgsql security invoker set search_path=public,pg_temp
 as $$
 declare
@@ -36,7 +36,7 @@ begin
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,actor_tenant_role,entity_type,entity_id,action,before_data,after_data)
   values(p_tenant_id,p_site_id,p_actor_user_id,v_actor_platform_role,v_actor_tenant_role,'staff_profile',p_profile_id::text,'update_permissions',v_before,
     jsonb_build_object('customRoleId',p_custom_role_id,'permissions',p_permissions,'targetUserId',v_target_user_id));
-  return query select p_profile_id,v_target_user_id;
+  return query select p_profile_id,v_target_user_id,false;
 end;
 $$;
 
