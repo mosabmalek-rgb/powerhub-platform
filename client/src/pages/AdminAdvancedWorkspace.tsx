@@ -210,6 +210,47 @@ export function OwnerManualLimitOverridesPanel() {
   return <Card className="border-sky-400/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div><h2 className="font-bold text-white">استثناءات الحدود لكل صاحب مولد</h2><p className="mt-1 max-w-3xl text-sm leading-7 text-slate-400">اترك حقول العدد فارغة لتطبيق حد الباقة. يمكنك كذلك قصر أنواع الحسابات الفرعية لكل مالك دون تجاوز السياسة العامة للمنصة.</p></div><div className="mt-5 space-y-3">{(owners.data ?? []).map((owner) => { const current = overrides[String(owner.tenant.id)] ?? {}; const allowedRoles = Array.isArray(current.allowedRoles) ? current.allowedRoles.filter((role): role is string => typeof role === "string") : []; return <form key={owner.tenant.id} className="grid gap-3 rounded-2xl border border-white/8 bg-white/[.02] p-4 lg:grid-cols-[1.4fr_.7fr_.7fr_1.1fr_auto] lg:items-end" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const subaccount = String(form.get("subaccountLimit") || "").trim(); const subscriber = String(form.get("subscriberLimit") || "").trim(); const useCustomRoles = form.get("useCustomRoles") === "on"; const nextOverrides = { ...overrides }; const next = { ...(subaccount ? { subaccountLimit: Number(subaccount) } : {}), ...(subscriber ? { subscriberLimit: Number(subscriber) } : {}), ...(useCustomRoles ? { allowedRoles: form.getAll("role").map(String) } : {}) }; if (Object.keys(next).length) nextOverrides[String(owner.tenant.id)] = next; else delete nextOverrides[String(owner.tenant.id)]; save.mutate({ settingKey: "owner_limit_overrides", isEnabled: true, value: { overrides: nextOverrides } }); }}><div><p className="font-bold text-white">{owner.owner?.fullName ?? owner.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{owner.tenant.name} · باقة {owner.subscription?.plan ?? owner.tenant.plan}</p></div><label><span className="mb-1 block text-xs text-slate-500">حد الحسابات الفرعية</span><Input name="subaccountLimit" type="number" min="0" max="999" placeholder="حد الباقة" defaultValue={typeof current.subaccountLimit === "number" ? current.subaccountLimit : ""} className={inputClass} /></label><label><span className="mb-1 block text-xs text-slate-500">حد المشتركين</span><Input name="subscriberLimit" type="number" min="0" max="100000" placeholder="حد الباقة" defaultValue={typeof current.subscriberLimit === "number" ? current.subscriberLimit : ""} className={inputClass} /></label><div><label className="flex items-center gap-2 text-xs text-slate-300"><input name="useCustomRoles" type="checkbox" defaultChecked={allowedRoles.length > 0} className="accent-[#F5B800]" />تخصيص أنواع الحسابات</label><select name="role" multiple defaultValue={allowedRoles} className={inputClass + " mt-2 h-24"}>{ownerSubaccountRoleOptions.map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}</select></div><Button disabled={save.isPending} size="sm" className="bg-sky-500 font-bold text-white hover:bg-sky-400">حفظ الاستثناء</Button></form>; })}{!(owners.data ?? []).length && <p className="py-10 text-center text-sm text-slate-500">لا يوجد أصحاب مولدات بعد.</p>}</div></CardContent></Card>;
 }
 
+export function SubscriberPortalLogoFeaturePanel() {
+  const utils = trpc.useUtils();
+  const configuration = trpc.admin.platformConfiguration.useQuery();
+  const owners = trpc.admin.listOwners.useQuery();
+  const setEntitlement = trpc.admin.setTenantFeatureEntitlement.useMutation({
+    onSuccess: () => { void utils.admin.listOwners.invalidate(); toast.success("تم تحديث إتاحة شعار بوابة الاستعلام."); },
+    onError: (error) => toast.error(error.message),
+  });
+  const feature = configuration.data?.settings.find((item) => item.settingKey === "subscriber_portal_logo");
+  const catalog = configuration.data?.settings.find((item) => item.settingKey === "subscription_package_catalog");
+  const packages = Array.isArray((catalog?.value as any)?.packages) ? (catalog?.value as any).packages as Array<Record<string, unknown>> : [];
+  const policyFor = (code: string | null | undefined) => {
+    const row = packages.find((item) => item.code === code);
+    return String(row?.logoPolicy ?? "not_included");
+  };
+  return <Card className="border-[#F5B800]/25 bg-[#111823] shadow-panel">
+    <CardContent className="p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div><h2 className="font-bold text-white">شعار بوابة الاستعلام — التحكم الإداري</h2><p className="mt-1 max-w-4xl text-sm leading-7 text-slate-400">يمكن لآدمن المنصة إيقاف الميزة بالكامل، وتحديد سياسة الشعار لكل باقة من نظام الباقات، ثم تفعيل الإضافة أو إخفائها لحساب صاحب مولد محدد.</p></div>
+        <Badge className={feature?.isEnabled ? "w-fit bg-emerald-400/10 text-emerald-300" : "w-fit bg-amber-400/10 text-amber-300"}>{feature?.isEnabled ? "الميزة متاحة على المنصة" : "الميزة مخفية على المنصة"}</Badge>
+      </div>
+      <div className="mt-5 rounded-2xl border border-white/8 bg-white/[.02] p-4 text-sm text-slate-300">
+        <p className="font-bold text-white">سياسة الباقات الحالية</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">{packages.map((item) => <div key={String(item.code)} className="rounded-xl border border-white/8 p-3"><p className="font-bold text-white">{String(item.name ?? item.code)}</p><p className="mt-1 text-xs text-slate-500">{String(item.code)} · {item.logoPolicy === "included" ? "مشمولة" : item.logoPolicy === "addon" ? "إضافة" : "مخفية"}</p></div>)}</div>
+      </div>
+      <div className="mt-5 space-y-3">{(owners.data ?? []).map((row: any) => {
+        const plan = row.subscription?.packageCode ?? row.subscription?.plan ?? row.tenant?.plan;
+        const policy = policyFor(plan);
+        const currentlyEnabled = Boolean(row.logoEntitlement?.isEnabled);
+        const usable = feature?.isEnabled && policy !== "not_included";
+        return <div key={row.tenant.id} className="grid gap-3 rounded-2xl border border-white/8 bg-white/[.02] p-4 lg:grid-cols-[1.4fr_.7fr_.7fr_auto] lg:items-center">
+          <div><p className="font-bold text-white">{row.owner?.fullName ?? row.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{row.tenant.name} · {plan ?? "—"} · سياسة الشعار: {policy === "included" ? "مشمولة" : policy === "addon" ? "إضافة" : "مخفية"}</p></div>
+          <Badge className={usable ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-slate-500"}>{usable ? (policy === "addon" ? "إضافة متاحة" : "مشمولة") : "غير متاحة"}</Badge>
+          <Badge className={currentlyEnabled ? "bg-sky-400/10 text-sky-300" : "bg-white/5 text-slate-500"}>{currentlyEnabled ? "مفعلة للحساب" : "غير مفعلة للحساب"}</Badge>
+          <Button size="sm" disabled={!usable || setEntitlement.isPending} onClick={() => setEntitlement.mutate({ tenantId: row.tenant.id, featureKey: "subscriber_portal_logo", isEnabled: !currentlyEnabled })} className="bg-white/8 text-white hover:bg-white/12">{currentlyEnabled ? "إخفاء الشعار" : "تفعيل الشعار"}</Button>
+        </div>;
+      })}</div>
+    </CardContent>
+  </Card>;
+}
+
 export function OwnerSubaccountPolicyPanel() {
   const utils = trpc.useUtils();
   const configuration = trpc.admin.platformConfiguration.useQuery();
