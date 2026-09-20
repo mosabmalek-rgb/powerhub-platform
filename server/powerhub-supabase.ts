@@ -99,8 +99,10 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
   if (isSuspended(new Date(), dateOrNull(profile.suspension_started_at), dateOrNull(profile.suspension_ends_at))) {
     throw new TRPCError({ code: "FORBIDDEN", message: `تم توقيف حسابك مؤقتاً حتى ${new Date(profile.suspension_ends_at!).toLocaleString("ar-IQ")}.` });
   }
-  let permissions = asPermissions(profile.permissions);
-  if (!permissions.length && profile.custom_role_id) {
+  // NULL means "inherit from custom role"; [] is an explicit deny-all override.
+  const hasExplicitPermissions = profile.permissions !== null && profile.permissions !== undefined;
+  let permissions = hasExplicitPermissions ? asPermissions(profile.permissions) : [];
+  if (!hasExplicitPermissions && profile.custom_role_id) {
     const { data: customRole, error: customRoleError } = await admin.from("custom_permission_roles")
       .select("permissions").eq("id", profile.custom_role_id).eq("tenant_id", site.tenantId).eq("is_active", true).maybeSingle();
     if (customRoleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
