@@ -24,6 +24,7 @@ import FinanceAdminPage from "./pages/FinanceAdminPage";
 import LoginPage from "./pages/LoginPage";
 import ProfileSecurityPage from "./pages/ProfileSecurityPage";
 import SubscriberPortalPage from "./pages/SubscriberPortalPage";
+import SubscriberAccountStatementPage from "./pages/SubscriberAccountStatementPage";
 import SubscriberPortalSettingsPage from "./pages/SubscriberPortalSettingsPage";
 import BranchesPage from "./pages/BranchesPage";
 import HumanResourcesPage from "./pages/HumanResourcesPage";
@@ -55,6 +56,7 @@ function Router() {
       <Route path={"/support-center"}>{() => <RouteAccessGate><SupportCenterPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/portal"} component={SubscriberPortalPage} />
+      <Route path={"/subscriber-statement/:subscriberId"}>{() => <RouteAccessGate><SubscriberAccountStatementPage /></RouteAccessGate>}</Route>
       <Route path={"/portal-settings"}>{() => <RouteAccessGate><SubscriberPortalSettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/branches"}>{() => <RouteAccessGate><BranchesPage /></RouteAccessGate>}</Route>
       <Route path={"/subscribers"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="subscribers" /></RouteAccessGate>}</Route>
