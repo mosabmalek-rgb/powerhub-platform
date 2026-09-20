@@ -11,7 +11,7 @@ const adminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
 });
 
 const announcementType = z.enum(["news", "announcement", "maintenance", "alert"]);
-const announcementStatus = z.enum(["draft", "published", "archived"]);
+const announcementStatus = z.enum(["draft", "scheduled", "published", "archived"]);
 const audienceRole = z.enum(["all", "owner", "manager", "accountant", "collector", "technician", "viewer", "platform_owner", "platform_admin", "finance_admin"]);
 const audienceSchema = z.array(audienceRole).min(1).max(7).refine((roles) => roles.includes("all") ? roles.length === 1 : true, "all cannot be combined with specific roles");
 
@@ -23,6 +23,7 @@ function mapAnnouncement(row: any, readAt?: string | null) {
     type: row.announcement_type,
     status: row.status,
     publishedAt: row.published_at,
+    scheduledAt: row.scheduled_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdByUserId: Number(row.created_by_user_id),
@@ -36,7 +37,7 @@ export const platformAnnouncementsRouter = router({
     list: adminProcedure.query(async () => {
       const { data, error } = await supabaseAdmin()
         .from("platform_announcements")
-        .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
+        .select("id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at")
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعلانات المنصة." });
@@ -47,9 +48,12 @@ export const platformAnnouncementsRouter = router({
       body: z.string().trim().min(2).max(10000),
       type: announcementType.default("news"),
       audienceRoles: audienceSchema.default(["all"]),
-      status: z.enum(["draft", "published"]).default("draft"),
+      status: z.enum(["draft", "scheduled"]).default("draft"),
+      scheduledAt: z.string().datetime().optional(),
     })).mutation(async ({ ctx, input }) => {
       const published = input.status === "published";
+      const scheduled = input.status === "scheduled";
+      if (scheduled && (!input.scheduledAt || new Date(input.scheduledAt).getTime() <= Date.now())) throw new TRPCError({ code: "BAD_REQUEST", message: "وقت الجدولة يجب أن يكون في المستقبل." });
       const { data, error } = await supabaseAdmin()
         .from("platform_announcements")
         .insert({
@@ -59,6 +63,7 @@ export const platformAnnouncementsRouter = router({
           audience_roles: input.audienceRoles,
           status: input.status,
           published_at: published ? new Date().toISOString() : null,
+          scheduled_at: scheduled ? input.scheduledAt : null,
           created_by_user_id: ctx.user.id,
           updated_by_user_id: ctx.user.id,
         })
@@ -73,10 +78,11 @@ export const platformAnnouncementsRouter = router({
       body: z.string().trim().min(2).max(10000),
       type: announcementType,
       audienceRoles: audienceSchema,
+      scheduledAt: z.string().datetime().nullable().optional(),
     })).mutation(async ({ ctx, input }) => {
       const { data, error } = await supabaseAdmin()
         .from("platform_announcements")
-        .update({ title: input.title, body: input.body, announcement_type: input.type, audience_roles: input.audienceRoles, updated_by_user_id: ctx.user.id })
+        .update({ title: input.title, body: input.body, announcement_type: input.type, audience_roles: input.audienceRoles, scheduled_at: input.scheduledAt ?? null, updated_by_user_id: ctx.user.id })
         .eq("id", input.id)
         .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
         .single();
@@ -86,9 +92,9 @@ export const platformAnnouncementsRouter = router({
     publish: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const { data, error } = await supabaseAdmin()
         .from("platform_announcements")
-        .update({ status: "published", published_at: new Date().toISOString(), updated_by_user_id: ctx.user.id })
+        .update({ status: "published", published_at: new Date().toISOString(), scheduled_at: null, updated_by_user_id: ctx.user.id })
         .eq("id", input.id)
-        .neq("status", "archived")
+        .neq("status", "archived").eq("status", "scheduled")
         .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
         .single();
       if (error) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر نشر الإعلان؛ قد يكون مؤرشفًا أو غير موجود." });
