@@ -67,7 +67,7 @@ export const platformAnnouncementsRouter = router({
           created_by_user_id: ctx.user.id,
           updated_by_user_id: ctx.user.id,
         })
-        .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
+        .select("id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at")
         .single();
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء الإعلان." });
       return mapAnnouncement(data);
@@ -94,7 +94,8 @@ export const platformAnnouncementsRouter = router({
         .from("platform_announcements")
         .update({ status: "published", published_at: new Date().toISOString(), scheduled_at: null, updated_by_user_id: ctx.user.id })
         .eq("id", input.id)
-        .neq("status", "archived").eq("status", "scheduled")
+        .eq("status", "scheduled")
+        .lte("scheduled_at", new Date().toISOString())
         .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at")
         .single();
       if (error) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر نشر الإعلان؛ قد يكون مؤرشفًا أو غير موجود." });
@@ -118,9 +119,11 @@ export const platformAnnouncementsRouter = router({
       if (!account || account.account_status !== "active") return [];
       const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
       if (account.platform_role) roles.add(account.platform_role);
-      const { data, error } = await supabaseAdmin()
+      const admin = supabaseAdmin();
+      await admin.from("platform_announcements").update({ status: "published", published_at: new Date().toISOString(), scheduled_at: null }).eq("status", "scheduled").lte("scheduled_at", new Date().toISOString());
+      const { data, error } = await admin
         .from("platform_announcements")
-        .select("id,title,body,announcement_type,status,published_at,created_by_user_id,created_at,updated_at,audience_roles")
+        .select("id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at,audience_roles")
         .eq("status", "published")
         .not("published_at", "is", null)
         .lte("published_at", new Date().toISOString())
@@ -141,7 +144,7 @@ export const platformAnnouncementsRouter = router({
         .from("platform_announcements")
         .select("id,status,published_at")
         .eq("id", input.id)
-        .eq("status", "published")
+        .in("status", ["published", "scheduled"])
         .single();
       if (announcementError || !announcement) throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
       const { error } = await supabaseAdmin().from("platform_announcement_reads").upsert(
