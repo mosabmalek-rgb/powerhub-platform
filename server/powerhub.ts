@@ -1361,7 +1361,12 @@ export const powerhubRouter = router({
         p_payment_method: input.paymentMethod, p_sender_phone: input.senderPhone ?? null, p_reference_no: input.referenceNo ?? null,
         p_receipt_image_key: receiptImageKey ?? null, p_receipt_image_hash: receiptImageHash ?? null, p_client_operation_id: input.clientOperationId ?? null,
       });
-      if (!error && data?.[0]) return { id: Number((data[0] as { request_id: number | string }).request_id), replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
+      if (!error && data?.[0]) {
+        const replayed = Boolean((data[0] as { replayed?: boolean }).replayed);
+        if (replayed && receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
+        return { id: Number((data[0] as { request_id: number | string }).request_id), replayed };
+      }
+      if (receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
       const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (text.includes("INVOICE_OUT_OF_SCOPE") || text.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة أو المشترك لا يتبعان للمحطة المحددة." });
       if (text.includes("INVOICE_ALREADY_PAID")) throw new TRPCError({ code: "CONFLICT", message: "الفاتورة مسددة بالكامل." });
