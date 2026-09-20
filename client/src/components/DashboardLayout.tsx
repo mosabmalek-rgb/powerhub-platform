@@ -251,7 +251,7 @@ function DashboardLayoutContent({
                           className="h-10 rounded-lg font-medium text-slate-300 hover:bg-white/5 hover:text-white data-[active=true]:bg-[#F5B800] data-[active=true]:text-[#0D1117] data-[active=true]:font-bold"
                         >
                           <item.icon className="h-4 w-4" />
-                          <span>{item.label}</span>
+                          <span>{item.label}</span>{item.path === "/announcements" && unreadAnnouncements > 0 ? <span className="mr-auto min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     );
@@ -329,6 +329,21 @@ function DashboardLayoutContent({
                 </div>
               </div>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" aria-label="فتح الإشعارات" className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 hover:bg-white/5 hover:text-white">
+                  <BellRing className="h-4 w-4" />
+                  {unreadAnnouncements > 0 ? <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-rose-500 px-1 text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-80 border-white/10 bg-[#1b222c] text-white">
+                <div className="flex items-center justify-between border-b border-white/8 px-3 py-2"><span className="font-bold">الإشعارات</span><span className="text-xs text-slate-500">{unreadAnnouncements} غير مقروء</span></div>
+                {latestAnnouncements.length ? latestAnnouncements.map((item) => <DropdownMenuItem key={item.id} onClick={() => setLocation("/announcements")} className="cursor-pointer items-start gap-2 whitespace-normal py-3 focus:bg-white/5">
+                  <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate font-bold">{item.title}</span>{!item.readAt ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#F5B800]" /> : null}</div><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{item.body}</p></div>
+                </DropdownMenuItem>) : <div className="px-4 py-6 text-center text-xs text-slate-500">لا توجد إشعارات جديدة.</div>}
+                <button type="button" onClick={() => setLocation("/announcements")} className="w-full border-t border-white/8 px-3 py-3 text-center text-xs font-bold text-[#F5B800] hover:bg-white/5">عرض جميع الإشعارات</button>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
         {approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId ? <div className="sticky top-0 z-30 border-b border-emerald-300/25 bg-emerald-400/[.10] px-4 py-3 text-emerald-100 shadow-lg sm:px-6"><div className="mx-auto flex max-w-7xl items-center justify-between gap-3" dir="rtl"><div className="flex min-w-0 items-center gap-3"><CircleCheck className="h-5 w-5 shrink-0 text-emerald-300" /><p className="text-sm font-bold">تم اعتماد طلب شحن الرسائل وإضافة {Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيد SMS.</p></div><button type="button" aria-label="إغلاق إشعار اعتماد الرسائل" onClick={() => { const id = String(approvedSmsRequest.id); setDismissedSmsApprovalId(id); localStorage.setItem("powerhub.sms-approval-notice-dismissed", id); }} className="rounded-lg p-1 text-emerald-200 transition hover:bg-emerald-300/15 hover:text-white"><X className="h-4 w-4" /></button></div></div> : null}
