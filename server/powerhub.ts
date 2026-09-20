@@ -1306,7 +1306,7 @@ export const powerhubRouter = router({
       return subscribers.map((subscriber) => ({ ...subscriber, invoices: (invoices ?? []).filter((invoice) => Number(invoice.subscriber_id) === Number(subscriber.id)) }));
     }),
     list: protectedProcedure.input(siteScoped.extend({ status: z.enum(["pending","approved","rejected","all"]).default("pending") })).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"]);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
       let query = supabaseAdmin().from("payment_documentation_requests")
         .select("id, tenant_id, site_id, subscriber_id, invoice_id, destination_account_id, invoice_no_snapshot, subscriber_name_snapshot, subscriber_no_snapshot, billing_period_snapshot, previous_reading_snapshot, current_reading_snapshot, consumption_kwh_snapshot, price_per_kwh_snapshot, consumption_value_snapshot, invoice_total_snapshot, invoice_balance_snapshot, payment_amount, payment_method, sender_phone, reference_no, receipt_image_key, receipt_image_hash, status, rejection_reason, submitted_by_user_id, reviewed_by_user_id, reviewed_at, payment_id, submitted_at, created_at, updated_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("submitted_at", { ascending: false }).limit(200);
