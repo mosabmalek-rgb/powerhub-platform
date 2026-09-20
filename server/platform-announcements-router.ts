@@ -13,7 +13,7 @@ const adminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
 const announcementType = z.enum(["news", "announcement", "maintenance", "alert"]);
 const announcementStatus = z.enum(["draft", "scheduled", "published", "archived"]);
 const audienceRole = z.enum(["all", "owner", "manager", "accountant", "collector", "technician", "viewer", "platform_owner", "platform_admin", "finance_admin"]);
-const audienceSchema = z.array(audienceRole).min(1).max(7).refine((roles) => roles.includes("all") ? roles.length === 1 : true, "all cannot be combined with specific roles");
+const audienceSchema = z.array(audienceRole).min(1).max(10).refine((roles) => roles.includes("all") ? roles.length === 1 : true, "all cannot be combined with specific roles");
 
 function mapAnnouncement(row: any, readAt?: string | null) {
   return {
