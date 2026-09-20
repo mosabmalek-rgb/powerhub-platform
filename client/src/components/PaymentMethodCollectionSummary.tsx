@@ -1,3 +1,4 @@
+import { formatReportDate } from "@/lib/report-design-system";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import ExcelJS from "exceljs";
@@ -32,7 +33,7 @@ export function summarizePaymentMethods(payments: any[], selectedMethod = "all",
 function escapeCsv(value: unknown) { return `"${String(value ?? "").replace(/"/g, '""')}"`; }
 function dateLabel(range: PaymentDateRange) { return range.from || range.to ? `${range.from || "بداية السجل"} إلى ${range.to || "اليوم"}` : "كامل الفترة"; }
 function filterLabel(method: string) { return method === "all" ? "كل طرق الدفع" : labels[method] ?? method; }
-function safeDate(value: unknown) { const date = new Date(String(value)); return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("ar-IQ"); }
+function safeDate(value: unknown) { const date = new Date(String(value)); return Number.isNaN(date.getTime()) ? "—" : formatReportDate(date); }
 
 export function buildPaymentMethodCsv(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange = {}) {
   const lines = [["تقرير ملخص التحصيلات حسب طريقة الدفع"], ["الفلتر", filterLabel(selectedMethod)], ["النطاق الزمني", dateLabel(range)], ["طريقة الدفع", "عدد الدفعات المكتملة", "إجمالي المبلغ"], ...groups.map((group) => [labels[group.method] ?? group.method, group.count, group.amount.toFixed(2)]), ["الإجمالي", "", total.toFixed(2)]];
