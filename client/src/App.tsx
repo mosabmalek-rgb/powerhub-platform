@@ -39,6 +39,7 @@ import SupportChatPage from "./pages/SupportChatPage";
 import SupportCenterPage from "./pages/SupportCenterPage";
 import PaymentDocumentationPage from "./pages/PaymentDocumentationPage";
 import PaymentDocumentationReviewPage from "./pages/PaymentDocumentationReviewPage";
+import PlatformAnnouncementsPage from "./pages/PlatformAnnouncementsPage";
 
 function Router() {
   return (
@@ -78,6 +79,7 @@ function Router() {
       <Route path={"/payroll"}>{() => <RouteAccessGate><PayrollPage /></RouteAccessGate>}</Route>
       <Route path={"/attendance"}>{() => <RouteAccessGate><AttendancePage /></RouteAccessGate>}</Route>
       <Route path={"/admin/trial-management"}>{() => <RouteAccessGate platformAdminOnly><TrialSubscriptionManagementPage /></RouteAccessGate>}</Route>
+      <Route path={"/admin/announcements"}>{() => <RouteAccessGate platformAdminOnly><PlatformAnnouncementsPage /></RouteAccessGate>}</Route>
       <Route path={"/admin"}>{() => <RouteAccessGate platformAdminOnly><AdminConsolePage /></RouteAccessGate>}</Route>
       <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
       <Route path={"/404"} component={NotFound} />
