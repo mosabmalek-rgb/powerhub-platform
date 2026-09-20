@@ -1,6 +1,7 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
+import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { useCallback, useEffect, useState } from "react";
 
@@ -29,6 +30,7 @@ export function useAuth(options?: UseAuthOptions) {
   });
   type CachedAuthUser = Exclude<typeof meQuery.data, undefined>;
   const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
+  const [offlineLeaseUserId, setOfflineLeaseUserId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -36,9 +38,24 @@ export function useAuth(options?: UseAuthOptions) {
       if (!active) return;
       setHasSession(Boolean(session));
       setSessionReady(true);
-      if (!session) return;
+      if (!session) {
+        const offlineLease = await getValidOfflineAuthLease();
+        if (offlineLease) {
+          const cached = await getOfflineAuthUser<CachedAuthUser>(offlineLease.userId);
+          if (active && cached) {
+            setCachedUser(cached);
+            setOfflineLeaseUserId(offlineLease.userId);
+            setHasSession(true);
+          }
+        }
+        return;
+      }
       const cached = await getOfflineAuthUser<CachedAuthUser>(session.user.id);
       if (active && cached) setCachedUser(cached);
+      if (active) {
+        setOfflineLeaseUserId(session.user.id);
+        void renewOfflineAuthLease(session.user.id);
+      }
     });
 
     const unsubscribe = subscribeSupabaseAuthState((event, session) => {
@@ -47,6 +64,8 @@ export function useAuth(options?: UseAuthOptions) {
       if (!session) {
         setCachedUser(null);
       } else {
+        setOfflineLeaseUserId(session.user.id);
+        void renewOfflineAuthLease(session.user.id);
         void getOfflineAuthUser<CachedAuthUser>(session.user.id).then((cached) => {
           if (cached) setCachedUser(cached);
         });
@@ -83,14 +102,18 @@ export function useAuth(options?: UseAuthOptions) {
     setCachedUser(null);
     utils.auth.me.setData(undefined, null);
     await utils.auth.me.invalidate();
+    await revokeOfflineAuthLease();
+    setOfflineLeaseUserId(null);
   }, [utils]);
 
   const user = meQuery.data ?? cachedUser;
+  const offlineAuthenticated = Boolean(offlineLeaseUserId && cachedUser);
+  const effectiveHasSession = hasSession || offlineAuthenticated;
   const state = {
     user,
-    loading: !sessionReady || (hasSession && meQuery.isLoading && !cachedUser),
+    loading: !sessionReady || (effectiveHasSession && meQuery.isLoading && !cachedUser),
     error: meQuery.error ?? null,
-    isAuthenticated: Boolean(hasSession && user),
+    isAuthenticated: Boolean(effectiveHasSession && user),
   };
 
   useEffect(() => {
