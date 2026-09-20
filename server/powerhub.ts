@@ -1761,6 +1761,22 @@ export const powerhubRouter = router({
       if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "يوجد حساب من النوع والرقم نفسيهما ضمن مساحة الشركة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء حساب الشركة في Supabase." });
     }),
+    updatePaymentDocumentationVisibility: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), accountId: z.number().int().positive(), allow: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageExpenses");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_company_account_payment_visibility", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_account_id: input.accountId, p_allow: input.allow,
+      });
+      if (error) {
+        const message = error.message ?? "";
+        throw new TRPCError({
+          code: message.includes("ACCOUNT_SITE_OUT_OF_SCOPE") ? "FORBIDDEN" : message.includes("ACCOUNT_NOT_FOUND") ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR",
+          message: message.includes("ACCOUNT_SITE_OUT_OF_SCOPE") ? "الحساب غير مرتبط بالفرع المحدد." : "تعذر تحديث إعداد ظهور الحساب في توثيق الدفع.",
+        });
+      }
+      const row = (data as Array<{ account_id: number | string; allow_payment_documentation: boolean }> | null)?.[0];
+      if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة إعداد الحساب استجابة صالحة." });
+      return { accountId: Number(row.account_id), allowPaymentDocumentation: Boolean(row.allow_payment_documentation) };
+    }),
     updatePhone: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), accountId: z.number().int().positive(), phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً بصيغة دولية أو محلية.") })).mutation(async ({ ctx, input }) => { const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_update_company_account_phone",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_account_id:input.accountId,p_phone_number:input.phoneNumber}); if(error) throw new TRPCError({code:error.message.includes("NOT_FOUND")?"NOT_FOUND":error.message.includes("OUT_OF_SCOPE")?"FORBIDDEN":error.message.includes("CONFLICT")?"CONFLICT":"BAD_REQUEST",message:error.message.includes("CONFLICT")?"يوجد حساب من النوع والرقم نفسيهما ضمن مساحة الشركة.":"تعذر تحديث رقم الحساب."}); if(!Number((data as Array<{account_id:number}>|null)?.[0]?.account_id)) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة الحساب استجابة صالحة."}); return {success:true}; }),
     updateOpeningBalance: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), accountId: z.number().int().positive(), openingBalance: z.number().nonnegative() })).mutation(async ({ ctx, input }) => {
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_update_company_account_opening_balance",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_account_id:input.accountId,p_opening_balance:input.openingBalance}); if(error) throw new TRPCError({code:error.message.includes("NOT_FOUND")?"NOT_FOUND":error.message.includes("MOVEMENTS")?"CONFLICT":"BAD_REQUEST",message:error.message.includes("MOVEMENTS")?"لا يمكن تعديل الرصيد الافتتاحي بعد تسجيل حركات على الحساب.":"تعذر تحديث الرصيد الافتتاحي."}); if(!Number((data as Array<{account_id:number}>|null)?.[0]?.account_id)) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة الحساب استجابة صالحة."}); return {success:true};
