@@ -9,7 +9,7 @@ const oauthMocks = vi.hoisted(() => ({ startLogin: vi.fn(), setLocation: vi.fn()
 
 vi.mock("@/const", () => ({ startLogin: oauthMocks.startLogin }));
 vi.mock("wouter", () => ({ useLocation: () => ["/", oauthMocks.setLocation] }));
-vi.mock("@/lib/trpc", () => ({ trpc: { powerhub: { publicPackageCatalog: { useQuery: () => ({ data: { currency: "ILS", packages: [{ name: "الأساسية", price: 143, platformUsers: 2, fieldUsers: 1, branches: 1, includedMessages: 600 }, { name: "الاحترافية", price: 251, platformUsers: 3, fieldUsers: 2, branches: 1, includedMessages: 1200 }, { name: "الشركات", price: 323, platformUsers: 3, fieldUsers: 3, branches: 1, includedMessages: 1800 }] } }) } } } }));
+vi.mock("@/lib/trpc", () => ({ trpc: { powerhub: { publicPackageCatalog: { useQuery: () => ({ data: { currency: "ILS", packages: [{ name: "الأساسية", price: 143, platformUsers: 2, fieldUsers: 1, branches: 1, includedMessages: 600, includedSubscribers: 150, subscribersLimitMode: "maximum" }, { name: "الاحترافية", price: 251, platformUsers: 3, fieldUsers: 2, branches: 1, includedMessages: 1200, includedSubscribers: 500, subscribersLimitMode: "maximum" }, { name: "الشركات", price: 323, platformUsers: 3, fieldUsers: 3, branches: 1, includedMessages: 1800, includedSubscribers: 750, subscribersLimitMode: "maximum" }] } }) } } } }));
 
 afterEach(() => {
   cleanup();
@@ -27,6 +27,9 @@ describe("PowerHub marketing landing page", () => {
     expect(screen.getByText("الأساسية")).toBeInTheDocument();
     expect(screen.getByText("الاحترافية")).toBeInTheDocument();
     expect(screen.getByText("الشركات")).toBeInTheDocument();
+    expect(screen.getByText("حتى 150 مشترك")).toBeInTheDocument();
+    expect(screen.getByText("حتى 500 مشترك")).toBeInTheDocument();
+    expect(screen.getByText("حتى 750 مشترك")).toBeInTheDocument();
     expect(screen.queryByText("آراء العملاء")).not.toBeInTheDocument();
   });
 
