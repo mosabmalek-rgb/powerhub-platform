@@ -27,6 +27,29 @@ const adminRuntimeRouter = (router(adminRuntimeRecord as Record<string, any>) as
 export const appRouter = router({
   system: systemRouter,
   auth: router({
+    claimDevice: publicProcedure.input(z.object({ deviceId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: "يجب تسجيل الدخول أولاً." });
+      const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
+        p_user_id: ctx.user.openId,
+        p_device_id: input.deviceId,
+        p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تثبيت جهاز الدخول." });
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
+      return { allowed: true } as const;
+    }),
+    releaseDevice: authenticatedProcedure.mutation(async ({ ctx }) => {
+      const deviceId = ctx.req.headers["x-powerhub-device-id"];
+      if (typeof deviceId !== "string" || !z.string().uuid().safeParse(deviceId).success) return { released: false } as const;
+      const { data, error } = await supabaseAdmin().rpc("powerhub_release_user_device", {
+        p_user_id: ctx.user.openId,
+        p_device_id: deviceId,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحرير جهاز الدخول." });
+      return { released: Boolean(data) } as const;
+    }),
+
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
