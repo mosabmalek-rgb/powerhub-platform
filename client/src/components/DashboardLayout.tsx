@@ -312,7 +312,7 @@ function DashboardLayoutContent({
           </div>
           </SidebarContent>
 
-ebarFooter className="border-t border-white/8 p-3 space-y-2">
+          <SidebarFooter className="border-t border-white/8 p-3 space-y-2">
             <button
               type="button"
               onClick={() => {
