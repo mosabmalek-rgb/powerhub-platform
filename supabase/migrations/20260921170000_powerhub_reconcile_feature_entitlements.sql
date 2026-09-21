@@ -1,13 +1,5 @@
--- Reconcile Production drift for tenant feature entitlements.
--- The current runtime contract supports both subscriber portal logos and
--- payment-documentation entitlements. Production currently retains the
--- older single-feature CHECK constraint.
---
--- This migration is intentionally narrow:
--- * it does not recreate the feature RPCs;
--- * it does not rewrite existing entitlement rows;
--- * it keeps the table service-role-only;
--- * it fails closed if unexpected feature keys already exist.
+-- Reconcile the Production feature-entitlement constraint with the current runtime contract.
+-- Intentionally narrow: no data backfill and no RPC recreation.
 
 do $$
 declare
@@ -39,10 +31,9 @@ begin
     from public.tenant_feature_entitlements
     where feature_key not in ('subscriber_portal_logo', 'payment_documentation')
   ) then
-    raise exception
-      'UNSUPPORTED_TENANT_FEATURE_KEY'
+    raise exception 'UNSUPPORTED_TENANT_FEATURE_KEY'
       using errcode = 'P0001',
-            detail = 'tenant_feature_entitlements contains a feature_key outside the supported runtime contract';
+            detail = 'Unexpected feature_key exists in tenant_feature_entitlements';
   end if;
 end
 $$;
@@ -56,5 +47,4 @@ alter table public.tenant_feature_entitlements enable row level security;
 revoke all on table public.tenant_feature_entitlements
   from public, anon, authenticated;
 
-grant all on table public.tenant_feature_entitlements
-  to service_role;
+grant all on table public.tenant_feature_entitlements to service_role;
