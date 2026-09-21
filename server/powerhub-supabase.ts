@@ -316,6 +316,7 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
   };
 }
 
+
 export async function listSupabaseTariffs(siteId: number) {
   const { data, error } = await supabaseAdmin().from("tariffs")
     .select("id, tenant_id, site_id, name, code, price_per_kwh, fixed_fee, tax_rate, is_active, effective_from, created_at")
