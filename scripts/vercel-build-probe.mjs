@@ -1,4 +1,11 @@
-import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
-function run(cmd,args){try{return {code:0,stdout:execFileSync(cmd,args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}),stderr:""};}catch(e){return {code:e.status??1,stdout:e.stdout?.toString()??"",stderr:e.stderr?.toString()??String(e)};}}
-const vite=run("pnpm",["exec","vite","build"]); const server=run("pnpm",["exec","esbuild","server/_core/index.ts","--platform=node","--packages=external","--bundle","--format=esm","--outdir=dist"]); writeFileSync("build-debug.txt","=== VITE BUILD ===\n"+JSON.stringify(vite,null,2)+"\n\n=== SERVER ESBUILD ===\n"+JSON.stringify(server,null,2)+"\n"); process.exit(vite.code||server.code);
+import { spawnSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+const out=resolve("dist/public"); mkdirSync(out,{recursive:true});
+function run(command,args){
+ const t=Date.now(); const r=spawnSync(command,args,{encoding:"utf8",stdio:["ignore","pipe","pipe"],env:process.env});
+ return {status:r.status,signal:r.signal,error:r.error?String(r.error):null,elapsedMs:Date.now()-t,stdout:r.stdout??"",stderr:r.stderr??""};
+}
+const report={env:{node:process.version,platform:process.platform,arch:process.arch,cwd:process.cwd(),execPath:process.execPath,memory:process.memoryUsage()},pnpm:run("pnpm",["--version"]),vite:run("pnpm",["exec","vite","build"]),esbuild:run("pnpm",["exec","esbuild","server/_core/index.ts","--platform=node","--packages=external","--bundle","--format=esm","--outdir=dist"])};
+writeFileSync(resolve(out,"build-debug.txt"),JSON.stringify(report,null,2));
+writeFileSync(resolve(out,"index.html"),"<!doctype html><html><body><h1>PowerHub build diagnostic</h1><a href='/build-debug.txt'>build-debug.txt</a></body></html>");
