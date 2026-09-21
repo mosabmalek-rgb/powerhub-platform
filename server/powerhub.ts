@@ -786,7 +786,7 @@ export const powerhubRouter = router({
       const bytes = Buffer.from(input.logoData, "base64");
       if (!bytes.length || bytes.length > 3 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب ألا يتجاوز حجم الشعار 3 ميغابايت." });
       const extension = input.logoMime === "image/png" ? "png" : input.logoMime === "image/jpeg" ? "jpg" : "webp";
-      const uploaded = await storagePut(\`tenant-portal-branding/\${access.tenantId}/logo-\${Date.now()}.\${extension}\`, bytes, input.logoMime);
+      const uploaded = await storagePut(`tenant-portal-branding/${access.tenantId}/logo-${Date.now()}.${extension}`, bytes, input.logoMime);
       try {
         const { data, error } = await admin.rpc("powerhub_update_site_portal_logo", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_logo_key: uploaded.key });
         if (error) throw error;
