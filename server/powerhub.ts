@@ -903,13 +903,6 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       return getSupabaseSubscriberAccountStatement(input.siteId, input.subscriberId);
     }),
-    accountStatement: protectedProcedure.input(z.object({
-      siteId: z.number().int().positive(),
-      subscriberId: z.number().int().positive(),
-    })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
-      return getSupabaseSubscriberAccountStatement(input.siteId, input.subscriberId);
-    }),
     quota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       const admin = supabaseAdmin();
