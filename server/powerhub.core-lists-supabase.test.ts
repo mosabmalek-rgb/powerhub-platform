@@ -49,7 +49,7 @@ const state = vi.hoisted(() => {
         eq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] === value); return query; },
         in: (column: string, values: unknown[]) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || values.includes((row as Record<string, unknown>)[column])); return query; },
         or: (expression: string) => { const match = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/); if (match) { const siteId = Number(match[1]); filteredRows = filteredRows.filter((row) => { const siteValue = (row as Record<string, unknown>).site_id; return siteValue === siteId || siteValue === null; }); } return query; },
-        is: () => query,
+        is: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => (row as Record<string, unknown>)[column] === value); return query; },
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
         order: () => query,
         gte: () => query,
@@ -686,6 +686,28 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.settlements.exceptionalEdit({ siteId: 10, entityType: "expense", entityId: 82, reason: "تصحيح مرجعي موثق للمصروف", changes: { description: "وصف مصحح" } })).resolves.toMatchObject({ success: true, before: { description: "وصف سابق" }, after: { description: "وصف مصحح" } });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_exceptional_locked_edit", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_entity_type: "expense", p_entity_id: 82 }) })]);
+  });
+
+  it("يمنع حسابات الشركة من تجاوز نطاق الفرع للحساب المعيّن على فرع واحد", async () => {
+    const branchTwo = { id: 11, tenant_id: 20, name: "الفرع الثاني", code: "BR2", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
+    state.tables.sites = [state.tables.sites[0], branchTwo];
+    state.tables.users = [{ id: 2, role: "user", platform_role: "platform_user", account_status: "active" }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active" }];
+    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 2, is_active: true, role: "manager", permissions: null, custom_role_id: null, suspension_started_at: null, suspension_ends_at: null }];
+    state.tables.company_accounts = [
+      state.tables.company_accounts[0],
+      { id: 92, tenant_id: 20, name: "جوال بي 2", account_type: "jawwal_pay", phone_number: null, color: "#16a34a", opening_balance: 50, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
+    ];
+    state.tables.company_account_sites = [{ account_id: 90, site_id: 10 }, { account_id: 92, site_id: 11 }];
+    state.tables.account_transactions = [];
+    const caller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
+
+    await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90 }]);
+    await expect(caller.companyAccounts.list({ siteId: 10, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.create({ siteId: 10, name: "حساب فرع 2", accountType: "cash", phoneNumber: "+970595123457", openingBalance: 0, siteIds: [11] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.updateSites({ siteId: 10, accountId: 92, siteIds: [10] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل خارج النطاق" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpcCalls).toEqual([]);
   });
 
   it("ينشئ حساب الشركة وحركاته وتحويله عبر Supabase دون MySQL", async () => {

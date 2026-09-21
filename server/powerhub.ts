@@ -18,7 +18,7 @@ import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto
 import { isActivePlatformAdmin } from "./platform-admin";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 async function requirePaymentDocumentationFeature(tenantId: number) {
@@ -2000,6 +2000,32 @@ export const powerhubRouter = router({
     sendPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), paymentId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]) })).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
   }),
 
+async function requireCompanyAccountSiteScope(
+  access: { role: PowerRole; tenantId: number },
+  siteId: number,
+  accountIds: number[],
+) {
+  if (access.role === "owner") return;
+  const ids = Array.from(new Set(accountIds));
+  if (!ids.length) return;
+  const { data, error } = await supabaseAdmin().from("company_account_sites")
+    .select("account_id, site_id")
+    .eq("tenant_id", access.tenantId)
+    .in("account_id", ids);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق حساب الشركة." });
+  const linksByAccount = new Map<number, number[]>();
+  for (const row of data ?? []) {
+    const accountId = Number(row.account_id);
+    linksByAccount.set(accountId, [...(linksByAccount.get(accountId) ?? []), Number(row.site_id)]);
+  }
+  for (const accountId of ids) {
+    const links = linksByAccount.get(accountId) ?? [];
+    if (links.length > 0 && !links.includes(siteId)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "حساب الشركة غير متاح ضمن الفرع المحدد." });
+    }
+  }
+}
+
   companyAccounts: router({
     list: protectedProcedure.input(siteScoped.extend({ branchId: z.number().int().positive().optional(), fromDate: z.string().optional(), toDate: z.string().optional() })).query(async ({ ctx, input }) => {
       const from = input.fromDate ? new Date(input.fromDate) : null; const to = input.toDate ? new Date(input.toDate) : null;
@@ -2007,10 +2033,26 @@ export const powerhubRouter = router({
       if (to && Number.isNaN(to.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ النهاية غير صحيح." });
       if (from && to && from > to) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب أن يسبق تاريخ النهاية." });
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
-      return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: input.branchId, from, to });
+      let effectiveBranchId = input.branchId;
+      if (effectiveBranchId !== undefined) {
+        const branchAccess = await requireSupabaseSiteRole(ctx.user.id, effectiveBranchId, ["owner", "manager", "accountant"], "manageExpenses");
+        if (branchAccess.tenantId !== access.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "الفرع المحدد لا يتبع مساحة الشركة الحالية." });
+        }
+      } else if (access.role !== "owner") {
+        let allBranches = false;
+        try {
+          await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"]);
+          allBranches = true;
+        } catch (error) {
+          if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error;
+        }
+        if (!allBranches) effectiveBranchId = input.siteId;
+      }
+      return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: effectiveBranchId, from, to });
     }),
     create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), name: z.string().trim().min(2).max(120), accountType: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]), phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً."), openingBalance: z.number().nonnegative().default(0), color: z.string().trim().max(20).optional(), siteIds: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageExpenses");
+      const access = await requireSupabaseAccessibleSiteIds(ctx.user.id, input.siteId, input.siteIds, ["owner", "manager"], "manageExpenses");
       const { data, error } = await supabaseAdmin().rpc("powerhub_create_company_account", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_name: input.name, p_account_type: input.accountType, p_phone_number: input.phoneNumber, p_opening_balance: input.openingBalance, p_color: input.color ?? "#64748b", p_site_ids: input.siteIds });
       if (!error && data?.[0]) return { id: Number((data[0] as { account_id: number | string }).account_id) };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
@@ -2039,7 +2081,7 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_update_company_account_opening_balance",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_account_id:input.accountId,p_opening_balance:input.openingBalance}); if(error) throw new TRPCError({code:error.message.includes("NOT_FOUND")?"NOT_FOUND":error.message.includes("MOVEMENTS")?"CONFLICT":"BAD_REQUEST",message:error.message.includes("MOVEMENTS")?"لا يمكن تعديل الرصيد الافتتاحي بعد تسجيل حركات على الحساب.":"تعذر تحديث الرصيد الافتتاحي."}); if(!Number((data as Array<{account_id:number}>|null)?.[0]?.account_id)) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة الحساب استجابة صالحة."}); return {success:true};
     }),
     updateSites: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), accountId: z.number().int().positive(), siteIds: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
-      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_update_company_account_sites",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_account_id:input.accountId,p_site_ids:input.siteIds}); if(error) throw new TRPCError({code:error.message.includes("OUT_OF_SCOPE")?"FORBIDDEN":error.message.includes("NOT_FOUND")?"NOT_FOUND":"BAD_REQUEST",message:error.message.includes("OUT_OF_SCOPE")?"أحد الفروع المحددة لا يتبع مساحة الشركة.":"تعذر تحديث الفروع المرتبطة بالحساب."}); if(!Number((data as Array<{account_id:number}>|null)?.[0]?.account_id)) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة الحساب استجابة صالحة."}); return {success:true};
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager"],"manageExpenses"); await requireCompanyAccountSiteScope(access,input.siteId,[input.accountId]); await requireSupabaseAccessibleSiteIds(ctx.user.id,input.siteId,input.siteIds,["owner","manager"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_update_company_account_sites",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_account_id:input.accountId,p_site_ids:input.siteIds}); if(error) throw new TRPCError({code:error.message.includes("OUT_OF_SCOPE")?"FORBIDDEN":error.message.includes("NOT_FOUND")?"NOT_FOUND":"BAD_REQUEST",message:error.message.includes("OUT_OF_SCOPE")?"أحد الفروع المحددة لا يتبع مساحة الشركة.":"تعذر تحديث الفروع المرتبطة بالحساب."}); if(!Number((data as Array<{account_id:number}>|null)?.[0]?.account_id)) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة الحساب استجابة صالحة."}); return {success:true};
     }),
     addMovement: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), accountId: z.number().int().positive(), transactionType: z.enum(["deposit", "withdrawal"]), amount: z.number().positive(), description: z.string().trim().min(2).max(255), referenceNo: z.string().trim().max(120).optional() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
@@ -2054,6 +2096,7 @@ export const powerhubRouter = router({
     }),
     transfer: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), fromAccountId: z.number().int().positive(), toAccountId: z.number().int().positive(), amount: z.number().positive(), description: z.string().trim().min(2).max(255) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      await requireCompanyAccountSiteScope(access, input.siteId, [input.fromAccountId, input.toAccountId]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_transfer_company_accounts", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_from_account_id: input.fromAccountId, p_to_account_id: input.toAccountId, p_amount: input.amount, p_description: input.description });
       if (!error && data?.[0]) return { success: true };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;

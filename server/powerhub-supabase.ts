@@ -131,6 +131,25 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
   return access;
 }
 
+export async function requireSupabaseAccessibleSiteIds(
+  userId: number,
+  currentSiteId: number,
+  targetSiteIds: number[],
+  allowed: PowerRole[],
+  capability?: PowerCapability,
+) {
+  const access = await requireSupabaseSiteRole(userId, currentSiteId, allowed, capability);
+  const ids = Array.from(new Set(targetSiteIds.map((siteId) => Number(siteId))));
+  if (!ids.length) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد فرع واحد على الأقل." });
+  for (const siteId of ids) {
+    const targetAccess = await requireSupabaseSiteRole(userId, siteId, allowed, capability);
+    if (targetAccess.tenantId !== access.tenantId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الوصول إلى أحد الفروع المحددة." });
+    }
+  }
+  return access;
+}
+
 export async function requireSupabaseAllBranchesRole(userId: number, siteId: number, allowed: PowerRole[]) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   const admin = supabaseAdmin();
