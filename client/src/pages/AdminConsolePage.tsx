@@ -76,42 +76,7 @@ function AdminReportsExports({ rows }: { rows: any[] }) {
   const pdfRef = useRef<HTMLDivElement>(null);
   const fileRows = rows.map((row) => [row.owner?.fullName ?? "غير محدد", row.tenant.name, statusLabel(row.subscription?.status), row.subscription?.plan ?? row.tenant.plan, row.subscribers.residential, row.subscribers.commercial, row.subscribers.total, formatDate(row.subscription?.endsAt)]);
   const exportExcel = async () => { const workbook = new ExcelJS.Workbook(); workbook.creator = "PowerHub"; const sheet = workbook.addWorksheet("تقرير الإدارة", { views: [{ rightToLeft: true }] }); sheet.addRow(["تقرير إدارة PowerHub"]); sheet.addRow(["تاريخ الإصدار", formatReportDate(new Date())]); sheet.addRow([]); sheet.addRow(["صاحب المولد", "المساحة", "الحالة", "الخطة", "السكان", "التجاري", "الإجمالي", "ينتهي في"]); fileRows.forEach((row) => sheet.addRow(row)); sheet.columns = [{ width: 28 }, { width: 26 }, { width: 16 }, { width: 16 }, { width: 14 }, { width: 14 }, { width: 14 }, { width: 18 }]; [1, 4].forEach((index) => { const row = sheet.getRow(index); row.font = { bold: true, color: { argb: "FFFFFFFF" } }; row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; }); const blob = new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "powerhub-platform-admin-report.xlsx"; link.click(); URL.revokeObjectURL(link.href); toast.success("تم تجهيز تقرير الإدارة بصيغة Excel."); };
-  const exportPdf = async () => { if (!pdfRef.current) return; try { await downloadReportHtmlAsPdf(pdfRef.current, "تقرير-إدارة-المنصة.pdf", { title: "تقرير إدارة منصة PowerHub" }); toast.success("تم تجهيز تقرير الإدارة بصيغة PDF."); } catch { toast.error("تعذر إنشاء PDF لتقرير الإدارة. حاول مرة أخرى."); } };rt { useAuth } from "@/_core/hooks/useAuth";
-import DashboardLayout from "@/components/DashboardLayout";
-import PlatformAdminLayout from "@/components/PlatformAdminLayout";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { startLogin } from "@/const";
-import { trpc } from "@/lib/trpc";
-import { AdvancedDashboard, BranchFeaturePolicyPanel, SubscriberPortalLogoFeaturePanel, ComplaintsPanel, GeneralPlatformSettingsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OperationalMonitoringPanel, OwnerLifecyclePanel, OwnerManualLimitOverridesPanel, OwnerSubaccountLimitPolicyPanel, OwnerSubaccountPolicyPanel, OwnerSubscriberLimitPolicyPanel, OwnerUsagePriorityFiltersPanel, OwnerUsageQuickActionsPanel, OwnerUsageReportPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionPackageCatalogPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
-import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
-import PlatformTweetSmsReport from "./PlatformTweetSmsReport";
-import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
-import PlatformAccessPanel from "./PlatformAccessPanel";
-import ExcelJS from "exceljs";
-import { Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, FileSpreadsheet, FileText, Loader2, MessageSquareText, Plus, RefreshCw, ShieldAlert, UsersRound } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-import { formatReportDate } from "@/lib/report-design-system";
-import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
-
-type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "smsFallback" | "smsPlans" | "complaints" | "notifications" | "announcements" | "security" | "settings";
-const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
-const formatNumber = (value: unknown) => new Intl.NumberFormat("ar").format(Number(value ?? 0));
-const formatDate = (value: Date | string | null | undefined) => value ? formatReportDate(value) : "—";
-const paymentMethodLabels: Record<string, string> = { cash: "نقدي", wallet: "محفظة", bank_transfer: "تحويل بنكي", card: "بطاقة" };
-const notificationStatusLabels: Record<string, string> = { pending: "بانتظار المعالجة", submitted: "مرسلة للمزود", delivered: "تم التسليم", read: "مقروءة", failed: "فاشلة" };
-
-function statusLabel(status?: string) {
-  return ({ trial: "تجريبي", active: "فعّال", overdue: "متأخر", suspended: "معلّق", cancelled: "ملغي" } as Record<string, string>)[status ?? ""] ?? "غير مهيأ";
-}
-
-function HideUnusedSubscriberOverview() {
-  useEffect(() => { document.querySelector("h2")?.parentElement?.parentElement?.parentElement; const heading = Array.from(document.querySelectorAll("h2")).find((node) => node.textContent?.includes("مشتركو المنصة")); heading?.closest('[data-slot="card"]')?.remove(); }, []);
-  return null;
-}
+  const exportPdf = async () => { if (!pdfRef.current) return; try { await downloadReportHtmlAsPdf(pdfRef.current, "تقرير-إدارة-المنصة.pdf", { title: "تقرير إدارة منصة PowerHub" }); toast.success("تم تجهيز تقرير الإدارة بصيغة PDF."); } catch { toast.error("تعذر إنشاء PDF لتقرير الإدارة. حاول مرة أخرى."); } };
 
 export default function AdminConsolePage() {
   const { user, loading, isAuthenticated } = useAuth();
