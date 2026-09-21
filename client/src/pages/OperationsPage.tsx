@@ -61,7 +61,7 @@ const statusToneClass = { emerald: "border-emerald-400/25 bg-emerald-400/10 text
 const paymentMethodLabel = REPORT_PAYMENT_METHOD_LABELS;
 
 function formatDate(value: unknown) { return value ? formatReportDate(value as string | number | Date) : "—"; }
-function escapeReceiptHtml(value: unknown) { return String(value ?? "—").replace(/[&<>\"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[char] ?? char); }
+function escapeReceiptHtml(value: unknown) { return String(value ?? "—").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 function printPartialPaymentReceipt({ payment, invoice, subscriber, siteName }: { payment: any; invoice: any; subscriber: any; siteName: string }) {
   const popup = window.open("", "powerhub-payment-receipt", "width=760,height=860");
   if (!popup) { toast.error("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم أعد المحاولة."); return; }
