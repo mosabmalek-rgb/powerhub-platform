@@ -236,6 +236,32 @@ async function getVerifiedPortalInvoice(input: z.infer<typeof subscriberPortalLo
   return { portal, subscriber, invoice, lines: result.lines ?? [] };
 }
 
+async function requireCompanyAccountSiteScope(
+  access: { role: PowerRole; tenantId: number },
+  siteId: number,
+  accountIds: number[],
+) {
+  if (access.role === "owner") return;
+  const ids = Array.from(new Set(accountIds));
+  if (!ids.length) return;
+  const { data, error } = await supabaseAdmin().from("company_account_sites")
+    .select("account_id, site_id")
+    .eq("tenant_id", access.tenantId)
+    .in("account_id", ids);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق حساب الشركة." });
+  const linksByAccount = new Map<number, number[]>();
+  for (const row of data ?? []) {
+    const accountId = Number(row.account_id);
+    linksByAccount.set(accountId, [...(linksByAccount.get(accountId) ?? []), Number(row.site_id)]);
+  }
+  for (const accountId of ids) {
+    const links = linksByAccount.get(accountId) ?? [];
+    if (links.length > 0 && !links.includes(siteId)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "حساب الشركة غير متاح ضمن الفرع المحدد." });
+    }
+  }
+}
+
 export const powerhubRouter = router({
   publicPackageCatalog: publicProcedure.query(async () => {
     const fallback = {
@@ -1999,32 +2025,6 @@ export const powerhubRouter = router({
     }),
     sendPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), paymentId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]) })).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
   }),
-
-async function requireCompanyAccountSiteScope(
-  access: { role: PowerRole; tenantId: number },
-  siteId: number,
-  accountIds: number[],
-) {
-  if (access.role === "owner") return;
-  const ids = Array.from(new Set(accountIds));
-  if (!ids.length) return;
-  const { data, error } = await supabaseAdmin().from("company_account_sites")
-    .select("account_id, site_id")
-    .eq("tenant_id", access.tenantId)
-    .in("account_id", ids);
-  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق حساب الشركة." });
-  const linksByAccount = new Map<number, number[]>();
-  for (const row of data ?? []) {
-    const accountId = Number(row.account_id);
-    linksByAccount.set(accountId, [...(linksByAccount.get(accountId) ?? []), Number(row.site_id)]);
-  }
-  for (const accountId of ids) {
-    const links = linksByAccount.get(accountId) ?? [];
-    if (links.length > 0 && !links.includes(siteId)) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "حساب الشركة غير متاح ضمن الفرع المحدد." });
-    }
-  }
-}
 
   companyAccounts: router({
     list: protectedProcedure.input(siteScoped.extend({ branchId: z.number().int().positive().optional(), fromDate: z.string().optional(), toDate: z.string().optional() })).query(async ({ ctx, input }) => {
