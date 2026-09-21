@@ -316,6 +316,64 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
   };
 }
 
+export async function listSupabaseTariffs(siteId: number) {
+  const { data, error } = await supabaseAdmin().from("tariffs")
+    .select("id, tenant_id, site_id, name, code, price_per_kwh, fixed_fee, tax_rate, is_active, effective_from, created_at")
+    .eq("site_id", siteId).order("effective_from", { ascending: false });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل التعرفات من Supabase." });
+  return (data ?? []).map((row) => ({
+    id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), name: row.name, code: row.code,
+    pricePerKwh: String(row.price_per_kwh), fixedFee: String(row.fixed_fee), taxRate: String(row.tax_rate),
+    isActive: row.is_active, effectiveFrom: new Date(row.effective_from), createdAt: new Date(row.created_at),
+  }));
+}
+
+export async function listSupabaseGenerators(siteId: number) {
+  const { data, error } = await supabaseAdmin().from("generators")
+    .select("id, tenant_id, site_id, code, name, serial_number, rated_capacity_kw, fuel_type, fuel_level_liters, operating_hours, status, last_maintenance_at, created_at, updated_at")
+    .eq("site_id", siteId).order("created_at", { ascending: false });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المولدات من Supabase." });
+  return (data ?? []).map((row) => ({
+    id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), code: row.code, name: row.name, serialNumber: row.serial_number,
+    ratedCapacityKw: String(row.rated_capacity_kw), fuelType: row.fuel_type, fuelLevelLiters: String(row.fuel_level_liters), operatingHours: String(row.operating_hours),
+    status: row.status, lastMaintenanceAt: row.last_maintenance_at ? new Date(row.last_maintenance_at) : null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+  }));
+}
+
+export async function listSupabaseReadings(siteId: number) {
+  const admin = supabaseAdmin();
+  const { data: subscriberRows, error: subscribersError } = await admin.from("subscribers")
+    .select("id, tenant_id, site_id, subscriber_no, full_name, phone, whatsapp_number, address, subscription_type, service_status, created_at, updated_at")
+    .eq("site_id", siteId);
+  if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل نطاق قراءات الفرع من Supabase." });
+  if (!(subscriberRows ?? []).length) return [];
+  const subscriberIds = subscriberRows!.map((row) => Number(row.id));
+  const { data: readingRows, error: readingsError } = await admin.from("meter_readings")
+    .select("id, tenant_id, subscriber_id, client_operation_id, reading_at, reading_value, previous_reading_value, consumption_kwh, capture_method, image_key, image_hash, status, entered_by_user_id, reviewed_by_user_id, reviewed_at, notes, version_no, created_at, updated_at")
+    .in("subscriber_id", subscriberIds).order("reading_at", { ascending: false });
+  if (readingsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءات من Supabase." });
+  const subscribersById = new Map(subscriberRows!.map((row) => [Number(row.id), {
+    id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberNo: row.subscriber_no, fullName: row.full_name,
+    phone: row.phone, whatsappNumber: row.whatsapp_number, address: row.address, subscriptionType: row.subscription_type,
+    serviceStatus: row.service_status, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+  }]));
+  return (readingRows ?? []).flatMap((row) => {
+    const subscriber = subscribersById.get(Number(row.subscriber_id));
+    if (!subscriber) return [];
+    return [{
+      reading: {
+        id: Number(row.id), tenantId: Number(row.tenant_id), subscriberId: Number(row.subscriber_id), clientOperationId: row.client_operation_id,
+        readingAt: new Date(row.reading_at), readingValue: String(row.reading_value), previousReadingValue: row.previous_reading_value === null ? null : String(row.previous_reading_value),
+        consumptionKwh: row.consumption_kwh === null ? null : String(row.consumption_kwh), captureMethod: row.capture_method,
+        imageKey: row.image_key, imageHash: row.image_hash, status: row.status, enteredByUserId: row.entered_by_user_id === null ? null : Number(row.entered_by_user_id),
+        reviewedByUserId: row.reviewed_by_user_id === null ? null : Number(row.reviewed_by_user_id), reviewedAt: row.reviewed_at ? new Date(row.reviewed_at) : null,
+        notes: row.notes, versionNo: row.version_no, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+      },
+      subscriber,
+    }];
+  });
+}
+
 export async function listSupabaseInvoices(siteId: number) {
   const { data, error } = await supabaseAdmin().from("invoices")
     .select("id, tenant_id, site_id, subscriber_id, reading_id, tariff_id, invoice_no, client_operation_id, billing_period, issue_date, due_date, previous_reading, current_reading, consumption_kwh, price_per_kwh, fixed_fee, tax_amount, discount_amount, total_amount, paid_amount, balance_due, status, created_by_user_id, created_at, updated_at")
