@@ -61,7 +61,7 @@ const menuGroups = [
       { icon: BriefcaseBusiness, label: "الرواتب والأجور", path: "/payroll" },
       { icon: ChartNoAxesCombined, label: "لوحة المالية", path: "/financial-dashboard" },
       { icon: ChartNoAxesCombined, label: "التسويات المالية", path: "/financial-settlements" },
-      { icon: ChartNoAxesCombined, label: "التقارير", path: "/reports" }, { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },
+      { icon: ChartNoAxesCombined, label: "التقارير", path: "/reports" },
     ],
   },
   {
@@ -150,14 +150,12 @@ function DashboardLayoutContent({
   const smsApprovalQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && smsAccess.data?.role === "owner"), refetchInterval: 15000 });
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
   const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
-  const paymentDocumentationAccess = trpc.powerhub.paymentDocumentation.access.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const operationalGroups = menuGroups.map((group) => group.label === "إدارة الشبكة" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
   const visibleMenuGroups = displayUser.role === "admin" ? [...operationalGroups, platformAdminGroup] : operationalGroups;
   const permissionAwareGroups = visibleMenuGroups.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
       const capability = (item as { capability?: PowerCapability }).capability;
-      if (item.path === "/payment-documentation" && displayUser.role !== "admin") return Boolean(paymentDocumentationAccess.data?.allowed);
       if (!capability || displayUser.role === "admin") return true;
       return can(activeAccess.data?.role, capability, activeAccess.data?.permissions);
     }),
@@ -247,15 +245,13 @@ function DashboardLayoutContent({
                     return (
                       <SidebarMenuItem key={item.path}>
                         <SidebarMenuButton
-                          asChild
                           isActive={isActive}
+                          onClick={() => setLocation(item.path)}
                           tooltip={item.label}
                           className="h-10 rounded-lg font-medium text-slate-300 hover:bg-white/5 hover:text-white data-[active=true]:bg-[#F5B800] data-[active=true]:text-[#0D1117] data-[active=true]:font-bold"
                         >
-                          <a href={item.path} aria-current={isActive ? "page" : undefined}>
-                            <item.icon className="h-4 w-4" />
-                            <span>{item.label}</span>{item.path === "/announcements" && unreadAnnouncements > 0 ? <span className="mr-auto min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
-                          </a>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.label}</span>{item.path === "/announcements" && unreadAnnouncements > 0 ? <span className="mr-auto min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     );
@@ -263,6 +259,8 @@ function DashboardLayoutContent({
                 </SidebarMenu>
               </div>
             ))}
+          </SidebarContent>
+
           <SidebarFooter className="border-t border-white/8 p-3 space-y-2">
             <button
               type="button"
