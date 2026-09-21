@@ -256,7 +256,7 @@ async function requireCompanyAccountSiteScope(
   }
   for (const accountId of ids) {
     const links = linksByAccount.get(accountId) ?? [];
-    if (links.length > 0 && !links.includes(siteId)) {
+    if (!links.includes(siteId)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "حساب الشركة غير متاح ضمن الفرع المحدد." });
     }
   }
