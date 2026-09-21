@@ -245,15 +245,13 @@ function DashboardLayoutContent({
                     return (
                       <SidebarMenuItem key={item.path}>
                         <SidebarMenuButton
-                          asChild
                           isActive={isActive}
+                          onClick={() => setLocation(item.path)}
                           tooltip={item.label}
                           className="h-10 rounded-lg font-medium text-slate-300 hover:bg-white/5 hover:text-white data-[active=true]:bg-[#F5B800] data-[active=true]:text-[#0D1117] data-[active=true]:font-bold"
                         >
-                          <a href={item.path} aria-current={isActive ? "page" : undefined}>
-                            <item.icon className="h-4 w-4" />
-                            <span>{item.label}</span>{item.path === "/announcements" && unreadAnnouncements > 0 ? <span className="mr-auto min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
-                          </a>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.label}</span>{item.path === "/announcements" && unreadAnnouncements > 0 ? <span className="mr-auto min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     );
@@ -261,56 +259,9 @@ function DashboardLayoutContent({
                 </SidebarMenu>
               </div>
             ))}
-          <div className="mt-3 border-t border-white/8 p-3 space-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (user) void logout();
-              }}
-              disabled={!user}
-              aria-label="تسجيل الخروج"
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold text-rose-300 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40 group-data-[collapsible=icon]:justify-center"
-            >
-              <LogOut className="h-4 w-4 shrink-0" />
-              <span className="group-data-[collapsible=icon]:hidden">تسجيل الخروج</span>
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button aria-label="فتح قائمة الحساب الشخصي" className="flex w-full items-center gap-3 rounded-lg px-1 py-1 text-right hover:bg-white/5 transition-colors group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800]">
-                  <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
-                    <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
-                      {displayUser.name?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-bold truncate leading-none text-white">
-                      {displayUser.name || "-"}
-                    </p>
-                    <p className="text-xs text-slate-500 truncate mt-1.5">
-                      {accountRoleLabel}
-                    </p>
-                  </div>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">فتح قائمة الحساب الشخصي</TooltipContent>
-                </Tooltip>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48 border-white/10 bg-[#1b222c] text-white">
-                <DropdownMenuItem
-                  onClick={() => toggleTheme?.()}
-                  className="cursor-pointer text-slate-200 focus:text-white"
-                >
-                  {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#F5B800]" /> : <Moon className="mr-2 h-4 w-4 text-[#F5B800]" />}
-                  <span>{theme === "dark" ? "التبديل إلى الوضع النهاري" : "التبديل إلى الوضع الليلي"}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
           </SidebarContent>
 
-ebarFooter className="border-t border-white/8 p-3 space-y-2">
+          <SidebarFooter className="border-t border-white/8 p-3 space-y-2">
             <button
               type="button"
               onClick={() => {
