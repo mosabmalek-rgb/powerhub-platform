@@ -38,14 +38,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 const menuGroups = [
   {
     label: "نظرة عامة",
-    items: [{ icon: LayoutDashboard, label: "لوحة التحكم", path: "/workspace" }, { icon: Zap, label: "الإجراءات السريعة", path: "/quick-actions" }],
+    items: [
+      { icon: LayoutDashboard, label: "لوحة التحكم", path: "/workspace" },
+      { icon: Zap, label: "الإجراءات السريعة", path: "/quick-actions" },
+    ],
   },
   {
-    label: "إدارة الشبكة",
+    label: "التشغيل",
     items: [
       { icon: UsersRound, label: "المشتركون", path: "/subscribers" },
-      { icon: Store, label: "الأفرع", path: "/branches" },
       { icon: Bolt, label: "المحطات والمولدات", path: "/generators" },
+      { icon: Store, label: "الأفرع", path: "/branches" },
       { icon: Gauge, label: "إضافة قراءة", path: "/readings" },
     ],
   },
@@ -56,30 +59,55 @@ const menuGroups = [
       { icon: WalletCards, label: "التحصيلات", path: "/collections" },
       { icon: WalletCards, label: "حسابات الشركة", path: "/company-accounts" },
       { icon: Fuel, label: "المصروفات والربحية", path: "/expenses" },
-      { icon: BriefcaseBusiness, label: "الموارد البشرية", path: "/human-resources" },
-      { icon: ClipboardCheck, label: "الحضور والانصراف", path: "/attendance" },
-      { icon: BriefcaseBusiness, label: "الرواتب والأجور", path: "/payroll" },
       { icon: ChartNoAxesCombined, label: "لوحة المالية", path: "/financial-dashboard" },
       { icon: ChartNoAxesCombined, label: "التسويات المالية", path: "/financial-settlements" },
-      { icon: ChartNoAxesCombined, label: "التقارير", path: "/reports" }, { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },
+      { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },
+      { icon: ClipboardCheck, label: "مراجعة توثيق الدفع", path: "/payment-documentation/review", capability: "approvePaymentDocumentation" as PowerCapability },
     ],
   },
   {
-    label: "الرقابة",
+    label: "إدارة الفريق",
     items: [
-      { icon: BellRing, label: "الإشعارات", path: "/announcements" },
-      { icon: Palette, label: "بوابة المشتركين", path: "/portal-settings" },
-      { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
-      { icon: ClipboardCheck, label: "مراجعة توثيق الدفع", path: "/payment-documentation/review", capability: "approvePaymentDocumentation" as PowerCapability },
+      { icon: BriefcaseBusiness, label: "الموارد البشرية", path: "/human-resources" },
+      { icon: UsersRound, label: "الحسابات الفرعية", path: "/staff" },
+      { icon: ClipboardCheck, label: "الحضور والانصراف", path: "/attendance" },
+      { icon: BriefcaseBusiness, label: "الرواتب والأجور", path: "/payroll" },
+    ],
+  },
+  {
+    label: "التقارير",
+    items: [
+      { icon: ChartNoAxesCombined, label: "التقارير", path: "/reports" },
+    ],
+  },
+  {
+    label: "المراسلات والدعم",
+    items: [
+      { icon: BellRing, label: "المراسلات والإشعارات", path: "/notifications" },
+      { icon: BellRing, label: "أخبار وإعلانات المنصة", path: "/announcements" },
+      { icon: RadioTower, label: "الدردشة والدعم", path: "/support-chat" },
+    ],
+  },
+  {
+    label: "الميدان والرقابة",
+    items: [
       { icon: RadioTower, label: "الميدان والمزامنة", path: "/mobile-sync" },
       { icon: CloudOff, label: "مسودات دون اتصال", path: "/offline-sync" },
+      { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
+    ],
+  },
+  {
+    label: "الإعدادات والتخصيص",
+    items: [
+      { icon: Palette, label: "بوابة المشتركين", path: "/portal-settings" },
       { icon: Settings2, label: "الإعدادات", path: "/settings" },
     ],
   },
   {
     label: "الحساب",
-    items: [      { icon: UserRound, label: "المعلومات وبيانات الدخول", path: "/profile" },
-      { icon: UsersRound, label: "الحسابات الفرعية", path: "/staff" }],
+    items: [
+      { icon: UserRound, label: "المعلومات وبيانات الدخول", path: "/profile" },
+    ],
   },
 ];
 
@@ -263,103 +291,62 @@ function DashboardLayoutContent({
                 </SidebarMenu>
               </div>
             ))}
-          <div className="mt-3 border-t border-white/8 p-3 space-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (user) void logout();
-              }}
-              disabled={!user}
-              aria-label="تسجيل الخروج"
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold text-rose-300 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40 group-data-[collapsible=icon]:justify-center"
-            >
-              <LogOut className="h-4 w-4 shrink-0" />
-              <span className="group-data-[collapsible=icon]:hidden">تسجيل الخروج</span>
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button aria-label="فتح قائمة الحساب الشخصي" className="flex w-full items-center gap-3 rounded-lg px-1 py-1 text-right hover:bg-white/5 transition-colors group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800]">
-                  <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
-                    <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
-                      {displayUser.name?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-bold truncate leading-none text-white">
-                      {displayUser.name || "-"}
-                    </p>
-                    <p className="text-xs text-slate-500 truncate mt-1.5">
-                      {accountRoleLabel}
-                    </p>
-                  </div>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">فتح قائمة الحساب الشخصي</TooltipContent>
-                </Tooltip>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48 border-white/10 bg-[#1b222c] text-white">
-                <DropdownMenuItem
-                  onClick={() => toggleTheme?.()}
-                  className="cursor-pointer text-slate-200 focus:text-white"
-                >
-                  {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#F5B800]" /> : <Moon className="mr-2 h-4 w-4 text-[#F5B800]" />}
-                  <span>{theme === "dark" ? "التبديل إلى الوضع النهاري" : "التبديل إلى الوضع الليلي"}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          </SidebarContent>
+                    </SidebarContent>
 
-          <SidebarFooter className="border-t border-white/8 p-3 space-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (user) void logout();
-              }}
-              disabled={!user}
-              aria-label="تسجيل الخروج"
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold text-rose-300 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40 group-data-[collapsible=icon]:justify-center"
-            >
-              <LogOut className="h-4 w-4 shrink-0" />
-              <span className="group-data-[collapsible=icon]:hidden">تسجيل الخروج</span>
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button aria-label="فتح قائمة الحساب الشخصي" className="flex w-full items-center gap-3 rounded-lg px-1 py-1 text-right hover:bg-white/5 transition-colors group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800]">
-                  <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
-                    <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
-                      {displayUser.name?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-bold truncate leading-none text-white">
-                      {displayUser.name || "-"}
-                    </p>
-                    <p className="text-xs text-slate-500 truncate mt-1.5">
-                      {accountRoleLabel}
-                    </p>
-                  </div>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">فتح قائمة الحساب الشخصي</TooltipContent>
-                </Tooltip>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48 border-white/10 bg-[#1b222c] text-white">
-                <DropdownMenuItem
-                  onClick={() => toggleTheme?.()}
-                  className="cursor-pointer text-slate-200 focus:text-white"
-                >
-                  {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#F5B800]" /> : <Moon className="mr-2 h-4 w-4 text-[#F5B800]" />}
-                  <span>{theme === "dark" ? "التبديل إلى الوضع النهاري" : "التبديل إلى الوضع الليلي"}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarFooter>
-        </Sidebar>
+          <SidebarFooter className="border-t border-white/8 p-3">
+            <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="فتح قائمة الحساب الشخصي"
+                    title="فتح قائمة الحساب الشخصي"
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-right transition-colors hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:justify-center"
+                  >
+                    <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
+                      <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
+                        {displayUser.name?.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+                      <p className="truncate text-sm font-bold leading-none text-white">
+                        {displayUser.name || "-"}
+                      </p>
+                      <p className="mt-1.5 truncate text-xs text-slate-500">
+                        {accountRoleLabel}
+                      </p>
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48 border-white/10 bg-[#1b222c] text-white">
+                  <DropdownMenuItem
+                    onClick={() => toggleTheme?.()}
+                    className="cursor-pointer text-slate-200 focus:text-white"
+                  >
+                    {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#F5B800]" /> : <Moon className="mr-2 h-4 w-4 text-[#F5B800]" />}
+                    <span>{theme === "dark" ? "التبديل إلى الوضع النهاري" : "التبديل إلى الوضع الليلي"}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (user) void logout();
+                    }}
+                    disabled={!user}
+                    aria-label="تسجيل الخروج"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-rose-300 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40 group-data-[collapsible=icon]:h-9 group-data-[collapsible=icon]:w-9"
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left">تسجيل الخروج</TooltipContent>
+              </Tooltip>
+            </div>
+          </SidebarFooter>      </Sidebar>
         <div
           className={`absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-[#F5B800]/40 transition-colors ${isCollapsed ? "hidden" : ""}`}
           onMouseDown={() => {

@@ -52,6 +52,16 @@ describe("شاشة الإجراءات السريعة", () => {
     expect(screen.queryByText("إنشاء فاتورة")).not.toBeInTheDocument();
   });
 
+
+  it("يخفي اختصارات المتابعة التي لا يملك الحساب صلاحيتها", () => {
+    state.access = { role: "collector", permissions: ["collectPayments"] };
+    render(<QuickActionsPage />);
+    expect(screen.getByText("الفواتير")).toBeInTheDocument();
+    expect(screen.queryByText("حسابات الشركة")).not.toBeInTheDocument();
+    expect(screen.queryByText("التقرير المالي")).not.toBeInTheDocument();
+    expect(screen.queryByText("الحسابات الفرعية")).not.toBeInTheDocument();
+  });
+
   it("يعرض التفضيلات المحفوظة ويمكّن المستخدم من تعديلها وحفظها", () => {
     state.preferences = ["collect_payment", "add_subscriber"];
     render(<QuickActionsPage />);
