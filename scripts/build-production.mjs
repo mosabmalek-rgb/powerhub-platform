@@ -4,7 +4,7 @@ const npmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const env = { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=4096", NODE_ENV: "production" };
 
 function run(args) {
-  const result = spawnSync(npmCommand, args, { stdio: "inherit", env, windowsHide: false });
+  const result = spawnSync(npmCommand, args, { stdio: "inherit", env, windowsHide: false, shell: process.platform === "win32" });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
