@@ -655,9 +655,9 @@ returns public.chat_messages
 language sql
 security invoker
 set search_path=''
-as $
+as $fn$
   select private.chat_send_internal_note($1,$2,$3);
-$;
+$fn$;
 
 
 create or replace function private.chat_send_message(
