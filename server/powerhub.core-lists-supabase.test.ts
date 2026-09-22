@@ -147,6 +147,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_delete_custom_permission_role") return resolved([{ role_id: 122 }]);
       if (name === "powerhub_update_staff_profile_permissions") return resolved([{ profile_id: 120, target_user_id: 2 }]);
       if (name === "powerhub_update_staff_profile_status") return resolved([{ profile_id: 120, is_active: true, suspension_ends_at: "2026-08-10T12:00:00.000Z" }]);
+      if (name === "powerhub_assign_existing_staff") return resolved([{ profile_id: 121, target_user_id: 2 }]);
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -606,8 +607,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("ينشئ الحساب الفرعي عبر Supabase Auth ثم يعيّنه عبر RPC دون MySQL", async () => {
-    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
-    state.tables.users.push({ id: 2, auth_user_id: "auth-staff-1", email: "accountant@example.com" });
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "admin@example.test" }];
+    state.tables.users.push({ id: 2, auth_user_id: "auth-staff-1", email: "accountant@example.com", role: "user", account_status: "active" });
     state.client.auth = { admin: { createUser: vi.fn(async () => ({ data: { user: { id: "auth-staff-1" } }, error: null })), deleteUser: vi.fn(async () => ({ error: null })) } };
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.create({ siteId: 10, name: "محاسب تجريبي", email: "accountant@example.com", temporaryPassword: "StrongPass1!", role: "accountant", allBranches: false })).resolves.toMatchObject({ success: true, userId: 2 });
