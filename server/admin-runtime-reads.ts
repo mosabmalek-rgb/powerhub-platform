@@ -193,9 +193,9 @@ export const adminRouterWithSupabaseReadContracts = router({
     const rpc = (admin as unknown as { rpc?: (name: string, args?: Record<string, unknown>) => Promise<{ data: Array<Record<string, unknown>> | null; error: unknown | null }> }).rpc;
     const rpcResult = typeof rpc === "function" ? await rpc.call(admin, "powerhub_admin_subscription_upgrade_requests") : { data: null, error: new Error("RPC unavailable") };
     if (!rpcResult.error) {
-      return (rpcResult.data ?? []).map((row) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), currentPlan: row.current_plan, requestedPlan: row.requested_plan, status: row.status, note: row.note, createdAt: row.created_at, reviewedAt: row.reviewed_at, tenantName: row.tenant_name ?? "—", ownerName: row.owner_name ?? "—", ownerEmail: row.owner_email ?? null }));
+      return (rpcResult.data ?? []).map((row) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), currentPlan: row.current_package_code, requestedPlan: row.requested_package_code, status: row.status, note: row.note, createdAt: row.created_at, reviewedAt: row.reviewed_at, tenantName: row.tenant_name ?? "—", ownerName: row.owner_name ?? "—", ownerEmail: row.owner_email ?? null }));
     }
-    const requestsResult = await admin.from("subscription_upgrade_requests").select("id,tenant_id,current_plan,requested_plan,status,note,created_at,reviewed_at").order("created_at", { ascending: false }).limit(300);
+    const requestsResult = await admin.from("subscription_upgrade_requests").select("id,tenant_id,current_package_code,requested_package_code,status,note,created_at,reviewed_at").order("created_at", { ascending: false }).limit(300);
     if (requestsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات ترقية الاشتراكات من Supabase." });
     const requests = requestsResult.data ?? [];
     const tenantIds = Array.from(new Set(requests.map((row) => Number(row.tenant_id)).filter(Boolean)));
