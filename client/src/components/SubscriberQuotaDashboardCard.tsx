@@ -5,7 +5,7 @@ import { CircleAlert, UsersRound } from "lucide-react";
 
 type SubscriberQuota = { limit: number; currentCount: number; remaining: number; plan: string };
 
-export function SubscriberQuotaDashboardCard({ quota, canRequestUpgrade, requesting, onRequestUpgrade, upgradeRequest }: { quota?: SubscriberQuota; canRequestUpgrade: boolean; requesting: boolean; onRequestUpgrade: (plan: "professional" | "enterprise") => void; upgradeRequest?: { status: string; requestedPlan: string; note: string | null; createdAt: Date } | null }) {
+export function SubscriberQuotaDashboardCard({ quota, canRequestUpgrade, requesting, onRequestUpgrade, upgradeRequest }: { quota?: SubscriberQuota; canRequestUpgrade: boolean; requesting: boolean; onRequestUpgrade: (plan: "basic" | "advanced" | "professional" | "business" | "vip") => void; upgradeRequest?: { status: string; requestedPlan: string; note: string | null; createdAt: Date } | null }) {
   if (!quota) return null;
   const percentage = quota.limit ? Math.min(100, Math.round((quota.currentCount / quota.limit) * 100)) : 100;
   const reached = quota.remaining === 0;
