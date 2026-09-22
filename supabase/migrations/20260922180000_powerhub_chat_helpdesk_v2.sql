@@ -1029,13 +1029,6 @@ as $$ select private.chat_transition_conversation($1,$2); $$;
 revoke execute on function public.chat_transition_conversation(bigint,text) from public, anon;
 grant execute on function public.chat_transition_conversation(bigint,text) to authenticated;
 
-create or replace function public.chat_reopen_support_conversation(p_conversation_id bigint)
-returns public.chat_conversations
-language sql
-security invoker
-set search_path=''
-as $$ select private.chat_reopen_support_conversation($1); $$;
-
 create or replace function private.chat_reopen_support_conversation(p_conversation_id bigint)
 returns public.chat_conversations
 language plpgsql
@@ -1089,6 +1082,16 @@ $$;
 revoke execute on function private.chat_reopen_support_conversation(bigint) from public, anon, authenticated;
 revoke execute on function public.chat_reopen_support_conversation(bigint) from public, anon;
 grant execute on function public.chat_reopen_support_conversation(bigint) to authenticated;
+
+create or replace function public.chat_reopen_support_conversation(p_conversation_id bigint)
+returns public.chat_conversations
+language sql
+security invoker
+set search_path=''
+as $fn$
+  select private.chat_reopen_support_conversation($1);
+$fn$;
+
 
 create or replace function public.chat_set_conversation_tags(p_conversation_id bigint,p_tag_ids bigint[])
 returns setof public.chat_conversation_tags
