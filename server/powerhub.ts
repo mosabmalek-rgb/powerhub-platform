@@ -2033,12 +2033,60 @@ export const powerhubRouter = router({
       await writeSupabaseAudit({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "notification_batch", entityId: notificationIds.join(",") || "none", action: "send_deferred_invoice_notifications", metadata: { notificationIds, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, includeFailed: input.includeFailed } });
       return result;
     }),
-    retry: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
-    retryFailedInvoiceNotification: protectedProcedure.input(retryFailedInvoiceNotificationInput).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
-    retryFailedInvoiceNotifications: protectedProcedure.input(retryFailedInvoiceNotificationsInput).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
-    retryPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
-    sendDeferredInvoices: protectedProcedure.input(sendDeferredInvoiceNotificationsInput).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
-    sendBulkInvoiceSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceIds: z.array(z.number().int().positive()).min(1).max(200) })).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
+    retry: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const row = await supabaseAdmin().from("notification_messages").select("id, status, subscriber_id").eq("id", input.notificationId).eq("tenant_id", scope.tenantId).maybeSingle();
+      if (row.error || !row.data) throw new TRPCError({ code: "NOT_FOUND", message: "الرسالة لا تتبع للفرع المحدد." });
+      const subscriber = await supabaseAdmin().from("subscribers").select("id").eq("id", Number(row.data.subscriber_id)).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (subscriber.error || !subscriber.data) throw new TRPCError({ code: "NOT_FOUND", message: "الرسالة لا تتبع للفرع المحدد." });
+      if (row.data.status !== "failed") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن إعادة إرسال رسالة لم تفشل." });
+      return processNotificationById(Number(row.data.id), ctx.user.id);
+    }),
+    retryFailedInvoiceNotification: protectedProcedure.input(retryFailedInvoiceNotificationInput).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const row = await supabaseAdmin().from("notification_messages").select("id, status, event_type, subscriber_id").eq("id", input.notificationId).eq("tenant_id", scope.tenantId).maybeSingle();
+      if (row.error || !row.data) throw new TRPCError({ code: "NOT_FOUND", message: "رسالة الفاتورة غير موجودة ضمن الفرع المحدد." });
+      if (row.data.event_type !== "invoice_issued") throw new TRPCError({ code: "BAD_REQUEST", message: "هذه ليست رسالة فاتورة." });
+      const subscriber = await supabaseAdmin().from("subscribers").select("id").eq("id", Number(row.data.subscriber_id)).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (subscriber.error || !subscriber.data) throw new TRPCError({ code: "NOT_FOUND", message: "رسالة الفاتورة لا تتبع للفرع المحدد." });
+      if (row.data.status !== "failed") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن إعادة إرسال رسالة فاتورة لم تفشل." });
+      return processNotificationById(Number(row.data.id), ctx.user.id);
+    }),
+    retryFailedInvoiceNotifications: protectedProcedure.input(retryFailedInvoiceNotificationsInput).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const ids = Array.from(new Set(input.notificationIds));
+      const { data: rows, error } = await supabaseAdmin().from("notification_messages").select("id, status, event_type, subscriber_id").eq("tenant_id", scope.tenantId).in("id", ids);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الرسائل لإعادة الإرسال." });
+      const validIds = new Set((rows ?? []).filter((row) => row.event_type === "invoice_issued" && row.status === "failed").map((row) => Number(row.id)));
+      const subscriberIds = Array.from(new Set((rows ?? []).map((row) => Number(row.subscriber_id)).filter(Number.isInteger)));
+      const { data: subscribers } = subscriberIds.length ? await supabaseAdmin().from("subscribers").select("id").eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).in("id", subscriberIds) : { data: [] };
+      const scopedSubscribers = new Set((subscribers ?? []).map((row) => Number(row.id)));
+      const eligibleIds = ids.filter((id) => validIds.has(id) && scopedSubscribers.has(Number((rows ?? []).find((row) => Number(row.id) === id)?.subscriber_id)));
+      const results = [];
+      for (const id of eligibleIds) {
+        try { results.push({ notificationId: id, status: "submitted", result: await processNotificationById(id, ctx.user.id) }); }
+        catch (error) { results.push({ notificationId: id, status: "failed", error: error instanceof Error ? error.message : "تعذر إعادة الإرسال." }); }
+      }
+      return { requested: ids.length, eligible: eligibleIds.length, submitted: results.filter((row) => row.status === "submitted").length, failed: results.filter((row) => row.status === "failed").length, results };
+    }),
+    retryPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const { data: row, error } = await supabaseAdmin().from("notification_messages").select("id, status, event_type, subscriber_id").eq("id", input.notificationId).eq("tenant_id", scope.tenantId).maybeSingle();
+      if (error || !row) throw new TRPCError({ code: "NOT_FOUND", message: "إشعار إيصال الدفع غير موجود." });
+      if (row.event_type !== "payment_received") throw new TRPCError({ code: "BAD_REQUEST", message: "الإشعار المحدد ليس إيصال دفع." });
+      const { data: subscriber } = await supabaseAdmin().from("subscribers").select("id").eq("id", Number(row.subscriber_id)).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "إشعار إيصال الدفع لا يتبع للفرع المحدد." });
+      if (row.status !== "failed") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن إعادة إرسال إيصال لم يفشل." });
+      return processNotificationById(Number(row.id), ctx.user.id);
+    }),
+    sendDeferredInvoices: protectedProcedure.input(sendDeferredInvoiceNotificationsInput).mutation(async ({ ctx, input }) => {
+      const result = await powerhubRouter.createCaller(ctx).notifications.sendPendingSms({ siteId: input.siteId, invoiceIds: input.invoiceIds, includeFailed: false });
+      return result;
+    }),
+    sendBulkInvoiceSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceIds: z.array(z.number().int().positive()).min(1).max(200) })).mutation(async ({ ctx, input }) => {
+      const result = await powerhubRouter.createCaller(ctx).notifications.sendPendingSms({ siteId: input.siteId, invoiceIds: input.invoiceIds, includeFailed: false });
+      return result;
+    }),
     sendPaymentReminderSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const admin = supabaseAdmin();
