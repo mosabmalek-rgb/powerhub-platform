@@ -4,7 +4,6 @@ import { router } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { authenticatedProcedure } from "./_core/trpc";
 
-type PlatformRole = "platform_owner" | "platform_admin";
 const platformAdminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin" || ctx.user.accountStatus !== "active" || !["platform_owner","platform_admin"].includes(ctx.user.platformRole ?? "")) {
     throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
