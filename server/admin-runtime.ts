@@ -64,6 +64,24 @@ export const adminRouter = router({
   listPlatformSmsFallbackProviders: platformAdminProcedure.query(async ()=>{ const {data,error}=await supabaseAdmin().from("platform_sms_fallback_providers").select("id,name,provider_key,api_endpoint,sender_name,priority,integration_status,is_active,credential_ciphertext,credential_iv,last_tested_at,last_error,updated_at").order("priority",{ascending:true}).order("updated_at",{ascending:false}); if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل مزودي الرسائل الاحتياطيين من Supabase."}); return (data??[]).map(p=>platformSmsFallbackProviderSummary({id:Number(p.id),name:p.name,providerKey:p.provider_key,apiEndpoint:p.api_endpoint,senderName:p.sender_name,priority:Number(p.priority),integrationStatus:p.integration_status as "pending_contract"|"ready",isActive:p.is_active,credentialCiphertext:p.credential_ciphertext,credentialIv:p.credential_iv,lastTestedAt:p.last_tested_at?new Date(p.last_tested_at):null,lastError:p.last_error,updatedAt:new Date(p.updated_at)})); }),
   getPlatformTweetSmsAccount: platformAdminProcedure.query(async ()=>{ const {data,error}=await supabaseAdmin().from("platform_tweetsms_accounts").select("id,api_endpoint,sender_name,low_balance_threshold,last_provider_balance,last_balance_checked_at,last_tested_at,last_error,is_active,credential_ciphertext,credential_iv").order("updated_at",{ascending:false}).limit(1).maybeSingle(); if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل إعدادات مزود الرسائل المركزي من Supabase."}); if(!data) return null; return {id:Number(data.id),apiEndpoint:data.api_endpoint,senderName:data.sender_name,lowBalanceThreshold:Number(data.low_balance_threshold),lastProviderBalance:data.last_provider_balance,lastBalanceCheckedAt:data.last_balance_checked_at,lastTestedAt:data.last_tested_at,lastError:data.last_error,isActive:data.is_active,configured:Boolean(data.credential_ciphertext&&data.credential_iv)}; }),
   listTweetSmsAccounts: platformAdminProcedure.query(async ()=>{ const {data,error}=await supabaseAdmin().from("tenant_tweetsms_accounts").select("id,tenant_id,api_endpoint,sender_name,monthly_limit,is_active,last_tested_at,last_error,updated_at").order("updated_at",{ascending:false}).limit(500); if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل حسابات TweetSMS من Supabase."}); return (data??[]).map(r=>({id:Number(r.id),tenantId:Number(r.tenant_id),apiEndpoint:r.api_endpoint,senderName:r.sender_name,monthlyLimit:Number(r.monthly_limit),usedThisMonth:0,remaining:Number(r.monthly_limit),isActive:r.is_active,configured:Boolean(r.api_endpoint),lastTestedAt:r.last_tested_at,lastError:r.last_error,updatedAt:r.updated_at})); }),
+  listActiveTenantAddons: platformAdminProcedure.query(async () => {
+    const { data, error } = await supabaseAdmin().from("tenant_addon_requests")
+      .select("id,tenant_id,addon_code,quantity,status,duration_days,starts_at,ends_at")
+      .eq("status","approved")
+      .gt("ends_at",new Date().toISOString())
+      .order("ends_at",{ascending:true})
+      .limit(2000);
+    if (error) throw new TRPCError({ code:"INTERNAL_SERVER_ERROR", message:"تعذر تحميل الإضافات النشطة." });
+    return (data ?? []).map((r:any)=>({
+      addonRequestId:Number(r.id),
+      tenantId:Number(r.tenant_id),
+      addonCode:r.addon_code,
+      quantity:Number(r.quantity),
+      durationDays:Number(r.duration_days ?? 30),
+      startsAt:r.starts_at,
+      endsAt:r.ends_at,
+    }));
+  }),
   listTenantAddonRequests: platformAdminProcedure.query(async () => {
     const { data, error } = await supabaseAdmin().rpc("powerhub_admin_tenant_addon_requests");
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات الإضافات." });
