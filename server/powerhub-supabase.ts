@@ -563,11 +563,11 @@ function objectValue(value: unknown): Record<string, unknown> {
 }
 
 function configuredSubscriberLimit(plan: string, value: unknown) {
-  const defaults: Record<string, number> = { starter: 100, professional: 500, enterprise: 2000 };
+  const defaults: Record<string, number> = { basic: 150, advanced: 300, professional: 500, business: 750, vip: 900 };
   const limits = objectValue(objectValue(value).limits);
   const candidate = limits[plan];
   const parsed = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : (defaults[plan] ?? defaults.starter);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : (defaults[plan] ?? defaults.basic);
 }
 
 function subscriberOverride(tenantId: number, value: unknown) {
@@ -588,7 +588,7 @@ export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
   }
   if (!tenantResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-  const plan = tenantResult.data.plan;
+  const plan = tenantResult.data.package_code;
   const limit = subscriberOverride(tenantId, overridesResult.data?.value) ?? configuredSubscriberLimit(plan, limitsResult.data?.value);
   const currentCount = countResult.count ?? 0;
   return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
