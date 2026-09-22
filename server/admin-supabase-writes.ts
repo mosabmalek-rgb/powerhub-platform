@@ -149,8 +149,8 @@ export async function quickUpgradeOwnerPlan(input: {
     p_note: input.note,
   });
   quickUpgradeOwnerPlanRpcError(error);
-  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
-  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
+  const row = data?.[0] as { success?: boolean; package_code?: string } | undefined;
+  if (!row || typeof row.package_code !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
   return { success: Boolean(row.success), packageCode: row.package_code as AdminPackageCode };
 }
 
@@ -167,9 +167,9 @@ export async function reviewSubscriptionUpgradeRequest(input: {
     p_note: input.note ?? null,
   });
   reviewSubscriptionRpcError(error);
-  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
+  const row = data?.[0] as { success?: boolean; package_code?: string } | undefined;
   if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription review result." });
-  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
+  return { success: Boolean(row.success), packageCode: row.package_code as AdminPackageCode };
 }
 
 export async function reviewSmsPackageRequest(input: {
