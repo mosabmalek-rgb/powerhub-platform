@@ -7,7 +7,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_plan text;
+  v_package_code text;
   v_limit integer;
   v_existing boolean;
   v_package jsonb;
@@ -16,8 +16,8 @@ begin
     return new;
   end if;
 
-  select coalesce(ts.plan, t.plan)
-    into v_plan
+  select coalesce(ts.package_code, t.package_code)
+    into v_package_code
   from public.tenants t
   left join public.tenant_subscriptions ts on ts.tenant_id = t.id
   where t.id = new.tenant_id
@@ -28,7 +28,7 @@ begin
   from jsonb_array_elements(
     coalesce((select value->'packages' from public.platform_settings where setting_key = 'subscription_package_catalog' and is_enabled = true), '[]'::jsonb)
   ) package
-  where package->>'legacyPlan' = v_plan
+  where package->>'code' = v_package_code
     and coalesce((package->>'active')::boolean, true) = true
   order by coalesce((package->>'fieldUsers')::integer, 0) desc
   limit 1;
