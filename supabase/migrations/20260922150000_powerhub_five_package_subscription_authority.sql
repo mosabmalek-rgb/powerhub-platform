@@ -39,7 +39,8 @@ begin
  where ts.tenant_id=p_tenant_id limit 1;
  if v_subscription_id is null or v_site_id is null then raise exception 'SUBSCRIPTION_OR_SITE_NOT_FOUND' using errcode='P0002'; end if;
  update public.tenant_subscriptions set package_code=p_package_code,status=p_status,billing_cycle=p_billing_cycle,ends_at=p_ends_at,auto_renew=p_auto_renew,notes=p_notes,sms_plan_id=p_sms_plan_id,updated_at=now() where id=v_subscription_id;
- update public.tenants set package_code=p_package_code,status=case when p_status in ('suspended','cancelled') then 'suspended' else 'active' end,updated_at=now() where id=p_tenant_id;
+ update public.tenant_subscriptions set package_code=p_package_code,status=case when p_status in ('suspended','cancelled') then 'suspended' else 'active' end,updated_at=now() where id=v_subscription_id;
+ update public.tenants set status=case when p_status in ('suspended','cancelled') then 'suspended' else 'active' end,updated_at=now() where id=p_tenant_id;
  insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data) values(p_tenant_id,v_site_id,p_actor_user_id,v_actor_platform_role,'tenant_subscription',v_subscription_id::text,'platform_admin_update_subscription',jsonb_build_object('packageCode',p_package_code,'status',p_status,'billingCycle',p_billing_cycle,'endsAt',p_ends_at,'autoRenew',p_auto_renew,'smsPlanId',p_sms_plan_id));
  return query select true,v_subscription_id,v_site_id;
 end;
@@ -114,7 +115,7 @@ begin
     raise exception 'SITE_NOT_FOUND' using errcode = 'P0002';
   end if;
 
-  v_current_rank := case v_tenant_package_code
+  v_current_rank := case v_subscription.package_code
     when 'basic' then 1
     when 'advanced' then 2
     when 'professional' then 3
@@ -151,7 +152,7 @@ begin
     'tenant_subscription', p_tenant_id::text,
     'platform_admin_quick_upgrade_owner_plan',
     jsonb_build_object(
-      'fromPackageCode', v_tenant_package_code,
+      'fromPackageCode', v_subscription.package_code,
       'toPackageCode', p_package_code,
       'note', p_note
     )
@@ -179,7 +180,7 @@ create or replace function public.powerhub_create_generator_owner_subscription(
   p_owner_email text,
   p_site_name text default 'الفرع الرئيسي',
   p_site_code text default null,
-  p_package_code text default 'starter',
+  p_package_code text default 'basic',
   p_billing_cycle text default 'monthly',
   p_subscription_status text default 'trial',
   p_ends_at timestamptz default null,
@@ -278,8 +279,8 @@ begin
       last_signed_in = v_started_at
   returning id into v_user_id;
 
-  insert into public.tenants (name, slug, status, plan)
-  values (p_tenant_name, p_slug, case when p_subscription_status = 'cancelled' then 'suspended' else 'active' end, p_package_code)
+  insert into public.tenants (name, slug, status)
+  values (p_tenant_name, p_slug, case when p_subscription_status = 'cancelled' then 'suspended' else 'active' end)
   returning id into v_tenant_id;
 
   insert into public.tenant_owner_profiles (
