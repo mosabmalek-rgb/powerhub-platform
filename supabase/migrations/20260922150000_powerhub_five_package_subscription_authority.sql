@@ -1,6 +1,42 @@
 -- Retire legacy Starter/Professional/Enterprise subscription plans.
 -- Five commercial package codes are now authoritative: basic, advanced, professional, business, vip.
 
+alter table public.tenants
+  add column if not exists package_code text;
+
+update public.tenants t
+set package_code = s.package_code
+from public.tenant_subscriptions s
+where s.tenant_id = t.id
+  and s.package_code is not null
+  and t.package_code is distinct from s.package_code;
+
+do $
+begin
+  if exists (select 1 from public.tenants where package_code is null) then
+    raise exception 'TENANT_PACKAGE_CODE_BACKFILL_INCOMPLETE'
+      using errcode='23514';
+  end if;
+end
+$;
+
+alter table public.tenants
+  alter column package_code set not null;
+
+do $
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid='public.tenants'::regclass
+      and conname='tenants_package_code_check'
+  ) then
+    alter table public.tenants
+      add constraint tenants_package_code_check
+      check (package_code in ('basic','advanced','professional','business','vip'));
+  end if;
+end
+$;
+
 create or replace function public.powerhub_admin_update_subscription(
   p_actor_user_id bigint,
   p_tenant_id bigint,
@@ -39,7 +75,6 @@ begin
  where ts.tenant_id=p_tenant_id limit 1;
  if v_subscription_id is null or v_site_id is null then raise exception 'SUBSCRIPTION_OR_SITE_NOT_FOUND' using errcode='P0002'; end if;
  update public.tenant_subscriptions set package_code=p_package_code,status=p_status,billing_cycle=p_billing_cycle,ends_at=p_ends_at,auto_renew=p_auto_renew,notes=p_notes,sms_plan_id=p_sms_plan_id,updated_at=now() where id=v_subscription_id;
- update public.tenant_subscriptions set package_code=p_package_code,status=case when p_status in ('suspended','cancelled') then 'suspended' else 'active' end,updated_at=now() where id=v_subscription_id;
  update public.tenants set status=case when p_status in ('suspended','cancelled') then 'suspended' else 'active' end,updated_at=now() where id=p_tenant_id;
  insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data) values(p_tenant_id,v_site_id,p_actor_user_id,v_actor_platform_role,'tenant_subscription',v_subscription_id::text,'platform_admin_update_subscription',jsonb_build_object('packageCode',p_package_code,'status',p_status,'billingCycle',p_billing_cycle,'endsAt',p_ends_at,'autoRenew',p_auto_renew,'smsPlanId',p_sms_plan_id));
  return query select true,v_subscription_id,v_site_id;
@@ -47,7 +82,7 @@ end;
 $$;
 
 revoke execute on function public.powerhub_admin_update_subscription(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint) from public, anon, authenticated;
-grant execute on function public.powerhub_admin_update_subscription(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint) to service_role;;
+grant execute on function public.powerhub_admin_update_subscription(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint) to service_role;
 
 create or replace function public.powerhub_admin_quick_upgrade_owner_plan(
   p_actor_user_id bigint,
@@ -279,8 +314,8 @@ begin
       last_signed_in = v_started_at
   returning id into v_user_id;
 
-  insert into public.tenants (name, slug, status)
-  values (p_tenant_name, p_slug, case when p_subscription_status = 'cancelled' then 'suspended' else 'active' end)
+  insert into public.tenants (name, slug, status, package_code)
+  values (p_tenant_name, p_slug, case when p_subscription_status = 'cancelled' then 'suspended' else 'active' end, p_package_code)
   returning id into v_tenant_id;
 
   insert into public.tenant_owner_profiles (
@@ -336,6 +371,6 @@ $$;
 revoke all on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz, integer) from public, anon, authenticated;
 grant execute on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz, integer) to service_role;
 
-comment on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz, integer)
+comment on function public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz, integer)
 is 'Creates a generator-owner subscription atomically with its active main branch named الفرع الرئيسي by default.';;
 
