@@ -46,7 +46,7 @@ export default function FinancialDashboardPage() {
     const debtorRows = (data.topDebtors ?? []).slice(0, 10).map((item) => `<tr><td>${escapeHtml(item.subscriber)}</td><td>${escapeHtml(item.invoiceNo)}</td><td>${format(item.balanceDue)} شيكل</td><td>${escapeHtml(formatReportDate(item.dueDate))}</td></tr>`).join("");
     wrapper.innerHTML = `
       <h1 style="border-bottom:3px solid #f5b800;padding-bottom:18px">${escapeHtml(branding.data?.companyName ?? "PowerHub")} — التقرير الإداري المالي</h1>
-      <p>الفترة: ${formatReportPeriod(startDate, endDate)}</p>
+      <p>الفترة: ${escapeHtml(formatReportPeriod(startDate, endDate))}</p>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
         <div style="border:1px solid #ccc;padding:14px">التحصيل<br><b>${format(data.summary.collected)} شيكل</b></div>
         <div style="border:1px solid #ccc;padding:14px">المصروفات<br><b>${format(data.summary.expenseTotal)} شيكل</b></div>
