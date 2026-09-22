@@ -952,7 +952,7 @@ export const powerhubRouter = router({
       ]);
       if (subscriptionResponse.error || tenantResponse.error || limitPolicyResponse.error || overridesPolicyResponse.error || countResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
       const plan = subscriptionResponse.data?.package_code;
-      if (plan !== "starter" && plan !== "professional" && plan !== "enterprise") throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
+      if (!plan || !["basic", "advanced", "professional", "business", "vip"].includes(plan)) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
       const policyValue = limitPolicyResponse.data?.value;
       const overridesValue = overridesPolicyResponse.data?.value;
       const overridesObject = overridesValue && typeof overridesValue === "object" && !Array.isArray(overridesValue) ? overridesValue as Record<string, unknown> : {};
