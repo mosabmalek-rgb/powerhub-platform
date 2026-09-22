@@ -30,7 +30,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export default function MessagingSettingsPage() {
   const { isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
-  const utils = trpc.useUtils();
+  const utils = trpc.useUtils();  const [retryingNotificationId, setRetryingNotificationId] = useState<number | undefined>();
+  const retryInvoiceNotification = trpc.powerhub.notifications.retryFailedInvoiceNotification.useMutation({
+    onSuccess: async () => { setRetryingNotificationId(undefined); await notificationsQuery.refetch(); },
+    onError: () => setRetryingNotificationId(undefined),
+  });
+  const retryPaymentReceipt = trpc.powerhub.notifications.retryPaymentReceipt.useMutation({
+    onSuccess: async () => { setRetryingNotificationId(undefined); await receiptsQuery.refetch(); },
+    onError: () => setRetryingNotificationId(undefined),
+  });
+
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const [siteId, setSiteId] = useState<number | null>(null);
   const [autoSendCron, setAutoSendCron] = useState("0 0/15 * * * *");
@@ -78,10 +87,10 @@ export default function MessagingSettingsPage() {
     {available.sms && owner ? <AutoSendScheduleCard siteId={siteId!} config={smsConfig} cron={autoSendCron} setCron={setAutoSendCron} pending={autoSendMutation.isPending} onToggle={(enabled) => autoSendMutation.mutate({ siteId: siteId!, enabled, cron: autoSendCron })} /> : null}{open ? <section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <TemplateEditor channel="whatsapp" template={templates.find((item) => item.channel === "whatsapp")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <TemplateEditor channel="sms" template={templates.find((item) => item.channel === "sms")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <PaymentReceiptSmsEditor template={receiptTemplates.find((item) => item.channel === "sms")} pending={saveReceiptTemplate.isPending} onSubmit={saveReceiptTemplate.mutate} siteId={siteId!} /> : null}</section> : null}</>}
     {canViewFinancialAlerts ? <FinancialCollectionAlerts overview={financialOverviewQuery.data} canCollect={canCollect} onOpenInvoice={(invoiceId: number) => navigate(`/invoices?invoiceId=${invoiceId}`)} onCollect={(row: any) => navigate(`/collections?subscriberId=${row.subscriberId}&invoiceId=${row.invoiceId}`)} /> : null}
     {owner ? <PhoneNormalizationTool rows={phoneReviewQuery.data ?? []} pending={applyPhoneNormalization.isPending} onApply={(subscriberIds: number[]) => applyPhoneNormalization.mutate({ siteId: siteId!, subscriberIds })} /> : null}
-    <InvoiceLog rows={notificationsQuery.data ?? []} canRetry={false} pendingId={undefined} onRetry={() => {}} />
+    <InvoiceLog rows={notificationsQuery.data ?? []} canRetry={owner} pendingId={retryingNotificationId} onRetry={(id) => { setRetryingNotificationId(id); retryInvoiceNotification.mutate({ siteId: siteId!, notificationId: id }); }} />
     {owner ? <ReceiptFailureAlerts rows={receiptsQuery.data ?? []} /> : null}
     {owner ? <ScheduleRunLog rows={scheduleRunsQuery.data ?? []} loading={scheduleRunsQuery.isLoading} /> : null}
-    <PaymentReceiptLog rows={receiptsQuery.data ?? []} canRetry={false} pendingId={undefined} onRetry={() => {}} />
+    <PaymentReceiptLog rows={receiptsQuery.data ?? []} canRetry={owner} pendingId={retryingNotificationId} onRetry={(id) => { setRetryingNotificationId(id); retryPaymentReceipt.mutate({ siteId: siteId!, notificationId: id }); }} />
   </div></DashboardLayout>;
 }
 
