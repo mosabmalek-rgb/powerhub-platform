@@ -66,7 +66,6 @@ export function WorkspaceHome() {
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [scope, setScope] = useState<"branch" | "all">("branch");
   const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
-  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword) });
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
@@ -79,6 +78,7 @@ export function WorkspaceHome() {
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const canUseAllBranches = Boolean(allBranchAccessQuery.data?.isGlobal && (sitesQuery.data?.length ?? 0) > 1);
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
+  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword) });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
