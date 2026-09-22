@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { listChatNotifications, subscribeToChatNotifications, subscribeToChatConversation } from "@/lib/chatReceipts";
@@ -51,6 +52,42 @@ type Assignment = {
 
 type SupportUser = { id: number; name: string; email: string; platform_role: string };
 
+function SupportAdminControls({ data, working, onSave }: { data: any; working: boolean; onSave: (fn: string, args: Record<string, unknown>, success: string) => Promise<boolean> }) {
+  const settings = data?.settings ?? {};
+  const sla = data?.sla ?? [];
+  const categories = data?.categories ?? [];
+  const tags = data?.tags ?? [];
+  const quickReplies = data?.quickReplies ?? [];
+  const [autoClose, setAutoClose] = useState(Number(settings.auto_close_after_minutes ?? 2880));
+  const [reopenWindow, setReopenWindow] = useState(Number(settings.reopen_window_minutes ?? 10080));
+  useEffect(() => {
+    setAutoClose(Number(settings.auto_close_after_minutes ?? 2880));
+    setReopenWindow(Number(settings.reopen_window_minutes ?? 10080));
+  }, [settings.auto_close_after_minutes, settings.reopen_window_minutes]);
+  return <Card className="border-[#F5B800]/25 bg-[#111823]">
+    <CardHeader><CardTitle className="text-white">إعدادات مركز الدعم</CardTitle></CardHeader>
+    <CardContent className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card className="border-white/8 bg-white/[.02]"><CardContent className="p-4"><p className="text-sm font-bold text-white">دورة التذكرة</p><div className="mt-3 grid gap-2"><label className="text-xs text-slate-400">الإغلاق التلقائي بعد الحل (دقيقة)<Input value={autoClose} onChange={(e) => setAutoClose(Number(e.target.value))} type="number" min={0} max={43200} className="mt-1 bg-black/20 text-white" /></label><label className="text-xs text-slate-400">نافذة إعادة الفتح (دقيقة)<Input value={reopenWindow} onChange={(e) => setReopenWindow(Number(e.target.value))} type="number" min={60} max={43200} className="mt-1 bg-black/20 text-white" /></label><Button disabled={working} onClick={() => void onSave("chat_support_admin_save_settings",{p_auto_close_after_minutes:autoClose,p_reopen_window_minutes:reopenWindow},"تم حفظ إعدادات دورة التذكرة.")}>حفظ</Button></div></CardContent></Card>
+        <Card className="border-white/8 bg-white/[.02]"><CardContent className="p-4"><p className="text-sm font-bold text-white">سياسات SLA</p><div className="mt-3 space-y-2">{sla.map((row:any)=><div key={row.priority} className="flex items-center gap-2"><span className="w-16 text-xs text-slate-400">{priorityLabels[row.priority] ?? row.priority}</span><Input defaultValue={row.multiplier} type="number" step="0.05" min="0.05" max="10" className="bg-black/20 text-white" onBlur={(e)=>void onSave("chat_support_admin_upsert_sla",{p_priority:row.priority,p_multiplier:Number(e.target.value)},"تم تحديث SLA.")}/></div>)}</div></CardContent></Card>
+        <Card className="border-white/8 bg-white/[.02]"><CardContent className="p-4"><p className="text-sm font-bold text-white">حالة النظام</p><div className="mt-3 space-y-2 text-xs text-slate-400"><p>التصنيفات: <strong className="text-white">{categories.length}</strong></p><p>الوسوم: <strong className="text-white">{tags.length}</strong></p><p>الردود الجاهزة: <strong className="text-white">{quickReplies.length}</strong></p><p>قواعد الإغلاق وإعادة الفتح مرتبطة بدورة حياة التذكرة.</p></div></CardContent></Card>
+      </div>
+      <details className="rounded-xl border border-white/8 bg-white/[.02] p-4"><summary className="cursor-pointer text-sm font-bold text-white">إدارة التصنيفات والوسوم والردود الجاهزة</summary>
+        <div className="mt-4 grid gap-4 xl:grid-cols-3">
+          <AdminList title="التصنيفات" rows={categories} render={(row:any)=><div><p className="font-bold text-white">{row.name}</p><p className="text-[11px] text-slate-500">{row.code} · أول استجابة {row.default_first_response_minutes} د · حل {row.default_resolution_minutes} د</p></div>} />
+          <AdminList title="الوسوم" rows={tags} render={(row:any)=><div><p className="font-bold text-white">{row.name}</p><p className="text-[11px] text-slate-500">{row.code} · {row.is_active ? "مفعّل" : "متوقف"}</p></div>} />
+          <AdminList title="الردود الجاهزة" rows={quickReplies} render={(row:any)=><div><p className="font-bold text-white">{row.title}</p><p className="text-[11px] text-slate-500">{row.shortcut} · {row.category_code || "عام"}</p></div>} />
+        </div>
+        <p className="mt-4 text-xs leading-6 text-slate-500">التحكم الكامل في إنشاء/تعديل العناصر متاح عبر طبقة الإدارة الآمنة، ويمكن توسيع هذه الشاشة لاحقًا إلى محرر كامل دون تغيير عقود قاعدة البيانات.</p>
+      </details>
+    </CardContent>
+  </Card>;
+}
+
+function AdminList({ title, rows, render }: { title:string; rows:any[]; render:(row:any)=>React.ReactNode }) {
+  return <div className="rounded-xl border border-white/8 p-3"><h3 className="text-sm font-bold text-white">{title}</h3><div className="mt-3 space-y-2 max-h-52 overflow-auto">{rows.length ? rows.map((row) => <div key={row.id ?? row.code ?? row.shortcut} className="rounded-lg border border-white/6 bg-white/[.02] p-2">{render(row)}</div>) : <p className="text-xs text-slate-500">لا توجد بيانات.</p>}</div></div>;
+}
+
 function statusLabel(status: string) {
   const map: Record<string, string> = {
     SUPPORT_PENDING: "بانتظار الدعم",
@@ -82,10 +119,18 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [internalNote, setInternalNote] = useState(false);
   const [tags, setTags] = useState<Array<{ id: number; name: string }>>([]);
   const [tagIds, setTagIds] = useState<number[]>([]);
+  const [adminControlsOpen, setAdminControlsOpen] = useState(false);
+  const [adminControls, setAdminControls] = useState<any | null>(null);
+  const [adminWorking, setAdminWorking] = useState(false);
   const [timeline, setTimeline] = useState<Array<{ id:number; event_type:string; actor_name:string|null; from_status:string|null; to_status:string|null; from_priority:string|null; to_priority:string|null; metadata:Record<string,unknown>; created_at:string }>>([]);
 
   const selected = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) ?? null, [conversations, selectedId]);
   const selectedAssignment = useMemo(() => assignments.find((assignment) => assignment.conversation_id === selectedId && ["pending", "active"].includes(assignment.status)) ?? null, [assignments, selectedId]);
+
+  async function loadAdminControls() {
+    const { data, error } = await supabase.rpc("chat_support_admin_snapshot");
+    if (!error && data) setAdminControls(data);
+  }
 
   async function refreshQueue() {
     if (!access.data?.allowed) return;
@@ -117,6 +162,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     setCategories((categoryResult.data ?? []) as Array<{ code: string; name: string }>);
     setTags((tagResult.data ?? []) as Array<{ id: number; name: string }>);
     setLoadingQueue(false);
+    if (adminControlsOpen) await loadAdminControls();
     if (selectedId === null && rows.length) setSelectedId(rows[0].id);
     if (selectedId !== null && !rows.some((row) => row.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
   }
@@ -131,6 +177,16 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     const { data: timelineData } = await supabase.rpc("chat_ticket_timeline", { p_conversation_id: conversationId });
     setTimeline((timelineData ?? []) as typeof timeline);
     setLoadingMessages(false);
+  }
+
+  async function saveAdminRpc(fn: string, args: Record<string, unknown>, success: string) {
+    setAdminWorking(true);
+    const { error } = await supabase.rpc(fn, args);
+    setAdminWorking(false);
+    if (error) { toast.error("تعذر حفظ إعداد الدعم."); return false; }
+    toast.success(success);
+    await loadAdminControls();
+    return true;
   }
 
   async function assignConversation(userId: number) {
