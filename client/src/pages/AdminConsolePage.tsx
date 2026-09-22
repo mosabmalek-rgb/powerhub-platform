@@ -84,7 +84,7 @@ export default function AdminConsolePage() {
     {tab === "reports" && <><AdminReportsExports rows={reportRows} /><ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} /></>}
     {tab === "invoiceDelivery" && <InvoiceDeliverySettingsPanel />}
     {tab === "tweetSms" && <TweetSmsAccountsCenter accounts={tweetSmsAccounts.data ?? []} savePending={saveTweetSmsAccount.isPending} testPending={testTweetSmsAccount.isPending} onSave={saveTweetSmsAccount.mutate} onTest={testTweetSmsAccount.mutate} />}
-    {tab === "tweetSmsReport" && <PlatformTweetSmsReport />} requests={smsRequests.data ?? []} pending={createSmsPlan.isPending || updateSmsPlan.isPending || reviewSmsRequest.isPending} onCreate={createSmsPlan.mutate} onUpdate={updateSmsPlan.mutate} onReview={reviewSmsRequest.mutate} />}
+    {tab === "tweetSmsReport" && <PlatformTweetSmsReport />}
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
