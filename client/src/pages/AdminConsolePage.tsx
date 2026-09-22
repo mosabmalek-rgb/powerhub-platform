@@ -41,7 +41,8 @@ export default function AdminConsolePage() {
   const { user, loading, isAuthenticated } = useAuth();
   const [tab, setTab] = useState<Tab>("overview");
   const [tenantFilter, setTenantFilter] = useState<number | undefined>();
-  const isPlatformAdmin = user?.role === "admin";
+  const isPlatformSupport = user?.role === "admin" && user.platformRole === "platform_support";
+  const isPlatformAdmin = user?.role === "admin" && ["platform_owner", "platform_admin", "finance_admin"].includes(user.platformRole ?? "");
   const isPlatformOwner = user?.platformRole === "platform_owner";
   const utils = trpc.useUtils();
   const overview = trpc.admin.overview.useQuery(tenantFilter ? { tenantId: tenantFilter } : undefined, { enabled: isPlatformAdmin });
@@ -85,6 +86,7 @@ export default function AdminConsolePage() {
 
   if (loading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-8 w-8 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><AccessCard title="سجّل الدخول إلى إدارة المنصة" action="تسجيل الدخول" onClick={startLogin} /></DashboardLayout>;
+  if (isPlatformSupport) return <SupportCenterPage />;
   if (!isPlatformAdmin) return <DashboardLayout><AccessCard title="هذه الصفحة مخصصة لآدمن PowerHub" detail="لا يمكن لصاحب مولد أو عضو فريق الوصول إلى بيانات جميع المستأجرين." /></DashboardLayout>;
 
   return <PlatformAdminLayout activeTab={tab} onTabChange={(nextTab) => setTab(nextTab as Tab)}><main className="space-y-6 pb-12"><header className="rounded-[26px] border border-[#F5B800]/20 bg-[#111823]/85 p-6 shadow-panel"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ShieldAlert className="h-4 w-4" />إدارة PowerHub العليا</div><h1 className="mt-2 text-2xl font-extrabold text-white">مركز قيادة المنصة</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">إشراف مركزي منظم على المولدات والمشتركين والتحصيل والشكاوى وإعدادات الحماية عبر جميع مساحات PowerHub.</p></div><Button variant="outline" onClick={() => void refresh()} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />تحديث البيانات</Button></div></header>
