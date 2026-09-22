@@ -41,7 +41,7 @@ export default function PlatformAnnouncementsPage() {
           </div>
         </header>
 
-        {showForm || editing ? <AnnouncementForm initial={editing} pending={create.isPending || update.isPending} onCancel={() => { setShowForm(false); setEditing(null); }} onSubmit={(input) => editing ? update.mutate({ id: editing.id, ...input, type: input.type as any, audienceRoles: input.audienceRoles as any }) : create.mutate({ ...input, type: input.type as any, audienceRoles: input.audienceRoles as any, status: input.status as any, scheduledAt: input.scheduledAt || undefined })} /> : null}
+        {showForm || editing ? <AnnouncementForm initial={editing} pending={create.isPending || update.isPending} onCancel={() => { setShowForm(false); setEditing(null); }} onSubmit={(input) => editing ? update.mutate({ id: editing.id, ...input, type: input.type as any, audienceRoles: input.audienceRoles as any, status: input.status as any }) : create.mutate({ ...input, type: input.type as any, audienceRoles: input.audienceRoles as any, status: input.status as any, scheduledAt: input.scheduledAt || undefined })} /> : null}
 
         <Card className="border-white/8 bg-[#111823] shadow-panel">
           <CardContent className="p-0">

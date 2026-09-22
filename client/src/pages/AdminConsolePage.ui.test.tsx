@@ -24,7 +24,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, listTweetSmsAccounts: { invalidate: vi.fn() }, getPlatformTweetSmsAccount: { invalidate: vi.fn() }, platformTweetSmsReport: { invalidate: vi.fn() }, listPlatformSmsFallbackProviders: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, listTweetSmsAccounts: { invalidate: vi.fn() }, getPlatformTweetSmsAccount: { invalidate: vi.fn() }, platformTweetSmsReport: { invalidate: vi.fn() }, listPlatformSmsFallbackProviders: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, listTenantFeatureEntitlements: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { generatorOwners: 1, residential: 120, commercial: 30, subscribers: 150, activeSubscriptions: 1 }, owners: [ownerRow] } }) },
       listOwners: { useQuery: () => ({ data: [ownerRow] }) },
@@ -50,6 +50,8 @@ vi.mock("@/lib/trpc", () => ({
       listTariffPolicies: { useQuery: () => ({ data: [] }) },
       createTariffPolicy: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       platformConfiguration: { useQuery: () => ({ data: { settings: [{ id: 11, settingKey: "invoice_delivery_channels", isEnabled: true, message: "", value: { whatsappEnabled: true, smsEnabled: true } }], recoveries: [], currentTariff: null } }) },
+      listTenantFeatureEntitlements: { useQuery: () => ({ data: [] }) },
+      setTenantFeatureEntitlement: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       savePlatformSetting: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       listTenantBranchSettings: { useQuery: () => ({ data: [] }) },
       saveTenantBranchSettings: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },

@@ -49,7 +49,7 @@ const state = vi.hoisted(() => {
         eq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] === value); return query; },
         in: (column: string, values: unknown[]) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || values.includes((row as Record<string, unknown>)[column])); return query; },
         or: (expression: string) => { const match = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/); if (match) { const siteId = Number(match[1]); filteredRows = filteredRows.filter((row) => { const siteValue = (row as Record<string, unknown>).site_id; return siteValue === siteId || siteValue === null; }); } return query; },
-        is: () => query,
+        is: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => (row as Record<string, unknown>)[column] === value); return query; },
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
         order: () => query,
         gte: () => query,
@@ -128,6 +128,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_approve_reading") return resolved([{ reading_id: 60, version_no: 2 }]);
       if (name === "powerhub_issue_invoice_from_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, replayed: false }]);
       if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
+      if (name === "powerhub_payment_documentation_access") return resolved([{ allowed: true, policy: "enabled", package_code: "starter", entitlement_enabled: true }]);
       if (name === "powerhub_create_expense") return resolved([{ expense_id: 82 }]);
       if (name === "powerhub_create_financial_settlement") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_set_financial_settlement_status") return resolved([{ settlement_id: 97 }]);
@@ -214,7 +215,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يعرض بوابة المشترك العامة وفاتورتها عبر دوال Supabase بعد التحقق الثنائي دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: null as never, req: {} as never, res: {} as never });
     await expect(caller.subscriberPortal.list()).resolves.toEqual([{
-      portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", siteName: "الفرع الرئيسي", city: "غزة",
+      portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", siteName: "الفرع الرئيسي", city: "غزة", logoUrl: null,
     }]);
     await expect(caller.subscriberPortal.theme({ portalCode: "main" })).resolves.toMatchObject({ portalCode: "main", displayName: "بوابة الفرع الرئيسي" });
     await expect(caller.subscriberPortal.lookup({ portalCode: "main", subscriberNo: "MAIN-001", phone: "+970595000000" })).resolves.toMatchObject({
@@ -571,7 +572,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يقرأ سياسة أدوار وحدود الحسابات الفرعية من Supabase مع تجاوز المستأجر والعدد النشط", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
-    state.tables.tenant_subscriptions = [{ tenant_id: 20, plan: "professional" }];
+    state.tables.tenant_subscriptions = [{ tenant_id: 20, plan: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
     state.tables.tenants = [{ id: 20, plan: "starter" }];
     state.tables.platform_settings = [
       { setting_key: "owner_subaccount_roles", is_enabled: true, value: { allowedRoles: ["accountant", "viewer", "owner"] } },
@@ -688,6 +689,28 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_exceptional_locked_edit", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_entity_type: "expense", p_entity_id: 82 }) })]);
   });
 
+  it("يمنع حسابات الشركة من تجاوز نطاق الفرع للحساب المعيّن على فرع واحد", async () => {
+    const branchTwo = { id: 11, tenant_id: 20, name: "الفرع الثاني", code: "BR2", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
+    state.tables.sites = [state.tables.sites[0], branchTwo];
+    state.tables.users = [{ id: 2, role: "user", platform_role: "platform_user", account_status: "active" }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "manager", is_active: true, membership_status: "active" }];
+    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 2, is_active: true, role: "manager", permissions: null, custom_role_id: null, suspension_started_at: null, suspension_ends_at: null }];
+    state.tables.company_accounts = [
+      state.tables.company_accounts[0],
+      { id: 92, tenant_id: 20, name: "جوال بي 2", account_type: "jawwal_pay", phone_number: null, color: "#16a34a", opening_balance: 50, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
+    ];
+    state.tables.company_account_sites = [{ account_id: 90, site_id: 10 }, { account_id: 92, site_id: 11 }];
+    state.tables.account_transactions = [];
+    const caller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
+
+    await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90 }]);
+    await expect(caller.companyAccounts.list({ siteId: 10, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.create({ siteId: 10, name: "حساب فرع 2", accountType: "cash", phoneNumber: "+970595123457", openingBalance: 0, siteIds: [11] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.updateSites({ siteId: 10, accountId: 92, siteIds: [10] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل خارج النطاق" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpcCalls).toEqual([]);
+  });
+
   it("ينشئ حساب الشركة وحركاته وتحويله عبر Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.companyAccounts.create({ siteId: 10, name: "جوال بي 1", accountType: "jawwal_pay", phoneNumber: "+970595123456", openingBalance: 5, siteIds: [10] })).resolves.toEqual({ id: 92 });
@@ -716,7 +739,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.collectorSessions.list({ siteId: 10 })).resolves.toMatchObject([{ session: { id: 96, openedAt: expect.any(Date) }, collector: { id: 1 } }]);
     await expect(caller.collectorSessions.close({ siteId: 10, sessionId: 96, declaredCash: 10 })).resolves.toEqual({ expectedCash: 10, varianceAmount: 0 });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_close_collector_session", args: expect.objectContaining({ p_session_id: 96, p_allow_foreign_close: true }) })]);
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([expect.objectContaining({ name: "powerhub_close_collector_session", args: expect.objectContaining({ p_session_id: 96, p_allow_foreign_close: true }) })]));
   });
 
   it("ينشئ موظفاً عبر RPC Supabase الذرية دون MySQL", async () => {

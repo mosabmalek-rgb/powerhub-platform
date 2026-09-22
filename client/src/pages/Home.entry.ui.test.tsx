@@ -7,6 +7,13 @@ import Home from "./Home";
 
 vi.mock("@/const", () => ({ startLogin: vi.fn() }));
 vi.mock("wouter", () => ({ useLocation: () => ["/", vi.fn()] }));
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    powerhub: {
+      publicPackageCatalog: { useQuery: () => ({ data: undefined, isLoading: false }) },
+    },
+  },
+}));
 
 afterEach(cleanup);
 

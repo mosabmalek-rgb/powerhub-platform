@@ -19,6 +19,7 @@ export function useAuth(options?: UseAuthOptions) {
   // desync it from an in-flight login's `state`.
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
+  const releaseDevice = trpc.auth.releaseDevice.useMutation();
   const [sessionReady, setSessionReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
   const [authDataRevision, setAuthDataRevision] = useState(0);
@@ -110,7 +111,7 @@ export function useAuth(options?: UseAuthOptions) {
     }
 
     try {
-      await utils.auth.releaseDevice.mutateAsync();
+      await releaseDevice.mutateAsync();
       await supabaseSignOutSafely();
     } finally {
       setCachedUser(null);
@@ -119,7 +120,7 @@ export function useAuth(options?: UseAuthOptions) {
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }
-  }, [utils]);
+  }, [releaseDevice, utils]);
 
   const user = meQuery.data ?? cachedUser;
   const offlineAuthenticated = Boolean(offlineLeaseUserId && cachedUser);

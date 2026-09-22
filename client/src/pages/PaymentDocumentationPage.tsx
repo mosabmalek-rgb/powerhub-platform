@@ -17,7 +17,8 @@ const methods = [
 ] as const;
 
 export default function PaymentDocumentationPage() {
-  const { siteId } = useBranchFilter();
+  const { branchId } = useBranchFilter();
+  const siteId = branchId ?? 0;
   const [query,setQuery]=useState("");
   const [selected,setSelected]=useState<any>(null);
   const [invoice,setInvoice]=useState<any>(null);

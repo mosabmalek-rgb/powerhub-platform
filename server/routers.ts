@@ -1,6 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { systemRouter } from "./_core/systemRouter";
 import { authenticatedProcedure, publicProcedure, mergeRouters, router } from "./_core/trpc";
 import { powerhubRuntimeRouter } from "./powerhub-runtime-router";
@@ -20,9 +21,15 @@ Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as 
 
 type AppAdminRouter = Omit<typeof adminRouter, "listComplaints"> & {
   listComplaints: any;
+  listTenantFeatureEntitlements: any;
+  setTenantFeatureEntitlement: any;
 };
 
-const adminRuntimeRouter = (router(adminRuntimeRecord as Record<string, any>) as unknown) as AppAdminRouter;
+const adminRuntimeRouter = (router({
+  ...adminRuntimeRecord,
+  listTenantFeatureEntitlements: (adminRouterWithSupabasePlatformSetting as any)._def.record.listTenantFeatureEntitlements,
+  setTenantFeatureEntitlement: (adminRouterWithSupabasePlatformSetting as any)._def.record.setTenantFeatureEntitlement,
+} as Record<string, any>) as unknown) as AppAdminRouter;
 
 export const appRouter = router({
   system: systemRouter,

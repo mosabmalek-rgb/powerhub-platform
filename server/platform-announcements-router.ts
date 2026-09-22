@@ -51,7 +51,7 @@ export const platformAnnouncementsRouter = router({
       status: z.enum(["draft", "scheduled"]).default("draft"),
       scheduledAt: z.string().datetime().optional(),
     })).mutation(async ({ ctx, input }) => {
-      const published = input.status === "published";
+      const published = false;
       const scheduled = input.status === "scheduled";
       if (scheduled && (!input.scheduledAt || new Date(input.scheduledAt).getTime() <= Date.now())) throw new TRPCError({ code: "BAD_REQUEST", message: "وقت الجدولة يجب أن يكون في المستقبل." });
       const { data, error } = await supabaseAdmin()

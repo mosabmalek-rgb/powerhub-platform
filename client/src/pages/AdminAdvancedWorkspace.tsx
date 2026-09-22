@@ -215,10 +215,10 @@ export function SubscriberPortalLogoFeaturePanel() {
   const configuration = trpc.admin.platformConfiguration.useQuery();
   const saveFeature = trpc.admin.savePlatformSetting.useMutation({ onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); toast.success("تم تحديث الإتاحة العامة لشعار بوابة الاستعلام."); }, onError: (error) => toast.error(error.message) });
   const owners = trpc.admin.listOwners.useQuery();
-  const entitlements = trpc.admin.listTenantFeatureEntitlements.useQuery();
-  const setEntitlement = trpc.admin.setTenantFeatureEntitlement.useMutation({
-    onSuccess: () => { void utils.admin.listTenantFeatureEntitlements.invalidate(); toast.success("تم تحديث إتاحة شعار بوابة الاستعلام."); },
-    onError: (error) => toast.error(error.message),
+  const entitlements = (trpc.admin as any).listTenantFeatureEntitlements.useQuery();
+  const setEntitlement = (trpc.admin as any).setTenantFeatureEntitlement.useMutation({
+    onSuccess: () => { void (utils.admin as any).listTenantFeatureEntitlements.invalidate(); toast.success("تم تحديث إتاحة شعار بوابة الاستعلام."); },
+    onError: (error: any) => toast.error(error.message),
   });
   const feature = configuration.data?.settings.find((item) => item.settingKey === "subscriber_portal_logo");
   const catalog = configuration.data?.settings.find((item) => item.settingKey === "subscription_package_catalog");
@@ -260,11 +260,11 @@ export function PaymentDocumentationFeaturePanel() {
   const utils = trpc.useUtils();
   const configuration = trpc.admin.platformConfiguration.useQuery();
   const owners = trpc.admin.listOwners.useQuery();
-  const entitlements = trpc.admin.listTenantFeatureEntitlements.useQuery();
+  const entitlements = (trpc.admin as any).listTenantFeatureEntitlements.useQuery();
   const saveFeature = trpc.admin.savePlatformSetting.useMutation({ onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); toast.success("تم تحديث الإتاحة العامة لتوثيق الدفع."); }, onError: (error) => toast.error(error.message) });
-  const setEntitlement = trpc.admin.setTenantFeatureEntitlement.useMutation({
-    onSuccess: () => { void utils.admin.listTenantFeatureEntitlements.invalidate(); toast.success("تم تحديث إتاحة توثيق الدفع لصاحب المولد."); },
-    onError: (error) => toast.error(error.message),
+  const setEntitlement = (trpc.admin as any).setTenantFeatureEntitlement.useMutation({
+    onSuccess: () => { void (utils.admin as any).listTenantFeatureEntitlements.invalidate(); toast.success("تم تحديث إتاحة توثيق الدفع لصاحب المولد."); },
+    onError: (error: any) => toast.error(error.message),
   });
   const feature = configuration.data?.settings.find((item) => item.settingKey === "payment_documentation");
   const catalog = configuration.data?.settings.find((item) => item.settingKey === "subscription_package_catalog");

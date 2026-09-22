@@ -131,6 +131,25 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
   return access;
 }
 
+export async function requireSupabaseAccessibleSiteIds(
+  userId: number,
+  currentSiteId: number,
+  targetSiteIds: number[],
+  allowed: PowerRole[],
+  capability?: PowerCapability,
+) {
+  const access = await requireSupabaseSiteRole(userId, currentSiteId, allowed, capability);
+  const ids = Array.from(new Set(targetSiteIds.map((siteId) => Number(siteId))));
+  if (!ids.length) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد فرع واحد على الأقل." });
+  for (const siteId of ids) {
+    const targetAccess = await requireSupabaseSiteRole(userId, siteId, allowed, capability);
+    if (targetAccess.tenantId !== access.tenantId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الوصول إلى أحد الفروع المحددة." });
+    }
+  }
+  return access;
+}
+
 export async function requireSupabaseAllBranchesRole(userId: number, siteId: number, allowed: PowerRole[]) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   const admin = supabaseAdmin();
@@ -144,8 +163,9 @@ export async function requireSupabaseAllBranchesRole(userId: number, siteId: num
   const { data: profile, error: profileError } = await admin.from("staff_profiles").select("role")
     .eq("tenant_id", access.tenantId).eq("user_id", userId).is("site_id", null).eq("is_active", true).maybeSingle();
   if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تعيين جميع الأفرع في Supabase." });
-  const role = asPowerRole(profile?.role);
-  if (!profile || !allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
+  if (!profile) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
+  const role = asPowerRole(profile.role);
+  if (!allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
   return { tenantId: access.tenantId, role };
 }
 
@@ -316,49 +336,6 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
   };
 }
 
-export async function getSupabaseSubscriberAccountStatement(siteId: number, subscriberId: number) {
-  const admin = supabaseAdmin();
-  const { data: subscriber, error: subscriberError } = await admin.from("subscribers")
-    .select("id, tenant_id, site_id, subscriber_no, full_name, phone, whatsapp_number, address, subscription_type, service_status, created_at, updated_at")
-    .eq("site_id", siteId).eq("id", subscriberId).maybeSingle();
-  if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المشترك من Supabase." });
-  if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن الفرع المحدد." });
-
-  const tenantId = Number(subscriber.tenant_id);
-  const [invoicesAll, paymentsAll, readingsAll] = await Promise.all([
-    admin.from("invoices").select("id, invoice_no, billing_period, issue_date, due_date, previous_reading, current_reading, consumption_kwh, total_amount, paid_amount, balance_due, status, reading_id")
-      .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", subscriberId).neq("status", "cancelled").order("issue_date", { ascending: false }).order("id", { ascending: false }),
-    admin.from("payments").select("id, payment_no, invoice_id, amount, payment_method, transfer_from_account, transfer_to_account, reference_no, status, paid_at")
-      .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", subscriberId).eq("status", "completed").order("paid_at", { ascending: false }).order("id", { ascending: false }),
-    admin.from("meter_readings").select("id, reading_at, reading_value, previous_reading_value, consumption_kwh, capture_method, status, version_no, notes")
-      .eq("tenant_id", tenantId).eq("subscriber_id", subscriberId).order("reading_at", { ascending: false }).order("id", { ascending: false }),
-  ]);
-  if (invoicesAll.error || paymentsAll.error || readingsAll.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل كشف حساب المشترك من Supabase." });
-
-  const invoices = invoicesAll.data ?? [];
-  const payments = paymentsAll.data ?? [];
-  const readings = readingsAll.data ?? [];
-  const invoiceIds = payments.map(r => r.invoice_id === null ? null : Number(r.invoice_id)).filter((v): v is number => v !== null);
-  const invoiceRefs = invoiceIds.length ? await admin.from("invoices").select("id, invoice_no").eq("tenant_id", tenantId).eq("site_id", siteId).in("id", invoiceIds) : { data: [], error: null };
-  if (invoiceRefs.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر ربط دفعات المشترك بفواتيرها." });
-  const invoiceNoById = new Map((invoiceRefs.data ?? []).map(r => [Number(r.id), r.invoice_no]));
-
-  return {
-    subscriber: { id: Number(subscriber.id), tenantId, siteId: Number(subscriber.site_id), subscriberNo: subscriber.subscriber_no, fullName: subscriber.full_name, phone: subscriber.phone, whatsappNumber: subscriber.whatsapp_number, address: subscriber.address, subscriptionType: subscriber.subscription_type, serviceStatus: subscriber.service_status, createdAt: new Date(subscriber.created_at), updatedAt: new Date(subscriber.updated_at) },
-    summary: {
-      invoiceCount: invoices.length, paymentCount: payments.length, readingCount: readings.length,
-      totalInvoiced: invoices.reduce((s,r)=>s+Number(r.total_amount??0),0),
-      totalCollected: payments.reduce((s,r)=>s+Number(r.amount??0),0),
-      totalOutstanding: invoices.reduce((s,r)=>s+Number(r.balance_due??0),0),
-      totalConsumptionKwh: invoices.reduce((s,r)=>s+Number(r.consumption_kwh??0),0),
-      lastPaymentAt: payments[0]?.paid_at ? new Date(payments[0].paid_at) : null,
-    },
-    limits: { visiblePerSection: 20, invoiceHasMore: invoices.length > 20, paymentHasMore: payments.length > 20, readingHasMore: readings.length > 20 },
-    invoices: invoices.slice(0,20).map(r=>({ id:Number(r.id), invoiceNo:r.invoice_no, billingPeriod:r.billing_period, issueDate:new Date(r.issue_date), dueDate:new Date(r.due_date), previousReading:r.previous_reading===null?null:String(r.previous_reading), currentReading:r.current_reading===null?null:String(r.current_reading), consumptionKwh:String(r.consumption_kwh), totalAmount:String(r.total_amount), paidAmount:String(r.paid_amount), balanceDue:String(r.balance_due), status:r.status, readingId:r.reading_id===null?null:Number(r.reading_id) })),
-    payments: payments.slice(0,20).map(r=>({ id:Number(r.id), paymentNo:r.payment_no, invoiceId:r.invoice_id===null?null:Number(r.invoice_id), invoiceNo:r.invoice_id===null?null:invoiceNoById.get(Number(r.invoice_id))??null, amount:String(r.amount), paymentMethod:r.payment_method, transferFromAccount:r.transfer_from_account, transferToAccount:r.transfer_to_account, referenceNo:r.reference_no, status:r.status, paidAt:new Date(r.paid_at) })),
-    readings: readings.slice(0,20).map(r=>({ id:Number(r.id), readingAt:new Date(r.reading_at), readingValue:String(r.reading_value), previousReadingValue:r.previous_reading_value===null?null:String(r.previous_reading_value), consumptionKwh:r.consumption_kwh===null?null:String(r.consumption_kwh), captureMethod:r.capture_method, status:r.status, versionNo:Number(r.version_no), notes:r.notes })),
-  };
-}
 
 export async function listSupabaseTariffs(siteId: number) {
   const { data, error } = await supabaseAdmin().from("tariffs")
@@ -513,7 +490,7 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
     ];
     const { error: defaultsError } = await admin.from("company_accounts").insert(defaults);
     if (defaultsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تهيئة حسابات الشركة الافتراضية في Supabase." });
-    const retry = await admin.from("company_accounts").select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, created_at, updated_at")
+    const retry = await admin.from("company_accounts").select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
       .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
     if (retry.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة بعد التهيئة." });
     accountRows = retry.data;

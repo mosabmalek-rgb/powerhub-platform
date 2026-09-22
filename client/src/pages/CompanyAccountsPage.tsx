@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards } from "lucide-react";
 import ExcelJS from "exceljs";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
-import { type ElementType, useMemo, useState } from "react";
+import { type ElementType, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -48,6 +48,7 @@ export default function CompanyAccountsPage() {
   const [movementFromDate, setMovementFromDate] = useState("");
   const [movementToDate, setMovementToDate] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
+  const transactionsRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -215,223 +216,23 @@ export default function CompanyAccountsPage() {
 
   const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th><th>الفروع</th><th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${row.name}</td><td>${labels[row.accountType]??row.accountType}</td><td>${row.phoneNumber??"—"}</td><td>${row.linkedSites.map(site=>site.siteName).join("، ")||"—"}</td><td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
 
-  const exportTransactionsPdf = async () => { if (!selectedAccount) return; const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">حركات الحساب — ${selectedAccount.name}</h1><p>الرصيد الافتتاحي: ${Number(selectedAccount.openingBalance??0).toLocaleString("ar")} شيكل</p><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>التاريخ</th><th>النوع</th><th>المبلغ</th><th>الرصيد التراكمي</th><th>الوصف</th><th>المرجع</th></tr></thead><tbody>${transactionRows.map(row=>`<tr><td>${formatReportDate(row.occurredAt)}</td><td>${row.transactionType}</td><td>${Number(row.amount).toLocaleString("ar")}</td><td>${Number(cumulativeById.get(row.id)??0).toLocaleString("ar")}</td><td>${row.description}</td><td>${row.referenceNo??"—"}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,`حركات-${selectedAccount.name}.pdf`,{landscape:true,title:`حركات حساب ${selectedAccount.name} - PowerHub`}); toast.success("تم تصدير حركات الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };rt { useAuth } from "@/_core/hooks/useAuth";
-import DashboardLayout from "@/components/DashboardLayout";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { trpc } from "@/lib/trpc";
-import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards } from "lucide-react";
-import ExcelJS from "exceljs";
-import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
-import { type ElementType, useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { toast } from "sonner";
-
-const labels: Record<string, string> = {
-  cash: "كاش",
-  jawwal_pay: "جوال بي",
-  palpay: "بال بي",
-  bank_of_palestine: "بنك فلسطين",
-  other: "حساب آخر",
-};
-
-const accountTheme: Record<string, { card: string; icon: ElementType; badge: string; shortLabel: string }> = {
-  cash: { card: "border-slate-300/40 bg-slate-300/40", icon: Banknote, badge: "bg-slate-950/40 text-white", shortLabel: "CASH" },
-  jawwal_pay: { card: "border-lime-300/40 bg-lime-500/40", icon: CircleDollarSign, badge: "bg-lime-950/55 text-lime-50", shortLabel: "JPay" },
-  palpay: { card: "border-fuchsia-300/40 bg-fuchsia-500/40", icon: WalletCards, badge: "bg-fuchsia-950/55 text-fuchsia-50", shortLabel: "PalPay" },
-  bank_of_palestine: { card: "border-rose-400/40 bg-rose-900/40", icon: Landmark, badge: "bg-rose-950/60 text-rose-50", shortLabel: "BOP" },
-  other: { card: "border-amber-300/40 bg-amber-500/40", icon: WalletCards, badge: "bg-amber-950/45 text-amber-50", shortLabel: "حساب" },
-};
-
-const money = (value: number) => value.toLocaleString("ar", { maximumFractionDigits: 2 });
-
-type PendingAccountAction = {
-  kind: "withdrawal" | "transfer";
-  amount: number;
-  description: string;
-  targetAccountId?: number;
-};
-
-export default function CompanyAccountsPage() {
-  const { isAuthenticated, loading } = useAuth();
-  const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
-  const siteId = sites.data?.[0]?.id ?? 0;
-  const [branchFilter, setBranchFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [transactionTypeFilter, setTransactionTypeFilter] = useState("");
-  const [movementFromDate, setMovementFromDate] = useState("");
-  const [movementToDate, setMovementToDate] = useState("");
-  const [transactionPage, setTransactionPage] = useState(1);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [search, setSearch] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
-  const [accountType, setAccountType] = useState("cash");
-  const [name, setName] = useState("");
-  const [newPhone, setNewPhone] = useState("");
-  const [createOpeningBalance, setCreateOpeningBalance] = useState("0");
-  const [openingBalance, setOpeningBalance] = useState("0");
-  const [selectedSites, setSelectedSites] = useState<number[]>([]);
-  const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
-  const [mode, setMode] = useState<"deposit" | "withdrawal" | "transfer">("deposit");
-  const [target, setTarget] = useState("");
-  const [pendingAction, setPendingAction] = useState<PendingAccountAction | null>(null);
-
-  const accounts = trpc.powerhub.companyAccounts.list.useQuery(
-    { siteId, branchId: branchFilter ? Number(branchFilter) : undefined, fromDate: fromDate || undefined, toDate: toDate || undefined },
-    { enabled: Boolean(siteId && isAuthenticated) },
-  );
-  const utils = trpc.useUtils();
-  const refreshAccounts = () => void utils.powerhub.companyAccounts.list.invalidate();
-  const updateOpeningBalance = trpc.powerhub.companyAccounts.updateOpeningBalance.useMutation({ onSuccess: () => { toast.success("تم حفظ الرصيد الافتتاحي."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
-  const updateSites = trpc.powerhub.companyAccounts.updateSites.useMutation({ onSuccess: () => { toast.success("تم تحديث الفروع المرتبطة."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
-  const updatePaymentDocumentationVisibility = trpc.powerhub.companyAccounts.updatePaymentDocumentationVisibility.useMutation({ onSuccess: () => { toast.success("تم تحديث إعداد ظهور الحساب في توثيق الدفع."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
-  const updatePhone = trpc.powerhub.companyAccounts.updatePhone.useMutation({ onSuccess: () => { toast.success("تم حفظ رقم الجوال."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
-  const create = trpc.powerhub.companyAccounts.create.useMutation({
-    onSuccess: () => {
-      toast.success("تم إنشاء الحساب وحفظ رصيده الافتتاحي.");
-      setShowCreate(false);
-      setName("");
-      setNewPhone("");
-      setCreateOpeningBalance("0");
-      setSelectedSites([]);
-      refreshAccounts();
-    },
-    onError: (error) => toast.error(error.message),
-  });
-  const movement = trpc.powerhub.companyAccounts.addMovement.useMutation({ onSuccess: () => { toast.success("تم تسجيل حركة الحساب."); setAmount(""); setDescription(""); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
-  const transfer = trpc.powerhub.companyAccounts.transfer.useMutation({ onSuccess: () => { toast.success("تم تنفيذ التحويل بين الحسابات."); setAmount(""); setDescription(""); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
-
-  const rows = accounts.data ?? [];
-  const filtered = useMemo(() => rows.filter((account) => `${account.name} ${account.phoneNumber ?? ""} ${labels[account.accountType] ?? account.accountType}`.toLowerCase().includes(search.toLowerCase().trim())), [rows, search]);
-  const selectedAccount = rows.find((account) => account.id === selected);
-  const total = rows.reduce((sum, row) => sum + Number(row.balance), 0);
-  const transactionRows = selectedAccount?.transactions.filter((row) => {
-    const date = new Date(row.occurredAt).toISOString().slice(0, 10);
-    return (!transactionTypeFilter || row.transactionType === transactionTypeFilter) && (!movementFromDate || date >= movementFromDate) && (!movementToDate || date <= movementToDate);
-  }) ?? [];
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(transactionRows.length / pageSize));
-  const visibleTransactions = transactionRows.slice((transactionPage - 1) * pageSize, transactionPage * pageSize);
-  const balanceTimeline = useMemo(() => {
-    if (!selectedAccount) return [];
-    let running = Number(selectedAccount.openingBalance ?? 0);
-    const rows = [{ label: "الرصيد الافتتاحي", balance: running }];
-    [...selectedAccount.transactions].reverse().forEach((row) => {
-      running += row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? -Number(row.amount) : Number(row.amount);
-      rows.push({ label: new Date(row.occurredAt).toLocaleDateString("ar", { month: "short", day: "numeric" }), balance: running });
-    });
-    return rows;
-  }, [selectedAccount]);
-  const cumulativeById = (() => {
-    if (!selectedAccount) return new Map<number, number>();
-    let running = Number(selectedAccount.openingBalance ?? 0);
-    const result = new Map<number, number>();
-    [...selectedAccount.transactions].reverse().forEach((row) => {
-      running += row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? -Number(row.amount) : Number(row.amount);
-      result.set(row.id, running);
-    });
-    return result;
-  })();
-
-  if (loading || accounts.isLoading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
-  if (!isAuthenticated) return <DashboardLayout><div className="p-8 text-center text-white">سجّل الدخول للوصول إلى حسابات الشركة.</div></DashboardLayout>;
-
-  const selectAccount = (accountId: number) => {
-    const account = rows.find((row) => row.id === accountId);
-    if (!account) return;
-    setSelected(account.id);
-    setSelectedSites(account.linkedSites.map((site) => site.siteId));
-    setOpeningBalance(String(account.openingBalance ?? 0));
-    setNewPhone(account.phoneNumber ?? "");
-    setTransactionPage(1);
-    setTransactionTypeFilter("");
-    setMovementFromDate("");
-    setMovementToDate("");
-    setMode("deposit");
-    setTarget("");
-  };
-
-  const togglePaymentDocumentation = () => {
-    if (!selectedAccount) return;
-    updatePaymentDocumentationVisibility.mutate({
-      siteId,
-      accountId: selectedAccount.id,
-      allow: !Boolean(selectedAccount.allowPaymentDocumentation),
-    });
-  };
-
-  const saveOpeningBalance = () => {
-    const value = Number(openingBalance);
-    if (!selectedAccount || !Number.isFinite(value) || value < 0) return toast.error("أدخل رصيداً افتتاحياً صحيحاً يساوي صفراً أو أكثر.");
-    updateOpeningBalance.mutate({ siteId, accountId: selectedAccount.id, openingBalance: value });
-  };
-
-  const submitCreate = () => {
-    const value = Number(createOpeningBalance);
-    if (!Number.isFinite(value) || value < 0) return toast.error("أدخل رصيداً افتتاحياً صحيحاً يساوي صفراً أو أكثر.");
-    create.mutate({ siteId, name: name.trim(), accountType: accountType as "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "other", phoneNumber: newPhone, openingBalance: value, siteIds: selectedSites.length ? selectedSites : [siteId] });
-  };
-
-  const submitMovement = () => {
-    const value = Number(amount);
-    if (!selectedAccount || !Number.isFinite(value) || value <= 0 || !description.trim()) return toast.error("اختر الحساب وأدخل مبلغاً ووصفاً صحيحين.");
-    if ((mode === "withdrawal" || mode === "transfer") && value > Number(selectedAccount.balance)) return toast.error("المبلغ يتجاوز الرصيد المتاح في الحساب.");
-    if (mode === "transfer") {
-      if (!target) return toast.error("اختر الحساب المستقبِل للتحويل.");
-      setPendingAction({ kind: "transfer", amount: value, description: description.trim(), targetAccountId: Number(target) });
-      return;
-    }
-    if (mode === "withdrawal") {
-      setPendingAction({ kind: "withdrawal", amount: value, description: description.trim() });
-      return;
-    }
-    movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: mode, amount: value, description: description.trim() });
-  };
-
-  const confirmPendingAction = () => {
-    if (!selectedAccount || !pendingAction) return;
-    if (pendingAction.kind === "transfer" && pendingAction.targetAccountId) {
-      transfer.mutate({ siteId, fromAccountId: selectedAccount.id, toAccountId: pendingAction.targetAccountId, amount: pendingAction.amount, description: pendingAction.description });
-    } else {
-      movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: "withdrawal", amount: pendingAction.amount, description: pendingAction.description });
-    }
-    setPendingAction(null);
-  };
-
-  const exportCsv = () => {
-    const header = "الحساب,نوع الحساب,رقم الجوال,الفروع,الرصيد\n";
-    const body = filtered.map((row) => [row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "", row.linkedSites.map((site) => site.siteName).join(" | "), Number(row.balance).toFixed(2)].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob(["\ufeff" + header + body], { type: "text/csv;charset=utf-8" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "كشف-حسابات-الشركة.csv";
-    anchor.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const exportExcel = async () => {
+  const exportTransactionsExcel = async () => {
+    if (!selectedAccount || !transactionRows.length) return;
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("حسابات الشركة", { views: [{ rightToLeft: true }] });
-    sheet.addRow(["الحساب", "نوع الحساب", "رقم الجوال", "الفروع", "الرصيد"]);
-    filtered.forEach((row) => sheet.addRow([row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "غير مرتبط", row.linkedSites.map((site) => site.siteName).join("، ") || "غير محدد", Number(row.balance)]));
-    sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-    sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
-    sheet.columns = [{ width: 24 }, { width: 20 }, { width: 20 }, { width: 35 }, { width: 16 }];
-    const url = URL.createObjectURL(new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "كشف-حسابات-الشركة.xlsx";
-    anchor.click();
-    URL.revokeObjectURL(url);
-    toast.success("تم تصدير كشف الحساب إلى Excel.");
+    const sheet = workbook.addWorksheet("حركات الحساب");
+    sheet.columns = [
+      { header: "الوصف", key: "description", width: 34 },
+      { header: "النوع", key: "type", width: 18 },
+      { header: "المبلغ", key: "amount", width: 16 },
+      { header: "التاريخ", key: "date", width: 24 },
+    ];
+    transactionRows.forEach((row) => sheet.addRow({ description: row.description, type: row.transactionType, amount: Number(row.amount), date: new Date(row.occurredAt).toLocaleString("ar") }));
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `حركات-${selectedAccount.name}.xlsx`; anchor.click(); URL.revokeObjectURL(url);
+    toast.success("تم تصدير حركات الحساب إلى Excel.");
   };
-
-  const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th><th>الفروع</th><th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${row.name}</td><td>${labels[row.accountType]??row.accountType}</td><td>${row.phoneNumber??"—"}</td><td>${row.linkedSites.map(site=>site.siteName).join("، ")||"—"}</td><td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
-
   const exportTransactionsPdf = async () => { if (!selectedAccount || !transactionsRef.current) return; try { await downloadReportHtmlAsPdf(transactionsRef.current, `حركات-${selectedAccount.name}.pdf`, { landscape: true, title: `حركات حساب ${selectedAccount.name} - PowerHub` }); toast.success("تم تصدير حركات الحساب إلى PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
 
   return (

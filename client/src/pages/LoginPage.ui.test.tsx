@@ -8,7 +8,7 @@ const state = vi.hoisted(() => ({ setLocation: vi.fn(), signInWithPassword: vi.f
 
 vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signInWithPassword: state.signInWithPassword, signUp: state.signUp } },
-  getSupabaseSession: vi.fn().mockResolvedValue({ user: { id: "auth-user" } }),
+  getSupabaseSession: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 

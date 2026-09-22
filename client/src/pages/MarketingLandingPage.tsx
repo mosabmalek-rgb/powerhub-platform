@@ -85,7 +85,7 @@ export default function MarketingLandingPage() {
     highlighted: index === 1,
     items: [
       Number(pkg.includedSubscribers ?? 0) > 0
-        ? (pkg.subscribersLimitMode === "minimum"
+        ? ((pkg as Record<string, unknown>).subscribersLimitMode === "minimum"
           ? `ابتداءً من ${Number(pkg.includedSubscribers).toLocaleString("ar")} مشترك`
           : `حتى ${Number(pkg.includedSubscribers).toLocaleString("ar")} مشترك`)
         : "المشتركون والعدادات",
