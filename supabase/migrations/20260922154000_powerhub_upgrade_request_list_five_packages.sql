@@ -4,8 +4,8 @@ create or replace function public.powerhub_admin_subscription_upgrade_requests()
 returns table (
   id bigint,
   tenant_id bigint,
-  current_plan text,
-  requested_plan text,
+  current_package_code text,
+  requested_package_code text,
   status text,
   note text,
   created_at timestamptz,
