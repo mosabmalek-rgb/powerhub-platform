@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { listChatNotifications, subscribeToChatNotifications, subscribeToChatConversation } from "@/lib/chatReceipts";
-import { Loader2, MessageCircle, RefreshCw, Send, ShieldAlert, UserRoundCheck } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Loader2, MessageCircle, RefreshCw, Send, Settings2, ShieldAlert, UserRoundCheck } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 type Conversation = {
@@ -84,7 +84,7 @@ function SupportAdminControls({ data, working, onSave }: { data: any; working: b
   </Card>;
 }
 
-function AdminList({ title, rows, render }: { title:string; rows:any[]; render:(row:any)=>React.ReactNode }) {
+function AdminList({ title, rows, render }: { title:string; rows:any[]; render:(row:any)=>ReactNode }) {
   return <div className="rounded-xl border border-white/8 p-3"><h3 className="text-sm font-bold text-white">{title}</h3><div className="mt-3 space-y-2 max-h-52 overflow-auto">{rows.length ? rows.map((row) => <div key={row.id ?? row.code ?? row.shortcut} className="rounded-lg border border-white/6 bg-white/[.02] p-2">{render(row)}</div>) : <p className="text-xs text-slate-500">لا توجد بيانات.</p>}</div></div>;
 }
 
@@ -258,7 +258,8 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div><div className="flex items-center gap-2 text-sm font-bold text-primary"><MessageCircle className="h-4 w-4" />مركز دعم PowerHub</div><h1 className="mt-1 text-2xl font-extrabold">طابور الدعم الذكي</h1><p className="mt-1 text-sm text-muted-foreground">إدارة التذاكر والتصنيف والأولوية وSLA والإسناد والملاحظات الداخلية ضمن صلاحية المنصة.</p>
             <div className="mt-4 flex flex-wrap gap-2"><input value={filter.search} onChange={(e) => setFilter((x) => ({ ...x, search: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") void refreshQueue(); }} placeholder="بحث برقم التذكرة أو العميل..." className="h-9 rounded-md border bg-background px-3 text-sm" /><select value={filter.status} onChange={(e) => setFilter((x) => ({ ...x, status: e.target.value }))} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="">كل الحالات</option>{["SUPPORT_PENDING","SUPPORT_ACTIVE","WAITING_USER","RESOLVED","CLOSED"].map((x) => <option key={x} value={x}>{x}</option>)}</select><select value={filter.priority} onChange={(e) => setFilter((x) => ({ ...x, priority: e.target.value }))} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="">كل الأولويات</option>{["low","normal","high","urgent"].map((x) => <option key={x} value={x}>{x}</option>)}</select><select value={filter.category} onChange={(e) => setFilter((x) => ({ ...x, category: e.target.value }))} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="">كل التصنيفات</option>{categories.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}</select></div></div>
-            <div className="flex items-center gap-2"><Badge variant="outline">إشعارات غير مقروءة: {notificationCount}</Badge><Button variant="outline" size="icon" onClick={() => void refreshQueue()} disabled={loadingQueue}><RefreshCw className={`h-4 w-4 ${loadingQueue ? "animate-spin" : ""}`} /></Button></div>
+            <div className="flex items-center gap-2"><Badge variant="outline">إشعارات غير مقروءة: {notificationCount}</Badge>
+          <Button variant="outline" size="sm" onClick={() => { setAdminControlsOpen((open) => !open); if (!adminControls) void loadAdminControls(); }}><Settings2 className="ml-2 h-4 w-4" />إعدادات الدعم</Button><Button variant="outline" size="icon" onClick={() => void refreshQueue()} disabled={loadingQueue}><RefreshCw className={`h-4 w-4 ${loadingQueue ? "animate-spin" : ""}`} /></Button></div>
           </div>
         </header>
 
