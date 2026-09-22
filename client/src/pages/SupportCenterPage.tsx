@@ -102,6 +102,7 @@ function statusLabel(status: string) {
 type SupportCenterPageProps = { embedded?: boolean };
 export default function SupportCenterPage({ embedded = false }: SupportCenterPageProps) {
   const { user } = useAuth({ redirectOnUnauthenticated: true });
+  const supportOnly = user?.role === "admin" && user.platformRole === "platform_support";
   const access = trpc.support.assertAccess.useQuery(undefined, { retry: false });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -259,7 +260,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
             <div><div className="flex items-center gap-2 text-sm font-bold text-primary"><MessageCircle className="h-4 w-4" />مركز دعم PowerHub</div><h1 className="mt-1 text-2xl font-extrabold">طابور الدعم الذكي</h1><p className="mt-1 text-sm text-muted-foreground">إدارة التذاكر والتصنيف والأولوية وSLA والإسناد والملاحظات الداخلية ضمن صلاحية المنصة.</p>
             <div className="mt-4 flex flex-wrap gap-2"><input value={filter.search} onChange={(e) => setFilter((x) => ({ ...x, search: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") void refreshQueue(); }} placeholder="بحث برقم التذكرة أو العميل..." className="h-9 rounded-md border bg-background px-3 text-sm" /><select value={filter.status} onChange={(e) => setFilter((x) => ({ ...x, status: e.target.value }))} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="">كل الحالات</option>{["SUPPORT_PENDING","SUPPORT_ACTIVE","WAITING_USER","RESOLVED","CLOSED"].map((x) => <option key={x} value={x}>{x}</option>)}</select><select value={filter.priority} onChange={(e) => setFilter((x) => ({ ...x, priority: e.target.value }))} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="">كل الأولويات</option>{["low","normal","high","urgent"].map((x) => <option key={x} value={x}>{x}</option>)}</select><select value={filter.category} onChange={(e) => setFilter((x) => ({ ...x, category: e.target.value }))} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="">كل التصنيفات</option>{categories.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}</select></div></div>
             <div className="flex items-center gap-2"><Badge variant="outline">إشعارات غير مقروءة: {notificationCount}</Badge>
-          <Button variant="outline" size="sm" onClick={() => { setAdminControlsOpen((open) => !open); if (!adminControls) void loadAdminControls(); }}><Settings2 className="ml-2 h-4 w-4" />إعدادات الدعم</Button><Button variant="outline" size="icon" onClick={() => void refreshQueue()} disabled={loadingQueue}><RefreshCw className={`h-4 w-4 ${loadingQueue ? "animate-spin" : ""}`} /></Button></div>
+          {!supportOnly && <Button variant="outline" size="sm" onClick={() => { setAdminControlsOpen((open) => !open); if (!adminControls) void loadAdminControls(); }}><Settings2 className="ml-2 h-4 w-4" />إعدادات الدعم</Button>}<Button variant="outline" size="icon" onClick={() => void refreshQueue()} disabled={loadingQueue}><RefreshCw className={`h-4 w-4 ${loadingQueue ? "animate-spin" : ""}`} /></Button></div>
           </div>
         </header>
 
