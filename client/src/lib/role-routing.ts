@@ -1,6 +1,6 @@
 export type AuthenticatedRouteUser = {
   role?: "user" | "admin" | null;
-  platformRole?: "platform_owner" | "platform_admin" | "finance_admin" | null;
+  platformRole?: "platform_owner" | "platform_admin" | "finance_admin" | "platform_support" | null;
 };
 
 export function authenticatedHomePath(user: AuthenticatedRouteUser | null | undefined) {
