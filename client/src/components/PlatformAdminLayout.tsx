@@ -47,6 +47,7 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
       { id: "generators", label: "إدارة المولدات", icon: Zap, detail: "المولدات النشطة والموقوفة والمحظورة" },
       { id: "ownerSubscription", label: "اشتراك صاحب مولد", icon: Building2, detail: "إضافة المالك والباقات والتجديد" },
       { id: "users", label: "إدارة المستخدمين", icon: UsersRound, detail: "أصحاب المولدات والموظفون والصلاحيات" },
+      { id: "features", label: "الميزات والحدود", icon: Settings2, detail: "مصفوفة ميزات وحدود كل صاحب مولد" },
     ],
   },
   {
@@ -95,7 +96,7 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
   const { user, logout } = useAuth();
   const initials = (user?.name ?? user?.email ?? "P").trim().slice(0, 1).toUpperCase();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
-  const navigate = (id: string) => { if (id === "trialManagement") { window.location.assign("/admin/trial-management"); return; } if (id === "announcements") { window.location.assign("/admin/announcements"); return; } onTabChange(id); };
+  const navigate = (id: string) => { if (id === "features") { window.location.assign("/admin/generator-features"); return; } if (id === "trialManagement") { window.location.assign("/admin/trial-management"); return; } if (id === "announcements") { window.location.assign("/admin/announcements"); return; } onTabChange(id); };
 
   return (
     <div className="min-h-screen bg-[#0B1018] text-white" dir="rtl">
