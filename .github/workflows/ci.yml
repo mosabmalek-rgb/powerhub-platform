@@ -16,7 +16,9 @@ concurrency:
 jobs:
   validate:
     name: TypeScript, tests, and production build
-    runs-on: self-hosted
+    # Keep untrusted pull-request code off the local runner.
+    # Pushes to trusted branches run on the self-hosted PowerHub runner.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=4096
