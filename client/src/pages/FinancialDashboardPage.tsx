@@ -42,7 +42,7 @@ export default function FinancialDashboardPage() {
     }, new Map<string, { collected: number; expenses: number }>()).entries()).slice(-6)
       .map(([month, item]) => `<tr><td>${escapeHtml(month)}</td><td>${format(item.collected)} شيكل</td><td>${format(item.expenses)} شيكل</td></tr>`)
       .join("");
-    const collectorRows = (data.collectors ?? []).map((item) => `<tr><td>${item.name}</td><td>${item.count}</td><td>${format(item.amount)} شيكل</td></tr>`).join("");
+    const collectorRows = (data.collectors ?? []).map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${item.count}</td><td>${format(item.amount)} شيكل</td></tr>`).join("");
     const debtorRows = (data.topDebtors ?? []).slice(0, 10).map((item) => `<tr><td>${item.subscriber}</td><td>${item.invoiceNo}</td><td>${format(item.balanceDue)} شيكل</td><td>${formatReportDate(item.dueDate)}</td></tr>`).join("");
     wrapper.innerHTML = `
       <h1 style="border-bottom:3px solid #f5b800;padding-bottom:18px">${escapeHtml(branding.data?.companyName ?? "PowerHub")} — التقرير الإداري المالي</h1>
