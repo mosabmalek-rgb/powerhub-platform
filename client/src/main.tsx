@@ -8,7 +8,7 @@ import App from "./App";
 import { startLogin } from "./const";
 import { getSupabaseAccessToken, getSupabaseSession, subscribeSupabaseAuthState } from "./lib/supabase";
 import { hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
-import { getPowerHubDeviceId } from "./lib/offline-auth";
+import { getPowerHubDeviceId, getValidOfflineAuthLease } from "./lib/offline-auth";
 import "./index.css";
 
 const queryClient = new QueryClient({

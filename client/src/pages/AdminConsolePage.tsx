@@ -13,6 +13,8 @@ import PlatformTweetSmsReport from "./PlatformTweetSmsReport";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
 import PlatformAccessPanel from "./PlatformAccessPanel";
 import ExcelJS from "exceljs";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import { Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, FileSpreadsheet, FileText, Loader2, MessageSquareText, Plus, RefreshCw, ShieldAlert, UsersRound } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";

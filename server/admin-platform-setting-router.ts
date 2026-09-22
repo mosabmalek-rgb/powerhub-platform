@@ -61,6 +61,11 @@ const setTenantFeatureEntitlementProcedure = authenticatedProcedure
     return { success: true, tenantId: Number(row?.tenant_id), featureKey: row?.feature_key, isEnabled: Boolean(row?.is_enabled), policy: row?.policy ?? "not_included" };
   });
 
+type PlatformSettingAdminRouter = typeof adminRouter & {
+  listTenantFeatureEntitlements: typeof listTenantFeatureEntitlementsProcedure;
+  setTenantFeatureEntitlement: typeof setTenantFeatureEntitlementProcedure;
+};
+
 const legacyRecord = { ...((adminRouterWithSupabaseTariffPolicy as any)._def.record as Record<string, unknown>) };
 delete legacyRecord.saveRolePolicy;
 const recoveryRecord = (adminOwnerAccessRecoveryRouter as any)._def.record as Record<string, unknown>;
@@ -81,4 +86,4 @@ export const adminRouterWithSupabasePlatformSetting = (router({
   savePlatformSetting: platformAdminSavePlatformSettingProcedure,
   setTenantFeatureEntitlement: setTenantFeatureEntitlementProcedure,
   listTenantFeatureEntitlements: listTenantFeatureEntitlementsProcedure,
-}) as unknown) as typeof adminRouter;
+}) as unknown) as PlatformSettingAdminRouter;

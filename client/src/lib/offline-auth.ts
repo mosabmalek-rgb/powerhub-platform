@@ -15,6 +15,7 @@ export type OfflineAuthLease = {
 };
 
 type StoredLease = OfflineAuthLease & {
+  id: typeof LEASE_KEY;
   signature: string;
 };
 

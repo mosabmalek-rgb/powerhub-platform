@@ -163,8 +163,9 @@ export async function requireSupabaseAllBranchesRole(userId: number, siteId: num
   const { data: profile, error: profileError } = await admin.from("staff_profiles").select("role")
     .eq("tenant_id", access.tenantId).eq("user_id", userId).is("site_id", null).eq("is_active", true).maybeSingle();
   if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تعيين جميع الأفرع في Supabase." });
-  const role = asPowerRole(profile?.role);
-  if (!profile || !allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
+  if (!profile) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
+  const role = asPowerRole(profile.role);
+  if (!allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
   return { tenantId: access.tenantId, role };
 }
 
@@ -489,7 +490,7 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
     ];
     const { error: defaultsError } = await admin.from("company_accounts").insert(defaults);
     if (defaultsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تهيئة حسابات الشركة الافتراضية في Supabase." });
-    const retry = await admin.from("company_accounts").select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, created_at, updated_at")
+    const retry = await admin.from("company_accounts").select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
       .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
     if (retry.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة بعد التهيئة." });
     accountRows = retry.data;

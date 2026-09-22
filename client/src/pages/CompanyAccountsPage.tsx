@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards } from "lucide-react";
 import ExcelJS from "exceljs";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
-import { type ElementType, useMemo, useState } from "react";
+import { type ElementType, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -48,6 +48,7 @@ export default function CompanyAccountsPage() {
   const [movementFromDate, setMovementFromDate] = useState("");
   const [movementToDate, setMovementToDate] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
+  const transactionsRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -215,6 +216,23 @@ export default function CompanyAccountsPage() {
 
   const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th><th>الفروع</th><th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${row.name}</td><td>${labels[row.accountType]??row.accountType}</td><td>${row.phoneNumber??"—"}</td><td>${row.linkedSites.map(site=>site.siteName).join("، ")||"—"}</td><td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
 
+  const exportTransactionsExcel = async () => {
+    if (!selectedAccount || !transactionRows.length) return;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("حركات الحساب");
+    sheet.columns = [
+      { header: "الوصف", key: "description", width: 34 },
+      { header: "النوع", key: "type", width: 18 },
+      { header: "المبلغ", key: "amount", width: 16 },
+      { header: "التاريخ", key: "date", width: 24 },
+    ];
+    transactionRows.forEach((row) => sheet.addRow({ description: row.description, type: row.transactionType, amount: Number(row.amount), date: new Date(row.occurredAt).toLocaleString("ar") }));
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `حركات-${selectedAccount.name}.xlsx`; anchor.click(); URL.revokeObjectURL(url);
+    toast.success("تم تصدير حركات الحساب إلى Excel.");
+  };
   const exportTransactionsPdf = async () => { if (!selectedAccount || !transactionsRef.current) return; try { await downloadReportHtmlAsPdf(transactionsRef.current, `حركات-${selectedAccount.name}.pdf`, { landscape: true, title: `حركات حساب ${selectedAccount.name} - PowerHub` }); toast.success("تم تصدير حركات الحساب إلى PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
 
   return (

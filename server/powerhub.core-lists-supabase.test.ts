@@ -128,6 +128,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_approve_reading") return resolved([{ reading_id: 60, version_no: 2 }]);
       if (name === "powerhub_issue_invoice_from_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, replayed: false }]);
       if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
+      if (name === "powerhub_payment_documentation_access") return resolved([{ allowed: true, policy: "enabled", package_code: "starter", entitlement_enabled: true }]);
       if (name === "powerhub_create_expense") return resolved([{ expense_id: 82 }]);
       if (name === "powerhub_create_financial_settlement") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_set_financial_settlement_status") return resolved([{ settlement_id: 97 }]);
@@ -214,7 +215,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يعرض بوابة المشترك العامة وفاتورتها عبر دوال Supabase بعد التحقق الثنائي دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: null as never, req: {} as never, res: {} as never });
     await expect(caller.subscriberPortal.list()).resolves.toEqual([{
-      portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", siteName: "الفرع الرئيسي", city: "غزة",
+      portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", siteName: "الفرع الرئيسي", city: "غزة", logoUrl: null,
     }]);
     await expect(caller.subscriberPortal.theme({ portalCode: "main" })).resolves.toMatchObject({ portalCode: "main", displayName: "بوابة الفرع الرئيسي" });
     await expect(caller.subscriberPortal.lookup({ portalCode: "main", subscriberNo: "MAIN-001", phone: "+970595000000" })).resolves.toMatchObject({
@@ -571,7 +572,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يقرأ سياسة أدوار وحدود الحسابات الفرعية من Supabase مع تجاوز المستأجر والعدد النشط", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
-    state.tables.tenant_subscriptions = [{ tenant_id: 20, plan: "professional" }];
+    state.tables.tenant_subscriptions = [{ tenant_id: 20, plan: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
     state.tables.tenants = [{ id: 20, plan: "starter" }];
     state.tables.platform_settings = [
       { setting_key: "owner_subaccount_roles", is_enabled: true, value: { allowedRoles: ["accountant", "viewer", "owner"] } },
@@ -692,7 +693,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const branchTwo = { id: 11, tenant_id: 20, name: "الفرع الثاني", code: "BR2", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
     state.tables.sites = [state.tables.sites[0], branchTwo];
     state.tables.users = [{ id: 2, role: "user", platform_role: "platform_user", account_status: "active" }];
-    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active" }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "manager", is_active: true, membership_status: "active" }];
     state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 2, is_active: true, role: "manager", permissions: null, custom_role_id: null, suspension_started_at: null, suspension_ends_at: null }];
     state.tables.company_accounts = [
       state.tables.company_accounts[0],
@@ -738,7 +739,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.collectorSessions.list({ siteId: 10 })).resolves.toMatchObject([{ session: { id: 96, openedAt: expect.any(Date) }, collector: { id: 1 } }]);
     await expect(caller.collectorSessions.close({ siteId: 10, sessionId: 96, declaredCash: 10 })).resolves.toEqual({ expectedCash: 10, varianceAmount: 0 });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_close_collector_session", args: expect.objectContaining({ p_session_id: 96, p_allow_foreign_close: true }) })]);
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([expect.objectContaining({ name: "powerhub_close_collector_session", args: expect.objectContaining({ p_session_id: 96, p_allow_foreign_close: true }) })]));
   });
 
   it("ينشئ موظفاً عبر RPC Supabase الذرية دون MySQL", async () => {

@@ -41,7 +41,7 @@ export default function SubscriberPortalPage() {
   const theme = portalData?.portal || themeQuery.data;
   const displayName = theme?.displayName || "بوابة المشتركين";
   const customStyle = { "--portal-primary": theme?.primaryColor || "#0D1117", "--portal-accent": theme?.accentColor || "#F5B800" } as React.CSSProperties;
-  const logoUrl = theme?.logoUrl || null;
+  const logoUrl = (theme as typeof theme & { logoUrl?: string | null } | null)?.logoUrl || null;
 
   const submitLookup = async (event: FormEvent) => {
     event.preventDefault();
