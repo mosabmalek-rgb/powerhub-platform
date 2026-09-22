@@ -37,10 +37,15 @@ begin
 end
 $;
 
-create or replace function public.powerhub_admin_update_subscription(
+drop function if exists public.powerhub_admin_update_subscription(bigint, bigint, text, text, text, timestamptz, boolean, text, bigint);
+drop function if exists public.powerhub_admin_quick_upgrade_owner_plan(bigint, bigint, text, text);
+drop function if exists public.powerhub_admin_review_subscription_upgrade_request(bigint, bigint, text, text);
+drop function if exists public.powerhub_create_generator_owner_subscription(bigint, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamptz, integer);
+
+create function public.powerhub_admin_update_subscription(
   p_actor_user_id bigint,
   p_tenant_id bigint,
-  p_plan text,
+  p_package_code text,
   p_status text,
   p_billing_cycle text,
   p_ends_at timestamptz,
@@ -62,7 +67,7 @@ begin
    and u.account_status='active'
    and u.platform_role in ('platform_owner','platform_admin','finance_admin');
  if v_actor_platform_role is null then raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501'; end if;
- if p_plan not in ('basic','advanced','professional','business','vip') then raise exception 'INVALID_SUBSCRIPTION_PLAN' using errcode='22023'; end if;
+ if p_package_code not in ('basic','advanced','professional','business','vip') then raise exception 'INVALID_SUBSCRIPTION_PLAN' using errcode='22023'; end if;
  if p_status not in ('trial','active','overdue','suspended','cancelled') then raise exception 'INVALID_SUBSCRIPTION_STATUS' using errcode='22023'; end if;
  if p_billing_cycle not in ('monthly','yearly') then raise exception 'INVALID_BILLING_CYCLE' using errcode='22023'; end if;
  if p_sms_plan_id is not null then
@@ -74,9 +79,9 @@ begin
  left join lateral(select id from public.sites where tenant_id=p_tenant_id order by id limit 1)s on true
  where ts.tenant_id=p_tenant_id limit 1;
  if v_subscription_id is null or v_site_id is null then raise exception 'SUBSCRIPTION_OR_SITE_NOT_FOUND' using errcode='P0002'; end if;
- update public.tenant_subscriptions set package_code=p_plan,status=p_status,billing_cycle=p_billing_cycle,ends_at=p_ends_at,auto_renew=p_auto_renew,notes=p_notes,sms_plan_id=p_sms_plan_id,updated_at=now() where id=v_subscription_id;
+ update public.tenant_subscriptions set package_code=p_package_code,status=p_status,billing_cycle=p_billing_cycle,ends_at=p_ends_at,auto_renew=p_auto_renew,notes=p_notes,sms_plan_id=p_sms_plan_id,updated_at=now() where id=v_subscription_id;
  update public.tenants set status=case when p_status in ('suspended','cancelled') then 'suspended' else 'active' end,updated_at=now() where id=p_tenant_id;
- insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data) values(p_tenant_id,v_site_id,p_actor_user_id,v_actor_platform_role,'tenant_subscription',v_subscription_id::text,'platform_admin_update_subscription',jsonb_build_object('packageCode',p_plan,'status',p_status,'billingCycle',p_billing_cycle,'endsAt',p_ends_at,'autoRenew',p_auto_renew,'smsPlanId',p_sms_plan_id));
+ insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data) values(p_tenant_id,v_site_id,p_actor_user_id,v_actor_platform_role,'tenant_subscription',v_subscription_id::text,'platform_admin_update_subscription',jsonb_build_object('packageCode',p_package_code,'status',p_status,'billingCycle',p_billing_cycle,'endsAt',p_ends_at,'autoRenew',p_auto_renew,'smsPlanId',p_sms_plan_id));
  return query select true,v_subscription_id,v_site_id;
 end;
 $$;
@@ -84,13 +89,13 @@ $$;
 revoke execute on function public.powerhub_admin_update_subscription(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint) from public, anon, authenticated;
 grant execute on function public.powerhub_admin_update_subscription(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint) to service_role;
 
-create or replace function public.powerhub_admin_quick_upgrade_owner_plan(
+create function public.powerhub_admin_quick_upgrade_owner_plan(
   p_actor_user_id bigint,
   p_tenant_id bigint,
-  p_plan text,
+  p_package_code text,
   p_note text default null
 )
-returns table(success boolean, plan text)
+returns table(success boolean, package_code text)
 language plpgsql
 security definer
 set search_path = public, pg_temp
@@ -115,7 +120,7 @@ begin
     raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode = '42501';
   end if;
 
-  if p_plan not in ('basic', 'advanced', 'professional', 'business', 'vip') then
+  if p_package_code not in ('basic', 'advanced', 'professional', 'business', 'vip') then
     raise exception 'INVALID_PLAN' using errcode = '22023';
   end if;
 
@@ -157,7 +162,7 @@ begin
     when 'business' then 4
     when 'vip' then 5
   end;
-  v_requested_rank := case p_plan
+  v_requested_rank := case p_package_code
     when 'basic' then 1
     when 'advanced' then 2
     when 'professional' then 3
@@ -165,17 +170,21 @@ begin
     when 'vip' then 5
   end;
 
+  if v_current_rank is null then
+    raise exception 'INVALID_CURRENT_PACKAGE' using errcode = '22023';
+  end if;
+
   if v_requested_rank <= v_current_rank then
     raise exception 'PLAN_NOT_UPGRADE' using errcode = '22023';
   end if;
 
   update public.tenants
-  set package_code = p_plan,
+  set package_code = p_package_code,
       updated_at = now()
   where id = p_tenant_id;
 
   update public.tenant_subscriptions
-  set package_code = p_plan,
+  set package_code = p_package_code,
       updated_at = now()
   where id = v_subscription.id;
 
@@ -188,12 +197,12 @@ begin
     'platform_admin_quick_upgrade_owner_plan',
     jsonb_build_object(
       'fromPackageCode', v_subscription.package_code,
-      'toPackageCode', p_plan,
+      'toPackageCode', p_package_code,
       'note', p_note
     )
   );
 
-  return query select true, p_plan;
+  return query select true, p_package_code;
 end;
 $$;
 
@@ -215,7 +224,7 @@ create or replace function public.powerhub_create_generator_owner_subscription(
   p_owner_email text,
   p_site_name text default 'الفرع الرئيسي',
   p_site_code text default null,
-  p_plan text default 'basic',
+  p_package_code text default 'basic',
   p_billing_cycle text default 'monthly',
   p_subscription_status text default 'trial',
   p_ends_at timestamptz default null,
@@ -251,7 +260,7 @@ begin
     raise exception using errcode = '22023', message = 'معرف حساب Supabase Auth مطلوب.';
   end if;
 
-  if p_plan not in ('basic','advanced','professional','business','vip') then
+  if p_package_code not in ('basic','advanced','professional','business','vip') then
     raise exception using errcode = '22023', message = 'خطة الاشتراك غير صالحة.';
   end if;
 
@@ -315,7 +324,7 @@ begin
   returning id into v_user_id;
 
   insert into public.tenants (name, slug, status, package_code)
-  values (p_tenant_name, p_slug, case when p_subscription_status = 'cancelled' then 'suspended' else 'active' end, p_plan)
+  values (p_tenant_name, p_slug, case when p_subscription_status = 'cancelled' then 'suspended' else 'active' end, p_package_code)
   returning id into v_tenant_id;
 
   insert into public.tenant_owner_profiles (
@@ -344,7 +353,7 @@ begin
   insert into public.tenant_subscriptions (
     tenant_id, package_code, status, billing_cycle, started_at, ends_at, auto_renew, renewal_count, notes
   ) values (
-    v_tenant_id, p_plan, p_subscription_status, p_billing_cycle, v_started_at, v_ends_at, false, 0, null
+    v_tenant_id, p_package_code, p_subscription_status, p_billing_cycle, v_started_at, v_ends_at, false, 0, null
   ) returning id into v_subscription_id;
 
   insert into public.audit_logs (
@@ -358,7 +367,7 @@ begin
       'ownerUserId', v_user_id,
       'siteId', v_site_id,
       'siteName', v_site_name,
-      'packageCode', p_plan,
+      'packageCode', p_package_code,
       'status', p_subscription_status
     ),
     jsonb_build_object('ownerEmail', lower(p_owner_email), 'ownerPhoneLast4', right(p_owner_phone, 4))
