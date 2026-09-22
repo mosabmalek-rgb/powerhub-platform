@@ -22,7 +22,7 @@ security invoker
 set search_path = public, pg_temp
 as $$
   with subscription as (
-    select ts.package_code
+    select ts.plan
     from public.tenant_subscriptions ts
     where ts.tenant_id = p_tenant_id
       and ts.status in ('trial','active')
