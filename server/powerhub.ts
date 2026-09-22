@@ -389,15 +389,37 @@ export const powerhubRouter = router({
       senderId: z.string().max(120).optional(), phoneNumberId: z.string().max(120).optional(), templateName: z.string().max(120).optional(), receiptTemplateName: z.string().max(120).optional(), subscriberReferenceTemplateName: z.string().max(120).optional(),
       credential: z.string().min(8).max(4096), webhookVerifyToken: z.string().min(16).max(256).optional(), webhookAppSecret: z.string().min(16).max(512).optional(), isActive: z.boolean().default(true),
     })).mutation(async ({ ctx, input }) => {
-      void ctx; void input;
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "حفظ اعتمادات مزود الرسائل معطّل حالياً إلى أن يُعتمد تصميم تشفير وتشغيل مستقل متوافق مع Supabase/Vercel." });
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      if (input.channel === "whatsapp" && input.provider !== "meta_whatsapp_cloud") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "مزود WhatsApp المدعوم حاليًا هو Meta WhatsApp Cloud." });
+      }
+      if (input.channel === "sms" && !["tweetsms", "twilio"].includes(input.provider)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "مزود SMS غير مدعوم في إعدادات القناة الحالية." });
+      }
+      const credentialPayload = input.channel === "whatsapp"
+        ? JSON.stringify({ accessToken: input.credential.trim(), ...(input.webhookAppSecret?.trim() ? { appSecret: input.webhookAppSecret.trim() } : {}) })
+        : JSON.stringify({ apiKey: input.credential.trim() });
+      const encrypted = encryptTenantCredential(credentialPayload);
+      const webhookHash = input.webhookVerifyToken?.trim() ? hashWebhookVerifyToken(input.webhookVerifyToken.trim()) : null;
+      const admin = supabaseAdmin();
+      const { data, error } = await admin.from("tenant_messaging_configurations").upsert({
+        tenant_id: scope.tenantId, channel: input.channel, provider: input.provider.trim(),
+        sender_id: input.senderId?.trim() || null, phone_number_id: input.phoneNumberId?.trim() || null,
+        template_name: input.templateName?.trim() || null, receipt_template_name: input.receiptTemplateName?.trim() || null,
+        subscriber_reference_template_name: input.subscriberReferenceTemplateName?.trim() || null,
+        credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, credential_key_version: 1,
+        webhook_verify_token_hash: webhookHash, is_active: input.isActive, updated_at: new Date().toISOString(),
+      }, { onConflict: "tenant_id,channel" }).select("id, channel, provider, is_active").single();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ إعداد مزود الرسائل في Supabase." });
+      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "tenant_messaging_configuration", entityId: String(data.id), action: "upsert", afterData: { channel: data.channel, provider: data.provider, isActive: data.is_active, credentialUpdated: true } });
+      return { success: true, id: Number(data.id), channel: data.channel, provider: data.provider, isActive: data.is_active };
     }),
     testConnection: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), provider: z.string().min(2).max(80),
       phoneNumberId: z.string().max(120).optional(), credential: z.string().min(8).max(4096),
     })).mutation(async ({ ctx, input }) => {
-      void ctx; void input;
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اختبار مزود الرسائل معطّل حالياً إلى أن يكتمل نقل الإشعارات إلى Supabase/Vercel." });
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      return probeMessagingConnection({ channel: input.channel, provider: input.provider.trim(), credential: input.credential.trim(), phoneNumberId: input.phoneNumberId?.trim() || undefined });
     }),
     configureInvoiceAutoSend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), enabled: z.boolean(), cron: z.enum(["0 0/15 * * * *", "0 0 * * * *", "0 0 8 * * *"]).default("0 0/15 * * * *") })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
