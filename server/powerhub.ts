@@ -16,6 +16,7 @@ import { processNotificationById, processNotificationQueueForTenant } from "./no
 import { storageGet, storageGetSignedUrl, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { isActivePlatformAdmin } from "./platform-admin";
+import { approveAndIssueMobileReadingRuntime } from "./powerhub-mobile-approve-runtime";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
@@ -2443,11 +2444,7 @@ export const powerhubRouter = router({
         notes: reading.notes, technicianName: technicianResult.data.name, technicianEmail: technicianResult.data.email,
       };
     }),
-    approveAndIssue: protectedProcedure.input(mobileSyncApproveInput).mutation(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اعتماد القراءة الميدانية وإصدار فاتورتها من هذا المسار متوقفان مؤقتاً إلى حين تنفيذ RPC Supabase ذرية. استخدم اعتماد القراءة وإصدار الفاتورة الفرديين من شاشة القراءات." });
-    }),
+    approveAndIssue: approveAndIssueMobileReadingRuntime,
     approveAllAndIssue: protectedProcedure.input(mobileSyncBulkApprovalInput).mutation(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
