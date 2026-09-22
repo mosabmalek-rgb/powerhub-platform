@@ -56,7 +56,7 @@ begin
   where c.tenant_id=p_tenant_id and c.feature_key=p_feature_key;
 
   -- A manual activation cannot bypass package eligibility.
-  select ts.plan into v_package_code
+  select ts.package_code into v_package_code
   from public.tenant_subscriptions ts
   where ts.tenant_id=p_tenant_id
     and ts.status in ('trial','active')
