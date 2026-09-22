@@ -4,7 +4,6 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import {
   BellRing,
   Building2,
-  CalendarClock,
   ChevronLeft,
   CircleDollarSign,
   FileBarChart,
@@ -46,7 +45,7 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
     label: "إدارة المنصة",
     items: [
       { id: "generators", label: "إدارة المولدات", icon: Zap, detail: "المولدات النشطة والموقوفة والمحظورة" },
-      { id: "ownerSubscription", label: "اشتراك صاحب مولد", icon: Building2, detail: "إضافة المالك والباقات والتجديد" },
+      { id: "ownerSubscription", label: "اشتراكات أصحاب المولدات", icon: Building2, detail: "إنشاء الاشتراك والتجديد والباقات" },
       { id: "users", label: "إدارة المستخدمين", icon: UsersRound, detail: "أصحاب المولدات والموظفون والصلاحيات" },
       { id: "supportChat", label: "الدردشة والدعم", icon: MessageCircle, detail: "مركز المحادثات والتذاكر وطلبات الدعم" },
       { id: "features", label: "الميزات والحدود", icon: Settings2, detail: "مصفوفة ميزات وحدود كل صاحب مولد" },
@@ -60,7 +59,6 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
       { id: "invoiceDelivery", label: "إرسال الفواتير", icon: BellRing, detail: "إعداد WhatsApp وSMS للمشتركين" },
       { id: "tweetSms", label: "حسابات TweetSMS", icon: MessageSquareText, detail: "ربط الحسابات الفرعية وحصص الرسائل" },
       { id: "tweetSmsReport", label: "رصيد وتقارير TweetSMS", icon: FileBarChart, detail: "رصيد حساب المنصة واستهلاك الرسائل" },
-      { id: "smsFallback", label: "مزود SMS احتياطي", icon: MessageSquareText, detail: "تهيئة احتياطية آمنة بانتظار عقد API" },
       { id: "complaints", label: "الشكاوى", icon: Ticket, detail: "المتابعة والتعيين والردود" },
     ],
   },
@@ -71,7 +69,6 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
       { id: "announcements", label: "أخبار وإعلانات المنصة", icon: MessageSquareText, detail: "نشر الأخبار لجميع المستخدمين" },
       { id: "security", label: "الأمان والسجلات", icon: ShieldCheck, detail: "التدقيق والنسخ الاحتياطي والحماية" },
       { id: "settings", label: "إعدادات المنصة", icon: Settings2, detail: "الهوية والصفحة العامة والتكاملات" },
-      { id: "trialManagement", label: "إدارة التجارب", icon: CalendarClock, detail: "مدة التجربة وتاريخ انتهاء الاشتراكات" },
     ],
   },
 ];
@@ -100,7 +97,7 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
   const visibleNavigationGroups = isSupportOnly ? [{ label: "الدعم", items: navigationGroups.flatMap((group) => group.items).filter((item) => item.id === "supportChat") }] : navigationGroups;
   const initials = (user?.name ?? user?.email ?? "P").trim().slice(0, 1).toUpperCase();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
-  const navigate = (id: string) => { if (id === "features") { window.location.assign("/admin/generator-features"); return; } if (id === "trialManagement") { window.location.assign("/admin/trial-management"); return; } if (id === "announcements") { window.location.assign("/admin/announcements"); return; } onTabChange(id); };
+  const navigate = (id: string) => { if (id === "features") { window.location.assign("/admin/generator-features"); return; } if (id === "announcements") { window.location.assign("/admin/announcements"); return; } onTabChange(id); };
 
   return (
     <div className="min-h-screen bg-[#0B1018] text-white" dir="rtl">
