@@ -90,40 +90,34 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     if (!access.data?.allowed) return;
     setLoadingQueue(true);
     const [queueResult, assignmentResult, userResult, categoryResult, tagResult] = await Promise.all([
-      supabase.rpc("chat_support_queue", { p_status: filter.status || null, p_priority: filter.priority || null, p_category_code: filter.category || null, p_assigned_user_id: null, p_search: filter.search || null, p_limit: 100, p_offset: 0 }),
+      supabase.rpc("chat_support_queue", {
+        p_status: filter.status || null,
+        p_priority: filter.priority || null,
+        p_category_code: filter.category || null,
+        p_assigned_user_id: null,
+        p_search: filter.search.trim() || null,
+        p_limit: 100,
+        p_offset: 0,
+      }),
       supabase.from("chat_support_assignments").select("id,conversation_id,assigned_user_id,status"),
       supabase.rpc("chat_support_users"),
       supabase.from("chat_support_categories").select("code,name").eq("is_active", true).order("sort_order"),
       supabase.from("chat_support_tags").select("id,name").eq("is_active", true).order("name"),
     ]);
     if (queueResult.error || assignmentResult.error || userResult.error || categoryResult.error || tagResult.error) {
-      toast.error("تعذر تحميل طابور الدعم."); setLoadingQueue(false); return;
+      toast.error("تعذر تحميل طابور الدعم.");
+      setLoadingQueue(false);
+      return;
     }
-    setConversations((queueResult.data ?? []) as Conversation[]);
+    const rows = (queueResult.data ?? []).map((row: any) => ({ ...row, id: Number(row.conversation_id) })) as Conversation[];
+    setConversations(rows);
     setAssignments((assignmentResult.data ?? []) as Assignment[]);
     setSupportUsers((userResult.data ?? []) as SupportUser[]);
     setCategories((categoryResult.data ?? []) as Array<{ code: string; name: string }>);
     setTags((tagResult.data ?? []) as Array<{ id: number; name: string }>);
     setLoadingQueue(false);
-    if (selectedId === null && queueResult.data?.length) setSelectedId(Number(queueResult.data[0].conversation_id));
-  }
-    if (!access.data?.allowed) return;
-    setLoadingQueue(true);
-    const [conversationResult, assignmentResult, userResult] = await Promise.all([
-      supabase.from("chat_conversations").select("id,tenant_id,conversation_type,status,subject,priority,last_message_at,created_at").eq("conversation_type", "support").order("last_message_at", { ascending: false, nullsFirst: false }),
-      supabase.from("chat_support_assignments").select("id,conversation_id,assigned_user_id,status"),
-      supabase.rpc("chat_support_users"),
-    ]);
-    if (conversationResult.error || assignmentResult.error || userResult.error) {
-      toast.error("تعذر تحميل طابور الدعم.");
-      setLoadingQueue(false);
-      return;
-    }
-    setConversations((conversationResult.data ?? []) as Conversation[]);
-    setAssignments((assignmentResult.data ?? []) as Assignment[]);
-    setSupportUsers((userResult.data ?? []) as SupportUser[]);
-    setLoadingQueue(false);
-    if (selectedId === null && conversationResult.data?.length) setSelectedId(conversationResult.data[0].id);
+    if (selectedId === null && rows.length) setSelectedId(rows[0].id);
+    if (selectedId !== null && !rows.some((row) => row.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
   }
 
   async function loadMessages(conversationId: number) {
@@ -194,15 +188,13 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     return subscribeToChatConversation(selectedId, () => void loadMessages(selectedId));
   }, [selectedId]);
 
-  if (access.isLoading) return {embedded ? <div> : <DashboardLayout>}<div className="grid min-h-[70vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin" /></div></div> : </DashboardLayout>;
+  if (access.isLoading) return <div className="grid min-h-[55vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin" /></div>;
 
   if (access.error || !access.data?.allowed) {
     return <DashboardLayout><div className="mx-auto mt-16 max-w-xl rounded-2xl border border-red-200 bg-red-50 p-8 text-center"><ShieldAlert className="mx-auto mb-3 h-8 w-8 text-red-600" /><h1 className="text-xl font-bold">لا تملك صلاحية مركز الدعم</h1><p className="mt-2 text-sm text-red-700">الوصول يتطلب صلاحية المنصة manageSupportChat.</p></div></DashboardLayout>;
   }
 
-  return (
-    <DashboardLayout>
-      <div className="space-y-5" dir="rtl">
+  const content = <div className="space-y-5" dir="rtl">
         <header className="rounded-2xl border bg-background p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div><div className="flex items-center gap-2 text-sm font-bold text-primary"><MessageCircle className="h-4 w-4" />مركز دعم PowerHub</div><h1 className="mt-1 text-2xl font-extrabold">طابور الدعم الذكي</h1><p className="mt-1 text-sm text-muted-foreground">إدارة التذاكر والتصنيف والأولوية وSLA والإسناد والملاحظات الداخلية ضمن صلاحية المنصة.</p>
@@ -229,7 +221,6 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
             <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
         </div>
-      </div>
-    </DashboardLayout>
-  );
+      </div>;
+  return embedded ? content : <DashboardLayout>{content}</DashboardLayout>;
 }
