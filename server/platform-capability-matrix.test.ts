@@ -22,6 +22,10 @@ describe("platform support authorization matrix", () => {
     expect(decide({ accountStatus: "active", platformRole: "platform_admin", capability: CAPABILITY, policyAllowed: true })).toBe(true);
   });
 
+  it("allows the dedicated support role when its explicit policy is enabled", () => {
+    expect(decide({ accountStatus: "active", platformRole: "platform_support", capability: CAPABILITY, policyAllowed: true })).toBe(true);
+  });
+
   it("denies every supported platform role without an explicit grant", () => {
     for (const platformRole of SUPPORTED_ROLES) {
       expect(decide({ accountStatus: "active", platformRole, capability: CAPABILITY, policyAllowed: false })).toBe(false);
