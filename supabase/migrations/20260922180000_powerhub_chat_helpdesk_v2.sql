@@ -597,6 +597,15 @@ revoke execute on function public.chat_support_set_metadata(bigint,text,text,tex
 grant execute on function public.chat_support_set_metadata(bigint,text,text,text) to authenticated;
 revoke all on function private.chat_support_set_metadata(bigint,text,text,text) from public, anon, authenticated;
 
+create or replace function public.chat_support_set_metadata(p_conversation_id bigint,p_subject text default null,p_priority text default null,p_category_code text default null)
+returns public.chat_conversations
+language sql security invoker set search_path=''
+as $fn$ select private.chat_support_set_metadata($1,$2,$3,$4); $fn$;
+
+revoke execute on function public.chat_support_set_metadata(bigint,text,text,text) from public, anon;
+grant execute on function public.chat_support_set_metadata(bigint,text,text,text) to authenticated;
+
+
 create or replace function private.chat_send_internal_note(
   p_conversation_id bigint,
   p_body text,
@@ -1094,13 +1103,6 @@ revoke execute on function public.chat_reopen_support_conversation(bigint) from 
 grant execute on function public.chat_reopen_support_conversation(bigint) to authenticated;
 
 
-create or replace function public.chat_set_conversation_tags(p_conversation_id bigint,p_tag_ids bigint[])
-returns setof public.chat_conversation_tags
-language sql
-security invoker
-set search_path=''
-as $$ select * from private.chat_set_conversation_tags($1,$2); $$;
-
 create or replace function private.chat_set_conversation_tags(p_conversation_id bigint,p_tag_ids bigint[])
 returns setof public.chat_conversation_tags
 language plpgsql
@@ -1138,19 +1140,17 @@ end;
 $$;
 
 revoke execute on function private.chat_set_conversation_tags(bigint,bigint[]) from public, anon, authenticated;
+
+create or replace function public.chat_set_conversation_tags(p_conversation_id bigint,p_tag_ids bigint[])
+returns setof public.chat_conversation_tags
+language sql security invoker set search_path=''
+as $fn$ select * from private.chat_set_conversation_tags($1,$2); $fn$;
+
 revoke execute on function public.chat_set_conversation_tags(bigint,bigint[]) from public, anon;
 grant execute on function public.chat_set_conversation_tags(bigint,bigint[]) to authenticated;
 
-create or replace function public.chat_rate_support(
-  p_conversation_id bigint,
-  p_rating smallint,
-  p_comment text default null
-)
-returns public.chat_support_feedback
-language sql
-security invoker
-set search_path=''
-as $$ select private.chat_rate_support($1,$2,$3); $$;
+revoke execute on function public.chat_set_conversation_tags(bigint,bigint[]) from public, anon;
+grant execute on function public.chat_set_conversation_tags(bigint,bigint[]) to authenticated;
 
 create or replace function private.chat_rate_support(
   p_conversation_id bigint,
@@ -1195,6 +1195,15 @@ end;
 $$;
 
 revoke execute on function private.chat_rate_support(bigint,smallint,text) from public, anon, authenticated;
+
+create or replace function public.chat_rate_support(p_conversation_id bigint,p_rating smallint,p_comment text default null)
+returns public.chat_support_feedback
+language sql security invoker set search_path=''
+as $fn$ select private.chat_rate_support($1,$2,$3); $fn$;
+
+revoke execute on function public.chat_rate_support(bigint,smallint,text) from public, anon;
+grant execute on function public.chat_rate_support(bigint,smallint,text) to authenticated;
+
 revoke execute on function public.chat_rate_support(bigint,smallint,text) from public, anon;
 grant execute on function public.chat_rate_support(bigint,smallint,text) to authenticated;
 
