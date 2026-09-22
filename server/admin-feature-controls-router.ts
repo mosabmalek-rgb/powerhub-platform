@@ -60,7 +60,7 @@ export const adminFeatureControlsRouter = router({
     const [tenantsResult, ownersResult, subscriptionsResult, sitesResult, membersResult] = await Promise.all([
       admin.from("tenants").select("id,name,status,slug,plan").order("name", { ascending: true }).limit(500),
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
-      admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").in("status", ["trial", "active"]).order("created_at", { ascending: false }).limit(1000),
+      admin.from("tenant_subscriptions").select("tenant_id,plan,status,ends_at").in("status", ["trial", "active"]).order("created_at", { ascending: false }).limit(1000),
       admin.from("sites").select("id,tenant_id,status").limit(5000),
       admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(5000),
     ]);
@@ -103,7 +103,7 @@ export const adminFeatureControlsRouter = router({
           companyName: owners.get(tenantId)?.company_name ?? null,
         } : null,
         subscription: subscription ? {
-          packageCode: subscription.package_code,
+          packageCode: subscription.plan,
           status: subscription.status,
           endsAt: subscription.ends_at,
         } : null,
