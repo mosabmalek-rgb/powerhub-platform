@@ -17,7 +17,7 @@ import ExcelJS from "exceljs";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, FileSpreadsheet, FileText, Loader2, MessageSquareText, Plus, RefreshCw, ShieldAlert, UsersRound } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { formatReportDate } from "@/lib/report-design-system";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
@@ -33,11 +33,6 @@ function statusLabel(status?: string) {
   return ({ trial: "تجريبي", active: "فعّال", overdue: "متأخر", suspended: "معلّق", cancelled: "ملغي" } as Record<string, string>)[status ?? ""] ?? "غير مهيأ";
 }
 
-function HideUnusedSubscriberOverview() {
-  useEffect(() => { document.querySelector("h2")?.parentElement?.parentElement?.parentElement; const heading = Array.from(document.querySelectorAll("h2")).find((node) => node.textContent?.includes("مشتركو المنصة")); heading?.closest('[data-slot="card"]')?.remove(); }, []);
-  return null;
-}
-
 export default function AdminConsolePage() {
   const { user, loading, isAuthenticated } = useAuth();
   const [tab, setTab] = useState<Tab>("overview");
@@ -48,14 +43,13 @@ export default function AdminConsolePage() {
   const utils = trpc.useUtils();
   const overview = trpc.admin.overview.useQuery(tenantFilter ? { tenantId: tenantFilter } : undefined, { enabled: isPlatformAdmin });
   const owners = trpc.admin.listOwners.useQuery(undefined, { enabled: isPlatformAdmin });
-  const users = trpc.admin.userDirectory.useQuery(undefined, { enabled: isPlatformAdmin });
   const snapshot = trpc.admin.platformSnapshot.useQuery(undefined, { enabled: isPlatformAdmin });
   const notifications = trpc.admin.listNotifications.useQuery(undefined, { enabled: isPlatformAdmin });
   const security = trpc.admin.securityCenter.useQuery(undefined, { enabled: isPlatformAdmin });
   const smsPlans = trpc.admin.listSmsPlans.useQuery(undefined, { enabled: isPlatformAdmin });
   const smsRequests = trpc.admin.listSmsPackageRequests.useQuery(undefined, { enabled: isPlatformAdmin });
   const tweetSmsAccounts = trpc.admin.listTweetSmsAccounts.useQuery(undefined, { enabled: isPlatformAdmin });
-  const refresh = async () => { await Promise.all([utils.admin.overview.invalidate(), utils.admin.listOwners.invalidate(), utils.admin.userDirectory.invalidate(), utils.admin.platformSnapshot.invalidate(), utils.admin.listNotifications.invalidate(), utils.admin.securityCenter.invalidate(), utils.admin.listSmsPlans.invalidate(), utils.admin.listSmsPackageRequests.invalidate(), utils.admin.listTweetSmsAccounts.invalidate(), utils.admin.getPlatformTweetSmsAccount.invalidate(), utils.admin.platformTweetSmsReport.invalidate()]); };
+  const refresh = async () => { await Promise.all([utils.admin.overview.invalidate(), utils.admin.listOwners.invalidate(), utils.admin.platformSnapshot.invalidate(), utils.admin.listNotifications.invalidate(), utils.admin.securityCenter.invalidate(), utils.admin.listSmsPlans.invalidate(), utils.admin.listSmsPackageRequests.invalidate(), utils.admin.listTweetSmsAccounts.invalidate(), utils.admin.getPlatformTweetSmsAccount.invalidate(), utils.admin.platformTweetSmsReport.invalidate()]); };
   const createOwner = trpc.admin.createGeneratorOwnerWithTemporaryPassword.useMutation({ onSuccess: async () => { await refresh(); setTab("generators"); toast.success("تم إنشاء صاحب المولد ومولده بحالة انتظار المراجعة. يجب تغيير كلمة المرور عند أول دخول."); }, onError: (error) => toast.error(error.message) });
   const createOwnerSubscription = trpc.admin.createGeneratorOwnerSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم إنشاء اشتراك صاحب المولد. يضيف المالك بيانات أول مولد بعد دخوله وتغيير كلمة المرور."); }, onError: (error) => toast.error(error.message) });
   const updateSubscription = trpc.admin.updateSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تحديث الاشتراك."); }, onError: (error) => toast.error(error.message) });
@@ -72,7 +66,6 @@ export default function AdminConsolePage() {
   const testTweetSmsAccount = trpc.admin.testTweetSmsAccount.useMutation({ onSuccess: async () => { await refresh(); }, onError: (error) => toast.error(error.message) });
   const overviewRows = overview.data?.owners ?? [];
   const reportRows = owners.data ?? [];
-  const eligibleUsers = useMemo(() => (users.data ?? []).filter((candidate) => candidate.role !== "admin"), [users.data]);
 
   const downloadCsv = () => {
     const rows: Array<Array<string | number>> = [["صاحب المولد", "المساحة", "الحالة", "الخطة", "السكان", "التجاري", "الإجمالي", "ينتهي في"]];
@@ -94,7 +87,7 @@ export default function AdminConsolePage() {
     {tab === "overview" && <><AdvancedDashboard /><OperationalMonitoringPanel onNavigate={(target) => target === "field_sync" ? window.location.assign("/field-sync") : setTab(target)} /><OwnerUsagePriorityFiltersPanel /><OwnerUsageQuickActionsPanel /><OwnerUsageReportPanel /></>}
     {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending || approvePendingGenerator.isPending} onStatus={setGeneratorStatus.mutate} onApprove={approvePendingGenerator.mutate} /><GeneratorOperationsInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
     {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutate} creationAvailable={true} />}
-    {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} userSummary={snapshot.data?.users} /><OwnerLifecyclePanel /></>}
+    {tab === "users" && <><UsersCenter userSummary={snapshot.data?.users} /><OwnerLifecyclePanel /></>}
     {tab === "supportChat" && <SupportCenterPage embedded />}
     {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} plans={smsPlans.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutate} />}
     {tab === "reports" && <><AdminReportsExports rows={reportRows} /><ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} /></>}
