@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 type Channel = "whatsapp" | "sms";
+type InvoiceAutoSendCron = "0 0/15 * * * *" | "0 0 * * * *" | "0 0 8 * * *";
+
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const defaultTemplates: Record<Channel, string> = {
   whatsapp: "مرحباً {{subscriber_name}}، صدرت فاتورتك رقم {{invoice_no}} عن فترة {{billing_period}} بإجمالي {{total_amount}}. تاريخ الاستحقاق: {{due_date}}.",
@@ -42,7 +44,7 @@ export default function MessagingSettingsPage() {
 
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const [siteId, setSiteId] = useState<number | null>(null);
-  const [autoSendCron, setAutoSendCron] = useState("0 0/15 * * * *");
+  const [autoSendCron, setAutoSendCron] = useState<InvoiceAutoSendCron>("0 0/15 * * * *");
   useEffect(() => { if (!siteId && sitesQuery.data?.[0]) setSiteId(sitesQuery.data[0].id); }, [siteId, sitesQuery.data]);
   const enabled = Boolean(isAuthenticated && siteId);
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
