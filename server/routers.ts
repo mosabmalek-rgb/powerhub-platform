@@ -12,12 +12,14 @@ import type { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
 import { supportRouter } from "./support-router";
 import { platformAnnouncementsRouter } from "./platform-announcements-router";
+import { adminFeatureControlsRouter } from "./admin-feature-controls-router";
 
 const adminRuntimeRecord = {
   ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
 };
 delete adminRuntimeRecord.saveRolePolicy;
 Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, unknown>);
+Object.assign(adminRuntimeRecord, (adminFeatureControlsRouter as any)._def.record as Record<string, unknown>);
 
 type AppAdminRouter = Omit<typeof adminRouter, "listComplaints"> & {
   listComplaints: any;
