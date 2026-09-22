@@ -149,9 +149,9 @@ export async function quickUpgradeOwnerPlan(input: {
     p_note: input.note,
   });
   quickUpgradeOwnerPlanRpcError(error);
-  const row = data?.[0] as { success?: boolean; package_code?: string } | undefined;
-  if (!row || typeof row.package_code !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
-  return { success: Boolean(row.success), packageCode: row.package_code as AdminPackageCode };
+  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
+  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
+  return { success: Boolean(row.success), packageCode: row.plan as AdminPackageCode };
 }
 
 export async function reviewSubscriptionUpgradeRequest(input: {
