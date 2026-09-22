@@ -73,6 +73,7 @@ describe("mobile approval Supabase runtime", () => {
       readingId: 60,
       baseVersion: 1,
       billingPeriod: "2026-08",
+      dueDate: new Date("2026-08-29T10:00:00.000Z"),
     }));
     expect(state.notify).not.toHaveBeenCalled();
   });
