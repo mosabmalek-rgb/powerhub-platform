@@ -555,6 +555,7 @@ as $$
 declare
   v_actor bigint;
   v_current public.chat_conversations;
+  v_result public.chat_conversations;
   v_category text;
   v_priority text;
 begin
