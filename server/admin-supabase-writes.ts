@@ -217,16 +217,18 @@ function renewSubscriptionRpcError(error: { message?: string } | null) {
 
 export async function renewSubscription(input: {
   actorUserId: number;
-  tenantId: number;
-  periods: number;
+  subscriptionId: number;
+  endsAt: Date;
+  addonDecisions?: Array<{ addonRequestId: number; decision: "renew" | "expire"; durationDays?: number }>;
 }) {
-  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_renew_subscription", {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_renew_subscription_with_addons", {
     p_actor_user_id: input.actorUserId,
-    p_tenant_id: input.tenantId,
-    p_periods: input.periods,
+    p_subscription_id: input.subscriptionId,
+    p_new_ends_at: input.endsAt.toISOString(),
+    p_addon_decisions: input.addonDecisions ?? [],
   });
   renewSubscriptionRpcError(error);
-  const row = data?.[0] as { success?: boolean; ends_at?: string } | undefined;
+  const row = data?.[0] as { success?: boolean; ends_at?: string; renewed_addons?: number; expired_addons?: number } | undefined;
   if (!row || typeof row.ends_at !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription renewal result." });
-  return { success: Boolean(row.success), endsAt: new Date(row.ends_at) };
+  return { success: Boolean(row.success), endsAt: new Date(row.ends_at), renewedAddons: Number(row.renewed_addons ?? 0), expiredAddons: Number(row.expired_addons ?? 0) };
 }
