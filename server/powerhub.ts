@@ -45,10 +45,10 @@ const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
 export const ownerSubaccountRoles = ["manager", "accountant", "collector", "technician", "viewer"] as const;
 export type OwnerSubaccountRole = typeof ownerSubaccountRoles[number];
-export type SubscriptionPlan = "starter" | "professional" | "enterprise";
-export const defaultOwnerSubaccountLimits: Record<SubscriptionPlan, number> = { starter: 2, professional: 5, enterprise: 15 };
-export const defaultOwnerSubscriberLimits: Record<SubscriptionPlan, number> = { starter: 100, professional: 500, enterprise: 2000 };
-export const defaultBranchLimits: Record<SubscriptionPlan, number> = { starter: 1, professional: 3, enterprise: 10 };
+export type SubscriptionPlan = "basic" | "advanced" | "professional" | "business" | "vip";
+export const defaultOwnerSubaccountLimits: Record<SubscriptionPlan, number> = { basic: 2, advanced: 2, professional: 3, business: 3, vip: 4 };
+export const defaultOwnerSubscriberLimits: Record<SubscriptionPlan, number> = { basic: 150, advanced: 300, professional: 500, business: 750, vip: 900 };
+export const defaultBranchLimits: Record<SubscriptionPlan, number> = { basic: 1, advanced: 1, professional: 1, business: 1, vip: 2 };
 
 export function allowedOwnerSubaccountRoles(setting?: { isEnabled: boolean; value: unknown } | null): OwnerSubaccountRole[] {
   if (!setting) return [...ownerSubaccountRoles];
@@ -520,8 +520,8 @@ export const powerhubRouter = router({
       if (subscriptionResult.error || tenantResult.error || rolesPolicyResult.error || limitsPolicyResult.error || overridesResult.error || membersResult.error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحسابات الفرعية من Supabase." });
       }
-      const plan = subscriptionResult.data?.plan ?? tenantResult.data?.plan;
-      if (plan !== "starter" && plan !== "professional" && plan !== "enterprise") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
+      const plan = subscriptionResult.data?.package_code;
+      if (!plan || !["basic","advanced","professional","business","vip"].includes(plan)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد باقة صالحة لمساحة صاحب المولد." });
       const policyOverrides = overridesResult.data?.value && typeof overridesResult.data.value === "object" && !Array.isArray(overridesResult.data.value)
         ? (overridesResult.data.value as Record<string, unknown>).overrides : undefined;
       const override = policyOverrides && typeof policyOverrides === "object" && !Array.isArray(policyOverrides)
@@ -683,7 +683,7 @@ export const powerhubRouter = router({
         reviewedAt: data.reviewed_at ? new Date(data.reviewed_at) : null,
       };
     }),
-    requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPlan: z.enum(["starter", "professional", "enterprise"]) })).mutation(async ({ ctx, input }) => {
+    requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPackageCode: z.enum(["basic", "advanced", "professional", "business", "vip"]) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
       const { data, error } = await supabaseAdmin().rpc("powerhub_request_subscription_upgrade", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_plan: input.requestedPlan });
       const result = (data as Array<{ request_id: number | string; requested_plan: SubscriptionPlan; already_requested: boolean }> | null)?.[0];
@@ -892,7 +892,7 @@ export const powerhubRouter = router({
         admin.from("sites").select("id").eq("tenant_id",access.tenantId).neq("status","archived"),
       ]);
       if(subscription.error||platformSetting.error||tenantSetting.error||branchRows.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سياسة الفروع من Supabase."});
-      return resolveBranchPolicy({plan:(subscription.data?.plan??"starter") as SubscriptionPlan,platformSetting:platformSetting.data?{isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,tenantSetting:tenantSetting.data?{isEnabledOverride:tenantSetting.data.is_enabled_override,maxBranchesOverride:tenantSetting.data.max_branches_override,disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended"}:null,currentCount:(branchRows.data??[]).length});
+      return resolveBranchPolicy({plan:(subscription.data?.package_code??"basic") as SubscriptionPlan,platformSetting:platformSetting.data?{isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,tenantSetting:tenantSetting.data?{isEnabledOverride:tenantSetting.data.is_enabled_override,maxBranchesOverride:tenantSetting.data.max_branches_override,disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended"}:null,currentCount:(branchRows.data??[]).length});
     }),
     create: protectedProcedure.input(siteInput).mutation(async ({ ctx, input }) => {
       const admin=supabaseAdmin();
@@ -951,7 +951,7 @@ export const powerhubRouter = router({
         admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", access.tenantId),
       ]);
       if (subscriptionResponse.error || tenantResponse.error || limitPolicyResponse.error || overridesPolicyResponse.error || countResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
-      const plan = subscriptionResponse.data?.plan ?? tenantResponse.data?.plan;
+      const plan = subscriptionResponse.data?.package_code;
       if (plan !== "starter" && plan !== "professional" && plan !== "enterprise") throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
       const policyValue = limitPolicyResponse.data?.value;
       const overridesValue = overridesPolicyResponse.data?.value;
