@@ -666,7 +666,7 @@ export const powerhubRouter = router({
     currentUpgradeRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { data, error } = await supabaseAdmin().from("subscription_upgrade_requests")
-        .select("id, current_plan, requested_plan, status, note, created_at, reviewed_at")
+        .select("id, current_package_code, requested_package_code, status, note, created_at, reviewed_at")
         .eq("tenant_id", access.tenantId)
         .order("created_at", { ascending: false })
         .limit(1)
