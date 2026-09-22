@@ -43,34 +43,49 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [{ id: "overview", label: "لوحة التحكم الرئيسية", icon: LayoutDashboard, detail: "مؤشرات المنصة والتحليلات المركزية" }],
   },
   {
-    label: "إدارة المنصة",
+    label: "إدارة أصحاب المولدات",
     items: [
       { id: "generators", label: "إدارة المولدات", icon: Zap, detail: "المولدات النشطة والموقوفة والمحظورة" },
       { id: "ownerSubscription", label: "اشتراكات أصحاب المولدات", icon: Building2, detail: "إنشاء الاشتراك والتجديد والباقات" },
+      { id: "trialManagement", label: "إدارة التجارب", icon: CalendarClock, detail: "إدارة مدد التجربة للاشتراكات الحالية" },
       { id: "users", label: "إدارة المستخدمين", icon: UsersRound, detail: "أصحاب المولدات والموظفون والصلاحيات" },
-      { id: "supportChat", label: "الدردشة والدعم", icon: MessageCircle, detail: "مركز المحادثات والتذاكر وطلبات الدعم" },
       { id: "features", label: "الميزات والحدود", icon: Settings2, detail: "مصفوفة ميزات وحدود كل صاحب مولد" },
+    ],
+  },
+  {
+    label: "الدعم والتواصل",
+    items: [
+      { id: "supportChat", label: "الدردشة والدعم", icon: MessageCircle, detail: "مركز المحادثات والتذاكر وطلبات الدعم" },
+      { id: "complaints", label: "الشكاوى", icon: Ticket, detail: "المتابعة والتعيين والردود" },
+      { id: "announcements", label: "أخبار وإعلانات المنصة", icon: MessageSquareText, detail: "نشر الأخبار لجميع المستخدمين" },
+      { id: "notifications", label: "التنبيهات والإشعارات", icon: BellRing, detail: "التنبيهات وسجل الرسائل" },
     ],
   },
   {
     label: "المالية والتحصيل",
     items: [
       { id: "finance", label: "المالية والتحصيل", icon: CircleDollarSign, detail: "الإيرادات والمتأخرات وطرق الدفع" },
-      { id: "reports", label: "التقارير والإحصائيات", icon: FileBarChart, detail: "أداء المولدات والاستهلاك والنمو" },
       { id: "invoiceDelivery", label: "إرسال الفواتير", icon: BellRing, detail: "إعداد WhatsApp وSMS للمشتركين" },
-      { id: "tweetSms", label: "حسابات TweetSMS", icon: MessageSquareText, detail: "ربط الحسابات الفرعية وحصص الرسائل" },
-      { id: "tweetSmsReport", label: "رصيد وتقارير TweetSMS", icon: FileBarChart, detail: "رصيد حساب المنصة واستهلاك الرسائل" },
-      { id: "complaints", label: "الشكاوى", icon: Ticket, detail: "المتابعة والتعيين والردود" },
     ],
   },
   {
-    label: "الرقابة والحماية",
+    label: "الرسائل وSMS",
     items: [
-      { id: "notifications", label: "التنبيهات والإشعارات", icon: BellRing, detail: "التنبيهات وسجل الرسائل" },
-      { id: "announcements", label: "أخبار وإعلانات المنصة", icon: MessageSquareText, detail: "نشر الأخبار لجميع المستخدمين" },
+      { id: "tweetSms", label: "حسابات TweetSMS", icon: MessageSquareText, detail: "ربط الحسابات الفرعية وحصص الرسائل" },
+      { id: "tweetSmsReport", label: "رصيد وتقارير TweetSMS", icon: FileBarChart, detail: "رصيد حساب المنصة واستهلاك الرسائل" },
+    ],
+  },
+  {
+    label: "التقارير",
+    items: [
+      { id: "reports", label: "التقارير والإحصائيات", icon: FileBarChart, detail: "أداء المولدات والاستهلاك والنمو" },
+    ],
+  },
+  {
+    label: "الحوكمة والحماية",
+    items: [
       { id: "security", label: "الأمان والسجلات", icon: ShieldCheck, detail: "التدقيق والنسخ الاحتياطي والحماية" },
       { id: "settings", label: "إعدادات المنصة", icon: Settings2, detail: "الهوية والصفحة العامة والتكاملات" },
-      { id: "trialManagement", label: "إدارة التجارب", icon: CalendarClock, detail: "إدارة مدد التجربة للاشتراكات الحالية" },
     ],
   },
 ];
