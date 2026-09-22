@@ -85,7 +85,7 @@ begin
     raise exception 'SUBSCRIBER_LIMIT_NOT_REACHED' using errcode='P0001';
   end if;
 
-  select id,requested_plan
+  select id,requested_package_code
   into v_existing_id,v_existing_plan
   from public.subscription_upgrade_requests
   where tenant_id=p_tenant_id
