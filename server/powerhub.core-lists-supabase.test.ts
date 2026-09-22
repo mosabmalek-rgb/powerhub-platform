@@ -127,6 +127,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_delete_pending_reading") return resolved(null);
       if (name === "powerhub_approve_reading") return resolved([{ reading_id: 60, version_no: 2 }]);
       if (name === "powerhub_issue_invoice_from_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, replayed: false }]);
+      if (name === "powerhub_approve_and_issue_mobile_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, notification_ids: [], already_processed: false }]);
       if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
       if (name === "powerhub_payment_documentation_access") return resolved([{ allowed: true, policy: "enabled", package_code: "starter", entitlement_enabled: true }]);
       if (name === "powerhub_create_expense") return resolved([{ expense_id: 82 }]);
@@ -860,11 +861,16 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls.map((call) => call.name)).toEqual(["powerhub_create_invoice_share_link", "powerhub_get_shared_invoice_by_token_hash"]);
   });
 
-  it("يعطّل اعتماد القراءة الميدانية الفردي غير الذري قبل أي وصول MySQL", async () => {
+  it("يعتمد القراءة الميدانية ويصدر الفاتورة عبر RPC الذري دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.mobileSync.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false }))
-      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(state.rpcCalls).toEqual([]);
+      .resolves.toMatchObject({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150, notificationMode: "deferred" });
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "powerhub_approve_and_issue_mobile_reading",
+        args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_reading_id: 60, p_base_version: 1, p_billing_period: "2026-08" }),
+      }),
+    ]));
   });
 
   it("يحدّث هوية التقارير عبر RPC Supabase الذرية دون MySQL", async () => {
