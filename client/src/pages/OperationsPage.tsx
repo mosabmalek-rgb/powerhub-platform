@@ -16,7 +16,7 @@ import { enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
 import { cn } from "@/lib/utils";
 import ExcelJS from "exceljs";
-import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
+import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { invoiceStatusMeta, outstandingInvoices, summarizeOutstandingInvoices } from "@/lib/invoice-collection-presentation";
 import { can } from "@shared/powerhub-rbac";
 import { CheckCircle2, CircleAlert, ClipboardList, Eye, Fuel, Gauge, ImagePlus, Loader2, MessageCircle, Plus, Printer, ReceiptText, Send, ShieldCheck, UsersRound, WalletCards, Zap } from "lucide-react";
