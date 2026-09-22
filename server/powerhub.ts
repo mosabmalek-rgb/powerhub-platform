@@ -510,8 +510,8 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const admin = supabaseAdmin();
       const [subscriptionResult, tenantResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult] = await Promise.all([
-        admin.from("tenant_subscriptions").select("plan").eq("tenant_id", access.tenantId).maybeSingle(),
-        admin.from("tenants").select("plan").eq("id", access.tenantId).maybeSingle(),
+        admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).maybeSingle(),
+        admin.from("tenants").select("package_code").eq("id", access.tenantId).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key", "owner_subaccount_roles").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_subaccount_limits").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
@@ -675,8 +675,8 @@ export const powerhubRouter = router({
       if (!data) return null;
       return {
         id: Number(data.id),
-        currentPlan: data.current_plan,
-        requestedPlan: data.requested_plan,
+        currentPackageCode: data.current_package_code,
+        requestedPackageCode: data.requested_package_code,
         status: data.status,
         note: data.note,
         createdAt: new Date(data.created_at),
