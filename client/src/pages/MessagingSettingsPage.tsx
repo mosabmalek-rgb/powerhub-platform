@@ -15,6 +15,10 @@ import { useLocation } from "wouter";
 
 type Channel = "whatsapp" | "sms";
 type InvoiceAutoSendCron = "0 0/15 * * * *" | "0 0 * * * *" | "0 0 8 * * *";
+const invoiceAutoSendCronValues: readonly InvoiceAutoSendCron[] = ["0 0/15 * * * *", "0 0 * * * *", "0 0 8 * * *"];
+function isInvoiceAutoSendCron(value: string): value is InvoiceAutoSendCron {
+  return invoiceAutoSendCronValues.includes(value as InvoiceAutoSendCron);
+}
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const defaultTemplates: Record<Channel, string> = {
@@ -81,7 +85,10 @@ export default function MessagingSettingsPage() {
   const available = { whatsapp: open && policy?.whatsappEnabled === true, sms: open && policy?.smsEnabled === true };
   const configs = configsQuery.data ?? [];
   const smsConfig = configs.find((item) => item.channel === "sms");
-  useEffect(() => { if (smsConfig?.autoSendCron) setAutoSendCron(smsConfig.autoSendCron); }, [smsConfig?.autoSendCron]);
+  useEffect(() => {
+  const cron = smsConfig?.autoSendCron;
+  if (cron && isInvoiceAutoSendCron(cron)) setAutoSendCron(cron);
+}, [smsConfig?.autoSendCron]);
   const templates = templatesQuery.data ?? [];
   const receiptTemplates = receiptTemplatesQuery.data ?? [];
   return <DashboardLayout><div className="space-y-6 pb-12"><header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><MessageSquareText className="h-4 w-4" />رسائل الفواتير</div><h1 className="mt-1 text-2xl font-extrabold text-white">قوالب الفاتورة وحالة الإرسال</h1><p className="mt-2 text-sm text-slate-400">يدير آدمن PowerHub حساب TweetSMS واسم المرسل والحصة الشهرية. يمكنك هنا تخصيص القوالب ومتابعة الإرسال فقط.</p></div>{sitesQuery.data?.length ? <select value={siteId ?? ""} onChange={(e) => setSiteId(Number(e.target.value))} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" key={site.id} value={site.id}>{site.name}</option>)}</select> : null}</header>
