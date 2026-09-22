@@ -35,17 +35,13 @@ vi.mock("@/lib/trpc", () => ({
       reviewSubscriptionUpgradeRequest: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       quickUpgradeOwnerPlan: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       sendOwnerUsageAlert: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      userDirectory: { useQuery: () => ({ data: [{ id: 4, name: "حساب صاحب المولد", email: "owner@example.com", role: "user" }] }) },
       platformSnapshot: { useQuery: () => ({ data: { generators: { total: 2, active: 2, maintenance: 0, stopped: 0, blocked: 0, capacityKw: 200, directory: [{ id: 22, name: "مولد اختبار", code: "GEN-T-01", status: "active", ratedCapacityKw: "100", tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار" }], pendingRegistrations: [] }, users: { total: 3, platformAdmins: 1, activeStaff: 1, staffDirectory: [{ id: 7, userName: "محاسب الاختبار", userEmail: "accountant@example.com", role: "accountant", isActive: true, tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار" }], subscriberDirectory: [{ id: 6, fullName: "مشترك تجريبي", subscriberNo: "SUB-01", subscriptionType: "residential", serviceStatus: "active", tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار" }] }, finance: { overdueCount: 0, overdueAmount: 0, issuedAmount: 5000, completedAmount: 4000, completedCount: 2, paymentMethods: [{ method: "wallet", count: 2, amount: 4000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", generatorCode: "GEN-T-01", tenantName: "مساحة مولد الاختبار", count: 2, amount: 4000 }] }, reports: { approvedReadings: 0, consumptionKwh: 0, tenants: 1, subscribers: 150, complaintsEnabled: false }, notifications: { statuses: [{ status: "pending", count: 1 }] }, security: { recentAudit: [{ id: 1, action: "test_audit", tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", userName: "آدمن الاختبار", createdAt: new Date() }] } } }) },
       listNotifications: { useQuery: () => ({ data: [{ id: 1, tenantName: "مساحة مولد الاختبار", channel: "whatsapp", eventType: "invoice_issued", recipient: "0790000000", status: "pending", attempts: 0, createdAt: new Date() }] }) },
       operationalMonitoring: { useQuery: () => ({ data: { health: [{ key: "database", label: "البيانات", state: "healthy", detail: "استجابة سليمة", count: 1, target: "reports" }, { key: "messaging", label: "الإرسال", state: "warning", detail: "رسالة بانتظار المعالجة", count: 1, target: "notifications" }, { key: "sync", label: "المزامنة", state: "healthy", detail: "سليمة", count: 0, target: "field_sync" }, { key: "security", label: "الأمان", state: "healthy", detail: "سليم", count: 0, target: "security" }], alerts: [] }, isLoading: false }) },
       securityCenter: { useQuery: () => ({ data: { events: [{ id: 1, eventType: "backup", severity: "info", status: "success", title: "نسخة اختبار", details: "تمت بنجاح", createdAt: new Date() }], settings: [{ id: 1, settingKey: "platform_audit_guard", isEnabled: true, value: null }] } }) },
-      listSmsPlans: { useQuery: () => ({ data: [{ id: 1, code: "starter-sms", name: "باقة جوال الأساسية", includedMessages: 100, isActive: true, description: "اختبار" }] }) },
-      listSmsPackageRequests: { useQuery: () => ({ data: [] }) },
       listTweetSmsAccounts: { useQuery: () => ({ data: [{ id: 7, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerPhone: "0790000000", apiEndpoint: "https://api.example.test", senderName: "MouldNorth", monthlyLimit: 500, usedThisMonth: 42, remaining: 458, isActive: true, configured: true, lastTestedAt: null, lastError: null, updatedAt: new Date() }] }) },
       getPlatformTweetSmsAccount: { useQuery: () => ({ data: { id: 1, apiEndpoint: "https://tweetsms.ps", senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: new Date(), lastTestedAt: new Date(), lastError: null, isActive: true, configured: true } }) },
       platformTweetSmsReport: { useQuery: () => ({ data: { account: null, total: 42, usageRows: [{ tenantId: 9, tenantName: "مساحة مولد الاختبار", total: 42, submitted: 40, failed: 2 }], alerts: [{ id: 1, balance: 80, threshold: 100, status: "open", notifiedAt: new Date() }] } }) },
-      listPlatformSmsFallbackProviders: { useQuery: () => ({ data: [{ id: 13, name: "مزود بديل تجريبي", providerKey: "backup-sms", apiEndpoint: "https://backup.example.test", senderName: "PowerHub", priority: 10, integrationStatus: "pending_contract", isActive: true, configured: true, lastTestedAt: null, lastError: null, updatedAt: new Date() }] }) },
       advancedDashboard: { useQuery: () => ({ data: { kpis: { activeGenerators: 2, subscribers: 150, dailyConsumption: 50, monthlyConsumption: 1000, monthlyCollections: 4000, openComplaints: 1, generatorsToReview: 0, collectionRate: state.collectionRate }, monthlyGrowth: [{ month: "2026-08", count: 150 }], consumptionByRegion: [{ region: "بغداد", consumptionKwh: 1000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", code: "GEN-T-01", tenantName: "مساحة مولد الاختبار", amount: 4000 }], latestGenerators: [], recentComplaints: [], expiringSubscriptions: [] } }) },
       globalSearch: { useQuery: () => ({ data: [] }) },
       listComplaints: { useQuery: () => ({ data: [{ id: 4, title: "شكوى اختبار", description: "تفاصيل الشكوى", priority: "high", status: "open", response: null, openedAt: new Date(), resolvedAt: null, tenantId: 1, tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", subscriberName: "مشترك تجريبي", assignedUserId: null, assignedUserName: null }] }) },
@@ -64,22 +60,16 @@ vi.mock("@/lib/trpc", () => ({
       rolePolicies: { useQuery: () => ({ data: [] }) },
       saveRolePolicy: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       createGeneratorOwnerSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      createGeneratorOwnerWithTemporaryPassword: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       updateSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       renewSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      attachOwnerUser: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       setGeneratorStatus: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       approvePendingGenerator: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       recordSecurityEvent: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       saveSecuritySetting: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      createSmsPlan: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      updateSmsPlan: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      reviewSmsPackageRequest: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       saveTweetSmsAccount: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       testTweetSmsAccount: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       savePlatformTweetSmsAccount: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       testPlatformTweetSmsAccount: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
-      savePlatformSmsFallbackProvider: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
     },
   },
 }));
@@ -99,7 +89,9 @@ describe("PowerHub platform administration UI", () => {
     state.role = "admin";
     render(<AdminConsolePage />);
     expect(screen.getByText("مركز قيادة المنصة")).toBeInTheDocument();
-    expect(screen.getAllByText("إدارة المنصة").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("إدارة أصحاب المولدات").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("الدعم والتواصل").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("الرسائل وSMS").length).toBeGreaterThan(0);
     expect(screen.getByText("PLATFORM ADMIN")).toBeInTheDocument();
     expect(screen.getByText("إجمالي المشتركين")).toBeInTheDocument();
     expect(screen.getAllByText("150").length).toBeGreaterThan(0);
@@ -117,16 +109,13 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("إرسال فواتير المشتركين")).toBeInTheDocument();
     expect(screen.getAllByText("بانتظار بيانات المزود")).toHaveLength(1);
     expect(screen.getAllByText("حسابات TweetSMS").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "مزود SMS احتياطي" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "حفظ سياسة الإرسال" }));
     expect(state.mutation).toHaveBeenCalledWith(expect.objectContaining({ settingKey: "invoice_delivery_channels", isEnabled: true }));
     fireEvent.click(sidebarNav("رصيد وتقارير TweetSMS"));
     expect(screen.getByText("حساب TweetSMS المركزي للمنصة")).toBeInTheDocument();
     expect(screen.getByText("استهلاك الرسائل حسب صاحب المولد")).toBeInTheDocument();
     expect(screen.getByText("تنبيهات رصيد TweetSMS")).toBeInTheDocument();
-    fireEvent.click(sidebarNav("مزود SMS احتياطي"));
-    expect(screen.getByText("مزود SMS احتياطي — تهيئة آمنة")).toBeInTheDocument();
-    expect(screen.getByText("بانتظار عقد API")).toBeInTheDocument();
-    expect(screen.queryByText("encrypted-secret")).not.toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getByText("مولدات محظورة")).toBeInTheDocument();
     fireEvent.click(sidebarNav("التنبيهات والإشعارات"));
@@ -165,6 +154,7 @@ describe("PowerHub platform administration UI", () => {
     fireEvent.click(sidebarNav("إدارة المستخدمين"));
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
     expect(screen.queryByText("مشترك تجريبي")).not.toBeInTheDocument();
+    expect(screen.getByText("مصفوفة صلاحيات الأدوار")).toBeInTheDocument();
     fireEvent.click(sidebarNav("المالية والتحصيل"));
     expect(screen.getByText("طرق الدفع الإلكتروني")).toBeInTheDocument();
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);
