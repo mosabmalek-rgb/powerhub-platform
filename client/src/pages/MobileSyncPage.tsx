@@ -7,6 +7,7 @@ import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { Activity, AlertTriangle, CheckCircle2, Clock3, ExternalLink, Loader2, RefreshCw, Smartphone, UsersRound, WifiOff } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 type SyncStatus = "all" | "success" | "partial" | "retryable" | "needs_review" | "failed";
 
@@ -38,7 +39,7 @@ export default function MobileSyncPage() {
     onSuccess: async (result) => {
       await Promise.all([readings.refetch(), summary.refetch(), events.refetch(), utils.powerhub.invoices.list.invalidate({ siteId: siteId ?? 0 })]);
       const message = `تمت معالجة ${result.requested} قراءة: ${result.succeeded} ناجحة، ${result.replayed} معاد تشغيلها، ${result.failed} فاشلة.`;
-      window.alert(message);
+      toast.success(message);
     },
   });
   const pendingReadingCount = readings.data?.filter((reading) => reading.status === "pending_review").length ?? 0;
