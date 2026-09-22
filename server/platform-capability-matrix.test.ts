@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-const SUPPORTED_ROLES = ["platform_owner", "platform_admin", "finance_admin"] as const;
+const SUPPORTED_ROLES = ["platform_owner", "platform_admin", "finance_admin", "platform_support"] as const;
 const CAPABILITY = "manageSupportChat";
 
 function decide(input: {
