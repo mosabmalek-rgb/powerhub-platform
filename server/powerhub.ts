@@ -399,10 +399,36 @@ export const powerhubRouter = router({
       void ctx; void input;
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اختبار مزود الرسائل معطّل حالياً إلى أن يكتمل نقل الإشعارات إلى Supabase/Vercel." });
     }),
-    configureInvoiceAutoSend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), enabled: z.boolean(), cron: z.string().min(11).max(40).default("0 0/15 * * * *") })).mutation(async ({ ctx, input }) => {
-      void ctx; void input;
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "جدولة إرسال الفواتير معطّلة حالياً؛ لا توجد مهمة مجدولة مفعلة في بيئة Supabase/Vercel." });
-      return { enabled: false, cron: input.cron, nextExecutionAt: null };
+    configureInvoiceAutoSend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), enabled: z.boolean(), cron: z.enum(["0 0/15 * * * *", "0 0 * * * *", "0 0 8 * * *"]).default("0 0/15 * * * *") })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const admin = supabaseAdmin();
+      const { data: config, error: configError } = await admin.from("tenant_messaging_configurations")
+        .select("id, channel")
+        .eq("tenant_id", scope.tenantId)
+        .eq("channel", "sms")
+        .maybeSingle();
+      if (configError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعداد SMS." });
+      if (!config) throw new TRPCError({ code: "NOT_FOUND", message: "يجب إعداد قناة SMS أولاً." });
+
+      const { data, error } = await admin.from("tenant_messaging_configurations")
+        .update({ auto_send_after_approval: input.enabled, auto_send_cron: input.enabled ? input.cron : null, updated_at: new Date().toISOString() })
+        .eq("tenant_id", scope.tenantId)
+        .eq("id", config.id)
+        .select("auto_send_after_approval, auto_send_cron")
+        .single();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ إعداد الجدولة." });
+
+      await writeSupabaseAudit({
+        userId: ctx.user.id,
+        tenantId: scope.tenantId,
+        siteId: input.siteId,
+        entityType: "tenant_messaging_configuration",
+        entityId: String(config.id),
+        action: input.enabled ? "enable_invoice_auto_send" : "disable_invoice_auto_send",
+        metadata: { cron: input.enabled ? input.cron : null, scheduler: "vercel_central_cron" },
+      });
+
+      return { enabled: data.auto_send_after_approval, cron: data.auto_send_cron, nextExecutionAt: null };
     }),
     saveInvoiceTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
