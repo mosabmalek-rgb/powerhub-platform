@@ -82,6 +82,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [internalNote, setInternalNote] = useState(false);
   const [tags, setTags] = useState<Array<{ id: number; name: string }>>([]);
   const [tagIds, setTagIds] = useState<number[]>([]);
+  const [timeline, setTimeline] = useState<Array<{ id:number; event_type:string; actor_name:string|null; from_status:string|null; to_status:string|null; from_priority:string|null; to_priority:string|null; metadata:Record<string,unknown>; created_at:string }>>([]);
 
   const selected = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) ?? null, [conversations, selectedId]);
   const selectedAssignment = useMemo(() => assignments.find((assignment) => assignment.conversation_id === selectedId && ["pending", "active"].includes(assignment.status)) ?? null, [assignments, selectedId]);
@@ -127,6 +128,8 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     setMessages((data ?? []) as MessageRow[]);
     const { data: currentTags } = await supabase.from("chat_conversation_tags").select("tag_id").eq("conversation_id", conversationId);
     setTagIds((currentTags ?? []).map((row: any) => Number(row.tag_id)));
+    const { data: timelineData } = await supabase.rpc("chat_ticket_timeline", { p_conversation_id: conversationId });
+    setTimeline((timelineData ?? []) as typeof timeline);
     setLoadingMessages(false);
   }
 
@@ -217,6 +220,17 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
             {(selected.status === "RESOLVED" || selected.status === "WAITING_USER") && <Button variant="outline" size="sm" onClick={() => void transition("SUPPORT_ACTIVE")} disabled={working}>إعادة فتح</Button>}
           </div>}</div></CardHeader>
           <CardContent>{!selected && <div className="grid min-h-[520px] place-items-center text-muted-foreground">اختر محادثة من الطابور.</div>}{selected && <div className="flex min-h-[520px] flex-col gap-3">
+            <div className="rounded-xl border bg-muted/20 p-3">
+              <div className="mb-2 text-xs font-bold">السجل الزمني للتذكرة</div>
+              <ScrollArea className="h-32"><div className="space-y-2 text-xs">
+                {timeline.map((event) => <div key={event.id} className="flex items-start gap-2 border-b pb-2 last:border-0">
+                  <span className="font-medium">{event.event_type}</span>
+                  <span className="text-muted-foreground">{event.actor_name || "النظام"}</span>
+                  <span className="mr-auto text-muted-foreground">{new Date(event.created_at).toLocaleString("ar-PS")}</span>
+                </div>)}
+                {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
+              </div></ScrollArea>
+            </div>
             <ScrollArea className="h-[430px] rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => <div key={message.id} className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "mx-auto bg-muted text-center" : message.sender_user_id === selectedAssignment?.assigned_user_id ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-muted"}`}><div className="whitespace-pre-wrap text-sm">{message.body}</div><div className="mt-1 text-[10px] opacity-70">{new Date(message.created_at).toLocaleString("ar-PS")}</div></div>)}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}</ScrollArea>
             <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
