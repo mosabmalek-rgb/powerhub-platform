@@ -140,7 +140,7 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const platformRoleLabel = ({ platform_owner: "مالك المنصة", platform_admin: "مشرف المنصة", finance_admin: "مشرف مالي" } as const)[user?.platformRole ?? "platform_admin"];
+  const platformRoleLabel = ({ platform_owner: "مالك المنصة", platform_admin: "مشرف المنصة", finance_admin: "مشرف مالي", platform_support: "موظف دعم" } as const)[user?.platformRole ?? "platform_admin"];
   const accountRoleLabel = user ? (user.role === "admin" ? platformRoleLabel : "مساحة تشغيل المولد") : "وضع معاينة آمن";
   const workspaceSites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: Boolean(user && user.role !== "admin") });
   const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;

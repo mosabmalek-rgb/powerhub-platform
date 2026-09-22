@@ -52,6 +52,8 @@ type Assignment = {
 
 type SupportUser = { id: number; name: string; email: string; platform_role: string };
 
+const priorityLabels: Record<string, string> = { low: "منخفض", normal: "عادي", high: "مرتفع", urgent: "عاجل" };
+
 function SupportAdminControls({ data, working, onSave }: { data: any; working: boolean; onSave: (fn: string, args: Record<string, unknown>, success: string) => Promise<boolean> }) {
   const settings = data?.settings ?? {};
   const sla = data?.sla ?? [];

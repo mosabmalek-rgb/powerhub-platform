@@ -956,8 +956,8 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       const admin = supabaseAdmin();
       const [subscriptionResponse, tenantResponse, limitPolicyResponse, overridesPolicyResponse, countResponse] = await Promise.all([
-        admin.from("tenant_subscriptions").select("plan").eq("tenant_id", access.tenantId).maybeSingle(),
-        admin.from("tenants").select("plan").eq("id", access.tenantId).maybeSingle(),
+        admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).maybeSingle(),
+        admin.from("tenants").select("package_code").eq("id", access.tenantId).maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_subscriber_limits").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
         admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", access.tenantId),

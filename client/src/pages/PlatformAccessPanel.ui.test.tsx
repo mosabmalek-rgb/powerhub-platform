@@ -14,6 +14,7 @@ vi.mock("@/lib/trpc", () => ({
       platformAccessDirectory: { useQuery: () => ({ data: { accounts: [{ id: 10, name: "مدير الحسابات", email: "finance@example.com", platformRole: "finance_admin", accountStatus: "active" }], invitations: [{ id: 5, email: "admin@example.com", platformRole: "platform_admin", status: "invited", expiresAt: new Date("2026-08-25") }] } }) },
       invitePlatformAccess: { useMutation: () => ({ mutate: mocks.mutate, isPending: false }) },
       setPlatformAccountStatus: { useMutation: () => ({ mutate: mocks.mutate, isPending: false }) },
+      setPlatformAccessRole: { useMutation: () => ({ mutate: mocks.mutate, isPending: false }) },
     },
   },
 }));
@@ -25,9 +26,9 @@ describe("Platform access owner panel", () => {
     render(<PlatformAccessPanel />);
 
     expect(screen.getByText("وصول إدارة المنصة")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "دعوة مشرف" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "دعوة حساب" })).toBeInTheDocument();
     expect(screen.getAllByText("مشرف مالي").length).toBeGreaterThan(0);
-    expect(screen.getByText("بانتظار تسجيل الدخول")).toBeInTheDocument();
+    expect(screen.getByText("بانتظار الدخول")).toBeInTheDocument();
     expect(screen.queryByText(/كلمة مرور/)).not.toBeInTheDocument();
     expect(screen.queryByText(/رمز دعوة/)).not.toBeInTheDocument();
   });

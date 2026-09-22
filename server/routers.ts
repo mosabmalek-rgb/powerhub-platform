@@ -25,6 +25,11 @@ type AppAdminRouter = Omit<typeof adminRouter, "listComplaints"> & {
   listComplaints: any;
   listTenantFeatureEntitlements: any;
   setTenantFeatureEntitlement: any;
+  featureCatalog: any;
+  tenantFeatureMatrix: any;
+  tenantFeatureSnapshot: any;
+  setTenantFeatureControl: any;
+  resetTenantFeatureControl: any;
 };
 
 const adminRuntimeRouter = (router({

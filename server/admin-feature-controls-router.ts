@@ -30,7 +30,7 @@ async function tenantFeatureSnapshot(tenantId: number) {
   const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error].filter(Boolean);
   if (errors.length) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل مصفوفة ميزات صاحب المولد."});
   const subscription = subscriptionResult.data;
-  const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.packageCode);
+  const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.package_code);
   const controls = controlsResult.data ?? [];
   const members = membersResult.data ?? [];
   return {
@@ -58,9 +58,9 @@ export const adminFeatureControlsRouter = router({
   tenantFeatureMatrix: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
     const [tenantsResult, ownersResult, subscriptionsResult, sitesResult, membersResult] = await Promise.all([
-      admin.from("tenants").select("id,name,status,slug,plan").order("name", { ascending: true }).limit(500),
+      admin.from("tenants").select("id,name,status,slug,plan,package_code").order("name", { ascending: true }).limit(500),
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
-      admin.from("tenant_subscriptions").select("tenant_id,plan,status,ends_at").in("status", ["trial", "active"]).order("created_at", { ascending: false }).limit(1000),
+      admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").in("status", ["trial", "active"]).order("created_at", { ascending: false }).limit(1000),
       admin.from("sites").select("id,tenant_id,status").limit(5000),
       admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(5000),
     ]);
@@ -97,13 +97,13 @@ export const adminFeatureControlsRouter = router({
       const subscription = subscriptions.get(tenantId);
       const usage = users.get(tenantId) ?? { platform: 0, field: 0 };
       return {
-        tenant: { id: tenantId, name: tenant.name, status: tenant.status, slug: tenant.slug, legacyPlan: tenant.plan },
+        tenant: { id: tenantId, name: tenant.name, status: tenant.status, slug: tenant.slug, legacyPlan: tenant.plan, packageCode: tenant.package_code },
         owner: owners.get(tenantId) ? {
           fullName: owners.get(tenantId)?.full_name ?? null,
           companyName: owners.get(tenantId)?.company_name ?? null,
         } : null,
         subscription: subscription ? {
-          packageCode: subscription.plan,
+          packageCode: subscription.package_code,
           status: subscription.status,
           endsAt: subscription.ends_at,
         } : null,

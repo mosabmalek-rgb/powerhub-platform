@@ -579,7 +579,7 @@ function subscriberOverride(tenantId: number, value: unknown) {
 export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
   const admin = supabaseAdmin();
   const [tenantResult, limitsResult, overridesResult, countResult] = await Promise.all([
-    admin.from("tenants").select("plan").eq("id", tenantId).maybeSingle(),
+    admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", tenantId).eq("status", "active").maybeSingle(),
     admin.from("platform_settings").select("value").eq("setting_key", "owner_subscriber_limits").maybeSingle(),
     admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
     admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),

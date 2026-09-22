@@ -29,7 +29,8 @@ function policyLabel(policy: string | undefined) {
 
 function FeatureControlsIndex() {
   const [,navigate] = useLocation();
-  const owners = trpc.admin.tenantFeatureMatrix.useQuery();
+  const featureAdmin = trpc.admin as any;
+  const owners = featureAdmin.tenantFeatureMatrix.useQuery();
   const [query,setQuery] = useState("");
   const rows = useMemo(() => {
     const value=query.trim().toLowerCase();
@@ -85,14 +86,15 @@ function FeatureRow({feature,policy,control,onSave,onReset,pending}:{feature:any
 
 function FeatureControlsDetail({tenantId}:{tenantId:number}) {
   const [,navigate]=useLocation();
-  const snapshot=trpc.admin.tenantFeatureSnapshot.useQuery({tenantId});
-  const features=trpc.admin.featureCatalog.useQuery();
+  const featureAdmin = trpc.admin as any;
+  const snapshot=featureAdmin.tenantFeatureSnapshot.useQuery({tenantId});
+  const features=featureAdmin.featureCatalog.useQuery();
   const utils=trpc.useUtils();
-  const save=trpc.admin.setTenantFeatureControl.useMutation({onSuccess:()=>{void utils.admin.tenantFeatureSnapshot.invalidate({tenantId});toast.success("تم حفظ سياسة الميزة.");},onError:e=>toast.error(e.message)});
-  const reset=trpc.admin.resetTenantFeatureControl.useMutation({onSuccess:()=>{void utils.admin.tenantFeatureSnapshot.invalidate({tenantId});toast.success("تمت إعادة الميزة إلى إعدادات الباقة.");},onError:e=>toast.error(e.message)});
+  const save=featureAdmin.setTenantFeatureControl.useMutation({onSuccess:()=>{void (utils.admin as any).tenantFeatureSnapshot.invalidate({tenantId});toast.success("تم حفظ سياسة الميزة.");},onError:(e:Error)=>toast.error(e.message)});
+  const reset=featureAdmin.resetTenantFeatureControl.useMutation({onSuccess:()=>{void (utils.admin as any).tenantFeatureSnapshot.invalidate({tenantId});toast.success("تمت إعادة الميزة إلى إعدادات الباقة.");},onError:(e:Error)=>toast.error(e.message)});
   const policyByKey=new Map((snapshot.data?.packagePolicies ?? []).map((p:any)=>[p.featureKey,p]));
   const controlByKey=new Map((snapshot.data?.controls ?? []).map((c:any)=>[c.featureKey,c]));
-  const groups=useMemo(()=>{const all=features.data ?? [];return Object.entries(all.reduce((acc:any,f:any)=>{(acc[f.category]??=[]).push(f);return acc;},{} as Record<string,any[]>));},[features.data]);
+  const groups=useMemo<[string, any[]][]>(()=>{const all=features.data ?? [];return Object.entries(all.reduce((acc:any,f:any)=>{(acc[f.category]??=[]).push(f);return acc;},{} as Record<string,any[]>)) as [string, any[]][];},[features.data]);
   const tenant=snapshot.data?.tenant;
   return <PlatformAdminLayout activeTab="features" onTabChange={tab=>{if(tab === "features") {navigate("/admin/generator-features"); return;} navigate("/admin");}}>
     <main className="space-y-6 pb-12">

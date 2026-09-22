@@ -12,6 +12,7 @@ import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import PlatformTweetSmsReport from "./PlatformTweetSmsReport";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
 import PlatformAccessPanel from "./PlatformAccessPanel";
+import SupportCenterPage from "./SupportCenterPage";
 import ExcelJS from "exceljs";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
@@ -75,7 +76,7 @@ export default function AdminConsolePage() {
 
   const downloadCsv = () => {
     const rows: Array<Array<string | number>> = [["صاحب المولد", "المساحة", "الحالة", "الخطة", "السكان", "التجاري", "الإجمالي", "ينتهي في"]];
-    reportRows.forEach((row) => rows.push([row.owner?.fullName ?? "غير محدد", row.tenant.name, statusLabel(row.subscription?.status), row.subscription?.plan ?? row.tenant.plan, row.subscribers.residential, row.subscribers.commercial, row.subscribers.total, formatDate(row.subscription?.endsAt)]));
+    reportRows.forEach((row) => rows.push([row.owner?.fullName ?? "غير محدد", row.tenant.name, statusLabel(row.subscription?.status), row.subscription?.packageCode ?? row.tenant.packageCode, row.subscribers.residential, row.subscribers.commercial, row.subscribers.total, formatDate(row.subscription?.endsAt)]));
     const csv = "\uFEFF" + rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
