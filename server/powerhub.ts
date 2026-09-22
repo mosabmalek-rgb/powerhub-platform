@@ -655,8 +655,53 @@ export const powerhubRouter = router({
         }
         return { success: true };
       }),
-    create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), email: z.string().email(), name: z.string().trim().min(2).max(160), temporaryPassword: z.string().min(8).max(128), role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) })).mutation(async () => {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إنشاء الحسابات الفرعية متوقف مؤقتاً أثناء ترحيله الآمن إلى Supabase Auth. لا تُنشأ حسابات من المسار الموروث." });
+    create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), email: z.string().email(), name: z.string().trim().min(2).max(160), temporaryPassword: z.string().min(8).max(128), role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const admin = supabaseAdmin();
+      const email = input.email.trim().toLowerCase();
+      const { data: existingUser } = await admin.from("users").select("id, auth_user_id, email").eq("email", email).maybeSingle();
+      if (existingUser) throw new TRPCError({ code: "CONFLICT", message: "البريد الإلكتروني مستخدم بالفعل. استخدم حسابًا موجودًا للتعيين بدل إنشاء حساب جديد." });
+
+      const { data: authData, error: authError } = await admin.auth.admin.createUser({
+        email,
+        password: input.temporaryPassword,
+        email_confirm: true,
+        user_metadata: { name: input.name.trim(), must_change_password: true },
+      });
+      if (authError || !authData.user) {
+        throw new TRPCError({ code: authError?.status === 422 ? "CONFLICT" : "BAD_REQUEST", message: authError?.message || "تعذر إنشاء حساب Supabase Auth." });
+      }
+
+      try {
+        const { data: profileUser, error: profileError } = await admin.from("users")
+          .select("id")
+          .eq("auth_user_id", authData.user.id)
+          .maybeSingle();
+        if (profileError || !profileUser) throw new Error("تعذر إنشاء ملف المستخدم في Supabase بعد إنشاء Auth.");
+        const { data, error } = await admin.rpc("powerhub_assign_existing_staff", {
+          p_tenant_id: access.tenantId,
+          p_site_id: input.siteId,
+          p_actor_user_id: ctx.user.id,
+          p_target_user_id: Number(profileUser.id),
+          p_role: input.role,
+          p_all_branches: input.allBranches,
+        });
+        if (error || !data?.[0]) {
+          const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+          if (errorText.includes("SUBACCOUNT_ROLE_NOT_ALLOWED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة آدمن المنصة." });
+          if (errorText.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك." });
+          if (errorText.includes("FIELD_USER_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى لمستخدمي تطبيق إدخال قراءة العداد في باقتك." });
+          if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة صاحب المولد." });
+          throw new Error(error?.message || "تعذر تعيين الحساب الفرعي في Supabase.");
+        }
+        return { success: true, userId: Number(profileUser.id), profileId: Number(data[0].profile_id) };
+      } catch (error) {
+        await admin.auth.admin.deleteUser(authData.user.id).catch((deleteError) => {
+          console.error("[PowerHub] failed to compensate orphaned staff Auth user", deleteError);
+        });
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "تعذر إكمال إنشاء الحساب الفرعي." });
+      }
     }),
     activity: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
