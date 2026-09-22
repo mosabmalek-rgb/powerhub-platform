@@ -21,6 +21,15 @@ type Conversation = {
   priority: string;
   last_message_at: string | null;
   created_at: string;
+  ticket_number?: string | null;
+  category_code?: string | null;
+  category_name?: string | null;
+  assigned_user_id?: number | null;
+  assigned_user_name?: string | null;
+  first_response_due_at?: string | null;
+  resolution_due_at?: string | null;
+  sla_state?: string | null;
+  unread_count?: number;
 };
 
 type MessageRow = {
