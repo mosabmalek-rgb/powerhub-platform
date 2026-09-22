@@ -807,11 +807,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     })]);
   });
 
-  it("يعطّل الاعتماد الجماعي للقراءات قبل أي وصول MySQL إلى حين تصميمه الذري", async () => {
+  it("ينفذ الاعتماد الجماعي عبر مسار Supabase الذري لكل قراءة مؤهلة", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.mobileSync.approveAllAndIssue({ siteId: 10, limit: 10, sendNow: false }))
-      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(state.rpcCalls).toEqual([]);
+      .resolves.toMatchObject({ requested: 1, succeeded: 1, failed: 0, replayed: 0 });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({
+      name: "powerhub_approve_and_issue_mobile_reading",
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_reading_id: 60, p_base_version: 1 }),
+    })]);
   });
 
   it("ينشئ طلب ترقية الباقة عبر RPC Supabase الذرية دون MySQL", async () => {
