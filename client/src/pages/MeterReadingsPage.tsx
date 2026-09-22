@@ -58,8 +58,9 @@ export default function MeterReadingsPage() {
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const anomalyQuery = trpc.powerhub.sites.anomalyAlert.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const role = accessQuery.data?.role;
-  const canRecordReading = can(role, "recordReadings");
-  const canApproveReading = can(role, "approveReadings");
+  const permissions = accessQuery.data?.permissions;
+  const canRecordReading = can(role, "recordReadings", permissions);
+  const canApproveReading = can(role, "approveReadings", permissions);
   const currentSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
 
   const loadQueuedReadings = useCallback(async () => { if (!siteId) return; try { setQueuedReadings(await listQueuedReadings(siteId)); } catch { toast.error("تعذر قراءة طابور العمل دون اتصال على هذا الجهاز."); } }, [siteId]);
