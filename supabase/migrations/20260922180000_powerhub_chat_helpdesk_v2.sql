@@ -642,8 +642,6 @@ begin
 end;
 $$;
 
-revoke execute on function public.chat_send_internal_note(bigint,text,uuid) from public, anon;
-grant execute on function public.chat_send_internal_note(bigint,text,uuid) to authenticated;
 revoke all on function private.chat_send_internal_note(bigint,text,uuid) from public, anon, authenticated;
 
 create or replace function public.chat_send_internal_note(
@@ -659,6 +657,9 @@ as $fn$
   select private.chat_send_internal_note($1,$2,$3);
 $fn$;
 
+
+revoke execute on function public.chat_send_internal_note(bigint,text,uuid) from public, anon;
+grant execute on function public.chat_send_internal_note(bigint,text,uuid) to authenticated;
 
 create or replace function private.chat_send_message(
   p_conversation_id bigint,
