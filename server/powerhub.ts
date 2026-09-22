@@ -16,7 +16,7 @@ import { processNotificationById, processNotificationQueueForTenant } from "./no
 import { storageGet, storageGetSignedUrl, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { isActivePlatformAdmin } from "./platform-admin";
-import { approveAndIssueMobileReadingRuntime } from "./powerhub-mobile-approve-runtime";
+import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReading } from "./powerhub-mobile-approve-runtime";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoices, listSupabasePayments, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
@@ -2446,9 +2446,61 @@ export const powerhubRouter = router({
     }),
     approveAndIssue: approveAndIssueMobileReadingRuntime,
     approveAllAndIssue: protectedProcedure.input(mobileSyncBulkApprovalInput).mutation(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الاعتماد الجماعي متوقف مؤقتاً لحين تنفيذ معاملة Supabase ذرية مستقلة لكل قراءة. يمكنك اعتماد القراءة وإصدار فاتورتها فردياً بأمان." });
+
+      let auditQuery = supabaseAdmin().from("audit_logs")
+        .select("entity_id, created_at")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .eq("entity_type", "meter_reading")
+        .eq("action", "mobile_create");
+      if (input.userId) auditQuery = auditQuery.eq("user_id", input.userId);
+      if (input.from) auditQuery = auditQuery.gte("created_at", input.from);
+      if (input.to) auditQuery = auditQuery.lte("created_at", input.to);
+      const { data: auditRows, error: auditError } = await auditQuery.order("created_at", { ascending: false }).range(0, input.limit - 1);
+      if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءات المؤهلة للاعتماد الجماعي." });
+
+      const readingIds = Array.from(new Set((auditRows ?? []).map((row) => Number(row.entity_id)).filter(Number.isInteger)));
+      if (!readingIds.length) return { requested: 0, succeeded: 0, failed: 0, replayed: 0, results: [] as Array<{ readingId: number; status: "succeeded" | "failed" | "replayed"; invoiceNo?: string; error?: string }> };
+
+      const { data: readingRows, error: readingsError } = await supabaseAdmin().from("meter_readings")
+        .select("id, subscriber_id, reading_at, status, version_no")
+        .eq("tenant_id", access.tenantId)
+        .in("id", readingIds);
+      if (readingsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حالات القراءات للاعتماد الجماعي." });
+
+      const pendingById = new Map((readingRows ?? []).filter((row) => row.status === "pending_review").map((row) => [Number(row.id), row]));
+      const results: Array<{ readingId: number; status: "succeeded" | "failed" | "replayed"; invoiceNo?: string; error?: string }> = [];
+
+      for (const readingId of readingIds) {
+        const reading = pendingById.get(readingId);
+        if (!reading) {
+          results.push({ readingId, status: "failed", error: "القراءة لم تعد بانتظار المراجعة أو تمت معالجتها مسبقاً." });
+          continue;
+        }
+        try {
+          const result = await executeApproveAndIssueMobileReading({
+            tenantId: access.tenantId,
+            siteId: input.siteId,
+            userId: ctx.user.id,
+            readingId,
+            baseVersion: Number(reading.version_no),
+            sendNow: input.sendNow,
+          });
+          results.push({ readingId, status: result.alreadyProcessed ? "replayed" : "succeeded", invoiceNo: result.invoiceNo });
+        } catch (error) {
+          results.push({ readingId, status: "failed", error: error instanceof Error ? error.message : "تعذر اعتماد القراءة وإصدار فاتورتها." });
+        }
+      }
+
+      return {
+        requested: results.length,
+        succeeded: results.filter((row) => row.status === "succeeded").length,
+        failed: results.filter((row) => row.status === "failed").length,
+        replayed: results.filter((row) => row.status === "replayed").length,
+        results,
+      };
     }),
     technicians: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
