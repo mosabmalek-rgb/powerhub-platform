@@ -96,6 +96,8 @@ function AdminNavButton({ item, active, collapsed, onClick }: { item: NavItem; a
 
 export default function PlatformAdminLayout({ activeTab, onTabChange, children }: PlatformAdminLayoutProps) {
   const { user, logout } = useAuth();
+  const isSupportOnly = user?.role === "admin" && user.platformRole === "platform_support";
+  const visibleNavigationGroups = isSupportOnly ? [{ label: "الدعم", items: navigationGroups.flatMap((group) => group.items).filter((item) => item.id === "supportChat") }] : navigationGroups;
   const initials = (user?.name ?? user?.email ?? "P").trim().slice(0, 1).toUpperCase();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
   const navigate = (id: string) => { if (id === "features") { window.location.assign("/admin/generator-features"); return; } if (id === "trialManagement") { window.location.assign("/admin/trial-management"); return; } if (id === "announcements") { window.location.assign("/admin/announcements"); return; } onTabChange(id); };
@@ -106,7 +108,7 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
         <div className="flex h-[92px] items-center justify-between gap-4 px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-4">
             <PowerHubLogo header />
-            <div className="hidden border-r border-white/10 pr-4 lg:block"><p className="text-[11px] font-bold text-[#F5B800]">PLATFORM ADMIN</p><p className="mt-0.5 text-sm font-extrabold text-white">مركز إدارة المنصة</p></div>
+            <div className="hidden border-r border-white/10 pr-4 lg:block"><p className="text-[11px] font-bold text-[#F5B800]">PLATFORM ADMIN</p><p className="mt-0.5 text-sm font-extrabold text-white">{isSupportOnly ? "مركز دعم PowerHub" : "مركز إدارة المنصة"}</p></div>
           </div>
           <div className="flex items-center gap-2">
             <ThemeSelector compact />
@@ -123,7 +125,7 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
             <div className={`mb-2 flex h-9 items-center ${sidebarCollapsed ? "justify-center" : "justify-between px-2"}`}><div className="flex items-center gap-2">{!sidebarCollapsed && <><span className="grid h-7 w-7 place-items-center rounded-lg bg-[#F5B800] text-[#0D1117]"><Gauge className="h-4 w-4" /></span><p className="text-xs font-black text-[#9a6800]">إدارة المنصة</p></>}</div>{!sidebarCollapsed && <button type="button" aria-label="تصغير القائمة الجانبية" onClick={() => setSidebarCollapsed(true)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-white/8 hover:text-[#F5B800]"><PanelRightClose className="h-4 w-4" /></button>}</div>
             {sidebarCollapsed && <button type="button" aria-label="توسيع القائمة الجانبية" onClick={() => setSidebarCollapsed(false)} className="mb-2 grid h-9 w-full place-items-center rounded-xl border border-white/10 text-slate-400 transition hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]"><PanelRightOpen className="h-4 w-4" /></button>}
             <nav aria-label="تنقل مركز إدارة المنصة" className="space-y-5">
-              {navigationGroups.map((group) => <section key={group.label}><p className={sidebarCollapsed ? "sr-only" : "mb-2 px-3 text-[10px] font-black tracking-[.16em] text-slate-500"}>{group.label}</p><div className="space-y-1">{group.items.map((item) => <AdminNavButton key={item.id} item={item} active={activeTab === item.id} collapsed={sidebarCollapsed} onClick={() => navigate(item.id)} />)}</div></section>)}
+              {visibleNavigationGroups.map((group) => <section key={group.label}><p className={sidebarCollapsed ? "sr-only" : "mb-2 px-3 text-[10px] font-black tracking-[.16em] text-slate-500"}>{group.label}</p><div className="space-y-1">{group.items.map((item) => <AdminNavButton key={item.id} item={item} active={activeTab === item.id} collapsed={sidebarCollapsed} onClick={() => navigate(item.id)} />)}</div></section>)}
             </nav>
             {!sidebarCollapsed && <div className="mt-6 rounded-2xl border border-white/8 bg-white/[.02] p-3 text-xs leading-6 text-slate-500">تعمل صلاحيات المشرف ضمن سياسات المنصة المركزية، مع بقاء بيانات كل مولد معزولة عن غيره.</div>}
           </div>
