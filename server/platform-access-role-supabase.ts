@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { supabaseAdmin } from "./supabase-admin";
 
-export type PlatformAccessRole = "platform_admin" | "finance_admin";
+export type PlatformAccessRole = "platform_admin" | "finance_admin" | "platform_support";
 
 export async function setPlatformAccessRole(input: {
   actorUserId: number;
