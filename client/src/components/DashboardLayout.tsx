@@ -297,30 +297,26 @@ function DashboardLayoutContent({
             <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="فتح قائمة الحساب الشخصي"
-                        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-right transition-colors hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:justify-center"
-                      >
-                        <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
-                          <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
-                            {displayUser.name?.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-                          <p className="truncate text-sm font-bold leading-none text-white">
-                            {displayUser.name || "-"}
-                          </p>
-                          <p className="mt-1.5 truncate text-xs text-slate-500">
-                            {accountRoleLabel}
-                          </p>
-                        </div>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="left">فتح قائمة الحساب الشخصي</TooltipContent>
-                  </Tooltip>
+                  <button
+                    type="button"
+                    aria-label="فتح قائمة الحساب الشخصي"
+                    title="فتح قائمة الحساب الشخصي"
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-right transition-colors hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:justify-center"
+                  >
+                    <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
+                      <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
+                        {displayUser.name?.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+                      <p className="truncate text-sm font-bold leading-none text-white">
+                        {displayUser.name || "-"}
+                      </p>
+                      <p className="mt-1.5 truncate text-xs text-slate-500">
+                        {accountRoleLabel}
+                      </p>
+                    </div>
+                  </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48 border-white/10 bg-[#1b222c] text-white">
                   <DropdownMenuItem
