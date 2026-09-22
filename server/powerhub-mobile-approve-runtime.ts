@@ -27,84 +27,92 @@ async function dispatchQueuedNotifications(notificationIds: number[], actorUserI
   }));
 }
 
+export async function executeApproveAndIssueMobileReading(input: {
+  tenantId: number;
+  siteId: number;
+  userId: number;
+  readingId: number;
+  baseVersion: number;
+  sendNow?: boolean;
+}) {
+  const admin = supabaseAdmin();
+  const { data: reading, error: readingError } = await admin.from("meter_readings")
+    .select("id, subscriber_id, reading_at, status")
+    .eq("tenant_id", input.tenantId)
+    .eq("id", input.readingId)
+    .maybeSingle();
+  if (readingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءة من Supabase." });
+  if (!reading) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
+
+  const subscriberResult = await admin.from("subscribers")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .eq("site_id", input.siteId)
+    .eq("id", reading.subscriber_id)
+    .maybeSingle();
+  if (subscriberResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق المشترك في Supabase." });
+  if (!subscriberResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
+
+  const site = await getSupabaseSite(input.siteId);
+  const dueDate = new Date(reading.reading_at);
+  dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
+  const result = await approveAndIssueMobileReadingSupabase({
+    tenantId: input.tenantId,
+    siteId: input.siteId,
+    userId: input.userId,
+    readingId: input.readingId,
+    baseVersion: input.baseVersion,
+    dueDate,
+    billingPeriod: new Date(reading.reading_at).toISOString().slice(0, 7),
+    discountAmount: 0,
+  });
+
+  const deliveries = input.sendNow === false ? [] : await dispatchQueuedNotifications(result.notificationIds, input.userId);
+  const notificationMode = input.sendNow === false ? "deferred" : "immediate";
+
+  try {
+    await writeSupabaseAudit({
+      userId: input.userId,
+      tenantId: input.tenantId,
+      siteId: input.siteId,
+      entityType: "meter_reading",
+      entityId: String(input.readingId),
+      action: result.alreadyProcessed ? "mobile_approve_replay" : "mobile_approve_and_issue",
+      metadata: {
+        invoiceId: result.invoiceId,
+        invoiceNo: result.invoiceNo,
+        automaticInvoice: true,
+        notificationMode,
+        deliveryCount: deliveries.length,
+        runtime: "supabase",
+      },
+    });
+  } catch (auditError) {
+    console.error("[PowerHub] non-blocking mobile approval audit failed", auditError);
+  }
+
+  return {
+    id: result.invoiceId,
+    invoiceNo: result.invoiceNo,
+    totalAmount: result.totalAmount,
+    alreadyProcessed: result.alreadyProcessed,
+    notificationMode,
+    deliveries,
+    notificationIds: result.notificationIds,
+  };
+}
+
 export const approveAndIssueMobileReadingRuntime = protectedProcedure
   .input(mobileSyncApproveInput)
   .mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
     await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "issueInvoices");
-
-    const admin = supabaseAdmin();
-    const { data: reading, error: readingError } = await admin.from("meter_readings")
-      .select("id, subscriber_id, reading_at, status")
-      .eq("tenant_id", access.tenantId)
-      .eq("id", input.readingId)
-      .maybeSingle();
-    if (readingError) {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءة من Supabase." });
-    }
-    if (!reading) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
-    }
-
-    const subscriberResult = await admin.from("subscribers")
-      .select("id")
-      .eq("tenant_id", access.tenantId)
-      .eq("site_id", input.siteId)
-      .eq("id", reading.subscriber_id)
-      .maybeSingle();
-    if (subscriberResult.error) {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق المشترك في Supabase." });
-    }
-    if (!subscriberResult.data) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
-    }
-
-    const site = await getSupabaseSite(input.siteId);
-    const dueDate = new Date(reading.reading_at);
-    dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
-    const result = await approveAndIssueMobileReadingSupabase({
+    return executeApproveAndIssueMobileReading({
       tenantId: access.tenantId,
       siteId: input.siteId,
       userId: ctx.user.id,
       readingId: input.readingId,
       baseVersion: input.baseVersion,
-      dueDate,
-      billingPeriod: new Date(reading.reading_at).toISOString().slice(0, 7),
-      discountAmount: 0,
+      sendNow: input.sendNow,
     });
-
-    const deliveries = input.sendNow === false
-      ? []
-      : await dispatchQueuedNotifications(result.notificationIds, ctx.user.id);
-    const notificationMode = input.sendNow === false ? "deferred" : "immediate";
-
-    try {
-      await writeSupabaseAudit({
-        userId: ctx.user.id,
-        tenantId: access.tenantId,
-        siteId: input.siteId,
-        entityType: "meter_reading",
-        entityId: String(input.readingId),
-        action: result.alreadyProcessed ? "mobile_approve_replay" : "mobile_approve_and_issue",
-        metadata: {
-          invoiceId: result.invoiceId,
-          invoiceNo: result.invoiceNo,
-          automaticInvoice: true,
-          notificationMode,
-          deliveryCount: deliveries.length,
-          runtime: "supabase",
-        },
-      });
-    } catch (auditError) {
-      console.error("[PowerHub] non-blocking mobile approval audit failed", auditError);
-    }
-
-    return {
-      id: result.invoiceId,
-      invoiceNo: result.invoiceNo,
-      totalAmount: result.totalAmount,
-      alreadyProcessed: result.alreadyProcessed,
-      notificationMode,
-      deliveries,
-    };
   });
