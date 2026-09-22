@@ -597,19 +597,6 @@ revoke execute on function public.chat_support_set_metadata(bigint,text,text,tex
 grant execute on function public.chat_support_set_metadata(bigint,text,text,text) to authenticated;
 revoke all on function private.chat_support_set_metadata(bigint,text,text,text) from public, anon, authenticated;
 
-create or replace function public.chat_send_internal_note(
-  p_conversation_id bigint,
-  p_body text,
-  p_client_message_id uuid
-)
-returns public.chat_messages
-language sql
-security invoker
-set search_path=''
-as $$
-  select private.chat_send_internal_note($1,$2,$3);
-$$;
-
 create or replace function private.chat_send_internal_note(
   p_conversation_id bigint,
   p_body text,
@@ -658,6 +645,20 @@ $$;
 revoke execute on function public.chat_send_internal_note(bigint,text,uuid) from public, anon;
 grant execute on function public.chat_send_internal_note(bigint,text,uuid) to authenticated;
 revoke all on function private.chat_send_internal_note(bigint,text,uuid) from public, anon, authenticated;
+
+create or replace function public.chat_send_internal_note(
+  p_conversation_id bigint,
+  p_body text,
+  p_client_message_id uuid
+)
+returns public.chat_messages
+language sql
+security invoker
+set search_path=''
+as $
+  select private.chat_send_internal_note($1,$2,$3);
+$;
+
 
 create or replace function private.chat_send_message(
   p_conversation_id bigint,
