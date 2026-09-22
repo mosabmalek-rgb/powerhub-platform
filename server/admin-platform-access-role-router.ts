@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { authenticatedProcedure } from "./_core/trpc";
+import { authenticatedProcedure, router } from "./_core/trpc";
 import type { adminRouter } from "./admin";
 import { adminRouterWithSupabasePlatformAccess } from "./admin-platform-access-router";
 import { setPlatformAccessRole } from "./platform-access-role-supabase";
@@ -16,6 +16,6 @@ const platformOwnerSetAccessRoleProcedure = authenticatedProcedure.input(z.objec
 });
 
 const legacyRecord = (adminRouterWithSupabasePlatformAccess as any)._def.record as Record<string, unknown>;
-export const adminRouterWithSupabasePlatformAccessRole = (await import("@trpc/server")).router({
+export const adminRouterWithSupabasePlatformAccessRole = router({
   ...legacyRecord, setPlatformAccessRole: platformOwnerSetAccessRoleProcedure,
 }) as unknown as typeof adminRouter;
