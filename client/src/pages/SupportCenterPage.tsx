@@ -62,7 +62,8 @@ function statusLabel(status: string) {
   return map[status] ?? status;
 }
 
-export default function SupportCenterPage() {
+type SupportCenterPageProps = { embedded?: boolean };
+export default function SupportCenterPage({ embedded = false }: SupportCenterPageProps) {
   const { user } = useAuth({ redirectOnUnauthenticated: true });
   const access = trpc.support.assertAccess.useQuery(undefined, { retry: false });
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -193,7 +194,7 @@ export default function SupportCenterPage() {
     return subscribeToChatConversation(selectedId, () => void loadMessages(selectedId));
   }, [selectedId]);
 
-  if (access.isLoading) return <DashboardLayout><div className="grid min-h-[70vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin" /></div></DashboardLayout>;
+  if (access.isLoading) return {embedded ? <div> : <DashboardLayout>}<div className="grid min-h-[70vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin" /></div></div> : </DashboardLayout>;
 
   if (access.error || !access.data?.allowed) {
     return <DashboardLayout><div className="mx-auto mt-16 max-w-xl rounded-2xl border border-red-200 bg-red-50 p-8 text-center"><ShieldAlert className="mx-auto mb-3 h-8 w-8 text-red-600" /><h1 className="text-xl font-bold">لا تملك صلاحية مركز الدعم</h1><p className="mt-2 text-sm text-red-700">الوصول يتطلب صلاحية المنصة manageSupportChat.</p></div></DashboardLayout>;
