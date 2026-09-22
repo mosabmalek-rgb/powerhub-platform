@@ -1,5 +1,14 @@
 import { loadPdfDependencies } from "./lazy-report-deps";
 
+export function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('\"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 export async function downloadReportHtmlAsPdf(element: HTMLElement, filename: string, options?: { landscape?: boolean; title?: string }) {
   const { html2canvas, jsPDF } = await loadPdfDependencies();
   const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: element.scrollWidth || 794 });
