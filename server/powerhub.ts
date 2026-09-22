@@ -685,15 +685,27 @@ export const powerhubRouter = router({
     }),
     requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPackageCode: z.enum(["basic", "advanced", "professional", "business", "vip"]) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_request_subscription_upgrade", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_plan: input.requestedPackageCode });
-      const result = (data as Array<{ request_id: number | string; requested_plan: SubscriptionPlan; already_requested: boolean }> | null)?.[0];
-      if (!error && result?.request_id) return { id: Number(result.request_id), requestedPlan: result.requested_plan, alreadyRequested: result.already_requested };
+      const { data, error } = await supabaseAdmin().rpc("powerhub_request_subscription_upgrade", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_package_code: input.requestedPackageCode });
+      const result = (data as Array<{ request_id: number | string; requested_package_code: string; already_requested: boolean }> | null)?.[0];
+      if (!error && result?.request_id) return { id: Number(result.request_id), requestedPackageCode: result.requested_package_code, alreadyRequested: result.already_requested };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
-      if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
-      if (errorText.includes("SUBSCRIBER_LIMIT_NOT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يتاح طلب الترقية من هذا الزر عند بلوغ الحد الأقصى للمشتركين." });
-      if (errorText.includes("REQUESTED_PLAN_NOT_HIGHER") || errorText.includes("INVALID_REQUESTED_PLAN")) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من باقتك الحالية." });
-      if (errorText.includes("TENANT_PLAN_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
+      if (errorText.includes("NO_QUOTA_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لم يصل أي مورد إلى حد الباقة بعد." });
+      if (errorText.includes("REQUESTED_PACKAGE_NOT_HIGHER")) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر باقة أعلى من باقتك الحالية." });
+      if (errorText.includes("TENANT_PACKAGE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء طلب ترقية الباقة في Supabase." });
+    }),
+    requestAddon: protectedProcedure.input(siteScoped.extend({
+      addonCode: z.enum(["fieldUser", "platformUser", "subscribers50", "branch", "sms"]),
+      quantity: z.number().int().positive().max(1000).default(1),
+      note: z.string().trim().max(500).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_request_tenant_addon", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_addon_code: input.addonCode, p_quantity: input.quantity, p_note: input.note ?? null,
+      });
+      if (!error && data?.[0]?.request_id) return { id: Number(data[0].request_id), addonCode: data[0].addon_code, quantity: Number(data[0].quantity), alreadyRequested: Boolean(data[0].already_requested) };
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إرسال طلب الإضافة إلى إدارة المنصة." });
     }),
   }),
   subscriberPortal: router({
