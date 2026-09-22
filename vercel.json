@@ -74,6 +74,10 @@
     {
       "path": "/api/scheduled/payment-documentation-retention",
       "schedule": "30 2 * * *"
+    },
+    {
+      "path": "/api/scheduled/process-invoice-notifications",
+      "schedule": "* * * * *"
     }
   ]
 }
