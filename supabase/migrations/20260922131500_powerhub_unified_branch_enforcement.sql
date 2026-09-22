@@ -6,7 +6,7 @@ declare v_plan text; v_setting public.platform_settings%rowtype; v_tenant_settin
 begin
   if p_name is null or char_length(btrim(p_name)) < 2 or p_code is null or char_length(btrim(p_code)) < 2 then raise exception 'INVALID_SITE_INPUT' using errcode='P0001'; end if;
   perform pg_advisory_xact_lock(p_tenant_id,hashtext('branch-policy'));
-  select plan into v_plan from public.tenant_subscriptions where tenant_id=p_tenant_id limit 1; v_plan:=coalesce(v_plan,'starter');
+  select package_code into v_plan from public.tenant_subscriptions where tenant_id=p_tenant_id limit 1; if v_plan is null then raise exception 'TENANT_PACKAGE_NOT_FOUND' using errcode='P0002'; end if;
   select * into v_setting from public.platform_settings where setting_key='branch_feature' limit 1;
   select * into v_tenant_setting from public.tenant_branch_settings where tenant_id=p_tenant_id limit 1;
   select * into v_feature_policy
