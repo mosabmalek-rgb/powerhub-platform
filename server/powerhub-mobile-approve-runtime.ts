@@ -34,26 +34,17 @@ export const approveAndIssueMobileReadingRuntime = protectedProcedure
     await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "issueInvoices");
 
     const admin = supabaseAdmin();
-    const [{ data: audit, error: auditError }, { data: reading, error: readingError }] = await Promise.all([
-      admin.from("audit_logs")
-        .select("user_id, created_at")
-        .eq("tenant_id", access.tenantId)
-        .eq("site_id", input.siteId)
-        .eq("entity_type", "meter_reading")
-        .eq("action", "mobile_create")
-        .eq("entity_id", String(input.readingId))
-        .maybeSingle(),
-      admin.from("meter_readings")
-        .select("id, subscriber_id, reading_at, status")
-        .eq("tenant_id", access.tenantId)
-        .eq("id", input.readingId)
-        .maybeSingle(),
-    ]);
-    if (auditError || readingError) {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءة الميدانية من Supabase." });
+    const { data: reading, error: readingError } = await admin.from("meter_readings")
+      .select("id, subscriber_id, reading_at, status")
+      .eq("tenant_id", access.tenantId)
+      .eq("site_id", input.siteId)
+      .eq("id", input.readingId)
+      .maybeSingle();
+    if (readingError) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءة من Supabase." });
     }
-    if (!audit?.user_id || !reading) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
+    if (!reading) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
     }
 
     const subscriberResult = await admin.from("subscribers")
