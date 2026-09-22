@@ -678,6 +678,11 @@ export const powerhubRouter = router({
           .eq("auth_user_id", authData.user.id)
           .maybeSingle();
         if (profileError || !profileUser) throw new Error("تعذر إنشاء ملف المستخدم في Supabase بعد إنشاء Auth.");
+        const { error: passwordPolicyError } = await admin.from("users")
+          .update({ must_change_password: true, temporary_password_issued_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", Number(profileUser.id))
+          .eq("auth_user_id", authData.user.id);
+        if (passwordPolicyError) throw new Error("تعذر تثبيت سياسة كلمة المرور المؤقتة للحساب الفرعي.");
         const { data, error } = await admin.rpc("powerhub_assign_existing_staff", {
           p_tenant_id: access.tenantId,
           p_site_id: input.siteId,
