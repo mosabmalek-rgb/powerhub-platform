@@ -55,6 +55,67 @@ export const adminFeatureControlsRouter = router({
     return (data ?? []).map((row:any)=>({...row}));
   }),
 
+  tenantFeatureMatrix: platformAdminProcedure.query(async () => {
+    const admin = supabaseAdmin();
+    const [tenantsResult, ownersResult, subscriptionsResult, sitesResult, membersResult] = await Promise.all([
+      admin.from("tenants").select("id,name,status,slug,plan").order("name", { ascending: true }).limit(500),
+      admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
+      admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").in("status", ["trial", "active"]).order("created_at", { ascending: false }).limit(1000),
+      admin.from("sites").select("id,tenant_id,status").limit(5000),
+      admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(5000),
+    ]);
+    if (tenantsResult.error || ownersResult.error || subscriptionsResult.error || sitesResult.error || membersResult.error) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مصفوفة أصحاب المولدات." });
+    }
+
+    const owners = new Map((ownersResult.data ?? []).map((row) => [Number(row.tenant_id), row]));
+    const subscriptions = new Map<number, any>();
+    for (const row of subscriptionsResult.data ?? []) {
+      const tenantId = Number(row.tenant_id);
+      if (!subscriptions.has(tenantId)) subscriptions.set(tenantId, row);
+    }
+
+    const branches = new Map<number, number>();
+    for (const row of sitesResult.data ?? []) {
+      if (row.status === "archived") continue;
+      const tenantId = Number(row.tenant_id);
+      branches.set(tenantId, (branches.get(tenantId) ?? 0) + 1);
+    }
+
+    const users = new Map<number, { platform: number; field: number }>();
+    for (const row of membersResult.data ?? []) {
+      if (!row.is_active || row.membership_status !== "active" || row.role === "owner") continue;
+      const tenantId = Number(row.tenant_id);
+      const current = users.get(tenantId) ?? { platform: 0, field: 0 };
+      current.platform += 1;
+      if (row.role === "technician") current.field += 1;
+      users.set(tenantId, current);
+    }
+
+    return (tenantsResult.data ?? []).map((tenant) => {
+      const tenantId = Number(tenant.id);
+      const subscription = subscriptions.get(tenantId);
+      const usage = users.get(tenantId) ?? { platform: 0, field: 0 };
+      return {
+        tenant: { id: tenantId, name: tenant.name, status: tenant.status, slug: tenant.slug, legacyPlan: tenant.plan },
+        owner: owners.get(tenantId) ? {
+          fullName: owners.get(tenantId)?.full_name ?? null,
+          companyName: owners.get(tenantId)?.company_name ?? null,
+        } : null,
+        subscription: subscription ? {
+          packageCode: subscription.package_code,
+          status: subscription.status,
+          endsAt: subscription.ends_at,
+        } : null,
+        usage: {
+          branches: branches.get(tenantId) ?? 0,
+          platformUsers: usage.platform,
+          fieldUsers: usage.field,
+        },
+      };
+    });
+  }),
+
   tenantFeatureSnapshot: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive()})).query(async ({input}) => tenantFeatureSnapshot(input.tenantId)),
 
   setTenantFeatureControl: platformAdminProcedure.input(z.object({
