@@ -1080,8 +1080,6 @@ end;
 $$;
 
 revoke execute on function private.chat_reopen_support_conversation(bigint) from public, anon, authenticated;
-revoke execute on function public.chat_reopen_support_conversation(bigint) from public, anon;
-grant execute on function public.chat_reopen_support_conversation(bigint) to authenticated;
 
 create or replace function public.chat_reopen_support_conversation(p_conversation_id bigint)
 returns public.chat_conversations
@@ -1091,6 +1089,9 @@ set search_path=''
 as $fn$
   select private.chat_reopen_support_conversation($1);
 $fn$;
+
+revoke execute on function public.chat_reopen_support_conversation(bigint) from public, anon;
+grant execute on function public.chat_reopen_support_conversation(bigint) to authenticated;
 
 
 create or replace function public.chat_set_conversation_tags(p_conversation_id bigint,p_tag_ids bigint[])
