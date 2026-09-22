@@ -208,7 +208,7 @@ export const adminRouterWithSupabaseReadContracts = router({
   }),
   listTenantBranchSettings: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
-    const tenantsResult = await admin.from("tenants").select("id,name").order("name", { ascending: true });
+    const tenantsResult = await admin.from("tenants").select("id,name,package_code").order("name", { ascending: true });
     const ownersResult = await admin.from("tenant_owner_profiles").select("tenant_id,full_name");
     const settingsResult = await admin.from("tenant_branch_settings").select("tenant_id,is_enabled_override,max_branches_override,disabled_behavior");
     const sitesResult = await admin.from("sites").select("id,tenant_id,status").eq("status", "archived");
