@@ -37,7 +37,6 @@ export const approveAndIssueMobileReadingRuntime = protectedProcedure
     const { data: reading, error: readingError } = await admin.from("meter_readings")
       .select("id, subscriber_id, reading_at, status")
       .eq("tenant_id", access.tenantId)
-      .eq("site_id", input.siteId)
       .eq("id", input.readingId)
       .maybeSingle();
     if (readingError) {
