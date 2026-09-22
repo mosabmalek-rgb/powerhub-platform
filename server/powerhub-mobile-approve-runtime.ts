@@ -78,22 +78,26 @@ export const approveAndIssueMobileReadingRuntime = protectedProcedure
       : await dispatchQueuedNotifications(result.notificationIds, ctx.user.id);
     const notificationMode = input.sendNow === false ? "deferred" : "immediate";
 
-    await writeSupabaseAudit({
-      userId: ctx.user.id,
-      tenantId: access.tenantId,
-      siteId: input.siteId,
-      entityType: "meter_reading",
-      entityId: String(input.readingId),
-      action: result.alreadyProcessed ? "mobile_approve_replay" : "mobile_approve_and_issue",
-      metadata: {
-        invoiceId: result.invoiceId,
-        invoiceNo: result.invoiceNo,
-        automaticInvoice: true,
-        notificationMode,
-        deliveryCount: deliveries.length,
-        runtime: "supabase",
-      },
-    });
+    try {
+      await writeSupabaseAudit({
+        userId: ctx.user.id,
+        tenantId: access.tenantId,
+        siteId: input.siteId,
+        entityType: "meter_reading",
+        entityId: String(input.readingId),
+        action: result.alreadyProcessed ? "mobile_approve_replay" : "mobile_approve_and_issue",
+        metadata: {
+          invoiceId: result.invoiceId,
+          invoiceNo: result.invoiceNo,
+          automaticInvoice: true,
+          notificationMode,
+          deliveryCount: deliveries.length,
+          runtime: "supabase",
+        },
+      });
+    } catch (auditError) {
+      console.error("[PowerHub] non-blocking mobile approval audit failed", auditError);
+    }
 
     return {
       id: result.invoiceId,
