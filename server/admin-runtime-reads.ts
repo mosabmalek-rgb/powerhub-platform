@@ -204,7 +204,7 @@ export const adminRouterWithSupabaseReadContracts = router({
     if (tenantsResult.error || ownersResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إثراء طلبات الترقية بأسماء المساحات والمالكين." });
     const tenantNames = new Map((tenantsResult.data ?? []).map((row) => [Number(row.id), row.name]));
     const owners = new Map((ownersResult.data ?? []).map((row) => [Number(row.tenant_id), row]));
-    return requests.map((row) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), currentPlan: row.current_plan, requestedPlan: row.requested_plan, status: row.status, note: row.note, createdAt: row.created_at, reviewedAt: row.reviewed_at, tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—", ownerName: owners.get(Number(row.tenant_id))?.full_name ?? "—", ownerEmail: owners.get(Number(row.tenant_id))?.email ?? null }));
+    return requests.map((row) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), currentPackageCode: row.current_package_code, requestedPackageCode: row.requested_package_code, status: row.status, note: row.note, createdAt: row.created_at, reviewedAt: row.reviewed_at, tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—", ownerName: owners.get(Number(row.tenant_id))?.full_name ?? "—", ownerEmail: owners.get(Number(row.tenant_id))?.email ?? null }));
   }),
   listTenantBranchSettings: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
