@@ -179,7 +179,7 @@ function DashboardLayoutContent({
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
   const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const paymentDocumentationAccess = trpc.powerhub.paymentDocumentation.access.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
-  const operationalGroups = menuGroups.map((group) => group.label === "إدارة الشبكة" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
+  const operationalGroups = menuGroups.map((group) => group.label === "التشغيل" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
   const visibleMenuGroups = displayUser.role === "admin" ? [...operationalGroups, platformAdminGroup] : operationalGroups;
   const permissionAwareGroups = visibleMenuGroups.map((group) => ({
     ...group,
