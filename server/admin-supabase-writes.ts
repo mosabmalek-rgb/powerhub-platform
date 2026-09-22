@@ -122,7 +122,7 @@ export async function updateSubscription(input: {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_update_subscription", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
-    p_plan: input.packageCode,
+    p_package_code: input.packageCode,
     p_status: input.status,
     p_billing_cycle: input.billingCycle,
     p_ends_at: input.endsAt.toISOString(),
@@ -145,13 +145,13 @@ export async function quickUpgradeOwnerPlan(input: {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_quick_upgrade_owner_plan", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
-    p_plan: input.packageCode,
+    p_package_code: input.packageCode,
     p_note: input.note,
   });
   quickUpgradeOwnerPlanRpcError(error);
-  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
-  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
-  return { success: Boolean(row.success), packageCode: row.plan as AdminPackageCode };
+  const row = data?.[0] as { success?: boolean; package_code?: string } | undefined;
+  if (!row || typeof row.package_code !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
+  return { success: Boolean(row.success), packageCode: row.package_code as AdminPackageCode };
 }
 
 export async function reviewSubscriptionUpgradeRequest(input: {
@@ -168,7 +168,7 @@ export async function reviewSubscriptionUpgradeRequest(input: {
   });
   reviewSubscriptionRpcError(error);
   const row = data?.[0] as { success?: boolean; package_code?: string } | undefined;
-  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription review result." });
+  if (!row || typeof row.package_code !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription review result." });
   return { success: Boolean(row.success), packageCode: row.package_code as AdminPackageCode };
 }
 
