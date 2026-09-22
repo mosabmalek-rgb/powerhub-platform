@@ -601,9 +601,25 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_assign_existing_staff", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_actor_user_id: 1, p_target_user_id: 2, p_role: "accountant", p_all_branches: true }) });
   });
 
-  it("يعطّل إعادة تعيين كلمة المرور انتقالياً قبل أي استدعاء MySQL أو Supabase Auth", async () => {
+  it("يعيد تعيين كلمة مرور الحساب الفرعي عبر Supabase Auth ثم يكمل Intent ذريًا", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "owner@example.test" }, { id: 2, role: "user", account_status: "active", auth_user_id: "auth-staff-1", email: "staff@example.test" }];
+    state.client.auth = { admin: { updateUserById: vi.fn(async () => ({ data: { user: { id: "auth-staff-1" } }, error: null })) } };
+    state.rpcCalls = [];
+    state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_staff_reset_password_begin") return resolved([{ intent_id: 501, auth_user_id: "auth-staff-1", target_user_id: 2, expires_at: "2026-09-22T18:00:00.000Z" }]);
+      if (name === "powerhub_staff_reset_password_complete") return resolved([{ intent_id: 501, status: "completed", target_user_id: 2 }]);
+      return resolved([{ success: true }]);
+    });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.staff.resetPassword({ siteId: 10, profileId: 70 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    const result = await caller.staff.resetPassword({ siteId: 10, profileId: 70 });
+    expect(result).toMatchObject({ success: true, userId: 2 });
+    expect(result.temporaryPassword).toMatch(/^Ph!/);
+    expect(state.client.auth.admin.updateUserById).toHaveBeenCalledWith("auth-staff-1", expect.objectContaining({ password: expect.stringMatching(/^Ph!/) }));
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "powerhub_staff_reset_password_begin", args: expect.objectContaining({ p_profile_id: 70 }) }),
+      expect.objectContaining({ name: "powerhub_staff_reset_password_complete", args: expect.objectContaining({ p_intent_id: 501, p_success: true }) }),
+    ]));
   });
 
   it("ينشئ الحساب الفرعي عبر Supabase Auth ثم يعيّنه عبر RPC دون MySQL", async () => {
