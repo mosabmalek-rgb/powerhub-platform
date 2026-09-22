@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { supabaseAdmin } from "./supabase-admin";
 
-export type AdminSubscriptionPlan = "starter" | "professional" | "enterprise";
+export type AdminPackageCode = "basic" | "advanced" | "professional" | "business" | "vip";
 export type AdminSubscriptionStatus = "trial" | "active" | "overdue" | "suspended" | "cancelled";
 export type AdminBillingCycle = "monthly" | "yearly";
 
@@ -111,7 +111,7 @@ export async function attachOwnerUser(input: {
 export async function updateSubscription(input: {
   actorUserId: number;
   tenantId: number;
-  plan: AdminSubscriptionPlan;
+  packageCode: AdminPackageCode;
   status: AdminSubscriptionStatus;
   billingCycle: AdminBillingCycle;
   endsAt: Date;
@@ -122,7 +122,7 @@ export async function updateSubscription(input: {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_update_subscription", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
-    p_plan: input.plan,
+    p_package_code: input.packageCode,
     p_status: input.status,
     p_billing_cycle: input.billingCycle,
     p_ends_at: input.endsAt.toISOString(),
@@ -139,19 +139,19 @@ export async function updateSubscription(input: {
 export async function quickUpgradeOwnerPlan(input: {
   actorUserId: number;
   tenantId: number;
-  plan: AdminSubscriptionPlan;
+  packageCode: AdminPackageCode;
   note: string;
 }) {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_quick_upgrade_owner_plan", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
-    p_plan: input.plan,
+    p_package_code: input.packageCode,
     p_note: input.note,
   });
   quickUpgradeOwnerPlanRpcError(error);
   const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
   if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
-  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
+  return { success: Boolean(row.success), packageCode: row.package_code as AdminPackageCode };
 }
 
 export async function reviewSubscriptionUpgradeRequest(input: {
