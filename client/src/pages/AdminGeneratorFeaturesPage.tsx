@@ -29,11 +29,11 @@ function policyLabel(policy: string | undefined) {
 
 function FeatureControlsIndex() {
   const [,navigate] = useLocation();
-  const owners = trpc.admin.listOwners.useQuery();
+  const owners = trpc.admin.tenantFeatureMatrix.useQuery();
   const [query,setQuery] = useState("");
   const rows = useMemo(() => {
     const value=query.trim().toLowerCase();
-    return (owners.data ?? []).filter((row:any) => !value || [row.owner?.fullName,row.tenant?.name,row.owner?.companyName,row.subscription?.plan].some((item:any)=>String(item ?? "").toLowerCase().includes(value)));
+    return (owners.data ?? []).filter((row:any) => !value || [row.owner?.fullName,row.tenant?.name,row.owner?.companyName,row.subscription?.packageCode].some((item:any)=>String(item ?? "").toLowerCase().includes(value)));
   },[owners.data,query]);
 
   return <PlatformAdminLayout activeTab="features" onTabChange={(tab) => { if(tab === "features") return; navigate("/admin"); }}>
@@ -48,7 +48,7 @@ function FeatureControlsIndex() {
         <CardContent className="p-0">
           <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-right text-sm">
             <thead className="border-b border-white/8 text-xs text-slate-500"><tr><th className="px-5 py-4">صاحب المولد</th><th className="px-4 py-4">الباقة</th><th className="px-4 py-4">الحالة</th><th className="px-4 py-4">المشتركون</th><th className="px-4 py-4">الفروع</th><th className="px-4 py-4">المستخدمون</th><th className="px-4 py-4">الإجراء</th></tr></thead>
-            <tbody>{rows.map((row:any)=><tr key={row.tenant.id} className="border-t border-white/7 hover:bg-white/[.02]"><td className="px-5 py-4"><p className="font-bold text-white">{row.owner?.fullName ?? "غير محدد"}</p><p className="mt-1 text-xs text-slate-500">{row.tenant.name}</p></td><td className="px-4 py-4"><Badge className="bg-[#F5B800]/10 text-[#F5B800]">{row.subscription?.plan ?? row.tenant.plan ?? "—"}</Badge></td><td className="px-4 py-4"><Badge className={["active","trial"].includes(row.subscription?.status) ? "bg-emerald-400/10 text-emerald-300" : "bg-slate-400/10 text-slate-400"}>{row.subscription?.status === "trial" ? "تجريبي" : row.subscription?.status === "active" ? "نشط" : row.subscription?.status ?? "غير مهيأ"}</Badge></td><td className="px-4 py-4 text-slate-300">{numberFormat(row.subscribers?.total)}</td><td className="px-4 py-4 text-slate-300">{numberFormat(row.branches?.count ?? row.branchCount ?? 0)}</td><td className="px-4 py-4 text-slate-300">{numberFormat(row.users?.total ?? 0)}</td><td className="px-4 py-4"><Button size="sm" onClick={()=>navigate("/admin/generator-features/"+row.tenant.id)} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إدارة الميزات</Button></td></tr>)}{!rows.length && <tr><td colSpan={7} className="py-12 text-center text-sm text-slate-500">{owners.isLoading ? "جارٍ تحميل أصحاب المولدات…" : "لا توجد نتائج."}</td></tr>}</tbody>
+            <tbody>{rows.map((row:any)=><tr key={row.tenant.id} className="border-t border-white/7 hover:bg-white/[.02]"><td className="px-5 py-4"><p className="font-bold text-white">{row.owner?.fullName ?? "غير محدد"}</p><p className="mt-1 text-xs text-slate-500">{row.tenant.name}</p></td><td className="px-4 py-4"><Badge className="bg-[#F5B800]/10 text-[#F5B800]">{row.subscription?.packageCode ?? row.tenant.legacyPlan ?? "—"}</Badge></td><td className="px-4 py-4"><Badge className={["active","trial"].includes(row.subscription?.status) ? "bg-emerald-400/10 text-emerald-300" : "bg-slate-400/10 text-slate-400"}>{row.subscription?.status === "trial" ? "تجريبي" : row.subscription?.status === "active" ? "نشط" : row.subscription?.status ?? "غير مهيأ"}</Badge></td><td className="px-4 py-4 text-slate-300">{"—"}</td><td className="px-4 py-4 text-slate-300">{numberFormat(row.usage?.branches)}</td><td className="px-4 py-4 text-slate-300">{numberFormat((row.usage?.platformUsers ?? 0) + (row.usage?.fieldUsers ?? 0))}</td><td className="px-4 py-4"><Button size="sm" onClick={()=>navigate("/admin/generator-features/"+row.tenant.id)} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إدارة الميزات</Button></td></tr>)}{!rows.length && <tr><td colSpan={7} className="py-12 text-center text-sm text-slate-500">{owners.isLoading ? "جارٍ تحميل أصحاب المولدات…" : "لا توجد نتائج."}</td></tr>}</tbody>
           </table></div>
         </CardContent>
       </Card>
