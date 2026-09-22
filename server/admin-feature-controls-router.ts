@@ -20,7 +20,7 @@ async function tenantFeatureSnapshot(tenantId: number) {
   const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult] = await Promise.all([
     admin.from("tenants").select("id,name,status,slug").eq("id",tenantId).maybeSingle(),
     admin.from("tenant_owner_profiles").select("tenant_id,owner_user_id,full_name,phone,email,company_name").eq("tenant_id",tenantId).maybeSingle(),
-    admin.from("tenant_subscriptions").select("id,plan,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).in("status",["trial","active"]).order("created_at",{ascending:false}).limit(1).maybeSingle(),
+    admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).in("status",["trial","active"]).order("created_at",{ascending:false}).limit(1).maybeSingle(),
     admin.from("sites").select("id,status",{count:"exact",head:true}).eq("tenant_id",tenantId),
     admin.from("subscribers").select("id",{count:"exact",head:true}).eq("tenant_id",tenantId),
     admin.from("tenant_members").select("user_id,role,is_active,membership_status").eq("tenant_id",tenantId),
@@ -30,13 +30,13 @@ async function tenantFeatureSnapshot(tenantId: number) {
   const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error].filter(Boolean);
   if (errors.length) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل مصفوفة ميزات صاحب المولد."});
   const subscription = subscriptionResult.data;
-  const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.plan);
+  const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.packageCode);
   const controls = controlsResult.data ?? [];
   const members = membersResult.data ?? [];
   return {
     tenant: tenantResult.data ? { id:Number(tenantResult.data.id), name:tenantResult.data.name, slug:tenantResult.data.slug, status:tenantResult.data.status } : null,
     owner: ownerResult.data ? { fullName:ownerResult.data.full_name, phone:ownerResult.data.phone, email:ownerResult.data.email, companyName:ownerResult.data.company_name, userId:ownerResult.data.owner_user_id ? Number(ownerResult.data.owner_user_id) : null } : null,
-    subscription: subscription ? { id:Number(subscription.id), packageCode:subscription.plan, status:subscription.status, startedAt:subscription.started_at, endsAt:subscription.ends_at, billingCycle:subscription.billing_cycle } : null,
+    subscription: subscription ? { id:Number(subscription.id), packageCode:subscription.package_code, status:subscription.status, startedAt:subscription.started_at, endsAt:subscription.ends_at, billingCycle:subscription.billing_cycle } : null,
     usage: {
       subscribers: Number(subscribersResult.count ?? 0),
       branches: Number(sitesResult.count ?? 0),
