@@ -6,7 +6,7 @@ create or replace function public.powerhub_admin_review_subscription_upgrade_req
   p_decision text,
   p_note text default null
 )
-returns table(success boolean, plan text)
+returns table(success boolean, package_code text)
 language plpgsql
 security definer
 set search_path=public,pg_temp
