@@ -71,9 +71,9 @@ begin
     where profile.tenant_id=p_tenant_id and profile.user_id=p_target_user_id
       and (profile.site_id=p_site_id or (p_all_branches and profile.site_id is null));
 
-  select plan into v_plan from public.tenant_subscriptions where tenant_id=p_tenant_id;
-  if v_plan is null then select plan into v_plan from public.tenants where id=p_tenant_id; end if;
-  if v_plan not in ('starter','professional','enterprise') then raise exception 'TENANT_PLAN_NOT_FOUND' using errcode='P0001'; end if;
+  select package_code into v_plan from public.tenant_subscriptions where tenant_id=p_tenant_id;
+  if v_plan is null then raise exception 'TENANT_PACKAGE_NOT_FOUND' using errcode='P0002'; end if;
+  if v_plan not in ('basic','advanced','professional','business','vip') then raise exception 'TENANT_PACKAGE_NOT_FOUND' using errcode='P0001'; end if;
   select is_enabled, value into v_policy_enabled, v_roles_policy from public.platform_settings where setting_key='owner_subaccount_roles';
   select value into v_limits_policy from public.platform_settings where setting_key='owner_subaccount_limits';
   select value into v_overrides_policy from public.platform_settings where setting_key='owner_limit_overrides';
