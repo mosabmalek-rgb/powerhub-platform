@@ -16,9 +16,8 @@ concurrency:
 jobs:
   validate:
     name: TypeScript, tests, and production build
-    # Application CI is intentionally isolated from the self-hosted guard runner.
-    # This keeps TypeScript, tests, and production build validation independent of local-runner availability.
-    runs-on: ubuntu-latest
+    # The repository uses a self-hosted runner to avoid GitHub-hosted minute limits.
+    runs-on: self-hosted
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=4096
