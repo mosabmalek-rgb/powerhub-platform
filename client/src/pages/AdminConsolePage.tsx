@@ -22,7 +22,7 @@ import { toast } from "sonner";
 import { formatReportDate } from "@/lib/report-design-system";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 
-type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "supportChat" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "smsFallback" | "smsPlans" | "complaints" | "notifications" | "announcements" | "security" | "settings";
+type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "supportChat" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "complaints" | "notifications" | "announcements" | "security" | "settings";
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const formatNumber = (value: unknown) => new Intl.NumberFormat("ar").format(Number(value ?? 0));
 const formatDate = (value: Date | string | null | undefined) => value ? formatReportDate(value) : "—";
