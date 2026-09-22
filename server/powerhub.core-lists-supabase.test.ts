@@ -605,9 +605,13 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.staff.resetPassword({ siteId: 10, profileId: 70 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
-  it("يعطّل إنشاء الحساب الفرعي انتقالياً قبل أي استدعاء MySQL أو Supabase Auth", async () => {
+  it("ينشئ الحساب الفرعي عبر Supabase Auth ثم يعيّنه عبر RPC دون MySQL", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    state.tables.users.push({ id: 2, auth_user_id: "auth-staff-1", email: "accountant@example.com" });
+    state.client.auth = { admin: { createUser: vi.fn(async () => ({ data: { user: { id: "auth-staff-1" } }, error: null })), deleteUser: vi.fn(async () => ({ error: null })) } };
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.staff.create({ siteId: 10, name: "محاسب تجريبي", email: "accountant@example.com", temporaryPassword: "StrongPass1!", role: "accountant", allBranches: false })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.staff.create({ siteId: 10, name: "محاسب تجريبي", email: "accountant@example.com", temporaryPassword: "StrongPass1!", role: "accountant", allBranches: false })).resolves.toMatchObject({ success: true, userId: 2 });
+    expect(state.rpcCalls).toContainEqual(expect.objectContaining({ name: "powerhub_assign_existing_staff", args: expect.objectContaining({ p_target_user_id: 2, p_role: "accountant", p_all_branches: false }) }));
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
