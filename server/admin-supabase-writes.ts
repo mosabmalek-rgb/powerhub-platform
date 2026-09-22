@@ -122,7 +122,7 @@ export async function updateSubscription(input: {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_update_subscription", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
-    p_package_code: input.packageCode,
+    p_plan: input.packageCode,
     p_status: input.status,
     p_billing_cycle: input.billingCycle,
     p_ends_at: input.endsAt.toISOString(),
@@ -145,7 +145,7 @@ export async function quickUpgradeOwnerPlan(input: {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_quick_upgrade_owner_plan", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
-    p_package_code: input.packageCode,
+    p_plan: input.packageCode,
     p_note: input.note,
   });
   quickUpgradeOwnerPlanRpcError(error);
