@@ -60,7 +60,7 @@ export const approveAndIssueMobileReadingRuntime = protectedProcedure
     }
 
     const site = await getSupabaseSite(input.siteId);
-    const dueDate = new Date();
+    const dueDate = new Date(reading.reading_at);
     dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
     const result = await approveAndIssueMobileReadingSupabase({
       tenantId: access.tenantId,
