@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { ArrowRight, CheckCircle2, RotateCcw, Save, Search, Settings2, UsersRound, Zap } from "lucide-react";
+import { ArrowRight, RotateCcw, Save, Search, Settings2, UsersRound, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
