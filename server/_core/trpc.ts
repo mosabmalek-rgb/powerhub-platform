@@ -3,7 +3,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { supabaseAdmin } from "../supabase-admin";
 import { requirePlatformCapability } from "../platform-capability";
-import { isActivePlatformAdmin } from "../platform-admin";
+import { isActivePlatformAdmin, isActivePlatformIdentity, isActivePlatformSupport } from "../platform-admin";
 import type { TrpcContext } from "./context";
 import { z } from "zod";
 
@@ -45,7 +45,7 @@ const requireUser = t.middleware(async opts => {
   if (ctx.user.accountStatus === "locked" || ctx.user.accountStatus === "disabled") {
     throw new TRPCError({ code: "FORBIDDEN", message: ctx.user.accountStatus === "locked" ? "الحساب مقفل مؤقتاً. يرجى التواصل مع إدارة المنصة." : "هذا الحساب معطّل." });
   }
-  if (ctx.user.role === "admin" && !isActivePlatformAdmin(ctx.user)) {
+  if (ctx.user.role === "admin" && !isActivePlatformIdentity(ctx.user)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "حساب المنصة الإداري غير نشط أو لا يملك دور منصة صالحاً." });
   }
   if (ctx.user.mustChangePassword && !["auth.me", "auth.updatePassword", "auth.updateProfile", "auth.logout"].includes(opts.path)) {
@@ -62,10 +62,10 @@ const requireUser = t.middleware(async opts => {
 
 const enforceMaintenanceMode = t.middleware(async opts => {
   const user = opts.ctx.user;
-  if (user?.role === "admin" && !isActivePlatformAdmin(user)) {
+  if (user?.role === "admin" && !isActivePlatformIdentity(user)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "حساب المنصة الإداري غير نشط أو لا يملك دور منصة صالحاً." });
   }
-  if (!user || isActivePlatformAdmin(user) || opts.path === "auth.me") return opts.next();
+  if (!user || isActivePlatformAdmin(user) || isActivePlatformSupport(user) || opts.path === "auth.me") return opts.next();
   const { data: maintenance, error } = await supabaseAdmin().from("platform_settings")
     .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });

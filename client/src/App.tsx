@@ -41,6 +41,7 @@ import SupportCenterPage from "./pages/SupportCenterPage";
 import PaymentDocumentationPage from "./pages/PaymentDocumentationPage";
 import PaymentDocumentationReviewPage from "./pages/PaymentDocumentationReviewPage";
 import PlatformAnnouncementsPage from "./pages/PlatformAnnouncementsPage";
+import AdminGeneratorFeaturesPage from "./pages/AdminGeneratorFeaturesPage";
 import AnnouncementsPage from "./pages/AnnouncementsPage";
 
 function Router() {
@@ -83,8 +84,10 @@ function Router() {
       <Route path={"/payroll"}>{() => <RouteAccessGate><PayrollPage /></RouteAccessGate>}</Route>
       <Route path={"/attendance"}>{() => <RouteAccessGate><AttendancePage /></RouteAccessGate>}</Route>
       <Route path={"/admin/trial-management"}>{() => <RouteAccessGate platformAdminOnly><TrialSubscriptionManagementPage /></RouteAccessGate>}</Route>
+      <Route path={"/admin/generator-features/:tenantId"}>{() => <RouteAccessGate platformAdminOnly><AdminGeneratorFeaturesPage /></RouteAccessGate>}</Route>
+      <Route path={"/admin/generator-features"}>{() => <RouteAccessGate platformAdminOnly><AdminGeneratorFeaturesPage /></RouteAccessGate>}</Route>
       <Route path={"/admin/announcements"}>{() => <RouteAccessGate platformAdminOnly><PlatformAnnouncementsPage /></RouteAccessGate>}</Route>
-      <Route path={"/admin"}>{() => <RouteAccessGate platformAdminOnly><AdminConsolePage /></RouteAccessGate>}</Route>
+      <Route path={"/admin"}>{() => <RouteAccessGate><AdminConsolePage /></RouteAccessGate>}</Route>
       <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />

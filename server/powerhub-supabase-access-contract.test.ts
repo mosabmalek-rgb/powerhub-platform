@@ -17,7 +17,7 @@ describe("Platform-admin authorization boundary", () => {
   });
 
   it("must reject an invalid admin before protected tenant runtime access", () => {
-    expect(source).toContain("!isActivePlatformAdmin(user)");
+    expect(source).toContain("!isActivePlatformIdentity(user)");
     expect(source).toContain('throw new TRPCError({ code: "FORBIDDEN"');
   });
 

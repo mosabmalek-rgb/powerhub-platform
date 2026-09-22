@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-const SUPPORTED_ROLES = ["platform_owner", "platform_admin", "finance_admin"] as const;
+const SUPPORTED_ROLES = ["platform_owner", "platform_admin", "finance_admin", "platform_support"] as const;
 const CAPABILITY = "manageSupportChat";
 
 function decide(input: {
@@ -20,6 +20,10 @@ function decide(input: {
 describe("platform support authorization matrix", () => {
   it("allows only an explicit platform policy grant", () => {
     expect(decide({ accountStatus: "active", platformRole: "platform_admin", capability: CAPABILITY, policyAllowed: true })).toBe(true);
+  });
+
+  it("allows the dedicated support role when its explicit policy is enabled", () => {
+    expect(decide({ accountStatus: "active", platformRole: "platform_support", capability: CAPABILITY, policyAllowed: true })).toBe(true);
   });
 
   it("denies every supported platform role without an explicit grant", () => {

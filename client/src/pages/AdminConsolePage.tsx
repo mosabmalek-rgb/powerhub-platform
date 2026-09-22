@@ -12,6 +12,7 @@ import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import PlatformTweetSmsReport from "./PlatformTweetSmsReport";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
 import PlatformAccessPanel from "./PlatformAccessPanel";
+import SupportCenterPage from "./SupportCenterPage";
 import ExcelJS from "exceljs";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
@@ -21,7 +22,7 @@ import { toast } from "sonner";
 import { formatReportDate } from "@/lib/report-design-system";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 
-type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "smsFallback" | "smsPlans" | "complaints" | "notifications" | "announcements" | "security" | "settings";
+type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "supportChat" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "smsFallback" | "smsPlans" | "complaints" | "notifications" | "announcements" | "security" | "settings";
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const formatNumber = (value: unknown) => new Intl.NumberFormat("ar").format(Number(value ?? 0));
 const formatDate = (value: Date | string | null | undefined) => value ? formatReportDate(value) : "—";
@@ -41,7 +42,8 @@ export default function AdminConsolePage() {
   const { user, loading, isAuthenticated } = useAuth();
   const [tab, setTab] = useState<Tab>("overview");
   const [tenantFilter, setTenantFilter] = useState<number | undefined>();
-  const isPlatformAdmin = user?.role === "admin";
+  const isPlatformSupport = user?.role === "admin" && user.platformRole === "platform_support";
+  const isPlatformAdmin = user?.role === "admin" && ["platform_owner", "platform_admin", "finance_admin"].includes(user.platformRole ?? "");
   const isPlatformOwner = user?.platformRole === "platform_owner";
   const utils = trpc.useUtils();
   const overview = trpc.admin.overview.useQuery(tenantFilter ? { tenantId: tenantFilter } : undefined, { enabled: isPlatformAdmin });
@@ -57,7 +59,7 @@ export default function AdminConsolePage() {
   const createOwner = trpc.admin.createGeneratorOwnerWithTemporaryPassword.useMutation({ onSuccess: async () => { await refresh(); setTab("generators"); toast.success("تم إنشاء صاحب المولد ومولده بحالة انتظار المراجعة. يجب تغيير كلمة المرور عند أول دخول."); }, onError: (error) => toast.error(error.message) });
   const createOwnerSubscription = trpc.admin.createGeneratorOwnerSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم إنشاء اشتراك صاحب المولد. يضيف المالك بيانات أول مولد بعد دخوله وتغيير كلمة المرور."); }, onError: (error) => toast.error(error.message) });
   const updateSubscription = trpc.admin.updateSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تحديث الاشتراك."); }, onError: (error) => toast.error(error.message) });
-  const renewSubscription = trpc.admin.renewSubscription.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(`تم التجديد حتى ${formatDate(result.endsAt)}.`); }, onError: (error) => toast.error(error.message) });
+  const renewSubscription = trpc.admin.renewSubscription.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(`تم التجديد حتى ${formatDate(result.endsAt)}. تم تجديد ${result.renewedAddons} إضافة وإنهاء ${result.expiredAddons} إضافة.`); }, onError: (error) => toast.error(error.message) });
   const attachOwner = trpc.admin.attachOwnerUser.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم ربط حساب المالك بالمساحة والمحطة."); }, onError: (error) => toast.error(error.message) });
   const setGeneratorStatus = trpc.admin.setGeneratorStatus.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تحديث حالة المولد."); }, onError: (error) => toast.error(error.message) });
   const approvePendingGenerator = trpc.admin.approvePendingGenerator.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت مراجعة المولد وتفعيله بنجاح."); }, onError: (error) => toast.error(error.message) });
@@ -74,7 +76,7 @@ export default function AdminConsolePage() {
 
   const downloadCsv = () => {
     const rows: Array<Array<string | number>> = [["صاحب المولد", "المساحة", "الحالة", "الخطة", "السكان", "التجاري", "الإجمالي", "ينتهي في"]];
-    reportRows.forEach((row) => rows.push([row.owner?.fullName ?? "غير محدد", row.tenant.name, statusLabel(row.subscription?.status), row.subscription?.plan ?? row.tenant.plan, row.subscribers.residential, row.subscribers.commercial, row.subscribers.total, formatDate(row.subscription?.endsAt)]));
+    reportRows.forEach((row) => rows.push([row.owner?.fullName ?? "غير محدد", row.tenant.name, statusLabel(row.subscription?.status), row.subscription?.packageCode ?? row.tenant.packageCode, row.subscribers.residential, row.subscribers.commercial, row.subscribers.total, formatDate(row.subscription?.endsAt)]));
     const csv = "\uFEFF" + rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -85,6 +87,7 @@ export default function AdminConsolePage() {
 
   if (loading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-8 w-8 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><AccessCard title="سجّل الدخول إلى إدارة المنصة" action="تسجيل الدخول" onClick={startLogin} /></DashboardLayout>;
+  if (isPlatformSupport) return <SupportCenterPage />;
   if (!isPlatformAdmin) return <DashboardLayout><AccessCard title="هذه الصفحة مخصصة لآدمن PowerHub" detail="لا يمكن لصاحب مولد أو عضو فريق الوصول إلى بيانات جميع المستأجرين." /></DashboardLayout>;
 
   return <PlatformAdminLayout activeTab={tab} onTabChange={(nextTab) => setTab(nextTab as Tab)}><main className="space-y-6 pb-12"><header className="rounded-[26px] border border-[#F5B800]/20 bg-[#111823]/85 p-6 shadow-panel"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ShieldAlert className="h-4 w-4" />إدارة PowerHub العليا</div><h1 className="mt-2 text-2xl font-extrabold text-white">مركز قيادة المنصة</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">إشراف مركزي منظم على المولدات والمشتركين والتحصيل والشكاوى وإعدادات الحماية عبر جميع مساحات PowerHub.</p></div><Button variant="outline" onClick={() => void refresh()} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />تحديث البيانات</Button></div></header>
@@ -92,6 +95,7 @@ export default function AdminConsolePage() {
     {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending || approvePendingGenerator.isPending} onStatus={setGeneratorStatus.mutate} onApprove={approvePendingGenerator.mutate} /><GeneratorOperationsInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
     {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutate} creationAvailable={true} />}
     {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} userSummary={snapshot.data?.users} /><OwnerLifecyclePanel /></>}
+    {tab === "supportChat" && <SupportCenterPage embedded />}
     {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} plans={smsPlans.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutate} />}
     {tab === "reports" && <><AdminReportsExports rows={reportRows} /><ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} /></>}
     {tab === "invoiceDelivery" && <InvoiceDeliverySettingsPanel />}
@@ -139,8 +143,114 @@ function OwnerTable({ rows }: { rows: any[] }) { return <div className="overflow
 
 function OwnersTab({ users, rows, pending, onCreate, onAttach }: any) { return <section className="grid gap-6 xl:grid-cols-[.9fr_1.1fr]"><Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">إضافة صاحب مولد جديد</h2><p className="mt-1 text-sm leading-6 text-slate-500">ينشئ حساب Supabase ومحطة ومولداً فعلياً بحالة انتظار المراجعة. لا تُخزن كلمة المرور في PowerHub، ويُلزم المالك بتغييرها عند أول دخول.</p><form className="mt-6 space-y-4" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); onCreate({ tenantName: String(data.get("tenantName")), slug: String(data.get("slug")).toLowerCase(), ownerName: String(data.get("ownerName")), ownerPhone: String(data.get("ownerPhone")), ownerEmail: String(data.get("ownerEmail")), identityNumber: String(data.get("identityNumber")), generatorName: String(data.get("generatorName")), generatorCode: String(data.get("generatorCode")), generatorCapacityKw: Number(data.get("generatorCapacityKw")), generatorFuelType: String(data.get("generatorFuelType")), companyName: String(data.get("companyName") || "") || undefined, temporaryPassword: String(data.get("temporaryPassword")), siteName: String(data.get("siteName")), siteCode: String(data.get("siteCode")), city: String(data.get("city") || "") || undefined, plan: String(data.get("plan")), subscriptionStatus: String(data.get("subscriptionStatus")), billingCycle: String(data.get("billingCycle")), endsAt: data.get("endsAt") ? new Date(`${String(data.get("endsAt"))}T23:59:59`) : undefined, autoRenew: data.get("autoRenew") === "on", notes: String(data.get("notes") || "") || undefined }); }}><Input required name="tenantName" placeholder="اسم مساحة صاحب المولد" className={inputClass} /><Input required name="slug" placeholder="owner-space-slug" dir="ltr" className={inputClass} /><Input required name="ownerName" placeholder="الاسم الكامل لصاحب المولد" className={inputClass} /><div className="grid gap-3 sm:grid-cols-2"><Input required name="ownerPhone" placeholder="رقم الهاتف الفريد" dir="ltr" className={inputClass} /><Input required name="ownerEmail" type="email" placeholder="البريد الإلكتروني الفريد" dir="ltr" className={inputClass} /></div><div className="grid gap-3 sm:grid-cols-2"><Input required name="identityNumber" placeholder="رقم الهوية" dir="ltr" className={inputClass} /><Input required name="temporaryPassword" type="password" minLength={8} placeholder="كلمة مرور مؤقتة (8+ رموز)" dir="ltr" className={inputClass} /></div><Input name="companyName" placeholder="اسم الشركة أو النشاط" className={inputClass} /><div className="grid gap-3 sm:grid-cols-2"><Input required name="siteName" placeholder="اسم المحطة الأولى" className={inputClass} /><Input required name="siteCode" placeholder="PH-OWNER-01" dir="ltr" className={inputClass} /></div><div className="grid gap-3 sm:grid-cols-2"><Input required name="generatorName" placeholder="اسم المولد الفريد" className={inputClass} /><Input required name="generatorCode" placeholder="GEN-OWNER-01" dir="ltr" className={inputClass} /></div><div className="grid gap-3 sm:grid-cols-2"><Input required name="generatorCapacityKw" type="number" min="0.001" step="0.001" placeholder="قدرة المولد kW" dir="ltr" className={inputClass} /><select required name="generatorFuelType" className={inputClass}><option value="diesel">ديزل</option><option value="gasoline">بنزين</option><option value="gas">غاز</option><option value="other">أخرى</option></select></div><Input name="city" placeholder="المدينة" className={inputClass} /><div className="grid gap-3 sm:grid-cols-2"><select name="plan" className={inputClass}><option value="starter">Starter</option><option value="professional">Professional</option><option value="enterprise">Enterprise</option></select><select name="subscriptionStatus" className={inputClass}><option value="trial">تجريبي</option><option value="active">فعّال</option><option value="suspended">معلّق</option></select></div><div className="grid gap-3 sm:grid-cols-2"><select name="billingCycle" className={inputClass}><option value="monthly">شهري</option><option value="yearly">سنوي</option></select><Input name="endsAt" type="date" className={inputClass} /></div><label className="flex items-center gap-2 text-sm text-slate-400"><input name="autoRenew" type="checkbox" className="accent-[#F5B800]" />تجديد تلقائي</label><textarea name="notes" className="min-h-20 w-full rounded-xl border border-white/10 bg-white/[0.025] p-3 text-sm text-white outline-none focus:border-[#F5B800]/70" placeholder="ملاحظات الاشتراك" /><Button disabled={pending} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]"><Plus className="ml-2 h-4 w-4" />إنشاء صاحب المولد والمولد المعلّق</Button></form></CardContent></Card><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">أصحاب المولدات المسجلون</h2><div className="mt-4 space-y-3">{rows.map((row: any) => <div className="rounded-xl border border-white/8 bg-white/[0.02] p-4" key={row.tenant.id}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-white">{row.owner?.fullName ?? "صاحب مولد غير مربوط بحساب"}</p><p className="mt-1 text-xs text-slate-500">{row.tenant.name} · {row.owner?.phone ?? "لا يوجد هاتف"}</p></div><Badge className="w-fit bg-[#F5B800]/10 text-[#F5B800]">{row.tenant.plan}</Badge></div>{!row.owner?.ownerUserId && <div className="mt-4 flex flex-col gap-2 sm:flex-row"><select className={inputClass} defaultValue="" aria-label={`حساب مالك ${row.tenant.name}`}><option value="">اختر حساباً للربط</option>{users.map((candidate: any) => <option key={candidate.id} value={candidate.id}>{candidate.name ?? candidate.email ?? `مستخدم #${candidate.id}`}</option>)}</select><Button variant="outline" className="border-white/10 text-white hover:bg-white/5 hover:text-white" onClick={(event) => { const select = (event.currentTarget.parentElement?.querySelector("select") as HTMLSelectElement | null); if (!select?.value) return toast.error("اختر حساب المستخدم أولاً."); onAttach({ tenantId: row.tenant.id, userId: Number(select.value) }); }}>ربط الحساب</Button></div>}</div>)}{!rows.length && <p className="py-10 text-center text-sm text-slate-500">لم يُضف أي صاحب مولد بعد.</p>}</div></CardContent></Card></section>; }
 
-function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: any) { return <section className="space-y-4">{rows.map((row: any) => <Card className="border-white/8 bg-[#111823] shadow-panel" key={row.tenant.id}><CardContent className="p-5"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><p className="font-bold text-white">{row.owner?.fullName ?? row.tenant.name}</p><p className="mt-1 text-sm text-slate-500">{row.tenant.name} · انتهاء الاشتراك: {formatDate(row.subscription?.endsAt)}</p></div><div className="flex gap-2"><Button disabled={pending} onClick={() => onRenew({ tenantId: row.tenant.id, periods: 1 })} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]"><RefreshCw className="ml-2 h-4 w-4" />تجديد دورة</Button></div></div><form className="mt-5 grid gap-3 md:grid-cols-5" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); onUpdate({ tenantId: row.tenant.id, plan: String(data.get("plan")), status: String(data.get("status")), billingCycle: String(data.get("billingCycle")), endsAt: new Date(`${String(data.get("endsAt"))}T23:59:59`), autoRenew: data.get("autoRenew") === "on", notes: String(data.get("notes") || "") || undefined, smsPlanId: data.get("smsPlanId") ? Number(data.get("smsPlanId")) : null }); }}><select name="plan" defaultValue={row.subscription?.plan ?? row.tenant.plan} className={inputClass}><option value="starter">Starter</option><option value="professional">Professional</option><option value="enterprise">Enterprise</option></select><select name="smsPlanId" defaultValue={row.subscription?.smsPlanId ?? ""} className={inputClass}><option value="">بدون خطة SMS مخصصة</option>{smsPlans.filter((plan: any) => plan.isActive).map((plan: any) => <option key={plan.id} value={plan.id}>{plan.name} · {formatNumber(plan.includedMessages)} رسالة</option>)}</select><select name="status" defaultValue={row.subscription?.status ?? "trial"} className={inputClass}><option value="trial">تجريبي</option><option value="active">فعّال</option><option value="overdue">متأخر</option><option value="suspended">معلّق</option><option value="cancelled">ملغي</option></select><select name="billingCycle" defaultValue={row.subscription?.billingCycle ?? "monthly"} className={inputClass}><option value="monthly">شهري</option><option value="yearly">سنوي</option></select><Input required name="endsAt" type="date" defaultValue={row.subscription?.endsAt ? new Date(row.subscription.endsAt).toISOString().slice(0, 10) : ""} className={inputClass} /><label className="flex items-center gap-2 text-sm text-slate-400"><input defaultChecked={row.subscription?.autoRenew} name="autoRenew" type="checkbox" className="accent-[#F5B800]" />تجديد تلقائي</label><textarea name="notes" defaultValue={row.subscription?.notes ?? ""} placeholder="ملاحظات" className="min-h-10 rounded-xl border border-white/10 bg-white/[0.025] p-2 text-sm text-white outline-none md:col-span-4" /><Button disabled={pending} className="bg-white/8 text-white hover:bg-white/12">حفظ الاشتراك</Button></form></CardContent></Card>)}{!rows.length && <Card className="border-white/8 bg-[#111823]"><CardContent className="p-10 text-center text-slate-500">لا توجد اشتراكات مسجلة حتى الآن.</CardContent></Card>}</section>; }
+function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: any) {
+  const activeAddonsQuery = trpc.admin.listActiveTenantAddons.useQuery(undefined, { staleTime: 15000 });
+  const [renewingId, setRenewingId] = useState<number | null>(null);
+  const [renewEndsAt, setRenewEndsAt] = useState("");
+  const [addonDecisions, setAddonDecisions] = useState<Record<number, { decision: "renew" | "expire"; durationDays: number }>>({});
 
+  const addonLabels: Record<string,string> = {
+    fieldUser: "مستخدم ميداني إضافي",
+    platformUser: "مستخدم منصة إضافي",
+    subscribers50: "50 مشترك إضافي",
+    branch: "فرع إضافي",
+    sms: "حزمة SMS إضافية",
+  };
+
+  const openRenewal = (row: any) => {
+    const subscriptionId = Number(row.subscription?.id ?? 0);
+    if (!subscriptionId) { toast.error("لا يوجد اشتراك صالح للتجديد."); return; }
+    const currentEnd = row.subscription?.endsAt ? new Date(row.subscription.endsAt) : new Date();
+    const nextEnd = new Date(currentEnd);
+    nextEnd.setMonth(nextEnd.getMonth() + (row.subscription?.billingCycle === "yearly" ? 12 : 1));
+    setRenewingId(subscriptionId);
+    setRenewEndsAt(nextEnd.toISOString().slice(0,10));
+    const tenantAddons = (activeAddonsQuery.data ?? []).filter((item:any) => Number(item.tenantId) === Number(row.tenant.id));
+    const next: Record<number, { decision: "renew" | "expire"; durationDays: number }> = {};
+    tenantAddons.forEach((item:any) => { next[Number(item.addonRequestId)] = { decision: "renew", durationDays: Number(item.durationDays ?? 30) }; });
+    setAddonDecisions(next);
+  };
+
+  const submitRenewal = (row: any) => {
+    if (!renewingId || renewingId !== Number(row.subscription?.id)) return;
+    if (!renewEndsAt) { toast.error("حدد تاريخ انتهاء التجديد."); return; }
+    const addonItems = (activeAddonsQuery.data ?? []).filter((item:any) => Number(item.tenantId) === Number(row.tenant.id));
+    const decisions = addonItems.map((item:any) => {
+      const selected = addonDecisions[Number(item.addonRequestId)] ?? { decision: "renew" as const, durationDays: Number(item.durationDays ?? 30) };
+      return { addonRequestId: Number(item.addonRequestId), decision: selected.decision, ...(selected.decision === "renew" ? { durationDays: selected.durationDays } : {}) };
+    });
+    onRenew({ subscriptionId: Number(row.subscription.id), endsAt: new Date(renewEndsAt + "T23:59:59"), addonDecisions: decisions });
+    setRenewingId(null);
+  };
+
+  return <section className="space-y-4">
+    {rows.map((row:any) => {
+      const tenantAddons = (activeAddonsQuery.data ?? []).filter((item:any) => Number(item.tenantId) === Number(row.tenant.id));
+      const isRenewing = renewingId === Number(row.subscription?.id);
+      const packageCode = row.subscription?.packageCode ?? row.tenant?.packageCode ?? "basic";
+      return <Card className="border-white/8 bg-[#111823] shadow-panel" key={row.tenant.id}>
+        <CardContent className="p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="font-bold text-white">{row.owner?.fullName ?? row.tenant.name}</p>
+              <p className="mt-1 text-sm text-slate-500">{row.tenant.name} · الباقة: <strong className="text-slate-300">{packageCode}</strong> · انتهاء الاشتراك: {formatDate(row.subscription?.endsAt)}</p>
+              <p className="mt-1 text-xs text-slate-600">{tenantAddons.length ? `لديه ${tenantAddons.length} إضافة نشطة` : "لا توجد إضافات نشطة مرتبطة بالاشتراك"}</p>
+            </div>
+            <Button disabled={pending || activeAddonsQuery.isLoading} onClick={() => isRenewing ? submitRenewal(row) : openRenewal(row)} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">
+              <RefreshCw className="ml-2 h-4 w-4" />{isRenewing ? "تأكيد التجديد" : "تجديد الاشتراك"}
+            </Button>
+          </div>
+
+          {isRenewing && <div className="mt-5 rounded-2xl border border-[#F5B800]/20 bg-[#F5B800]/[.045] p-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+              <div><label className="mb-1 block text-xs text-slate-400">ينتهي الاشتراك في</label><Input type="date" value={renewEndsAt} onChange={(e) => setRenewEndsAt(e.target.value)} className={inputClass} /></div>
+              <div><label className="mb-1 block text-xs text-slate-400">الباقة الحالية</label><div className="flex h-10 items-center rounded-xl border border-white/10 bg-white/[.025] px-3 text-sm font-bold text-white">{packageCode}</div></div>
+              <Button type="button" variant="outline" onClick={() => setRenewingId(null)} className="self-end border-white/10 text-white hover:bg-white/5 hover:text-white">إلغاء</Button>
+            </div>
+
+            <div className="mt-5">
+              <div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-white">الإضافات النشطة</h3><p className="mt-1 text-xs leading-5 text-slate-500">يجب أن يحدد الأدمن صراحةً ما إذا كان كل امتياز إضافي سيستمر مع التجديد.</p></div><Badge className="bg-[#F5B800]/10 text-[#F5B800]">{tenantAddons.length} إضافة</Badge></div>
+              <div className="mt-3 space-y-2">
+                {tenantAddons.map((addon:any) => {
+                  const current = addonDecisions[Number(addon.addonRequestId)] ?? { decision:"renew" as const, durationDays:Number(addon.durationDays ?? 30) };
+                  return <div key={addon.addonRequestId} className="rounded-xl border border-white/8 bg-[#0D1117]/40 p-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div><p className="font-bold text-white">{addonLabels[addon.addonCode] ?? addon.addonCode} × {Number(addon.quantity)}</p><p className="mt-1 text-xs text-slate-500">ينتهي: {formatDate(addon.endsAt)}</p></div>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <select value={current.decision} onChange={(e) => setAddonDecisions((prev) => ({...prev,[Number(addon.addonRequestId)]:{...current,decision:e.target.value as "renew"|"expire"}}))} className={inputClass+" w-36"}>
+                          <option value="renew">تجديد الإضافة</option><option value="expire">إنهاء الإضافة</option>
+                        </select>
+                        {current.decision === "renew" && <label className="text-xs text-slate-500">المدة بالأيام<Input type="number" min="1" max="3650" value={current.durationDays} onChange={(e) => setAddonDecisions((prev) => ({...prev,[Number(addon.addonRequestId)]:{...current,durationDays:Math.max(1,Number(e.target.value)||1)}}))} className="mt-1 h-10 w-32"/></label>}
+                      </div>
+                    </div>
+                  </div>;
+                })}
+                {!tenantAddons.length && <div className="rounded-xl border border-dashed border-white/10 p-4 text-sm text-slate-500">لا توجد إضافات نشطة؛ سيُجدد الاشتراك الأساسي فقط.</div>}
+              </div>
+            </div>
+          </div>}
+
+          <form className="mt-5 grid gap-3 md:grid-cols-5" onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault(); const data = new FormData(event.currentTarget);
+            onUpdate({ tenantId: row.tenant.id, packageCode: String(data.get("packageCode")), status: String(data.get("status")), billingCycle: String(data.get("billingCycle")), endsAt: new Date(`${String(data.get("endsAt"))}T23:59:59`), autoRenew: data.get("autoRenew") === "on", notes: String(data.get("notes") || "") || undefined, smsPlanId: data.get("smsPlanId") ? Number(data.get("smsPlanId")) : null });
+          }}>
+            <select name="packageCode" defaultValue={packageCode} className={inputClass}>
+              <option value="basic">الناشئة</option><option value="advanced">النمو</option><option value="professional">الاحتراف</option><option value="business">الأعمال</option><option value="vip">الذهبية - VIP</option>
+            </select>
+            <select name="smsPlanId" defaultValue={row.subscription?.smsPlanId ?? ""} className={inputClass}><option value="">بدون خطة SMS مخصصة</option>{smsPlans.filter((plan:any) => plan.isActive).map((plan:any) => <option key={plan.id} value={plan.id}>{plan.name} · {formatNumber(plan.includedMessages)} رسالة</option>)}</select>
+            <select name="status" defaultValue={row.subscription?.status ?? "trial"} className={inputClass}><option value="trial">تجريبي</option><option value="active">فعّال</option><option value="overdue">متأخر</option><option value="suspended">معلّق</option><option value="cancelled">ملغي</option></select>
+            <select name="billingCycle" defaultValue={row.subscription?.billingCycle ?? "monthly"} className={inputClass}><option value="monthly">شهري</option><option value="yearly">سنوي</option></select>
+            <Input required name="endsAt" type="date" defaultValue={row.subscription?.endsAt ? new Date(row.subscription.endsAt).toISOString().slice(0,10) : ""} className={inputClass}/>
+            <label className="flex items-center gap-2 text-sm text-slate-400"><input defaultChecked={row.subscription?.autoRenew} name="autoRenew" type="checkbox" className="accent-[#F5B800]"/>تجديد تلقائي</label>
+            <textarea name="notes" defaultValue={row.subscription?.notes ?? ""} placeholder="ملاحظات" className="min-h-10 rounded-xl border border-white/10 bg-white/[0.025] p-2 text-sm text-white outline-none md:col-span-4"/>
+            <Button disabled={pending} className="bg-white/8 text-white hover:bg-white/12">حفظ الاشتراك</Button>
+          </form>
+        </CardContent>
+      </Card>;
+    })}
+    {!rows.length && <Card className="border-white/8 bg-[#111823]"><CardContent className="p-10 text-center text-slate-500">لا توجد اشتراكات مسجلة حتى الآن.</CardContent></Card>}
+  </section>;
+}
 function AdminReportsExports({ rows }: { rows: any[] }) {
   const pdfRef = useRef<HTMLDivElement>(null);
   const fileRows = rows.map((row) => [row.owner?.fullName ?? "غير محدد", row.tenant.name, statusLabel(row.subscription?.status), row.subscription?.plan ?? row.tenant.plan, row.subscribers.residential, row.subscribers.commercial, row.subscribers.total, formatDate(row.subscription?.endsAt)]);

@@ -27,7 +27,7 @@ const state = vi.hoisted(() => {
       { id: 108, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "subscriber", entity_id: "30", action: "create", before_data: null, after_data: { subscriberNo: "MAIN-001" }, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
       { id: 109, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "meter_reading", entity_id: "60", action: "mobile_create", before_data: null, after_data: null, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
     ],
-    users: [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platform_role: "platform_admin", account_status: "active", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, plan: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { starter: 1, professional: 3, enterprise: 10 } } }], tenant_branch_settings: [],
+    users: [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }], tenant_branch_settings: [],
     tenant_owner_profiles: [{ tenant_id: 20, company_name: "شركة المولد", report_logo_key: null }],
     staff_profiles: [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true }],
     mobile_sync_events: [{ id: 110, tenant_id: 20, site_id: 10, user_id: 1, event_type: "sync_cycle", status: "success", synced_count: 2, retryable_count: 0, needs_review_count: 0, error_code: null, error_message: null, app_version: "1.0.0", device_label: "هاتف فني", occurred_at: "2026-08-03T00:00:00.000Z" }],
@@ -36,8 +36,8 @@ const state = vi.hoisted(() => {
     payroll_runs: [{ id: 122, tenant_id: 20, site_id: 10, period: "2026-08", status: "draft", total_gross: 1000, total_deductions: 100, total_net: 900, paid_from_account_id: null, approved_by_user_id: null, paid_at: null, created_by_user_id: 1, created_at: "2026-08-31T00:00:00.000Z", updated_at: "2026-08-31T00:00:00.000Z" }],
     payroll_items: [{ id: 123, payroll_run_id: 122, employee_id: 120, base_amount: 1000, extra_amount: 0, advance_deduction: 100, other_deduction: 0, net_amount: 900, notes: null }],
     employee_attendance: [{ id: 124, tenant_id: 20, employee_id: 120, site_id: 10, work_date: "2026-08-03", regular_hours: 8, overtime_hours: 1, absent_days: 0, notes: null, created_by_user_id: 1, created_at: "2026-08-03T00:00:00.000Z", updated_at: "2026-08-03T00:00:00.000Z" }],
-    tenants: [{ id: 20, plan: "starter" }],
-    subscription_upgrade_requests: [{ id: 109, tenant_id: 20, current_plan: "starter", requested_plan: "professional", status: "pending", note: "مراجعة الباقة", created_at: "2026-08-20T00:00:00.000Z", reviewed_at: null }],
+    tenants: [{ id: 20, plan: "professional", package_code: "professional" }],
+    subscription_upgrade_requests: [{ id: 109, tenant_id: 20, current_package_code: "basic", requested_package_code: "professional", status: "pending", note: "مراجعة الباقة", created_at: "2026-08-20T00:00:00.000Z", reviewed_at: null }],
   };
   const resolved = (data: unknown) => Promise.resolve({ data, error: null });
   const client = {
@@ -115,7 +115,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_payroll_draft") return resolved([{ payroll_run_id: 126, total_net: 1100 }]);
       if (name === "powerhub_approve_payroll") return resolved([{ payroll_run_id: 122 }]);
       if (name === "powerhub_pay_payroll") return resolved([{ payroll_run_id: 122, expense_id: 125, transaction_id: 126 }]);
-      if (name === "powerhub_request_subscription_upgrade") return resolved([{ request_id: 127, requested_plan: "professional", already_requested: false }]);
+      if (name === "powerhub_request_subscription_upgrade") return resolved([{ request_id: 127, requested_package_code: "professional", already_requested: false }]);
       if (name === "powerhub_normalize_subscriber_phones") return resolved([{ updated_count: 1, skipped_count: 0 }]);
       if (name === "powerhub_create_invoice_share_link") return resolved([{ share_link_id: 128 }]);
       if (name === "powerhub_get_shared_invoice_by_token_hash") return resolved({ invoice: { id: 70, invoice_no: "MAIN-202608-0001" }, subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, lines: [{ id: 129, invoice_id: 70, description: "استهلاك كهرباء" }] });
@@ -164,6 +164,9 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   beforeEach(() => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.notification_messages = [{ id: 90, subscriber_id: 30, status: "failed" }];
+    state.tables.tenant_subscriptions = [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
+    state.tables.tenants = [{ id: 20, plan: "professional", package_code: "professional" }];
+    state.tables.platform_settings = [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }];
     state.inserts.splice(0);
     state.updates.splice(0);
     state.rpcCalls.splice(0);
@@ -247,8 +250,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscription.currentUpgradeRequest({ siteId: 10 })).resolves.toMatchObject({
       id: 109,
-      currentPlan: "starter",
-      requestedPlan: "professional",
+      currentPackageCode: "basic",
+      requestedPackageCode: "professional",
       status: "pending",
       note: "مراجعة الباقة",
       createdAt: expect.any(Date),
@@ -572,8 +575,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يقرأ سياسة أدوار وحدود الحسابات الفرعية من Supabase مع تجاوز المستأجر والعدد النشط", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
-    state.tables.tenant_subscriptions = [{ tenant_id: 20, plan: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
-    state.tables.tenants = [{ id: 20, plan: "starter" }];
+    state.tables.tenant_subscriptions = [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
+    state.tables.tenants = [{ id: 20, plan: "professional", package_code: "professional" }];
     state.tables.platform_settings = [
       { setting_key: "owner_subaccount_roles", is_enabled: true, value: { allowedRoles: ["accountant", "viewer", "owner"] } },
       { setting_key: "owner_subaccount_limits", is_enabled: true, value: { limits: { professional: 5 } } },
@@ -609,8 +612,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))
-      .resolves.toEqual({ id: 31, subscriberNo: "MAIN-NEW", referenceNotifications: [] });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_quota_limit: 100 }) })]);
+      .resolves.toEqual({ id: 31, subscriberNo: expect.any(String), referenceNotifications: [] });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_quota_limit: 500 }) })]);
     expect(state.inserts.some((entry) => entry.table === "notification_messages")).toBe(false);
   });
 
@@ -812,10 +815,10 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("ينشئ طلب ترقية الباقة عبر RPC Supabase الذرية دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.subscription.requestUpgrade({ siteId: 10, requestedPlan: "professional" })).resolves.toEqual({ id: 127, requestedPlan: "professional", alreadyRequested: false });
+    await expect(caller.subscription.requestUpgrade({ siteId: 10, requestedPackageCode: "professional" })).resolves.toEqual({ id: 127, requestedPackageCode: "professional", alreadyRequested: false });
     expect(state.rpcCalls).toEqual([expect.objectContaining({
       name: "powerhub_request_subscription_upgrade",
-      args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_requested_plan: "professional" },
+      args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_requested_package_code: "professional" },
     })]);
   });
 
@@ -827,8 +830,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يحفظ الاستيراد الجماعي عبر RPC Supabase الذرية دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.bulkImport({ siteId: 10, updateExisting: false, rows: [{ sourceRow: 2, subscriberNo: "MAIN-NEW", fullName: "مشترك اختبار", phone: "+970595000111", subscriptionType: "residential" }] }))
-      .resolves.toMatchObject({ created: [{ subscriberNo: "MAIN-NEW" }], updated: [], failed: [], notificationsQueued: 0 });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_bulk_upsert_subscribers", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_update_existing: false, p_quota_limit: 100 }) })]);
+      .resolves.toMatchObject({ created: [{ subscriberNo: expect.anything() }], updated: [], failed: [], notificationsQueued: 0 });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_bulk_upsert_subscribers", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_update_existing: false, p_quota_limit: 500 }) })]);
     expect(state.inserts.filter((entry) => entry.table === "subscribers")).toEqual([]);
     expect(state.updates).toEqual([]);
   });

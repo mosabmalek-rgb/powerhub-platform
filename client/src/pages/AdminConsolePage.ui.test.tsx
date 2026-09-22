@@ -16,19 +16,22 @@ const state = vi.hoisted(() => ({ role: "user", mutation: vi.fn(), collectionRat
 const ownerRow = {
   tenant: { id: 9, name: "مساحة مولد الاختبار", plan: "professional" },
   owner: { fullName: "صاحب المولد التجريبي", phone: "0790000000", ownerUserId: 4 },
-  subscription: { status: "active", plan: "professional", billingCycle: "monthly", endsAt: new Date("2026-12-31"), autoRenew: true, notes: "" },
+  subscription: { id: 50, status: "active", packageCode: "professional", plan: "professional", billingCycle: "monthly", endsAt: new Date("2026-12-31"), autoRenew: true, notes: "" },
   subscribers: { residential: 120, commercial: 30, total: 150 },
 };
 
-vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false, user: { id: 1, role: state.role, name: "آدمن الاختبار" } }) }));
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false, user: { id: 1, role: state.role, platformRole: state.role === "admin" ? "platform_admin" : null, accountStatus: "active", name: "آدمن الاختبار" } }) }));
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, listTweetSmsAccounts: { invalidate: vi.fn() }, getPlatformTweetSmsAccount: { invalidate: vi.fn() }, platformTweetSmsReport: { invalidate: vi.fn() }, listPlatformSmsFallbackProviders: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, listTenantFeatureEntitlements: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, listTweetSmsAccounts: { invalidate: vi.fn() }, getPlatformTweetSmsAccount: { invalidate: vi.fn() }, platformTweetSmsReport: { invalidate: vi.fn() }, listPlatformSmsFallbackProviders: { invalidate: vi.fn() }, listActiveTenantAddons: { invalidate: vi.fn() }, listTenantAddonRequests: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, listTenantFeatureEntitlements: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { generatorOwners: 1, residential: 120, commercial: 30, subscribers: 150, activeSubscriptions: 1 }, owners: [ownerRow] } }) },
       listOwners: { useQuery: () => ({ data: [ownerRow] }) },
       listSubscriptionUpgradeRequests: { useQuery: () => ({ data: [{ id: 51, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerEmail: "owner@example.com", currentPlan: "starter", requestedPlan: "professional", status: "pending", note: null, createdAt: new Date(), reviewedAt: null }], isLoading: false }) },
+      listActiveTenantAddons: { useQuery: () => ({ data: [] }) },
+      listTenantAddonRequests: { useQuery: () => ({ data: [] }) },
+      reviewTenantAddonRequest: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       reviewSubscriptionUpgradeRequest: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       quickUpgradeOwnerPlan: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       sendOwnerUsageAlert: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
@@ -107,7 +110,7 @@ describe("PowerHub platform administration UI", () => {
     fireEvent.click(sidebarNav("إدارة المستخدمين"));
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
     fireEvent.click(sidebarNav("المالية والتحصيل"));
-    expect(screen.getByRole("button", { name: /تجديد دورة/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /تجديد الاشتراك/ })).toBeInTheDocument();
     fireEvent.click(sidebarNav("التقارير والإحصائيات"));
     expect(screen.getByRole("button", { name: /تصدير CSV/ })).toBeInTheDocument();
     fireEvent.click(sidebarNav("إرسال الفواتير"));

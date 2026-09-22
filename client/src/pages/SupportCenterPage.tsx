@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { listChatNotifications, subscribeToChatNotifications, subscribeToChatConversation } from "@/lib/chatReceipts";
-import { Loader2, MessageCircle, RefreshCw, Send, ShieldAlert, UserRoundCheck } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Loader2, MessageCircle, RefreshCw, Send, Settings2, ShieldAlert, UserRoundCheck } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 type Conversation = {
@@ -21,6 +22,15 @@ type Conversation = {
   priority: string;
   last_message_at: string | null;
   created_at: string;
+  ticket_number?: string | null;
+  category_code?: string | null;
+  category_name?: string | null;
+  assigned_user_id?: number | null;
+  assigned_user_name?: string | null;
+  first_response_due_at?: string | null;
+  resolution_due_at?: string | null;
+  sla_state?: string | null;
+  unread_count?: number;
 };
 
 type MessageRow = {
@@ -42,6 +52,44 @@ type Assignment = {
 
 type SupportUser = { id: number; name: string; email: string; platform_role: string };
 
+const priorityLabels: Record<string, string> = { low: "منخفض", normal: "عادي", high: "مرتفع", urgent: "عاجل" };
+
+function SupportAdminControls({ data, working, onSave }: { data: any; working: boolean; onSave: (fn: string, args: Record<string, unknown>, success: string) => Promise<boolean> }) {
+  const settings = data?.settings ?? {};
+  const sla = data?.sla ?? [];
+  const categories = data?.categories ?? [];
+  const tags = data?.tags ?? [];
+  const quickReplies = data?.quickReplies ?? [];
+  const [autoClose, setAutoClose] = useState(Number(settings.auto_close_after_minutes ?? 2880));
+  const [reopenWindow, setReopenWindow] = useState(Number(settings.reopen_window_minutes ?? 10080));
+  useEffect(() => {
+    setAutoClose(Number(settings.auto_close_after_minutes ?? 2880));
+    setReopenWindow(Number(settings.reopen_window_minutes ?? 10080));
+  }, [settings.auto_close_after_minutes, settings.reopen_window_minutes]);
+  return <Card className="border-[#F5B800]/25 bg-[#111823]">
+    <CardHeader><CardTitle className="text-white">إعدادات مركز الدعم</CardTitle></CardHeader>
+    <CardContent className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card className="border-white/8 bg-white/[.02]"><CardContent className="p-4"><p className="text-sm font-bold text-white">دورة التذكرة</p><div className="mt-3 grid gap-2"><label className="text-xs text-slate-400">الإغلاق التلقائي بعد الحل (دقيقة)<Input value={autoClose} onChange={(e) => setAutoClose(Number(e.target.value))} type="number" min={0} max={43200} className="mt-1 bg-black/20 text-white" /></label><label className="text-xs text-slate-400">نافذة إعادة الفتح (دقيقة)<Input value={reopenWindow} onChange={(e) => setReopenWindow(Number(e.target.value))} type="number" min={60} max={43200} className="mt-1 bg-black/20 text-white" /></label><Button disabled={working} onClick={() => void onSave("chat_support_admin_save_settings",{p_auto_close_after_minutes:autoClose,p_reopen_window_minutes:reopenWindow},"تم حفظ إعدادات دورة التذكرة.")}>حفظ</Button></div></CardContent></Card>
+        <Card className="border-white/8 bg-white/[.02]"><CardContent className="p-4"><p className="text-sm font-bold text-white">سياسات SLA</p><div className="mt-3 space-y-2">{sla.map((row:any)=><div key={row.priority} className="flex items-center gap-2"><span className="w-16 text-xs text-slate-400">{priorityLabels[row.priority] ?? row.priority}</span><Input defaultValue={row.multiplier} type="number" step="0.05" min="0.05" max="10" className="bg-black/20 text-white" onBlur={(e)=>void onSave("chat_support_admin_upsert_sla",{p_priority:row.priority,p_multiplier:Number(e.target.value)},"تم تحديث SLA.")}/></div>)}</div></CardContent></Card>
+        <Card className="border-white/8 bg-white/[.02]"><CardContent className="p-4"><p className="text-sm font-bold text-white">حالة النظام</p><div className="mt-3 space-y-2 text-xs text-slate-400"><p>التصنيفات: <strong className="text-white">{categories.length}</strong></p><p>الوسوم: <strong className="text-white">{tags.length}</strong></p><p>الردود الجاهزة: <strong className="text-white">{quickReplies.length}</strong></p><p>قواعد الإغلاق وإعادة الفتح مرتبطة بدورة حياة التذكرة.</p></div></CardContent></Card>
+      </div>
+      <details className="rounded-xl border border-white/8 bg-white/[.02] p-4"><summary className="cursor-pointer text-sm font-bold text-white">إدارة التصنيفات والوسوم والردود الجاهزة</summary>
+        <div className="mt-4 grid gap-4 xl:grid-cols-3">
+          <AdminList title="التصنيفات" rows={categories} render={(row:any)=><div><p className="font-bold text-white">{row.name}</p><p className="text-[11px] text-slate-500">{row.code} · أول استجابة {row.default_first_response_minutes} د · حل {row.default_resolution_minutes} د</p></div>} />
+          <AdminList title="الوسوم" rows={tags} render={(row:any)=><div><p className="font-bold text-white">{row.name}</p><p className="text-[11px] text-slate-500">{row.code} · {row.is_active ? "مفعّل" : "متوقف"}</p></div>} />
+          <AdminList title="الردود الجاهزة" rows={quickReplies} render={(row:any)=><div><p className="font-bold text-white">{row.title}</p><p className="text-[11px] text-slate-500">{row.shortcut} · {row.category_code || "عام"}</p></div>} />
+        </div>
+        <p className="mt-4 text-xs leading-6 text-slate-500">التحكم الكامل في إنشاء/تعديل العناصر متاح عبر طبقة الإدارة الآمنة، ويمكن توسيع هذه الشاشة لاحقًا إلى محرر كامل دون تغيير عقود قاعدة البيانات.</p>
+      </details>
+    </CardContent>
+  </Card>;
+}
+
+function AdminList({ title, rows, render }: { title:string; rows:any[]; render:(row:any)=>ReactNode }) {
+  return <div className="rounded-xl border border-white/8 p-3"><h3 className="text-sm font-bold text-white">{title}</h3><div className="mt-3 space-y-2 max-h-52 overflow-auto">{rows.length ? rows.map((row) => <div key={row.id ?? row.code ?? row.shortcut} className="rounded-lg border border-white/6 bg-white/[.02] p-2">{render(row)}</div>) : <p className="text-xs text-slate-500">لا توجد بيانات.</p>}</div></div>;
+}
+
 function statusLabel(status: string) {
   const map: Record<string, string> = {
     SUPPORT_PENDING: "بانتظار الدعم",
@@ -53,8 +101,10 @@ function statusLabel(status: string) {
   return map[status] ?? status;
 }
 
-export default function SupportCenterPage() {
+type SupportCenterPageProps = { embedded?: boolean };
+export default function SupportCenterPage({ embedded = false }: SupportCenterPageProps) {
   const { user } = useAuth({ redirectOnUnauthenticated: true });
+  const supportOnly = user?.role === "admin" && user.platformRole === "platform_support";
   const access = trpc.support.assertAccess.useQuery(undefined, { retry: false });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -67,36 +117,79 @@ export default function SupportCenterPage() {
   const [sending, setSending] = useState(false);
   const [working, setWorking] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [filter, setFilter] = useState({ status: "", priority: "", category: "", search: "" });
+  const [categories, setCategories] = useState<Array<{ code: string; name: string }>>([]);
+  const [internalNote, setInternalNote] = useState(false);
+  const [tags, setTags] = useState<Array<{ id: number; name: string }>>([]);
+  const [tagIds, setTagIds] = useState<number[]>([]);
+  const [adminControlsOpen, setAdminControlsOpen] = useState(false);
+  const [adminControls, setAdminControls] = useState<any | null>(null);
+  const [adminWorking, setAdminWorking] = useState(false);
+  const [timeline, setTimeline] = useState<Array<{ id:number; event_type:string; actor_name:string|null; from_status:string|null; to_status:string|null; from_priority:string|null; to_priority:string|null; metadata:Record<string,unknown>; created_at:string }>>([]);
 
   const selected = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) ?? null, [conversations, selectedId]);
   const selectedAssignment = useMemo(() => assignments.find((assignment) => assignment.conversation_id === selectedId && ["pending", "active"].includes(assignment.status)) ?? null, [assignments, selectedId]);
 
+  async function loadAdminControls() {
+    const { data, error } = await supabase.rpc("chat_support_admin_snapshot");
+    if (!error && data) setAdminControls(data);
+  }
+
   async function refreshQueue() {
     if (!access.data?.allowed) return;
     setLoadingQueue(true);
-    const [conversationResult, assignmentResult, userResult] = await Promise.all([
-      supabase.from("chat_conversations").select("id,tenant_id,conversation_type,status,subject,priority,last_message_at,created_at").eq("conversation_type", "support").order("last_message_at", { ascending: false, nullsFirst: false }),
+    const [queueResult, assignmentResult, userResult, categoryResult, tagResult] = await Promise.all([
+      supabase.rpc("chat_support_queue", {
+        p_status: filter.status || null,
+        p_priority: filter.priority || null,
+        p_category_code: filter.category || null,
+        p_assigned_user_id: null,
+        p_search: filter.search.trim() || null,
+        p_limit: 100,
+        p_offset: 0,
+      }),
       supabase.from("chat_support_assignments").select("id,conversation_id,assigned_user_id,status"),
       supabase.rpc("chat_support_users"),
+      supabase.from("chat_support_categories").select("code,name").eq("is_active", true).order("sort_order"),
+      supabase.from("chat_support_tags").select("id,name").eq("is_active", true).order("name"),
     ]);
-    if (conversationResult.error || assignmentResult.error || userResult.error) {
+    if (queueResult.error || assignmentResult.error || userResult.error || categoryResult.error || tagResult.error) {
       toast.error("تعذر تحميل طابور الدعم.");
       setLoadingQueue(false);
       return;
     }
-    setConversations((conversationResult.data ?? []) as Conversation[]);
+    const rows = (queueResult.data ?? []).map((row: any) => ({ ...row, id: Number(row.conversation_id) })) as Conversation[];
+    setConversations(rows);
     setAssignments((assignmentResult.data ?? []) as Assignment[]);
     setSupportUsers((userResult.data ?? []) as SupportUser[]);
+    setCategories((categoryResult.data ?? []) as Array<{ code: string; name: string }>);
+    setTags((tagResult.data ?? []) as Array<{ id: number; name: string }>);
     setLoadingQueue(false);
-    if (selectedId === null && conversationResult.data?.length) setSelectedId(conversationResult.data[0].id);
+    if (adminControlsOpen) await loadAdminControls();
+    if (selectedId === null && rows.length) setSelectedId(rows[0].id);
+    if (selectedId !== null && !rows.some((row) => row.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
   }
 
   async function loadMessages(conversationId: number) {
     setLoadingMessages(true);
-    const { data, error } = await supabase.from("chat_messages").select("id,conversation_id,sender_user_id,sender_type,message_type,body,created_at").eq("conversation_id", conversationId).order("created_at", { ascending: true });
+    const { data, error } = await supabase.from("chat_messages").select("id,conversation_id,sender_user_id,sender_type,message_type,body,visibility,created_at").eq("conversation_id", conversationId).order("created_at", { ascending: true });
     if (error) toast.error("تعذر تحميل الرسائل.");
     setMessages((data ?? []) as MessageRow[]);
+    const { data: currentTags } = await supabase.from("chat_conversation_tags").select("tag_id").eq("conversation_id", conversationId);
+    setTagIds((currentTags ?? []).map((row: any) => Number(row.tag_id)));
+    const { data: timelineData } = await supabase.rpc("chat_ticket_timeline", { p_conversation_id: conversationId });
+    setTimeline((timelineData ?? []) as typeof timeline);
     setLoadingMessages(false);
+  }
+
+  async function saveAdminRpc(fn: string, args: Record<string, unknown>, success: string) {
+    setAdminWorking(true);
+    const { error } = await supabase.rpc(fn, args);
+    setAdminWorking(false);
+    if (error) { toast.error("تعذر حفظ إعداد الدعم."); return false; }
+    toast.success(success);
+    await loadAdminControls();
+    return true;
   }
 
   async function assignConversation(userId: number) {
@@ -132,11 +225,15 @@ export default function SupportCenterPage() {
     const body = input.trim();
     if (!body || !selectedId || sending) return;
     setSending(true);
-    const { data, error } = await supabase.rpc("chat_send_message", { p_conversation_id: selectedId, p_body: body, p_client_message_id: crypto.randomUUID(), p_reply_to_message_id: null });
+    const rpc = internalNote ? "chat_send_internal_note" : "chat_send_message";
+    const args = internalNote ? { p_conversation_id: selectedId, p_body: body, p_client_message_id: crypto.randomUUID() } : { p_conversation_id: selectedId, p_body: body, p_client_message_id: crypto.randomUUID(), p_reply_to_message_id: null };
+    const { data, error } = await supabase.rpc(rpc, args);
     setSending(false);
     if (error || !data) { toast.error("تعذر إرسال الرسالة."); return; }
     setMessages((current) => [...current, data as MessageRow]);
     setInput("");
+    setInternalNote(false);
+    await refreshQueue();
   }
 
   useEffect(() => {
@@ -145,7 +242,7 @@ export default function SupportCenterPage() {
     void listChatNotifications(100).then((rows) => setNotificationCount(rows.filter((row) => !row.read_at).length)).catch(() => undefined);
     if (!user?.id) return;
     return subscribeToChatNotifications(user.id, () => setNotificationCount((count) => count + 1));
-  }, [access.data?.allowed, user?.id]);
+  }, [access.data?.allowed, user?.id, filter.status, filter.priority, filter.category]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -153,25 +250,25 @@ export default function SupportCenterPage() {
     return subscribeToChatConversation(selectedId, () => void loadMessages(selectedId));
   }, [selectedId]);
 
-  if (access.isLoading) return <DashboardLayout><div className="grid min-h-[70vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin" /></div></DashboardLayout>;
+  if (access.isLoading) return <div className="grid min-h-[55vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin" /></div>;
 
   if (access.error || !access.data?.allowed) {
     return <DashboardLayout><div className="mx-auto mt-16 max-w-xl rounded-2xl border border-red-200 bg-red-50 p-8 text-center"><ShieldAlert className="mx-auto mb-3 h-8 w-8 text-red-600" /><h1 className="text-xl font-bold">لا تملك صلاحية مركز الدعم</h1><p className="mt-2 text-sm text-red-700">الوصول يتطلب صلاحية المنصة manageSupportChat.</p></div></DashboardLayout>;
   }
 
-  return (
-    <DashboardLayout>
-      <div className="space-y-5" dir="rtl">
+  const content = <div className="space-y-5" dir="rtl">
         <header className="rounded-2xl border bg-background p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div><div className="flex items-center gap-2 text-sm font-bold text-primary"><MessageCircle className="h-4 w-4" />مركز دعم PowerHub</div><h1 className="mt-1 text-2xl font-extrabold">طابور الدعم الذكي</h1><p className="mt-1 text-sm text-muted-foreground">إدارة المحادثات والتعيين والردود وتغيير الحالة ضمن صلاحية المنصة.</p></div>
-            <div className="flex items-center gap-2"><Badge variant="outline">إشعارات غير مقروءة: {notificationCount}</Badge><Button variant="outline" size="icon" onClick={() => void refreshQueue()} disabled={loadingQueue}><RefreshCw className={`h-4 w-4 ${loadingQueue ? "animate-spin" : ""}`} /></Button></div>
+            <div><div className="flex items-center gap-2 text-sm font-bold text-primary"><MessageCircle className="h-4 w-4" />مركز دعم PowerHub</div><h1 className="mt-1 text-2xl font-extrabold">طابور الدعم الذكي</h1><p className="mt-1 text-sm text-muted-foreground">إدارة التذاكر والتصنيف والأولوية وSLA والإسناد والملاحظات الداخلية ضمن صلاحية المنصة.</p>
+            <div className="mt-4 flex flex-wrap gap-2"><input value={filter.search} onChange={(e) => setFilter((x) => ({ ...x, search: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") void refreshQueue(); }} placeholder="بحث برقم التذكرة أو العميل..." className="h-9 rounded-md border bg-background px-3 text-sm" /><select value={filter.status} onChange={(e) => setFilter((x) => ({ ...x, status: e.target.value }))} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="">كل الحالات</option>{["SUPPORT_PENDING","SUPPORT_ACTIVE","WAITING_USER","RESOLVED","CLOSED"].map((x) => <option key={x} value={x}>{x}</option>)}</select><select value={filter.priority} onChange={(e) => setFilter((x) => ({ ...x, priority: e.target.value }))} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="">كل الأولويات</option>{["low","normal","high","urgent"].map((x) => <option key={x} value={x}>{x}</option>)}</select><select value={filter.category} onChange={(e) => setFilter((x) => ({ ...x, category: e.target.value }))} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="">كل التصنيفات</option>{categories.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}</select></div></div>
+            <div className="flex items-center gap-2"><Badge variant="outline">إشعارات غير مقروءة: {notificationCount}</Badge>
+          {!supportOnly && <Button variant="outline" size="sm" onClick={() => { setAdminControlsOpen((open) => !open); if (!adminControls) void loadAdminControls(); }}><Settings2 className="ml-2 h-4 w-4" />إعدادات الدعم</Button>}<Button variant="outline" size="icon" onClick={() => void refreshQueue()} disabled={loadingQueue}><RefreshCw className={`h-4 w-4 ${loadingQueue ? "animate-spin" : ""}`} /></Button></div>
           </div>
         </header>
 
         <div className="grid min-h-[680px] gap-4 lg:grid-cols-[330px_1fr]">
           <Card className="lg:order-1"><CardHeader><CardTitle>الطابور</CardTitle></CardHeader><CardContent className="space-y-2 px-3">
-            {conversations.map((conversation) => { const assignment = assignments.find((row) => row.conversation_id === conversation.id && ["pending", "active"].includes(row.status)); return <button key={conversation.id} type="button" onClick={() => setSelectedId(conversation.id)} className={`w-full rounded-xl border p-3 text-right ${selectedId === conversation.id ? "border-primary bg-primary/5" : "border-border"}`}><div className="flex items-center justify-between gap-2"><span className="truncate font-bold">{conversation.subject || "محادثة دعم"}</span><Badge variant="secondary">{statusLabel(conversation.status)}</Badge></div><div className="mt-2 text-xs text-muted-foreground">الأولوية: {conversation.priority} · {assignment ? `مسندة #${assignment.assigned_user_id}` : "غير مسندة"}</div></button>; })}
+            {conversations.map((conversation) => { const assignment = assignments.find((row) => row.conversation_id === conversation.id && ["pending", "active"].includes(row.status)); return <button key={conversation.id} type="button" onClick={() => setSelectedId(conversation.id)} className={`w-full rounded-xl border p-3 text-right ${selectedId === conversation.id ? "border-primary bg-primary/5" : "border-border"}`}><div className="flex items-center justify-between gap-2"><span className="truncate font-bold">{conversation.subject || "محادثة دعم"}</span><Badge variant="secondary">{statusLabel(conversation.status)}</Badge></div><div className="mt-2 text-xs text-muted-foreground">{conversation.ticket_number || ("#" + conversation.id)} · الأولوية: {conversation.priority} · {conversation.category_name || "غير مصنف"}</div><div className="mt-1 text-[11px] text-muted-foreground">{conversation.assigned_user_name ? ("مسندة إلى " + conversation.assigned_user_name) : "غير مسندة"}{conversation.unread_count ? (" · " + conversation.unread_count + " غير مقروء") : ""}{conversation.sla_state ? (" · " + conversation.sla_state) : ""}</div></button>; })}
             {!conversations.length && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">لا توجد محادثات دعم في الطابور.</div>}
           </CardContent></Card>
 
@@ -183,11 +280,21 @@ export default function SupportCenterPage() {
             {(selected.status === "RESOLVED" || selected.status === "WAITING_USER") && <Button variant="outline" size="sm" onClick={() => void transition("SUPPORT_ACTIVE")} disabled={working}>إعادة فتح</Button>}
           </div>}</div></CardHeader>
           <CardContent>{!selected && <div className="grid min-h-[520px] place-items-center text-muted-foreground">اختر محادثة من الطابور.</div>}{selected && <div className="flex min-h-[520px] flex-col gap-3">
+            <div className="rounded-xl border bg-muted/20 p-3">
+              <div className="mb-2 text-xs font-bold">السجل الزمني للتذكرة</div>
+              <ScrollArea className="h-32"><div className="space-y-2 text-xs">
+                {timeline.map((event) => <div key={event.id} className="flex items-start gap-2 border-b pb-2 last:border-0">
+                  <span className="font-medium">{event.event_type}</span>
+                  <span className="text-muted-foreground">{event.actor_name || "النظام"}</span>
+                  <span className="mr-auto text-muted-foreground">{new Date(event.created_at).toLocaleString("ar-PS")}</span>
+                </div>)}
+                {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
+              </div></ScrollArea>
+            </div>
             <ScrollArea className="h-[430px] rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => <div key={message.id} className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "mx-auto bg-muted text-center" : message.sender_user_id === selectedAssignment?.assigned_user_id ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-muted"}`}><div className="whitespace-pre-wrap text-sm">{message.body}</div><div className="mt-1 text-[10px] opacity-70">{new Date(message.created_at).toLocaleString("ar-PS")}</div></div>)}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}</ScrollArea>
-            <div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="اكتب رد الدعم..." className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div>
+            <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
         </div>
-      </div>
-    </DashboardLayout>
-  );
+      </div>;
+  return embedded ? content : <DashboardLayout>{content}</DashboardLayout>;
 }
