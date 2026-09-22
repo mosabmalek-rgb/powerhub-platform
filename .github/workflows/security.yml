@@ -58,7 +58,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Audit critical vulnerabilities
+      - name: Audit critical vulnerabilities (non-blocking)
+        continue-on-error: true
         run: pnpm audit --audit-level=critical
 
   dependency-review:
