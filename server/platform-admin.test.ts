@@ -16,6 +16,8 @@ describe("active platform admin identity", () => {
     expect(isActivePlatformAdmin(identity)).toBe(false);
   });
 
+  it("keeps support-only identity outside generic platform-admin procedures", () => { expect(isActivePlatformAdmin({ role: "admin", accountStatus: "active", platformRole: "platform_support" })).toBe(false); });
+
   it("limits platform procedures to the requested valid platform roles", () => {
     expect(isPlatformRole({ role: "admin", accountStatus: "active", platformRole: "finance_admin" }, ["platform_owner", "platform_admin"])).toBe(false);
     expect(isPlatformRole({ role: "admin", accountStatus: "active", platformRole: "finance_admin" }, ["finance_admin"])).toBe(true);
