@@ -715,8 +715,44 @@ export const powerhubRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل نشاط الحساب الفرعي من Supabase." });
       return (data ?? []).map((entry) => ({ id: Number(entry.id), action: entry.action, entityType: entry.entity_type, createdAt: new Date(entry.created_at), metadata: entry.metadata, afterData: entry.after_data }));
     }),
-    resetPassword: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async () => {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إعادة تعيين كلمات المرور للحسابات الفرعية متوقفة مؤقتاً أثناء ترحيلها الآمن إلى Supabase Auth. لا تُنفّذ أي عملية على المسار الموروث." });
+    resetPassword: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const admin = supabaseAdmin();
+      const { data: intent, error: beginError } = await admin.rpc("powerhub_staff_reset_password_begin", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_profile_id: input.profileId,
+      });
+      if (beginError || !intent?.[0]) {
+        const text = `${beginError?.code ?? ""} ${beginError?.message ?? ""}`;
+        if (text.includes("RESET_ALREADY_PENDING")) throw new TRPCError({ code: "CONFLICT", message: "يوجد طلب إعادة تعيين جارٍ لهذا الحساب." });
+        if (text.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+        if (text.includes("STAFF_PASSWORD_RESET_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إعادة تعيين كلمة مرور هذا الحساب." });
+        if (text.includes("STAFF_AUTH_USER_MISSING")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا الحساب غير مرتبط بـSupabase Auth." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء طلب إعادة تعيين كلمة المرور." });
+      }
+
+      const row = intent[0] as { intent_id: number; auth_user_id: string; target_user_id: number; expires_at: string };
+      const temporaryPassword = `Ph!${crypto.randomBytes(10).toString("base64url")}`;
+      let authSucceeded = false;
+      try {
+        const { error: authError } = await admin.auth.admin.updateUserById(row.auth_user_id, { password: temporaryPassword, user_metadata: { must_change_password: true } });
+        if (authError) throw authError;
+        authSucceeded = true;
+        const { data: completed, error: completeError } = await admin.rpc("powerhub_staff_reset_password_complete", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_intent_id: row.intent_id, p_success: true,
+        });
+        if (completeError || !completed?.[0] || completed[0].status !== "completed") {
+          throw new Error(completeError?.message || "تعذر إتمام إعادة تعيين كلمة المرور.");
+        }
+        return { success: true, temporaryPassword, expiresAt: row.expires_at, userId: Number(row.target_user_id) };
+      } catch (error) {
+        await admin.rpc("powerhub_staff_reset_password_complete", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_intent_id: row.intent_id, p_success: false,
+        }).catch(() => undefined);
+        if (!authSucceeded) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "تعذر تحديث كلمة مرور Supabase Auth." });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث Auth لكن تعذر إتمام سجل العملية؛ راجع سجل التدقيق قبل إعادة المحاولة." });
+      }
     }),
     suspend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), startsAt: z.string().datetime(), endsAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
       const startsAt = new Date(input.startsAt); const endsAt = new Date(input.endsAt);
