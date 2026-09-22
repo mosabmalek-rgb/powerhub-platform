@@ -3,10 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Request } from "express";
 
 export type PlatformCapability = "manageSupportChat";
-export type SupportedPlatformRole =
-  | "platform_owner"
-  | "platform_admin"
-  | "finance_admin";
+export type SupportedPlatformRole = "platform_owner" | "platform_admin" | "finance_admin" | "platform_support";
 
 export interface PlatformCapabilityDecisionInput {
   accountStatus: string | null | undefined;
@@ -19,80 +16,32 @@ export interface PlatformCapabilityDecisionInput {
   authenticatedUserId?: number | null;
 }
 
-/**
- * Pure authorization decision used by the server-side test matrix.
- *
- * The actor/tenant fields are intentionally non-authoritative. The database
- * resolver remains the source of identity and policy truth in production.
- */
-export function isPlatformCapabilityAllowed(
-  input: PlatformCapabilityDecisionInput,
-): boolean {
+export function isPlatformCapabilityAllowed(input: PlatformCapabilityDecisionInput): boolean {
   if (input.accountStatus !== "active") return false;
   if (input.capability !== "manageSupportChat") return false;
   if (!input.platformRole) return false;
   if (!input.policyAllowed) return false;
-
-  // Tenant roles/capabilities and caller-supplied actor IDs never grant
-  // platform-scoped support access.
   return true;
 }
 
 function getSupabasePublicConfig() {
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const publishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-  if (!url || !publishableKey) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Supabase Auth is not configured.",
-    });
-  }
-
+  if (!url || !publishableKey) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase Auth is not configured." });
   return { url, publishableKey };
 }
 
-/**
- * Server-side guard for platform-scoped capabilities.
- *
- * Authorization is resolved by Postgres from auth.uid(). The browser/user
- * profile is never accepted as an authority-bearing actor identifier.
- */
-export async function requirePlatformCapability(
-  req: Pick<Request, "headers">,
-  capability: PlatformCapability,
-): Promise<void> {
+export async function requirePlatformCapability(req: Pick<Request, "headers">, capability: PlatformCapability): Promise<void> {
   const authHeader = req.headers.authorization;
-
   if (typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Missing Supabase access token.",
-    });
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Missing Supabase access token." });
   }
-
   const { url, publishableKey } = getSupabasePublicConfig();
   const supabase = createClient(url, publishableKey, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: authHeader } },
   });
-
-  const { data, error } = await supabase.rpc("powerhub_has_platform_capability", {
-    p_capability: capability,
-  });
-
-  if (error) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "تعذر التحقق من صلاحية المنصة.",
-      cause: error,
-    });
-  }
-
-  if (data !== true) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "ليس لديك صلاحية الوصول إلى هذه الوظيفة.",
-    });
-  }
+  const { data, error } = await supabase.rpc("powerhub_has_platform_capability", { p_capability: capability });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صلاحية المنصة.", cause: error });
+  if (data !== true) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية الوصول إلى هذه الوظيفة." });
 }
