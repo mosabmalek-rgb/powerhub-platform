@@ -4,6 +4,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import {
   BellRing,
   Building2,
+  CalendarClock,
   ChevronLeft,
   CircleDollarSign,
   FileBarChart,
@@ -69,6 +70,7 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
       { id: "announcements", label: "أخبار وإعلانات المنصة", icon: MessageSquareText, detail: "نشر الأخبار لجميع المستخدمين" },
       { id: "security", label: "الأمان والسجلات", icon: ShieldCheck, detail: "التدقيق والنسخ الاحتياطي والحماية" },
       { id: "settings", label: "إعدادات المنصة", icon: Settings2, detail: "الهوية والصفحة العامة والتكاملات" },
+      { id: "trialManagement", label: "إدارة التجارب", icon: CalendarClock, detail: "إدارة مدد التجربة للاشتراكات الحالية" },
     ],
   },
 ];
@@ -97,7 +99,7 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
   const visibleNavigationGroups = isSupportOnly ? [{ label: "الدعم", items: navigationGroups.flatMap((group) => group.items).filter((item) => item.id === "supportChat") }] : navigationGroups;
   const initials = (user?.name ?? user?.email ?? "P").trim().slice(0, 1).toUpperCase();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
-  const navigate = (id: string) => { if (id === "features") { window.location.assign("/admin/generator-features"); return; } if (id === "announcements") { window.location.assign("/admin/announcements"); return; } onTabChange(id); };
+  const navigate = (id: string) => { if (id === "features") { window.location.assign("/admin/generator-features"); return; } if (id === "trialManagement") { window.location.assign("/admin/trial-management"); return; } if (id === "announcements") { window.location.assign("/admin/announcements"); return; } onTabChange(id); };
 
   return (
     <div className="min-h-screen bg-[#0B1018] text-white" dir="rtl">
