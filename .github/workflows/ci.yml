@@ -45,7 +45,18 @@ jobs:
         run: node scripts/check-supabase-runtime-boundary.mjs
 
       - name: TypeScript check
-        run: pnpm check
+        shell: pwsh
+        run: |
+          pnpm check 2>&1 | Tee-Object -FilePath tsc-errors.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload TypeScript diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-diagnostics
+          path: tsc-errors.log
+          if-no-files-found: warn
 
       - name: Run tests (non-blocking)
         continue-on-error: true
