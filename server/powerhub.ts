@@ -886,7 +886,7 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
       const admin=supabaseAdmin();
       const [subscription,platformSetting,tenantSetting,branchRows]=await Promise.all([
-        admin.from("tenant_subscriptions").select("plan").eq("tenant_id",access.tenantId).maybeSingle(),
+        admin.from("tenant_subscriptions").select("package_code").eq("tenant_id",access.tenantId).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key","branch_feature").maybeSingle(),
         admin.from("tenant_branch_settings").select("is_enabled_override, max_branches_override, disabled_behavior").eq("tenant_id",access.tenantId).maybeSingle(),
         admin.from("sites").select("id").eq("tenant_id",access.tenantId).neq("status","archived"),
