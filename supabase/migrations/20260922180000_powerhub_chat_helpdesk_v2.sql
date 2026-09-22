@@ -1507,7 +1507,7 @@ declare v_job bigint;
 begin
   select jobid into v_job from cron.job where jobname='powerhub_chat_sla';
   if v_job is not null then perform cron.unschedule(v_job); end if;
-  select cron.schedule('powerhub_chat_sla','*/5 * * * *',$$select private.chat_process_support_sla(); select private.chat_auto_close_resolved();$$) into v_job;
+  select cron.schedule('powerhub_chat_sla','*/5 * * * *',$cron$select private.chat_process_support_sla(); select private.chat_auto_close_resolved();$cron$) into v_job;
 exception when undefined_table or undefined_function then
   null;
 end;
