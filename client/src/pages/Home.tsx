@@ -78,11 +78,13 @@ export function WorkspaceHome() {
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const canUseAllBranches = Boolean(allBranchAccessQuery.data?.isGlobal && (sitesQuery.data?.length ?? 0) > 1);
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
+  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword) });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
   const overview = financialOverviewQuery.data;
   const activeSubscribers = overview?.branchSummaries.reduce((sum, branch) => sum + branch.activeSubscribers, 0) ?? 0;
+  const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
   const smsAlertKey = smsDailyUsageQuery.data ? `${smsDailyUsageQuery.data.total}:${smsDailyUsageQuery.data.used}:${smsDailyUsageQuery.data.remaining}` : null;
   useEffect(() => { if (smsAlertKey && hiddenSmsAlertKey && hiddenSmsAlertKey !== smsAlertKey) { setHiddenSmsAlertKey(null); window.localStorage.removeItem("powerhub.sms-alert-hidden"); } }, [hiddenSmsAlertKey, smsAlertKey]);
 
@@ -114,7 +116,7 @@ export function WorkspaceHome() {
 
     <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
 
-    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={summaryQuery.data?.generators} loading={summaryQuery.isLoading} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
+    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} loading={selectedScope === "all" ? allBranchesSummaryQuery.isLoading : summaryQuery.isLoading} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
     {accessQuery.data?.role === "owner" ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} onOpen={() => setLocation("/notifications")} /> : null}
     <SubscriberQuotaDashboardCard quota={subscriberQuotaQuery.data} upgradeRequest={upgradeRequestQuery.data ? { ...upgradeRequestQuery.data, requestedPackageCode: upgradeRequestQuery.data.requestedPackageCode } : null} canRequestUpgrade={accessQuery.data?.role === "owner"} requesting={requestUpgrade.isPending} onRequestUpgrade={(requestedPackageCode) => requestUpgrade.mutate({ siteId: siteId!, requestedPackageCode })} />
