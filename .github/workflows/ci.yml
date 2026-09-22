@@ -45,10 +45,9 @@ jobs:
         run: node scripts/check-supabase-runtime-boundary.mjs
 
       - name: TypeScript check
-        shell: cmd
+        shell: bash
         run: |
           pnpm check > tsc-errors.log 2>&1
-          if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 
       - name: Upload TypeScript diagnostics
         if: always()
