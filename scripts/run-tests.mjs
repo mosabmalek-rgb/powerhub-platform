@@ -16,8 +16,9 @@ run(["vitest", "run", "client/src/lib", "client/src/contexts", "client/src/hooks
 
 const pagesDir = "client/src/pages";
 if (existsSync(pagesDir)) {
-  const pageTests = readFileSync(new URL("../client/src/pages/role-guards.ui.test.tsx", import.meta.url), "utf8");
-  if (existsSync(new URL("../client/src/pages/role-guards.ui.test.tsx", import.meta.url))) {
+  const roleGuardsPath = "client/src/pages/role-guards.ui.test.tsx";
+  if (existsSync(roleGuardsPath)) {
+    const pageTests = readFileSync(roleGuardsPath, "utf8");
     const names = [...pageTests.matchAll(/^\s*it\(\s*["']([^"']+)["']/gm)].map((match) => match[1]);
     for (const name of names) run(["vitest", "run", "client/src/pages/role-guards.ui.test.tsx", "-t", name]);
   }
