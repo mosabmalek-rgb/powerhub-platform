@@ -255,18 +255,31 @@ export const adminRouterWithSupabaseReadContracts = router({
     return (tenantsResult.data ?? []).map((tenant) => { const setting = settings.get(Number(tenant.id)); return { tenantId: Number(tenant.id), tenantName: tenant.name, ownerName: owners.get(Number(tenant.id)) ?? "—", packageCode: tenant.package_code, plan: tenant.package_code, isEnabledOverride: setting?.is_enabled_override ?? null, maxBranchesOverride: setting?.max_branches_override ?? null, disabledBehavior: setting?.disabled_behavior ?? null, currentBranchCount: activeCounts.get(Number(tenant.id)) ?? 0 }; });
   }),
   globalSearch: platformAdminProcedure.input(z.object({ query: z.string().trim().min(2).max(100) })).query(async ({ input }) => {
-    const admin = supabaseAdmin(); const pattern = `%${input.query}%`;
-    const generatorByName = await admin.from("generators").select("id,name,code,tenant_id").ilike("name", pattern).limit(50);
-    await admin.from("generators").select("id,code,tenant_id").ilike("code", pattern).limit(50);
-    const subscribersByName = await admin.from("subscribers").select("id,full_name,subscriber_no,phone,tenant_id").ilike("full_name", pattern).limit(50);
-    await admin.from("subscribers").select("id,subscriber_no,tenant_id").ilike("subscriber_no", pattern).limit(50);
-    await admin.from("subscribers").select("id,phone,tenant_id").ilike("phone", pattern).limit(50);
-    const ownersByName = await admin.from("tenant_owner_profiles").select("id,tenant_id,full_name").ilike("full_name", pattern).limit(50);
-    await admin.from("tenant_owner_profiles").select("id,tenant_id,phone").ilike("phone", pattern).limit(50);
-    const tenantIds = Array.from(new Set([...(generatorByName.data ?? []).map((row) => Number(row.tenant_id)), ...(subscribersByName.data ?? []).map((row) => Number(row.tenant_id)), ...(ownersByName.data ?? []).map((row) => Number(row.tenant_id))].filter(Boolean)));
-    const tenantsResult = await admin.from("tenants").select("id,name").in("id", tenantIds); if (tenantsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إثراء نتائج البحث." });
+    const admin = supabaseAdmin();
+    const pattern = `%${input.query.trim()}%`;
+    const [generatorsResult, subscribersResult, ownersResult] = await Promise.all([
+      admin.from("generators").select("id,name,code,tenant_id").or(`name.ilike.${pattern},code.ilike.${pattern}`).limit(50),
+      admin.from("subscribers").select("id,full_name,subscriber_no,phone,tenant_id").or(`full_name.ilike.${pattern},subscriber_no.ilike.${pattern},phone.ilike.${pattern}`).limit(50),
+      admin.from("tenant_owner_profiles").select("id,tenant_id,full_name,phone").or(`full_name.ilike.${pattern},phone.ilike.${pattern}`).limit(50),
+    ]);
+    if (generatorsResult.error || subscribersResult.error || ownersResult.error) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تنفيذ البحث المركزي." });
+    }
+    const tenantIds = Array.from(new Set([
+      ...(generatorsResult.data ?? []).map((row) => Number(row.tenant_id)),
+      ...(subscribersResult.data ?? []).map((row) => Number(row.tenant_id)),
+      ...(ownersResult.data ?? []).map((row) => Number(row.tenant_id)),
+    ].filter(Boolean)));
+    const tenantsResult = tenantIds.length
+      ? await admin.from("tenants").select("id,name").in("id", tenantIds)
+      : { data: [], error: null };
+    if (tenantsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المساحات." });
     const names = new Map((tenantsResult.data ?? []).map((row) => [Number(row.id), row.name]));
-    return [...(generatorByName.data ?? []).map((row) => ({ id: Number(row.id), kind: "generator" as const, label: row.name, reference: row.code, tenantId: Number(row.tenant_id), tenantName: names.get(Number(row.tenant_id)) ?? "—" })), ...(subscribersByName.data ?? []).map((row) => ({ id: Number(row.id), kind: "subscriber" as const, label: row.full_name, reference: row.subscriber_no, tenantId: Number(row.tenant_id), tenantName: names.get(Number(row.tenant_id)) ?? "—" })), ...(ownersByName.data ?? []).map((row) => ({ id: Number(row.id), kind: "owner" as const, label: row.full_name, tenantId: Number(row.tenant_id), tenantName: names.get(Number(row.tenant_id)) ?? "—" }))];
+    return [
+      ...(generatorsResult.data ?? []).map((row) => ({ id: Number(row.id), kind: "generator" as const, label: row.name, reference: row.code, tenantId: Number(row.tenant_id), tenantName: names.get(Number(row.tenant_id)) ?? "—" })),
+      ...(subscribersResult.data ?? []).map((row) => ({ id: Number(row.id), kind: "subscriber" as const, label: row.full_name, reference: row.subscriber_no || row.phone || "—", tenantId: Number(row.tenant_id), tenantName: names.get(Number(row.tenant_id)) ?? "—" })),
+      ...(ownersResult.data ?? []).map((row) => ({ id: Number(row.id), kind: "owner" as const, label: row.full_name, reference: row.phone || "—", tenantId: Number(row.tenant_id), tenantName: names.get(Number(row.tenant_id)) ?? "—" })),
+    ].slice(0, 30);
   }),
   operationalMonitoring: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
