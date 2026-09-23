@@ -405,10 +405,10 @@ export const powerhubRouter = router({
     listConfigurations: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const { data, error } = await supabaseAdmin().from("tenant_messaging_configurations")
-        .select("id, channel, provider, sender_id, phone_number_id, template_name, receipt_template_name, subscriber_reference_template_name, is_active, auto_send_after_approval, updated_at")
+        .select("id, channel, provider, sender_id, phone_number_id, template_name, receipt_template_name, subscriber_reference_template_name, is_active, auto_send_after_approval, invoice_sms_schedule_mode, invoice_sms_schedule_anchor_at, updated_at")
         .eq("tenant_id", scope.tenantId).order("channel", { ascending: true });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات الرسائل من Supabase." });
-      return (data ?? []).map((config) => ({ id: Number(config.id), channel: config.channel, provider: config.provider, senderId: config.sender_id, phoneNumberId: config.phone_number_id, templateName: config.template_name, receiptTemplateName: config.receipt_template_name, subscriberReferenceTemplateName: config.subscriber_reference_template_name, isActive: config.is_active, autoSendAfterApproval: config.auto_send_after_approval, autoSendCron: null, scheduleCronTaskUid: null, updatedAt: new Date(config.updated_at) }));
+      return (data ?? []).map((config) => ({ id: Number(config.id), channel: config.channel, provider: config.provider, senderId: config.sender_id, phoneNumberId: config.phone_number_id, templateName: config.template_name, receiptTemplateName: config.receipt_template_name, subscriberReferenceTemplateName: config.subscriber_reference_template_name, isActive: config.is_active, autoSendAfterApproval: config.auto_send_after_approval, scheduleMode: config.invoice_sms_schedule_mode ?? "immediate", scheduleAnchorAt: config.invoice_sms_schedule_anchor_at ? new Date(config.invoice_sms_schedule_anchor_at) : null, autoSendCron: null, scheduleCronTaskUid: null, updatedAt: new Date(config.updated_at) }));
     }),
     listScheduleRuns: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(50).default(20) })).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
