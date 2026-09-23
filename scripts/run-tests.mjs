@@ -10,9 +10,15 @@ function run(args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-run(["vitest", "run", "server"]);
-run(["vitest", "run", "client/src/components"]);
-run(["vitest", "run", "client/src/lib", "client/src/contexts", "client/src/hooks"]);
+const vitestArgs = ["vitest", "run", "--maxWorkers=1", "--minWorkers=1"];
+
+function runVitest(paths) {
+  run([...vitestArgs, ...paths]);
+}
+
+runVitest(["server"]);
+runVitest(["client/src/components"]);
+runVitest(["client/src/lib", "client/src/contexts", "client/src/hooks"]);
 
 const pagesDir = "client/src/pages";
 if (existsSync(pagesDir)) {
@@ -20,11 +26,11 @@ if (existsSync(pagesDir)) {
   if (existsSync(roleGuardsPath)) {
     const pageTests = readFileSync(roleGuardsPath, "utf8");
     const names = [...pageTests.matchAll(/^\s*it\(\s*["']([^"']+)["']/gm)].map((match) => match[1]);
-    for (const name of names) run(["vitest", "run", "client/src/pages/role-guards.ui.test.tsx", "-t", name]);
+    for (const name of names) runVitest(["client/src/pages/role-guards.ui.test.tsx", "-t", name]);
   }
   for (const entry of ["client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx"]) {
-    if (existsSync(entry)) run(["vitest", "run", entry]);
+    if (existsSync(entry)) runVitest([entry]);
   }
 }
 
-run(["vitest", "run", "shared"]);
+runVitest(["shared"]);
