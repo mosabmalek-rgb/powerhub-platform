@@ -16,8 +16,9 @@ concurrency:
 jobs:
   validate:
     name: TypeScript, tests, and production build
-    # The repository uses a self-hosted runner to avoid GitHub-hosted minute limits.
-    runs-on: self-hosted
+    # Keep main on the self-hosted runner; use a hosted runner on the audit branch
+    # so CI can still execute when the dedicated self-hosted runner is offline.
+    runs-on: ${{ github.head_ref == 'audit/functional-pass-reports-messaging-portal-mobile' && 'windows-latest' || 'self-hosted' }}
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=4096
