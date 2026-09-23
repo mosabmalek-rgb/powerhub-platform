@@ -20,7 +20,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 20
     env:
-      NODE_OPTIONS: --max-old-space-size=4096
+      NODE_OPTIONS: --max-old-space-size=6144
       VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
       VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
 
