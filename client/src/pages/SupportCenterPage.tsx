@@ -79,7 +79,7 @@ function SupportAdminControls({ data, working, onSave }: { data: any; working: b
           <SupportCatalogEditor
             title="تصنيف دعم"
             rows={categories}
-            working={adminWorking}
+            working={working}
             fields={[
               { name: "code", label: "الكود", placeholder: "billing" },
               { name: "name", label: "الاسم", placeholder: "الفواتير" },
@@ -100,7 +100,7 @@ function SupportAdminControls({ data, working, onSave }: { data: any; working: b
           <SupportCatalogEditor
             title="وسم دعم"
             rows={tags}
-            working={adminWorking}
+            working={working}
             fields={[
               { name: "code", label: "الكود", placeholder: "urgent" },
               { name: "name", label: "الاسم", placeholder: "عاجل" },
@@ -117,7 +117,7 @@ function SupportAdminControls({ data, working, onSave }: { data: any; working: b
           <SupportCatalogEditor
             title="رد جاهز"
             rows={quickReplies}
-            working={adminWorking}
+            working={working}
             fields={[
               { name: "shortcut", label: "الاختصار", placeholder: "welcome" },
               { name: "title", label: "العنوان", placeholder: "ترحيب" },
@@ -238,7 +238,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [tagIds, setTagIds] = useState<number[]>([]);
   const [adminControlsOpen, setAdminControlsOpen] = useState(false);
   const [adminControls, setAdminControls] = useState<any | null>(null);
-  const [adminWorking, setAdminWorking] = useState(false);
+  const [working, setAdminWorking] = useState(false);
   const [timeline, setTimeline] = useState<Array<{ id:number; event_type:string; actor_name:string|null; from_status:string|null; to_status:string|null; from_priority:string|null; to_priority:string|null; metadata:Record<string,unknown>; created_at:string }>>([]);
 
   const selected = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) ?? null, [conversations, selectedId]);
