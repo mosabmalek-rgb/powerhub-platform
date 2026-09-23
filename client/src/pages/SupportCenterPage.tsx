@@ -150,9 +150,34 @@ function SupportCatalogEditor({ title, rows, fields, working, onSave, renderRow 
 }) {
   const [active, setActive] = useState(true);
   const [values, setValues] = useState<Record<string, string>>({});
-  const reset = () => setValues({});
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const reset = () => { setValues({}); setActive(true); setEditingKey(null); };
+  const valueFromRow = (row: any, name: string) => {
+    const aliases: Record<string, string[]> = {
+      first: ["first", "default_first_response_minutes"],
+      resolution: ["resolution", "default_resolution_minutes"],
+      sort: ["sort", "sort_order"],
+      category: ["category", "category_code"],
+      body: ["body", "message"],
+      color: ["color"],
+      code: ["code"],
+      name: ["name"],
+      shortcut: ["shortcut"],
+      title: ["title"],
+    };
+    const keys = aliases[name] ?? [name];
+    const match = keys.find((key) => row[key] !== undefined && row[key] !== null);
+    return match ? String(row[match]) : "";
+  };
+  const editRow = (row: any) => {
+    const key = String(row.id ?? row.code ?? row.shortcut);
+    const next = Object.fromEntries(fields.map((field) => [field.name, valueFromRow(row, field.name)]));
+    setValues(next);
+    setActive(row.is_active !== false);
+    setEditingKey(key);
+  };
   return <div className="rounded-xl border border-white/8 p-3">
-    <h3 className="text-sm font-bold text-white">{title}</h3>
+    <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-bold text-white">{title}</h3>{editingKey && <Button type="button" size="sm" variant="ghost" onClick={reset} className="text-slate-400">إلغاء التعديل</Button>}</div>
     <form className="mt-3 space-y-2" onSubmit={(event) => {
       event.preventDefault();
       const normalized = Object.fromEntries(fields.map((field) => [field.name, (values[field.name] ?? "").trim()]));
@@ -165,10 +190,13 @@ function SupportCatalogEditor({ title, rows, fields, working, onSave, renderRow 
       )}
       <div className="flex items-center justify-between gap-2">
         <label className="flex items-center gap-2 text-xs text-slate-400"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />مفعّل</label>
-        <Button type="submit" size="sm" disabled={working}>{working ? "جارٍ الحفظ…" : "حفظ"}</Button>
+        <Button type="submit" size="sm" disabled={working}>{working ? "جارٍ الحفظ…" : editingKey ? "حفظ التعديل" : "حفظ"}</Button>
       </div>
     </form>
-    <div className="mt-4 space-y-2 max-h-52 overflow-auto">{rows.length ? rows.map((row) => <div key={row.id ?? row.code ?? row.shortcut} className="rounded-lg border border-white/6 bg-white/[.02] p-2">{renderRow(row)}</div>) : <p className="text-xs text-slate-500">لا توجد بيانات.</p>}</div>
+    <div className="mt-4 space-y-2 max-h-52 overflow-auto">{rows.length ? rows.map((row) => {
+      const key = String(row.id ?? row.code ?? row.shortcut);
+      return <div key={key} className="rounded-lg border border-white/6 bg-white/[.02] p-2"><div className="flex items-start justify-between gap-2"><div className="min-w-0 flex-1">{renderRow(row)}</div><Button type="button" size="sm" variant="outline" onClick={() => editRow(row)} disabled={working} className="shrink-0 border-white/10 text-slate-200 hover:bg-white/5">تعديل</Button></div></div>;
+    }) : <p className="text-xs text-slate-500">لا توجد بيانات.</p>}</div>
   </div>;
 }
 
