@@ -529,6 +529,13 @@ export const powerhubRouter = router({
         .select("auto_send_after_approval, invoice_sms_schedule_mode, invoice_sms_schedule_anchor_at").single();
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ إعداد دورة إرسال الفواتير." });
 
+      const { error: rescheduleError } = await admin.rpc("powerhub_reschedule_pending_invoice_sms", {
+        p_tenant_id: scope.tenantId,
+        p_mode: scheduleMode,
+        p_anchor_at: anchor,
+      });
+      if (rescheduleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم حفظ الإعداد لكن تعذر تحديث طابور الرسائل المعلّقة." });
+
       await writeSupabaseAudit({
         userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId,
         entityType: "tenant_messaging_configuration", entityId: String(config.id),
