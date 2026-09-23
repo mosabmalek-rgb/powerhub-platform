@@ -512,10 +512,10 @@ export const powerhubRouter = router({
       if (!config) throw new TRPCError({ code: "NOT_FOUND", message: "يجب إعداد قناة SMS أولاً." });
 
       const scheduleMode = input.enabled ? input.scheduleMode : "immediate";
-      const anchor = input.enabled && scheduleMode !== "immediate" ? new Date(input.scheduleAnchorAt ?? "").toISOString() : null;
       if (input.enabled && scheduleMode !== "immediate" && (!input.scheduleAnchorAt || Number.isNaN(new Date(input.scheduleAnchorAt).getTime()))) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد تاريخ ووقت صحيحين لبداية دورة الإرسال." });
       }
+      const anchor = input.enabled && scheduleMode !== "immediate" ? new Date(input.scheduleAnchorAt as string).toISOString() : null;
 
       const { data, error } = await admin.from("tenant_messaging_configurations")
         .update({
