@@ -76,14 +76,100 @@ function SupportAdminControls({ data, working, onSave }: { data: any; working: b
       </div>
       <details className="rounded-xl border border-white/8 bg-white/[.02] p-4"><summary className="cursor-pointer text-sm font-bold text-white">إدارة التصنيفات والوسوم والردود الجاهزة</summary>
         <div className="mt-4 grid gap-4 xl:grid-cols-3">
-          <AdminList title="التصنيفات" rows={categories} render={(row:any)=><div><p className="font-bold text-white">{row.name}</p><p className="text-[11px] text-slate-500">{row.code} · أول استجابة {row.default_first_response_minutes} د · حل {row.default_resolution_minutes} د</p></div>} />
-          <AdminList title="الوسوم" rows={tags} render={(row:any)=><div><p className="font-bold text-white">{row.name}</p><p className="text-[11px] text-slate-500">{row.code} · {row.is_active ? "مفعّل" : "متوقف"}</p></div>} />
-          <AdminList title="الردود الجاهزة" rows={quickReplies} render={(row:any)=><div><p className="font-bold text-white">{row.title}</p><p className="text-[11px] text-slate-500">{row.shortcut} · {row.category_code || "عام"}</p></div>} />
+          <SupportCatalogEditor
+            title="تصنيف دعم"
+            rows={categories}
+            working={adminWorking}
+            fields={[
+              { name: "code", label: "الكود", placeholder: "billing" },
+              { name: "name", label: "الاسم", placeholder: "الفواتير" },
+              { name: "first", label: "أول استجابة (دقيقة)", placeholder: "60", type: "number" },
+              { name: "resolution", label: "الحل (دقيقة)", placeholder: "1440", type: "number" },
+              { name: "sort", label: "الترتيب", placeholder: "100", type: "number" },
+            ]}
+            onSave={(value) => onSave("chat_support_admin_upsert_category", {
+              p_code: value.code,
+              p_name: value.name,
+              p_first_response_minutes: Number(value.first || 60),
+              p_resolution_minutes: Number(value.resolution || 1440),
+              p_sort_order: Number(value.sort || 100),
+              p_is_active: value.active,
+            }, "تم حفظ تصنيف الدعم.")}
+            renderRow={(row) => <div><p className="font-bold text-white">{row.name}</p><p className="text-[11px] text-slate-500">{row.code} · أول استجابة {row.default_first_response_minutes} د · حل {row.default_resolution_minutes} د</p></div>}
+          />
+          <SupportCatalogEditor
+            title="وسم دعم"
+            rows={tags}
+            working={adminWorking}
+            fields={[
+              { name: "code", label: "الكود", placeholder: "urgent" },
+              { name: "name", label: "الاسم", placeholder: "عاجل" },
+              { name: "color", label: "اللون", placeholder: "#EF4444" },
+            ]}
+            onSave={(value) => onSave("chat_support_admin_upsert_tag", {
+              p_code: value.code,
+              p_name: value.name,
+              p_color: value.color || "#64748B",
+              p_is_active: value.active,
+            }, "تم حفظ وسم الدعم.")}
+            renderRow={(row) => <div><p className="font-bold text-white">{row.name}</p><p className="text-[11px] text-slate-500">{row.code} · {row.color ?? "#64748B"} · {row.is_active ? "مفعّل" : "متوقف"}</p></div>}
+          />
+          <SupportCatalogEditor
+            title="رد جاهز"
+            rows={quickReplies}
+            working={adminWorking}
+            fields={[
+              { name: "shortcut", label: "الاختصار", placeholder: "welcome" },
+              { name: "title", label: "العنوان", placeholder: "ترحيب" },
+              { name: "category", label: "كود التصنيف (اختياري)", placeholder: "billing" },
+              { name: "body", label: "النص", placeholder: "اكتب نص الرد الجاهز...", multiline: true },
+            ]}
+            onSave={(value) => onSave("chat_support_admin_upsert_quick_reply", {
+              p_shortcut: value.shortcut,
+              p_title: value.title,
+              p_body: value.body,
+              p_category_code: value.category || null,
+              p_is_active: value.active,
+            }, "تم حفظ الرد الجاهز.")}
+            renderRow={(row) => <div><p className="font-bold text-white">{row.title}</p><p className="text-[11px] text-slate-500">{row.shortcut} · {row.category_code || "عام"} · {row.is_active ? "مفعّل" : "متوقف"}</p></div>}
+          />
         </div>
-        <p className="mt-4 text-xs leading-6 text-slate-500">التحكم الكامل في إنشاء/تعديل العناصر متاح عبر طبقة الإدارة الآمنة، ويمكن توسيع هذه الشاشة لاحقًا إلى محرر كامل دون تغيير عقود قاعدة البيانات.</p>
+        <p className="mt-4 text-xs leading-6 text-slate-500">يمكن استخدام النموذج نفسه لإضافة عنصر جديد أو تحديث عنصر موجود باستخدام الكود/الاختصار نفسه.</p>
       </details>
     </CardContent>
   </Card>;
+}
+
+function SupportCatalogEditor({ title, rows, fields, working, onSave, renderRow }: {
+  title: string;
+  rows: any[];
+  fields: Array<{ name: string; label: string; placeholder: string; type?: string; multiline?: boolean }>;
+  working: boolean;
+  onSave: (value: Record<string, string | boolean>) => void;
+  renderRow: (row: any) => ReactNode;
+}) {
+  const [active, setActive] = useState(true);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const reset = () => setValues({});
+  return <div className="rounded-xl border border-white/8 p-3">
+    <h3 className="text-sm font-bold text-white">{title}</h3>
+    <form className="mt-3 space-y-2" onSubmit={(event) => {
+      event.preventDefault();
+      const normalized = Object.fromEntries(fields.map((field) => [field.name, (values[field.name] ?? "").trim()]));
+      onSave({ ...normalized, active });
+      reset();
+    }}>
+      {fields.map((field) => field.multiline
+        ? <Textarea key={field.name} value={values[field.name] ?? ""} onChange={(e) => setValues((current) => ({ ...current, [field.name]: e.target.value }))} placeholder={field.placeholder} className="min-h-20 bg-black/20 text-white" />
+        : <Input key={field.name} type={field.type ?? "text"} value={values[field.name] ?? ""} onChange={(e) => setValues((current) => ({ ...current, [field.name]: e.target.value }))} placeholder={field.label} className="bg-black/20 text-white" />
+      )}
+      <div className="flex items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-xs text-slate-400"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />مفعّل</label>
+        <Button type="submit" size="sm" disabled={working}>{working ? "جارٍ الحفظ…" : "حفظ"}</Button>
+      </div>
+    </form>
+    <div className="mt-4 space-y-2 max-h-52 overflow-auto">{rows.length ? rows.map((row) => <div key={row.id ?? row.code ?? row.shortcut} className="rounded-lg border border-white/6 bg-white/[.02] p-2">{renderRow(row)}</div>) : <p className="text-xs text-slate-500">لا توجد بيانات.</p>}</div>
+  </div>;
 }
 
 function AdminList({ title, rows, render }: { title:string; rows:any[]; render:(row:any)=>ReactNode }) {
@@ -186,9 +272,9 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     setAdminWorking(true);
     const { error } = await supabase.rpc(fn, args);
     setAdminWorking(false);
-    if (error) { toast.error("تعذر حفظ إعداد الدعم."); return false; }
+    if (error) { toast.error(error.message || "تعذر حفظ إعداد الدعم."); return false; }
     toast.success(success);
-    await loadAdminControls();
+    await refreshQueue();
     return true;
   }
 
