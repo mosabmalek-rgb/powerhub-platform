@@ -417,10 +417,19 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     }));
   });
 
-  it("يعطّل اختبار الرسائل والجدولة الموروثين صراحةً", async () => {
+  it("يفعّل جدولة الإرسال التلقائي للفواتير عبر Supabase ويحدّث إعداد القناة", async () => {
+    state.tables.tenant_messaging_configurations = [{
+      id: 95, tenant_id: 20, channel: "sms", provider: "tweetsms", sender_id: "PowerHub", phone_number_id: null,
+      template_name: "invoice", receipt_template_name: "receipt", subscriber_reference_template_name: null,
+      is_active: true, auto_send_after_approval: false, auto_send_cron: null, schedule_cron_task_uid: null,
+      updated_at: "2026-08-25T00:00:00.000Z",
+    }];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.messaging.testConnection({ siteId: 10, channel: "sms", provider: "tweetsms", credential: "credential-long-enough" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    await expect(caller.messaging.configureInvoiceAutoSend({ siteId: 10, enabled: false })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.messaging.configureInvoiceAutoSend({ siteId: 10, enabled: true, cron: "0 0/15 * * * *" })).resolves.toMatchObject({ success: true, enabled: true, cron: "0 0/15 * * * *" });
+    expect(state.updates).toContainEqual(expect.objectContaining({
+      table: "tenant_messaging_configurations",
+      values: expect.objectContaining({ auto_send_after_approval: true, auto_send_cron: "0 0/15 * * * *" }),
+    }));
   });
 
   it("يعرض حصة SMS واستهلاكها وطلب الحزمة من Supabase فقط", async () => {
@@ -607,9 +616,9 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.rpcCalls = [];
     state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
       state.rpcCalls.push({ name, args });
-      if (name === "powerhub_staff_reset_password_begin") return resolved([{ intent_id: 501, auth_user_id: "auth-staff-1", target_user_id: 2, expires_at: "2026-09-22T18:00:00.000Z" }]);
-      if (name === "powerhub_staff_reset_password_complete") return resolved([{ intent_id: 501, status: "completed", target_user_id: 2 }]);
-      return resolved([{ success: true }]);
+      if (name === "powerhub_staff_reset_password_begin") return Promise.resolve([{ intent_id: 501, auth_user_id: "auth-staff-1", target_user_id: 2, expires_at: "2026-09-22T18:00:00.000Z" }]);
+      if (name === "powerhub_staff_reset_password_complete") return Promise.resolve([{ intent_id: 501, status: "completed", target_user_id: 2 }]);
+      return Promise.resolve([{ success: true }]);
     });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     const result = await caller.staff.resetPassword({ siteId: 10, profileId: 70 });
@@ -624,7 +633,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("ينشئ الحساب الفرعي عبر Supabase Auth ثم يعيّنه عبر RPC دون MySQL", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "admin@example.test" }];
-    state.tables.users.push({ id: 2, auth_user_id: "auth-staff-1", email: "accountant@example.com", role: "user", account_status: "active" });
+    state.tables.users.push({ id: 2, auth_user_id: "auth-staff-1", email: "auth-staff@example.test", role: "user", account_status: "active" });
     state.client.auth = { admin: { createUser: vi.fn(async () => ({ data: { user: { id: "auth-staff-1" } }, error: null })), deleteUser: vi.fn(async () => ({ error: null })) } };
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.create({ siteId: 10, name: "محاسب تجريبي", email: "accountant@example.com", temporaryPassword: "StrongPass1!", role: "accountant", allBranches: false })).resolves.toMatchObject({ success: true, userId: 2 });
