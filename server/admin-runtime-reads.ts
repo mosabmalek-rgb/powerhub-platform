@@ -168,6 +168,42 @@ export const adminRouterWithSupabaseReadContracts = router({
     const names = new Map((usersResult.data ?? []).map((row) => [Number(row.id), row.name]));
     return (policiesResult.data ?? []).map((row) => ({ id: Number(row.id), minimumPricePerKwh: String(row.minimum_price_per_kwh), maximumPricePerKwh: String(row.maximum_price_per_kwh), effectiveFrom: row.effective_from, notificationRequested: row.notification_requested, notes: row.notes, createdBy: names.get(Number(row.created_by_user_id)) ?? "—", createdByUserId: row.created_by_user_id ? Number(row.created_by_user_id) : null, createdAt: row.created_at }));
   }),
+  updateComplaint: platformAdminProcedure.input(z.object({
+    id: z.number().int().positive(),
+    status: z.enum(["open","assigned","in_progress","resolved","closed"]),
+    assignedUserId: z.number().int().positive().nullable().optional(),
+    response: z.string().trim().max(10000).optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const admin = supabaseAdmin();
+    const { data: current, error: currentError } = await admin.from("complaints")
+      .select("id,tenant_id,site_id,status,assigned_user_id,response")
+      .eq("id", input.id).maybeSingle();
+    if (currentError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الشكوى من Supabase." });
+    if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "الشكوى غير موجودة." });
+    const assignedUserId = input.assignedUserId === undefined ? current.assigned_user_id : input.assignedUserId;
+    const response = input.response === undefined ? current.response : input.response || null;
+    const resolvedAt = ["resolved","closed"].includes(input.status) ? new Date().toISOString() : null;
+    const { error: updateError } = await admin.from("complaints").update({
+      status: input.status,
+      assigned_user_id: assignedUserId,
+      response,
+      resolved_at: resolvedAt,
+    }).eq("id", input.id);
+    if (updateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث الشكوى في Supabase." });
+    const { error: auditError } = await admin.from("audit_logs").insert({
+      tenant_id: Number(current.tenant_id),
+      site_id: Number(current.site_id),
+      user_id: ctx.user.id,
+      entity_type: "complaint",
+      entity_id: String(input.id),
+      action: "admin_update_complaint",
+      before_data: { status: current.status, assignedUserId: current.assigned_user_id, response: current.response },
+      after_data: { status: input.status, assignedUserId, response },
+    });
+    if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث الشكوى لكن تعذر تسجيل التدقيق." });
+    return { success: true as const };
+  }),
+
   listComplaints: platformAdminProcedure.input(z.object({ status: z.string().trim().optional() }).optional()).query(async ({ input }) => {
     const admin = supabaseAdmin();
     let query = admin.from("complaints").select("id,tenant_id,site_id,subscriber_id,title,description,priority,status,assigned_user_id,response,opened_at,resolved_at").order("opened_at", { ascending: false });
