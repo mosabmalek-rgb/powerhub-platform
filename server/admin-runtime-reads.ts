@@ -257,29 +257,50 @@ export const adminRouterWithSupabaseReadContracts = router({
   globalSearch: platformAdminProcedure.input(z.object({ query: z.string().trim().min(2).max(100) })).query(async ({ input }) => {
     const admin = supabaseAdmin();
     const pattern = `%${input.query.trim()}%`;
-    const [generatorsResult, subscribersResult, ownersResult] = await Promise.all([
-      admin.from("generators").select("id,name,code,tenant_id").or(`name.ilike.${pattern},code.ilike.${pattern}`).limit(50),
-      admin.from("subscribers").select("id,full_name,subscriber_no,phone,tenant_id").or(`full_name.ilike.${pattern},subscriber_no.ilike.${pattern},phone.ilike.${pattern}`).limit(50),
-      admin.from("tenant_owner_profiles").select("id,tenant_id,full_name,phone").or(`full_name.ilike.${pattern},phone.ilike.${pattern}`).limit(50),
+    const [generatorsByName, generatorsByCode, subscribersByName, subscribersByNumber, subscribersByPhone, ownersByName, ownersByPhone] = await Promise.all([
+      admin.from("generators").select("id,name,code,tenant_id").ilike("name", pattern).limit(50),
+      admin.from("generators").select("id,name,code,tenant_id").ilike("code", pattern).limit(50),
+      admin.from("subscribers").select("id,full_name,subscriber_no,phone,tenant_id").ilike("full_name", pattern).limit(50),
+      admin.from("subscribers").select("id,full_name,subscriber_no,phone,tenant_id").ilike("subscriber_no", pattern).limit(50),
+      admin.from("subscribers").select("id,full_name,subscriber_no,phone,tenant_id").ilike("phone", pattern).limit(50),
+      admin.from("tenant_owner_profiles").select("id,tenant_id,full_name,phone").ilike("full_name", pattern).limit(50),
+      admin.from("tenant_owner_profiles").select("id,tenant_id,full_name,phone").ilike("phone", pattern).limit(50),
     ]);
-    if (generatorsResult.error || subscribersResult.error || ownersResult.error) {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تنفيذ البحث المركزي." });
-    }
+    const failed = [generatorsByName, generatorsByCode, subscribersByName, subscribersByNumber, subscribersByPhone, ownersByName, ownersByPhone].find((result) => result.error);
+    if (failed?.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تنفيذ البحث المركزي." });
+
     const tenantIds = Array.from(new Set([
-      ...(generatorsResult.data ?? []).map((row) => Number(row.tenant_id)),
-      ...(subscribersResult.data ?? []).map((row) => Number(row.tenant_id)),
-      ...(ownersResult.data ?? []).map((row) => Number(row.tenant_id)),
+      ...(generatorsByName.data ?? []).map((row) => Number(row.tenant_id)),
+      ...(generatorsByCode.data ?? []).map((row) => Number(row.tenant_id)),
+      ...(subscribersByName.data ?? []).map((row) => Number(row.tenant_id)),
+      ...(subscribersByNumber.data ?? []).map((row) => Number(row.tenant_id)),
+      ...(subscribersByPhone.data ?? []).map((row) => Number(row.tenant_id)),
+      ...(ownersByName.data ?? []).map((row) => Number(row.tenant_id)),
+      ...(ownersByPhone.data ?? []).map((row) => Number(row.tenant_id)),
     ].filter(Boolean)));
     const tenantsResult = tenantIds.length
       ? await admin.from("tenants").select("id,name").in("id", tenantIds)
       : { data: [], error: null };
     if (tenantsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المساحات." });
-    const names = new Map((tenantsResult.data ?? []).map((row) => [Number(row.id), row.name]));
-    return [
-      ...(generatorsResult.data ?? []).map((row) => ({ id: Number(row.id), kind: "generator" as const, label: row.name, reference: row.code, tenantId: Number(row.tenant_id), tenantName: names.get(Number(row.tenant_id)) ?? "—" })),
-      ...(subscribersResult.data ?? []).map((row) => ({ id: Number(row.id), kind: "subscriber" as const, label: row.full_name, reference: row.subscriber_no || row.phone || "—", tenantId: Number(row.tenant_id), tenantName: names.get(Number(row.tenant_id)) ?? "—" })),
-      ...(ownersResult.data ?? []).map((row) => ({ id: Number(row.id), kind: "owner" as const, label: row.full_name, reference: row.phone || "—", tenantId: Number(row.tenant_id), tenantName: names.get(Number(row.tenant_id)) ?? "—" })),
-    ].slice(0, 30);
+    const tenantNames = new Map((tenantsResult.data ?? []).map((row) => [Number(row.id), row.name]));
+    const dedupe = <T extends { id: number; kind: string }>(rows: T[]) => {
+      const seen = new Set<string>();
+      return rows.filter((row) => {
+        const key = `${row.kind}:${row.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+    return dedupe([
+      ...(generatorsByName.data ?? []).map((row) => ({ id: Number(row.id), kind: "generator" as const, label: row.name, reference: row.code, tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
+      ...(generatorsByCode.data ?? []).map((row) => ({ id: Number(row.id), kind: "generator" as const, label: row.name, reference: row.code, tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
+      ...(subscribersByName.data ?? []).map((row) => ({ id: Number(row.id), kind: "subscriber" as const, label: row.full_name, reference: row.subscriber_no || row.phone || "—", tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
+      ...(subscribersByNumber.data ?? []).map((row) => ({ id: Number(row.id), kind: "subscriber" as const, label: row.full_name, reference: row.subscriber_no || row.phone || "—", tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
+      ...(subscribersByPhone.data ?? []).map((row) => ({ id: Number(row.id), kind: "subscriber" as const, label: row.full_name, reference: row.subscriber_no || row.phone || "—", tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
+      ...(ownersByName.data ?? []).map((row) => ({ id: Number(row.id), kind: "owner" as const, label: row.full_name, reference: row.phone || "—", tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
+      ...(ownersByPhone.data ?? []).map((row) => ({ id: Number(row.id), kind: "owner" as const, label: row.full_name, reference: row.phone || "—", tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
+    ]).slice(0, 30);
   }),
   operationalMonitoring: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
