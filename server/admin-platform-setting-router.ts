@@ -61,8 +61,10 @@ const sendOwnerUsageAlertProcedure = authenticatedProcedure
       updated_by_user_id: ctx.user.id,
     }).select("id,title,body,status,published_at,created_at").single();
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إرسال تنبيه صاحب المولد." });
-    await admin.from("audit_logs").insert({
+    const { data: auditSite } = await admin.from("sites").select("id").eq("tenant_id", input.tenantId).order("id", { ascending: true }).limit(1).maybeSingle();
+    if (auditSite?.id) await admin.from("audit_logs").insert({
       tenant_id: input.tenantId,
+      site_id: Number(auditSite.id),
       user_id: ctx.user.id,
       entity_type: "platform_announcement",
       entity_id: String(data.id),
