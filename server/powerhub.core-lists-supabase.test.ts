@@ -638,9 +638,9 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.rpcCalls.splice(0);
     state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
       state.rpcCalls.push({ name, args });
-      if (name === "powerhub_staff_reset_password_begin") return Promise.resolve([{ intent_id: 501, auth_user_id: "auth-staff-1", target_user_id: 2, expires_at: "2026-09-22T18:00:00.000Z" }]);
-      if (name === "powerhub_staff_reset_password_complete") return Promise.resolve([{ intent_id: 501, status: "completed", target_user_id: 2 }]);
-      return Promise.resolve([{ success: true }]);
+      if (name === "powerhub_staff_reset_password_begin") return { data: [{ intent_id: 501, auth_user_id: "auth-staff-1", target_user_id: 2, expires_at: "2026-09-22T18:00:00.000Z" }], error: null };
+      if (name === "powerhub_staff_reset_password_complete") return { data: [{ intent_id: 501, status: "completed", target_user_id: 2 }], error: null };
+      return { data: [{ success: true }], error: null };
     });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     const result = await caller.staff.resetPassword({ siteId: 10, profileId: 70 });
