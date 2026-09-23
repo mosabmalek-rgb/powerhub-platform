@@ -621,7 +621,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يعيد تعيين كلمة مرور الحساب الفرعي عبر Supabase Auth ثم يكمل Intent ذريًا", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "owner@example.test" }, { id: 2, role: "user", account_status: "active", auth_user_id: "auth-staff-1", email: "staff@example.test" }];
     state.client.auth = { admin: { updateUserById: vi.fn(async () => ({ data: { user: { id: "auth-staff-1" } }, error: null })) } };
-    state.rpcCalls = [];
+    state.rpcCalls.splice(0);
     state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
       state.rpcCalls.push({ name, args });
       if (name === "powerhub_staff_reset_password_begin") return Promise.resolve([{ intent_id: 501, auth_user_id: "auth-staff-1", target_user_id: 2, expires_at: "2026-09-22T18:00:00.000Z" }]);
