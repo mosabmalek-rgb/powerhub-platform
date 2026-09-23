@@ -33,6 +33,45 @@ const platformAdminSavePlatformSettingProcedure = authenticatedProcedure
   });
 
 
+const sendOwnerUsageAlertProcedure = authenticatedProcedure
+  .input(z.object({
+    tenantId: z.number().int().positive(),
+    usagePercent: z.number().int().min(0).max(1000),
+    message: z.string().trim().min(5).max(1200),
+  }))
+  .mutation(async ({ ctx, input }) => {
+    if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(ctx.user.platformRole ?? "") || ctx.user.accountStatus !== "active") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
+    }
+    const admin = supabaseAdmin();
+    const { data: tenant, error: tenantError } = await admin.from("tenants").select("id,name").eq("id", input.tenantId).maybeSingle();
+    if (tenantError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مساحة صاحب المولد." });
+    if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+    const title = input.usagePercent >= 100 ? "تنبيه: تم بلوغ حد الباقة" : "تنبيه: ارتفاع استهلاك الباقة";
+    const { data, error } = await admin.from("platform_announcements").insert({
+      tenant_id: input.tenantId,
+      title,
+      body: input.message,
+      announcement_type: "alert",
+      status: "published",
+      published_at: new Date().toISOString(),
+      scheduled_at: null,
+      audience_roles: ["owner"],
+      created_by_user_id: ctx.user.id,
+      updated_by_user_id: ctx.user.id,
+    }).select("id,title,body,status,published_at,created_at").single();
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إرسال تنبيه صاحب المولد." });
+    await admin.from("audit_logs").insert({
+      tenant_id: input.tenantId,
+      user_id: ctx.user.id,
+      entity_type: "platform_announcement",
+      entity_id: String(data.id),
+      action: "owner_usage_alert_sent",
+      metadata: { usagePercent: input.usagePercent, tenantName: tenant.name },
+    });
+    return { success: true as const, announcementId: Number(data.id) };
+  });
+
 const listTenantFeatureEntitlementsProcedure = authenticatedProcedure
   .query(async ({ ctx }) => {
     if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(ctx.user.platformRole ?? "") || ctx.user.accountStatus !== "active") {
@@ -62,6 +101,7 @@ const setTenantFeatureEntitlementProcedure = authenticatedProcedure
   });
 
 type PlatformSettingAdminRouter = typeof adminRouter & {
+  sendOwnerUsageAlert: typeof sendOwnerUsageAlertProcedure;
   listTenantFeatureEntitlements: typeof listTenantFeatureEntitlementsProcedure;
   setTenantFeatureEntitlement: typeof setTenantFeatureEntitlementProcedure;
 };
@@ -84,6 +124,7 @@ export const adminRouterWithSupabasePlatformSetting = (router({
   ...smsPlanRecord,
   ...tenantBranchRecord,
   savePlatformSetting: platformAdminSavePlatformSettingProcedure,
+  sendOwnerUsageAlert: sendOwnerUsageAlertProcedure,
   setTenantFeatureEntitlement: setTenantFeatureEntitlementProcedure,
   listTenantFeatureEntitlements: listTenantFeatureEntitlementsProcedure,
 }) as unknown) as PlatformSettingAdminRouter;
