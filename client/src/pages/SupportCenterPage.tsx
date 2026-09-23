@@ -238,7 +238,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [tagIds, setTagIds] = useState<number[]>([]);
   const [adminControlsOpen, setAdminControlsOpen] = useState(false);
   const [adminControls, setAdminControls] = useState<any | null>(null);
-  const [working, setAdminWorking] = useState(false);
+  const [adminWorking, setAdminWorking] = useState(false);
   const [timeline, setTimeline] = useState<Array<{ id:number; event_type:string; actor_name:string|null; from_status:string|null; to_status:string|null; from_priority:string|null; to_priority:string|null; metadata:Record<string,unknown>; created_at:string }>>([]);
 
   const selected = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) ?? null, [conversations, selectedId]);
