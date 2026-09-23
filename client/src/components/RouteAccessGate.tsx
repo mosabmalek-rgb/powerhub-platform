@@ -12,7 +12,7 @@ type RouteAccessGateProps = {
 export function RouteAccessGate({ children, platformAdminOnly = false, supportOnly = false, financeAdminOnly = false }: RouteAccessGateProps) {
   const { user, isAuthenticated, loading } = useAuth();
   const [, setLocation] = useLocation();
-  const isPlatformAdmin = user?.role === "admin" && ["platform_owner", "platform_admin", "finance_admin"].includes(user.platformRole ?? "");
+  const isPlatformAdmin = user?.role === "admin" && ["platform_owner", "platform_admin"].includes(user.platformRole ?? "");
   const isPlatformSupport = user?.role === "admin" && user.platformRole === "platform_support";
   const isFinanceAdmin = user?.role === "admin" && user.platformRole === "finance_admin";
   const shouldRedirect = !loading && (!isAuthenticated || (platformAdminOnly && !isPlatformAdmin) || (financeAdminOnly && !isFinanceAdmin) || (supportOnly && !isPlatformSupport));
