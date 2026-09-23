@@ -75,7 +75,7 @@ export function createPowerHubApp() {
   });
   app.all("/api/scheduled/*", (_req, res) => res.status(410).json({
     error: "scheduled_jobs_disabled",
-    message: "تم تعطيل الإرسال المجدول مؤقتاً أثناء تحويل التشغيل إلى Supabase وVercel.",
+    message: "هذا المسار قديم؛ تتم الجدولة حالياً عبر Supabase Cron.",
   }));
   // tRPC API
   app.use(

@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 describe("مسارات الجدولة الخارجية", () => {
-  it("ترفض تشغيل جدولة Heartbeat الموروثة أثناء الانتقال إلى Vercel Cron", async () => {
+  it("ترفض تشغيل جدولة Heartbeat الموروثة بعد اعتماد Supabase Cron", async () => {
     const server = createPowerHubApp().listen(0);
     servers.push(server);
     await new Promise<void>((resolve) => server.once("listening", () => resolve()));
