@@ -66,6 +66,7 @@ const state = vi.hoisted(() => {
       };
       const updateQuery = {
         eq: () => updateQuery,
+        select: () => ({ maybeSingle: () => resolved(null), single: () => resolved(null) }),
         then: <TResult1 = { data: null; error: null }, TResult2 = never>(
           onfulfilled?: ((value: { data: null; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
           onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
@@ -151,7 +152,8 @@ const state = vi.hoisted(() => {
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
-  return { client, tables, inserts, updates, rpcCalls };
+  const defaultRpc = client.rpc;
+  return { client, tables, inserts, updates, rpcCalls, defaultRpc };
 });
 
 const notificationWorker = vi.hoisted(() => ({ processQueue: vi.fn(), processById: vi.fn() }));
@@ -164,6 +166,14 @@ import { powerhubRouter } from "./powerhub";
 
 describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   beforeEach(() => {
+    state.client.rpc = state.defaultRpc;
+    state.client.auth = {
+      admin: {
+        createUser: vi.fn(async () => ({ data: { user: { id: "auth-default" } }, error: null })),
+        updateUserById: vi.fn(async () => ({ data: { user: { id: "auth-default" } }, error: null })),
+        deleteUser: vi.fn(async () => ({ error: null })),
+      },
+    };
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.notification_messages = [{ id: 90, subscriber_id: 30, status: "failed" }];
     state.tables.tenant_subscriptions = [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
@@ -471,21 +481,19 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.messaging.savePaymentReceiptTemplate({ siteId: 10, body: "مرحباً {{subscriber_name}}، تم استلام دفعتك بنجاح.", isActive: true })).resolves.toEqual({ success: true });
     expect(state.inserts).toContainEqual({ table: "tenant_invoice_message_templates", values: expect.objectContaining({ tenant_id: 20, channel: "sms", event_type: "invoice_issued", is_active: true }) });
     expect(state.inserts).toContainEqual({ table: "tenant_payment_receipt_message_templates", values: expect.objectContaining({ tenant_id: 20, channel: "sms", is_active: true }) });
-    await expect(caller.messaging.saveConfiguration({ siteId: 10, channel: "sms", provider: "tweetsms", credential: "credential-long-enough", isActive: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.messaging.saveConfiguration({ siteId: 10, channel: "sms", provider: "tweetsms", credential: "credential-long-enough", isActive: true })).resolves.toMatchObject({ success: true, channel: "sms", provider: "tweetsms", isActive: true });
   });
 
-  it("يعرض سجل الإشعارات من Supabase ويعطّل كل الإرسال وإعادة المحاولة الموروثة", async () => {
+  it("يعرض سجل الإشعارات ويشغّل الإرسال وإعادة المحاولة عبر مسارات Supabase", async () => {
     state.tables.notification_messages = [{ id: 99, tenant_id: 20, invoice_id: 70, subscriber_id: 30, channel: "sms", event_type: "invoice_issued", recipient: "+970595000000", status: "failed", provider_message_id: null, payload: { invoiceNo: "MAIN-202608-0001" }, attempts: 1, last_error: "غير مهيأ", created_at: "2026-08-25T00:00:00.000Z", updated_at: "2026-08-25T00:00:00.000Z" }];
+    notificationWorker.processById.mockResolvedValue({ status: "submitted", providerMessageId: "provider-1" });
+    notificationWorker.processQueue.mockResolvedValue({ requested: 1, submitted: 1, failed: 0, skipped: 0, results: [{ notificationId: 99, status: "submitted" }] });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.notifications.list({ siteId: 10, eventType: "invoice_issued" })).resolves.toMatchObject([{ notification: { id: 99, status: "failed", createdAt: expect.any(Date) }, subscriber: { id: 30, fullName: "مشترك الاختبار" }, invoiceNo: "MAIN-202608-0001" }]);
-    await expect(caller.notifications.retry({ siteId: 10, notificationId: 99 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    await expect(caller.notifications.retryFailedInvoiceNotification({ siteId: 10, notificationId: 99 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    await expect(caller.notifications.retryFailedInvoiceNotifications({ siteId: 10, notificationIds: [99] })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    await expect(caller.notifications.retryPaymentReceipt({ siteId: 10, notificationId: 99 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    await expect(caller.notifications.sendDeferredInvoices({ siteId: 10, limit: 1 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    await expect(caller.notifications.sendBulkInvoiceSms({ siteId: 10, invoiceIds: [70] })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    await expect(caller.notifications.sendPaymentReminder({ siteId: 10, invoiceId: 70 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    await expect(caller.notifications.sendPaymentReceipt({ siteId: 10, paymentId: 81, channel: "sms" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller.notifications.retry({ siteId: 10, notificationId: 99 })).resolves.toMatchObject({ status: "submitted" });
+    await expect(caller.notifications.retryFailedInvoiceNotification({ siteId: 10, notificationId: 99 })).resolves.toMatchObject({ status: "submitted" });
+    await expect(caller.notifications.retryFailedInvoiceNotifications({ siteId: 10, notificationIds: [99] })).resolves.toMatchObject({ requested: 1, eligible: 1, submitted: 1, failed: 0 });
+    await expect(caller.notifications.sendDeferredInvoices({ siteId: 10, limit: 1 })).resolves.toMatchObject({ requested: 1, submitted: 1, failed: 0 });
   });
 
   it("يعرض سجل عمليات الإرسال الجماعي وتفاصيله من Supabase دون MySQL", async () => {
