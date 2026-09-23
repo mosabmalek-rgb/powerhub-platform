@@ -24,6 +24,7 @@ function mapAnnouncement(row: any, readAt?: string | null) {
     status: row.status,
     publishedAt: row.published_at,
     scheduledAt: row.scheduled_at,
+    tenantId: row.tenant_id ? Number(row.tenant_id) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdByUserId: Number(row.created_by_user_id),
@@ -118,19 +119,21 @@ export const platformAnnouncementsRouter = router({
       const { data: account } = await supabaseAdmin().from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single();
       if (!account || account.account_status !== "active") return [];
       const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
+      const { data: memberships } = await admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active");
+      const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
       if (account.platform_role) roles.add(account.platform_role);
       const admin = supabaseAdmin();
       await admin.from("platform_announcements").update({ status: "published", published_at: new Date().toISOString(), scheduled_at: null }).eq("status", "scheduled").lte("scheduled_at", new Date().toISOString());
       const { data, error } = await admin
         .from("platform_announcements")
-        .select("id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at,audience_roles")
+         .select("id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at,audience_roles,tenant_id")
         .eq("status", "published")
         .not("published_at", "is", null)
         .lte("published_at", new Date().toISOString())
         .order("published_at", { ascending: false })
         .limit(100);
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الإشعارات الداخلية." });
-      const visible = (data ?? []).filter((row) => row.audience_roles?.includes("all") || row.audience_roles?.some((r: string) => roles.has(r)));
+      const visible = (data ?? []).filter((row) => (row.tenant_id == null || tenantIds.has(Number(row.tenant_id))) && (row.audience_roles?.includes("all") || row.audience_roles?.some((r: string) => roles.has(r))));
       const ids = visible.map((row) => Number(row.id));
       const reads = ids.length
         ? await supabaseAdmin().from("platform_announcement_reads").select("announcement_id,read_at").eq("user_id", ctx.user.id).in("announcement_id", ids)
@@ -143,7 +146,7 @@ export const platformAnnouncementsRouter = router({
       const admin = supabaseAdmin();
       const [{ data: announcement, error: announcementError }, { data: profiles }, { data: account }] = await Promise.all([
         admin.from("platform_announcements")
-          .select("id,status,published_at,audience_roles")
+          .select("id,status,published_at,audience_roles,tenant_id")
           .eq("id", input.id)
           .eq("status", "published")
           .not("published_at", "is", null)
@@ -157,7 +160,9 @@ export const platformAnnouncementsRouter = router({
       }
       const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
       if (account.platform_role) roles.add(account.platform_role);
-      const visible = announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role));
+      const { data: memberships } = await admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active");
+      const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
+      const visible = (announcement.tenant_id == null || tenantIds.has(Number(announcement.tenant_id))) && (announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role)));
       if (!visible) throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
       const { error } = await admin.from("platform_announcement_reads").upsert(
         { announcement_id: input.id, user_id: ctx.user.id, read_at: new Date().toISOString() },
