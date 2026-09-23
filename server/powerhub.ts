@@ -2080,9 +2080,11 @@ export const powerhubRouter = router({
   notifications: router({
     list: protectedProcedure.input(siteScoped.extend({ eventType: z.enum(["invoice_issued", "payment_reminder", "payment_received", "service_alert", "subscriber_reference"]).optional(), channel: z.enum(["sms", "whatsapp"]).optional(), statuses: z.array(z.enum(["pending", "processing", "submitted", "delivered", "read", "failed", "needs_review"])).max(7).optional() })).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
-      let notificationQuery = supabaseAdmin().from("notification_messages").select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, created_at, updated_at")
+      let notificationQuery = supabaseAdmin().from("notification_messages").select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, scheduled_at, created_at, updated_at")
         .eq("tenant_id", scope.tenantId).order("created_at", { ascending: false }).limit(500);
       if (input.eventType) notificationQuery = notificationQuery.eq("event_type", input.eventType);
+      if (input.channel) notificationQuery = notificationQuery.eq("channel", input.channel);
+      if (input.statuses?.length) notificationQuery = notificationQuery.in("status", input.statuses);
       const { data: notificationRows, error: notificationsError } = await notificationQuery;
       if (notificationsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل الإشعارات من Supabase." });
       const subscriberIds = Array.from(new Set((notificationRows ?? []).map((row) => Number(row.subscriber_id)).filter(Number.isInteger)));
@@ -2100,7 +2102,7 @@ export const powerhubRouter = router({
       return (notificationRows ?? []).flatMap((row) => {
         const subscriber = subscribersById.get(Number(row.subscriber_id));
         if (!subscriber) return [];
-        return [{ notification: { id: Number(row.id), tenantId: Number(row.tenant_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), subscriberId: Number(row.subscriber_id), channel: row.channel, eventType: row.event_type, recipient: row.recipient, status: row.status, providerMessageId: row.provider_message_id, payload: row.payload, attempts: row.attempts, lastError: row.last_error, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null }];
+        return [{ notification: { id: Number(row.id), tenantId: Number(row.tenant_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), subscriberId: Number(row.subscriber_id), channel: row.channel, eventType: row.event_type, recipient: row.recipient, status: row.status, providerMessageId: row.provider_message_id, payload: row.payload, attempts: row.attempts, lastError: row.last_error, scheduledAt: row.scheduled_at ? new Date(row.scheduled_at) : null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null }];
       });
     }),
     listFailedSms: protectedProcedure.input(siteScoped.extend({ includeNeedsReview: z.boolean().default(true) })).query(async ({ ctx, input }) => {
