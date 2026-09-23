@@ -43,7 +43,7 @@ export function createPowerHubApp() {
   registerMobileApi(app);
   app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
   app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);
-  app.get("/api/scheduled/process-invoice-notifications", async (req, res) => {
+  app.all("/api/scheduled/process-invoice-notifications", async (req, res) => {
     const configuredSecret = process.env.CRON_SECRET;
     const authorization = req.headers.authorization ?? "";
     if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) {
@@ -58,7 +58,7 @@ export function createPowerHubApp() {
       return res.status(500).json({ ok: false, error: "invoice_notification_schedule_failed" });
     }
   });
-  app.get("/api/scheduled/payment-documentation-retention", async (req, res) => {
+  app.all("/api/scheduled/payment-documentation-retention", async (req, res) => {
     const configuredSecret = process.env.CRON_SECRET;
     const authorization = req.headers.authorization ?? "";
     if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) {
