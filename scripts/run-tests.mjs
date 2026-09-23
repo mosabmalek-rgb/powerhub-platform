@@ -10,7 +10,8 @@ function run(args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-const vitestArgs = ["vitest", "run", "--maxWorkers=1", "--minWorkers=1"];\nconst pageVitestArgs = [...vitestArgs, "--config", "vitest.pages.config.ts"];
+const vitestArgs = ["vitest", "run", "--maxWorkers=1", "--minWorkers=1"];
+const pageVitestArgs = [...vitestArgs, "--config", "vitest.pages.config.ts"];
 
 function runVitest(paths) {
   run([...vitestArgs, ...paths]);
