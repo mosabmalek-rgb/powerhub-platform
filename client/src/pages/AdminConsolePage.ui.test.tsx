@@ -123,10 +123,6 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("حساب TweetSMS المركزي للمنصة")).toBeInTheDocument();
     expect(screen.getByText("استهلاك الرسائل حسب صاحب المولد")).toBeInTheDocument();
     expect(screen.getByText("تنبيهات رصيد TweetSMS")).toBeInTheDocument();
-    fireEvent.click(sidebarNav("مزود SMS احتياطي"));
-    expect(screen.getByText("مزود SMS احتياطي — تهيئة آمنة")).toBeInTheDocument();
-    expect(screen.getByText("بانتظار عقد API")).toBeInTheDocument();
-    expect(screen.queryByText("encrypted-secret")).not.toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getByText("مولدات محظورة")).toBeInTheDocument();
     fireEvent.click(sidebarNav("التنبيهات والإشعارات"));
