@@ -122,13 +122,15 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
   const admin = supabaseAdmin();
 
   // Business rule: the only automatic SMS is invoice_issued.
-  // The cron is an internal dispatcher only; there is no tenant-configurable schedule.
+  // The cron is an internal dispatcher only; tenant-configured cycles are enforced by scheduled_at.
   const { data: messages, error: messagesError } = await admin
     .from("notification_messages")
     .select("id, tenant_id")
     .eq("channel", "sms")
     .eq("event_type", "invoice_issued")
     .eq("status", "pending")
+    .lte("scheduled_at", now.toISOString())
+    .order("scheduled_at", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(200);
 
