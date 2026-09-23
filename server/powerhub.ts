@@ -405,22 +405,22 @@ export const powerhubRouter = router({
     listConfigurations: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const { data, error } = await supabaseAdmin().from("tenant_messaging_configurations")
-        .select("id, channel, provider, sender_id, phone_number_id, template_name, receipt_template_name, subscriber_reference_template_name, is_active, auto_send_after_approval, auto_send_cron, schedule_cron_task_uid, updated_at")
+        .select("id, channel, provider, sender_id, phone_number_id, template_name, receipt_template_name, subscriber_reference_template_name, is_active, auto_send_after_approval, updated_at")
         .eq("tenant_id", scope.tenantId).order("channel", { ascending: true });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات الرسائل من Supabase." });
-      return (data ?? []).map((config) => ({ id: Number(config.id), channel: config.channel, provider: config.provider, senderId: config.sender_id, phoneNumberId: config.phone_number_id, templateName: config.template_name, receiptTemplateName: config.receipt_template_name, subscriberReferenceTemplateName: config.subscriber_reference_template_name, isActive: config.is_active, autoSendAfterApproval: config.auto_send_after_approval, autoSendCron: config.auto_send_cron, scheduleCronTaskUid: config.schedule_cron_task_uid, updatedAt: new Date(config.updated_at) }));
+      return (data ?? []).map((config) => ({ id: Number(config.id), channel: config.channel, provider: config.provider, senderId: config.sender_id, phoneNumberId: config.phone_number_id, templateName: config.template_name, receiptTemplateName: config.receipt_template_name, subscriberReferenceTemplateName: config.subscriber_reference_template_name, isActive: config.is_active, autoSendAfterApproval: config.auto_send_after_approval, autoSendCron: null, scheduleCronTaskUid: null, updatedAt: new Date(config.updated_at) }));
     }),
     listScheduleRuns: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(50).default(20) })).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const admin = supabaseAdmin();
       const { data: config, error: configError } = await admin.from("tenant_messaging_configurations").select("id")
         .eq("tenant_id", scope.tenantId).eq("channel", "sms").maybeSingle();
-      if (configError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعداد جدولة الرسائل من Supabase." });
+      if (configError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعداد SMS الآلي من Supabase." });
       if (!config) return [];
       const { data, error } = await admin.from("messaging_schedule_runs")
         .select("id, status, scanned, submitted, failed, skipped, error, task_uid, started_at, finished_at")
         .eq("tenant_id", scope.tenantId).eq("configuration_id", config.id).order("started_at", { ascending: false }).limit(input.limit);
-      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل جدولة الرسائل من Supabase." });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل معالجة SMS الآلي من Supabase." });
       return (data ?? []).map((run) => ({ id: Number(run.id), status: run.status, scanned: run.scanned, submitted: run.submitted, failed: run.failed, skipped: run.skipped, error: run.error, taskUid: run.task_uid, startedAt: new Date(run.started_at), finishedAt: run.finished_at ? new Date(run.finished_at) : null }));
     }),
     deliveryPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
@@ -484,11 +484,11 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       return probeMessagingConnection({ channel: input.channel, provider: input.provider.trim(), credential: input.credential.trim(), phoneNumberId: input.phoneNumberId?.trim() || undefined });
     }),
-    configureInvoiceAutoSend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), enabled: z.boolean(), cron: z.enum(["0 0/15 * * * *", "0 0 * * * *", "0 0 8 * * *"]).default("0 0/15 * * * *") })).mutation(async ({ ctx, input }) => {
+    configureInvoiceAutoSend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), enabled: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const admin = supabaseAdmin();
       const { data: config, error: configError } = await admin.from("tenant_messaging_configurations")
-        .select("id, channel")
+        .select("id, is_active")
         .eq("tenant_id", scope.tenantId)
         .eq("channel", "sms")
         .maybeSingle();
@@ -496,12 +496,12 @@ export const powerhubRouter = router({
       if (!config) throw new TRPCError({ code: "NOT_FOUND", message: "يجب إعداد قناة SMS أولاً." });
 
       const { data, error } = await admin.from("tenant_messaging_configurations")
-        .update({ auto_send_after_approval: input.enabled, auto_send_cron: input.enabled ? input.cron : null, updated_at: new Date().toISOString() })
+        .update({ auto_send_after_approval: input.enabled, auto_send_cron: null, updated_at: new Date().toISOString() })
         .eq("tenant_id", scope.tenantId)
         .eq("id", config.id)
-        .select("auto_send_after_approval, auto_send_cron")
+        .select("auto_send_after_approval")
         .single();
-      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ إعداد الجدولة." });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ حالة الإرسال الآلي." });
 
       await writeSupabaseAudit({
         userId: ctx.user.id,
@@ -510,10 +510,10 @@ export const powerhubRouter = router({
         entityType: "tenant_messaging_configuration",
         entityId: String(config.id),
         action: input.enabled ? "enable_invoice_auto_send" : "disable_invoice_auto_send",
-        metadata: { cron: input.enabled ? input.cron : null, scheduler: "vercel_central_cron" },
+        metadata: { automation: "invoice_issued_only", scheduler: "internal_queue_dispatcher" },
       });
 
-      return { enabled: data.auto_send_after_approval, cron: data.auto_send_cron, nextExecutionAt: null };
+      return { enabled: data.auto_send_after_approval, cron: null, nextExecutionAt: null };
     }),
     saveInvoiceTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
