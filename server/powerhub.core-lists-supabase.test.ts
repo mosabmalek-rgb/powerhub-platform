@@ -66,7 +66,8 @@ const state = vi.hoisted(() => {
       };
       const updateQuery = {
         eq: () => updateQuery,
-        select: () => ({ maybeSingle: () => resolved(null), single: () => resolved(null) }),
+        select: () => ({ maybeSingle: () => resolved(null), single: () => resolved({ ...(filteredRows[0] ?? {}), ...(updateQuery.__values as Record<string, unknown>) }) }),
+        __values: {} as Record<string, unknown>,
         then: <TResult1 = { data: null; error: null }, TResult2 = never>(
           onfulfilled?: ((value: { data: null; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
           onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
@@ -85,7 +86,7 @@ const state = vi.hoisted(() => {
             ) => resolved(null).then(onfulfilled, onrejected),
           };
         },
-        update(values: unknown) { updates.push({ table, values }); return updateQuery; },
+        update(values: unknown) { updates.push({ table, values }); updateQuery.__values = (values && typeof values === "object" ? values : {}) as Record<string, unknown>; return updateQuery; },
         upsert(values: unknown) {
           inserts.push({ table, values });
           return resolved(null);
@@ -166,6 +167,7 @@ import { powerhubRouter } from "./powerhub";
 
 describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   beforeEach(() => {
+    process.env.JWT_SECRET = "test-jwt-secret-for-powerhub";
     state.client.rpc = state.defaultRpc;
     state.client.auth = {
       admin: {
@@ -176,7 +178,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     };
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.notification_messages = [{ id: 90, subscriber_id: 30, status: "failed" }];
+    state.tables.audit_logs = [
+      { id: 108, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "subscriber", entity_id: "30", action: "create", before_data: null, after_data: { subscriberNo: "MAIN-001" }, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
+      { id: 109, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "meter_reading", entity_id: "60", action: "mobile_create", before_data: null, after_data: null, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
+    ];
     state.tables.tenant_subscriptions = [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
+    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true }];
     state.tables.tenants = [{ id: 20, plan: "professional", package_code: "professional" }];
     state.tables.platform_settings = [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }];
     state.inserts.splice(0);
