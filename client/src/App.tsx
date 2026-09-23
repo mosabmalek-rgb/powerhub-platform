@@ -88,7 +88,7 @@ function Router() {
       <Route path={"/admin/generator-features"}>{() => <RouteAccessGate platformAdminOnly><AdminGeneratorFeaturesPage /></RouteAccessGate>}</Route>
       <Route path={"/admin/announcements"}>{() => <RouteAccessGate platformAdminOnly><PlatformAnnouncementsPage /></RouteAccessGate>}</Route>
       <Route path={"/admin"}>{() => <RouteAccessGate><AdminConsolePage /></RouteAccessGate>}</Route>
-      <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
+      <Route path={"/finance-admin"}>{() => <RouteAccessGate financeAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
