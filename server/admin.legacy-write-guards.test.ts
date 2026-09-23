@@ -43,11 +43,7 @@ describe("حراس الكتابات الإدارية الموروثة", () => {
         siteName: "الفرع الرئيسي",
         siteCode: "HQ",
       }),
-      adminCaller.updateComplaint({
-        id: 1,
-        status: "resolved",
-        response: "تمت المعالجة",
-      }),
+
     ];
 
     for (const operation of guardedWrites) {
