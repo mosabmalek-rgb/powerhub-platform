@@ -306,7 +306,19 @@ async function sendPendingInvoiceSmsRuntime(
   const notificationIds = (candidateRows ?? []).flatMap((row) =>
     scopedSubscribers.has(Number(row.subscriber_id)) ? [Number(row.id)] : []
   );
-  const result = await processNotificationQueueForTenant(scope.tenantId, actorUserId, notificationIds);
+
+  const results = [];
+  for (let offset = 0; offset < notificationIds.length; offset += 50) {
+    results.push(await processNotificationQueueForTenant(scope.tenantId, actorUserId, notificationIds.slice(offset, offset + 50)));
+  }
+  const result = {
+    requested: results.reduce((sum, item) => sum + item.requested, 0),
+    submitted: results.reduce((sum, item) => sum + item.submitted, 0),
+    failed: results.reduce((sum, item) => sum + item.failed, 0),
+    skipped: results.reduce((sum, item) => sum + item.skipped, 0),
+    results: results.flatMap((item) => item.results ?? []),
+  };
+
   await writeSupabaseAudit({
     userId: actorUserId,
     tenantId: scope.tenantId,
@@ -320,6 +332,7 @@ async function sendPendingInvoiceSmsRuntime(
       submitted: result.submitted,
       failed: result.failed,
       skipped: result.skipped,
+      internalBatchSize: 50,
       includeFailed: input.includeFailed,
     },
   });
