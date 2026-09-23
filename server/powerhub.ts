@@ -484,36 +484,45 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       return probeMessagingConnection({ channel: input.channel, provider: input.provider.trim(), credential: input.credential.trim(), phoneNumberId: input.phoneNumberId?.trim() || undefined });
     }),
-    configureInvoiceAutoSend: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), enabled: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
+    configureInvoiceAutoSend: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      enabled: z.boolean().default(true),
+      scheduleMode: z.enum(["immediate", "weekly", "every_10_days", "every_15_days", "monthly"]).default("immediate"),
+      scheduleAnchorAt: z.string().datetime().optional(),
+    })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const admin = supabaseAdmin();
       const { data: config, error: configError } = await admin.from("tenant_messaging_configurations")
         .select("id, is_active")
-        .eq("tenant_id", scope.tenantId)
-        .eq("channel", "sms")
-        .maybeSingle();
+        .eq("tenant_id", scope.tenantId).eq("channel", "sms").maybeSingle();
       if (configError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعداد SMS." });
       if (!config) throw new TRPCError({ code: "NOT_FOUND", message: "يجب إعداد قناة SMS أولاً." });
 
+      const scheduleMode = input.enabled ? input.scheduleMode : "immediate";
+      const anchor = input.enabled && scheduleMode !== "immediate" ? new Date(input.scheduleAnchorAt ?? "").toISOString() : null;
+      if (input.enabled && scheduleMode !== "immediate" && (!input.scheduleAnchorAt || Number.isNaN(new Date(input.scheduleAnchorAt).getTime()))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد تاريخ ووقت صحيحين لبداية دورة الإرسال." });
+      }
+
       const { data, error } = await admin.from("tenant_messaging_configurations")
-        .update({ auto_send_after_approval: input.enabled, auto_send_cron: null, updated_at: new Date().toISOString() })
-        .eq("tenant_id", scope.tenantId)
-        .eq("id", config.id)
-        .select("auto_send_after_approval")
-        .single();
-      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ حالة الإرسال الآلي." });
+        .update({
+          auto_send_after_approval: input.enabled,
+          auto_send_cron: null,
+          invoice_sms_schedule_mode: scheduleMode,
+          invoice_sms_schedule_anchor_at: anchor,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("tenant_id", scope.tenantId).eq("id", config.id)
+        .select("auto_send_after_approval, invoice_sms_schedule_mode, invoice_sms_schedule_anchor_at").single();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ إعداد دورة إرسال الفواتير." });
 
       await writeSupabaseAudit({
-        userId: ctx.user.id,
-        tenantId: scope.tenantId,
-        siteId: input.siteId,
-        entityType: "tenant_messaging_configuration",
-        entityId: String(config.id),
-        action: input.enabled ? "enable_invoice_auto_send" : "disable_invoice_auto_send",
-        metadata: { automation: "invoice_issued_only", scheduler: "internal_queue_dispatcher" },
+        userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId,
+        entityType: "tenant_messaging_configuration", entityId: String(config.id),
+        action: input.enabled ? "configure_invoice_sms_batch_schedule" : "disable_invoice_auto_send",
+        metadata: { automation: "invoice_issued_only", scheduleMode: data.invoice_sms_schedule_mode, scheduleAnchorAt: data.invoice_sms_schedule_anchor_at },
       });
-
-      return { enabled: data.auto_send_after_approval, cron: null, nextExecutionAt: null };
+      return { enabled: data.auto_send_after_approval, scheduleMode: data.invoice_sms_schedule_mode, scheduleAnchorAt: data.invoice_sms_schedule_anchor_at, cron: null };
     }),
     saveInvoiceTemplate: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]), body: z.string().min(12).max(1600), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
