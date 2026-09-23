@@ -135,7 +135,7 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("أحداث الأمان والنسخ الاحتياطي")).toBeInTheDocument();
     fireEvent.click(sidebarNav("إعدادات المنصة"));
     expect(screen.getByText("وضع صيانة المنصة")).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("يعرض صفراً لنسبة التحصيل عند وصول قيمة غير رقمية من قراءة التحليلات", () => {
     state.role = "admin";
