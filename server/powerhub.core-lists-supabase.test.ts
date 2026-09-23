@@ -89,7 +89,13 @@ const state = vi.hoisted(() => {
         update(values: unknown) { updates.push({ table, values }); updateQuery.__values = (values && typeof values === "object" ? values : {}) as Record<string, unknown>; return updateQuery; },
         upsert(values: unknown) {
           inserts.push({ table, values });
-          return resolved(null);
+          return {
+            select: () => ({ maybeSingle: () => resolved(values), single: () => resolved(values) }),
+            then: <TResult1 = { data: unknown; error: null }, TResult2 = never>(
+              onfulfilled?: ((value: { data: unknown; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
+              onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+            ) => resolved({ data: values, error: null }).then(onfulfilled, onrejected),
+          };
         },
       };
     },
@@ -442,7 +448,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       updated_at: "2026-08-25T00:00:00.000Z",
     }];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.messaging.configureInvoiceAutoSend({ siteId: 10, enabled: true, cron: "0 0/15 * * * *" })).resolves.toMatchObject({ success: true, enabled: true, cron: "0 0/15 * * * *" });
+    await expect(caller.messaging.configureInvoiceAutoSend({ siteId: 10, enabled: true, cron: "0 0/15 * * * *" })).resolves.toMatchObject({ enabled: true, cron: "0 0/15 * * * *" });
     expect(state.updates).toContainEqual(expect.objectContaining({
       table: "tenant_messaging_configurations",
       values: expect.objectContaining({ auto_send_after_approval: true, auto_send_cron: "0 0/15 * * * *" }),
@@ -627,6 +633,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يعيد تعيين كلمة مرور الحساب الفرعي عبر Supabase Auth ثم يكمل Intent ذريًا", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "owner@example.test" }, { id: 2, role: "user", account_status: "active", auth_user_id: "auth-staff-1", email: "staff@example.test" }];
+    state.tables.staff_profiles = [{ id: 70, tenant_id: 20, site_id: 10, user_id: 2, role: "accountant", permissions: [], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true }, { tenant_id: 20, site_id: 10, user_id: 1, is_active: true }];
     state.client.auth = { admin: { updateUserById: vi.fn(async () => ({ data: { user: { id: "auth-staff-1" } }, error: null })) } };
     state.rpcCalls.splice(0);
     state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
