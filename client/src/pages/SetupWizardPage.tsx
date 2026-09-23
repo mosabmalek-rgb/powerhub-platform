@@ -25,7 +25,7 @@ export default function SetupWizardPage() {
   const generators = trpc.powerhub.generators.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
   const tariffs = trpc.powerhub.tariffs.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
   const subscribers = trpc.powerhub.subscribers.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
-  const readings = trpc.powerhub.readings.list.useQuery({ siteId: branchId ?? 0, status: "approved" }, { enabled });
+  const readings = trpc.powerhub.readings.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
 
   const counts = {
     branch: (branches.data ?? []).filter((item: any) => item.status !== "archived").length,
