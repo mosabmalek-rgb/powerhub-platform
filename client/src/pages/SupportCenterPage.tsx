@@ -79,7 +79,7 @@ function SupportAdminControls({ data, working, onSave }: { data: any; working: b
           <SupportCatalogEditor
             title="تصنيف دعم"
             rows={categories}
-            working={adminWorking}
+            working={working}
             fields={[
               { name: "code", label: "الكود", placeholder: "billing" },
               { name: "name", label: "الاسم", placeholder: "الفواتير" },
@@ -100,7 +100,7 @@ function SupportAdminControls({ data, working, onSave }: { data: any; working: b
           <SupportCatalogEditor
             title="وسم دعم"
             rows={tags}
-            working={adminWorking}
+            working={working}
             fields={[
               { name: "code", label: "الكود", placeholder: "urgent" },
               { name: "name", label: "الاسم", placeholder: "عاجل" },
@@ -117,7 +117,7 @@ function SupportAdminControls({ data, working, onSave }: { data: any; working: b
           <SupportCatalogEditor
             title="رد جاهز"
             rows={quickReplies}
-            working={adminWorking}
+            working={working}
             fields={[
               { name: "shortcut", label: "الاختصار", placeholder: "welcome" },
               { name: "title", label: "العنوان", placeholder: "ترحيب" },
