@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { BarChart3, CalendarRange, CircleDollarSign, Download, FileText, Loader2, Receipt, TrendingUp } from "lucide-react";
-import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
+import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -40,13 +40,13 @@ export default function FinancialDashboardPage() {
       map.set(key, item);
       return map;
     }, new Map<string, { collected: number; expenses: number }>()).entries()).slice(-6)
-      .map(([month, item]) => `<tr><td>${month}</td><td>${format(item.collected)} شيكل</td><td>${format(item.expenses)} شيكل</td></tr>`)
+      .map(([month, item]) => `<tr><td>${escapeHtml(month)}</td><td>${format(item.collected)} شيكل</td><td>${format(item.expenses)} شيكل</td></tr>`)
       .join("");
-    const collectorRows = (data.collectors ?? []).map((item) => `<tr><td>${item.name}</td><td>${item.count}</td><td>${format(item.amount)} شيكل</td></tr>`).join("");
-    const debtorRows = (data.topDebtors ?? []).slice(0, 10).map((item) => `<tr><td>${item.subscriber}</td><td>${item.invoiceNo}</td><td>${format(item.balanceDue)} شيكل</td><td>${formatReportDate(item.dueDate)}</td></tr>`).join("");
+    const collectorRows = (data.collectors ?? []).map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${item.count}</td><td>${format(item.amount)} شيكل</td></tr>`).join("");
+    const debtorRows = (data.topDebtors ?? []).slice(0, 10).map((item) => `<tr><td>${escapeHtml(item.subscriber)}</td><td>${escapeHtml(item.invoiceNo)}</td><td>${format(item.balanceDue)} شيكل</td><td>${escapeHtml(formatReportDate(item.dueDate))}</td></tr>`).join("");
     wrapper.innerHTML = `
-      <h1 style="border-bottom:3px solid #f5b800;padding-bottom:18px">${branding.data?.companyName ?? "PowerHub"} — التقرير الإداري المالي</h1>
-      <p>الفترة: ${formatReportPeriod(startDate, endDate)}</p>
+      <h1 style="border-bottom:3px solid #f5b800;padding-bottom:18px">${escapeHtml(branding.data?.companyName ?? "PowerHub")} — التقرير الإداري المالي</h1>
+      <p>الفترة: ${escapeHtml(formatReportPeriod(startDate, endDate))}</p>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
         <div style="border:1px solid #ccc;padding:14px">التحصيل<br><b>${format(data.summary.collected)} شيكل</b></div>
         <div style="border:1px solid #ccc;padding:14px">المصروفات<br><b>${format(data.summary.expenseTotal)} شيكل</b></div>
