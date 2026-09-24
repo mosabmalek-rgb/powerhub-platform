@@ -193,7 +193,14 @@ function InvoiceSmsQueue({ rows, config, siteId }: { rows: any[]; config: any; s
     onSettled: () => { setSendingId(null); setSendingAll(false); },
   });
   const fmt = (v:number) => new Date(v).toLocaleString("ar-PS", { dateStyle:"medium", timeStyle:"short" });
-  const dispatchOne = (row:any) => { setSendingId(row.notification.id); sendNow.mutate({ siteId, invoiceIds: [Number(row.notification.invoiceId)] }); };
+  const dispatchOne = (row:any) => {
+    if (row.notification.scheduledAt && new Date(row.notification.scheduledAt).getTime() > Date.now()) {
+      toast.error("هذه الرسالة مجدولة للمستقبل؛ استخدم الإرسال اليدوي الصريح إذا كان المقصود تجاوز الموعد.");
+      return;
+    }
+    setSendingId(row.notification.id);
+    sendNow.mutate({ siteId, invoiceIds: [Number(row.notification.invoiceId)] });
+  };
   const dispatchDue = () => { if (!due.length) return; setSendingAll(true); sendNow.mutate({ siteId, invoiceIds: due.slice(0,200).map((r:any)=>Number(r.notification.invoiceId)) }); };
   return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="font-bold text-white">طابور انتظار رسائل الفواتير</h2><p className="mt-1 text-xs leading-6 text-slate-500">الفواتير التي أُصدرت ودخلت الطابور ولم تُرسل بعد. الرسائل المجدولة تبقى هنا حتى موعد دورة الإرسال.</p></div><div className="flex flex-wrap gap-2"><Badge className="bg-[#F5B800]/10 text-[#F5B800]">{pending.length} منتظرة</Badge><Badge className="bg-emerald-400/10 text-emerald-300">{due.length} مستحقة الآن</Badge><Button type="button" size="sm" onClick={dispatchDue} disabled={!due.length || sendingAll || sendingId !== null}>{sendingAll ? "جارٍ الإرسال..." : "إرسال المستحقة الآن"}</Button></div></div>
