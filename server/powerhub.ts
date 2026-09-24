@@ -30,6 +30,12 @@ async function requirePaymentDocumentationFeature(tenantId: number) {
 }
 
 
+export function isPendingInvoiceSmsDue(scheduledAt: string | Date | null, now = new Date()) {
+  if (scheduledAt === null) return true;
+  const timestamp = scheduledAt instanceof Date ? scheduledAt.getTime() : Date.parse(scheduledAt);
+  return Number.isFinite(timestamp) && timestamp <= now.getTime();
+}
+
 export const bulkInvoiceSendAuditActions = ["send_deferred_invoice_notifications", "send_invoice_sms_batch"] as const;
 export const quickActionCapabilityById = {
   add_subscriber: "manageSubscribers",
@@ -265,7 +271,7 @@ async function requireCompanyAccountSiteScope(
 
 async function sendPendingInvoiceSmsRuntime(
   actorUserId: number,
-  input: { siteId: number; invoiceIds?: number[]; includeFailed: boolean },
+  input: { siteId: number; invoiceIds?: number[]; includeFailed: boolean; dueOnly?: boolean },
 ) {
   const scope = await requireSupabaseSiteRole(actorUserId, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
   const admin = supabaseAdmin();
@@ -293,6 +299,7 @@ async function sendPendingInvoiceSmsRuntime(
     .limit(50);
   if (input.invoiceIds?.length) pendingQuery = pendingQuery.in("invoice_id", Array.from(new Set(input.invoiceIds)));
 
+  if (input.dueOnly) pendingQuery = pendingQuery.or("scheduled_at.is.null,scheduled_at.lte." + new Date().toISOString());
   const { data: candidateRows, error: candidatesError } = await pendingQuery;
   if (candidatesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل رسائل SMS المؤجلة من Supabase." });
 
@@ -316,6 +323,7 @@ async function sendPendingInvoiceSmsRuntime(
     submitted: results.reduce((sum, item) => sum + item.submitted, 0),
     failed: results.reduce((sum, item) => sum + item.failed, 0),
     skipped: results.reduce((sum, item) => sum + item.skipped, 0),
+    needsReview: results.reduce((sum, item) => sum + (item.needsReview ?? 0), 0),
     results: results.flatMap((item) => item.results ?? []),
   };
 
@@ -334,6 +342,7 @@ async function sendPendingInvoiceSmsRuntime(
       skipped: result.skipped,
       internalBatchSize: 50,
       includeFailed: input.includeFailed,
+      dueOnly: Boolean(input.dueOnly),
     },
   });
   return result;
@@ -2176,7 +2185,7 @@ export const powerhubRouter = router({
         : { data: [], error: null };
       if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق الرسائل المحددة." });
       const scopedSubscribers = new Set((subscribers ?? []).map((row) => Number(row.id)));
-      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; error?: string }> = [];
+      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "needs_review" | "skipped"; error?: string }> = [];
       for (const id of ids) {
         const subscriberId = eligible.get(id);
         if (!subscriberId || !scopedSubscribers.has(subscriberId)) {
@@ -2196,7 +2205,7 @@ export const powerhubRouter = router({
         action: "retry_failed_sms_batch",
         metadata: { requested: ids.length, eligible: eligible.size, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length },
       });
-      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, results };
+      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, needsReview: results.filter((r) => r.status === "needs_review").length, skipped: results.filter((r) => r.status === "skipped").length, results };
     }),
     listBulkInvoiceSends: protectedProcedure.input(bulkInvoiceSendLogInput).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
@@ -2309,7 +2318,7 @@ export const powerhubRouter = router({
       return processNotificationById(Number(row.id), ctx.user.id);
     }),
     sendDeferredInvoices: protectedProcedure.input(sendDeferredInvoiceNotificationsInput).mutation(({ ctx, input }) =>
-      sendPendingInvoiceSmsRuntime(ctx.user.id, { siteId: input.siteId, invoiceIds: input.invoiceIds, includeFailed: false })
+      sendPendingInvoiceSmsRuntime(ctx.user.id, { siteId: input.siteId, invoiceIds: input.invoiceIds, includeFailed: false, dueOnly: true })
     ),
     sendBulkInvoiceSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceIds: z.array(z.number().int().positive()).min(1).max(200) })).mutation(({ ctx, input }) =>
       sendPendingInvoiceSmsRuntime(ctx.user.id, { siteId: input.siteId, invoiceIds: input.invoiceIds, includeFailed: false })
