@@ -12,7 +12,9 @@ import OperationsPage from "./OperationsPage";
 import SettingsPage from "./SettingsPage";
 import SubscriberPortalSettingsPage from "./SubscriberPortalSettingsPage";
 
-const mocks = vi.hoisted(() => ({
+const mocks = vi.hoisted(() => {
+  const queryCache = new Map<string, { data: unknown; isLoading: boolean; isFetching: boolean }>();
+  return {
   activeRole: "viewer",
   site: { id: 1, name: "محطة الاختبار", code: "TEST-01" },
   user: { id: 1, role: "owner", platformRole: "platform_owner", accountStatus: "active" },
@@ -32,8 +34,16 @@ const mocks = vi.hoisted(() => ({
   sendPaymentReceiptSms: vi.fn(),
   sendPaymentReminderSms: vi.fn(),
   mutation: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  query: (data: unknown = []) => ({ data, isLoading: false, isFetching: false }),
-}));
+  query: (data: unknown = []) => {
+    const key = JSON.stringify(data);
+    const cached = queryCache.get(key);
+    if (cached) return cached;
+    const result = { data, isLoading: false, isFetching: false };
+    queryCache.set(key, result);
+    return result;
+  },
+};
+});
 
 class ResizeObserverMock {
   observe() {}
