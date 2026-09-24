@@ -28,7 +28,7 @@ const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.02
 const formatNumber = (value: unknown) => new Intl.NumberFormat("ar").format(Number(value ?? 0));
 const formatDate = (value: Date | string | null | undefined) => value ? formatReportDate(value) : "—";
 const paymentMethodLabels: Record<string, string> = { cash: "نقدي", wallet: "محفظة", bank_transfer: "تحويل بنكي", card: "بطاقة" };
-const notificationStatusLabels: Record<string, string> = { pending: "بانتظار المعالجة", submitted: "مرسلة للمزود", delivered: "تم التسليم", read: "مقروءة", failed: "فاشلة" };
+const notificationStatusLabels: Record<string, string> = { pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "مرسلة", delivered: "مرسلة", read: "مرسلة", failed: "غير مرسلة" };
 
 function statusLabel(status?: string) {
   return ({ trial: "تجريبي", active: "فعّال", overdue: "متأخر", suspended: "معلّق", cancelled: "ملغي" } as Record<string, string>)[status ?? ""] ?? "غير مهيأ";

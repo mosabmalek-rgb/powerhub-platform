@@ -34,7 +34,7 @@ const moduleMeta: Record<Section, { title: string; subtitle: string; icon: typeo
   collections: { title: "التحصيلات والمدفوعات", subtitle: "تسجيل الدفعات ومتابعة الإيصالات وتوزيعها على الفواتير.", icon: WalletCards },
   expenses: { title: "المصروفات والربحية", subtitle: "تسجيل الوقود والصيانة والرواتب لفهم الربحية التشغيلية.", icon: Fuel },
   reports: { title: "التقارير", subtitle: "ملخصات تشغيلية ومالية تتحدث من بيانات الخدمة الفعلية.", icon: ClipboardList },
-  notifications: { title: "الإشعارات", subtitle: "متابعة رسائل WhatsApp وSMS وحالات التسليم والفشل.", icon: CheckCircle2 },
+  notifications: { title: "الإشعارات", subtitle: "متابعة رسائل WhatsApp وSMS ونتائج الإرسال والفشل.", icon: CheckCircle2 },
   audit: { title: "سجل التدقيق", subtitle: "سجل غير قابل للحذف للعمليات المالية والتشغيلية الحساسة.", icon: ShieldCheck },
 };
 
@@ -154,7 +154,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("حُفظت القراءة بانتظار المراجعة."); }, onError: (e) => toast.error(e.message) });
   const addTariff = trpc.powerhub.tariffs.create.useMutation({ onSuccess: async () => { await utils.powerhub.tariffs.list.invalidate(); toast.success("تمت إضافة التعرفة."); }, onError: (e) => toast.error(e.message) });
   const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تم تسجيل الدفعة."); }, onError: (e) => toast.error(e.message) });
-  const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: async (result) => { await refreshOperational(); toast.success(result.status === "submitted" ? "أُرسل إيصال SMS إلى المزود." : "وُضع إيصال SMS في الطابور؛ راجع سجل الإشعارات."); }, onError: (error) => toast.error(error.message) });
+  const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: async (result) => { await refreshOperational(); toast.success(result.status === "submitted" ? "تم إرسال إيصال SMS بنجاح." : "تعذر إرسال إيصال SMS؛ راجع سجل الإشعارات."); }, onError: (error) => toast.error(error.message) });
   const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تم تسجيل المصروف."); }, onError: (e) => toast.error(e.message) });
   const createLink = trpc.powerhub.invoices.createShareLink.useMutation({ onSuccess: async (result) => { const copied = await copyTextSafely(`${window.location.origin}${result.path}`); copied ? toast.success("تم نسخ رابط الفاتورة الآمن.") : toast.error("تعذر نسخ الرابط. انسخه يدوياً."); }, onError: (e) => toast.error(e.message) });
 
