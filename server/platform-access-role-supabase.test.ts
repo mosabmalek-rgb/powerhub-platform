@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-const migration = "supabase/migrations/20260912134000_powerhub_admin_set_platform_access_role_rpc.sql";
+const migration = "supabase/migrations/20260922194500_powerhub_platform_access_audit_restore_v1.sql";
 
 describe("platform access role Supabase migration contract", () => {
   it("keeps the migration security and authorization contract explicit", async () => {
@@ -9,7 +9,7 @@ describe("platform access role Supabase migration contract", () => {
 
     expect(sql).toContain("powerhub_admin_set_platform_access_role");
     expect(sql).toContain("security definer");
-    expect(sql).toContain("set search_path = public, pg_temp");
+    expect(sql).toContain("set search_path = ''");
     expect(sql).toContain("platform_owner");
     expect(sql).toContain("platform_admin");
     expect(sql).toContain("finance_admin");
@@ -18,8 +18,18 @@ describe("platform access role Supabase migration contract", () => {
     expect(sql).toContain("PLATFORM_OWNER_PROTECTED");
     expect(sql).toContain("INVALID_PLATFORM_ROLE");
     expect(sql).toContain("platform_security_events");
+    expect(sql).toContain("related_user_id");
+    expect(sql).toContain("'event', 'platform_role_changed'");
+    expect(sql).toContain("'scope', 'platform'");
+    expect(sql).toContain("'tenantId', null");
+    expect(sql).toContain("'actorUserId', p_actor_user_id");
+    expect(sql).toContain("'targetUserId', p_user_id");
+    expect(sql).toContain("'oldRole', v_target_platform_role");
+    expect(sql).toContain("'newRole', p_platform_role");
+    expect(sql).not.toContain("p_target_user_id");
     expect(sql).toContain("revoke all on function public.powerhub_admin_set_platform_access_role");
-    expect(sql).toContain("grant execute on function public.powerhub_admin_set_platform_access_role(bigint, bigint, text) to service_role");
+    expect(sql).toContain("grant execute on function public.powerhub_admin_set_platform_access_role(");
+    expect(sql).toContain(") to service_role;");
   });
 
   it("keeps the adapter on Supabase RPC instead of Drizzle/MySQL", async () => {
