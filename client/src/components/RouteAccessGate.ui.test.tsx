@@ -13,10 +13,10 @@ vi.mock("wouter", () => ({ useLocation: () => ["/readings", state.setLocation] }
 afterEach(() => { cleanup(); state.user = null; state.isAuthenticated = false; state.loading = false; state.setLocation.mockClear(); });
 
 describe("RouteAccessGate", () => {
-  it("returns a visitor from an operational route to the public landing page", async () => {
+  it("returns an unauthenticated visitor to the login page", async () => {
     render(<RouteAccessGate><p>تشغيل المولد</p></RouteAccessGate>);
     expect(screen.queryByText("تشغيل المولد")).not.toBeInTheDocument();
-    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/login"));
   });
 
   it("renders the operational route for an authenticated generator account", () => {
