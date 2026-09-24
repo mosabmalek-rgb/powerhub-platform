@@ -117,31 +117,54 @@ async function getDeviceId() {
   return value;
 }
 
-function getFallbackDeviceId() {
-  if (memoryDeviceId) return memoryDeviceId;
+function readLocalStorageDeviceId() {
   try {
     const stored = window.localStorage.getItem(DEVICE_ID_FALLBACK_KEY);
-    if (stored && /^[0-9a-f-]{36}$/i.test(stored)) {
-      memoryDeviceId = stored;
-      return stored;
-    }
-    const value = crypto.randomUUID();
-    window.localStorage.setItem(DEVICE_ID_FALLBACK_KEY, value);
-    memoryDeviceId = value;
-    return value;
+    return stored && /^[0-9a-f-]{36}$/i.test(stored) ? stored : null;
   } catch {
-    // Private browsing or a disabled storage API: keep a stable ID for this
-    // page lifetime so authenticated requests still satisfy the server guard.
-    memoryDeviceId ??= crypto.randomUUID();
-    return memoryDeviceId;
+    return null;
   }
+}
+
+function persistLocalStorageDeviceId(value: string) {
+  try {
+    window.localStorage.setItem(DEVICE_ID_FALLBACK_KEY, value);
+  } catch {
+    // Private browsing or disabled storage is handled by the memory fallback.
+  }
+  memoryDeviceId = value;
+}
+
+function getFallbackDeviceId() {
+  if (memoryDeviceId) return memoryDeviceId;
+  const stored = readLocalStorageDeviceId();
+  if (stored) {
+    memoryDeviceId = stored;
+    return stored;
+  }
+  const value = crypto.randomUUID();
+  persistLocalStorageDeviceId(value);
+  return value;
 }
 
 export async function getPowerHubDeviceId() {
   assertBrowserCrypto();
+
+  // Keep one browser identity even if IndexedDB is temporarily unavailable.
+  // Generating a different fallback ID makes the server treat this browser as
+  // a second device and can create a login -> workspace -> login loop.
+  if (memoryDeviceId) return memoryDeviceId;
+  const localStorageId = readLocalStorageDeviceId();
+  if (localStorageId) {
+    memoryDeviceId = localStorageId;
+    return localStorageId;
+  }
+
   try {
     assertIndexedDb();
-    return await getDeviceId();
+    const indexedDbId = await getDeviceId();
+    persistLocalStorageDeviceId(indexedDbId);
+    return indexedDbId;
   } catch {
     return getFallbackDeviceId();
   }
