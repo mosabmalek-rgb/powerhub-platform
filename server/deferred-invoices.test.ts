@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bulkInvoiceSendAuditActions, bulkInvoiceSendDetailsInput, bulkInvoiceSendLogInput, retryFailedInvoiceNotificationInput, retryFailedInvoiceNotificationsInput, sendDeferredInvoiceNotificationsInput } from "./powerhub";
+import { bulkInvoiceSendAuditActions, bulkInvoiceSendDetailsInput, bulkInvoiceSendLogInput, isPendingInvoiceSmsDue, retryFailedInvoiceNotificationInput, retryFailedInvoiceNotificationsInput, sendDeferredInvoiceNotificationsInput } from "./powerhub";
 
 describe("deferred invoice notification input", () => {
   it("uses a bounded batch that remains scoped to one branch", () => {
@@ -7,6 +7,14 @@ describe("deferred invoice notification input", () => {
     expect(sendDeferredInvoiceNotificationsInput.parse({ siteId: 22, invoiceIds: [3, 7] })).toMatchObject({ invoiceIds: [3, 7] });
     expect(sendDeferredInvoiceNotificationsInput.safeParse({ siteId: 0 }).success).toBe(false);
     expect(sendDeferredInvoiceNotificationsInput.safeParse({ siteId: 22, limit: 201 }).success).toBe(false);
+  });
+
+  it("enforces due-only semantics for Send Due Now", () => {
+    const now = new Date("2026-09-24T10:00:00.000Z");
+    expect(isPendingInvoiceSmsDue(null, now)).toBe(true);
+    expect(isPendingInvoiceSmsDue("2026-09-24T09:59:59.000Z", now)).toBe(true);
+    expect(isPendingInvoiceSmsDue("2026-09-24T10:00:00.000Z", now)).toBe(true);
+    expect(isPendingInvoiceSmsDue("2026-09-24T10:00:01.000Z", now)).toBe(false);
   });
 
   it("recognizes both supported invoice bulk-delivery audit actions", () => {
