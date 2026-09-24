@@ -323,7 +323,6 @@ async function sendPendingInvoiceSmsRuntime(
     submitted: results.reduce((sum, item) => sum + item.submitted, 0),
     failed: results.reduce((sum, item) => sum + item.failed, 0),
     skipped: results.reduce((sum, item) => sum + item.skipped, 0),
-    needsReview: results.reduce((sum, item) => sum + (item.needsReview ?? 0), 0),
     results: results.flatMap((item) => item.results ?? []),
   };
 
@@ -2134,13 +2133,13 @@ export const powerhubRouter = router({
         return [{ notification: { id: Number(row.id), tenantId: Number(row.tenant_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), subscriberId: Number(row.subscriber_id), channel: row.channel, eventType: row.event_type, recipient: row.recipient, status: row.status, providerMessageId: row.provider_message_id, payload: row.payload, attempts: row.attempts, lastError: row.last_error, scheduledAt: row.scheduled_at ? new Date(row.scheduled_at) : null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null }];
       });
     }),
-    listFailedSms: protectedProcedure.input(siteScoped.extend({ includeNeedsReview: z.boolean().default(true) })).query(async ({ ctx, input }) => {
+    listFailedSms: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       let query = supabaseAdmin().from("notification_messages")
         .select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, created_at, updated_at")
         .eq("tenant_id", scope.tenantId)
         .eq("channel", "sms")
-        .in("status", input.includeNeedsReview ? ["failed", "needs_review"] : ["failed"])
+        .eq("status", "failed")
         .order("created_at", { ascending: false })
         .limit(500);
       const { data, error } = await query;
@@ -2185,7 +2184,7 @@ export const powerhubRouter = router({
         : { data: [], error: null };
       if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق الرسائل المحددة." });
       const scopedSubscribers = new Set((subscribers ?? []).map((row) => Number(row.id)));
-      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "needs_review" | "skipped"; error?: string }> = [];
+      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; error?: string }> = [];
       for (const id of ids) {
         const subscriberId = eligible.get(id);
         if (!subscriberId || !scopedSubscribers.has(subscriberId)) {
@@ -2205,7 +2204,7 @@ export const powerhubRouter = router({
         action: "retry_failed_sms_batch",
         metadata: { requested: ids.length, eligible: eligible.size, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length },
       });
-      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, needsReview: results.filter((r) => r.status === "needs_review").length, skipped: results.filter((r) => r.status === "skipped").length, results };
+      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, results };
     }),
     listBulkInvoiceSends: protectedProcedure.input(bulkInvoiceSendLogInput).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");

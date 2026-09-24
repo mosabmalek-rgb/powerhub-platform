@@ -1,10 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { decryptTenantCredential } from "./tenant-crypto";
 import { supabaseAdmin } from "./supabase-admin";
-import { sendTweetSms, type TweetSmsCredentials } from "./tweetsms-client";
+import { checkTweetSmsBalance, sendTweetSms, type TweetSmsCredentials } from "./tweetsms-client";
 import { normalizeInternationalPhone } from "../shared/phone";
 
-type DispatchResult = { status: "submitted" | "failed" | "needs_review" | "skipped"; providerMessageId?: string | null; error?: string };
+type DispatchResult = { status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string };
 type SmsClaim = {
   notification_id: number;
   tenant_id: number;
@@ -71,33 +71,37 @@ export async function processNotificationById(notificationId: number, actorUserI
   if (claimError || !claim) return { status: "skipped", error: rpcErrorMessage(claimError, "تعذر حجز رسالة SMS للإرسال.") };
 
   let sent = false;
-  let deliveryUncertain = false;
   let providerMessageId: string | null = null;
   let sendError: string | null = null;
+
   try {
     const credentials = decryptTweetSmsCredentials(claim.credential_ciphertext, claim.credential_iv);
-    let providerResult: Awaited<ReturnType<typeof sendTweetSms>> | null = null;
-    try {
-      providerResult = await sendTweetSms({
-        endpoint: claim.api_endpoint,
-        credentials,
-        sender: claim.sender_name,
-        message: claim.rendered_text,
-        recipient: normalizeInternationalPhone(claim.recipient),
-      });
-    } catch (cause) {
-      deliveryUncertain = true;
-      sendError = cause instanceof Error ? cause.message.slice(0, 2000) : "تعذر تحديد نتيجة مزود الرسائل بعد محاولة الإرسال.";
+    const balanceBefore = await checkTweetSmsBalance({ endpoint: claim.api_endpoint, credentials });
+    if (!balanceBefore.ok || balanceBefore.balance === undefined) {
+      throw new Error("تعذر قراءة رصيد TweetSMS قبل الإرسال؛ لم تثبت نتيجة الإرسال.");
     }
-    if (!deliveryUncertain) {
-      if (!providerResult?.ok) throw new Error(providerResult?.message ?? "رفض مزود TweetSMS الإرسال.");
-      sent = true;
-      providerMessageId = providerResult.providerMessageId ?? null;
+
+    const providerResult = await sendTweetSms({
+      endpoint: claim.api_endpoint,
+      credentials,
+      sender: claim.sender_name,
+      message: claim.rendered_text,
+      recipient: normalizeInternationalPhone(claim.recipient),
+    });
+    if (!providerResult.ok) throw new Error(providerResult.message || "رفض مزود TweetSMS الإرسال.");
+
+    const balanceAfter = await checkTweetSmsBalance({ endpoint: claim.api_endpoint, credentials });
+    if (!balanceAfter.ok || balanceAfter.balance === undefined) {
+      throw new Error("تعذر التحقق من خصم رصيد TweetSMS؛ اعتُبرت الرسالة غير مرسلة.");
     }
+    if (balanceAfter.balance >= balanceBefore.balance) {
+      throw new Error("لم يثبت خصم رصيد TweetSMS؛ اعتُبرت الرسالة غير مرسلة.");
+    }
+
+    sent = true;
+    providerMessageId = providerResult.providerMessageId ?? null;
   } catch (cause) {
-    if (!deliveryUncertain) {
-      sendError = cause instanceof Error ? cause.message.slice(0, 2000) : "فشل غير معروف عند تجهيز إرسال الرسالة.";
-    }
+    sendError = cause instanceof Error ? cause.message.slice(0, 2000) : "فشل غير معروف عند إرسال الرسالة.";
   }
 
   const { data: rawFinish, error: finishError } = await admin.rpc("powerhub_finish_sms_notification", {
@@ -107,12 +111,10 @@ export async function processNotificationById(notificationId: number, actorUserI
     p_success: sent,
     p_provider_message_id: providerMessageId,
     p_error: sendError,
-    p_delivery_uncertain: deliveryUncertain,
   });
   if (finishError || !(rawFinish as unknown[] | null)?.[0]) {
     return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال؛ لا تعاود المحاولة قبل مراجعة سجل التدقيق." };
   }
-  if (deliveryUncertain) return { status: "needs_review", error: sendError ?? "تعذر تحديد نتيجة مزود TweetSMS؛ يلزم مراجعة الحالة قبل أي إعادة إرسال." };
   if (!sent) return { status: "failed", error: sendError ?? "رفض مزود TweetSMS الإرسال." };
   return { status: "submitted", providerMessageId };
 }
@@ -120,13 +122,17 @@ export async function processNotificationById(notificationId: number, actorUserI
 export async function processNotificationQueueForTenant(tenantId: number, actorUserId: number, notificationIds: number[]) {
   if (!Number.isInteger(tenantId) || tenantId < 1) throw new TRPCError({ code: "BAD_REQUEST", message: "المولد غير صالح." });
   const uniqueIds = Array.from(new Set(notificationIds)).slice(0, 50);
-  const results = await Promise.all(uniqueIds.map(async (notificationId) => ({ notificationId, ...await processNotificationById(notificationId, actorUserId) })));
+  // Balance-deduction confirmation is account-scoped. Process one message at a time
+  // per tenant so concurrent sends cannot hide one another's balance change.
+  const results: Array<{ notificationId: number } & DispatchResult> = [];
+  for (const notificationId of uniqueIds) {
+    results.push({ notificationId, ...await processNotificationById(notificationId, actorUserId) });
+  }
   return {
     requested: uniqueIds.length,
     submitted: results.filter((result) => result.status === "submitted").length,
     failed: results.filter((result) => result.status === "failed").length,
     skipped: results.filter((result) => result.status === "skipped").length,
-    needsReview: results.filter((result) => result.status === "needs_review").length,
     results,
   };
 }
@@ -174,7 +180,7 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
     byTenant.set(tenantId, ids);
   }
 
-  const results: Array<{ tenantId: number; scanned: number; submitted: number; failed: number; skipped: number; needsReview: number }> = [];
+  const results: Array<{ tenantId: number; scanned: number; submitted: number; failed: number; skipped: number }> = [];
   for (const [tenantId, ids] of byTenant) {
     const result = await processNotificationQueueForTenant(tenantId, Number(actor.id), ids);
     results.push({
@@ -183,7 +189,6 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
       submitted: result.submitted,
       failed: result.failed,
       skipped: result.skipped,
-      needsReview: result.needsReview,
     });
 
     // Keep the existing operational audit trail, but explicitly identify this
@@ -199,7 +204,7 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
       await admin.from("messaging_schedule_runs").insert({
         tenant_id: tenantId,
         configuration_id: Number(configuration.data.id),
-        status: result.failed || result.needsReview ? "failed" : "success",
+        status: result.failed ? "failed" : "success",
         scanned: result.requested,
         submitted: result.submitted,
         failed: result.failed,
@@ -217,7 +222,6 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
     submitted: results.reduce((sum, row) => sum + row.submitted, 0),
     failed: results.reduce((sum, row) => sum + row.failed, 0),
     skipped: results.reduce((sum, row) => sum + row.skipped, 0),
-    needsReview: results.reduce((sum, row) => sum + row.needsReview, 0),
     results,
   };
 }
