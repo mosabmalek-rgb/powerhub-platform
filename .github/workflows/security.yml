@@ -28,15 +28,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 1
+          clean: false
+          path: _ci/${{ github.run_id }}
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
-
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4
-
       - name: Analyze
         uses: github/codeql-action/analyze@v4
         with:
@@ -46,22 +47,26 @@ jobs:
     name: Dependency audit
     runs-on: self-hosted
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: _ci/${{ github.run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 1
+          clean: false
+          path: _ci/${{ github.run_id }}
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-
+          cache-dependency-path: _ci/${{ github.run_id }}/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Audit critical vulnerabilities (non-blocking)
         continue-on-error: true
         run: pnpm audit --audit-level=critical
