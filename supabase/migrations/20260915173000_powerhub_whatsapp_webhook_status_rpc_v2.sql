@@ -56,7 +56,7 @@ create or replace function public.powerhub_process_whatsapp_status(
 )
 returns table(updated boolean, notification_id bigint, status text)
 language sql
-security invoker
+security definer
 set search_path = ''
 volatile
 as $$

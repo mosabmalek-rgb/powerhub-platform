@@ -17,6 +17,7 @@ describe("WhatsApp webhook Supabase migration", () => {
   it("restricts the privileged status RPC to service_role", () => {
     expect(migration).toContain("security definer");
     expect(migration).toContain("set search_path = ''");
+    expect(migration).not.toMatch(/create or replace function public\.powerhub_process_whatsapp_status[\s\S]*?security invoker/);
     expect(migration).toContain("revoke all on function public.powerhub_process_whatsapp_status");
     expect(migration).toContain("grant execute on function public.powerhub_process_whatsapp_status");
     expect(migration).toContain("to service_role");
