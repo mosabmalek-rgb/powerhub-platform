@@ -5,6 +5,9 @@ const KEY_STORE = "keys";
 const LEASE_KEY = "active";
 const DEVICE_KEY = "device-hmac";
 const DEVICE_ID_KEY = "device-id";
+const DEVICE_ID_FALLBACK_KEY = "powerhub:device-id";
+
+let memoryDeviceId: string | null = null;
 
 export const OFFLINE_AUTH_LEASE_MS = 48 * 60 * 60 * 1000;
 
@@ -108,16 +111,40 @@ async function deleteRecord(storeName: string, key: IDBValidKey) {
 
 async function getDeviceId() {
   const stored = await readRecord<StoredDeviceId>(KEY_STORE, DEVICE_ID_KEY);
-  if (stored?.value) return stored.value;
+  if (stored?.value && /^[0-9a-f-]{36}$/i.test(stored.value)) return stored.value;
   const value = crypto.randomUUID();
   await writeRecord(KEY_STORE, { id: DEVICE_ID_KEY, value } satisfies StoredDeviceId);
   return value;
 }
 
+function getFallbackDeviceId() {
+  if (memoryDeviceId) return memoryDeviceId;
+  try {
+    const stored = window.localStorage.getItem(DEVICE_ID_FALLBACK_KEY);
+    if (stored && /^[0-9a-f-]{36}$/i.test(stored)) {
+      memoryDeviceId = stored;
+      return stored;
+    }
+    const value = crypto.randomUUID();
+    window.localStorage.setItem(DEVICE_ID_FALLBACK_KEY, value);
+    memoryDeviceId = value;
+    return value;
+  } catch {
+    // Private browsing or a disabled storage API: keep a stable ID for this
+    // page lifetime so authenticated requests still satisfy the server guard.
+    memoryDeviceId ??= crypto.randomUUID();
+    return memoryDeviceId;
+  }
+}
+
 export async function getPowerHubDeviceId() {
   assertBrowserCrypto();
-  assertIndexedDb();
-  return getDeviceId();
+  try {
+    assertIndexedDb();
+    return await getDeviceId();
+  } catch {
+    return getFallbackDeviceId();
+  }
 }
 
 async function getDeviceKey() {
