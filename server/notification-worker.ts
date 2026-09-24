@@ -122,7 +122,12 @@ export async function processNotificationById(notificationId: number, actorUserI
 export async function processNotificationQueueForTenant(tenantId: number, actorUserId: number, notificationIds: number[]) {
   if (!Number.isInteger(tenantId) || tenantId < 1) throw new TRPCError({ code: "BAD_REQUEST", message: "المولد غير صالح." });
   const uniqueIds = Array.from(new Set(notificationIds)).slice(0, 50);
-  const results = await Promise.all(uniqueIds.map(async (notificationId) => ({ notificationId, ...await processNotificationById(notificationId, actorUserId) })));
+  // Balance-deduction confirmation is account-scoped. Process one message at a time
+  // per tenant so concurrent sends cannot hide one another's balance change.
+  const results: Array<{ notificationId: number } & DispatchResult> = [];
+  for (const notificationId of uniqueIds) {
+    results.push({ notificationId, ...await processNotificationById(notificationId, actorUserId) });
+  }
   return {
     requested: uniqueIds.length,
     submitted: results.filter((result) => result.status === "submitted").length,
