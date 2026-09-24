@@ -22,13 +22,17 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=12288
       VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
       VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
+    defaults:
+      run:
+        working-directory: _ci/${{ github.run_id }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          clean: true
+          fetch-depth: 1
+          clean: false
+          path: _ci/${{ github.run_id }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -38,6 +42,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: _ci/${{ github.run_id }}/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -53,7 +58,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: typescript-diagnostics
-          path: tsc-errors.log
+          path: _ci/${{ github.run_id }}/tsc-errors.log
           if-no-files-found: warn
 
       - name: Run tests
@@ -67,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-diagnostics
-          path: test-errors.log
+          path: _ci/${{ github.run_id }}/test-errors.log
           if-no-files-found: warn
 
       - name: Build production artifacts
