@@ -180,7 +180,8 @@ function DashboardLayoutContent({
   const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const paymentDocumentationAccess = trpc.powerhub.paymentDocumentation.access.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const operationalGroups = menuGroups.map((group) => group.label === "التشغيل" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
-  const visibleMenuGroups = displayUser.role === "admin" ? [...operationalGroups, platformAdminGroup] : operationalGroups;
+  const canSeePlatformAdmin = displayUser.role === "admin" && ["platform_owner", "platform_admin"].includes(displayUser.platformRole ?? "");
+  const visibleMenuGroups = canSeePlatformAdmin ? [...operationalGroups, platformAdminGroup] : operationalGroups;
   const permissionAwareGroups = visibleMenuGroups.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
