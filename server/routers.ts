@@ -53,12 +53,19 @@ export const appRouter = router({
       if (!row?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
       return { allowed: true } as const;
     }),
-    releaseDevice: authenticatedProcedure.mutation(async ({ ctx }) => {
+    releaseDevice: publicProcedure.mutation(async ({ ctx }) => {
+      // Recovery must remain callable even when the current browser is not the
+      // device holding the server-side lock. Using authenticatedProcedure here
+      // would run enforceSingleDeviceSession first and make stale-lock recovery
+      // impossible, creating a login -> workspace -> login loop.
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: "يجب تسجيل الدخول أولاً." });
       const deviceId = ctx.req.headers["x-powerhub-device-id"];
-      if (typeof deviceId !== "string" || !z.string().uuid().safeParse(deviceId).success) return { released: false } as const;
+      const safeDeviceId = typeof deviceId === "string" && z.string().uuid().safeParse(deviceId).success
+        ? deviceId
+        : "00000000-0000-0000-0000-000000000000";
       const { data, error } = await supabaseAdmin().rpc("powerhub_release_user_device", {
         p_user_id: ctx.user.openId,
-        p_device_id: deviceId,
+        p_device_id: safeDeviceId,
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحرير جهاز الدخول." });
       return { released: Boolean(data) } as const;
