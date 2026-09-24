@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const npmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const env = { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=4096" };
+const env = { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=12288" };
 
 function run(args, timeoutMs = 5 * 60_000) {
   const result = spawnSync(npmCommand, args, {
