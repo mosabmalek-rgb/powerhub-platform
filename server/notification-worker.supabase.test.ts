@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ rpc: vi.fn() }));
-const provider = vi.hoisted(() => ({ send: vi.fn() }));
+const provider = vi.hoisted(() => ({ send: vi.fn(), balance: vi.fn() }));
 
 vi.hoisted(() => { process.env.JWT_SECRET = "notification-worker-supabase-test-secret"; });
 vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => ({ rpc: state.rpc }) }));
-vi.mock("./tweetsms-client", () => ({ sendTweetSms: provider.send }));
+vi.mock("./tweetsms-client", () => ({ sendTweetSms: provider.send, checkTweetSmsBalance: provider.balance }));
 
 import { encryptTenantCredential } from "./tenant-crypto";
 import { processNotificationById } from "./notification-worker";
@@ -14,6 +14,7 @@ describe("عامل TweetSMS عبر Supabase", () => {
   beforeEach(() => {
     state.rpc.mockReset();
     provider.send.mockReset();
+    provider.balance.mockReset();
   });
 
   it("يرفض المعالجة من دون منفذ مصادق عليه ولا يستدعي قاعدة البيانات أو المزود", async () => {
@@ -27,6 +28,7 @@ describe("عامل TweetSMS عبر Supabase", () => {
     state.rpc
       .mockResolvedValueOnce({ data: [{ notification_id: 11, tenant_id: 20, recipient: "+970599000000", rendered_text: "فاتورتك جاهزة", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHup", attempt_number: 1, character_count: 13, segment_count: 1 }], error: null })
       .mockResolvedValueOnce({ data: [{ notification_id: 11, status: "submitted", provider_message_id: "provider-id", segment_count: 1 }], error: null });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 100 }).mockResolvedValueOnce({ ok: true, balance: 99 });
     provider.send.mockResolvedValueOnce({ ok: true, message: "تم", providerMessageId: "provider-id" });
 
     await expect(processNotificationById(11, 7)).resolves.toEqual({ status: "submitted", providerMessageId: "provider-id" });
@@ -40,6 +42,7 @@ describe("عامل TweetSMS عبر Supabase", () => {
     state.rpc
       .mockResolvedValueOnce({ data: [{ notification_id: 12, tenant_id: 20, recipient: "+970599000000", rendered_text: "فاتورتك جاهزة", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHup", attempt_number: 3, character_count: 13, segment_count: 1 }], error: null })
       .mockResolvedValueOnce({ data: [{ notification_id: 12, status: "failed", provider_message_id: null, segment_count: 1 }], error: null });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 100 });
     provider.send.mockResolvedValueOnce({ ok: false, message: "رفض المزود" });
 
     await expect(processNotificationById(12, 7)).resolves.toMatchObject({ status: "failed", error: "رفض المزود" });
