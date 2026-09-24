@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { decryptTenantCredential } from "./tenant-crypto";
 import { supabaseAdmin } from "./supabase-admin";
-import { sendTweetSms, type TweetSmsCredentials } from "./tweetsms-client";
+import { checkTweetSmsBalance, sendTweetSms, type TweetSmsCredentials } from "./tweetsms-client";
 import { normalizeInternationalPhone } from "../shared/phone";
 
 type DispatchResult = { status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string };
@@ -76,6 +76,11 @@ export async function processNotificationById(notificationId: number, actorUserI
 
   try {
     const credentials = decryptTweetSmsCredentials(claim.credential_ciphertext, claim.credential_iv);
+    const balanceBefore = await checkTweetSmsBalance({ endpoint: claim.api_endpoint, credentials });
+    if (!balanceBefore.ok || balanceBefore.balance === undefined) {
+      throw new Error("تعذر قراءة رصيد TweetSMS قبل الإرسال؛ لم تثبت نتيجة الإرسال.");
+    }
+
     const providerResult = await sendTweetSms({
       endpoint: claim.api_endpoint,
       credentials,
@@ -84,6 +89,15 @@ export async function processNotificationById(notificationId: number, actorUserI
       recipient: normalizeInternationalPhone(claim.recipient),
     });
     if (!providerResult.ok) throw new Error(providerResult.message || "رفض مزود TweetSMS الإرسال.");
+
+    const balanceAfter = await checkTweetSmsBalance({ endpoint: claim.api_endpoint, credentials });
+    if (!balanceAfter.ok || balanceAfter.balance === undefined) {
+      throw new Error("تعذر التحقق من خصم رصيد TweetSMS؛ اعتُبرت الرسالة غير مرسلة.");
+    }
+    if (balanceAfter.balance >= balanceBefore.balance) {
+      throw new Error("لم يثبت خصم رصيد TweetSMS؛ اعتُبرت الرسالة غير مرسلة.");
+    }
+
     sent = true;
     providerMessageId = providerResult.providerMessageId ?? null;
   } catch (cause) {
