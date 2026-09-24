@@ -1,6 +1,7 @@
 import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
+import { copyTextSafely } from "@/lib/clipboard";
 import { Download, FileText, Loader2, Share2 } from "lucide-react";
 import { useRoute } from "wouter";
 import { toast } from "sonner";
@@ -46,7 +47,7 @@ export default function PublicInvoice() {
             {lines.map((line) => <div className="flex items-center justify-between border-b border-white/7 px-4 py-3 text-sm last:border-b-0" key={line.id}><span className="text-slate-400">{line.description}</span><span className="font-display font-bold text-white">{format(line.amount)}</span></div>)}
           </div>
           <div className="mt-9 grid gap-3 sm:grid-cols-2">
-            <Button className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]" onClick={() => { navigator.clipboard?.writeText(window.location.href); toast.success("تم نسخ رابط الفاتورة."); }}><Share2 className="ml-2 h-4 w-4" />نسخ رابط الفاتورة</Button>
+            <Button className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]" onClick={async () => { const copied = await copyTextSafely(window.location.href); copied ? toast.success("تم نسخ رابط الفاتورة.") : toast.error("تعذر نسخ الرابط. انسخه يدوياً."); }}><Share2 className="ml-2 h-4 w-4" />نسخ رابط الفاتورة</Button>
             <Button variant="outline" className="border-white/15 text-white hover:bg-white/5 hover:text-white" onClick={() => window.print()}><Download className="ml-2 h-4 w-4" />طباعة الفاتورة</Button>
           </div>
         </section>

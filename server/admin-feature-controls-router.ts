@@ -57,14 +57,15 @@ export const adminFeatureControlsRouter = router({
 
   tenantFeatureMatrix: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
-    const [tenantsResult, ownersResult, subscriptionsResult, sitesResult, membersResult] = await Promise.all([
+    const [tenantsResult, ownersResult, subscriptionsResult, sitesResult, membersResult, subscribersResult] = await Promise.all([
       admin.from("tenants").select("id,name,status,slug,plan,package_code").order("name", { ascending: true }).limit(500),
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
       admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").in("status", ["trial", "active"]).order("created_at", { ascending: false }).limit(1000),
       admin.from("sites").select("id,tenant_id,status").limit(5000),
       admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(5000),
+      admin.from("subscribers").select("tenant_id").limit(10000),
     ]);
-    if (tenantsResult.error || ownersResult.error || subscriptionsResult.error || sitesResult.error || membersResult.error) {
+    if (tenantsResult.error || ownersResult.error || subscriptionsResult.error || sitesResult.error || membersResult.error || subscribersResult.error) {
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مصفوفة أصحاب المولدات." });
     }
 
@@ -80,6 +81,12 @@ export const adminFeatureControlsRouter = router({
       if (row.status === "archived") continue;
       const tenantId = Number(row.tenant_id);
       branches.set(tenantId, (branches.get(tenantId) ?? 0) + 1);
+    }
+
+    const subscribers = new Map<number, number>();
+    for (const row of subscribersResult.data ?? []) {
+      const tenantId = Number(row.tenant_id);
+      subscribers.set(tenantId, (subscribers.get(tenantId) ?? 0) + 1);
     }
 
     const users = new Map<number, { platform: number; field: number }>();
@@ -108,6 +115,7 @@ export const adminFeatureControlsRouter = router({
           endsAt: subscription.ends_at,
         } : null,
         usage: {
+          subscribers: subscribers.get(tenantId) ?? 0,
           branches: branches.get(tenantId) ?? 0,
           platformUsers: usage.platform,
           fieldUsers: usage.field,

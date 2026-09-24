@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
+import { copyTextSafely } from "@/lib/clipboard";
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
 import { cn } from "@/lib/utils";
@@ -155,7 +156,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تم تسجيل الدفعة."); }, onError: (e) => toast.error(e.message) });
   const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: async (result) => { await refreshOperational(); toast.success(result.status === "submitted" ? "أُرسل إيصال SMS إلى المزود." : "وُضع إيصال SMS في الطابور؛ راجع سجل الإشعارات."); }, onError: (error) => toast.error(error.message) });
   const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تم تسجيل المصروف."); }, onError: (e) => toast.error(e.message) });
-  const createLink = trpc.powerhub.invoices.createShareLink.useMutation({ onSuccess: (result) => { navigator.clipboard?.writeText(`${window.location.origin}${result.path}`); toast.success("تم نسخ رابط الفاتورة الآمن."); }, onError: (e) => toast.error(e.message) });
+  const createLink = trpc.powerhub.invoices.createShareLink.useMutation({ onSuccess: async (result) => { const copied = await copyTextSafely(`${window.location.origin}${result.path}`); copied ? toast.success("تم نسخ رابط الفاتورة الآمن.") : toast.error("تعذر نسخ الرابط. انسخه يدوياً."); }, onError: (e) => toast.error(e.message) });
 
   const siteOptions = sitesQuery.data ?? [];
   const activeSite = useMemo(() => siteOptions.find((site) => site.id === siteId), [siteId, siteOptions]);
