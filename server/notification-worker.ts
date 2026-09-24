@@ -118,25 +118,25 @@ export async function processNotificationQueueForTenant(tenantId: number, actorU
 }
 
 
-function cronIsDue(cron: string | null | undefined, now: Date) {
-  const minute = now.getUTCMinutes();
-  const hour = now.getUTCHours();
-  if (cron === "0 0/15 * * * *") return minute % 15 === 0;
-  if (cron === "0 0 * * * *") return minute === 0;
-  if (cron === "0 0 8 * * *") return minute === 0 && hour === 8;
-  return false;
-}
-
 export async function processAutomaticInvoiceNotifications(now = new Date()) {
   const admin = supabaseAdmin();
-  const { data: configurations, error: configurationsError } = await admin
-    .from("tenant_messaging_configurations")
-    .select("id, tenant_id, auto_send_cron")
-    .eq("channel", "sms")
-    .eq("is_active", true)
-    .eq("auto_send_after_approval", true);
 
-  if (configurationsError) throw new Error("تعذر تحميل إعدادات الإرسال التلقائي.");
+  // Business rule: the only automatic SMS is invoice_issued.
+  // The cron is an internal dispatcher only; tenant-configured cycles are enforced by scheduled_at.
+  const { data: messages, error: messagesError } = await admin
+    .from("notification_messages")
+    .select("id, tenant_id")
+    .eq("channel", "sms")
+    .eq("event_type", "invoice_issued")
+    .eq("status", "pending")
+    // Legacy rows may predate scheduled_at. Treat them as immediately due;
+    // the reconciliation migration backfills the column for future runs.
+    .or(`scheduled_at.is.null,scheduled_at.lte.${now.toISOString()}`)
+    .order("scheduled_at", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(200);
+
+  if (messagesError) throw new Error("تعذر تحميل رسائل فواتير SMS المعلقة.");
 
   const { data: actor, error: actorError } = await admin
     .from("users")
@@ -147,69 +147,61 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
     .limit(1)
     .maybeSingle();
 
-  if (actorError) throw new Error("تعذر تحديد منفذ الجدولة المركزي.");
-  if (!actor) throw new Error("لا يوجد حساب آدمن منصة نشط لتسجيل عمليات الإرسال المجدول.");
+  if (actorError) throw new Error("تعذر تحديد منفذ المعالجة المركزي.");
+  if (!actor) throw new Error("لا يوجد حساب آدمن منصة نشط لمعالجة طابور SMS.");
 
-  const results: Array<{ tenantId: number; configurationId: number; status: "success" | "failed"; scanned: number; submitted: number; failed: number; skipped: number; error: string | null }> = [];
+  const byTenant = new Map<number, number[]>();
+  for (const row of messages ?? []) {
+    const tenantId = Number(row.tenant_id);
+    const id = Number(row.id);
+    if (!Number.isInteger(tenantId) || !Number.isInteger(id)) continue;
+    const ids = byTenant.get(tenantId) ?? [];
+    ids.push(id);
+    byTenant.set(tenantId, ids);
+  }
 
-  for (const configuration of configurations ?? []) {
-    const tenantId = Number(configuration.tenant_id);
-    const configurationId = Number(configuration.id);
-    if (!cronIsDue(configuration.auto_send_cron, now)) continue;
-
-    const startedAt = new Date();
-    let status: "success" | "failed" = "success";
-    let errorMessage: string | null = null;
-    let scanned = 0;
-    let submitted = 0;
-    let failed = 0;
-    let skipped = 0;
-
-    try {
-      const { data: messages, error: messagesError } = await admin
-        .from("notification_messages")
-        .select("id")
-        .eq("tenant_id", tenantId)
-        .eq("channel", "sms")
-        .eq("event_type", "invoice_issued")
-        .eq("status", "pending")
-        .order("created_at", { ascending: true })
-        .limit(50);
-      if (messagesError) throw new Error("تعذر تحميل رسائل الفواتير المؤجلة.");
-      const ids = (messages ?? []).map((row) => Number(row.id)).filter(Number.isInteger);
-      scanned = ids.length;
-      if (ids.length) {
-        const result = await processNotificationQueueForTenant(tenantId, Number(actor.id), ids);
-        submitted = result.submitted;
-        failed = result.failed;
-        skipped = result.skipped;
-      }
-    } catch (cause) {
-      status = "failed";
-      errorMessage = cause instanceof Error ? cause.message.slice(0, 2000) : "فشل غير معروف في الإرسال المجدول.";
-    }
-
-    await admin.from("messaging_schedule_runs").insert({
-      tenant_id: tenantId,
-      configuration_id: configurationId,
-      status,
-      scanned,
-      submitted,
-      failed,
-      skipped,
-      error: errorMessage,
-      task_uid: "vercel:invoice-notifications:v1",
-      started_at: startedAt.toISOString(),
-      finished_at: new Date().toISOString(),
+  const results: Array<{ tenantId: number; scanned: number; submitted: number; failed: number; skipped: number }> = [];
+  for (const [tenantId, ids] of byTenant) {
+    const result = await processNotificationQueueForTenant(tenantId, Number(actor.id), ids);
+    results.push({
+      tenantId,
+      scanned: result.requested,
+      submitted: result.submitted,
+      failed: result.failed,
+      skipped: result.skipped,
     });
 
-    results.push({ tenantId, configurationId, status, scanned, submitted, failed, skipped, error: errorMessage });
+    // Keep the existing operational audit trail, but explicitly identify this
+    // as internal queue processing rather than a tenant-configured schedule.
+    const configuration = await admin
+      .from("tenant_messaging_configurations")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("channel", "sms")
+      .maybeSingle();
+
+    if (configuration.data?.id) {
+      await admin.from("messaging_schedule_runs").insert({
+        tenant_id: tenantId,
+        configuration_id: Number(configuration.data.id),
+        status: result.failed ? "failed" : "success",
+        scanned: result.requested,
+        submitted: result.submitted,
+        failed: result.failed,
+        skipped: result.skipped,
+        error: null,
+        task_uid: "supabase:invoice-sms-dispatch:v2",
+        started_at: now.toISOString(),
+        finished_at: new Date().toISOString(),
+      });
+    }
   }
 
   return {
     processedConfigurations: results.length,
     submitted: results.reduce((sum, row) => sum + row.submitted, 0),
     failed: results.reduce((sum, row) => sum + row.failed, 0),
+    skipped: results.reduce((sum, row) => sum + row.skipped, 0),
     results,
   };
 }

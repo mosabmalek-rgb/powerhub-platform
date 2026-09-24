@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { CalendarClock, CheckCircle2, Loader2, RefreshCw, Save } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const statusLabel: Record<string, string> = { trial: "تجريبي", active: "فعّال", overdue: "متأخر", suspended: "معلّق", cancelled: "ملغي" };
@@ -16,7 +17,7 @@ function dateInputValue(value?: string | Date | null) { if (!value) return ""; c
 export default function TrialSubscriptionManagementPage() {
   const owners = trpc.admin.listOwners.useQuery();
   const utils = trpc.useUtils();
-  const updateSubscription = trpc.admin.updateSubscription.useMutation({ onSuccess: async () => { await utils.admin.listOwners.invalidate(); } });
+  const updateSubscription = trpc.admin.updateSubscription.useMutation({ onSuccess: async () => { await utils.admin.listOwners.invalidate(); toast.success("تم تحديث مدة التجربة."); }, onError: (error) => toast.error(error.message) });
   const [drafts, setDrafts] = useState<Record<number, { days: string; endsAt: string }>>({});
   const refresh = () => void owners.refetch();
   const draftFor = (row: any) => { const id = Number(row.tenant.id); if (drafts[id]) return drafts[id]; const start = row.subscription?.startedAt ? new Date(row.subscription.startedAt) : null; const end = row.subscription?.endsAt ? new Date(row.subscription.endsAt) : null; const days = start && end ? Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000)) : 8; return { days: String(days), endsAt: dateInputValue(row.subscription?.endsAt) }; };

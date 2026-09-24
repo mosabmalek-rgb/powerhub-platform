@@ -119,10 +119,10 @@ export const platformAnnouncementsRouter = router({
       const { data: account } = await supabaseAdmin().from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single();
       if (!account || account.account_status !== "active") return [];
       const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
+      const admin = supabaseAdmin();
       const { data: memberships } = await admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active");
       const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
       if (account.platform_role) roles.add(account.platform_role);
-      const admin = supabaseAdmin();
       await admin.from("platform_announcements").update({ status: "published", published_at: new Date().toISOString(), scheduled_at: null }).eq("status", "scheduled").lte("scheduled_at", new Date().toISOString());
       const { data, error } = await admin
         .from("platform_announcements")

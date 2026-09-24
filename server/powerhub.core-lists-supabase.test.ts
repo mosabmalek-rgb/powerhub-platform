@@ -448,10 +448,10 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       updated_at: "2026-08-25T00:00:00.000Z",
     }];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.messaging.configureInvoiceAutoSend({ siteId: 10, enabled: true, cron: "0 0/15 * * * *" })).resolves.toMatchObject({ enabled: true, cron: "0 0/15 * * * *" });
+    await expect(caller.messaging.configureInvoiceAutoSend({ siteId: 10, enabled: true, scheduleMode: "every_15_days", scheduleAnchorAt: "2026-08-25T20:00:00.000Z" })).resolves.toMatchObject({ enabled: true, scheduleMode: "every_15_days", scheduleAnchorAt: expect.any(String), cron: null });
     expect(state.updates).toContainEqual(expect.objectContaining({
       table: "tenant_messaging_configurations",
-      values: expect.objectContaining({ auto_send_after_approval: true, auto_send_cron: "0 0/15 * * * *" }),
+      values: expect.objectContaining({ auto_send_after_approval: true, auto_send_cron: null, invoice_sms_schedule_mode: "every_15_days", invoice_sms_schedule_anchor_at: "2026-08-25T20:00:00.000Z" }),
     }));
   });
 
@@ -506,6 +506,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.notifications.retry({ siteId: 10, notificationId: 99 })).resolves.toMatchObject({ status: "submitted" });
     await expect(caller.notifications.retryFailedInvoiceNotification({ siteId: 10, notificationId: 99 })).resolves.toMatchObject({ status: "submitted" });
     await expect(caller.notifications.retryFailedInvoiceNotifications({ siteId: 10, notificationIds: [99] })).resolves.toMatchObject({ requested: 1, eligible: 1, submitted: 1, failed: 0 });
+    state.tables.notification_messages[0].status = "pending";
     await expect(caller.notifications.sendDeferredInvoices({ siteId: 10, limit: 1 })).resolves.toMatchObject({ requested: 1, submitted: 1, failed: 0 });
   });
 

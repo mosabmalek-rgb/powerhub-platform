@@ -25,15 +25,17 @@ export default function SetupWizardPage() {
   const generators = trpc.powerhub.generators.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
   const tariffs = trpc.powerhub.tariffs.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
   const subscribers = trpc.powerhub.subscribers.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
+  const readings = trpc.powerhub.readings.list.useQuery({ siteId: branchId ?? 0 }, { enabled });
 
   const counts = {
     branch: (branches.data ?? []).filter((item: any) => item.status !== "archived").length,
     generator: (generators.data ?? []).length,
     tariff: (tariffs.data ?? []).filter((item: any) => item.isActive !== false).length,
     subscribers: (subscribers.data ?? []).length,
+    reading: (readings.data ?? []).length,
   };
 
-  const completed = (key: string) => key === "branch" ? counts.branch > 0 : key === "generator" ? counts.generator > 0 : key === "tariff" ? counts.tariff > 0 : key === "subscribers" ? counts.subscribers > 0 : false;
+  const completed = (key: string) => key === "branch" ? counts.branch > 0 : key === "generator" ? counts.generator > 0 : key === "tariff" ? counts.tariff > 0 : key === "subscribers" ? counts.subscribers > 0 : key === "reading" ? counts.reading > 0 : false;
   const completedCount = steps.filter((step) => completed(step.key)).length;
   const firstIncomplete = steps.find((step) => !completed(step.key));
 

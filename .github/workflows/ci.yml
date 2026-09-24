@@ -16,11 +16,10 @@ concurrency:
 jobs:
   validate:
     name: TypeScript, tests, and production build
-    # The repository uses a self-hosted runner to avoid GitHub-hosted minute limits.
     runs-on: self-hosted
     timeout-minutes: 20
     env:
-      NODE_OPTIONS: --max-old-space-size=4096
+      NODE_OPTIONS: --max-old-space-size=12288
       VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
       VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
 
