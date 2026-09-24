@@ -2341,7 +2341,6 @@ export const powerhubRouter = router({
       const dispatch = await processNotificationById(notificationId, ctx.user.id);
       return { notificationIds: [notificationId], channels: ["sms"], recipient, ...dispatch };
     }),
-    sendPaymentReminder: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
     sendPaymentReceiptSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), paymentId: z.number().int().positive(), channel: z.enum(["sms", "whatsapp"]).optional() })).mutation(async ({ ctx, input }) => {
       if (input.channel && input.channel !== "sms") throw new TRPCError({ code: "FORBIDDEN", message: "قناة WhatsApp غير مفعلة في هذا الإصدار؛ استخدم SMS فقط." });
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
@@ -2364,7 +2363,6 @@ export const powerhubRouter = router({
       const dispatch = await processNotificationById(notificationId, ctx.user.id);
       return { notificationId, recipient, channel: "sms" as const, ...dispatch };
     }),
-    sendPaymentReceipt: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), paymentId: z.number().int().positive(), channel: z.enum(["whatsapp", "sms"]) })).mutation(async ({ ctx, input }) => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا المسار الموروث متوقف مؤقتاً إلى أن تكتمل خدمة Supabase/Vercel المستقلة." }); }),
   }),
 
   companyAccounts: router({
