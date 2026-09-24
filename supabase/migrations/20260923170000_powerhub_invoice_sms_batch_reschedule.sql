@@ -11,6 +11,16 @@ as $function$
 declare
   v_count bigint := 0;
 begin
+  if p_tenant_id is null or p_tenant_id < 1 then
+    raise exception 'INVALID_TENANT_ID' using errcode = '22023';
+  end if;
+  if p_mode not in ('immediate', 'weekly', 'every_10_days', 'every_15_days', 'monthly') then
+    raise exception 'INVALID_SMS_SCHEDULE_MODE' using errcode = '22023';
+  end if;
+  if p_mode <> 'immediate' and p_anchor_at is null then
+    raise exception 'SCHEDULE_ANCHOR_REQUIRED' using errcode = '22023';
+  end if;
+
   update public.notification_messages
   set scheduled_at = public.powerhub_invoice_sms_next_schedule(created_at, p_mode, p_anchor_at),
       payload = jsonb_set(

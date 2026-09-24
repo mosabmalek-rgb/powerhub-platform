@@ -2,6 +2,64 @@
 -- The invoice-issued notification is queued at invoice creation and dispatched
 -- by the internal one-minute worker. Tenant-configurable SMS schedules are not used.
 
+-- Legacy queue implementations could create duplicate invoice SMS rows.
+-- Retain one deterministic row per business key, preserve removed ids for
+-- audit/debug, and only then add the uniqueness constraint below.
+with ranked as (
+  select id,
+    first_value(id) over (
+      partition by tenant_id, invoice_id, channel, event_type
+      order by case status
+        when 'delivered' then 1 when 'read' then 2 when 'submitted' then 3
+        when 'pending' then 4 when 'failed' then 5 else 6
+      end, created_at asc, id asc
+    ) as keep_id,
+    row_number() over (
+      partition by tenant_id, invoice_id, channel, event_type
+      order by case status
+        when 'delivered' then 1 when 'read' then 2 when 'submitted' then 3
+        when 'pending' then 4 when 'failed' then 5 else 6
+      end, created_at asc, id asc
+    ) as row_rank
+  from public.notification_messages
+  where invoice_id is not null
+    and channel = 'sms'
+    and event_type = 'invoice_issued'
+), duplicates as (
+  select keep_id, array_agg(id order by id) as removed_ids
+  from ranked
+  where row_rank > 1
+  group by keep_id
+)
+update public.notification_messages as retained
+set payload = jsonb_set(
+  coalesce(retained.payload, '{}'::jsonb),
+  '{deduplicatedNotificationIds}',
+  to_jsonb(duplicates.removed_ids),
+  true
+)
+from duplicates
+where retained.id = duplicates.keep_id;
+
+with ranked as (
+  select id,
+    row_number() over (
+      partition by tenant_id, invoice_id, channel, event_type
+      order by case status
+        when 'delivered' then 1 when 'read' then 2 when 'submitted' then 3
+        when 'pending' then 4 when 'failed' then 5 else 6
+      end, created_at asc, id asc
+    ) as row_rank
+  from public.notification_messages
+  where invoice_id is not null
+    and channel = 'sms'
+    and event_type = 'invoice_issued'
+)
+delete from public.notification_messages as messages
+using ranked
+where messages.id = ranked.id
+  and ranked.row_rank > 1;
+
 create unique index if not exists notification_messages_invoice_sms_issued_unique
   on public.notification_messages (tenant_id, invoice_id, channel, event_type)
   where invoice_id is not null and channel = 'sms' and event_type = 'invoice_issued';
