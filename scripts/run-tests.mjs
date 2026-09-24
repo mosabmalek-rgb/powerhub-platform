@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 
-const npmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const vitestCli = path.resolve("node_modules/vitest/vitest.mjs");
 const env = { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=12288" };
 
 function run(args, timeoutMs = 5 * 60_000) {
-  const result = spawnSync(npmCommand, args, {
+  const result = spawnSync(process.execPath, [vitestCli, ...args], {
     stdio: "inherit",
     env,
     windowsHide: false,
@@ -14,7 +15,7 @@ function run(args, timeoutMs = 5 * 60_000) {
   });
   if (result.error) {
     if (result.error.code === "ETIMEDOUT") {
-      console.error(`Timed out after ${timeoutMs}ms: ${npmCommand} ${args.join(" ")}`);
+      console.error(`Timed out after ${timeoutMs}ms: ${process.execPath} ${vitestCli} ${args.join(" ")}`);
       process.exit(124);
     }
     throw result.error;
@@ -22,7 +23,7 @@ function run(args, timeoutMs = 5 * 60_000) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-const vitestArgs = ["vitest", "run", "--maxWorkers=1", "--minWorkers=1"];
+const vitestArgs = ["run", "--maxWorkers=1", "--minWorkers=1"];
 const pageVitestArgs = [...vitestArgs, "--config", "vitest.pages.config.ts"];
 
 function runVitest(paths) {
@@ -37,10 +38,15 @@ const pagesDir = "client/src/pages";
 if (existsSync(pagesDir)) {
   const roleGuardsPath = "client/src/pages/role-guards.ui.test.tsx";
   if (existsSync(roleGuardsPath)) {
-    const pageTests = readFileSync(roleGuardsPath, "utf8");
-    const names = [...pageTests.matchAll(/^\s*it\(\s*["']([^"']+)["']/gm)].map((match) => match[1]);
-    for (const name of names) {
-      run(pageVitestArgs.concat(["client/src/pages/role-guards.ui.test.tsx", "-t", name]), 60_000);
+    // Keep each UI test isolated because the page suite contains long-lived
+    // browser-side resources. Spawn Vitest directly so a timeout terminates
+    // the actual test process instead of leaving a pnpm/Vitest orphan behind.
+    const pageTests = [...new Set(Array.from(
+      readFileSync(roleGuardsPath, "utf8").matchAll(/^\s*it\(\s*["']([^"']+)["']/gm),
+      ([, name]) => name,
+    ))];
+    for (const name of pageTests) {
+      run(pageVitestArgs.concat([roleGuardsPath, "-t", name]), 120_000);
     }
   }
   for (const entry of ["client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx"]) {

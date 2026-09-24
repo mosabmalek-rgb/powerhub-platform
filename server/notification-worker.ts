@@ -129,7 +129,9 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
     .eq("channel", "sms")
     .eq("event_type", "invoice_issued")
     .eq("status", "pending")
-    .lte("scheduled_at", now.toISOString())
+    // Legacy rows may predate scheduled_at. Treat them as immediately due;
+    // the reconciliation migration backfills the column for future runs.
+    .or(`scheduled_at.is.null,scheduled_at.lte.${now.toISOString()}`)
     .order("scheduled_at", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(200);
