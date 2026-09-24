@@ -28,7 +28,7 @@ vi.mock("@/lib/trpc", () => ({
     admin: {
       overview: { useQuery: () => ({ data: { totals: { generatorOwners: 1, residential: 120, commercial: 30, subscribers: 150, activeSubscriptions: 1 }, owners: [ownerRow] } }) },
       listOwners: { useQuery: () => ({ data: [ownerRow] }) },
-      listSubscriptionUpgradeRequests: { useQuery: () => ({ data: [{ id: 51, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerEmail: "owner@example.com", currentPlan: "starter", requestedPlan: "professional", status: "pending", note: null, createdAt: new Date(), reviewedAt: null }], isLoading: false }) },
+      listSubscriptionUpgradeRequests: { useQuery: () => ({ data: [{ id: 51, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerEmail: "owner@example.com", currentPlan: "basic", requestedPlan: "professional", status: "pending", note: null, createdAt: new Date(), reviewedAt: null }], isLoading: false }) },
       listActiveTenantAddons: { useQuery: () => ({ data: [] }) },
       listTenantAddonRequests: { useQuery: () => ({ data: [] }) },
       reviewTenantAddonRequest: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
