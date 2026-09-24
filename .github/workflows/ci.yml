@@ -16,7 +16,6 @@ concurrency:
 jobs:
   validate:
     name: TypeScript, tests, and production build
-    # The dedicated self-hosted runner is available for PowerHub CI.
     runs-on: self-hosted
     timeout-minutes: 20
     env:
