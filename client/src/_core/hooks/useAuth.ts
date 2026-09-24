@@ -111,9 +111,11 @@ export function useAuth(options?: UseAuthOptions) {
     }
 
     try {
-      await releaseDevice.mutateAsync();
-      await supabaseSignOutSafely();
+      // Device release is best-effort. A stale/missing server lock must never
+      // prevent Supabase from clearing the local session.
+      await releaseDevice.mutateAsync().catch(() => undefined);
     } finally {
+      await supabaseSignOutSafely().catch(() => undefined);
       setCachedUser(null);
       setOfflineLeaseUserId(null);
       await revokeOfflineAuthLease();
