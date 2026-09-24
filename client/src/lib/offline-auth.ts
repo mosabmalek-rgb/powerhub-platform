@@ -8,6 +8,7 @@ const DEVICE_ID_KEY = "device-id";
 const DEVICE_ID_FALLBACK_KEY = "powerhub:device-id";
 
 let memoryDeviceId: string | null = null;
+let deviceIdPromise: Promise<string> | null = null;
 
 export const OFFLINE_AUTH_LEASE_MS = 48 * 60 * 60 * 1000;
 
@@ -147,7 +148,7 @@ function getFallbackDeviceId() {
   return value;
 }
 
-export async function getPowerHubDeviceId() {
+async function resolvePowerHubDeviceId() {
   assertBrowserCrypto();
 
   // Keep one browser identity even if IndexedDB is temporarily unavailable.
@@ -168,6 +169,14 @@ export async function getPowerHubDeviceId() {
   } catch {
     return getFallbackDeviceId();
   }
+}
+
+export function getPowerHubDeviceId() {
+  if (deviceIdPromise) return deviceIdPromise;
+  deviceIdPromise = resolvePowerHubDeviceId().finally(() => {
+    deviceIdPromise = null;
+  });
+  return deviceIdPromise;
 }
 
 async function getDeviceKey() {

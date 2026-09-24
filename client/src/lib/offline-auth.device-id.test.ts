@@ -9,14 +9,17 @@ describe("getPowerHubDeviceId", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps one identity when IndexedDB is unavailable", async () => {
+  it("keeps one identity when IndexedDB is unavailable and calls race", async () => {
     vi.stubGlobal("indexedDB", undefined);
 
-    const first = await getPowerHubDeviceId();
-    const second = await getPowerHubDeviceId();
+    const ids = await Promise.all([
+      getPowerHubDeviceId(),
+      getPowerHubDeviceId(),
+      getPowerHubDeviceId(),
+    ]);
 
-    expect(first).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(second).toBe(first);
-    expect(window.localStorage.getItem("powerhub:device-id")).toBe(first);
+    expect(new Set(ids).size).toBe(1);
+    expect(ids[0]).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(window.localStorage.getItem("powerhub:device-id")).toBe(ids[0]);
   });
 });
