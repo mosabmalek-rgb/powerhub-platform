@@ -49,6 +49,20 @@ async function tenantFeatureSnapshot(tenantId: number) {
 }
 
 export const adminFeatureControlsRouter = router({
+  setGlobalFeature: platformAdminProcedure.input(z.object({ featureKey: featureKeySchema, isActive: z.boolean() })).mutation(async ({ctx,input}) => {
+    const {data,error}=await supabaseAdmin().rpc("powerhub_admin_set_feature_global",{
+      p_actor_user_id:ctx.user.id,
+      p_feature_key:input.featureKey,
+      p_is_active:input.isActive,
+    });
+    if(error){
+      const message=String(error.message ?? "");
+      if(message.includes("FEATURE_NOT_FOUND")) throw new TRPCError({code:"NOT_FOUND",message:"الميزة غير موجودة."});
+      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحديث إتاحة الميزة على مستوى المنصة."});
+    }
+    return data?.[0] ?? null;
+  }),
+
   featureCatalog: platformAdminProcedure.query(async () => {
     const {data,error}=await supabaseAdmin().rpc("powerhub_admin_feature_catalog");
     if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل كتالوج الميزات."});
