@@ -16,7 +16,7 @@ concurrency:
 jobs:
   validate:
     name: TypeScript, tests, and production build
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=12288
@@ -54,10 +54,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Run tests
-        shell: cmd
-        run: |
-          pnpm test > test-errors.log 2>&1
-          if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
+        run: pnpm test > test-errors.log 2>&1
 
       - name: Upload test diagnostics
         if: always()
