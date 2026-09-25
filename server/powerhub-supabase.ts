@@ -87,7 +87,7 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
   if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
 
-  await requireTenantSubscription(site.tenantId);
+  await requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true });
 
   if (membership.role === "owner") return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId };
 
