@@ -279,6 +279,16 @@ declare
   v_feature_active boolean := false;
   v_allowed boolean := false;
 begin
+  if not exists (
+    select 1
+    from public.users
+    where id = p_actor_user_id
+      and role = 'admin'
+      and platform_role in ('platform_owner', 'platform_admin')
+      and account_status = 'active'
+  ) then
+    raise exception 'PLATFORM_ADMIN_FORBIDDEN' using errcode = 'P0001';
+  end if;
   if p_status not in ('inherit','enabled','disabled') then raise exception 'INVALID_FEATURE_STATUS' using errcode='P0001'; end if;
   if p_limit_mode not in ('inherit','manual','unlimited') then raise exception 'INVALID_FEATURE_LIMIT_MODE' using errcode='P0001'; end if;
   if p_limit_mode='manual' and (p_manual_limit is null or p_manual_limit < 0) then raise exception 'INVALID_FEATURE_MANUAL_LIMIT' using errcode='P0001'; end if;
@@ -383,6 +393,16 @@ as $function$
 declare
   v_before jsonb;
 begin
+  if not exists (
+    select 1
+    from public.users
+    where id = p_actor_user_id
+      and role = 'admin'
+      and platform_role in ('platform_owner', 'platform_admin')
+      and account_status = 'active'
+  ) then
+    raise exception 'PLATFORM_ADMIN_FORBIDDEN' using errcode = 'P0001';
+  end if;
   select to_jsonb(c) - 'id' into v_before
   from public.tenant_feature_controls c
   where c.tenant_id=p_tenant_id and c.feature_key=p_feature_key;
@@ -460,3 +480,23 @@ $function$;
 
 revoke all on function public.powerhub_admin_set_feature_global(bigint,text,boolean) from public,anon,authenticated;
 grant execute on function public.powerhub_admin_set_feature_global(bigint,text,boolean) to service_role;
+
+-- These functions are called only through the trusted server adapter.
+-- Never expose SECURITY DEFINER feature or tenant-control functions to PostgREST roles.
+revoke all on function public.powerhub_admin_feature_catalog() from public,anon,authenticated;
+grant execute on function public.powerhub_admin_feature_catalog() to service_role;
+
+revoke all on function public.powerhub_resolve_tenant_feature_policy(bigint,text) from public,anon,authenticated;
+grant execute on function public.powerhub_resolve_tenant_feature_policy(bigint,text) to service_role;
+
+revoke all on function public.powerhub_subscriber_portal_logo_access(bigint) from public,anon,authenticated;
+grant execute on function public.powerhub_subscriber_portal_logo_access(bigint) to service_role;
+
+revoke all on function public.powerhub_payment_documentation_access(bigint) from public,anon,authenticated;
+grant execute on function public.powerhub_payment_documentation_access(bigint) to service_role;
+
+revoke all on function public.powerhub_admin_set_tenant_feature_control(bigint,bigint,text,text,text,integer,text) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_set_tenant_feature_control(bigint,bigint,text,text,text,integer,text) to service_role;
+
+revoke all on function public.powerhub_admin_reset_tenant_feature_control(bigint,bigint,text,text) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_reset_tenant_feature_control(bigint,bigint,text,text) to service_role;
