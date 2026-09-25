@@ -147,10 +147,10 @@ policies as (
   union all select package_code,'subscriber_portal','included',null,'unlimited' from package_rows
   union all select package_code,'subscriber_portal_logo',
     case coalesce(p->>'logoPolicy','not_included') when 'included' then 'included' when 'addon' then 'addon' else 'not_included' end,
-    case when coalesce(p->>'logoPolicy','not_included')='addon' then null else null end,'unlimited' from package_rows
+    null::integer,'unlimited' from package_rows
   union all select package_code,'payment_documentation',
     case coalesce(p->>'paymentDocumentationPolicy','not_included') when 'included' then 'included' when 'addon' then 'addon' else 'not_included' end,
-    null,'unlimited' from package_rows
+    null::integer,'unlimited' from package_rows
   union all select package_code,'reports','included',null,'unlimited' from package_rows
   union all select package_code,'company_accounts','included',null,'unlimited' from package_rows
   union all select package_code,'human_resources','included',null,'unlimited' from package_rows
