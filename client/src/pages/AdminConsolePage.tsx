@@ -4,6 +4,7 @@ import PlatformAdminLayout from "@/components/PlatformAdminLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
@@ -62,6 +63,8 @@ export default function AdminConsolePage() {
   const createOwnerSubscription = trpc.admin.createGeneratorOwnerSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم إنشاء اشتراك صاحب المولد. يضيف المالك بيانات أول مولد بعد دخوله وتغيير كلمة المرور."); }, onError: (error) => toast.error(error.message) });
   const updateSubscription = trpc.admin.updateSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تحديث الاشتراك."); }, onError: (error) => toast.error(error.message) });
   const renewSubscription = trpc.admin.renewSubscription.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(`تم التجديد حتى ${formatDate(result.endsAt)}. تم تجديد ${result.renewedAddons} إضافة وإنهاء ${result.expiredAddons} إضافة.`); }, onError: (error) => toast.error(error.message) });
+  const setTenantMembershipStatus = trpc.admin.setTenantMembershipStatus.useMutation({ onSuccess: async (_, input) => { await refresh(); toast.success(input.status === "active" ? "تم تنشيط المستخدم." : input.status === "suspended" ? "تم توقيف المستخدم مؤقتًا." : "تم سحب وصول المستخدم."); }, onError: (error) => toast.error(error.message) });
+  const setPlatformAccountStatus = trpc.admin.setPlatformAccountStatus.useMutation({ onSuccess: async (_, input) => { await refresh(); toast.success(input.status === "active" ? "تم تنشيط حساب المنصة." : input.status === "locked" ? "تم قفل حساب المنصة." : "تم تعطيل حساب المنصة."); }, onError: (error) => toast.error(error.message) });
   const attachOwner = trpc.admin.attachOwnerUser.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم ربط حساب المالك بالمساحة والمحطة."); }, onError: (error) => toast.error(error.message) });
   const setGeneratorStatus = trpc.admin.setGeneratorStatus.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تحديث حالة المولد."); }, onError: (error) => toast.error(error.message) });
   const approvePendingGenerator = trpc.admin.approvePendingGenerator.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت مراجعة المولد وتفعيله بنجاح."); }, onError: (error) => toast.error(error.message) });
@@ -94,7 +97,7 @@ export default function AdminConsolePage() {
     {tab === "overview" && <><AdvancedDashboard /><OperationalMonitoringPanel onNavigate={(target) => target === "field_sync" ? window.location.assign("/mobile-sync") : setTab(target)} /><OwnerUsagePriorityFiltersPanel /><OwnerUsageQuickActionsPanel /><OwnerUsageReportPanel /></>}
     {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending || approvePendingGenerator.isPending} onStatus={setGeneratorStatus.mutate} onApprove={approvePendingGenerator.mutate} /><GeneratorOperationsInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
     {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutate} creationAvailable={true} />}
-    {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter users={eligibleUsers} rows={owners.data ?? []} pending={createOwner.isPending || attachOwner.isPending} onCreate={createOwner.mutate} onAttach={attachOwner.mutate} userSummary={snapshot.data?.users} /><OwnerLifecyclePanel /></>}
+    {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter userSummary={snapshot.data?.users} pending={setTenantMembershipStatus.isPending || setPlatformAccountStatus.isPending} onTenantStatus={setTenantMembershipStatus.mutate} onPlatformStatus={setPlatformAccountStatus.mutate} canManagePlatformAccounts={isPlatformOwner} /><OwnerLifecyclePanel /></>}
     {tab === "supportChat" && <SupportCenterPage embedded />}
     {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} plans={smsPlans.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutate} />}
     {tab === "reports" && <><AdminReportsExports rows={reportRows} /><ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} /></>}
@@ -242,7 +245,112 @@ function ReportCard({ title, value, detail }: { title: string; value: string; de
 
 function GeneratorsCenter({ data, pending, onStatus, onApprove }: any) { const rows = data?.directory ?? []; const label = (status: string) => status === "pending" ? "بانتظار المراجعة" : status === "active" ? "يعمل" : status === "maintenance" ? "صيانة" : status === "offline" ? "غير متصل" : status === "blocked" ? "محظور" : "متوقف"; return <section className="space-y-6"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6"><Metric label="جميع المولدات" value={data?.total} icon={Building2} /><Metric label="بانتظار المراجعة" value={data?.pending} icon={CalendarClock} /><Metric label="المولدات العاملة" value={data?.active} icon={CheckCircle2} /><Metric label="قيد الصيانة" value={data?.maintenance} icon={CalendarClock} /><Metric label="موقوفة أو غير متصلة" value={data?.stopped} icon={ShieldAlert} /><Metric label="مولدات محظورة" value={data?.blocked} icon={ShieldAlert} /></div><div className="grid gap-6 xl:grid-cols-[1.35fr_.65fr]"><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">جميع المولدات</h2><p className="mt-1 text-sm text-slate-500">قدرة مركبة إجمالية: {formatNumber(data?.capacityKw)} kW</p><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[760px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="pb-3">المولد</th><th className="pb-3">المالك / المحطة</th><th className="pb-3">القدرة</th><th className="pb-3">الحالة</th><th className="pb-3">إجراء المنصة</th></tr></thead><tbody>{rows.map((row: any) => <tr key={row.id} className="border-t border-white/7"><td className="py-4 font-bold text-white">{row.name}<span className="mr-2 text-xs font-normal text-slate-500">{row.code}</span></td><td className="py-4 text-slate-300">{row.tenantName} · {row.siteName}</td><td className="py-4">{row.ratedCapacityKw} kW</td><td className="py-4"><Badge className={row.status === "pending" ? "bg-amber-400/10 text-amber-300" : row.status === "blocked" ? "bg-rose-400/10 text-rose-300" : "bg-white/5 text-slate-300"}>{label(row.status)}</Badge></td><td className="py-4">{row.status === "pending" ? <Button disabled={pending} size="sm" onClick={() => onApprove({ generatorId: row.id })} className="bg-emerald-400 text-[#07120b] hover:bg-emerald-300">اعتماد وتفعيل</Button> : <Button disabled={pending} size="sm" variant="outline" onClick={() => onStatus({ id: row.id, status: row.status === "blocked" ? "active" : "blocked" })} className={row.status === "blocked" ? "border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10 hover:text-emerald-200" : "border-rose-400/30 text-rose-300 hover:bg-rose-400/10 hover:text-rose-200"}>{row.status === "blocked" ? "رفع الحظر" : "حظر المولد"}</Button>}</td></tr>)}{!rows.length && <tr><td colSpan={5} className="py-10 text-center text-slate-500">لا توجد مولدات مسجلة بعد.</td></tr>}</tbody></table></div></CardContent></Card><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">طلبات المراجعة المعلقة</h2><p className="mt-1 text-sm text-slate-500">أصحاب مولدات وحساباتهم أنشئت، وتنتظر مراجعة المولد قبل تفعيله.</p><div className="mt-5 space-y-3">{(data?.pendingRegistrations ?? []).map((row: any) => <div className="rounded-xl border border-amber-400/15 bg-amber-400/[.03] p-3" key={row.generatorId}><p className="font-bold text-white">{row.generatorName}</p><p className="mt-1 text-xs text-slate-500">{row.generatorCode} · {row.ratedCapacityKw} kW</p><p className="mt-1 text-xs text-slate-500">{row.ownerName} · {row.phone}</p><Button disabled={pending} size="sm" onClick={() => onApprove({ generatorId: row.generatorId })} className="mt-3 w-full bg-emerald-400 text-[#07120b] hover:bg-emerald-300">اعتماد وتفعيل المولد</Button></div>)}{!(data?.pendingRegistrations ?? []).length && <p className="py-6 text-center text-sm text-slate-500">لا توجد طلبات معلقة.</p>}</div><div className="mt-5 rounded-xl border border-dashed border-[#F5B800]/25 bg-[#F5B800]/5 p-3 text-xs leading-6 text-slate-400">يُسجل الاعتماد في سجل التدقيق ويحوّل حالة المولد فقط من انتظار المراجعة إلى فعّال.</div></CardContent></Card></div></section>; }
 
-function UsersCenter({ userSummary }: any) { const staff = userSummary?.staffDirectory ?? []; const subscriberRows = userSummary?.subscriberDirectory ?? []; const roleLabels: Record<string, string> = { owner: "مالك", manager: "مدير", accountant: "محاسب", collector: "محصل", technician: "فني", viewer: "مشاهد" }; return <section className="space-y-6"><div className="grid gap-4 md:grid-cols-3"><Metric label="مستخدمو المنصة" value={userSummary?.total} icon={UsersRound} /><Metric label="موظفون نشطون" value={userSummary?.activeStaff} icon={UsersRound} /><Metric label="آدمن المنصة" value={userSummary?.platformAdmins} icon={ShieldAlert} /></div><div className="grid gap-6 xl:grid-cols-2"><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">المحاسبون والموظفون</h2><p className="mt-1 text-sm text-slate-500">قائمة مركزية للموظفين المرتبطين بمحطات أصحاب المولدات.</p><div className="mt-4 max-h-80 overflow-auto"><table className="w-full min-w-[520px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="pb-3">المستخدم</th><th className="pb-3">الدور</th><th className="pb-3">المساحة / المحطة</th><th className="pb-3">الحالة</th></tr></thead><tbody>{staff.map((row: any) => <tr className="border-t border-white/7" key={row.id}><td className="py-3 text-white">{row.userName ?? row.userEmail ?? "—"}</td><td className="py-3"><Badge className="bg-white/5 text-slate-300">{roleLabels[row.role] ?? row.role}</Badge></td><td className="py-3 text-slate-400">{row.tenantName ?? "—"} · {row.siteName ?? "—"}</td><td className="py-3 text-slate-400">{row.isActive ? "نشط" : "موقوف"}</td></tr>)}{!staff.length && <tr><td colSpan={4} className="py-8 text-center text-slate-500">لا يوجد موظفون مسجلون بعد.</td></tr>}</tbody></table></div></CardContent></Card><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">مشتركو المنصة — عرض عام</h2><p className="mt-1 text-sm text-slate-500">عرض مراقبة مركزي للبيانات الأساسية دون صلاحية تعديل الاشتراك.</p><div className="mt-4 max-h-80 overflow-auto"><table className="w-full min-w-[540px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="pb-3">المشترك</th><th className="pb-3">النوع</th><th className="pb-3">الحالة</th><th className="pb-3">المساحة / المحطة</th></tr></thead><tbody>{subscriberRows.map((row: any) => <tr className="border-t border-white/7" key={row.id}><td className="py-3 text-white">{row.fullName}<span className="mr-2 text-xs text-slate-500">{row.subscriberNo}</span></td><td className="py-3 text-slate-400">{row.subscriptionType === "commercial" ? "تجاري" : "سكني"}</td><td className="py-3 text-slate-400">{row.serviceStatus === "active" ? "نشط" : row.serviceStatus}</td><td className="py-3 text-slate-400">{row.tenantName} · {row.siteName}</td></tr>)}{!subscriberRows.length && <tr><td colSpan={4} className="py-8 text-center text-slate-500">لا يوجد مشتركون مسجلون بعد.</td></tr>}</tbody></table></div></CardContent></Card></div><Card className="border-white/8 bg-[#111823]"><CardContent className="p-5"><h2 className="font-bold text-white">مصفوفة صلاحيات الأدوار</h2><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><RolePolicy role="آدمن PowerHub" detail="إدارة المنصة والمساحات والاشتراكات والتقارير العامة." /><RolePolicy role="مالك المولد" detail="إدارة مستأجره ومحطاته وفريقه فقط." /><RolePolicy role="المدير / المحاسب" detail="تشغيل وفوترة وتحكم مالي حسب تعيين المحطة." /><RolePolicy role="المحصل" detail="تحصيل ضمن جلسة ميدانية مفتوحة." /><RolePolicy role="الفني" detail="العدادات والقراءات والمولدات حسب التعيين." /><RolePolicy role="المشاهد" detail="عرض البيانات المصرح بها بلا تعديل." /></div></CardContent></Card></section>; }
+function UsersCenter({ userSummary, pending, onTenantStatus, onPlatformStatus, canManagePlatformAccounts }: any) {
+  const users = userSummary?.directory ?? [];
+  const roleLabels: Record<string,string> = {
+    owner:"صاحب مولد", manager:"مدير", accountant:"محاسب", collector:"محصل", technician:"فني", viewer:"مشاهد",
+    platform_owner:"مالك المنصة", platform_admin:"آدمن المنصة", platform_support:"دعم", finance_admin:"مالي"
+  };
+  const [search,setSearch]=useState("");
+  const [role,setRole]=useState("all");
+  const [status,setStatus]=useState("all");
+  const [tenant,setTenant]=useState("all");
+  const [site,setSite]=useState("all");
+  const [selected,setSelected]=useState<any>(null);
+
+  const tenants = useMemo(() => Array.from(new Map(users.filter((r:any)=>r.tenantId).map((r:any)=>[String(r.tenantId),r.tenantName])).entries()), [users]);
+  const sites = useMemo(() => Array.from(new Map(users.filter((r:any)=>r.siteId).map((r:any)=>[String(r.siteId),r.siteName])).entries()), [users]);
+  const roles = ["owner","manager","accountant","collector","technician","viewer","platform_admin","platform_support","finance_admin","platform_owner"];
+
+  const filtered=useMemo(()=>users.filter((row:any)=>{
+    const hay=`${row.name??""} ${row.email??""} ${row.phone??""} ${row.tenantName??""} ${row.siteName??""}`.toLowerCase();
+    const matchesSearch=!search.trim()||hay.includes(search.trim().toLowerCase());
+    const matchesRole=role==="all"||row.role===role;
+    const effectiveStatus=row.status ?? (row.kind==="platform" ? row.accountStatus : row.membershipStatus);
+    const matchesStatus=status==="all"||effectiveStatus===status;
+    const matchesTenant=tenant==="all"||String(row.tenantId)===tenant;
+    const matchesSite=site==="all"||String(row.siteId)===site;
+    return matchesSearch&&matchesRole&&matchesStatus&&matchesTenant&&matchesSite;
+  }),[users,search,role,status,tenant,site]);
+
+  const statusLabel=(row:any)=>{
+    if(row.status==="invited") return "مدعو";
+    if(row.kind==="platform") return row.accountStatus==="active"?"نشط":row.accountStatus==="locked"?"موقوف مؤقتًا":"مسحوب الوصول";
+    return row.membershipStatus==="active"?"نشط":row.membershipStatus==="suspended"?"موقوف مؤقتًا":"مسحوب الوصول";
+  };
+  const requestTenantStatus=(row:any)=>{
+    if(row.status==="invited" || !row.userId) return;
+    const next=row.membershipStatus==="active" ? "suspended" : row.membershipStatus==="suspended" ? "active" : "active";
+    if(row.membershipStatus==="revoked"){
+      if(!window.confirm("إعادة تنشيط هذا المستخدم ستعيد عضويته داخل صاحب المولد. هل تريد المتابعة؟")) return;
+    }
+    onTenantStatus({tenantId:row.tenantId,userId:row.userId,status:next});
+  };
+  const requestPlatformStatus=(row:any)=>{
+    if(row.status==="invited" || !row.userId || !canManagePlatformAccounts) return;
+    const next=row.accountStatus==="active" ? "locked" : "active";
+    if(row.accountStatus==="disabled"){
+      if(!window.confirm("إعادة تنشيط الحساب المعطل تحتاج تأكيدًا صريحًا. هل تريد المتابعة؟")) return;
+    }
+    onPlatformStatus({userId:row.userId,status:next});
+  };
+
+  return <section className="space-y-6">
+    <div className="grid gap-4 md:grid-cols-4">
+      <Metric label="إجمالي المستخدمين" value={users.length} icon={UsersRound}/>
+      <Metric label="المستخدمون النشطون" value={users.filter((r:any)=>r.isActive).length} icon={CheckCircle2}/>
+      <Metric label="الموقوفون/المسحوب وصولهم" value={users.filter((r:any)=>["suspended","locked","disabled","revoked"].includes(r.status)).length} icon={ShieldAlert}/>
+      <Metric label="آدمن المنصة" value={userSummary?.platformAdmins} icon={ShieldAlert}/>
+    </div>
+
+    <Card className="border-white/8 bg-[#111823] shadow-panel">
+      <CardContent className="p-5">
+        <div className="grid gap-3 lg:grid-cols-6">
+          <label className="lg:col-span-2"><span className="mb-2 block text-xs font-bold text-slate-400">بحث بالاسم / الهاتف / البريد</span><Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="اكتب الاسم أو الهاتف أو البريد..." className={inputClass}/></label>
+          <label><span className="mb-2 block text-xs font-bold text-slate-400">نوع المستخدم</span><select value={role} onChange={e=>setRole(e.target.value)} className={inputClass}><option value="all">كل الأنواع</option>{roles.map(value=><option key={value} value={value}>{roleLabels[value]}</option>)}</select></label>
+          <label><span className="mb-2 block text-xs font-bold text-slate-400">الحالة</span><select value={status} onChange={e=>setStatus(e.target.value)} className={inputClass}><option value="all">كل الحالات</option><option value="active">نشط</option><option value="suspended">موقوف مؤقتًا</option><option value="revoked">مسحوب الوصول</option><option value="locked">موقوف مؤقتًا</option><option value="disabled">مسحوب الوصول</option><option value="invited">مدعو</option></select></label>
+          <label><span className="mb-2 block text-xs font-bold text-slate-400">صاحب المولد</span><select value={tenant} onChange={e=>setTenant(e.target.value)} className={inputClass}><option value="all">كل أصحاب المولدات</option>{tenants.map(([id,name])=><option key={id} value={id}>{String(name)}</option>)}</select></label>
+          <label><span className="mb-2 block text-xs font-bold text-slate-400">الفرع / المحطة</span><select value={site} onChange={e=>setSite(e.target.value)} className={inputClass}><option value="all">كل الفروع والمحطات</option>{sites.map(([id,name])=><option key={id} value={id}>{String(name)}</option>)}</select></label>
+        </div>
+
+        <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1100px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="pb-3">المستخدم</th><th className="pb-3">النوع</th><th className="pb-3">صاحب المولد</th><th className="pb-3">الفرع / المحطة</th><th className="pb-3">الحالة</th><th className="pb-3">آخر دخول</th><th className="pb-3">الإجراءات</th></tr></thead>
+          <tbody>{filtered.map((row:any)=><tr className="border-t border-white/7" key={`${row.kind}-${row.userId??"invite"}-${row.tenantId??"platform"}-${row.id}`}>
+            <td className="py-3"><button className="text-right" onClick={()=>setSelected(row)}><p className="font-bold text-white hover:text-[#F5B800]">{row.name??"—"}</p><p className="text-xs text-slate-500" dir="ltr">{row.email??"—"}{row.phone ? ` · ${row.phone}` : ""}</p></button></td>
+            <td className="py-3"><Badge className="bg-white/5 text-slate-300">{roleLabels[row.role]??row.role}</Badge></td>
+            <td className="py-3 text-slate-400">{row.tenantName??"إدارة المنصة"}</td>
+            <td className="py-3 text-slate-400">{row.siteName??"—"}</td>
+            <td className="py-3"><Badge className={statusLabel(row)==="نشط"?"bg-emerald-400/10 text-emerald-300":"bg-amber-400/10 text-amber-200"}>{statusLabel(row)}</Badge></td>
+            <td className="py-3 text-slate-500">{formatDate(row.lastSignedIn)}</td>
+            <td className="py-3">
+              {row.status==="invited" ? <span className="text-xs text-slate-500">بانتظار قبول الدعوة</span> :
+                row.kind==="platform"
+                  ? (canManagePlatformAccounts && row.role!=="platform_owner" ? <Button size="sm" disabled={pending} variant="outline" onClick={()=>requestPlatformStatus(row)}>{row.accountStatus==="active"?"إيقاف مؤقت":row.accountStatus==="disabled"?"إعادة تنشيط بعد تأكيد":"تنشيط"}</Button> : <span className="text-xs text-slate-600">محمي</span>)
+                  : <Button size="sm" disabled={pending} variant="outline" onClick={()=>requestTenantStatus(row)}>{row.membershipStatus==="active"?"إيقاف مؤقت":row.membershipStatus==="suspended"?"تنشيط":"إعادة تنشيط بعد تأكيد"}</Button>}
+              <Button size="sm" variant="ghost" className="mr-2 text-slate-300 hover:text-white" onClick={()=>setSelected(row)}>عرض التفاصيل</Button>
+            </td>
+          </tr>)}{!filtered.length&&<tr><td colSpan={7} className="py-10 text-center text-slate-500">لا توجد نتائج مطابقة للفلاتر.</td></tr>}</tbody>
+        </table></div>
+        <p className="mt-4 rounded-xl border border-white/8 bg-white/[.02] p-3 text-xs leading-6 text-slate-500">إدارة حالة الحساب المركزي لا تغيّر عضوية المستخدم داخل صاحب المولد. وإيقاف العضوية لا يعطل حساب المنصة. جميع تغييرات الحالة تمر عبر RPC محمي على مستوى قاعدة البيانات وتسجل في السجل المناسب.</p>
+      </CardContent>
+    </Card>
+
+    <Dialog open={Boolean(selected)} onOpenChange={(open)=>{if(!open)setSelected(null)}}><DialogContent className="max-w-2xl bg-[#111823] text-white">
+      <DialogHeader><DialogTitle>تفاصيل المستخدم</DialogTitle><DialogDescription className="text-slate-400">عرض موحد لحالة الحساب والعضوية والصلاحيات دون تعديل البيانات من هذه النافذة.</DialogDescription></DialogHeader>
+      {selected && <div className="grid gap-3 sm:grid-cols-2">
+        <Detail label="الاسم" value={selected.name}/><Detail label="البريد" value={selected.email} ltr/>
+        <Detail label="الهاتف" value={selected.phone} ltr/><Detail label="نوع المستخدم" value={roleLabels[selected.role]??selected.role}/>
+        <Detail label="حالة الحساب" value={selected.accountStatus==="active"?"نشط":selected.accountStatus??"—"}/>
+        <Detail label="حالة العضوية" value={selected.membershipStatus==="active"?"نشط":selected.membershipStatus??"—"}/>
+        <Detail label="صاحب المولد" value={selected.tenantName}/><Detail label="الفرع / المحطة" value={selected.siteName}/>
+        <Detail label="آخر دخول" value={formatDate(selected.lastSignedIn)}/><Detail label="مصدر السجل" value={selected.kind==="platform"?"حساب المنصة":"عضوية صاحب المولد"}/>
+      </div>}
+    </DialogContent></Dialog>
+
+    <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5"><h2 className="font-bold text-white">صلاحيات الأدوار</h2><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><RolePolicy role="آدمن المنصة" detail="إدارة المنصة والمساحات والاشتراكات والتقارير العامة." /><RolePolicy role="صاحب المولد" detail="إدارة مستأجره ومحطاته وفريقه فقط." /><RolePolicy role="المدير / المحاسب" detail="تشغيل وفوترة وتحكم مالي حسب تعيين المحطة." /><RolePolicy role="المحصل" detail="تحصيل ضمن جلسة ميدانية مفتوحة." /><RolePolicy role="الفني" detail="العدادات والقراءات والمولدات حسب التعيين." /><RolePolicy role="المشاهد" detail="عرض البيانات المصرح بها بلا تعديل." /><RolePolicy role="دعم" detail="دعم وتشخيص وفق الصلاحية الممنوحة." /><RolePolicy role="مالي" detail="عمليات مالية محددة دون إدارة المنصة العليا." /></div></CardContent></Card>
+  </section>;
+}
+function Detail({label,value,ltr=false}:{label:string;value:any;ltr?:boolean}){return <div className="rounded-xl border border-white/8 bg-white/[.02] p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 font-semibold text-white" dir={ltr?"ltr":"rtl"}>{value??"—"}</p></div>}
+
 function RolePolicy({ role, detail }: { role: string; detail: string }) { return <div className="rounded-xl border border-white/8 bg-white/[.02] p-3"><p className="font-bold text-white">{role}</p><p className="mt-1 text-xs leading-6 text-slate-500">{detail}</p></div>; }
 
 function FinanceCenter({ data, rows, plans, pending, onUpdate, onRenew }: any) { const collections = data?.collectionsByGenerator ?? []; return <section className="space-y-6"><div className="grid gap-4 md:grid-cols-4"><Metric label="إيراد الفواتير" value={data?.issuedAmount} icon={CircleDollarSign} /><Metric label="الدفعات المكتملة" value={data?.completedAmount} icon={CheckCircle2} /><Metric label="فواتير متأخرة" value={data?.overdueCount} icon={CalendarClock} /><Metric label="رصيد متأخر" value={data?.overdueAmount} icon={ShieldAlert} /></div><div className="grid gap-6 xl:grid-cols-[.85fr_1.15fr]"><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">طرق الدفع الإلكتروني</h2><p className="mt-1 text-sm text-slate-500">إجمالي الدفعات المكتملة المسجلة من مستأجري المنصة.</p><div className="mt-5 space-y-3">{(data?.paymentMethods ?? []).map((row: any) => <div className="flex items-center justify-between rounded-xl border border-white/8 bg-white/[.02] p-3" key={row.method}><span className="text-slate-300">{paymentMethodLabels[String(row.method)] ?? row.method}</span><span className="font-bold text-[#F5B800]">{formatNumber(row.amount)} · {formatNumber(row.count)} دفعة</span></div>)}{!(data?.paymentMethods ?? []).length && <p className="py-6 text-center text-sm text-slate-500">لا توجد دفعات مسجلة بعد.</p>}</div></CardContent></Card><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">تقارير التحصيل حسب المولد</h2><p className="mt-1 text-sm leading-7 text-slate-500">الدفعات المكتملة المربوطة بعدادات مولدات المنصة.</p><div className="mt-4 max-h-72 overflow-auto"><table className="w-full min-w-[520px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="pb-3">المولد</th><th className="pb-3">المساحة</th><th className="pb-3">الدفعات</th><th className="pb-3">الإجمالي</th></tr></thead><tbody>{collections.map((row: any) => <tr className="border-t border-white/7" key={row.generatorId}><td className="py-3 text-white">{row.generatorName}<span className="mr-2 text-xs text-slate-500">{row.generatorCode}</span></td><td className="py-3 text-slate-400">{row.tenantName}</td><td className="py-3 text-slate-300">{formatNumber(row.count)}</td><td className="py-3 font-bold text-[#F5B800]">{formatNumber(row.amount)}</td></tr>)}{!collections.length && <tr><td colSpan={4} className="py-8 text-center text-slate-500">لا توجد دفعات مكتملة مرتبطة بمولدات بعد.</td></tr>}</tbody></table></div></CardContent></Card></div><div><h2 className="mb-3 text-lg font-extrabold text-white">الاشتراكات والتجديد</h2><SubscriptionsTab rows={rows} pending={pending} onUpdate={onUpdate} onRenew={onRenew} smsPlans={plans ?? []} /></div></section>; }

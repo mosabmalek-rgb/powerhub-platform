@@ -77,10 +77,28 @@ const numeric = (value: unknown) => Number(value ?? 0);
 
 export async function platformSnapshotFromSupabase() {
   const admin = supabaseAdmin();
-  const [generatorsResult, usersResult, staffResult, invoicesResult, paymentsResult, readingsResult, tenantsResult, subscribersResult, notificationsResult, auditResult, sitesResult] = await Promise.all([
+  const [
+    generatorsResult,
+    usersResult,
+    staffResult,
+    membershipResult,
+    invoicesResult,
+    paymentsResult,
+    readingsResult,
+    tenantsResult,
+    subscribersResult,
+    notificationsResult,
+    auditResult,
+    sitesResult,
+    ownerProfilesResult,
+    employeesResult,
+    tenantInvitationsResult,
+    platformInvitationsResult,
+  ] = await Promise.all([
     admin.from("generators").select("id, code, name, status, rated_capacity_kw, tenant_id, site_id, created_at").order("created_at", { ascending: false }).limit(200),
-    admin.from("users").select("id, name, email, role, platform_role").limit(300),
-    admin.from("staff_profiles").select("id, user_id, tenant_id, site_id, role, is_active, updated_at").order("updated_at", { ascending: false }).limit(300),
+    admin.from("users").select("id, name, email, role, platform_role, account_status, last_signed_in").limit(300),
+    admin.from("staff_profiles").select("id, user_id, tenant_id, site_id, role, is_active, suspension_started_at, suspension_ends_at, updated_at").order("updated_at", { ascending: false }).limit(500),
+    admin.from("tenant_members").select("id, user_id, tenant_id, role, is_active, membership_status, expires_at, updated_at").limit(1000),
     admin.from("invoices").select("status, balance_due, total_amount").limit(5000),
     admin.from("payments").select("status, amount, payment_method").limit(5000),
     admin.from("meter_readings").select("status, consumption_kwh").limit(5000),
@@ -89,11 +107,16 @@ export async function platformSnapshotFromSupabase() {
     admin.from("notification_messages").select("status").limit(5000),
     admin.from("audit_logs").select("id, action, entity_type, created_at, tenant_id, site_id, user_id").order("created_at", { ascending: false }).limit(30),
     admin.from("sites").select("id, name, tenant_id").limit(500),
+    admin.from("tenant_owner_profiles").select("tenant_id, owner_user_id, full_name, phone, whatsapp_number, email").limit(500),
+    admin.from("employees").select("tenant_id, site_id, linked_user_id, full_name, phone, job_title").not("linked_user_id", "is", null).limit(1000),
+    admin.from("access_invitations").select("id,tenant_id,site_id,email,tenant_role,site_role,status,expires_at,created_at").eq("status","invited").order("created_at",{ascending:false}).limit(500),
+    admin.from("platform_access_invitations").select("id,email,platform_role,status,expires_at,created_at").eq("status","invited").order("created_at",{ascending:false}).limit(200),
   ]);
 
   const generators = requireData(generatorsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
   const users = requireData(usersResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
   const staff = requireData(staffResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const memberships = requireData(membershipResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
   const invoices = requireData(invoicesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
   const payments = requireData(paymentsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
   const readings = requireData(readingsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
@@ -102,10 +125,31 @@ export async function platformSnapshotFromSupabase() {
   const notifications = requireData(notificationsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
   const audit = requireData(auditResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
   const sites = requireData(sitesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const ownerProfiles = requireData(ownerProfilesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const employees = requireData(employeesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const tenantInvitations = requireData(tenantInvitationsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const platformInvitations = requireData(platformInvitationsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
 
   const tenantById = new Map(tenants.map((tenant) => [numeric(tenant.id), String(tenant.name)]));
   const siteById = new Map(sites.map((site) => [numeric(site.id), String(site.name)]));
   const userById = new Map(users.map((user) => [numeric(user.id), user]));
+  const membershipByTenantUser = new Map(memberships.map((membership) => [`${numeric(membership.tenant_id)}:${numeric(membership.user_id)}`, membership]));
+  const ownerProfileByUser = new Map(ownerProfiles.map((row) => [numeric(row.owner_user_id), row]));
+  const employeeByUser = new Map<number, EntityRow[]>();
+  for (const employee of employees) {
+    const userId = numeric(employee.linked_user_id);
+    const current = employeeByUser.get(userId) ?? [];
+    current.push(employee);
+    employeeByUser.set(userId, current);
+  }
+
+  const generatorsByTenant = new Map<number, EntityRow[]>();
+  for (const generator of generators) {
+    const list = generatorsByTenant.get(numeric(generator.tenant_id)) ?? [];
+    list.push(generator);
+    generatorsByTenant.set(numeric(generator.tenant_id), list);
+  }
+
   const generatorStatuses = new Map<string, number>();
   let capacityKw = 0;
   for (const generator of generators) {
@@ -113,6 +157,7 @@ export async function platformSnapshotFromSupabase() {
     generatorStatuses.set(status, (generatorStatuses.get(status) ?? 0) + 1);
     capacityKw += numeric(generator.rated_capacity_kw);
   }
+
   const finance = { overdueCount: 0, overdueAmount: 0, issuedAmount: 0, completedPayments: 0, completedAmount: 0 };
   for (const invoice of invoices) {
     const status = String(invoice.status);
@@ -137,6 +182,118 @@ export async function platformSnapshotFromSupabase() {
     notificationStatuses.set(status, (notificationStatuses.get(status) ?? 0) + 1);
   }
 
+  const userDirectory = [
+    ...users.filter((user) => user.role === "admin").map((user) => {
+      const ownerProfile = ownerProfileByUser.get(numeric(user.id));
+      return {
+        id: numeric(user.id),
+        userId: numeric(user.id),
+        kind: "platform",
+        name: user.name ?? ownerProfile?.full_name ?? null,
+        email: user.email ?? ownerProfile?.email ?? null,
+        phone: ownerProfile?.phone ?? ownerProfile?.whatsapp_number ?? null,
+        role: user.platform_role ?? "platform_admin",
+        tenantId: null,
+        tenantName: null,
+        siteId: null,
+        siteName: null,
+        accountStatus: user.account_status ?? "active",
+        membershipStatus: null,
+        status: user.account_status ?? "active",
+        isActive: user.account_status === "active",
+        lastSignedIn: user.last_signed_in ?? null,
+        staffProfileId: null,
+        invitationStatus: null,
+        invitationExpiresAt: null,
+        canManageStatus: user.platform_role !== "platform_owner",
+      };
+    }),
+    ...memberships.map((membership) => {
+      const user = userById.get(numeric(membership.user_id));
+      if (!user || user.role === "admin") return null;
+      const staffProfile = staff.find((item) =>
+        numeric(item.user_id) === numeric(membership.user_id) &&
+        numeric(item.tenant_id) === numeric(membership.tenant_id)
+      );
+      const ownerProfile = ownerProfileByUser.get(numeric(membership.user_id));
+      const employeePhones = employeeByUser.get(numeric(membership.user_id)) ?? [];
+      const phone = ownerProfile?.phone ?? ownerProfile?.whatsapp_number ?? employeePhones.find((row) => row.phone)?.phone ?? null;
+      const membershipStatus = membership.membership_status ?? (membership.is_active ? "active" : "suspended");
+      return {
+        id: numeric(membership.id),
+        userId: numeric(membership.user_id),
+        kind: "tenant",
+        name: user.name ?? ownerProfile?.full_name ?? employeePhones.find((row) => row.full_name)?.full_name ?? null,
+        email: user.email ?? ownerProfile?.email ?? null,
+        phone,
+        role: String(staffProfile?.role ?? membership.role),
+        tenantId: numeric(membership.tenant_id),
+        tenantName: tenantById.get(numeric(membership.tenant_id)) ?? "—",
+        siteId: staffProfile ? numeric(staffProfile.site_id) : null,
+        siteName: staffProfile ? (siteById.get(numeric(staffProfile.site_id)) ?? "—") : "—",
+        accountStatus: user.account_status ?? "active",
+        membershipStatus,
+        status: membershipStatus,
+        isActive: Boolean(membership.is_active && membershipStatus === "active" && user.account_status === "active"),
+        lastSignedIn: user.last_signed_in ?? null,
+        staffProfileId: staffProfile ? numeric(staffProfile.id) : null,
+        invitationStatus: null,
+        invitationExpiresAt: null,
+        suspensionStartedAt: staffProfile?.suspension_started_at ?? null,
+        suspensionEndsAt: staffProfile?.suspension_ends_at ?? null,
+        canManageStatus: true,
+      };
+    }).filter(Boolean),
+    ...tenantInvitations.map((invite) => ({
+      id: -numeric(invite.id),
+      userId: null,
+      kind: "tenant",
+      name: invite.email,
+      email: invite.email,
+      phone: null,
+      role: invite.site_role ?? invite.tenant_role ?? "viewer",
+      tenantId: numeric(invite.tenant_id),
+      tenantName: tenantById.get(numeric(invite.tenant_id)) ?? "—",
+      siteId: numeric(invite.site_id),
+      siteName: siteById.get(numeric(invite.site_id)) ?? "—",
+      accountStatus: null,
+      membershipStatus: "invited",
+      status: "invited",
+      isActive: false,
+      lastSignedIn: null,
+      staffProfileId: null,
+      invitationStatus: "invited",
+      invitationExpiresAt: invite.expires_at ?? null,
+      canManageStatus: false,
+      sourceInvitationId: numeric(invite.id),
+      invitationCreatedAt: invite.created_at ?? null,
+    })),
+    ...platformInvitations.map((invite) => ({
+      id: -1000000 - numeric(invite.id),
+      userId: null,
+      kind: "platform",
+      name: invite.email,
+      email: invite.email,
+      phone: null,
+      role: invite.platform_role ?? "platform_support",
+      tenantId: null,
+      tenantName: null,
+      siteId: null,
+      siteName: null,
+      accountStatus: null,
+      membershipStatus: "invited",
+      status: "invited",
+      isActive: false,
+      lastSignedIn: null,
+      staffProfileId: null,
+      invitationStatus: "invited",
+      invitationExpiresAt: invite.expires_at ?? null,
+      canManageStatus: false,
+      sourceInvitationId: numeric(invite.id),
+      invitationCreatedAt: invite.created_at ?? null,
+    })),
+  ];
+
   return {
     generators: {
       total: generators.length, active: generatorStatuses.get("active") ?? 0, pending: generatorStatuses.get("pending") ?? 0,
@@ -146,8 +303,28 @@ export async function platformSnapshotFromSupabase() {
       pendingRegistrations: generators.filter((generator) => generator.status === "pending").map((generator) => ({ generatorId: numeric(generator.id), generatorName: String(generator.name), generatorCode: String(generator.code), ratedCapacityKw: numeric(generator.rated_capacity_kw), tenantId: numeric(generator.tenant_id), ownerName: "—", phone: "—", tenantName: tenantById.get(numeric(generator.tenant_id)) ?? "—", siteName: siteById.get(numeric(generator.site_id)) ?? "—", createdAt: generator.created_at })),
     },
     users: {
-      total: users.length, platformAdmins: users.filter((user) => user.role === "admin").length, activeStaff: staff.filter((item) => item.is_active === true).length,
-      staffDirectory: staff.map((item) => { const user = userById.get(numeric(item.user_id)); return { id: numeric(item.id), role: item.role, isActive: item.is_active, userName: user?.name ?? null, userEmail: user?.email ?? null, tenantName: tenantById.get(numeric(item.tenant_id)) ?? "—", siteName: siteById.get(numeric(item.site_id)) ?? "—" }; }),
+      total: userDirectory.length,
+      platformAdmins: users.filter((user) => user.role === "admin").length,
+      activeStaff: userDirectory.filter((item) => item.kind === "tenant" && item.status === "active").length,
+      directory: userDirectory,
+      staffDirectory: staff.map((item) => {
+        const user = userById.get(numeric(item.user_id));
+        const membership = membershipByTenantUser.get(`${numeric(item.tenant_id)}:${numeric(item.user_id)}`);
+        return {
+          id: numeric(item.id),
+          userId: numeric(item.user_id),
+          role: item.role,
+          isActive: item.is_active,
+          membershipStatus: membership?.membership_status ?? (item.is_active ? "active" : "suspended"),
+          accountStatus: user?.account_status ?? "active",
+          userName: user?.name ?? null,
+          userEmail: user?.email ?? null,
+          tenantId: numeric(item.tenant_id),
+          tenantName: tenantById.get(numeric(item.tenant_id)) ?? "—",
+          siteId: numeric(item.site_id),
+          siteName: siteById.get(numeric(item.site_id)) ?? "—",
+        };
+      }),
       subscriberDirectory: subscribers.map((item) => ({ id: numeric(item.id), subscriberNo: item.subscriber_no, fullName: item.full_name, subscriptionType: item.subscription_type, serviceStatus: item.service_status, tenantName: tenantById.get(numeric(item.tenant_id)) ?? "—", siteName: siteById.get(numeric(item.site_id)) ?? "—" })),
     },
     finance: { ...finance, paymentMethods: Array.from(paymentMethods.values()), collectionsByGenerator: [] as Array<{ generatorId: number; generatorName: string; generatorCode: string; tenantName: string; count: number; amount: number }> },
