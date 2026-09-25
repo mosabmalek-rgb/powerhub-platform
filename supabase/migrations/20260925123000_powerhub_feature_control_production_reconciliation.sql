@@ -191,7 +191,6 @@ set search_path to 'public','pg_temp'
 as $$
   select feature_key,name,description,category,feature_type,limit_type,enforcement_mode,is_active,sort_order
   from public.feature_catalog
-  where is_active=true
   order by sort_order, feature_key;
 $$;
 
