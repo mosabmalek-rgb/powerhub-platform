@@ -31,6 +31,12 @@ function FeatureControlsIndex() {
   const [,navigate] = useLocation();
   const featureAdmin = trpc.admin as any;
   const owners = featureAdmin.tenantFeatureMatrix.useQuery();
+  const features = featureAdmin.featureCatalog.useQuery();
+  const utils = trpc.useUtils();
+  const setGlobal = featureAdmin.setGlobalFeature.useMutation({
+    onSuccess: () => { void (utils.admin as any).featureCatalog.invalidate(); toast.success("تم تحديث إتاحة الميزة على مستوى المنصة."); },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const [query,setQuery] = useState("");
   const rows = useMemo(() => {
     const value=query.trim().toLowerCase();
@@ -45,6 +51,22 @@ function FeatureControlsIndex() {
           <div className="w-full lg:w-80"><label className="mb-2 block text-xs font-bold text-slate-400">بحث عن صاحب مولد</label><div className="relative"><Search className="absolute right-3 top-3 h-4 w-4 text-slate-500"/><Input value={query} onChange={e=>setQuery(e.target.value)} placeholder="الاسم أو المساحة أو الباقة" className={inputClass+" pr-10"}/></div></div>
         </div>
       </header>
+      <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel">
+        <CardContent className="p-5">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div><h2 className="font-bold text-white">إتاحة الميزات على مستوى المنصة</h2><p className="mt-1 text-sm leading-7 text-slate-500">هذا هو التحكم العام الوحيد. بعده تُطبق سياسة الباقة ثم استثناء صاحب المولد من مصفوفة الميزات والحدود.</p></div>
+            <Badge className="w-fit bg-sky-400/10 text-sky-300">مصدر الحقيقة</Badge>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {(features.data ?? []).map((feature:any) => (
+              <div key={feature.feature_key} className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[.018] p-4">
+                <div className="min-w-0"><p className="font-bold text-white">{feature.name}</p><p className="mt-1 text-xs text-slate-500">{feature.description}</p></div>
+                <Button size="sm" disabled={setGlobal.isPending} variant="outline" onClick={()=>setGlobal.mutate({featureKey:feature.feature_key,isActive:!feature.is_active})} className={feature.is_active ? "shrink-0 border-emerald-400/30 text-emerald-300 hover:bg-rose-400/10 hover:text-rose-200" : "shrink-0 border-rose-400/30 text-rose-300 hover:bg-emerald-400/10 hover:text-emerald-200"}>{feature.is_active ? "مفعلة" : "متوقفة"}</Button>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
       <Card className="border-white/8 bg-[#111823] shadow-panel">
         <CardContent className="p-0">
           <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-right text-sm">
