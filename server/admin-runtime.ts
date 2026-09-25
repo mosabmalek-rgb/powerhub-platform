@@ -98,6 +98,18 @@ export const adminRouter = router({
   setTenantMembershipStatus: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive(),userId:z.number().int().positive(),status:z.enum(["active","suspended","revoked"])})).mutation(async ({ctx,input})=>setTenantMembershipStatusSupabase({actorUserId:ctx.user.id,tenantId:input.tenantId,userId:input.userId,status:input.status})),
   attachOwnerUser: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive(),userId:z.number().int().positive(),siteId:z.number().int().positive().optional()})).mutation(async ({ctx,input})=>attachOwnerUserSupabase({actorUserId:ctx.user.id,tenantId:input.tenantId,userId:input.userId,siteId:input.siteId})),
   updateSubscription: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive(),packageCode:packageCodeSchema,status:subscriptionStatusSchema,billingCycle:billingCycleSchema,endsAt:z.date(),autoRenew:z.boolean(),notes:z.string().max(2000).optional(),smsPlanId:z.number().int().positive().nullable().optional()})).mutation(async ({ctx,input})=>updateSubscriptionSupabase({actorUserId:ctx.user.id,tenantId:input.tenantId,packageCode:input.packageCode,status:input.status,billingCycle:input.billingCycle,endsAt:input.endsAt,autoRenew:input.autoRenew,notes:input.notes,smsPlanId:input.smsPlanId})),
+  cancelTenantSubscription: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive(),graceDays:z.number().int().min(1).max(30).default(10),reason:z.string().trim().max(1000).optional()})).mutation(async ({ctx,input})=>{
+    const {data,error}=await supabaseAdmin().rpc("powerhub_admin_cancel_tenant_subscription",{p_actor_user_id:ctx.user.id,p_tenant_id:input.tenantId,p_grace_days:input.graceDays,p_reason:input.reason??null});
+    if(error) throw new TRPCError({code:"BAD_REQUEST",message:error.message.includes("ALREADY_CANCELLED")?"الاشتراك ملغى بالفعل.":error.message.includes("SUBSCRIPTION_NOT_FOUND")?"لا يوجد اشتراك لهذا الحساب.":"تعذر إلغاء الاشتراك."});
+    const row=data?.[0]; if(!row) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد عملية الإلغاء نتيجة صالحة."});
+    return {success:Boolean(row.success),tenantId:Number(row.tenant_id),subscriptionId:Number(row.subscription_id),readOnlyUntil:row.read_only_until};
+  }),
+  restoreTenantSubscription: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive(),reason:z.string().trim().max(1000).optional()})).mutation(async ({ctx,input})=>{
+    const {data,error}=await supabaseAdmin().rpc("powerhub_admin_restore_tenant_subscription",{p_actor_user_id:ctx.user.id,p_tenant_id:input.tenantId,p_reason:input.reason??null});
+    if(error) throw new TRPCError({code:"BAD_REQUEST",message:error.message.includes("READ_ONLY_WINDOW_EXPIRED")?"انتهت فترة الاحتفاظ للقراءة فقط.":error.message.includes("ORIGINAL_SUBSCRIPTION_EXPIRED")?"انتهت مدة الاشتراك الأصلية.":"تعذر استعادة الاشتراك."});
+    const row=data?.[0]; if(!row) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد عملية الاستعادة نتيجة صالحة."});
+    return {success:Boolean(row.success),tenantId:Number(row.tenant_id),subscriptionId:Number(row.subscription_id),endsAt:row.ends_at};
+  }),
   renewSubscription: platformAdminProcedure.input(z.object({
     subscriptionId:z.number().int().positive(),
     endsAt:z.coerce.date(),
