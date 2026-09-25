@@ -51,17 +51,33 @@ function FeatureControlsIndex() {
           <div className="w-full lg:w-80"><label className="mb-2 block text-xs font-bold text-slate-400">بحث عن صاحب مولد</label><div className="relative"><Search className="absolute right-3 top-3 h-4 w-4 text-slate-500"/><Input value={query} onChange={e=>setQuery(e.target.value)} placeholder="الاسم أو المساحة أو الباقة" className={inputClass+" pr-10"}/></div></div>
         </div>
       </header>
+      <Card className="border-sky-400/20 bg-[#111823] shadow-panel">
+        <CardContent className="p-5">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div><h2 className="font-bold text-white">الميزات العامة للمنصة</h2><p className="mt-1 text-sm leading-7 text-slate-500">ميزات عامة يدير الأدمن إتاحتها على مستوى PowerHub. لا يوجد لها تحكم مستقل لكل صاحب مولد.</p></div>
+            <Badge className="w-fit bg-sky-400/10 text-sky-300">تحكم على مستوى المنصة</Badge>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {(features.data ?? []).filter((feature:any)=>feature.feature_type === "capability").map((feature:any) => (
+              <div key={feature.feature_key} className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[.018] p-4">
+                <div className="min-w-0"><div className="flex items-center gap-2"><p className="font-bold text-white">{feature.name}</p><Badge className={feature.is_active ? "bg-emerald-400/10 text-emerald-300" : "bg-rose-400/10 text-rose-300"}>{feature.is_active ? "مفعلة" : "متوقفة"}</Badge></div><p className="mt-1 text-xs text-slate-500">{feature.description}</p></div>
+                <Button size="sm" disabled={setGlobal.isPending} variant="outline" onClick={()=>setGlobal.mutate({featureKey:feature.feature_key,isActive:!feature.is_active})} className={feature.is_active ? "border-rose-400/30 text-rose-300 hover:bg-rose-400/10" : "border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10"}>{feature.is_active ? "إيقاف المنصة" : "تفعيل المنصة"}</Button>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
       <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel">
         <CardContent className="p-5">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div><h2 className="font-bold text-white">إتاحة الميزات على مستوى المنصة</h2><p className="mt-1 text-sm leading-7 text-slate-500">هذا هو التحكم العام الوحيد. بعده تُطبق سياسة الباقة ثم استثناء صاحب المولد من مصفوفة الميزات والحدود.</p></div>
-            <Badge className="w-fit bg-sky-400/10 text-sky-300">مصدر الحقيقة</Badge>
+            <div><h2 className="font-bold text-white">الميزات القابلة للتحكم لأصحاب المولدات</h2><p className="mt-1 text-sm leading-7 text-slate-500">يمكن إتاحة هذه الميزات أو إيقافها على مستوى المنصة، ثم يستمر التحكم الخاص بكل صاحب مولد في مصفوفة الميزات والحدود.</p></div>
+            <Badge className="w-fit bg-[#F5B800]/10 text-[#F5B800]">تحكم مزدوج</Badge>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {(features.data ?? []).map((feature:any) => (
-              <div key={feature.feature_key} className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[.018] p-4">
-                <div className="min-w-0"><p className="font-bold text-white">{feature.name}</p><p className="mt-1 text-xs text-slate-500">{feature.description}</p></div>
-                <Button size="sm" disabled={setGlobal.isPending} variant="outline" onClick={()=>setGlobal.mutate({featureKey:feature.feature_key,isActive:!feature.is_active})} className={feature.is_active ? "shrink-0 border-emerald-400/30 text-emerald-300 hover:bg-rose-400/10 hover:text-rose-200" : "shrink-0 border-rose-400/30 text-rose-300 hover:bg-emerald-400/10 hover:text-emerald-200"}>{feature.is_active ? "مفعلة" : "متوقفة"}</Button>
+            {(features.data ?? []).filter((feature:any)=>feature.feature_type !== "capability").map((feature:any) => (
+              <div key={feature.feature_key} className="flex items-center justify-between gap-3 rounded-2xl border border-[#F5B800]/15 bg-white/[.018] p-4">
+                <div className="min-w-0"><div className="flex items-center gap-2"><p className="font-bold text-white">{feature.name}</p><Badge className={feature.is_active ? "bg-emerald-400/10 text-emerald-300" : "bg-rose-400/10 text-rose-300"}>{feature.is_active ? "مفعلة على المنصة" : "متوقفة على المنصة"}</Badge></div><p className="mt-1 text-xs text-slate-500">{feature.description}</p></div>
+                <Button size="sm" disabled={setGlobal.isPending} variant="outline" onClick={()=>setGlobal.mutate({featureKey:feature.feature_key,isActive:!feature.is_active})} className={feature.is_active ? "border-rose-400/30 text-rose-300 hover:bg-rose-400/10" : "border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10"}>{feature.is_active ? "إيقاف المنصة" : "تفعيل المنصة"}</Button>
               </div>
             ))}
           </div>
@@ -92,7 +108,7 @@ function FeatureRow({feature,policy,control,onSave,onReset,pending}:{feature:any
     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
       <div className="min-w-0 xl:w-[32%]"><div className="flex items-center gap-2"><p className="font-bold text-white">{feature.name}</p><Badge className={effectiveEnabled ? "bg-emerald-400/10 text-emerald-300" : "bg-slate-400/10 text-slate-400"}>{effectiveEnabled ? "فعّالة" : "غير فعّالة"}</Badge></div><p className="mt-1 text-xs leading-6 text-slate-500">{feature.description}</p><div className="mt-2 flex flex-wrap gap-2 text-[11px]"><Badge className="bg-white/5 text-slate-400">{categoryLabels[feature.category] ?? feature.category}</Badge><Badge className={policy?.policy === "addon" ? "bg-amber-400/10 text-amber-300" : policy?.policy === "included" ? "bg-sky-400/10 text-sky-300" : "bg-rose-400/10 text-rose-300"}>{policyLabel(policy?.policy)}</Badge></div></div>
       <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <label className="text-xs text-slate-500">الحالة<select value={status} onChange={e=>setStatus(e.target.value)} className={inputClass+" mt-1"}><option value="inherit">حسب الباقة</option><option value="enabled" disabled={!effectiveEligible}>تفعيل يدوي</option><option value="disabled">تعطيل يدوي</option></select></label>
+        <label className="text-xs text-slate-500">الحالة<select value={status} onChange={e=>setStatus(e.target.value)} className={inputClass+" mt-1"}><option value="inherit">حسب الباقة</option><option value="enabled" disabled={!effectiveEligible || feature.is_active === false}>تفعيل يدوي</option><option value="disabled">تعطيل يدوي</option></select></label>
         <label className="text-xs text-slate-500">نمط الحد<select value={limitMode} onChange={e=>setLimitMode(e.target.value)} className={inputClass+" mt-1"}><option value="inherit">حسب الباقة</option><option value="manual">حد يدوي</option><option value="unlimited">غير محدود</option></select></label>
         <label className="text-xs text-slate-500">الحد الفعلي<div className="mt-1 flex h-10 items-center rounded-xl border border-white/10 bg-black/10 px-3 text-sm text-white">{effectiveLimit}</div></label>
         <label className="text-xs text-slate-500">سبب التعديل<Input value={reason} onChange={e=>setReason(e.target.value)} maxLength={2000} placeholder="اختياري" className="mt-1"/></label>
