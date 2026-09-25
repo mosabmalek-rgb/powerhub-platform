@@ -171,6 +171,7 @@ function DashboardLayoutContent({
   const platformRoleLabel = ({ platform_owner: "مالك المنصة", platform_admin: "مشرف المنصة", finance_admin: "مشرف مالي", platform_support: "موظف دعم" } as const)[user?.platformRole ?? "platform_admin"];
   const accountRoleLabel = user ? (user.role === "admin" ? platformRoleLabel : "مساحة تشغيل المولد") : "وضع معاينة آمن";
   const workspaceSites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: Boolean(user && user.role !== "admin") });
+  const tenantDisplayName = workspaceSites.data?.[0]?.tenantName ?? null;
   const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
   const { branchId: activeSiteId } = useBranchFilter(workspaceSites.data);
   const activeAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: activeSiteId ?? 0 }, { enabled: Boolean(activeSiteId && user?.role !== "admin") });
@@ -363,9 +364,10 @@ function DashboardLayoutContent({
           <div className="flex h-14 items-center justify-between border-b border-white/8 bg-[#0D1117]/95 px-2 backdrop-blur sticky top-0 z-40">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  {tenantDisplayName ? <span className="truncate text-[11px] font-bold text-[#F5B800]">{tenantDisplayName}</span> : null}
+                  <span className="truncate tracking-tight text-foreground">
                     {activeMenuItem?.label ?? "لوحة التحكم"}
                   </span>
                 </div>
@@ -400,6 +402,17 @@ function DashboardLayoutContent({
             </button>
           </div>
         )}
+        {!isMobile && user?.role !== "admin" ? (
+          <header className="sticky top-0 z-30 border-b border-white/8 bg-[#0D1117]/95 px-4 py-3 backdrop-blur sm:px-6" dir="rtl">
+            <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-extrabold text-[#F5B800]">{tenantDisplayName ?? "مساحة المولد"}</div>
+                <div className="mt-0.5 truncate text-xs text-slate-400">{activeMenuItem?.label ?? "لوحة التحكم"}</div>
+              </div>
+              <div className="shrink-0 text-xs text-slate-500">{displayUser.name || ""}</div>
+            </div>
+          </header>
+        ) : null}
         {approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId ? <div className="sticky top-0 z-30 border-b border-emerald-300/25 bg-emerald-400/[.10] px-4 py-3 text-emerald-100 shadow-lg sm:px-6"><div className="mx-auto flex max-w-7xl items-center justify-between gap-3" dir="rtl"><div className="flex min-w-0 items-center gap-3"><CircleCheck className="h-5 w-5 shrink-0 text-emerald-300" /><p className="text-sm font-bold">تم اعتماد طلب شحن الرسائل وإضافة {Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيد SMS.</p></div><button type="button" aria-label="إغلاق إشعار اعتماد الرسائل" onClick={() => { const id = String(approvedSmsRequest.id); setDismissedSmsApprovalId(id); localStorage.setItem("powerhub.sms-approval-notice-dismissed", id); }} className="rounded-lg p-1 text-emerald-200 transition hover:bg-emerald-300/15 hover:text-white"><X className="h-4 w-4" /></button></div></div> : null}
         <main className="ph-grid-bg min-h-screen flex-1 bg-[#0D1117] p-4 sm:p-6">{children}</main>
       </SidebarInset>
