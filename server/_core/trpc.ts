@@ -75,13 +75,63 @@ const enforceMaintenanceMode = t.middleware(async opts => {
   return opts.next();
 });
 
+const enforceTenantReadOnlyRetention = t.middleware(async opts => {
+  const user = opts.ctx.user;
+  if (!user || isActivePlatformAdmin(user) || isActivePlatformSupport(user) || opts.type !== "mutation") return opts.next();
+
+  const input = (opts as typeof opts & { input?: unknown }).input;
+  const record = input && typeof input === "object" ? input as Record<string, unknown> : null;
+  let tenantId = typeof record?.tenantId === "number" ? record.tenantId : null;
+  const siteId = typeof record?.siteId === "number" ? record.siteId : null;
+
+  if (!tenantId && siteId) {
+    const { data: site, error: siteError } = await supabaseAdmin()
+      .from("sites").select("tenant_id").eq("id", siteId).maybeSingle();
+    if (siteError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مساحة صاحب المولد." });
+    tenantId = site?.tenant_id ? Number(site.tenant_id) : null;
+  }
+
+  if (!tenantId) {
+    const { data: memberships, error: membershipError } = await supabaseAdmin()
+      .from("tenant_members")
+      .select("tenant_id")
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .eq("membership_status", "active")
+      .limit(10);
+    if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مساحة صاحب المولد." });
+    if (memberships?.length === 1) tenantId = Number(memberships[0].tenant_id);
+  }
+
+  if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "تعذر تحديد مساحة صاحب المولد للتحقق من حالة الاشتراك." });
+
+  const { data: subscription, error: subscriptionError } = await supabaseAdmin()
+    .from("tenant_subscriptions")
+    .select("status,read_only_until")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (subscriptionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالة الاشتراك." });
+
+  if (subscription?.status === "cancelled" && subscription.read_only_until && new Date(subscription.read_only_until) > new Date()) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `الحساب في فترة احتفاظ للقراءة فقط حتى ${new Date(subscription.read_only_until).toLocaleString("ar-PS")}.`,
+    });
+  }
+
+  return opts.next();
+});
+
 const requireSupportChatCapability = t.middleware(async opts => {
   await requirePlatformCapability(opts.ctx.req, "manageSupportChat");
   return opts.next();
 });
 
 export const authenticatedProcedure = t.procedure.use(requireUser);
-export const protectedProcedure = authenticatedProcedure.use(enforceMaintenanceMode);
+export const protectedProcedure = authenticatedProcedure.use(enforceMaintenanceMode).use(enforceTenantReadOnlyRetention);
 
 /**
  * Dedicated authorization boundary for PowerHub Support Center / Chat.

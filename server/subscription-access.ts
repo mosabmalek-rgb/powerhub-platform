@@ -6,6 +6,7 @@ export type TenantSubscriptionState = "trial" | "active" | "overdue" | "suspende
 export type TenantSubscription = {
   status: TenantSubscriptionState;
   endsAt: Date | null;
+  readOnlyUntil: Date | null;
 };
 
 export function isTenantSubscriptionActive(subscription: TenantSubscription | null, now = new Date()): boolean {
@@ -17,10 +18,10 @@ export function isTenantSubscriptionActive(subscription: TenantSubscription | nu
   return subscription.endsAt > now;
 }
 
-export async function requireTenantSubscription(tenantId: number, now = new Date()): Promise<TenantSubscription> {
+export async function requireTenantSubscription(tenantId: number, now = new Date(), options: { allowReadOnlyRetention?: boolean } = {}): Promise<TenantSubscription> {
   const { data, error } = await supabaseAdmin()
     .from("tenant_subscriptions")
-    .select("status, ends_at")
+    .select("status, ends_at, read_only_until")
     .eq("tenant_id", tenantId)
     .order("ends_at", { ascending: false, nullsFirst: false })
     .limit(1)
@@ -37,9 +38,12 @@ export async function requireTenantSubscription(tenantId: number, now = new Date
   const subscription: TenantSubscription = {
     status: data.status as TenantSubscriptionState,
     endsAt: data.ends_at ? new Date(data.ends_at) : null,
+    readOnlyUntil: data.read_only_until ? new Date(data.read_only_until) : null,
   };
 
-  if (!isTenantSubscriptionActive(subscription, now)) {
+  const inReadOnlyRetention = options.allowReadOnlyRetention === true && subscription.status === "cancelled"
+    && Boolean(subscription.readOnlyUntil && subscription.readOnlyUntil > now);
+  if (!isTenantSubscriptionActive(subscription, now) && !inReadOnlyRetention) {
     throw new TRPCError({ code: "FORBIDDEN", message: "انتهى اشتراك مساحة العمل أو تم إيقافه. يرجى تجديد الاشتراك للمتابعة." });
   }
 
