@@ -47,6 +47,7 @@ const navigationGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { id: "generators", label: "إدارة المولدات", icon: Zap, detail: "المولدات النشطة والموقوفة والمحظورة" },
       { id: "ownerSubscription", label: "اشتراك صاحب مولد", icon: Building2, detail: "إضافة المالك والباقات والتجديد" },
+      { id: "subscriptionRequests", label: "طلبات الترقية والإضافات", icon: CircleDollarSign, detail: "مراجعة طلبات ترقية الباقات والإضافات" },
       { id: "users", label: "إدارة المستخدمين", icon: UsersRound, detail: "أصحاب المولدات والموظفون والصلاحيات" },
       { id: "supportChat", label: "الدردشة والدعم", icon: MessageCircle, detail: "مركز المحادثات والتذاكر وطلبات الدعم" },
       { id: "features", label: "الميزات والحدود", icon: Settings2, detail: "مصفوفة ميزات وحدود كل صاحب مولد" },
