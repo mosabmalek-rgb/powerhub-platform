@@ -923,6 +923,27 @@ export const powerhubRouter = router({
         reviewedAt: data.reviewed_at ? new Date(data.reviewed_at) : null,
       };
     }),
+    currentAddonRequests: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const { data, error } = await supabaseAdmin().from("tenant_addon_requests")
+        .select("id, addon_code, quantity, status, duration_days, starts_at, ends_at, created_at, reviewed_at")
+        .eq("tenant_id", access.tenantId)
+        .in("status", ["pending", "reviewing", "approved"])
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات الإضافات من Supabase." });
+      return (data ?? []).map((row:any) => ({
+        id: Number(row.id),
+        addonCode: row.addon_code,
+        quantity: Number(row.quantity),
+        status: row.status,
+        durationDays: Number(row.duration_days ?? 30),
+        startsAt: row.starts_at ? new Date(row.starts_at) : null,
+        endsAt: row.ends_at ? new Date(row.ends_at) : null,
+        createdAt: new Date(row.created_at),
+        reviewedAt: row.reviewed_at ? new Date(row.reviewed_at) : null,
+      }));
+    }),
     requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPackageCode: z.enum(["basic", "advanced", "professional", "business", "vip"]) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
       const { data, error } = await supabaseAdmin().rpc("powerhub_request_subscription_upgrade", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_package_code: input.requestedPackageCode });
