@@ -106,7 +106,9 @@ export async function executeReadyOperations({
         metadata: {
           ...inFlightMetadata,
           outcome,
+          nextAttemptAt: Number.POSITIVE_INFINITY,
           lastError: transportResult.message,
+          outcome,
         },
         outcome,
       });
