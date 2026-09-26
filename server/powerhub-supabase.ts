@@ -581,20 +581,23 @@ function subscriberOverride(tenantId: number, value: unknown) {
 
 export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
   const admin = supabaseAdmin();
-  const [tenantResult, limitsResult, overridesResult, countResult] = await Promise.all([
-    admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", tenantId).eq("status", "active").maybeSingle(),
-    admin.from("platform_settings").select("value").eq("setting_key", "owner_subscriber_limits").maybeSingle(),
-    admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
+  const [tenantResult, countResult, quotaResult] = await Promise.all([
+    admin.from("tenant_subscriptions")
+      .select("package_code")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
+    admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: tenantId, p_resource: "subscribers" }),
   ]);
-  if (tenantResult.error || limitsResult.error || overridesResult.error || countResult.error) {
+  if (tenantResult.error || countResult.error || quotaResult.error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
   }
   if (!tenantResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-  const plan = tenantResult.data.package_code;
-  const limit = subscriberOverride(tenantId, overridesResult.data?.value) ?? configuredSubscriberLimit(plan, limitsResult.data?.value);
+  const limit = Math.max(0, Number(quotaResult.data));
   const currentCount = countResult.count ?? 0;
-  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
+  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenantResult.data.package_code as string };
 }
 
 export async function recordSupabaseSubscriberQuotaAlert(input: { tenantId: number; siteId: number; userId: number; quota: { limit: number; currentCount: number; remaining: number; plan: string } }) {
