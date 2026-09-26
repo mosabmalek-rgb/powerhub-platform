@@ -26,7 +26,7 @@ vi.mock("@/lib/trpc", () => ({
       subscribers: { quota: { useQuery: () => ({ data: {} }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) } },
       messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: 42, remaining: state.remaining, senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null }, isLoading: false }) }, smsDailyUsage: { useQuery: () => ({ data: { total: 500, used: 42, remaining: state.remaining }, isLoading: false }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, refetch: vi.fn() }) }, requestSmsPackage: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
-      subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
+      subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, currentAddonRequests: { useQuery: () => ({ data: [] }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) }, requestAddon: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
     },
   },
 }));
