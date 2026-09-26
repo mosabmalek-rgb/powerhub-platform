@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { defaultCapabilitiesForRole, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
@@ -118,11 +118,15 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
   const { data: user, error: userError } = await supabaseAdmin().from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle();
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف المستخدم في Supabase." });
   const platformAdmin = isActivePlatformAdmin({ role: user?.role, platformRole: user?.platform_role, accountStatus: user?.account_status });
-  if (!platformAdmin && !allowed.includes(access.role) && (!capability || !access.permissions.includes(capability))) {
+  if (!platformAdmin && capability) {
+    const capabilityAllowed = access.usesPermissionOverride
+      ? access.permissions.includes(capability)
+      : defaultCapabilitiesForRole(access.role).includes(capability);
+    if (!capabilityAllowed) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
+    }
+  } else if (!platformAdmin && !allowed.includes(access.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
-  }
-  if (!platformAdmin && capability && access.permissions.length > 0 && !access.permissions.includes(capability)) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "هذه العملية غير موجودة ضمن الصلاحيات الممنوحة لهذا الحساب." });
   }
   if (!platformAdmin && capability) {
     const { data: policy, error: policyError } = await supabaseAdmin().from("platform_role_policies")
