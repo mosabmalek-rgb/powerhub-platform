@@ -5,7 +5,7 @@ export type OfflineGeneratorCreateInput = {
   code: string;
   name: string;
   serialNumber?: string;
-  ratedCapacityKw: string;
+  ratedCapacityKw?: string;
   fuelType: "diesel" | "gasoline" | "gas" | "other";
   clientOperationId: string;
 };
