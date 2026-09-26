@@ -1195,24 +1195,15 @@ export const powerhubRouter = router({
     quota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       const admin = supabaseAdmin();
-      const [subscriptionResponse, tenantResponse, limitPolicyResponse, overridesPolicyResponse, countResponse] = await Promise.all([
-        admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).maybeSingle(),
-        admin.from("tenants").select("package_code").eq("id", access.tenantId).maybeSingle(),
-        admin.from("platform_settings").select("value").eq("setting_key", "owner_subscriber_limits").maybeSingle(),
-        admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
+      const [subscriptionResponse, countResponse, quotaResponse] = await Promise.all([
+        admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", access.tenantId),
+        admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: access.tenantId, p_resource: "subscribers" }),
       ]);
-      if (subscriptionResponse.error || tenantResponse.error || limitPolicyResponse.error || overridesPolicyResponse.error || countResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
+      if (subscriptionResponse.error || countResponse.error || quotaResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
       const plan = subscriptionResponse.data?.package_code;
       if (!plan || !["basic", "advanced", "professional", "business", "vip"].includes(plan)) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
-      const policyValue = limitPolicyResponse.data?.value;
-      const overridesValue = overridesPolicyResponse.data?.value;
-      const overridesObject = overridesValue && typeof overridesValue === "object" && !Array.isArray(overridesValue) ? overridesValue as Record<string, unknown> : {};
-      const perTenantOverrides = overridesObject.overrides;
-      const override = perTenantOverrides && typeof perTenantOverrides === "object" && !Array.isArray(perTenantOverrides) ? (perTenantOverrides as Record<string, unknown>)[String(access.tenantId)] : undefined;
-      const requestedOverrideLimit = override && typeof override === "object" && !Array.isArray(override) ? (override as Record<string, unknown>).subscriberLimit : undefined;
-      const parsedOverrideLimit = typeof requestedOverrideLimit === "number" ? requestedOverrideLimit : typeof requestedOverrideLimit === "string" ? Number(requestedOverrideLimit) : NaN;
-      const limit = Number.isInteger(parsedOverrideLimit) && parsedOverrideLimit >= 0 && parsedOverrideLimit <= 100000 ? parsedOverrideLimit : ownerSubscriberLimitForPlan(plan, { value: policyValue });
+      const limit = Math.max(0, Number(quotaResponse.data));
       const currentCount = countResponse.count ?? 0;
       return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
     }),
