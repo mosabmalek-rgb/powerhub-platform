@@ -107,6 +107,7 @@ export function scheduleRetry(
     ...metadata,
     attempts,
     nextAttemptAt: now + computeBackoffDelay(attempts, random),
+    outcome: "retryable",
   };
 }
 
