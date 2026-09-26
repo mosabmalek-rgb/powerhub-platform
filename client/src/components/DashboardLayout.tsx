@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { can, type PowerCapability } from "@shared/powerhub-rbac";
+import type { PowerCapability } from "@shared/powerhub-rbac";
 import { tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
 import { PowerHubLogo } from "./PowerHubLogo";
 import { toast } from "sonner";
