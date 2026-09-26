@@ -56,7 +56,7 @@ export async function syncGeneratorCreate(input: OfflineGeneratorCreateInput): P
     p_code: input.code,
     p_name: input.name,
     p_serial_number: input.serialNumber ?? "",
-    p_rated_capacity_kw: input.ratedCapacityKw,
+    p_rated_capacity_kw: input.ratedCapacityKw ?? null,
     p_fuel_type: input.fuelType,
     p_client_operation_id: input.clientOperationId,
   });
