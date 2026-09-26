@@ -140,11 +140,14 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
     sms: "حزمة SMS إضافية",
   };
 
+  const effectiveStatus = (subscription: any) => { if (!subscription) return null; if (subscription.archivedAt) return "archived"; if ((subscription.status === "trial" || subscription.status === "active") && subscription.endsAt && new Date(subscription.endsAt) <= new Date()) return "expired"; return subscription.status; };
+
   const openRenewal = (row: any) => {
     const subscriptionId = Number(row.subscription?.id ?? 0);
     if (!subscriptionId) { toast.error("لا يوجد اشتراك صالح للتجديد."); return; }
-    const currentEnd = row.subscription?.endsAt ? new Date(row.subscription.endsAt) : new Date();
-    const nextEnd = new Date(currentEnd);
+    const currentEnd = row.subscription?.endsAt ? new Date(row.subscription.endsAt) : null;
+    const base = currentEnd && !Number.isNaN(currentEnd.getTime()) && currentEnd > new Date() ? currentEnd : new Date();
+    const nextEnd = new Date(base);
     nextEnd.setMonth(nextEnd.getMonth() + (row.subscription?.billingCycle === "yearly" ? 12 : 1));
     setRenewingId(subscriptionId);
     setRenewEndsAt(nextEnd.toISOString().slice(0,10));
@@ -176,7 +179,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="font-bold text-white">{row.owner?.fullName ?? row.tenant.name}</p>
-              <p className="mt-1 text-sm text-slate-500">{row.tenant.name} · الباقة: <strong className="text-slate-300">{packageCode}</strong> · انتهاء الاشتراك: {formatDate(row.subscription?.endsAt)}</p>
+              <p className="mt-1 text-sm text-slate-500">{row.tenant.name} · الباقة: <strong className="text-slate-300">{packageCode}</strong> · الحالة: <strong className="text-slate-300">{effectiveStatus(row.subscription) === "expired" ? "منتهي" : effectiveStatus(row.subscription) === "archived" ? "مؤرشف" : effectiveStatus(row.subscription) ?? "—"}</strong> · انتهاء الاشتراك: {formatDate(row.subscription?.endsAt)}</p>
               <p className="mt-1 text-xs text-slate-600">{tenantAddons.length ? `لديه ${tenantAddons.length} إضافة نشطة` : "لا توجد إضافات نشطة مرتبطة بالاشتراك"}</p>
             </div>
             <Button disabled={pending || activeAddonsQuery.isLoading} onClick={() => isRenewing ? submitRenewal(row) : openRenewal(row)} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">
