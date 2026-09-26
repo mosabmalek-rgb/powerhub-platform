@@ -102,15 +102,16 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
   }
   // NULL means "inherit from custom role"; [] is an explicit deny-all override.
   const hasExplicitPermissions = profile.permissions !== null && profile.permissions !== undefined;
+  const role = asPowerRole(profile.role);
   const usesPermissionOverride = hasExplicitPermissions || Boolean(profile.custom_role_id);
-  let permissions = hasExplicitPermissions ? asPermissions(profile.permissions) : [];
+  let permissions = hasExplicitPermissions ? asPermissions(profile.permissions) : defaultCapabilitiesForRole(role);
   if (!hasExplicitPermissions && profile.custom_role_id) {
     const { data: customRole, error: customRoleError } = await admin.from("custom_permission_roles")
       .select("permissions").eq("id", profile.custom_role_id).eq("tenant_id", site.tenantId).eq("is_active", true).maybeSingle();
     if (customRoleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
     permissions = asPermissions(customRole?.permissions);
   }
-  return { role: asPowerRole(profile.role), permissions, usesPermissionOverride, tenantId: site.tenantId };
+  return { role, permissions, usesPermissionOverride, tenantId: site.tenantId };
 }
 
 export async function requireSupabaseSiteRole(userId: number, siteId: number, allowed: PowerRole[], capability?: PowerCapability) {
@@ -118,14 +119,10 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
   const { data: user, error: userError } = await supabaseAdmin().from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle();
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف المستخدم في Supabase." });
   const platformAdmin = isActivePlatformAdmin({ role: user?.role, platformRole: user?.platform_role, accountStatus: user?.account_status });
-  if (!platformAdmin && capability) {
-    const capabilityAllowed = access.usesPermissionOverride
-      ? access.permissions.includes(capability)
-      : defaultCapabilitiesForRole(access.role).includes(capability);
-    if (!capabilityAllowed) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
-    }
-  } else if (!platformAdmin && !allowed.includes(access.role)) {
+  if (!platformAdmin && capability && !access.permissions.includes(capability)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
+  }
+  if (!platformAdmin && !capability && !allowed.includes(access.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
   }
   if (!platformAdmin && capability) {
