@@ -25,7 +25,7 @@ export type GeneratorCreateDraft = {
   code: string;
   name: string;
   serialNumber?: string;
-  ratedCapacityKw: string;
+  ratedCapacityKw?: string;
   fuelType: "diesel" | "gasoline" | "gas" | "other";
 };
 
