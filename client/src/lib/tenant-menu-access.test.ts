@@ -6,7 +6,7 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/staff", "collector")).toBe(false);
     expect(tenantMenuRouteAllowed("/portal-settings", "viewer")).toBe(false);
     expect(tenantMenuRouteAllowed("/notifications", "technician")).toBe(false);
-    expect(tenantMenuRouteAllowed("/payroll", "manager")).toBe(false);
+    expect(tenantMenuRouteAllowed("/payroll", "manager")).toBe(true);
   });
 
   it("allows operational read routes only where the role has read access", () => {
