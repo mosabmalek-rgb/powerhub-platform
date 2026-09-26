@@ -5,7 +5,8 @@ export type OfflineWorkKind =
   | "generator_update"
   | "invoice_issue"
   | "payment_create"
-  | "payment_documentation_submit";
+  | "payment_documentation_submit"
+  | "payment_documentation_approve";
 
 export type OfflineWorkStatus = "pending" | "conflict" | "failed" | "applied";
 
@@ -87,6 +88,22 @@ export type PaymentDocumentationDraft = {
   snapshot: { capturedAt: string; subscriber: PaymentDocumentationSubscriberSnapshot; invoice: PaymentDocumentationInvoiceSnapshot; account: PaymentDocumentationAccountSnapshot };
 };
 
+export type PaymentDocumentationApprovalDraft = {
+  requestId: number;
+  capturedAt: string;
+  requestSnapshot: {
+    invoiceNo: string;
+    subscriberName: string;
+    subscriberNo: string;
+    paymentAmount: number;
+    invoiceBalance: number;
+    paymentMethod: string;
+    destinationAccountId: number;
+    submittedAt: string;
+    status: "pending";
+  };
+};
+
 export type OfflineWorkPayload =
   | SubscriberCreateDraft
   | SubscriberUpdateDraft
@@ -94,7 +111,8 @@ export type OfflineWorkPayload =
   | GeneratorUpdateDraft
   | InvoiceIssueDraft
   | PaymentDraft
-  | PaymentDocumentationDraft;
+  | PaymentDocumentationDraft
+  | PaymentDocumentationApprovalDraft;
 
 export type QueuedOfflineWork = {
   id: string;
