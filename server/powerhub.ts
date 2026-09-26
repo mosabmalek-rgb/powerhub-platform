@@ -2486,7 +2486,7 @@ export const powerhubRouter = router({
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ سجل الحضور في Supabase." });
     }),
     overview: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() })).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "viewAudit");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
       const [employeesResult, payrollResult] = await Promise.all([
         supabaseAdmin().from("employees").select("employment_status, base_wage").eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`),
         input.period
@@ -2503,7 +2503,7 @@ export const powerhubRouter = router({
       return { employees: Array.from(employeeSummary.values()), payroll };
     }),
     listEmployees: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), search: z.string().trim().max(120).optional(), employmentStatus: z.enum(["active", "suspended", "ended"]).optional(), jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]).optional() })).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageTeam");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
       let query = supabaseAdmin().from("employees")
         .select("id, tenant_id, site_id, linked_user_id, full_name, identity_no, phone, job_title, employment_status, contract_type, base_wage, hire_date, notes, created_at, updated_at")
         .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`);
