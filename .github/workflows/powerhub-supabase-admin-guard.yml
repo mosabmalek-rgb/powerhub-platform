@@ -16,7 +16,7 @@ concurrency:
 jobs:
   migration-guards:
     name: Supabase runtime migration guards
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     env:
       VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
@@ -46,3 +46,4 @@ jobs:
           server/admin.tenant-branch-settings-supabase.test.ts
           server/powerhub-mobile-approve-runtime.test.ts
           server/supabase-runtime-boundary.test.ts
+          server/admin.dashboard-sync-contract.test.ts
