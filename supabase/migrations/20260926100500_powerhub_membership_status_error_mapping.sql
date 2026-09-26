@@ -1,0 +1,2 @@
+-- Keep tenant membership lifecycle behavior unchanged, but make known
+-- protection failures user-facing instead of collapsing them into a generic error.
