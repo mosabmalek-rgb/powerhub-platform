@@ -11,8 +11,8 @@ import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق" } as const;
-const labelByStatus = { pending: "بانتظار المزامنة", failed: "فشل قابل لإعادة المحاولة", conflict: "يتطلب مراجعة", applied: "تمت المزامنة" } as const;
+const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", payment_documentation_submit: "توثيق دفع إلكتروني" } as const;
+const labelByStatus = { pending: "بانتظار المزامنة", failed: "فشل يحتاج مراجعة", conflict: "يتطلب مراجعة", applied: "تمت المزامنة" } as const;
 
 function getErrorCode(error: unknown) { return (error as { data?: { code?: string } } | null)?.data?.code; }
 function getErrorMessage(error: unknown) { return error instanceof Error ? error.message : "تعذر مزامنة العملية."; }
@@ -30,6 +30,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const updateSubscriber = trpc.powerhub.subscribers.update.useMutation();
   const issueInvoice = trpc.powerhub.invoices.createFromReading.useMutation();
   const createPayment = trpc.powerhub.payments.create.useMutation();
+  const submitPaymentDocumentation = trpc.powerhub.paymentDocumentation.submit.useMutation();
 
   const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
 
@@ -77,11 +78,27 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.invoiceNo });
         return { outcome: "applied" };
       }
-      const payload = item.payload as import("@/lib/offline-work-queue").PaymentDraft;
-      const result = await createPayment.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
-      const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...sanitizedPayload } = payload;
-      await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: payload.paymentNo, payload: sanitizedPayload });
-      return { outcome: "applied" };
+      if (item.kind === "payment_create") {
+        const payload = item.payload as import("@/lib/offline-work-queue").PaymentDraft;
+        const result = await createPayment.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
+        const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...sanitizedPayload } = payload;
+        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: payload.paymentNo, payload: sanitizedPayload });
+        return { outcome: "applied" };
+      }
+      const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;
+      const result = await submitPaymentDocumentation.mutateAsync({
+        siteId: item.siteId, subscriberId: payload.subscriberId, invoiceId: payload.invoiceId,
+        destinationAccountId: payload.destinationAccountId, paymentAmount: payload.paymentAmount,
+        paymentMethod: payload.paymentMethod, senderPhone: payload.senderPhone, referenceNo: payload.referenceNo,
+        receiptImageData: payload.receiptImageData, receiptImageMime: payload.receiptImageMime,
+        clientOperationId: item.clientOperationId,
+      });
+      await updateOfflineWork(item.id, {
+        status: "applied", error: undefined, appliedEntityId: result.id,
+        appliedLabel: `طلب توثيق #${result.id} — بانتظار المراجعة`,
+        payload: { ...payload, receiptImageData: undefined, receiptImageMime: undefined },
+      });
+      return { outcome: result.replayed ? "already_applied" : "applied" };
     } catch (error) {
       return { outcome: "retryable", errorCode: getErrorCode(error), message: getErrorMessage(error) };
     }
@@ -117,7 +134,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     finally { setSyncing(false); await load(); }
   };
 
-  const pending = items.filter((item) => item.status === "pending" || item.status === "failed");
+  const pending = items.filter((item) => item.status === "pending" || (item.status === "failed" && item.status !== "conflict"));
   const unresolved = items.filter((item) => item.status !== "applied");
   if (compact && !items.length) return null;
   return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><CloudOff className="h-4 w-4" />مركز مزامنة المسودات</div><p className="mt-1 text-xs leading-5 text-slate-400">تُحفظ المسودات محلياً أولاً. لا يصدر رقم فاتورة ولا يتغير سجل مالي قبل قبول الخادم للعملية؛ والتحصيل المعلق لا يملك إيصالاً رسمياً قبل قبول المزامنة.</p></div><div className="flex items-center gap-2"><Badge className={isOnline ? "bg-emerald-400/10 text-emerald-300" : "bg-amber-400/10 text-amber-200"}>{isOnline ? "متصل" : "دون اتصال"}</Badge><Button size="sm" disabled={!isOnline || !pending.length || syncing} onClick={() => void syncPending()} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]"><RefreshCw className={`ml-1.5 h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />مزامنة المعلقة ({pending.length})</Button></div></div>
