@@ -190,7 +190,7 @@ function DashboardLayoutContent({
       if (displayUser.role === "admin") return true;
       if (item.path === "/payment-documentation") return Boolean(paymentDocumentationAccess.data?.allowed);
       if (!activeAccess.data?.role) return item.path === "/workspace" || item.path === "/profile";
-      return tenantMenuRouteAllowed(item.path, activeAccess.data.role, activeAccess.data.permissions);
+      return tenantMenuRouteAllowed(item.path, activeAccess.data.role, activeAccess.data.permissions, activeAccess.data.usesPermissionOverride);
     }),
   })).filter((group) => group.items.length > 0);
   const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
