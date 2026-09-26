@@ -80,6 +80,11 @@ export function can(role: PowerRole | undefined | null, capability: PowerCapabil
   return Boolean(role && capabilityRoles[capability].includes(role));
 }
 
+export function defaultCapabilitiesForRole(role: PowerRole | undefined | null): PowerCapability[] {
+  if (!role) return [];
+  return (Object.keys(capabilityRoles) as PowerCapability[]).filter((capability) => capabilityRoles[capability].includes(role));
+}
+
 export function rolesWith(capability: PowerCapability): PowerRole[] {
   return [...capabilityRoles[capability]];
 }
