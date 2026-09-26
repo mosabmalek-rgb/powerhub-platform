@@ -7,6 +7,7 @@ export type SyncMetadata = {
   dependsOn: string[];
   attempts: number;
   nextAttemptAt: number;
+  outcome?: SyncOutcome;
   lastError?: string;
 };
 
@@ -25,6 +26,7 @@ export function createSyncMetadata(item: QueuedOfflineWork, now = Date.now()): S
     dependsOn: [],
     attempts: 0,
     nextAttemptAt: now,
+    outcome: "pending",
   };
 }
 
@@ -49,7 +51,7 @@ export function planReadyOperations(
   now = Date.now(),
 ): SyncPlanItem[] {
   return items
-    .filter((item) => item.status === "pending")
+    .filter((item) => item.status === "pending" || (item.status === "failed" && metadataByOperationId.get(item.clientOperationId)?.outcome === "retryable" && shouldRetry(metadataByOperationId.get(item.clientOperationId)!)))
     .map((item) => ({ item, metadata: metadataByOperationId.get(item.clientOperationId) ?? createSyncMetadata(item, now) }))
     .filter(({ metadata }) => metadata.nextAttemptAt <= now)
     .filter(({ metadata }) => areDependenciesSatisfied(metadata.dependsOn, completedIds))
@@ -97,6 +99,7 @@ export function scheduleRetry(
       ...metadata,
       attempts,
       nextAttemptAt: Number.POSITIVE_INFINITY,
+      outcome: "retryable",
     };
   }
 
