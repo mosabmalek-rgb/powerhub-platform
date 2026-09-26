@@ -23,7 +23,7 @@ const mobileLoginSchema = z.object({
   deviceLabel: z.string().trim().min(1).max(160).optional(),
 });
 const refreshSchema = z.object({ refreshToken: z.string().min(32).max(256) });
-const subscriberQuerySchema = z.object({ branchId: z.coerce.number().int().positive(), limit: z.coerce.number().int().min(1).max(100).default(100) });
+const subscriberQuerySchema = z.object({ branchId: z.coerce.number().int().positive(), limit: z.coerce.number().int().min(1).max(100).default(100), cursor: z.coerce.number().int().min(0).default(0) });
 const readingSchema = z.object({
   clientOperationId: z.string().uuid(),
   branchId: z.number().int().positive(),
@@ -274,7 +274,7 @@ export function registerMobileApi(app: Express) {
     if (!context.scope.branchIds.includes(parsed.data.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
     const admin = supabaseAdmin();
     const { data: rows, error } = await admin.from("subscribers").select("id, subscriber_no, full_name, phone, address, site_id")
-      .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active").limit(parsed.data.limit);
+      .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active").order("id", { ascending: true }).range(parsed.data.cursor, parsed.data.cursor + parsed.data.limit - 1);
     if (error) return sendSupabaseError(res, error);
     try {
       const items = await Promise.all((rows ?? []).map(async (row) => {
@@ -283,7 +283,7 @@ export function registerMobileApi(app: Express) {
         if (lastError) throw new Error(lastError.message);
         return { id: toNumber(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone, address: row.address, branchId: toNumber(row.site_id), lastReading: last?.reading_value ?? null, lastReadingAt: last?.reading_at ?? null };
       }));
-      return res.json({ items, nextCursor: null });
+      return res.json({ items, nextCursor: (rows?.length ?? 0) === parsed.data.limit ? String(parsed.data.cursor + parsed.data.limit) : null });
     } catch (lastReadingError) {
       return sendSupabaseError(res, lastReadingError instanceof Error ? lastReadingError : null);
     }
