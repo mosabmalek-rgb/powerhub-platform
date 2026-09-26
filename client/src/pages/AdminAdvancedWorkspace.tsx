@@ -19,8 +19,10 @@ function Metric({ label, value, suffix = "", icon: Icon, tone = "gold" }: { labe
   return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><Icon className={`h-5 w-5 ${color}`} /><p className="mt-5 text-sm text-slate-400">{label}</p><p className="mt-2 text-3xl font-extrabold text-white">{format(value)}{suffix}</p></CardContent></Card>;
 }
 
+const DASHBOARD_REFRESH_MS = 30_000;
+
 export function AdvancedDashboard() {
-  const dashboard = trpc.admin.advancedDashboard.useQuery();
+  const dashboard = trpc.admin.advancedDashboard.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: true, staleTime: 10_000 });
   const [query, setQuery] = useState("");
   const search = trpc.admin.globalSearch.useQuery({ query }, { enabled: query.trim().length >= 2 });
   const data = dashboard.data;
@@ -38,7 +40,7 @@ export function AdvancedDashboard() {
 }
 
 export function OperationalMonitoringPanel({ onNavigate }: { onNavigate: (target: "notifications" | "security" | "reports" | "field_sync") => void }) {
-  const monitoring = trpc.admin.operationalMonitoring.useQuery();
+  const monitoring = trpc.admin.operationalMonitoring.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: true, staleTime: 10_000 });
   const data = monitoring.data;
   const iconByKey = { database: Database, messaging: Radio, sync: Wrench, security: ShieldAlert } as const;
   const tone = (state: string) => state === "healthy" ? "border-emerald-400/20 bg-emerald-400/[.055] text-emerald-200" : state === "warning" ? "border-amber-400/25 bg-amber-400/[.06] text-amber-100" : "border-rose-400/25 bg-rose-400/[.07] text-rose-100";
@@ -204,7 +206,7 @@ export function SubscriptionPackageCatalogPanel() {
 export function OwnerUsageQuickActionsPanel() {
   const utils = trpc.useUtils(); const owners = trpc.admin.listOwners.useQuery(); const branches = trpc.admin.listTenantBranchSettings.useQuery(); const sms = trpc.admin.listTweetSmsAccounts.useQuery(); const configuration = trpc.admin.platformConfiguration.useQuery();
   const [expanded, setExpanded] = useState<number | null>(null); const [message, setMessage] = useState("");
-  const upgrade = trpc.admin.quickUpgradeOwnerPlan.useMutation({ onSuccess: () => { void utils.admin.listOwners.invalidate(); toast.success("تمت ترقية باقة صاحب المولد وتسجيل العملية."); }, onError: (error) => toast.error(error.message) });
+  const upgrade = trpc.admin.quickUpgradeOwnerPlan.useMutation({ onSuccess: () => { void utils.admin.listOwners.invalidate(); void utils.admin.advancedDashboard.invalidate(); void utils.admin.operationalMonitoring.invalidate(); toast.success("تمت ترقية باقة صاحب المولد وتسجيل العملية."); }, onError: (error) => toast.error(error.message) });
   const alert = trpc.admin.sendOwnerUsageAlert.useMutation({ onSuccess: () => { setExpanded(null); setMessage(""); toast.success("تم إرسال تنبيه استخدام صاحب المولد."); }, onError: (error) => toast.error(error.message) });
   const saveLimit = trpc.admin.savePlatformSetting.useMutation({ onSuccess: () => { void utils.admin.platformConfiguration.invalidate(); void utils.admin.listOwners.invalidate(); toast.success("تم حفظ حد المشتركين الفردي."); }, onError: (error) => toast.error(error.message) });
   const setting = configuration.data?.settings.find((item) => item.settingKey === "owner_limit_overrides"); const currentValue = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value) ? setting.value as Record<string, unknown> : {}; const overrides = (currentValue.overrides && typeof currentValue.overrides === "object" && !Array.isArray(currentValue.overrides) ? currentValue.overrides : {}) as Record<string, Record<string, unknown>>;
