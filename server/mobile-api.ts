@@ -62,6 +62,7 @@ type MobileScope = {
   branchIds: number[];
   role: PowerRole;
   permissions: string[] | null;
+  subscriptionEndsAt: string;
 };
 
 const toNumber = (value: number | string | null | undefined) => Number(value);
@@ -141,8 +142,18 @@ async function resolveMobileScope(userId: number, tenantId: number): Promise<Mob
     ? (activeSites ?? []).map((site) => toNumber(site.id))
     : Array.from(new Set(permitted.flatMap((profile) => profile.site_id ? [toNumber(profile.site_id)] : [])));
   if (!branchIds.length) return null;
+  const { data: subscription, error: subscriptionError } = await admin.from("tenant_subscriptions")
+    .select("status, ends_at")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (subscriptionError) throw new Error(`Supabase subscription lookup failed: ${subscriptionError.message}`);
+  const subscriptionEndsAt = subscription?.ends_at as string | null;
+  const subscriptionActive = Boolean(subscription && ["trial", "active"].includes(String(subscription.status)) && (!subscriptionEndsAt || new Date(subscriptionEndsAt).getTime() > Date.now()));
+  if (!subscriptionActive || !subscriptionEndsAt) return null;
   const selected = permitted[0];
-  return { userId, userName: user.name as string | null, tenantId, branchIds, role: selected.role as PowerRole, permissions: (selected.permissions as string[] | null) ?? null };
+  return { userId, userName: user.name as string | null, tenantId, branchIds, role: selected.role as PowerRole, permissions: (selected.permissions as string[] | null) ?? null, subscriptionEndsAt };
 }
 
 async function authenticateMobile(req: Request): Promise<{ scope: MobileScope; sessionId: number } | null> {
@@ -192,7 +203,7 @@ async function createSession(scope: MobileScope, deviceLabel?: string) {
 }
 
 function mobileUserPayload(scope: MobileScope) {
-  return { id: scope.userId, name: scope.userName, role: scope.role, tenantId: scope.tenantId, branchIds: scope.branchIds };
+  return { id: scope.userId, name: scope.userName, role: scope.role, tenantId: scope.tenantId, branchIds: scope.branchIds, subscriptionEndsAt: scope.subscriptionEndsAt };
 }
 
 async function writeAudit(input: { tenantId: number; branchId: number; userId: number; role: string; entityType: string; entityId: string; action: string; afterData: Record<string, unknown> }) {
