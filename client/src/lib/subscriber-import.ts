@@ -23,7 +23,7 @@ function subscriptionType(value: string): "residential" | "commercial" | null {
 }
 
 function phoneKey(value: string) {
-  return value.replace(/[\\s\\-()]/g, "").trim();
+  return value.replace(/[\s\-()]/g, "").trim();
 }
 
 function subscriberReferenceKey(value: string | undefined) {
