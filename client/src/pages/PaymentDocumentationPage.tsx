@@ -1,5 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
-import OfflineWorkSyncPanel from "@/components/OfflineWorkSyncPanel";
+import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
