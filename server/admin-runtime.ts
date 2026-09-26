@@ -88,8 +88,8 @@ export const adminRouter = router({
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات الإضافات." });
     return (data ?? []).map((r: any) => ({ id:Number(r.id), tenantId:Number(r.tenant_id), siteId:r.site_id?Number(r.site_id):null, addonCode:r.addon_code, quantity:Number(r.quantity), status:r.status, note:r.note, createdAt:r.created_at, reviewedAt:r.reviewed_at, tenantName:r.tenant_name??"—", ownerName:r.owner_name??"—", ownerEmail:r.owner_email??null }));
   }),
-  reviewTenantAddonRequest: platformAdminProcedure.input(z.object({ id:z.number().int().positive(), decision:z.enum(["approved","rejected"]), note:z.string().trim().max(1000).optional() })).mutation(async ({ctx,input}) => {
-    const { data,error } = await supabaseAdmin().rpc("powerhub_admin_review_tenant_addon_request",{p_actor_user_id:ctx.user.id,p_request_id:input.id,p_decision:input.decision,p_note:input.note??null});
+  reviewTenantAddonRequest: platformAdminProcedure.input(z.object({ id:z.number().int().positive(), decision:z.enum(["approved","rejected"]), note:z.string().trim().max(1000).optional(), durationDays:z.number().int().min(1).max(3650).optional() })).mutation(async ({ctx,input}) => {
+    const { data,error } = await supabaseAdmin().rpc("powerhub_admin_review_tenant_addon_request",{p_actor_user_id:ctx.user.id,p_request_id:input.id,p_decision:input.decision,p_note:input.note??null,p_duration_days:input.durationDays ?? null});
     if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر مراجعة طلب الإضافة."});
     return {success:Boolean(data?.[0]?.success),status:data?.[0]?.status??input.decision};
   }),
