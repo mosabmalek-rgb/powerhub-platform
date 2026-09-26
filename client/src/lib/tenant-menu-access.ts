@@ -57,11 +57,12 @@ export function tenantMenuRouteAllowed(
   path: string,
   role: PowerRole | undefined | null,
   permissions?: readonly PowerCapability[] | null,
+  usesPermissionOverride = false,
 ): boolean {
   const rule = TENANT_MENU_RULES[path];
   if (!rule) return false;
 
-  if (rule.roles?.includes(role as PowerRole)) return true;
+  if (rule.roles?.includes(role as PowerRole) && !usesPermissionOverride) return true;
   if (rule.capability) return can(role, rule.capability, permissions);
   return Boolean(role);
 }
