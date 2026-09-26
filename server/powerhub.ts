@@ -11,7 +11,7 @@ import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, reso
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
 import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
-import { normalizeInternationalPhone } from "../shared/phone";
+import { normalizeInternationalPhone, phoneSearchVariants } from "../shared/phone";
 import { processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
 import { storageGet, storageGetSignedUrl, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
@@ -1650,11 +1650,18 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"], "collectPayments");
       await requirePaymentDocumentationFeature(access.tenantId);
       const q = input.query.trim();
+      const safeQuery = q.replace(/[%_]/g, "");
+      const phoneVariants = phoneSearchVariants(q);
+      const phoneClauses = Array.from(new Set([
+        `phone.ilike.%${safeQuery}%`,
+        ...phoneVariants.flatMap((value) => [`phone.ilike.%${value.replace(/[%_]/g, "")}%`]),
+      ])).join(",");
+      const searchClauses = [`full_name.ilike.%${safeQuery}%`, `subscriber_no.ilike.%${safeQuery}%`, phoneClauses].filter(Boolean).join(",");
       const admin = supabaseAdmin();
       const { data: subscribers, error: subscriberError } = await admin.from("subscribers")
         .select("id, full_name, subscriber_no, phone, whatsapp_number, service_status")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
-        .or(`full_name.ilike.%${q.replace(/[%_]/g, "")}%,subscriber_no.ilike.%${q.replace(/[%_]/g, "")}%`)
+        .or(searchClauses)
         .limit(20);
       if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر البحث عن المشترك." });
       if (!subscribers?.length) return [];
