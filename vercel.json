@@ -6,7 +6,7 @@
     }
   },
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm build",
+  "buildCommand": "pnpm check && pnpm test && pnpm build",
   "outputDirectory": "dist/public",
   "functions": {
     "api/[...path].js": {
