@@ -359,7 +359,7 @@ export async function listSupabaseGenerators(siteId: number) {
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المولدات من Supabase." });
   return (data ?? []).map((row) => ({
     id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), code: row.code, name: row.name, serialNumber: row.serial_number,
-    ratedCapacityKw: String(row.rated_capacity_kw), fuelType: row.fuel_type, fuelLevelLiters: String(row.fuel_level_liters), operatingHours: String(row.operating_hours),
+    ratedCapacityKw: row.rated_capacity_kw == null ? null : String(row.rated_capacity_kw), fuelType: row.fuel_type, fuelLevelLiters: String(row.fuel_level_liters), operatingHours: String(row.operating_hours),
     status: row.status, lastMaintenanceAt: row.last_maintenance_at ? new Date(row.last_maintenance_at) : null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
   }));
 }
