@@ -86,12 +86,14 @@ export const adminRouter = router({
   listTenantAddonRequests: platformAdminProcedure.query(async () => {
     const { data, error } = await supabaseAdmin().rpc("powerhub_admin_tenant_addon_requests");
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات الإضافات." });
-    return (data ?? []).map((r: any) => ({ id:Number(r.id), tenantId:Number(r.tenant_id), siteId:r.site_id?Number(r.site_id):null, addonCode:r.addon_code, quantity:Number(r.quantity), status:r.status, note:r.note, createdAt:r.created_at, reviewedAt:r.reviewed_at, tenantName:r.tenant_name??"—", ownerName:r.owner_name??"—", ownerEmail:r.owner_email??null }));
+    return (data ?? []).map((r: any) => ({ id:Number(r.id), tenantId:Number(r.tenant_id), siteId:r.site_id?Number(r.site_id):null, addonCode:r.addon_code, quantity:Number(r.quantity), status:r.status, note:r.note, createdAt:r.created_at, reviewedAt:r.reviewed_at, startsAt:r.starts_at??null, endsAt:r.ends_at??null, tenantName:r.tenant_name??"—", ownerName:r.owner_name??"—", ownerEmail:r.owner_email??null }));
   }),
   reviewTenantAddonRequest: platformAdminProcedure.input(z.object({ id:z.number().int().positive(), decision:z.enum(["approved","rejected"]), note:z.string().trim().max(1000).optional(), durationDays:z.number().int().min(1).max(3650).optional() })).mutation(async ({ctx,input}) => {
     const { data,error } = await supabaseAdmin().rpc("powerhub_admin_review_tenant_addon_request",{p_actor_user_id:ctx.user.id,p_request_id:input.id,p_decision:input.decision,p_note:input.note??null,p_duration_days:input.durationDays ?? null});
     if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر مراجعة طلب الإضافة."});
-    return {success:Boolean(data?.[0]?.success),status:data?.[0]?.status??input.decision};
+    const row = data?.[0];
+    if(!row?.success) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لم تُعتمد عملية طلب الإضافة بنجاح."});
+    return {success:true,status:row.status??input.decision,endsAt:row.ends_at??null};
   }),
   listSubscriptionUpgradeRequests: platformAdminProcedure.query(async (): Promise<AdminRecord[]>=>{ const {data,error}=await supabaseAdmin().rpc("powerhub_admin_subscription_upgrade_requests"); if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل طلبات ترقية الباقات من Supabase."}); return (data??[]).map((r: AdminRecord)=>({id:Number(r.id),tenantId:Number(r.tenant_id),currentPackageCode:r.current_package_code,requestedPackageCode:r.requested_package_code,status:r.status,note:r.note,createdAt:r.created_at,reviewedAt:r.reviewed_at,tenantName:r.tenant_name??"—",ownerName:r.owner_name??"—",ownerEmail:r.owner_email??null})); }),
   reviewSubscriptionUpgradeRequest: platformAdminProcedure.input(z.object({id:z.number().int().positive(),decision:z.enum(["approved","rejected"]),note:z.string().trim().max(1000).optional()})).mutation(async ({ctx,input})=>reviewSubscriptionUpgradeRequestSupabase({actorUserId:ctx.user.id,requestId:input.id,decision:input.decision,note:input.note})),
