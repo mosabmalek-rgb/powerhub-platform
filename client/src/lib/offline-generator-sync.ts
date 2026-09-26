@@ -14,7 +14,7 @@ export type OfflineGeneratorUpdateInput = {
   siteId: number;
   generatorId: number;
   name: string;
-  ratedCapacityKw: string;
+  ratedCapacityKw?: string;
   fuelLevelLiters: string;
   operatingHours: string;
   status: "active" | "maintenance" | "stopped" | "offline";
