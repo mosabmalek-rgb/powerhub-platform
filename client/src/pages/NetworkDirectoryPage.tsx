@@ -105,7 +105,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
       }
       return;
     }
-    if (editing) updateGenerator.mutate({ siteId: siteId!, id: editing.id, name: String(values.name), ratedCapacityKw: String(values.ratedCapacityKw), fuelLevelLiters: String(values.fuelLevelLiters), operatingHours: String(values.operatingHours), status: values.status as "active" | "maintenance" | "stopped" | "offline" });
+    if (editing) updateGenerator.mutate({ siteId: siteId!, id: editing.id, name: String(values.name), ratedCapacityKw: values.ratedCapacityKw ? String(values.ratedCapacityKw) : undefined, fuelLevelLiters: String(values.fuelLevelLiters), operatingHours: String(values.operatingHours), status: values.status as "active" | "maintenance" | "stopped" | "offline" });
     else createGenerator.mutate({ siteId: siteId!, code: String(values.code), name: String(values.name), serialNumber: values.serialNumber ? String(values.serialNumber) : undefined, ratedCapacityKw: String(values.ratedCapacityKw), fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other" });
   };
 
