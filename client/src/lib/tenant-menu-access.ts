@@ -44,7 +44,7 @@ const TENANT_MENU_RULES: Record<string, TenantMenuRule> = {
   "/human-resources": { roles: READ_ROLES.humanResources, capability: "manageTeam" },
   "/staff": { capability: "manageTeam" },
   "/attendance": { roles: READ_ROLES.attendance, capability: "managePayroll" },
-  "/payroll": { capability: "managePayroll" },
+  "/payroll": { roles: ["owner", "accountant"], capability: "managePayroll" },
   "/reports": { roles: READ_ROLES.reports },
   "/notifications": { capability: "manageMessaging" },
   "/mobile-sync": { roles: READ_ROLES.mobileSync },
