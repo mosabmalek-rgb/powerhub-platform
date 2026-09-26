@@ -10,7 +10,7 @@ import { listPaymentDocumentationApprovalSnapshots, savePaymentDocumentationAppr
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
 import { can } from "@shared/powerhub-rbac";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 function formatArabicDateTime(value: string | null | undefined) {
@@ -41,7 +41,7 @@ export default function PaymentDocumentationReviewPage() {
   useEffect(()=>{const on=()=>setIsOnline(true),off=()=>setIsOnline(false);window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);};},[]);
   useEffect(()=>{if(!isOnline)void loadOfflineRows();},[isOnline,loadOfflineRows]);
   useEffect(()=>{if(isOnline&&status==="pending"&&requests.data?.length)void savePaymentDocumentationApprovalSnapshots(siteId??0,requests.data.map((r:any)=>({id:Number(r.id),siteId:siteId??0,savedAt:Date.now(),invoiceNo:String(r.invoice_no_snapshot),subscriberName:String(r.subscriber_name_snapshot),subscriberNo:String(r.subscriber_no_snapshot),paymentAmount:Number(r.payment_amount),invoiceBalance:Number(r.invoice_balance_snapshot),paymentMethod:String(r.payment_method),destinationAccountId:Number(r.destination_account_id),submittedAt:String(r.submitted_at),status:"pending"})));},[isOnline,requests.data,siteId,status]);
-  const visibleRequests:any[] = isOnline ? (requests.data ?? []) : offlineRows;
+  const visibleRequests:any[] = isOnline ? (requests.data ?? []) : offlineRows.map(row => ({ id: row.id, invoice_no_snapshot: row.invoiceNo, subscriber_name_snapshot: row.subscriberName, subscriber_no_snapshot: row.subscriberNo, payment_amount: row.paymentAmount, invoice_balance_snapshot: row.invoiceBalance, payment_method: row.paymentMethod, destination_account_id: row.destinationAccountId, submitted_at: row.submittedAt, status: row.status, consumption_kwh_snapshot: null, price_per_kwh_snapshot: null, invoice_total_snapshot: null, sender_phone: null, reference_no: null, reviewed_at: null, rejection_reason: null }));
   const utils=trpc.useUtils();
   const approve=trpc.powerhub.paymentDocumentation.approve.useMutation({onSuccess:()=>{toast.success("تم اعتماد الدفع وربطه بالحركة المالية.");utils.powerhub.paymentDocumentation.list.invalidate();},onError:e=>toast.error(e.message)});
   const queueOfflineApprovals = async () => {
@@ -52,7 +52,7 @@ export default function PaymentDocumentationReviewPage() {
     let queued = 0;
     for (const row of rows) {
       if (existingRequestIds.has(row.id)) continue;
-      await enqueueOfflineWork({ userId: Number(access.data?.userId ?? 0), siteId, kind: "payment_documentation_approve", payload: { requestId: row.id, capturedAt: new Date().toISOString(), requestSnapshot: { invoiceNo: row.invoiceNo, subscriberName: row.subscriberName, subscriberNo: row.subscriberNo, paymentAmount: row.paymentAmount, invoiceBalance: row.invoiceBalance, paymentMethod: row.paymentMethod, destinationAccountId: row.destinationAccountId, submittedAt: row.submittedAt, status: "pending" } } });
+      await enqueueOfflineWork({ userId: Number(user.id), siteId, kind: "payment_documentation_approve", payload: { requestId: row.id, capturedAt: new Date().toISOString(), requestSnapshot: { invoiceNo: row.invoiceNo, subscriberName: row.subscriberName, subscriberNo: row.subscriberNo, paymentAmount: row.paymentAmount, invoiceBalance: row.invoiceBalance, paymentMethod: row.paymentMethod, destinationAccountId: row.destinationAccountId, submittedAt: row.submittedAt, status: "pending" } } });
       queued++;
     }
     setSelectedIds([]);
