@@ -71,7 +71,7 @@ export async function getSupabaseSite(siteId: number): Promise<SupabaseSite> {
   };
 }
 
-export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number }> {
+export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; usesPermissionOverride: boolean }> {
   const admin = supabaseAdmin();
   const [{ data: user, error: userError }, site] = await Promise.all([
     admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle(),
@@ -80,7 +80,7 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المستخدم من Supabase." });
   if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "ملف المستخدم غير متاح." });
   const platformAdmin = isActivePlatformAdmin({ role: user.role, platformRole: user.platform_role, accountStatus: user.account_status });
-  if (platformAdmin) return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId };
+  if (platformAdmin) return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, usesPermissionOverride: false };
 
   const { data: membership, error: membershipError } = await admin.from("tenant_members")
     .select("role").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle();
@@ -89,7 +89,7 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
 
   await requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true });
 
-  if (membership.role === "owner") return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId };
+  if (membership.role === "owner") return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, usesPermissionOverride: false };
 
   const { data: profiles, error: profileError } = await admin.from("staff_profiles")
     .select("role, permissions, custom_role_id, suspension_started_at, suspension_ends_at, site_id")
@@ -102,6 +102,7 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
   }
   // NULL means "inherit from custom role"; [] is an explicit deny-all override.
   const hasExplicitPermissions = profile.permissions !== null && profile.permissions !== undefined;
+  const usesPermissionOverride = hasExplicitPermissions || Boolean(profile.custom_role_id);
   let permissions = hasExplicitPermissions ? asPermissions(profile.permissions) : [];
   if (!hasExplicitPermissions && profile.custom_role_id) {
     const { data: customRole, error: customRoleError } = await admin.from("custom_permission_roles")
@@ -109,7 +110,7 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
     if (customRoleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
     permissions = asPermissions(customRole?.permissions);
   }
-  return { role: asPowerRole(profile.role), permissions, tenantId: site.tenantId };
+  return { role: asPowerRole(profile.role), permissions, usesPermissionOverride, tenantId: site.tenantId };
 }
 
 export async function requireSupabaseSiteRole(userId: number, siteId: number, allowed: PowerRole[], capability?: PowerCapability) {
