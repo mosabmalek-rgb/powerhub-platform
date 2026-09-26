@@ -1,3 +1,5 @@
+import { normalizeInternationalPhone } from "@shared/phone";
+
 export type SubscriberImportDraft = {
   sourceRow?: number;
   subscriberNo?: string;
@@ -23,7 +25,12 @@ function subscriptionType(value: string): "residential" | "commercial" | null {
 }
 
 function phoneKey(value: string) {
-  return value.replace(/[\s\-()]/g, "").trim();
+  const compact = value.replace(/[\s\-()]/g, "").trim();
+  try {
+    return normalizeInternationalPhone(compact);
+  } catch {
+    return compact;
+  }
 }
 
 function subscriberReferenceKey(value: string | undefined) {
