@@ -257,6 +257,8 @@ function UsersCenter({ userSummary, pending, onTenantStatus, onPlatformStatus, c
   const [tenant,setTenant]=useState("all");
   const [site,setSite]=useState("all");
   const [selected,setSelected]=useState<any>(null);
+  const [page,setPage]=useState(1);
+  const pageSize=50;
 
   const tenants = useMemo(() => Array.from(new Map(users.filter((r:any)=>r.tenantId).map((r:any)=>[String(r.tenantId),r.tenantName])).entries()), [users]);
   const sites = useMemo(() => Array.from(new Map(users.filter((r:any)=>r.siteId).map((r:any)=>[String(r.siteId),r.siteName])).entries()), [users]);
@@ -272,6 +274,11 @@ function UsersCenter({ userSummary, pending, onTenantStatus, onPlatformStatus, c
     const matchesSite=site==="all"||String(row.siteId)===site;
     return matchesSearch&&matchesRole&&matchesStatus&&matchesTenant&&matchesSite;
   }),[users,search,role,status,tenant,site]);
+
+  const pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));
+  const visibleUsers=filtered.slice((page-1)*pageSize,page*pageSize);
+
+  useEffect(()=>{setPage(1)},[search,role,status,tenant,site]);
 
   const statusLabel=(row:any)=>{
     if(row.status==="invited") return "مدعو";
@@ -314,7 +321,7 @@ function UsersCenter({ userSummary, pending, onTenantStatus, onPlatformStatus, c
         </div>
 
         <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1100px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="pb-3">المستخدم</th><th className="pb-3">النوع</th><th className="pb-3">صاحب المولد</th><th className="pb-3">الفرع / المحطة</th><th className="pb-3">الحالة</th><th className="pb-3">آخر دخول</th><th className="pb-3">الإجراءات</th></tr></thead>
-          <tbody>{filtered.map((row:any)=><tr className="border-t border-white/7" key={`${row.kind}-${row.userId??"invite"}-${row.tenantId??"platform"}-${row.id}`}>
+          <tbody>{visibleUsers.map((row:any)=><tr className="border-t border-white/7" key={`${row.kind}-${row.userId??"invite"}-${row.tenantId??"platform"}-${row.id}`}>
             <td className="py-3"><button className="text-right" onClick={()=>setSelected(row)}><p className="font-bold text-white hover:text-[#F5B800]">{row.name??"—"}</p><p className="text-xs text-slate-500" dir="ltr">{row.email??"—"}{row.phone ? ` · ${row.phone}` : ""}</p></button></td>
             <td className="py-3"><Badge className="bg-white/5 text-slate-300">{roleLabels[row.role]??row.role}</Badge></td>
             <td className="py-3 text-slate-400">{row.tenantName??"إدارة المنصة"}</td>
@@ -330,6 +337,14 @@ function UsersCenter({ userSummary, pending, onTenantStatus, onPlatformStatus, c
             </td>
           </tr>)}{!filtered.length&&<tr><td colSpan={7} className="py-10 text-center text-slate-500">لا توجد نتائج مطابقة للفلاتر.</td></tr>}</tbody>
         </table></div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4">
+          <p className="text-xs text-slate-500">عرض {(page-1)*pageSize+1}–{Math.min(page*pageSize,filtered.length)} من {filtered.length}</p>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>السابق</Button>
+            <span className="min-w-20 text-center text-xs text-slate-400">صفحة {page} / {pageCount}</span>
+            <Button size="sm" variant="outline" disabled={page>=pageCount} onClick={()=>setPage(p=>Math.min(pageCount,p+1))}>التالي</Button>
+          </div>
+        </div>
         <p className="mt-4 rounded-xl border border-white/8 bg-white/[.02] p-3 text-xs leading-6 text-slate-500">إدارة حالة الحساب المركزي لا تغيّر عضوية المستخدم داخل صاحب المولد. وإيقاف العضوية لا يعطل حساب المنصة. جميع تغييرات الحالة تمر عبر RPC محمي على مستوى قاعدة البيانات وتسجل في السجل المناسب.</p>
       </CardContent>
     </Card>
