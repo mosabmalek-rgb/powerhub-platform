@@ -8,6 +8,12 @@ export type AdminBillingCycle = "monthly" | "yearly";
 function rpcError(operation: string, error: { message?: string } | null) {
   if (!error) return;
   const message = error.message?.trim() || "تعذر تنفيذ العملية في Supabase.";
+  if (message.includes("LAST_ACTIVE_OWNER_PROTECTED")) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن إيقاف أو سحب وصول آخر مالك نشط للمساحة. عيّن مالكًا نشطًا بديلًا أولًا." });
+  }
+  if (message.includes("MEMBERSHIP_OR_SITE_NOT_FOUND")) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "عضوية المستخدم أو الفرع المرتبط بها غير موجود." });
+  }
   if (message.includes("FORBIDDEN") || message.includes("PLATFORM_ROLE")) {
     throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
   }
