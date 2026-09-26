@@ -1428,7 +1428,7 @@ export const powerhubRouter = router({
       return { id };
     }),
     update: protectedProcedure.input(z.object({
-      siteId: z.number().int().positive(), id: z.number().int().positive(), name: z.string().min(2).max(160), ratedCapacityKw: z.string().regex(/^\d+(\.\d{1,3})?$/),
+      siteId: z.number().int().positive(), id: z.number().int().positive(), name: z.string().min(2).max(160), ratedCapacityKw: z.string().trim().regex(/^\d+(\.\d{1,3})?$/).optional(),
       fuelLevelLiters: z.string().regex(/^\d+(\.\d{1,2})?$/), operatingHours: z.string().regex(/^\d+(\.\d{1,2})?$/), status: z.enum(["active", "maintenance", "stopped", "offline"]),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
@@ -1439,7 +1439,7 @@ export const powerhubRouter = router({
       if (existingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المولد من Supabase." });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "المولد غير موجود ضمن المحطة المحددة." });
       const { error: updateError } = await admin.from("generators").update({
-        name: input.name.trim(), rated_capacity_kw: input.ratedCapacityKw, fuel_level_liters: input.fuelLevelLiters,
+        name: input.name.trim(), rated_capacity_kw: input.ratedCapacityKw?.trim() || null, fuel_level_liters: input.fuelLevelLiters,
         operating_hours: input.operatingHours, status: input.status,
       }).eq("id", input.id).eq("site_id", input.siteId);
       if (updateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث المولد في Supabase." });
