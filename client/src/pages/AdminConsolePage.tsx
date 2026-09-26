@@ -99,7 +99,7 @@ export default function AdminConsolePage() {
     {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutate} creationAvailable={true} />}
     {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter userSummary={snapshot.data?.users} pending={setTenantMembershipStatus.isPending || setPlatformAccountStatus.isPending} onTenantStatus={setTenantMembershipStatus.mutate} onPlatformStatus={setPlatformAccountStatus.mutate} canManagePlatformAccounts={isPlatformOwner} /><OwnerLifecyclePanel /></>}
     {tab === "supportChat" && <SupportCenterPage embedded />}
-    {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} plans={smsPlans.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutate} />}
+    {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} plans={smsPlans.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutateAsync} />}
     {tab === "reports" && <><AdminReportsExports rows={reportRows} /><ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} /></>}
     {tab === "invoiceDelivery" && <InvoiceDeliverySettingsPanel />}
     {tab === "tweetSms" && <TweetSmsAccountsCenter accounts={tweetSmsAccounts.data ?? []} savePending={saveTweetSmsAccount.isPending} testPending={testTweetSmsAccount.isPending} onSave={saveTweetSmsAccount.mutate} onTest={testTweetSmsAccount.mutate} />}
@@ -157,7 +157,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
     setAddonDecisions(next);
   };
 
-  const submitRenewal = (row: any) => {
+  const submitRenewal = async (row: any) => {
     if (!renewingId || renewingId !== Number(row.subscription?.id)) return;
     if (!renewEndsAt) { toast.error("حدد تاريخ انتهاء التجديد."); return; }
     const addonItems = (activeAddonsQuery.data ?? []).filter((item:any) => Number(item.tenantId) === Number(row.tenant.id));
@@ -165,8 +165,12 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
       const selected = addonDecisions[Number(item.addonRequestId)] ?? { decision: "renew" as const, durationDays: Number(item.durationDays ?? 30) };
       return { addonRequestId: Number(item.addonRequestId), decision: selected.decision, ...(selected.decision === "renew" ? { durationDays: selected.durationDays } : {}) };
     });
-    onRenew({ subscriptionId: Number(row.subscription.id), endsAt: new Date(renewEndsAt + "T23:59:59"), addonDecisions: decisions });
-    setRenewingId(null);
+    try {
+      await onRenew({ subscriptionId: Number(row.subscription.id), endsAt: new Date(renewEndsAt + "T23:59:59"), addonDecisions: decisions });
+      setRenewingId(null);
+    } catch {
+      // The parent mutation already reports the failure; keep the form open so the admin can correct and retry.
+    }
   };
 
   return <section className="space-y-4">
@@ -182,8 +186,8 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
               <p className="mt-1 text-sm text-slate-500">{row.tenant.name} · الباقة: <strong className="text-slate-300">{packageCode}</strong> · الحالة: <strong className="text-slate-300">{effectiveStatus(row.subscription) === "expired" ? "منتهي" : effectiveStatus(row.subscription) === "archived" ? "مؤرشف" : effectiveStatus(row.subscription) ?? "—"}</strong> · انتهاء الاشتراك: {formatDate(row.subscription?.endsAt)}</p>
               <p className="mt-1 text-xs text-slate-600">{tenantAddons.length ? `لديه ${tenantAddons.length} إضافة نشطة` : "لا توجد إضافات نشطة مرتبطة بالاشتراك"}</p>
             </div>
-            <Button disabled={pending || activeAddonsQuery.isLoading} onClick={() => isRenewing ? submitRenewal(row) : openRenewal(row)} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">
-              <RefreshCw className="ml-2 h-4 w-4" />{isRenewing ? "تأكيد التجديد" : "تجديد الاشتراك"}
+            <Button disabled={pending || activeAddonsQuery.isLoading} onClick={() => { void (isRenewing ? submitRenewal(row) : openRenewal(row)); }} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">
+              <RefreshCw className="ml-2 h-4 w-4" />{isRenewing ? "تأكيد التجديد وحفظ" : "تجديد الاشتراك"}
             </Button>
           </div>
 
