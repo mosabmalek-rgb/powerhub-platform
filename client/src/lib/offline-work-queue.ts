@@ -4,7 +4,8 @@ export type OfflineWorkKind =
   | "generator_create"
   | "generator_update"
   | "invoice_issue"
-  | "payment_create";
+  | "payment_create"
+  | "payment_documentation_submit";
 
 export type OfflineWorkStatus = "pending" | "conflict" | "failed" | "applied";
 
@@ -32,7 +33,7 @@ export type GeneratorCreateDraft = {
 export type GeneratorUpdateDraft = {
   generatorId: number;
   name: string;
-  ratedCapacityKw: string;
+  ratedCapacityKw?: string;
   fuelLevelLiters: string;
   operatingHours: string;
   status: "active" | "maintenance" | "stopped" | "offline";
@@ -68,13 +69,32 @@ export type PaymentDraft = {
   receiptImageMime?: "image/jpeg" | "image/png" | "image/webp";
 };
 
+export type PaymentDocumentationInvoiceSnapshot = {
+  id: number; invoiceNo: string; billingPeriod?: string | null;
+  previousReading: number | null; currentReading: number | null;
+  consumptionKwh: number; pricePerKwh: number; consumptionValue: number | null;
+  invoiceTotal: number; invoiceBalance: number; status: string;
+};
+export type PaymentDocumentationSubscriberSnapshot = {
+  id: number; fullName: string; subscriberNo: string; phone: string; whatsappNumber?: string | null;
+  invoices: PaymentDocumentationInvoiceSnapshot[];
+};
+export type PaymentDocumentationAccountSnapshot = { id: number; name: string; accountType: string; phoneNumber?: string | null };
+export type PaymentDocumentationDraft = {
+  subscriberId: number; invoiceId: number; destinationAccountId: number; paymentAmount: number;
+  paymentMethod: PaymentDraft["paymentMethod"]; senderPhone?: string; referenceNo?: string;
+  receiptImageData?: string; receiptImageMime?: "image/jpeg" | "image/png" | "image/webp";
+  snapshot: { capturedAt: string; subscriber: PaymentDocumentationSubscriberSnapshot; invoice: PaymentDocumentationInvoiceSnapshot; account: PaymentDocumentationAccountSnapshot };
+};
+
 export type OfflineWorkPayload =
   | SubscriberCreateDraft
   | SubscriberUpdateDraft
   | GeneratorCreateDraft
   | GeneratorUpdateDraft
   | InvoiceIssueDraft
-  | PaymentDraft;
+  | PaymentDraft
+  | PaymentDocumentationDraft;
 
 export type QueuedOfflineWork = {
   id: string;
