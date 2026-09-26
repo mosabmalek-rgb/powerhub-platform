@@ -23,7 +23,7 @@ function subscriptionType(value: string): "residential" | "commercial" | null {
 }
 
 function phoneKey(value: string) {
-  return value.replace(/[\s\-()]/g, "").trim();
+  return value.replace(/[\\s\\-()]/g, "").trim();
 }
 
 function subscriberReferenceKey(value: string | undefined) {
@@ -48,8 +48,12 @@ export function prepareSubscriberImport(rows: SubscriberImportDraft[]): Prepared
     const subscriberNo = subscriberReferenceKey(row.subscriberNo);
     const normalizedSubscriptionType = subscriptionType(row.subscriptionType);
     if (name.length < 2) errors.push("أدخل الاسم الكامل (حرفان على الأقل).");
-    if (!/^\+?[0-9]{5,30}$/.test(phone)) errors.push("أدخل رقم جوال بأرقام واضحة مع رمز الدولة، مثل +970….");
-    if (whatsappNumber && !/^\+?[0-9]{5,30}$/.test(whatsappNumber)) errors.push("رقم واتساب اختياري، لكن يجب أن يكون رقماً صحيحاً عند إدخاله.");
+    if (!/^\+?[0-9]{5,30}$/.test(phone) && !/^00[0-9]{7,30}$/.test(phone) && !/^0(?:56|59)[0-9]{7}$/.test(phone)) {
+      errors.push("أدخل رقم الجوال بصيغة 059... أو +970... أو +972... أو 00970... أو 00972....");
+    }
+    if (whatsappNumber && !/^\+?[0-9]{5,30}$/.test(whatsappNumber) && !/^00[0-9]{7,30}$/.test(whatsappNumber) && !/^0(?:56|59)[0-9]{7}$/.test(whatsappNumber)) {
+      errors.push("رقم واتساب اختياري، لكن يجب أن يكون رقماً صحيحاً عند إدخاله.");
+    }
     if (!normalizedSubscriptionType) errors.push("نوع الاشتراك يجب أن يكون سكني أو تجاري.");
     if (phone && (phones.get(phone) ?? 0) > 1) errors.push("رقم الجوال مكرر داخل الملف.");
     if (subscriberNo && !/^[A-Z0-9][A-Z0-9_-]{1,79}$/.test(subscriberNo)) errors.push("الرقم المرجعي يجب أن يحتوي أحرفاً أو أرقاماً وشرطات فقط.");
