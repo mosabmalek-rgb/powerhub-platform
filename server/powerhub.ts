@@ -1224,7 +1224,10 @@ export const powerhubRouter = router({
       if (subscriptionResponse.error || countResponse.error || quotaResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
       const plan = subscriptionResponse.data?.package_code;
       if (!plan || !["basic", "advanced", "professional", "business", "vip"].includes(plan)) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر تحديد باقة مساحة صاحب المولد." });
-      const limit = Math.max(0, Number(quotaResponse.data));
+      const rawQuota = quotaResponse.data;
+      const rpcLimit = typeof rawQuota === "number" || typeof rawQuota === "string" ? Number(rawQuota) : NaN;
+      const defaultLimit = { basic: 150, advanced: 300, professional: 500, business: 750, vip: 900 }[plan as "basic" | "advanced" | "professional" | "business" | "vip"];
+      const limit = Number.isFinite(rpcLimit) ? Math.max(0, rpcLimit) : defaultLimit;
       const currentCount = countResponse.count ?? 0;
       return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
     }),

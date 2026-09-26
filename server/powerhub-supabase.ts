@@ -595,7 +595,9 @@ export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
   }
   if (!tenantResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-  const limit = Math.max(0, Number(quotaResult.data));
+  const rawRpcLimit = quotaResult.data;
+  const rpcLimit = typeof rawRpcLimit === "number" || typeof rawRpcLimit === "string" ? Number(rawRpcLimit) : NaN;
+  const limit = Number.isFinite(rpcLimit) ? Math.max(0, rpcLimit) : configuredSubscriberLimit(String(tenantResult.data.package_code), null);
   const currentCount = countResult.count ?? 0;
   return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenantResult.data.package_code as string };
 }

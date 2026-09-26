@@ -9,7 +9,7 @@ import { serveStatic } from "./static";
 import { receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "../messaging-webhooks";
 import { registerMobileApi } from "../mobile-api";
 import { isVercelRuntime } from "./runtime";
-import { registerBrandAssetProxy, registerStorageProxy } from "./storageProxy";
+import { registerBrandAssetProxy } from "./storageProxy";
 import { healthHandler, readinessHandler } from "./health";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -39,7 +39,6 @@ export function createPowerHubApp() {
   app.get("/api/health", healthHandler);
   app.get("/api/ready", readinessHandler);
   registerBrandAssetProxy(app);
-  registerStorageProxy(app);
   registerMobileApi(app);
   app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
   app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);

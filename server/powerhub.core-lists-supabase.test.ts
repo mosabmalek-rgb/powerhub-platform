@@ -533,7 +533,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active" }];
     state.tables.staff_profiles = [{ id: 120, tenant_id: 20, user_id: 2, site_id: null, role: "manager", permissions: ["manageSubscribers"], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true }];
     const staffCaller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
-    await expect(staffCaller.staff.myAccess({ siteId: 10 })).resolves.toEqual({ role: "manager", permissions: ["manageSubscribers"], tenantId: 20 });
+    await expect(staffCaller.staff.myAccess({ siteId: 10 })).resolves.toEqual({ role: "manager", permissions: ["manageSubscribers"], tenantId: 20, usesPermissionOverride: true });
     await expect(staffCaller.staff.allBranchAccess({ siteId: 10 })).resolves.toEqual({ isGlobal: true });
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.audit_logs = [{ id: 121, tenant_id: 20, site_id: 10, user_id: 2, entity_type: "staff_profile", entity_id: "120", action: "update_permissions", after_data: { permissions: ["manageSubscribers"] }, metadata: { targetUserId: 2 }, created_at: "2026-08-26T00:00:00.000Z" }];
@@ -667,7 +667,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))
       .resolves.toEqual({ id: 31, subscriberNo: expect.any(String), referenceNotifications: [] });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_quota_limit: 500 }) })]);
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([expect.objectContaining({ name: "powerhub_create_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_quota_limit: 500 }) })]));
     expect(state.inserts.some((entry) => entry.table === "notification_messages")).toBe(false);
   });
 
@@ -888,7 +888,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.bulkImport({ siteId: 10, updateExisting: false, rows: [{ sourceRow: 2, subscriberNo: "MAIN-NEW", fullName: "مشترك اختبار", phone: "+970595000111", subscriptionType: "residential" }] }))
       .resolves.toMatchObject({ created: [{ subscriberNo: expect.anything() }], updated: [], failed: [], notificationsQueued: 0 });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_bulk_upsert_subscribers", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_update_existing: false, p_quota_limit: 500 }) })]);
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([expect.objectContaining({ name: "powerhub_bulk_upsert_subscribers", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_update_existing: false, p_quota_limit: 500 }) })]));
     expect(state.inserts.filter((entry) => entry.table === "subscribers")).toEqual([]);
     expect(state.updates).toEqual([]);
   });

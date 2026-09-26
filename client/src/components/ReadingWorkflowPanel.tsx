@@ -13,7 +13,7 @@ const format = (value: number) => new Intl.NumberFormat("ar", { maximumFractionD
 
 type FormErrors = { subscriber?: string; reading?: string; date?: string };
 
-type Props = { userId: number; siteId: number; role?: string; anomalyAlertPercent?: number; subscribers: any[]; readings: any[]; isOnline?: boolean; onQueueReading?: (reading: Omit<QueuedReading, "id" | "createdAt" | "status">) => Promise<void>; onSaved: () => Promise<void> };
+type Props = { userId: number; siteId: number; role?: string; anomalyAlertPercent?: number; subscribers: any[]; readings: any[]; isOnline?: boolean; onQueueReading?: (reading: Omit<QueuedReading, "id" | "createdAt" | "status" | "userId" | "attempts" | "nextAttemptAt">) => Promise<void>; onSaved: () => Promise<void> };
 
 export default function ReadingWorkflowPanel({ siteId, role, anomalyAlertPercent = 50, subscribers, readings, isOnline = true, onQueueReading, onSaved }: Props) {
   const [subscriberId, setSubscriberId] = useState("");
@@ -105,7 +105,7 @@ export default function ReadingWorkflowPanel({ siteId, role, anomalyAlertPercent
       if (!isOnline) {
         if (shouldIssue) { setErrors({ reading: "لا يمكن إصدار فاتورة قبل مزامنة القراءة المحلية واعتمادها." }); return; }
         if (!onQueueReading) throw new Error("طابور العمل دون اتصال غير متاح على هذا الجهاز.");
-        await onQueueReading({ userId, siteId, subscriberId: Number(subscriberId), readingValue, readingAt: new Date(`${readingDate}T12:00:00`).toISOString(), captureMethod: imageData ? "photo" : "manual", imageData, imageMime: imageData ? selectedImage?.type as "image/jpeg" | "image/png" | "image/webp" : undefined, notes: notes || undefined, isReadingReset, overrideSameDay, fieldVerified, clientOperationId: crypto.randomUUID() });
+        await onQueueReading({ siteId, subscriberId: Number(subscriberId), readingValue, readingAt: new Date(`${readingDate}T12:00:00`).toISOString(), captureMethod: imageData ? "photo" : "manual", imageData, imageMime: imageData ? selectedImage?.type as "image/jpeg" | "image/png" | "image/webp" : undefined, notes: notes || undefined, isReadingReset, overrideSameDay, fieldVerified, clientOperationId: crypto.randomUUID() });
         const message = "تم حفظ القراءة محلياً وستتم مزامنتها عند عودة الاتصال.";
         setErrors({}); setSuccessMessage(message); toast.success(message);
         setReadingValue(""); setNotes(""); setFieldVerified(false); setIsReadingReset(false); setOverrideSameDay(false); setSelectedImage(null); if (imagePreview) URL.revokeObjectURL(imagePreview); setImagePreview(null);

@@ -108,7 +108,6 @@ export async function executeReadyOperations({
           outcome,
           nextAttemptAt: Number.POSITIVE_INFINITY,
           lastError: transportResult.message,
-          outcome,
         },
         outcome,
       });
