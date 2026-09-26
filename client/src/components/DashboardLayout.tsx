@@ -31,6 +31,7 @@ import {
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { can, type PowerCapability } from "@shared/powerhub-rbac";
+import { tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
 import { PowerHubLogo } from "./PowerHubLogo";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -186,10 +187,10 @@ function DashboardLayoutContent({
   const permissionAwareGroups = visibleMenuGroups.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
-      const capability = (item as { capability?: PowerCapability }).capability;
-      if (item.path === "/payment-documentation" && displayUser.role !== "admin") return Boolean(paymentDocumentationAccess.data?.allowed);
-      if (!capability || displayUser.role === "admin") return true;
-      return can(activeAccess.data?.role, capability, activeAccess.data?.permissions);
+      if (displayUser.role === "admin") return true;
+      if (item.path === "/payment-documentation") return Boolean(paymentDocumentationAccess.data?.allowed);
+      if (!activeAccess.data?.role) return item.path === "/workspace" || item.path === "/profile";
+      return tenantMenuRouteAllowed(item.path, activeAccess.data.role, activeAccess.data.permissions);
     }),
   })).filter((group) => group.items.length > 0);
   const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
