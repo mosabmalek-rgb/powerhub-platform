@@ -24,7 +24,7 @@ import { formatReportDate } from "@/lib/report-design-system";
 import { useLocation } from "wouter";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 
-type Tab = "overview" | "generators" | "ownerSubscription" | "users" | "supportChat" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "complaints" | "notifications" | "announcements" | "security" | "settings";
+type Tab = "overview" | "generators" | "ownerSubscription" | "subscriptionRequests" | "users" | "supportChat" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "complaints" | "notifications" | "announcements" | "security" | "settings";
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const formatNumber = (value: unknown) => new Intl.NumberFormat("ar").format(Number(value ?? 0));
 const formatDate = (value: Date | string | null | undefined) => value ? formatReportDate(value) : "—";
@@ -97,6 +97,7 @@ export default function AdminConsolePage() {
     {tab === "overview" && <><AdvancedDashboard /><OperationalMonitoringPanel onNavigate={(target) => target === "field_sync" ? window.location.assign("/mobile-sync") : setTab(target)} /><OwnerUsagePriorityFiltersPanel /><OwnerUsageQuickActionsPanel /><OwnerUsageReportPanel /></>}
     {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending || approvePendingGenerator.isPending} onStatus={setGeneratorStatus.mutate} onApprove={approvePendingGenerator.mutate} /><GeneratorOperationsInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
     {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutate} creationAvailable={true} />}
+    {tab === "subscriptionRequests" && <SubscriptionUpgradeRequestsPanel />}
     {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter userSummary={snapshot.data?.users} pending={setTenantMembershipStatus.isPending || setPlatformAccountStatus.isPending} onTenantStatus={setTenantMembershipStatus.mutate} onPlatformStatus={setPlatformAccountStatus.mutate} canManagePlatformAccounts={isPlatformOwner} /><OwnerLifecyclePanel /></>}
     {tab === "supportChat" && <SupportCenterPage embedded />}
     {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} plans={smsPlans.data ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutateAsync} />}
@@ -107,7 +108,7 @@ export default function AdminConsolePage() {
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
-    {tab === "settings" && <><PlatformControlPanel /><SubscriptionPackageCatalogPanel /><SubscriptionUpgradeRequestsPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
+    {tab === "settings" && <><PlatformControlPanel /><SubscriptionPackageCatalogPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
   </main></PlatformAdminLayout>;
 }
 
