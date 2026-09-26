@@ -1414,13 +1414,13 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), code: z.string().min(2).max(50), name: z.string().min(2).max(160),
-      serialNumber: z.string().max(100).optional(), ratedCapacityKw: z.string().regex(/^\d+(\.\d{1,3})?$/),
+      serialNumber: z.string().max(100).optional(), ratedCapacityKw: z.string().trim().regex(/^\d+(\.\d{1,3})?$/).optional(),
       fuelType: z.enum(["diesel", "gasoline", "gas", "other"]).default("diesel"),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "technician"], "manageGenerators");
       const { data, error } = await supabaseAdmin().from("generators").insert({
         tenant_id: access.tenantId, site_id: input.siteId, code: input.code.trim().toUpperCase(), name: input.name.trim(),
-        serial_number: input.serialNumber?.trim() || null, rated_capacity_kw: input.ratedCapacityKw, fuel_type: input.fuelType,
+        serial_number: input.serialNumber?.trim() || null, rated_capacity_kw: input.ratedCapacityKw?.trim() || null, fuel_type: input.fuelType,
       }).select("id").single();
       if (error || !data) throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "رمز أو اسم المولد مستخدم بالفعل." : "تعذر إنشاء المولد في Supabase." });
       const id = Number(data.id);
