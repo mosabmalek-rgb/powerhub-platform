@@ -11,7 +11,7 @@ import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", payment_documentation_submit: "توثيق دفع إلكتروني" } as const;
+const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع" } as const;
 const labelByStatus = { pending: "بانتظار المزامنة", failed: "فشل يحتاج مراجعة", conflict: "يتطلب مراجعة", applied: "تمت المزامنة" } as const;
 
 function getErrorCode(error: unknown) { return (error as { data?: { code?: string } } | null)?.data?.code; }
@@ -31,6 +31,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const issueInvoice = trpc.powerhub.invoices.createFromReading.useMutation();
   const createPayment = trpc.powerhub.payments.create.useMutation();
   const submitPaymentDocumentation = trpc.powerhub.paymentDocumentation.submit.useMutation();
+  const approvePaymentDocumentation = trpc.powerhub.paymentDocumentation.approve.useMutation();
 
   const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
 
@@ -85,6 +86,12 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: payload.paymentNo, payload: sanitizedPayload });
         return { outcome: "applied" };
       }
+      if (item.kind === "payment_documentation_approve") {
+        const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationApprovalDraft;
+        const result = await approvePaymentDocumentation.mutateAsync({ siteId: item.siteId, requestId: payload.requestId });
+        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: Number(result.paymentId), appliedLabel: `طلب #${payload.requestId} — حركة #${result.paymentId}` });
+        return { outcome: "applied" };
+      }
       const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;
       const result = await submitPaymentDocumentation.mutateAsync({
         siteId: item.siteId, subscriberId: payload.subscriberId, invoiceId: payload.invoiceId,
@@ -134,7 +141,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     finally { setSyncing(false); await load(); }
   };
 
-  const pending = items.filter((item) => item.status === "pending" || (item.status === "failed" && item.status !== "conflict"));
+  const pending = items.filter((item) => item.status === "pending" || (item.status === "failed"));
   const unresolved = items.filter((item) => item.status !== "applied");
   if (compact && !items.length) return null;
   return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><CloudOff className="h-4 w-4" />مركز مزامنة المسودات</div><p className="mt-1 text-xs leading-5 text-slate-400">تُحفظ المسودات محلياً أولاً. لا يصدر رقم فاتورة ولا يتغير سجل مالي قبل قبول الخادم للعملية؛ والتحصيل المعلق لا يملك إيصالاً رسمياً قبل قبول المزامنة.</p></div><div className="flex items-center gap-2"><Badge className={isOnline ? "bg-emerald-400/10 text-emerald-300" : "bg-amber-400/10 text-amber-200"}>{isOnline ? "متصل" : "دون اتصال"}</Badge><Button size="sm" disabled={!isOnline || !pending.length || syncing} onClick={() => void syncPending()} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]"><RefreshCw className={`ml-1.5 h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />مزامنة المعلقة ({pending.length})</Button></div></div>
