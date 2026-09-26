@@ -9,6 +9,7 @@ import { enqueueOfflineWork, listOfflineWork, type PaymentDocumentationApprovalD
 import { listPaymentDocumentationApprovalSnapshots, savePaymentDocumentationApprovalSnapshots, type OfflinePaymentDocumentationApprovalSnapshot } from "@/lib/offline-payment-documentation-approvals";
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
 import { can } from "@shared/powerhub-rbac";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -26,6 +27,7 @@ function formatArabicDateTime(value: string | null | undefined) {
 
 export default function PaymentDocumentationReviewPage() {
   const { branchId: siteId } = useBranchFilter();
+  const { user } = useAuth();
   const [status,setStatus]=useState<"pending"|"approved"|"rejected"|"all">("pending");
   const [rejectId,setRejectId]=useState<number|null>(null);
   const [reason,setReason]=useState("");
@@ -43,8 +45,8 @@ export default function PaymentDocumentationReviewPage() {
   const utils=trpc.useUtils();
   const approve=trpc.powerhub.paymentDocumentation.approve.useMutation({onSuccess:()=>{toast.success("تم اعتماد الدفع وربطه بالحركة المالية.");utils.powerhub.paymentDocumentation.list.invalidate();},onError:e=>toast.error(e.message)});
   const queueOfflineApprovals = async () => {
-    if (isOnline || !siteId || !selectedIds.length) return;
-    const existing = await listOfflineWork({ userId: Number(access.data?.userId ?? 0), siteId });
+    if (isOnline || !siteId || !user?.id || !selectedIds.length) return;
+    const existing = await listOfflineWork({ userId: Number(user?.id ?? 0), siteId });
     const existingRequestIds = new Set(existing.filter(item => item.kind === "payment_documentation_approve").map(item => (item.payload as PaymentDocumentationApprovalDraft).requestId));
     const rows = offlineRows.filter(row => selectedIds.includes(row.id));
     let queued = 0;
