@@ -12,7 +12,8 @@ export function SubscriberQuotaDashboardCard({ quota, canRequestUpgrade, request
   const reached = quota.remaining === 0;
   const warning = percentage >= 80;
   const hasPendingRequest = upgradeRequest?.status === "pending" || upgradeRequest?.status === "reviewing";
-  const subscriberAddonBundles = addonRequests.filter((r) => r.addonCode === "subscribers50" && ["approved", "pending", "reviewing"].includes(r.status));
+  const now = Date.now();
+  const subscriberAddonBundles = addonRequests.filter((r) => r.addonCode === "subscribers50" && (r.status === "pending" || r.status === "reviewing" || (r.status === "approved" && (!r.startsAt || new Date(r.startsAt).getTime() <= now) && (!r.endsAt || new Date(r.endsAt).getTime() > now))));
   const subscriberAddonBundlesTotal = subscriberAddonBundles.reduce((sum, r) => sum + r.quantity, 0);
   const canRequestSubscriberAddon = canRequestUpgrade && subscriberAddonBundlesTotal < 2 && !addonRequests.some((r) => r.addonCode === "subscribers50" && (r.status === "pending" || r.status === "reviewing"));
   const availablePlans = ({ basic: ["advanced"], advanced: ["professional"], professional: ["business"], business: ["vip"], vip: [] } as const)[quota.plan as "basic" | "advanced" | "professional" | "business" | "vip"] ?? [];
