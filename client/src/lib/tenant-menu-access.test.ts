@@ -22,6 +22,11 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/staff", "viewer", ["manageTeam"])).toBe(true);
   });
 
+  it("honors explicit permission overrides even when the base role normally has read access", () => {
+    expect(tenantMenuRouteAllowed("/subscribers", "collector", [], true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/subscribers", "collector", ["manageSubscribers"], true)).toBe(true);
+  });
+
   it("does not expose unknown routes", () => {
     expect(tenantMenuRouteAllowed("/does-not-exist", "owner")).toBe(false);
   });
