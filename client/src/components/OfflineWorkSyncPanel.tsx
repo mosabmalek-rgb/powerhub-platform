@@ -39,7 +39,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     const metadataByOperationId = new Map<string, SyncMetadata>();
     for (const item of pendingItems) {
       const existing = stored.find((record) => record.operationId === item.clientOperationId);
-      const metadata = existing ? { operationId: existing.operationId, dependsOn: existing.dependsOn, attempts: existing.attempts, nextAttemptAt: existing.nextAttemptAt, ...(existing.lastError ? { lastError: existing.lastError } : {}) } : createSyncMetadata(item);
+      const metadata = existing ? { operationId: existing.operationId, dependsOn: existing.dependsOn, attempts: existing.attempts, nextAttemptAt: existing.nextAttemptAt, ...(existing.outcome ? { outcome: existing.outcome } : {}), ...(existing.lastError ? { lastError: existing.lastError } : {}) } : createSyncMetadata(item);
       metadataByOperationId.set(item.clientOperationId, metadata);
       if (!existing) await upsertSyncMetadata({ ...metadata, userId, siteId: item.siteId, kind: item.kind, outcome: "pending", updatedAt: Date.now() });
     }
