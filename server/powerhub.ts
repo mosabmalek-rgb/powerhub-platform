@@ -340,9 +340,15 @@ async function sendPendingInvoiceSmsRuntime(
     return { requested: 0, submitted: 0, failed: 0, skipped: 0, results: [] as Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; error?: string }> };
   }
 
+  const { data: notificationRows, error: notificationLookupError } = await admin
+    .from("notification_messages")
+    .select("id, subscriber_id")
+    .eq("tenant_id", scope.tenantId)
+    .in("id", notificationIds);
+  if (notificationLookupError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر ربط رسائل SMS بالمشتركين." });
+
   const subscriberIds = Array.from(new Set(
-    (await admin.from("notification_messages").select("id, subscriber_id").eq("tenant_id", scope.tenantId).in("id", notificationIds)).data
-      ?.map((row) => Number(row.subscriber_id)).filter(Number.isInteger) ?? []
+    (notificationRows ?? []).map((row) => Number(row.subscriber_id)).filter(Number.isInteger)
   ));
   const { data: subscriberRows, error: subscribersError } = subscriberIds.length
     ? await admin.from("subscribers").select("id, phone").eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).in("id", subscriberIds)
@@ -350,11 +356,11 @@ async function sendPendingInvoiceSmsRuntime(
   if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق وأرقام رسائل SMS." });
 
   const subscriberById = new Map((subscriberRows ?? []).map((row) => [Number(row.id), row]));
+  const subscriberIdByNotificationId = new Map((notificationRows ?? []).map((row) => [Number(row.id), Number(row.subscriber_id)]));
   const eligibleIds: number[] = [];
   const skippedIds: number[] = [];
   for (const notificationId of notificationIds) {
-    const row = (await admin.from("notification_messages").select("id, subscriber_id").eq("tenant_id", scope.tenantId).eq("id", notificationId).maybeSingle()).data;
-    const subscriber = row ? subscriberById.get(Number(row.subscriber_id)) : undefined;
+    const subscriber = subscriberById.get(subscriberIdByNotificationId.get(notificationId) ?? -1);
     if (!subscriber) { skippedIds.push(notificationId); continue; }
     try {
       normalizeInternationalPhone(String(subscriber.phone ?? ""));
