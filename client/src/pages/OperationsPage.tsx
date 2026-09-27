@@ -132,11 +132,15 @@ export default function OperationsPage({ section }: { section: Section }) {
   const canViewAudit = can(powerRole, "viewAudit");
   const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
   const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
-  const readingsQuery = trpc.powerhub.readings.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
+  const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery });
   const tariffsQuery = trpc.powerhub.tariffs.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
-  const invoicesQuery = trpc.powerhub.invoices.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
-  const paymentsQuery = trpc.powerhub.payments.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
-  const expensesQuery = trpc.powerhub.expenses.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
+  const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery });
+  const paymentsQuery = trpc.powerhub.payments.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery });
+  const expensesQuery = trpc.powerhub.expenses.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery });
+  const readings = readingsQuery.data?.items ?? [];
+  const invoices = invoicesQuery.data?.items ?? [];
+  const payments = paymentsQuery.data?.items ?? [];
+  const expenses = expensesQuery.data?.items ?? [];
   const notificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
   const auditQuery = trpc.powerhub.audit.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(canQuery && canViewAudit) });
   const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
@@ -144,8 +148,8 @@ export default function OperationsPage({ section }: { section: Section }) {
   const refreshOperational = async () => {
     await Promise.all([
       utils.powerhub.subscribers.list.invalidate(), utils.powerhub.generators.list.invalidate(),
-      utils.powerhub.readings.list.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(),
-      utils.powerhub.expenses.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate(),
+      utils.powerhub.readings.page.invalidate(), utils.powerhub.invoices.page.invalidate(), utils.powerhub.payments.page.invalidate(),
+      utils.powerhub.expenses.page.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate(),
     ]);
   };
 
@@ -193,7 +197,7 @@ export default function OperationsPage({ section }: { section: Section }) {
     }
     addPayment.mutate(completePayload);
   };
-  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersModule siteId={siteId!} data={subscribersQuery.data ?? []} pending={addSubscriber.isPending} onSubmit={addSubscriber.mutate} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readingsQuery.data ?? []} readingPending={addReading.isPending} onAddReading={addReading.mutate} />}{section === "invoices" && <><PaymentMethodCollectionSummary payments={paymentsQuery.data ?? []} /><InvoicesModule siteId={siteId!} tariffs={tariffsQuery.data ?? []} invoices={invoicesQuery.data ?? []} pending={addTariff.isPending} onAddTariff={addTariff.mutate} onCreateLink={createLink.mutate} /></>}{section === "collections" && <>{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoicesQuery.data ?? []} payments={paymentsQuery.data ?? []} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} expenses={expensesQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutate} /> : <ExpensesReadOnlyModule expenses={expensesQuery.data ?? []} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
+  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersModule siteId={siteId!} data={subscribersQuery.data ?? []} pending={addSubscriber.isPending} onSubmit={addSubscriber.mutate} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutate} />}{section === "invoices" && <><PaymentMethodCollectionSummary payments={payments} /><InvoicesModule siteId={siteId!} tariffs={tariffsQuery.data ?? []} invoices={invoices} pending={addTariff.isPending} onAddTariff={addTariff.mutate} onCreateLink={createLink.mutate} /></>}{section === "collections" && <>{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} expenses={expenses} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutate} /> : <ExpensesReadOnlyModule expenses={expenses} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }
 
 function SubscribersModule({ siteId, data, pending, onSubmit }: any) {

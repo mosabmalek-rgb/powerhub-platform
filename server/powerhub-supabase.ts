@@ -421,6 +421,33 @@ export async function listSupabaseReadings(siteId: number) {
   });
 }
 
+export async function listSupabaseReadingPage(siteId: number, input: { limit?: number; cursor?: string }): Promise<SupabaseHistoryPage<Awaited<ReturnType<typeof listSupabaseReadings>>[number]>> {
+  const limit = historyLimit(input.limit);
+  const cursor = decodeHistoryCursor(input.cursor);
+  let query = supabaseAdmin().from("meter_readings")
+    .select("id, tenant_id, subscriber_id, client_operation_id, reading_at, reading_value, previous_reading_value, consumption_kwh, capture_method, image_key, image_hash, status, entered_by_user_id, reviewed_by_user_id, reviewed_at, notes, version_no, created_at, updated_at, subscribers!inner(id, tenant_id, site_id, subscriber_no, full_name, phone, whatsapp_number, address, subscription_type, service_status, created_at, updated_at)")
+    .eq("subscribers.site_id", siteId);
+  if (cursor) query = query.or(`reading_at.lt.${cursor.at},and(reading_at.eq.${cursor.at},id.lt.${cursor.id})`);
+  const { data, error } = await query.order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة القراءات من Supabase." });
+  const rows = data ?? [];
+  const hasNext = rows.length > limit;
+  const items = rows.slice(0, limit).map((row: any) => ({
+    reading: {
+      id: Number(row.id), tenantId: Number(row.tenant_id), subscriberId: Number(row.subscriber_id), clientOperationId: row.client_operation_id,
+      readingAt: new Date(row.reading_at), readingValue: String(row.reading_value), previousReadingValue: row.previous_reading_value === null ? null : String(row.previous_reading_value),
+      consumptionKwh: row.consumption_kwh === null ? null : String(row.consumption_kwh), captureMethod: row.capture_method, imageKey: row.image_key, imageHash: row.image_hash,
+      status: row.status, enteredByUserId: row.entered_by_user_id === null ? null : Number(row.entered_by_user_id), reviewedByUserId: row.reviewed_by_user_id === null ? null : Number(row.reviewed_by_user_id),
+      reviewedAt: row.reviewed_at ? new Date(row.reviewed_at) : null, notes: row.notes, versionNo: row.version_no, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+    },
+    subscriber: { id: Number(row.subscribers.id), tenantId: Number(row.subscribers.tenant_id), siteId: Number(row.subscribers.site_id), subscriberNo: row.subscribers.subscriber_no, fullName: row.subscribers.full_name,
+      phone: row.subscribers.phone, whatsappNumber: row.subscribers.whatsapp_number, address: row.subscribers.address, subscriptionType: row.subscribers.subscription_type, serviceStatus: row.subscribers.service_status,
+      createdAt: new Date(row.subscribers.created_at), updatedAt: new Date(row.subscribers.updated_at) },
+  }));
+  const last = items.at(-1);
+  return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: last.reading.readingAt.toISOString(), id: last.reading.id }) : null };
+}
+
 function mapSupabaseInvoice(row: any) {
   return {
     id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id),
@@ -491,6 +518,36 @@ export async function listSupabasePayments(siteId: number) {
   }))).flat();
 }
 
+export async function listSupabasePaymentPage(siteId: number, input: { limit?: number; cursor?: string }): Promise<SupabaseHistoryPage<any>> {
+  const limit = historyLimit(input.limit);
+  const cursor = decodeHistoryCursor(input.cursor);
+  let query = supabaseAdmin().from("payments")
+    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, status, collected_by_user_id, collector_session_id, paid_at, created_at")
+    .eq("site_id", siteId);
+  if (cursor) query = query.or(`paid_at.lt.${cursor.at},and(paid_at.eq.${cursor.at},id.lt.${cursor.id})`);
+  const { data: paymentRows, error } = await query.order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة الدفعات من Supabase." });
+  const rows = paymentRows ?? [];
+  const pageRows = rows.slice(0, limit);
+  const subscriberIds = Array.from(new Set(pageRows.map((row: any) => Number(row.subscriber_id))));
+  const invoiceIds = Array.from(new Set(pageRows.flatMap((row: any) => row.invoice_id === null ? [] : [Number(row.invoice_id)])));
+  const admin = supabaseAdmin();
+  const [{ data: subscribers, error: subscriberError }, { data: invoices, error: invoiceError }] = await Promise.all([
+    subscriberIds.length ? admin.from("subscribers").select("id, tenant_id, site_id, subscriber_no, full_name, phone, whatsapp_number, address, subscription_type, service_status, created_at, updated_at").in("id", subscriberIds) : Promise.resolve({ data: [], error: null }),
+    invoiceIds.length ? admin.from("invoices").select("id, invoice_no").in("id", invoiceIds) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (subscriberError || invoiceError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مراجع صفحة الدفعات من Supabase." });
+  const subscriberById = new Map((subscribers ?? []).map((row: any) => [Number(row.id), { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone, whatsappNumber: row.whatsapp_number, address: row.address, subscriptionType: row.subscription_type, serviceStatus: row.service_status, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) }]));
+  const invoiceNoById = new Map((invoices ?? []).map((row: any) => [Number(row.id), row.invoice_no]));
+  const items = await Promise.all(pageRows.map(async (row: any) => {
+    const subscriber = subscriberById.get(Number(row.subscriber_id));
+    if (!subscriber) return null;
+    return { payment: { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method, transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type, referenceNo: row.reference_no, receiptImageKey: row.receipt_image_key, receiptImageHash: row.receipt_image_hash, status: row.status, collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id), paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: row.receipt_image_key ? (await storageGet(row.receipt_image_key)).url : null }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null };
+  })).then((values) => values.filter(Boolean));
+  const last = pageRows.at(-1) as any;
+  return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: new Date(last.paid_at).toISOString(), id: Number(last.id) }) : null };
+}
+
 export async function listSupabaseExpenses(siteId: number) {
   const { data, error } = await supabaseAdmin().from("expenses")
     .select("id, tenant_id, site_id, generator_id, category, description, amount, occurred_at, reference_no, created_by_user_id, created_at")
@@ -501,6 +558,19 @@ export async function listSupabaseExpenses(siteId: number) {
     category: row.category, description: row.description, amount: String(row.amount), occurredAt: new Date(row.occurred_at), referenceNo: row.reference_no,
     createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at),
   }));
+}
+
+export async function listSupabaseExpensePage(siteId: number, input: { limit?: number; cursor?: string }): Promise<SupabaseHistoryPage<any>> {
+  const limit = historyLimit(input.limit);
+  const cursor = decodeHistoryCursor(input.cursor);
+  let query = supabaseAdmin().from("expenses").select("id, tenant_id, site_id, generator_id, category, description, amount, occurred_at, reference_no, created_by_user_id, created_at").eq("site_id", siteId);
+  if (cursor) query = query.or(`occurred_at.lt.${cursor.at},and(occurred_at.eq.${cursor.at},id.lt.${cursor.id})`);
+  const { data, error } = await query.order("occurred_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة المصروفات من Supabase." });
+  const rows = data ?? [];
+  const items = rows.slice(0, limit).map((row: any) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), generatorId: row.generator_id === null ? null : Number(row.generator_id), category: row.category, description: row.description, amount: String(row.amount), occurredAt: new Date(row.occurred_at), referenceNo: row.reference_no, createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at) }));
+  const last = items.at(-1);
+  return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: last.occurredAt.toISOString(), id: last.id }) : null };
 }
 
 export async function getSupabaseFinancialOverview(site: SupabaseSite) {
