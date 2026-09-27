@@ -27,25 +27,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.34.5
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npx --yes pnpm@10.34.5 install --frozen-lockfile
 
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs
 
       - name: TypeScript check
-        run: pnpm check > tsc-errors.log 2>&1
+        run: npx --yes pnpm@10.34.5 check > tsc-errors.log 2>&1
 
       - name: Upload TypeScript diagnostics
         if: always()
@@ -56,7 +50,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Run tests
-        run: pnpm test > test-errors.log 2>&1
+        run: npx --yes pnpm@10.34.5 test > test-errors.log 2>&1
 
       - name: Upload test diagnostics
         if: always()
@@ -67,4 +61,4 @@ jobs:
           if-no-files-found: warn
 
       - name: Build production artifacts
-        run: pnpm build
+        run: npx --yes pnpm@10.34.5 build
