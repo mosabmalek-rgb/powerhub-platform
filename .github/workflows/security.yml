@@ -55,18 +55,12 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.34.5 --activate
-          pnpm --version
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npx --yes pnpm@10.34.5 install --frozen-lockfile
 
       - name: Audit critical vulnerabilities (non-blocking)
         continue-on-error: true
-        run: pnpm audit --audit-level=critical
+        run: npx --yes pnpm@10.34.5 audit --audit-level=critical
 
   dependency-review:
     name: Dependency review
