@@ -33,13 +33,13 @@ jobs:
           node-version: 24
 
       - name: Install dependencies
-        run: npx --yes pnpm@10.34.5 install --frozen-lockfile
+        run: pnpm --version && pnpm install --frozen-lockfile
 
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs
 
       - name: TypeScript check
-        run: npx --yes pnpm@10.34.5 check > tsc-errors.log 2>&1
+        run: pnpm check > tsc-errors.log 2>&1
 
       - name: Upload TypeScript diagnostics
         if: always()
@@ -50,7 +50,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Run tests
-        run: npx --yes pnpm@10.34.5 test > test-errors.log 2>&1
+        run: pnpm test > test-errors.log 2>&1
 
       - name: Upload test diagnostics
         if: always()
@@ -61,4 +61,4 @@ jobs:
           if-no-files-found: warn
 
       - name: Build production artifacts
-        run: npx --yes pnpm@10.34.5 build
+        run: pnpm build

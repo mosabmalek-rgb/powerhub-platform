@@ -56,11 +56,11 @@ jobs:
           node-version: 24
 
       - name: Install dependencies
-        run: npx --yes pnpm@10.34.5 install --frozen-lockfile
+        run: pnpm --version && pnpm install --frozen-lockfile
 
       - name: Audit critical vulnerabilities (non-blocking)
         continue-on-error: true
-        run: npx --yes pnpm@10.34.5 audit --audit-level=critical
+        run: pnpm audit --audit-level=critical
 
   dependency-review:
     name: Dependency review

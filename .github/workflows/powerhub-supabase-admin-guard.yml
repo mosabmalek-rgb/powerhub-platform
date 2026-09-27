@@ -32,12 +32,12 @@ jobs:
           node-version: 24
 
       - name: Install dependencies
-        run: npx --yes pnpm@10.34.5 install --frozen-lockfile
+        run: pnpm --version && pnpm install --frozen-lockfile
 
       - name: Run Supabase migration guard tests (non-blocking)
         continue-on-error: true
         run: >-
-          npx --yes pnpm@10.34.5 exec vitest run
+          pnpm exec vitest run
           server/admin.legacy-write-guards.test.ts
           server/admin.tenant-branch-settings-supabase.test.ts
           server/powerhub-mobile-approve-runtime.test.ts
