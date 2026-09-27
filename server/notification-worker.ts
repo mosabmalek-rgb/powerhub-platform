@@ -141,6 +141,9 @@ export async function processNotificationQueueForTenant(tenantId: number, actorU
 export async function processAutomaticInvoiceNotifications(now = new Date()) {
   const admin = supabaseAdmin();
 
+  const { error: reclaimError } = await admin.rpc("powerhub_reclaim_stale_sms_notifications", { p_limit: 200 });
+  if (reclaimError) throw new Error("تعذر استرداد رسائل SMS العالقة قبل بدء الدورة.");
+
   // Business rule: the only automatic SMS is invoice_issued.
   // The cron is an internal dispatcher only; tenant-configured cycles are enforced by scheduled_at.
   const { data: messages, error: messagesError } = await admin
@@ -180,16 +183,15 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
     byTenant.set(tenantId, ids);
   }
 
-  const results: Array<{ tenantId: number; scanned: number; submitted: number; failed: number; skipped: number }> = [];
-  for (const [tenantId, ids] of byTenant) {
+  const results = await Promise.all(Array.from(byTenant, async ([tenantId, ids]) => {
     const result = await processNotificationQueueForTenant(tenantId, Number(actor.id), ids);
-    results.push({
+    const summary = {
       tenantId,
       scanned: result.requested,
       submitted: result.submitted,
       failed: result.failed,
       skipped: result.skipped,
-    });
+    };
 
     // Keep the existing operational audit trail, but explicitly identify this
     // as internal queue processing rather than a tenant-configured schedule.
@@ -215,7 +217,8 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
         finished_at: new Date().toISOString(),
       });
     }
-  }
+    return summary;
+  }));
 
   return {
     processedConfigurations: results.length,
