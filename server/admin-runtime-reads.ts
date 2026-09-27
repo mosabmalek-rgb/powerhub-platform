@@ -244,15 +244,16 @@ export const adminRouterWithSupabaseReadContracts = router({
   }),
   listTenantBranchSettings: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
-    const tenantsResult = await admin.from("tenants").select("id,name,package_code").order("name", { ascending: true });
+    const [tenantsResult, subscriptionsResult] = await Promise.all([admin.from("tenants").select("id,name").order("name", { ascending: true }), admin.from("tenant_subscriptions").select("tenant_id,package_code")]);
     const ownersResult = await admin.from("tenant_owner_profiles").select("tenant_id,full_name");
     const settingsResult = await admin.from("tenant_branch_settings").select("tenant_id,is_enabled_override,max_branches_override,disabled_behavior");
     const sitesResult = await admin.from("sites").select("id,tenant_id,status").eq("status", "archived");
-    if (tenantsResult.error || ownersResult.error || settingsResult.error || sitesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات الفروع من Supabase." });
+    if (tenantsResult.error || subscriptionsResult.error || ownersResult.error || settingsResult.error || sitesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات الفروع من Supabase." });
     const owners = new Map((ownersResult.data ?? []).map((row) => [Number(row.tenant_id), row.full_name]));
+    const subscriptions = new Map((subscriptionsResult.data ?? []).map((row) => [Number(row.tenant_id), row.package_code]));
     const settings = new Map((settingsResult.data ?? []).map((row) => [Number(row.tenant_id), row]));
     const activeCounts = new Map<number, number>(); for (const site of sitesResult.data ?? []) activeCounts.set(Number(site.tenant_id), (activeCounts.get(Number(site.tenant_id)) ?? 0) + 1);
-    return (tenantsResult.data ?? []).map((tenant) => { const setting = settings.get(Number(tenant.id)); return { tenantId: Number(tenant.id), tenantName: tenant.name, ownerName: owners.get(Number(tenant.id)) ?? "—", packageCode: tenant.package_code, plan: tenant.package_code, isEnabledOverride: setting?.is_enabled_override ?? null, maxBranchesOverride: setting?.max_branches_override ?? null, disabledBehavior: setting?.disabled_behavior ?? null, currentBranchCount: activeCounts.get(Number(tenant.id)) ?? 0 }; });
+    return (tenantsResult.data ?? []).map((tenant) => { const setting = settings.get(Number(tenant.id)); return { tenantId: Number(tenant.id), tenantName: tenant.name, ownerName: owners.get(Number(tenant.id)) ?? "—", packageCode: subscriptions.get(Number(tenant.id)) ?? null, plan: subscriptions.get(Number(tenant.id)) ?? null, isEnabledOverride: setting?.is_enabled_override ?? null, maxBranchesOverride: setting?.max_branches_override ?? null, disabledBehavior: setting?.disabled_behavior ?? null, currentBranchCount: activeCounts.get(Number(tenant.id)) ?? 0 }; });
   }),
   globalSearch: platformAdminProcedure.input(z.object({ query: z.string().trim().min(2).max(100) })).query(async ({ input }) => {
     const admin = supabaseAdmin();
