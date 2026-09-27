@@ -28,7 +28,7 @@ create or replace function public.powerhub_admin_renew_subscription_with_addons(
   p_actor_user_id bigint,
   p_subscription_id bigint,
   p_new_ends_at timestamptz,
-  p_addon_decisions jsonb default '[]'::jsonb,
+  p_addon_decisions jsonb,
   p_request_key uuid
 )
 returns table(
@@ -67,8 +67,7 @@ begin
     'addonDecisions', coalesce(p_addon_decisions,'[]'::jsonb)
   );
 
-  select platform_role
-    into v_actor_platform_role
+  select platform_role into v_actor_platform_role
   from public.users
   where id=p_actor_user_id
     and role='admin'
@@ -83,39 +82,27 @@ begin
     raise exception 'INVALID_ADDON_DECISIONS_PAYLOAD' using errcode='P0001';
   end if;
 
-  select *
-    into s
-  from public.tenant_subscriptions
-  where id=p_subscription_id
-  for update;
+  select * into s from public.tenant_subscriptions
+  where id=p_subscription_id for update;
 
   if not found then
     raise exception 'SUBSCRIPTION_NOT_FOUND' using errcode='P0001';
   end if;
 
-  -- The subscription row is locked before checking the idempotency record.
-  -- This serializes concurrent retries for the same subscription/request key:
-  -- the second transaction sees the committed operation and replays it.
-  select *
-    into v_existing
+  select * into v_existing
   from public.subscription_renewal_operations
-  where request_key=p_request_key
-  for update;
+  where request_key=p_request_key for update;
 
   if found then
     if v_existing.subscription_id<>p_subscription_id
        or v_existing.request_fingerprint<>v_fingerprint then
       raise exception 'RENEWAL_REQUEST_KEY_REUSED' using errcode='P0001';
     end if;
-
-    return query
-    select true,v_existing.ends_at,v_existing.renewed_addons,v_existing.expired_addons;
+    return query select true,v_existing.ends_at,v_existing.renewed_addons,v_existing.expired_addons;
     return;
   end if;
 
-  select status into v_tenant_status
-  from public.tenants
-  where id=s.tenant_id;
+  select status into v_tenant_status from public.tenants where id=s.tenant_id;
 
   if v_tenant_status='archived' or s.status='archived' then
     raise exception 'ARCHIVED_SUBSCRIPTION_RENEWAL_FORBIDDEN' using errcode='42501';
@@ -125,18 +112,14 @@ begin
     raise exception 'INVALID_RENEWAL_END_DATE' using errcode='P0001';
   end if;
 
-  select site_id into v_site_id
-  from public.tenant_addon_requests
+  select site_id into v_site_id from public.tenant_addon_requests
   where tenant_id=s.tenant_id and site_id is not null
-  order by created_at desc
-  limit 1;
+  order by created_at desc limit 1;
 
   if v_site_id is null then
-    select id into v_site_id
-    from public.sites
+    select id into v_site_id from public.sites
     where tenant_id=s.tenant_id and status<>'archived'
-    order by id
-    limit 1;
+    order by id limit 1;
   end if;
 
   if v_site_id is null then
@@ -144,23 +127,18 @@ begin
   end if;
 
   if exists (
-    select 1
-    from (
+    select 1 from (
       select (x->>'addonRequestId')::bigint addon_request_id,count(*) decision_count
       from jsonb_array_elements(coalesce(p_addon_decisions,'[]'::jsonb)) x
-      where jsonb_typeof(x)='object'
-        and (x->>'addonRequestId') ~ '^[0-9]+$'
-      group by (x->>'addonRequestId')::bigint
-      having count(*)>1
+      where jsonb_typeof(x)='object' and (x->>'addonRequestId') ~ '^[0-9]+$'
+      group by (x->>'addonRequestId')::bigint having count(*)>1
     ) duplicates
   ) then
     raise exception 'DUPLICATE_ADDON_DECISION' using errcode='P0001';
   end if;
 
-  for d in select * from jsonb_array_elements(coalesce(p_addon_decisions,'[]'::jsonb))
-  loop
-    if jsonb_typeof(d)<>'object'
-       or coalesce(d->>'addonRequestId','') !~ '^[0-9]+$' then
+  for d in select * from jsonb_array_elements(coalesce(p_addon_decisions,'[]'::jsonb)) loop
+    if jsonb_typeof(d)<>'object' or coalesce(d->>'addonRequestId','') !~ '^[0-9]+$' then
       raise exception 'INVALID_ADDON_REQUEST_ID' using errcode='P0001';
     end if;
 
@@ -171,10 +149,8 @@ begin
       raise exception 'INVALID_ADDON_DECISION' using errcode='P0001';
     end if;
 
-    select * into a
-    from public.tenant_addon_requests
-    where id=v_addon_id and tenant_id=s.tenant_id
-    for update;
+    select * into a from public.tenant_addon_requests
+    where id=v_addon_id and tenant_id=s.tenant_id for update;
 
     if not found then
       raise exception 'ADDON_NOT_FOUND_OR_TENANT_MISMATCH' using errcode='P0001';
@@ -209,15 +185,12 @@ begin
       renewal_count=renewal_count+1,last_renewed_at=now(),updated_at=now()
   where id=s.id;
 
-  for d in select * from jsonb_array_elements(coalesce(p_addon_decisions,'[]'::jsonb))
-  loop
+  for d in select * from jsonb_array_elements(coalesce(p_addon_decisions,'[]'::jsonb)) loop
     v_addon_id := (d->>'addonRequestId')::bigint;
     v_decision := d->>'decision';
 
-    select * into a
-    from public.tenant_addon_requests
-    where id=v_addon_id and tenant_id=s.tenant_id
-    for update;
+    select * into a from public.tenant_addon_requests
+    where id=v_addon_id and tenant_id=s.tenant_id for update;
 
     if v_decision='renew' then
       v_duration := case
@@ -227,8 +200,7 @@ begin
       v_new_end := p_new_ends_at + make_interval(days=>v_duration);
 
       update public.tenant_addon_requests
-      set ends_at=v_new_end,duration_days=v_duration
-      where id=a.id;
+      set ends_at=v_new_end,duration_days=v_duration where id=a.id;
 
       insert into public.tenant_addon_renewal_decisions(
         tenant_id,subscription_id,addon_request_id,decision,new_duration_days,created_by_user_id
