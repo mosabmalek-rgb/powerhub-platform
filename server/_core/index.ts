@@ -59,12 +59,13 @@ export function createPowerHubApp() {
   registerMobileApi(app);
   app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
   app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);
-  app.post("/api/scheduled/process-invoice-notifications", async (req, res) => {
+  app.all("/api/scheduled/process-invoice-notifications", async (req, res) => {
     const configuredSecret = process.env.CRON_SECRET;
     const authorization = req.headers.authorization ?? "";
     if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) {
       return res.status(401).json({ error: "unauthorized" });
     }
+    if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     try {
       const { processAutomaticInvoiceNotifications } = await import("../notification-worker");
       const result = await processAutomaticInvoiceNotifications();
@@ -74,12 +75,13 @@ export function createPowerHubApp() {
       return res.status(500).json({ ok: false, error: "invoice_notification_schedule_failed" });
     }
   });
-  app.post("/api/scheduled/payment-documentation-retention", async (req, res) => {
+  app.all("/api/scheduled/payment-documentation-retention", async (req, res) => {
     const configuredSecret = process.env.CRON_SECRET;
     const authorization = req.headers.authorization ?? "";
     if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) {
       return res.status(401).json({ error: "unauthorized" });
     }
+    if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     try {
       const { cleanupPaymentDocumentationReceiptImages } = await import("../payment-documentation-retention");
       const result = await cleanupPaymentDocumentationReceiptImages();

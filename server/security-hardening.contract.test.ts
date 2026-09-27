@@ -19,8 +19,9 @@ describe("HTTP security hardening contract", () => {
     expect(source).toContain("webhook_payload_too_large");
   });
 
-  it("accepts only POST for internal scheduled jobs", () => {
-    expect(source).toContain('app.post("/api/scheduled/process-invoice-notifications"');
-    expect(source).toContain('app.post("/api/scheduled/payment-documentation-retention"');
+  it("authenticates scheduled jobs before rejecting non-POST methods", () => {
+    expect(source).toContain('app.all("/api/scheduled/process-invoice-notifications"');
+    expect(source).toContain('app.all("/api/scheduled/payment-documentation-retention"');
+    expect(source.match(/if \(req\.method !== "POST"\)/g)?.length).toBe(2);
   });
 });
