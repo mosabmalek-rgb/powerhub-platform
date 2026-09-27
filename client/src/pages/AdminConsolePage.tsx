@@ -130,6 +130,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
   const [renewingId, setRenewingId] = useState<number | null>(null);
   const [renewEndsAt, setRenewEndsAt] = useState("");
   const [addonDecisions, setAddonDecisions] = useState<Record<number, { decision: "renew" | "expire"; durationDays: number }>>({});
+  const [renewRequestKeys, setRenewRequestKeys] = useState<Record<number, string>>({});
 
   const addonLabels: Record<string,string> = {
     fieldUser: "مستخدم ميداني إضافي",
@@ -149,6 +150,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
     const nextEnd = new Date(base);
     nextEnd.setMonth(nextEnd.getMonth() + (row.subscription?.billingCycle === "yearly" ? 12 : 1));
     setRenewingId(subscriptionId);
+    setRenewRequestKeys((prev) => ({ ...prev, [subscriptionId]: prev[subscriptionId] ?? crypto.randomUUID() }));
     setRenewEndsAt(nextEnd.toISOString().slice(0,10));
     const tenantAddons = (activeAddonsQuery.data ?? []).filter((item:any) => Number(item.tenantId) === Number(row.tenant.id));
     const next: Record<number, { decision: "renew" | "expire"; durationDays: number }> = {};
@@ -165,8 +167,9 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
       return { addonRequestId: Number(item.addonRequestId), decision: selected.decision, ...(selected.decision === "renew" ? { durationDays: selected.durationDays } : {}) };
     });
     try {
-      await onRenew({ subscriptionId: Number(row.subscription.id), endsAt: new Date(renewEndsAt + "T23:59:59"), addonDecisions: decisions });
+      await onRenew({ subscriptionId: Number(row.subscription.id), endsAt: new Date(renewEndsAt + "T23:59:59"), addonDecisions: decisions, requestKey: renewRequestKeys[Number(row.subscription.id)] });
       setRenewingId(null);
+      setRenewRequestKeys((prev) => { const next = { ...prev }; delete next[Number(row.subscription.id)]; return next; });
     } catch {
       // The parent mutation already reports the failure; keep the form open so the admin can correct and retry.
     }

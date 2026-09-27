@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const migration = readFileSync(join(process.cwd(), "supabase/migrations/20260911200000_powerhub_admin_membership_subscription_rpcs.sql"), "utf8");
+const renewalIdempotencyMigration = readFileSync(join(process.cwd(), "supabase/migrations/20260927220000_powerhub_subscription_renewal_idempotency.sql"), "utf8");
 const reviewMigration = readFileSync(join(process.cwd(), "supabase/migrations/20260911202000_powerhub_admin_review_subscription_upgrade_request_rpc.sql"), "utf8");
 
 const rpc = vi.fn();
@@ -73,19 +74,28 @@ describe("Supabase atomic admin write RPCs", () => {
     const { reviewSubscriptionUpgradeRequest } = await import("./admin-supabase-writes");
     await expect(reviewSubscriptionUpgradeRequest({ actorUserId: 1, requestId: 90, decision: "approved" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
+
+  it("defines renewal idempotency storage and stable replay contract", () => {
+    expect(renewalIdempotencyMigration).toContain("subscription_renewal_operations");
+    expect(renewalIdempotencyMigration).toContain("request_key uuid not null unique");
+    expect(renewalIdempotencyMigration).toContain("RENEWAL_REQUEST_KEY_REUSED");
+    expect(renewalIdempotencyMigration).toContain("p_request_key uuid");
+  });
 });
 
 
 describe("renewSubscription addon decisions", () => {
-  it("passes explicit addon renewal decisions to Supabase", async () => {
+  it("passes explicit addon renewal decisions and idempotency key to Supabase", async () => {
     rpc.mockResolvedValueOnce({ data: [{ success: true, ends_at: "2027-01-31T00:00:00.000Z", renewed_addons: 2, expired_addons: 1 }], error: null });
     const { renewSubscription } = await import("./admin-supabase-writes");
     const endsAt = new Date("2027-01-31T00:00:00.000Z");
-    await expect(renewSubscription({ actorUserId:1, subscriptionId:22, endsAt, addonDecisions:[{addonRequestId:101,decision:"renew",durationDays:30},{addonRequestId:102,decision:"expire"}] }))
+    const requestKey = "2f0a7c0e-9f0e-4b0f-8e8e-2a5c5a3a7d10";
+    await expect(renewSubscription({ actorUserId:1, subscriptionId:22, endsAt, requestKey, addonDecisions:[{addonRequestId:101,decision:"renew",durationDays:30},{addonRequestId:102,decision:"expire"}] }))
       .resolves.toMatchObject({ success:true, renewedAddons:2, expiredAddons:1 });
     expect(rpc).toHaveBeenCalledWith("powerhub_admin_renew_subscription_with_addons", {
       p_actor_user_id:1,p_subscription_id:22,p_new_ends_at:endsAt.toISOString(),
       p_addon_decisions:[{addonRequestId:101,decision:"renew",durationDays:30},{addonRequestId:102,decision:"expire"}],
+      p_request_key:requestKey,
     });
   });
 });
