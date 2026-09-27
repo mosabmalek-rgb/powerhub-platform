@@ -34,11 +34,14 @@ jobs:
 
       - name: Bootstrap pnpm in runner temp
         shell: cmd
-        run: npm.cmd install --prefix "%RUNNER_TEMP%\pnpm" --no-save pnpm@10.34.5
+        run: >-
+          npm.cmd install --prefix "%RUNNER_TEMP%\pnpm" --no-save pnpm@10.34.5
 
       - name: Install dependencies
         shell: cmd
-        run: "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd --version && %RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd install --frozen-lockfile"
+        run: >-
+          "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd" --version &&
+          "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd" install --frozen-lockfile
 
       - name: Supabase runtime boundary
         shell: cmd
@@ -46,7 +49,8 @@ jobs:
 
       - name: TypeScript check
         shell: cmd
-        run: "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd check > tsc-errors.log 2>&1"
+        run: >-
+          "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd" check > tsc-errors.log 2>&1
 
       - name: Upload TypeScript diagnostics
         if: always()
@@ -58,7 +62,8 @@ jobs:
 
       - name: Run tests
         shell: cmd
-        run: "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd test > test-errors.log 2>&1"
+        run: >-
+          "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd" test > test-errors.log 2>&1
 
       - name: Upload test diagnostics
         if: always()
@@ -70,4 +75,5 @@ jobs:
 
       - name: Build production artifacts
         shell: cmd
-        run: "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd build"
+        run: >-
+          "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd" build
