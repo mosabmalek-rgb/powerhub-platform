@@ -311,7 +311,6 @@ async function sendPendingInvoiceSmsRuntime(
       .eq("channel", "sms")
       .eq("event_type", "invoice_issued")
       .in("status", input.includeFailed ? ["pending", "failed"] : ["pending"])
-      .gt("id", lastId)
       .order("id", { ascending: true })
       .limit(200);
 
@@ -325,6 +324,10 @@ async function sendPendingInvoiceSmsRuntime(
     notificationIds.push(...candidateRows.map((row) => Number(row.id)).filter(Number.isInteger));
     lastId = Number(candidateRows[candidateRows.length - 1].id);
     if (candidateRows.length < 200) break;
+    const nextIds = candidateRows.map((row) => Number(row.id)).filter(Number.isInteger);
+    const maxCandidateId = nextIds[nextIds.length - 1];
+    if (!Number.isInteger(maxCandidateId) || maxCandidateId <= lastId) break;
+    lastId = maxCandidateId;
   }
 
   if (!notificationIds.length) {
