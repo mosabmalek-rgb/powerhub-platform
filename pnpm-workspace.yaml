@@ -1,0 +1,19 @@
+packages:
+  - "."
+
+patchedDependencies:
+  wouter@3.7.1: patches/wouter@3.7.1.patch
+
+overrides:
+  nanoid@^5.0.0: 5.1.16
+  nanoid@^3.0.0: 3.3.18
+  fast-xml-parser: 5.5.6
+  tar: 7.5.21
+  postcss: 8.5.28
+  path-to-regexp: 0.1.13
+  picomatch: 4.0.7
+  lodash: 4.18.1
+  lodash-es: 4.18.1
+  browserslist: 4.29.1
+  form-data: 4.0.6
+  rollup: 4.59.0
