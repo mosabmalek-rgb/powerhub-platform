@@ -8,10 +8,10 @@ describe("P1 hot-path indexes", () => {
     "utf8",
   );
 
-  it("covers tenant/site history ordering for bounded financial and reading queries", () => {
+  it("covers tenant/site history ordering and tenant-scoped reading ordering", () => {
     expect(migration).toMatch(/invoices_tenant_site_issue_date_id_idx[\s\S]*tenant_id, site_id, issue_date desc, id desc/);
     expect(migration).toMatch(/payments_tenant_site_paid_at_id_idx[\s\S]*tenant_id, site_id, paid_at desc, id desc/);
-    expect(migration).toMatch(/meter_readings_tenant_site_reading_at_id_idx[\s\S]*tenant_id, site_id, reading_at desc, id desc/);
+    expect(migration).toMatch(/meter_readings_tenant_site_reading_at_id_idx[\s\S]*tenant_id, reading_at desc, id desc/);
     expect(migration).toMatch(/expenses_tenant_site_occurred_at_id_idx[\s\S]*tenant_id, site_id, occurred_at desc, id desc/);
   });
 
