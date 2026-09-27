@@ -299,9 +299,6 @@ async function sendPendingInvoiceSmsRuntime(
     }
   }
 
-  // Keyset pagination prevents rows from being skipped while earlier batches
-  // change pending -> submitted/failed. There is intentionally no 50-row
-  // product limit here.
   // Snapshot eligible notification IDs before processing. Offset paging is used
   // only for discovery; processing happens afterward, so status changes cannot
   // shift later pages and cause skipped or duplicated work.
