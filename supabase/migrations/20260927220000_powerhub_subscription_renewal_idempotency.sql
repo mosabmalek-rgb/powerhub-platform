@@ -67,23 +67,6 @@ begin
     'addonDecisions', coalesce(p_addon_decisions,'[]'::jsonb)
   );
 
-  select *
-    into v_existing
-  from public.subscription_renewal_operations
-  where request_key=p_request_key
-  for update;
-
-  if found then
-    if v_existing.subscription_id<>p_subscription_id
-       or v_existing.request_fingerprint<>v_fingerprint then
-      raise exception 'RENEWAL_REQUEST_KEY_REUSED' using errcode='P0001';
-    end if;
-
-    return query
-    select true,v_existing.ends_at,v_existing.renewed_addons,v_existing.expired_addons;
-    return;
-  end if;
-
   select platform_role
     into v_actor_platform_role
   from public.users
@@ -108,6 +91,26 @@ begin
 
   if not found then
     raise exception 'SUBSCRIPTION_NOT_FOUND' using errcode='P0001';
+  end if;
+
+  -- The subscription row is locked before checking the idempotency record.
+  -- This serializes concurrent retries for the same subscription/request key:
+  -- the second transaction sees the committed operation and replays it.
+  select *
+    into v_existing
+  from public.subscription_renewal_operations
+  where request_key=p_request_key
+  for update;
+
+  if found then
+    if v_existing.subscription_id<>p_subscription_id
+       or v_existing.request_fingerprint<>v_fingerprint then
+      raise exception 'RENEWAL_REQUEST_KEY_REUSED' using errcode='P0001';
+    end if;
+
+    return query
+    select true,v_existing.ends_at,v_existing.renewed_addons,v_existing.expired_addons;
+    return;
   end if;
 
   select status into v_tenant_status
