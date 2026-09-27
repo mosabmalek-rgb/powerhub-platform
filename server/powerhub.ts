@@ -659,7 +659,7 @@ export const powerhubRouter = router({
     allowedSubaccountRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const admin = supabaseAdmin();
-      const [subscriptionResult, tenantResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult] = await Promise.all([
+      const [subscriptionResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult] = await Promise.all([
         admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key", "owner_subaccount_roles").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_subaccount_limits").maybeSingle(),
