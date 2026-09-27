@@ -173,6 +173,15 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "report-spreadsheets": ["exceljs"],
+          "report-pdf": ["html2canvas", "jspdf"],
+          charts: ["recharts"],
+        },
+      },
+    },
   },
   server: {
     host: true,

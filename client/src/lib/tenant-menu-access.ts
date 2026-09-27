@@ -29,7 +29,7 @@ const TENANT_MENU_RULES: Record<string, TenantMenuRule> = {
   "/announcements": {},
   "/support-chat": {},
   "/offline-sync": {},
-  "/subscribers": { roles: READ_ROLES.subscribers },
+  "/subscribers": { roles: READ_ROLES.subscribers, capability: "manageSubscribers" },
   "/generators": { roles: READ_ROLES.generators },
   "/branches": { roles: ["owner"] },
   "/readings": { roles: READ_ROLES.readings },
@@ -44,7 +44,7 @@ const TENANT_MENU_RULES: Record<string, TenantMenuRule> = {
   "/human-resources": { roles: READ_ROLES.humanResources, capability: "manageTeam" },
   "/staff": { capability: "manageTeam" },
   "/attendance": { roles: READ_ROLES.attendance, capability: "managePayroll" },
-  "/payroll": { roles: ["owner", "accountant"], capability: "managePayroll" },
+  "/payroll": { roles: ["owner", "manager", "accountant"], capability: "managePayroll" },
   "/reports": { roles: READ_ROLES.reports },
   "/notifications": { capability: "manageMessaging" },
   "/mobile-sync": { roles: READ_ROLES.mobileSync },
@@ -62,7 +62,10 @@ export function tenantMenuRouteAllowed(
   const rule = TENANT_MENU_RULES[path];
   if (!rule) return false;
 
-  if (rule.roles?.includes(role as PowerRole) && !usesPermissionOverride) return true;
+  if (rule.roles) {
+    if (rule.roles.includes(role as PowerRole) && !usesPermissionOverride) return true;
+    if (!rule.capability && !rule.roles.includes(role as PowerRole)) return false;
+  }
   if (rule.capability) return can(role, rule.capability, permissions);
   return Boolean(role);
 }

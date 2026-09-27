@@ -1,4 +1,4 @@
-import ExcelJS from "exceljs";
+import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { prepareSubscriberImport, type SubscriberImportDraft } from "@/lib/subscriber-import";
@@ -37,7 +37,7 @@ export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSa
     setIsParsing(true); setResult(null); setProgress(15); setProgressLabel("جارٍ قراءة ملف Excel…");
     let parsedSuccessfully = false;
     try {
-      const workbook = new ExcelJS.Workbook();
+      const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(await file.arrayBuffer());
       setProgress(45); setProgressLabel("جارٍ تحليل أعمدة المشتركين…");
       const sheet = workbook.worksheets[0];
@@ -64,7 +64,7 @@ export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSa
 
   const downloadTemplate = async () => {
     try {
-      const workbook = new ExcelJS.Workbook();
+      const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
       workbook.creator = "PowerHub";
       const sheet = workbook.addWorksheet("استيراد المشتركين", { views: [{ rightToLeft: true }] });
       sheet.addRow(["الاسم الكامل", "رقم الجوال الدولي", "رقم واتساب (اختياري)", "العنوان (اختياري)", "نوع الاشتراك: سكني أو تجاري", "الرقم المرجعي (اختياري للتحديث فقط)"]);

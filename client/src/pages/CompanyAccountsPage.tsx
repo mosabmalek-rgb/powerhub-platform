@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards } from "lucide-react";
-import ExcelJS from "exceljs";
+import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { type ElementType, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -198,7 +198,7 @@ export default function CompanyAccountsPage() {
   };
 
   const exportExcel = async () => {
-    const workbook = new ExcelJS.Workbook();
+    const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("حسابات الشركة", { views: [{ rightToLeft: true }] });
     sheet.addRow(["الحساب", "نوع الحساب", "رقم الجوال", "الفروع", "الرصيد"]);
     filtered.forEach((row) => sheet.addRow([row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "غير مرتبط", row.linkedSites.map((site) => site.siteName).join("، ") || "غير محدد", Number(row.balance)]));
@@ -218,7 +218,7 @@ export default function CompanyAccountsPage() {
 
   const exportTransactionsExcel = async () => {
     if (!selectedAccount || !transactionRows.length) return;
-    const workbook = new ExcelJS.Workbook();
+    const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("حركات الحساب");
     sheet.columns = [
       { header: "الوصف", key: "description", width: 34 },

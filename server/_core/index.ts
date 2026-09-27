@@ -9,7 +9,7 @@ import { serveStatic } from "./static";
 import { receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "../messaging-webhooks";
 import { registerMobileApi } from "../mobile-api";
 import { isVercelRuntime } from "./runtime";
-import { registerBrandAssetProxy, registerStorageProxy } from "./storageProxy";
+import { registerBrandAssetProxy } from "./storageProxy";
 import { healthHandler, readinessHandler } from "./health";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -33,13 +33,29 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 export function createPowerHubApp() {
   const app = express();
+  app.disable("x-powered-by");
+  app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+    if (req.secure || req.headers["x-forwarded-proto"] === "https") {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api/webhooks/whatsapp/") && Number(req.headers["content-length"] ?? 0) > 256 * 1024) {
+      return res.status(413).json({ error: "webhook_payload_too_large" });
+    }
+    return next();
+  });
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb", verify: (req, _res, buffer) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buffer; } }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.get("/api/health", healthHandler);
   app.get("/api/ready", readinessHandler);
   registerBrandAssetProxy(app);
-  registerStorageProxy(app);
   registerMobileApi(app);
   app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
   app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);
@@ -49,6 +65,7 @@ export function createPowerHubApp() {
     if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) {
       return res.status(401).json({ error: "unauthorized" });
     }
+    if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     try {
       const { processAutomaticInvoiceNotifications } = await import("../notification-worker");
       const result = await processAutomaticInvoiceNotifications();
@@ -64,6 +81,7 @@ export function createPowerHubApp() {
     if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) {
       return res.status(401).json({ error: "unauthorized" });
     }
+    if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     try {
       const { cleanupPaymentDocumentationReceiptImages } = await import("../payment-documentation-retention");
       const result = await cleanupPaymentDocumentationReceiptImages();

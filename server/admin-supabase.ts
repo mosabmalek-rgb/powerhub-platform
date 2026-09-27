@@ -305,7 +305,7 @@ export async function platformSnapshotFromSupabase() {
     users: {
       total: userDirectory.length,
       platformAdmins: users.filter((user) => user.role === "admin").length,
-      activeStaff: userDirectory.filter((item) => item.kind === "tenant" && item.status === "active").length,
+      activeStaff: userDirectory.filter((item) => item !== null).filter((item) => item.kind === "tenant" && item.status === "active").length,
       directory: userDirectory,
       staffDirectory: staff.map((item) => {
         const user = userById.get(numeric(item.user_id));

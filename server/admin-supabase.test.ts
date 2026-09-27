@@ -6,7 +6,7 @@ vi.mock("./supabase-admin", () => ({
   supabaseAdmin: () => ({
     from: (table: string) => {
       const result = () => Promise.resolve({ data: rowsByTable[table] ?? [], error: null });
-      const query = { order: () => query, limit: result, in: result };
+      const query = { order: () => query, limit: result, in: result, not: () => query, eq: () => query };
       return { select: () => query };
     },
   }),

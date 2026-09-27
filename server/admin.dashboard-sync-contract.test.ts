@@ -12,9 +12,9 @@ describe("platform-owner dashboard synchronization contract", () => {
   it("keeps the dashboard read model complete and bounded to trustworthy records", () => {
     expect(dashboardMigration).toContain("generate_series");
     expect(dashboardMigration).toContain("interval '1 month'");
-    expect(dashboardMigration).toContain("payments.status='completed'");
+    expect(dashboardMigration).toContain("payments.status = 'completed'");
     expect(dashboardMigration).toContain("generatorId");
-    expect(dashboardMigration).toContain("subscriptions.ends_at>=now()");
+    expect(dashboardMigration).toContain("subscriptions.ends_at >= now()");
     expect(dashboardMigration).toContain("subscriptions.archived_at is null");
   });
 

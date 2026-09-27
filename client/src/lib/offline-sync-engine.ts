@@ -1,6 +1,6 @@
 import type { QueuedOfflineWork } from "./offline-work-queue";
 
-export type SyncOutcome = "applied" | "already_applied" | "conflict" | "retryable" | "rejected";
+export type SyncOutcome = "pending" | "syncing" | "applied" | "already_applied" | "conflict" | "retryable" | "rejected";
 
 export type SyncMetadata = {
   operationId: string;

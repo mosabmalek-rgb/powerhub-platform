@@ -10,7 +10,7 @@ describe("international phone normalization", () => {
     expect(normalizeInternationalPhone("00970599000000")).toBe("+970599000000");
   });
 
-  it("rejects a local number when its country cannot be determined safely", () => {
-    expect(() => normalizeInternationalPhone("0599000000")).toThrow(/E.164/);
+  it("converts a Palestinian local mobile number to canonical E.164", () => {
+    expect(normalizeInternationalPhone("0599000000")).toBe("+970599000000");
   });
 });

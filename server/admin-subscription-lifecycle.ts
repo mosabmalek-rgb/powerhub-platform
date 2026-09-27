@@ -33,6 +33,6 @@ export function getNextRenewalEndDate(
   const current = currentEndsAt ? (currentEndsAt instanceof Date ? currentEndsAt : new Date(currentEndsAt)) : null;
   const base = current && !Number.isNaN(current.getTime()) && current > now ? current : now;
   const next = new Date(base);
-  next.setMonth(next.getMonth() + (billingCycle === "yearly" ? 12 : 1));
+  next.setUTCMonth(next.getUTCMonth() + (billingCycle === "yearly" ? 12 : 1));
   return next;
 }

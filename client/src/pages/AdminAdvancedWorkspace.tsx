@@ -80,7 +80,7 @@ export function GeneratorInspector({ rows }: { rows: Array<{ id: number; name: s
 }
 function DetailTable({ title, headers, rows, empty }: { title: string; headers: string[]; rows: string[][]; empty: string }) { return <Card className="border-white/8 bg-[#0D1117]/35"><CardContent className="p-4"><h3 className="font-bold text-white">{title}</h3><div className="mt-4 max-h-64 overflow-auto"><table className="w-full min-w-[480px] text-right text-sm"><thead className="text-xs text-slate-500"><tr>{headers.map((header) => <th className="pb-3" key={header}>{header}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr className="border-t border-white/7" key={index}>{row.map((cell, cellIndex) => <td className="py-3 text-slate-300" key={cellIndex}>{cell}</td>)}</tr>)}{!rows.length && <tr><td colSpan={headers.length} className="py-8 text-center text-slate-500">{empty}</td></tr>}</tbody></table></div></CardContent></Card>; }
 
-export function GeneratorDirectorySearch({ rows }: { rows: Array<{ id: number; name: string; code: string; status: string; ratedCapacityKw: string; tenantName: string; siteName: string }> }) {
+export function GeneratorDirectorySearch({ rows }: { rows: Array<{ id: number; name: string; code: string; status: string; ratedCapacityKw: string | null; tenantName: string; siteName: string }> }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const filtered = rows.filter((row) => (status === "all" || row.status === status) && `${row.name} ${row.code} ${row.tenantName} ${row.siteName}`.toLowerCase().includes(query.toLowerCase()));

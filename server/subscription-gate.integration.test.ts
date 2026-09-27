@@ -10,6 +10,6 @@ describe("tenant subscription gate integration contract", () => {
     const resolverStart = source.indexOf("export async function resolveSupabaseSiteAccess");
     expect(resolverStart).toBeGreaterThanOrEqual(0);
     const resolverSource = source.slice(resolverStart);
-    expect(resolverSource).toContain("await requireTenantSubscription(site.tenantId);");
+    expect(resolverSource).toContain("await requireTenantSubscription(site.tenantId");
   });
 });

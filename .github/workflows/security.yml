@@ -44,27 +44,20 @@ jobs:
 
   dependency-audit:
     name: Dependency audit
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Audit critical vulnerabilities (non-blocking)
-        continue-on-error: true
-        run: pnpm audit --audit-level=critical
+      - name: Static dependency security guard
+        shell: cmd
+        run: node scripts/check-dependency-security.mjs
 
   dependency-review:
     name: Dependency review

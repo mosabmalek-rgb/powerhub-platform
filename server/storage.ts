@@ -4,7 +4,11 @@ const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "powerhub-private"
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
 function normalizeKey(relKey: string): string {
-  return relKey.replace(/^\/+/, "");
+  const key = relKey.trim().replace(/^\/+/, "");
+  if (!key || key.includes("\\") || key.split("/").some((part) => part === ".." || part === ".")) {
+    throw new Error("Supabase Storage key is invalid.");
+  }
+  return key;
 }
 
 function appendHashSuffix(relKey: string): string {
