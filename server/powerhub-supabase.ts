@@ -25,6 +25,29 @@ type SupabaseSite = {
   createdAt: Date;
 };
 
+export type SupabaseKeysetCursor = { at: string; id: number };
+export type SupabaseHistoryPage<T> = { items: T[]; hasNext: boolean; nextCursor: string | null };
+
+function encodeHistoryCursor(cursor: SupabaseKeysetCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeHistoryCursor(value: string | undefined): SupabaseKeysetCursor | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<SupabaseKeysetCursor>;
+    const id = parsed.id;
+    if (typeof parsed.at !== "string" || !Number.isInteger(id) || (id ?? 0) < 1 || Number.isNaN(Date.parse(parsed.at))) throw new Error("invalid");
+    return { at: new Date(parsed.at).toISOString(), id: id as number };
+  } catch {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "مؤشر الصفحة غير صالح؛ أعد تحميل القائمة." });
+  }
+}
+
+function historyLimit(value: number | undefined): number {
+  return Math.min(200, Math.max(1, Math.trunc(value ?? 50)));
+}
+
 function asPowerRole(value: string): PowerRole {
   if (["owner", "manager", "accountant", "collector", "technician", "viewer"].includes(value)) return value as PowerRole;
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "يوجد دور غير صالح في ملف صلاحيات Supabase." });
@@ -398,12 +421,8 @@ export async function listSupabaseReadings(siteId: number) {
   });
 }
 
-export async function listSupabaseInvoices(siteId: number) {
-  const { data, error } = await supabaseAdmin().from("invoices")
-    .select("id, tenant_id, site_id, subscriber_id, reading_id, tariff_id, invoice_no, client_operation_id, billing_period, issue_date, due_date, previous_reading, current_reading, consumption_kwh, price_per_kwh, fixed_fee, tax_amount, discount_amount, total_amount, paid_amount, balance_due, status, created_by_user_id, created_at, updated_at")
-    .eq("site_id", siteId).order("issue_date", { ascending: false });
-  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفواتير من Supabase." });
-  return (data ?? []).map((row) => ({
+function mapSupabaseInvoice(row: any) {
+  return {
     id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id),
     readingId: row.reading_id === null ? null : Number(row.reading_id), tariffId: row.tariff_id === null ? null : Number(row.tariff_id),
     invoiceNo: row.invoice_no, clientOperationId: row.client_operation_id, billingPeriod: row.billing_period, issueDate: new Date(row.issue_date), dueDate: new Date(row.due_date),
@@ -411,7 +430,31 @@ export async function listSupabaseInvoices(siteId: number) {
     consumptionKwh: String(row.consumption_kwh), pricePerKwh: String(row.price_per_kwh), fixedFee: String(row.fixed_fee), taxAmount: String(row.tax_amount),
     discountAmount: String(row.discount_amount), totalAmount: String(row.total_amount), paidAmount: String(row.paid_amount), balanceDue: String(row.balance_due),
     status: row.status, createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
-  }));
+  };
+}
+
+const invoiceSelect = "id, tenant_id, site_id, subscriber_id, reading_id, tariff_id, invoice_no, client_operation_id, billing_period, issue_date, due_date, previous_reading, current_reading, consumption_kwh, price_per_kwh, fixed_fee, tax_amount, discount_amount, total_amount, paid_amount, balance_due, status, created_by_user_id, created_at, updated_at";
+
+export async function listSupabaseInvoices(siteId: number) {
+  const { data, error } = await supabaseAdmin().from("invoices")
+    .select(invoiceSelect)
+    .eq("site_id", siteId).order("issue_date", { ascending: false });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفواتير من Supabase." });
+  return (data ?? []).map(mapSupabaseInvoice);
+}
+
+export async function listSupabaseInvoicePage(siteId: number, input: { limit?: number; cursor?: string }): Promise<SupabaseHistoryPage<ReturnType<typeof mapSupabaseInvoice>>> {
+  const limit = historyLimit(input.limit);
+  const cursor = decodeHistoryCursor(input.cursor);
+  let query = supabaseAdmin().from("invoices").select(invoiceSelect).eq("site_id", siteId);
+  if (cursor) query = query.or(`issue_date.lt.${cursor.at},and(issue_date.eq.${cursor.at},id.lt.${cursor.id})`);
+  const { data, error } = await query.order("issue_date", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة الفواتير من Supabase." });
+  const rows = data ?? [];
+  const hasNext = rows.length > limit;
+  const items = rows.slice(0, limit).map(mapSupabaseInvoice);
+  const last = items.at(-1);
+  return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: last.issueDate.toISOString(), id: last.id }) : null };
 }
 
 export async function listSupabasePayments(siteId: number) {
