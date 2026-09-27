@@ -33,6 +33,23 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 export function createPowerHubApp() {
   const app = express();
+  app.disable("x-powered-by");
+  app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+    if (req.secure || req.headers["x-forwarded-proto"] === "https") {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api/webhooks/whatsapp/") && Number(req.headers["content-length"] ?? 0) > 256 * 1024) {
+      return res.status(413).json({ error: "webhook_payload_too_large" });
+    }
+    return next();
+  });
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb", verify: (req, _res, buffer) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buffer; } }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -42,7 +59,7 @@ export function createPowerHubApp() {
   registerMobileApi(app);
   app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
   app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);
-  app.all("/api/scheduled/process-invoice-notifications", async (req, res) => {
+  app.post("/api/scheduled/process-invoice-notifications", async (req, res) => {
     const configuredSecret = process.env.CRON_SECRET;
     const authorization = req.headers.authorization ?? "";
     if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) {
@@ -57,7 +74,7 @@ export function createPowerHubApp() {
       return res.status(500).json({ ok: false, error: "invoice_notification_schedule_failed" });
     }
   });
-  app.all("/api/scheduled/payment-documentation-retention", async (req, res) => {
+  app.post("/api/scheduled/payment-documentation-retention", async (req, res) => {
     const configuredSecret = process.env.CRON_SECRET;
     const authorization = req.headers.authorization ?? "";
     if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) {
