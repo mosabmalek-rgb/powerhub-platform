@@ -183,6 +183,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
             <div>
               <p className="font-bold text-white">{row.owner?.fullName ?? row.tenant.name}</p>
               <p className="mt-1 text-sm text-slate-500">{row.tenant.name} · الباقة: <strong className="text-slate-300">{packageCode}</strong> · الحالة: <strong className="text-slate-300">{effectiveStatus(row.subscription) === "expired" ? "منتهي" : effectiveStatus(row.subscription) === "archived" ? "مؤرشف" : effectiveStatus(row.subscription) ?? "—"}</strong> · انتهاء الاشتراك: {formatDate(row.subscription?.endsAt)}</p>
+              <p className="mt-1 text-xs text-slate-500">عدد التجديدات: <strong className="text-slate-300">{formatNumber(row.subscription?.renewalCount)}</strong>{row.subscription?.lastRenewedAt ? <> · آخر تجديد: <strong className="text-slate-300">{formatDate(row.subscription.lastRenewedAt)}</strong></> : " · لم يُجدد سابقًا"}</p>
               <p className="mt-1 text-xs text-slate-600">{tenantAddons.length ? `لديه ${tenantAddons.length} إضافة نشطة` : "لا توجد إضافات نشطة مرتبطة بالاشتراك"}</p>
             </div>
             <Button disabled={pending || activeAddonsQuery.isLoading} onClick={() => { void (isRenewing ? submitRenewal(row) : openRenewal(row)); }} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">
