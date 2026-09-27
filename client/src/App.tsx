@@ -4,45 +4,46 @@ import { OfflineStatusBanner } from "@/components/OfflineStatusBanner";
 import { RouteAccessGate } from "@/components/RouteAccessGate";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
+import { lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home, { WorkspaceHome } from "./pages/Home";
-import OperationsPage from "./pages/OperationsPage";
-import MeterReadingsPage from "./pages/MeterReadingsPage";
-import BillingPage from "./pages/BillingPage";
-import SettingsPage from "./pages/SettingsPage";
-import NetworkDirectoryPage from "./pages/NetworkDirectoryPage";
-import ReportsPage from "./pages/ReportsPage";
-import FinancialDashboardPage from "./pages/FinancialDashboardPage";
-import FinancialSettlementsPage from "./pages/FinancialSettlementsPage";
-import CompanyAccountsPage from "./pages/CompanyAccountsPage";
-import MessagingSettingsPage from "./pages/MessagingSettingsPage";
-import AuditLogPage from "./pages/AuditLogPage";
+const OperationsPage = lazy(() => import("./pages/OperationsPage"));
+const MeterReadingsPage = lazy(() => import("./pages/MeterReadingsPage"));
+const BillingPage = lazy(() => import("./pages/BillingPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const NetworkDirectoryPage = lazy(() => import("./pages/NetworkDirectoryPage"));
+const ReportsPage = lazy(() => import("./pages/ReportsPage"));
+const FinancialDashboardPage = lazy(() => import("./pages/FinancialDashboardPage"));
+const FinancialSettlementsPage = lazy(() => import("./pages/FinancialSettlementsPage"));
+const CompanyAccountsPage = lazy(() => import("./pages/CompanyAccountsPage"));
+const MessagingSettingsPage = lazy(() => import("./pages/MessagingSettingsPage"));
+const AuditLogPage = lazy(() => import("./pages/AuditLogPage"));
 import PublicInvoice from "./pages/PublicInvoice";
-import AdminConsolePage from "./pages/AdminConsolePage";
-import FinanceAdminPage from "./pages/FinanceAdminPage";
+const AdminConsolePage = lazy(() => import("./pages/AdminConsolePage"));
+const FinanceAdminPage = lazy(() => import("./pages/FinanceAdminPage"));
 import LoginPage from "./pages/LoginPage";
-import ProfileSecurityPage from "./pages/ProfileSecurityPage";
-import SubscriberPortalPage from "./pages/SubscriberPortalPage";
-import SubscriberAccountStatementPage from "./pages/SubscriberAccountStatementPage";
-import SubscriberPortalSettingsPage from "./pages/SubscriberPortalSettingsPage";
-import BranchesPage from "./pages/BranchesPage";
-import HumanResourcesPage from "./pages/HumanResourcesPage";
-import PayrollPage from "./pages/PayrollPage";
-import AttendancePage from "./pages/AttendancePage";
-import MobileSyncPage from "./pages/MobileSyncPage";
-import MobileReadingDetailPage from "./pages/MobileReadingDetailPage";
-import QuickActionsPage from "./pages/QuickActionsPage";
-import OfflineSyncPage from "./pages/OfflineSyncPage";
-import SetupWizardPage from "./pages/SetupWizardPage";
-import TrialSubscriptionManagementPage from "./pages/TrialSubscriptionManagementPage";
-import SupportChatPage from "./pages/SupportChatPage";
-import SupportCenterPage from "./pages/SupportCenterPage";
-import PaymentDocumentationPage from "./pages/PaymentDocumentationPage";
-import PaymentDocumentationReviewPage from "./pages/PaymentDocumentationReviewPage";
-import PlatformAnnouncementsPage from "./pages/PlatformAnnouncementsPage";
-import AdminGeneratorFeaturesPage from "./pages/AdminGeneratorFeaturesPage";
-import AnnouncementsPage from "./pages/AnnouncementsPage";
+const ProfileSecurityPage = lazy(() => import("./pages/ProfileSecurityPage"));
+const SubscriberPortalPage = lazy(() => import("./pages/SubscriberPortalPage"));
+const SubscriberAccountStatementPage = lazy(() => import("./pages/SubscriberAccountStatementPage"));
+const SubscriberPortalSettingsPage = lazy(() => import("./pages/SubscriberPortalSettingsPage"));
+const BranchesPage = lazy(() => import("./pages/BranchesPage"));
+const HumanResourcesPage = lazy(() => import("./pages/HumanResourcesPage"));
+const PayrollPage = lazy(() => import("./pages/PayrollPage"));
+const AttendancePage = lazy(() => import("./pages/AttendancePage"));
+const MobileSyncPage = lazy(() => import("./pages/MobileSyncPage"));
+const MobileReadingDetailPage = lazy(() => import("./pages/MobileReadingDetailPage"));
+const QuickActionsPage = lazy(() => import("./pages/QuickActionsPage"));
+const OfflineSyncPage = lazy(() => import("./pages/OfflineSyncPage"));
+const SetupWizardPage = lazy(() => import("./pages/SetupWizardPage"));
+const TrialSubscriptionManagementPage = lazy(() => import("./pages/TrialSubscriptionManagementPage"));
+const SupportChatPage = lazy(() => import("./pages/SupportChatPage"));
+const SupportCenterPage = lazy(() => import("./pages/SupportCenterPage"));
+const PaymentDocumentationPage = lazy(() => import("./pages/PaymentDocumentationPage"));
+const PaymentDocumentationReviewPage = lazy(() => import("./pages/PaymentDocumentationReviewPage"));
+const PlatformAnnouncementsPage = lazy(() => import("./pages/PlatformAnnouncementsPage"));
+const AdminGeneratorFeaturesPage = lazy(() => import("./pages/AdminGeneratorFeaturesPage"));
+const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
 
 function Router() {
   return (
@@ -102,7 +103,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <OfflineStatusBanner />
-          <Router />
+          <Suspense fallback={<div className="grid min-h-screen place-items-center bg-background text-foreground">جارٍ تحميل الصفحة…</div>}><Router /></Suspense>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
