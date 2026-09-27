@@ -33,11 +33,14 @@ jobs:
 
       - name: Bootstrap pnpm in runner temp
         shell: cmd
-        run: npm.cmd install --prefix "%RUNNER_TEMP%\pnpm" --no-save pnpm@10.34.5
+        run: >-
+          npm.cmd install --prefix "%RUNNER_TEMP%\pnpm" --no-save pnpm@10.34.5
 
       - name: Install dependencies
         shell: cmd
-        run: "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd --version && %RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd install --frozen-lockfile"
+        run: >-
+          "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd" --version &&
+          "%RUNNER_TEMP%\pnpm\node_modules\.bin\pnpm.cmd" install --frozen-lockfile
 
       - name: Run Supabase migration guard tests (non-blocking)
         continue-on-error: true
