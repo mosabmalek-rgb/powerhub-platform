@@ -50,16 +50,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.34.5
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+
+      - name: Install pnpm
+        run: npm install --global pnpm@10.34.5
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
