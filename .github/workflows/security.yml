@@ -55,15 +55,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: Bootstrap pnpm in runner temp
-        run: npm install --prefix "$RUNNER_TEMP/pnpm" --no-save pnpm@10.34.5
-
-      - name: Install dependencies
-        run: "$RUNNER_TEMP/pnpm/node_modules/.bin/pnpm --version && $RUNNER_TEMP/pnpm/node_modules/.bin/pnpm install --frozen-lockfile"
-
-      - name: Audit critical vulnerabilities (non-blocking)
-        continue-on-error: true
-        run: "$RUNNER_TEMP/pnpm/node_modules/.bin/pnpm audit --audit-level=critical"
+      - name: Static dependency security guard
+        run: node scripts/check-dependency-security.mjs
 
   dependency-review:
     name: Dependency review
