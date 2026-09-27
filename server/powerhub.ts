@@ -302,8 +302,11 @@ async function sendPendingInvoiceSmsRuntime(
   // Keyset pagination prevents rows from being skipped while earlier batches
   // change pending -> submitted/failed. There is intentionally no 50-row
   // product limit here.
+  // Snapshot eligible notification IDs before processing. Offset paging is used
+  // only for discovery; processing happens afterward, so status changes cannot
+  // shift later pages and cause skipped or duplicated work.
   const notificationIds: number[] = [];
-  let lastId = 0;
+  let pageOffset = 0;
   for (;;) {
     let pendingQuery = admin.from("notification_messages")
       .select("id, invoice_id, subscriber_id")
@@ -312,7 +315,7 @@ async function sendPendingInvoiceSmsRuntime(
       .eq("event_type", "invoice_issued")
       .in("status", input.includeFailed ? ["pending", "failed"] : ["pending"])
       .order("id", { ascending: true })
-      .limit(200);
+      .range(pageOffset, pageOffset + 199);
 
     if (selectedInvoiceIds?.length) pendingQuery = pendingQuery.in("invoice_id", selectedInvoiceIds);
     if (input.dueOnly) pendingQuery = pendingQuery.or("scheduled_at.is.null,scheduled_at.lte." + new Date().toISOString());
@@ -322,12 +325,8 @@ async function sendPendingInvoiceSmsRuntime(
     if (!candidateRows?.length) break;
 
     notificationIds.push(...candidateRows.map((row) => Number(row.id)).filter(Number.isInteger));
-    lastId = Number(candidateRows[candidateRows.length - 1].id);
     if (candidateRows.length < 200) break;
-    const nextIds = candidateRows.map((row) => Number(row.id)).filter(Number.isInteger);
-    const maxCandidateId = nextIds[nextIds.length - 1];
-    if (!Number.isInteger(maxCandidateId) || maxCandidateId <= lastId) break;
-    lastId = maxCandidateId;
+    pageOffset += 200;
   }
 
   if (!notificationIds.length) {
