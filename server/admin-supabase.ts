@@ -15,7 +15,7 @@ function unavailable(error: { message: string } | null) {
 
 export async function ownerOverviewFromSupabase(tenantId?: number) {
   const admin = supabaseAdmin();
-  let tenantQuery = admin.from("tenants").select("id, name, slug, status, package_code, created_at, updated_at").order("created_at", { ascending: false });
+  let tenantQuery = admin.from("tenants").select("id, name, slug, status, created_at, updated_at").order("created_at", { ascending: false });
   if (tenantId) tenantQuery = tenantQuery.eq("id", tenantId);
   const { data: tenantRows, error: tenantsError } = await tenantQuery;
   if (tenantsError) unavailable(tenantsError);
