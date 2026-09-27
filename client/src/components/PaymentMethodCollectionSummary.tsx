@@ -1,7 +1,8 @@
 import { formatReportDate } from "@/lib/report-design-system";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import ExcelJS from "exceljs";
+import { loadExcelJS } from "@/lib/lazy-report-deps";
+import type { Row, Worksheet } from "exceljs";
 import { Download, FileSpreadsheet, Loader2, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -40,7 +41,7 @@ export function buildPaymentMethodCsv(groups: MethodGroup[], total: number, sele
   return `\uFEFF${lines.map((line) => line.map(escapeCsv).join(",")).join("\r\n")}`;
 }
 
-function styleHeader(row: ExcelJS.Row, columns: number) {
+function styleHeader(row: Row, columns: number) {
   row.height = 24;
   for (let index = 1; index <= columns; index += 1) {
     const cell = row.getCell(index);
@@ -51,7 +52,7 @@ function styleHeader(row: ExcelJS.Row, columns: number) {
   }
 }
 
-function styleDataRows(sheet: ExcelJS.Worksheet, start: number, end: number, columns: number) {
+function styleDataRows(sheet: Worksheet, start: number, end: number, columns: number) {
   for (let rowIndex = start; rowIndex <= end; rowIndex += 1) {
     const row = sheet.getRow(rowIndex);
     row.height = 21;
@@ -72,7 +73,7 @@ function receiptLink(row: any, baseUrl: string) {
   return "";
 }
 
-function styleSubtotalRow(row: ExcelJS.Row, columns: number) {
+function styleSubtotalRow(row: Row, columns: number) {
   row.height = 23;
   for (let colIndex = 1; colIndex <= columns; colIndex += 1) {
     const cell = row.getCell(colIndex);
@@ -83,8 +84,8 @@ function styleSubtotalRow(row: ExcelJS.Row, columns: number) {
   }
 }
 
-export function buildPaymentMethodWorkbook(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange = {}, paymentRows: any[] = [], baseUrl = "") {
-  const workbook = new ExcelJS.Workbook();
+export async function buildPaymentMethodWorkbook(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange = {}, paymentRows: any[] = [], baseUrl = "") {
+  const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
   workbook.creator = "PowerHub";
   workbook.created = new Date();
   const summary = workbook.addWorksheet("ملخص التحصيل", { views: [{ rightToLeft: true }] });
@@ -144,7 +145,7 @@ export function buildPaymentMethodWorkbook(groups: MethodGroup[], total: number,
 }
 
 function downloadPaymentMethodCsv(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange) { const methodLabel = selectedMethod === "all" ? "all-methods" : selectedMethod; const dateSuffix = range.from || range.to ? `-${range.from || "start"}-${range.to || "end"}` : ""; const blob = new Blob([buildPaymentMethodCsv(groups, total, selectedMethod, range)], { type: "text/csv;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `powerhub-payment-method-summary-${methodLabel}${dateSuffix}.csv`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); }
-async function downloadPaymentMethodExcel(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange, paymentRows: any[]) { const methodLabel = selectedMethod === "all" ? "all-methods" : selectedMethod; const dateSuffix = range.from || range.to ? `-${range.from || "start"}-${range.to || "end"}` : ""; const workbook = buildPaymentMethodWorkbook(groups, total, selectedMethod, range, paymentRows, window.location.origin); const buffer = await workbook.xlsx.writeBuffer(); const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `powerhub-payment-method-summary-${methodLabel}${dateSuffix}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); }
+async function downloadPaymentMethodExcel(groups: MethodGroup[], total: number, selectedMethod: string, range: PaymentDateRange, paymentRows: any[]) { const methodLabel = selectedMethod === "all" ? "all-methods" : selectedMethod; const dateSuffix = range.from || range.to ? `-${range.from || "start"}-${range.to || "end"}` : ""; const workbook = await buildPaymentMethodWorkbook(groups, total, selectedMethod, range, paymentRows, window.location.origin); const buffer = await workbook.xlsx.writeBuffer(); const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `powerhub-payment-method-summary-${methodLabel}${dateSuffix}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); }
 
 function PaymentMethodChart({ groups, total }: { groups: MethodGroup[]; total: number }) { return <div className="rounded-2xl border border-white/8 bg-[#0D1117]/45 p-4"><div className="flex items-center justify-between"><div><p className="font-bold text-white">توزيع التحصيلات حسب الطريقة</p><p className="mt-1 text-xs text-slate-500">نسبة كل طريقة من إجمالي الفترة المفلترة.</p></div><span className="font-display text-sm text-[#F5B800]">100%</span></div>{groups.length ? <div className="mt-5"><div aria-label="رسم أعمدة توزيع طرق الدفع" className="flex h-44 items-end gap-3 border-b border-white/10 px-2 pb-2">{groups.map((group, index) => { const percentage = total ? Math.round((group.amount / total) * 100) : 0; return <div key={group.method} className="flex h-full min-w-14 flex-1 flex-col items-center justify-end gap-2"><span className="text-xs font-bold text-white">{percentage}%</span><div title={`${labels[group.method] ?? group.method}: ${percentage}%`} className="w-full max-w-14 rounded-t-lg transition-[height] duration-200" style={{ height: `${Math.max(8, percentage)}%`, backgroundColor: chartColors[index % chartColors.length] }} /><span className="max-w-16 truncate text-[10px] text-slate-400">{labels[group.method] ?? group.method}</span></div>; })}</div><div className="mt-4 grid gap-2 sm:grid-cols-2">{groups.map((group, index) => <div key={group.method} className="flex items-center justify-between rounded-lg bg-white/[.025] px-3 py-2 text-xs"><span className="flex items-center gap-2 text-slate-300"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: chartColors[index % chartColors.length] }} />{labels[group.method] ?? group.method}</span><span className="font-bold text-white">{format(group.amount)}</span></div>)}</div></div> : <p className="mt-5 text-sm text-slate-500">لا توجد بيانات مكتملة ضمن الفترة المختارة لعرض الرسم.</p>}</div>; }
 

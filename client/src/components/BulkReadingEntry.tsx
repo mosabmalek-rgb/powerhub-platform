@@ -1,4 +1,4 @@
-import ExcelJS from "exceljs";
+import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { prepareBulkReadings, type BulkReadingDraft } from "@/lib/bulk-reading-import";
@@ -23,7 +23,7 @@ export default function BulkReadingEntry({ siteId, subscribers, readings, onSave
     if (!file.name.toLowerCase().endsWith(".xlsx")) { toast.error("استخدم ملف Excel بصيغة .xlsx فقط."); return; }
     setIsParsing(true);
     try {
-      const workbook = new ExcelJS.Workbook();
+      const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(await file.arrayBuffer());
       const sheet = workbook.worksheets[0];
       if (!sheet) throw new Error("لا توجد ورقة بيانات في الملف.");
@@ -45,7 +45,7 @@ export default function BulkReadingEntry({ siteId, subscribers, readings, onSave
   };
   const downloadTemplate = async () => {
     try {
-      const workbook = new ExcelJS.Workbook();
+      const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
       workbook.creator = "PowerHub";
       const sheet = workbook.addWorksheet("قراءات جماعية", { views: [{ rightToLeft: true }] });
       sheet.addRow(["الرقم المرجعي", "القراءة الحالية", "تاريخ القراءة", "ملاحظات"]);
