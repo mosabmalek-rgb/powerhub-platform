@@ -8,6 +8,10 @@ alter table public.powerhub_invoice_sequences
 alter table public.powerhub_invoice_sequences
   add constraint powerhub_invoice_sequences_next_sequence_check check (next_sequence > 0);
 
+alter table public.powerhub_invoice_sequences enable row level security;
+revoke all on table public.powerhub_invoice_sequences from public, anon, authenticated;
+grant select, insert, update on table public.powerhub_invoice_sequences to service_role;
+
 
   create or replace function public.powerhub_issue_invoice_from_reading(
   p_tenant_id bigint,
@@ -98,7 +102,7 @@ revoke execute on function public.powerhub_issue_invoice_from_reading(bigint,big
 grant execute on function public.powerhub_issue_invoice_from_reading(bigint,bigint,bigint,bigint,bigint,text,timestamptz,numeric,uuid) to service_role;
 
 
--- The mobile approval path uses the same allocator; no COUNT(*) or advisory site-period lock.
+-- The mobile approval path uses the same allocator and does not count invoice rows.
 create or replace function public.powerhub_approve_and_issue_mobile_reading(
   p_tenant_id bigint,
   p_site_id bigint,

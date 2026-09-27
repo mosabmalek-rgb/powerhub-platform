@@ -42,4 +42,11 @@ describe("Supabase Storage adapter", () => {
 
     await expect(storageGetSignedUrl("receipt.jpg")).rejects.toThrow("Supabase Storage signing failed: denied");
   });
+
+  it.each(["../secret.jpg", "tenant/../../secret.jpg", "tenant\\secret.jpg", "./receipt.jpg"])("rejects unsafe storage key %s", async (key) => {
+    const { storageGetSignedUrl } = await import("./storage");
+
+    await expect(storageGetSignedUrl(key)).rejects.toThrow("Storage key is invalid");
+    expect(createSignedUrl).not.toHaveBeenCalled();
+  });
 });
