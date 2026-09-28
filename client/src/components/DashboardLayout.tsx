@@ -297,7 +297,7 @@ function DashboardLayoutContent({
                     </SidebarContent>
 
           <SidebarFooter className="border-t border-white/8 p-3">
-            <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+            <div className={`flex items-center gap-2 group-data-[collapsible=icon]:justify-center ${isCollapsed ? "flex-col-reverse gap-1.5" : ""}`}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
