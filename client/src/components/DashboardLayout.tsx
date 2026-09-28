@@ -362,13 +362,13 @@ function DashboardLayoutContent({
 
       <SidebarInset>
         {isMobile && (
-          <div className="flex h-14 items-center justify-between border-b border-white/8 bg-[#0D1117]/95 px-2 backdrop-blur sticky top-0 z-40">
+          <div className="flex h-16 items-center justify-between border-b border-[#F5B800]/20 bg-gradient-to-l from-[#F5B800]/40 via-[#F5B800]/15 to-[#0D1117]/95 px-2 backdrop-blur sticky top-0 z-40">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  {tenantDisplayName ? <span className="truncate text-[11px] font-bold text-[#F5B800]">{tenantDisplayName}</span> : null}
-                  <span className="truncate tracking-tight text-foreground">
+                  {tenantDisplayName ? <span className="truncate text-base font-extrabold text-[#F5B800]">{tenantDisplayName}</span> : null}
+                  <span className="truncate text-base font-medium tracking-tight text-foreground">
                     {activeMenuItem?.label ?? "لوحة التحكم"}
                   </span>
                 </div>
@@ -404,11 +404,11 @@ function DashboardLayoutContent({
           </div>
         )}
         {!isMobile && user?.role !== "admin" ? (
-          <header className="sticky top-0 z-30 border-b border-white/8 bg-[#0D1117]/95 px-4 py-3 backdrop-blur sm:px-6" dir="rtl">
+          <header className="sticky top-0 z-30 border-b border-[#F5B800]/25 bg-gradient-to-l from-[#F5B800]/40 via-[#F5B800]/15 to-[#0D1117]/95 px-4 py-4 backdrop-blur sm:px-6" dir="rtl">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
               <div className="min-w-0">
-                <div className="truncate text-sm font-extrabold text-[#F5B800]">{tenantDisplayName ?? "مساحة المولد"}</div>
-                <div className="mt-0.5 truncate text-xs text-slate-400">{activeMenuItem?.label ?? "لوحة التحكم"}</div>
+                <div className="truncate text-xl font-extrabold leading-tight text-[#F5B800]">{tenantDisplayName ?? "مساحة المولد"}</div>
+                <div className="mt-1 truncate text-base font-medium text-slate-300">{activeMenuItem?.label ?? "لوحة التحكم"}</div>
               </div>
               <div className="shrink-0 text-xs text-slate-500">{displayUser.name || ""}</div>
             </div>
