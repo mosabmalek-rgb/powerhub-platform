@@ -7,11 +7,6 @@ function rateLimitSecret() {
 }
 
 export function getClientIp(req: Pick<Request, "ip" | "headers" | "socket">): string {
-  const forwardedFor = req.headers["x-forwarded-for"];
-  if (typeof forwardedFor === "string" && forwardedFor.trim()) {
-    return forwardedFor.split(",")[0]?.trim() || "unknown";
-  }
-  if (Array.isArray(forwardedFor) && forwardedFor[0]?.trim()) return forwardedFor[0].trim();
   return req.ip?.trim() || req.socket.remoteAddress?.trim() || "unknown";
 }
 
