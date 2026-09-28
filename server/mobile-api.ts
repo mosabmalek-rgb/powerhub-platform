@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { storagePut } from "./storage";
 import { supabaseAdmin } from "./supabase-admin";
+import { consumeHttpRateLimit, getClientIp } from "./http-rate-limit";
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
@@ -223,6 +224,29 @@ async function writeAudit(input: { tenantId: number; branchId: number; userId: n
 export function registerMobileApi(app: Express) {
   app.post("/api/mobile/v1/auth/login", async (req, res) => {
     const parsed = mobileLoginSchema.safeParse(req.body);
+    const ip = getClientIp(req);
+    const loginIpAllowed = await consumeHttpRateLimit({
+      req,
+      scope: "mobile-login-ip",
+      windowSeconds: 600,
+      maxAttempts: 20,
+    });
+    if (!loginIpAllowed) {
+      res.setHeader("Retry-After", "600");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد محاولات تسجيل الدخول المسموح بها. حاول لاحقاً.", true);
+    }
+    if (!parsed.success) return sendError(res, 400, "INVALID_LOGIN_INPUT", "بيانات الدخول غير صالحة.");
+    const emailKeyAllowed = await consumeHttpRateLimit({
+      req,
+      scope: "mobile-login-email-ip",
+      keyMaterial: `${parsed.data.email.trim().toLowerCase()}|${ip}`,
+      windowSeconds: 900,
+      maxAttempts: 8,
+    });
+    if (!emailKeyAllowed) {
+      res.setHeader("Retry-After", "900");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد محاولات تسجيل الدخول لهذا الحساب. حاول لاحقاً.", true);
+    }
     if (!parsed.success) return sendError(res, 400, "INVALID_LOGIN_INPUT", "بيانات الدخول غير صالحة.");
     const url = process.env.VITE_SUPABASE_URL;
     const key = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -244,19 +268,25 @@ export function registerMobileApi(app: Express) {
   });
 
   app.post("/api/mobile/v1/auth/refresh", async (req, res) => {
+    const allowed = await consumeHttpRateLimit({ req, scope: "mobile-refresh-ip", windowSeconds: 300, maxAttempts: 30 });
+    if (!allowed) {
+      res.setHeader("Retry-After", "300");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد محاولات تجديد الجلسة. حاول لاحقاً.", true);
+    }
     const parsed = refreshSchema.safeParse(req.body);
     if (!parsed.success) return sendError(res, 400, "INVALID_REFRESH_TOKEN", "رمز التجديد غير صالح.");
-    const admin = supabaseAdmin();
-    const { data: session, error } = await admin.from("mobile_api_sessions").select("id, user_id, tenant_id")
-      .eq("refresh_token_hash", hashMobileToken(parsed.data.refreshToken)).is("revoked_at", null).gt("expires_at", isoNow()).maybeSingle();
-    if (error) return sendSupabaseError(res, error);
-    if (!session) return sendError(res, 401, "REFRESH_TOKEN_EXPIRED", "انتهت جلسة الموبايل. سجّل الدخول مجدداً.");
     try {
+      const refreshToken = newRefreshToken();
+      const { data: rows, error } = await supabaseAdmin().rpc("powerhub_mobile_rotate_refresh_session", {
+        p_old_refresh_token_hash: hashMobileToken(parsed.data.refreshToken),
+        p_new_refresh_token_hash: hashMobileToken(refreshToken),
+        p_now: isoNow(),
+      });
+      if (error) return sendSupabaseError(res, error);
+      const session = Array.isArray(rows) ? rows[0] : rows;
+      if (!session) return sendError(res, 401, "REFRESH_TOKEN_EXPIRED", "انتهت جلسة الموبايل. سجّل الدخول مجدداً.");
       const scope = await resolveMobileScope(toNumber(session.user_id), toNumber(session.tenant_id));
       if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يمكن متابعة جلسة هذا الحساب.");
-      const refreshToken = newRefreshToken();
-      const { error: updateError } = await admin.from("mobile_api_sessions").update({ refresh_token_hash: hashMobileToken(refreshToken), last_used_at: isoNow() }).eq("id", session.id);
-      if (updateError) return sendSupabaseError(res, updateError);
       return res.json({ accessToken: await issueAccessToken({ userId: scope.userId, tenantId: scope.tenantId, sessionId: toNumber(session.id) }), refreshToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, user: mobileUserPayload(scope) });
     } catch (scopeError) {
       return sendSupabaseError(res, scopeError instanceof Error ? scopeError : null);
