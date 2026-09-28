@@ -252,7 +252,7 @@ function DashboardLayoutContent({
                 <TooltipTrigger asChild>
                   <button
                     onClick={toggleSidebar}
-                    className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-[#F5B800] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] shrink-0"
+                    className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-[#ffbf00] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] shrink-0"
                     aria-label={isCollapsed ? "توسيع القائمة الجانبية" : "طي القائمة الجانبية"}
                   >
                     <PanelLeft className="h-4 w-4 text-muted-foreground" />
@@ -307,7 +307,7 @@ function DashboardLayoutContent({
                     className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-right transition-colors hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:justify-center"
                   >
                     <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
-                      <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
+                      <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#ffbf00]">
                         {displayUser.name?.charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
@@ -326,7 +326,7 @@ function DashboardLayoutContent({
                     onClick={() => toggleTheme?.()}
                     className="cursor-pointer text-slate-200 focus:text-white"
                   >
-                    {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#F5B800]" /> : <Moon className="mr-2 h-4 w-4 text-[#F5B800]" />}
+                    {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#ffbf00]" /> : <Moon className="mr-2 h-4 w-4 text-[#ffbf00]" />}
                     <span>{theme === "dark" ? "التبديل إلى الوضع النهاري" : "التبديل إلى الوضع الليلي"}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -362,12 +362,12 @@ function DashboardLayoutContent({
 
       <SidebarInset>
         {isMobile && (
-          <div className="flex h-16 items-center justify-between border-b border-[#F5B81A]/30 bg-[#F5B81A]/40 px-2 backdrop-blur sticky top-0 z-40">
+          <div className="flex h-16 items-center justify-between border-b border-[#ffbf00]/30 bg-[#ffbf00]/40 px-2 backdrop-blur sticky top-0 z-40">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  {tenantDisplayName ? <span className="truncate text-base font-extrabold text-[#F5B800]">{tenantDisplayName}</span> : null}
+                  {tenantDisplayName ? <span className="truncate text-base font-extrabold text-[#ffbf00]">{tenantDisplayName}</span> : null}
                   <span className="truncate text-base font-medium tracking-tight text-foreground">
                     {activeMenuItem?.label ?? "لوحة التحكم"}
                   </span>
@@ -386,7 +386,7 @@ function DashboardLayoutContent({
                 {latestAnnouncements.length ? latestAnnouncements.map((item) => <DropdownMenuItem key={item.id} onClick={() => setLocation("/announcements")} className="cursor-pointer items-start gap-2 whitespace-normal py-3 focus:bg-white/5">
                   <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate font-bold">{item.title}</span>{!item.readAt ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#F5B800]" /> : null}</div><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{item.body}</p></div>
                 </DropdownMenuItem>) : <div className="px-4 py-6 text-center text-xs text-slate-500">لا توجد إشعارات جديدة.</div>}
-                <button type="button" onClick={() => setLocation("/announcements")} className="w-full border-t border-white/8 px-3 py-3 text-center text-xs font-bold text-[#F5B800] hover:bg-white/5">عرض جميع الإشعارات</button>
+                <button type="button" onClick={() => setLocation("/announcements")} className="w-full border-t border-white/8 px-3 py-3 text-center text-xs font-bold text-[#ffbf00] hover:bg-white/5">عرض جميع الإشعارات</button>
               </DropdownMenuContent>
             </DropdownMenu>
             <button
@@ -404,10 +404,10 @@ function DashboardLayoutContent({
           </div>
         )}
         {!isMobile && user?.role !== "admin" ? (
-          <header className="sticky top-0 z-30 border-b border-[#F5B81A]/35 bg-[#F5B81A]/40 px-4 py-4 backdrop-blur sm:px-6" dir="rtl">
+          <header className="sticky top-0 z-30 border-b border-[#ffbf00]/35 bg-[#ffbf00]/40 px-4 py-4 backdrop-blur sm:px-6" dir="rtl">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
               <div className="min-w-0">
-                <div className="truncate text-xl font-extrabold leading-tight text-[#F5B800]">{tenantDisplayName ?? "مساحة المولد"}</div>
+                <div className="truncate text-xl font-extrabold leading-tight text-[#ffbf00]">{tenantDisplayName ?? "مساحة المولد"}</div>
                 <div className="mt-1 truncate text-base font-medium text-slate-300">{activeMenuItem?.label ?? "لوحة التحكم"}</div>
               </div>
               <div className="shrink-0 text-xs text-slate-500">{displayUser.name || ""}</div>
