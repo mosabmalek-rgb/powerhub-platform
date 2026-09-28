@@ -362,7 +362,7 @@ function DashboardLayoutContent({
 
       <SidebarInset>
         {isMobile && (
-          <div className="flex h-16 items-center justify-between border-b border-black bg-[#f5b800] px-2 backdrop-blur sticky top-0 z-40">
+          <div className="flex h-16 items-center justify-between border-b border-black bg-[#d6a204] px-2 backdrop-blur sticky top-0 z-40">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
               <div className="flex min-w-0 items-center gap-3">
@@ -404,7 +404,7 @@ function DashboardLayoutContent({
           </div>
         )}
         {!isMobile && user?.role !== "admin" ? (
-          <header className="sticky top-0 z-30 border-b border-black bg-[#f5b800] px-4 py-4 backdrop-blur sm:px-6" dir="rtl">
+          <header className="sticky top-0 z-30 border-b border-black bg-[#d6a204] px-4 py-4 backdrop-blur sm:px-6" dir="rtl">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
               <div className="min-w-0">
                 <div className="truncate text-xl font-extrabold leading-tight text-[#ffbf00] [text-shadow:-1px_-1px_0_#000,1px_-1px_0_#000,-1px_1px_0_#000,1px_1px_0_#000]">{tenantDisplayName ?? "مساحة المولد"}</div>
