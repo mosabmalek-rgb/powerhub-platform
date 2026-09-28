@@ -36,7 +36,7 @@ async function tenantFeatureSnapshot(tenantId: number) {
   return {
     tenant: tenantResult.data ? { id:Number(tenantResult.data.id), name:tenantResult.data.name, slug:tenantResult.data.slug, status:tenantResult.data.status } : null,
     owner: ownerResult.data ? { fullName:ownerResult.data.full_name, phone:ownerResult.data.phone, email:ownerResult.data.email, companyName:ownerResult.data.company_name, userId:ownerResult.data.owner_user_id ? Number(ownerResult.data.owner_user_id) : null } : null,
-    subscription: subscription ? { id:Number(subscription.id), packageCode:subscription.package_code, status:subscription.status, startedAt:subscription.started_at, endsAt:subscription.ends_at, billingCycle:subscription.billing_cycle } : null,
+    subscription: subscription ? { id:Number(subscription.id), packageCode:subscription.package_code, status:subscription.status, startedAt:subscription.started_at, endsAt:subscription.ends_at, billingCycle:subscription.billing_cycle, isEffectivelyActive: ["trial","active"].includes(String(subscription.status)) && (!subscription.ends_at || new Date(subscription.ends_at).getTime() > Date.now()) } : null,
     usage: {
       subscribers: Number(subscribersResult.count ?? 0),
       branches: Number(sitesResult.count ?? 0),
