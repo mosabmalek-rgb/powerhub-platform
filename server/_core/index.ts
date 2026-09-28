@@ -34,6 +34,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 export function createPowerHubApp() {
   const app = express();
   app.disable("x-powered-by");
+  app.set("trust proxy", 1);
   app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -51,8 +52,8 @@ export function createPowerHubApp() {
     return next();
   });
   // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb", verify: (req, _res, buffer) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buffer; } }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use(express.json({ limit: "15mb", verify: (req, _res, buffer) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buffer; } }));
+  app.use(express.urlencoded({ limit: "2mb", extended: true }));
   app.get("/api/health", healthHandler);
   app.get("/api/ready", readinessHandler);
   registerBrandAssetProxy(app);
