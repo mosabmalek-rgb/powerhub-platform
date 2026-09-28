@@ -169,7 +169,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     state.filters.splice(0);
     const caller = adminRouter.createCaller(adminContext());
     await expect(caller.listTenantBranchSettings()).resolves.toMatchObject([{ tenantId: 20, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار", maxBranchesOverride: 3, currentBranchCount: 1 }]);
-    expect(state.calls).toEqual(["tenants", "tenant_owner_profiles", "tenant_branch_settings", "sites"]);
+    expect(state.calls).toEqual(["tenants", "tenant_subscriptions", "tenant_owner_profiles", "tenant_branch_settings", "sites"]);
     expect(state.filters).toEqual([["sites", "status", "archived"]]);
   });
 

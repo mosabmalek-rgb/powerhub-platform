@@ -659,15 +659,14 @@ export const powerhubRouter = router({
     allowedSubaccountRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const admin = supabaseAdmin();
-      const [subscriptionResult, tenantResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult] = await Promise.all([
+      const [subscriptionResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult] = await Promise.all([
         admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).maybeSingle(),
-        admin.from("tenants").select("package_code").eq("id", access.tenantId).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key", "owner_subaccount_roles").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_subaccount_limits").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
         admin.from("tenant_members").select("user_id").eq("tenant_id", access.tenantId).eq("role", "member").eq("is_active", true).eq("membership_status", "active"),
       ]);
-      if (subscriptionResult.error || tenantResult.error || rolesPolicyResult.error || limitsPolicyResult.error || overridesResult.error || membersResult.error) {
+      if (subscriptionResult.error || rolesPolicyResult.error || limitsPolicyResult.error || overridesResult.error || membersResult.error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحسابات الفرعية من Supabase." });
       }
       const plan = subscriptionResult.data?.package_code;
