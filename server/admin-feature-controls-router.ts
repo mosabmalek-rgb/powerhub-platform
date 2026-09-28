@@ -20,7 +20,7 @@ async function tenantFeatureSnapshot(tenantId: number) {
   const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult] = await Promise.all([
     admin.from("tenants").select("id,name,status,slug").eq("id",tenantId).maybeSingle(),
     admin.from("tenant_owner_profiles").select("tenant_id,owner_user_id,full_name,phone,email,company_name").eq("tenant_id",tenantId).maybeSingle(),
-    admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).in("status",["trial","active"]).order("created_at",{ascending:false}).limit(1).maybeSingle(),
+    admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
     admin.from("sites").select("id,status",{count:"exact",head:true}).eq("tenant_id",tenantId),
     admin.from("subscribers").select("id",{count:"exact",head:true}).eq("tenant_id",tenantId),
     admin.from("tenant_members").select("user_id,role,is_active,membership_status").eq("tenant_id",tenantId),
@@ -68,7 +68,7 @@ export const adminFeatureControlsRouter = router({
       // Subscription is the source of truth for the current package.
       admin.from("tenants").select("id,name,status,slug").order("name", { ascending: true }).limit(500),
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
-      admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").in("status", ["trial", "active"]).order("created_at", { ascending: false }).limit(1000),
+      admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").order("created_at", { ascending: false }).limit(1000),
       admin.from("sites").select("id,tenant_id,status").limit(5000),
       admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(5000),
       admin.from("subscribers").select("tenant_id").limit(10000),
