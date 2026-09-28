@@ -297,14 +297,14 @@ function DashboardLayoutContent({
                     </SidebarContent>
 
           <SidebarFooter className="border-t border-white/8 p-3">
-            <div className={`flex items-center gap-2 group-data-[collapsible=icon]:justify-center ${isCollapsed ? "flex-col-reverse gap-1.5" : ""}`}>
+            <div className={isCollapsed ? "flex flex-col-reverse items-center gap-1.5" : "flex items-center gap-2"}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
                     aria-label="فتح قائمة الحساب الشخصي"
                     title="فتح قائمة الحساب الشخصي"
-                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-right transition-colors hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:justify-center"
+                    className={isCollapsed ? "flex h-9 w-9 flex-none items-center justify-center rounded-lg p-0 text-right transition-colors hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800]" : "flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-right transition-colors hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800]"}
                   >
                     <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
                       <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#ffbf00]">
@@ -341,7 +341,7 @@ function DashboardLayoutContent({
                     }}
                     disabled={!user}
                     aria-label="تسجيل الخروج"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-rose-300 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40 group-data-[collapsible=icon]:h-9 group-data-[collapsible=icon]:w-9"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-rose-300 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <LogOut className="h-4 w-4" />
                   </button>
