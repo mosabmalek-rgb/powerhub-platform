@@ -124,16 +124,42 @@ export const platformAnnouncementsRouter = router({
       const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
       if (account.platform_role) roles.add(account.platform_role);
       await admin.from("platform_announcements").update({ status: "published", published_at: new Date().toISOString(), scheduled_at: null }).eq("status", "scheduled").lte("scheduled_at", new Date().toISOString());
-      const { data, error } = await admin
-        .from("platform_announcements")
-         .select("id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at,audience_roles,tenant_id")
-        .eq("status", "published")
-        .not("published_at", "is", null)
-        .lte("published_at", new Date().toISOString())
-        .order("published_at", { ascending: false })
-        .limit(100);
-      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الإشعارات الداخلية." });
-      const visible = (data ?? []).filter((row) => (row.tenant_id == null || tenantIds.has(Number(row.tenant_id))) && (row.audience_roles?.includes("all") || row.audience_roles?.some((r: string) => roles.has(r))));
+      const baseSelect = "id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at,audience_roles,tenant_id";
+      const effectiveRoles = Array.from(new Set(["all", ...roles]));
+      const queryVisibleAnnouncements = async (tenantFilter: "global" | "memberships", role: string) => {
+        let query = admin
+          .from("platform_announcements")
+          .select(baseSelect)
+          .eq("status", "published")
+          .not("published_at", "is", null)
+          .lte("published_at", new Date().toISOString())
+          .contains("audience_roles", [role])
+          .order("published_at", { ascending: false })
+          .limit(100);
+        if (tenantFilter === "global") {
+          query = query.is("tenant_id", null);
+        } else if (tenantIds.size) {
+          query = query.in("tenant_id", Array.from(tenantIds));
+        } else {
+          return { data: [], error: null };
+        }
+        return query;
+      };
+
+      const [globalResults, tenantResults] = await Promise.all([
+        Promise.all(effectiveRoles.map((role) => queryVisibleAnnouncements("global", role))),
+        Promise.all(effectiveRoles.map((role) => queryVisibleAnnouncements("memberships", role))),
+      ]);
+      const firstError = [...globalResults, ...tenantResults].find((result) => result.error)?.error;
+      if (firstError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الإشعارات الداخلية." });
+
+      const visibleById = new Map<number, any>();
+      for (const result of [...globalResults, ...tenantResults]) {
+        for (const row of result.data ?? []) visibleById.set(Number(row.id), row);
+      }
+      const visible = Array.from(visibleById.values())
+        .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at))
+        .slice(0, 100);
       const ids = visible.map((row) => Number(row.id));
       const reads = ids.length
         ? await supabaseAdmin().from("platform_announcement_reads").select("announcement_id,read_at").eq("user_id", ctx.user.id).in("announcement_id", ids)
