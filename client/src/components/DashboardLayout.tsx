@@ -168,6 +168,7 @@ function DashboardLayoutContent({
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
+  const [sidebarToggleTooltipOpen, setSidebarToggleTooltipOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const platformRoleLabel = ({ platform_owner: "مالك المنصة", platform_admin: "مشرف المنصة", finance_admin: "مشرف مالي", platform_support: "موظف دعم" } as const)[user?.platformRole ?? "platform_admin"];
   const accountRoleLabel = user ? (user.role === "admin" ? platformRoleLabel : "مساحة تشغيل المولد") : "وضع معاينة آمن";
@@ -206,6 +207,18 @@ function DashboardLayoutContent({
       setIsResizing(false);
     }
   }, [isCollapsed]);
+
+  useEffect(() => {
+    const closeTooltip = () => setSidebarToggleTooltipOpen(false);
+
+    document.addEventListener("visibilitychange", closeTooltip);
+    window.addEventListener("blur", closeTooltip);
+
+    return () => {
+      document.removeEventListener("visibilitychange", closeTooltip);
+      window.removeEventListener("blur", closeTooltip);
+    };
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -248,10 +261,13 @@ function DashboardLayoutContent({
         >
           <SidebarHeader className="h-[88px] justify-center border-b border-white/8">
             <div className="flex items-center gap-3 px-2 transition-all w-full">
-              <Tooltip>
+              <Tooltip open={sidebarToggleTooltipOpen} onOpenChange={setSidebarToggleTooltipOpen}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={toggleSidebar}
+                    onClick={() => {
+                      setSidebarToggleTooltipOpen(false);
+                      toggleSidebar();
+                    }}
                     className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-[#ffbf00] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] shrink-0"
                     aria-label={isCollapsed ? "توسيع القائمة الجانبية" : "طي القائمة الجانبية"}
                   >
