@@ -362,12 +362,12 @@ function DashboardLayoutContent({
 
       <SidebarInset>
         {isMobile && (
-          <div className="flex h-16 items-center justify-between border-b border-[#ffbf00]/30 bg-[#ffbf00]/40 px-2 backdrop-blur sticky top-0 z-40">
+          <div className="flex h-16 items-center justify-between border-b border-black bg-[#ffbf00] px-2 backdrop-blur sticky top-0 z-40">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  {tenantDisplayName ? <span className="truncate text-base font-extrabold text-[#ffbf00]">{tenantDisplayName}</span> : null}
+                  {tenantDisplayName ? <span className="truncate text-base font-extrabold text-[#ffbf00] [text-shadow:-1px_-1px_0_#000,1px_-1px_0_#000,-1px_1px_0_#000,1px_1px_0_#000]">{tenantDisplayName}</span> : null}
                   <span className="truncate text-base font-medium tracking-tight text-foreground">
                     {activeMenuItem?.label ?? "لوحة التحكم"}
                   </span>
@@ -404,10 +404,10 @@ function DashboardLayoutContent({
           </div>
         )}
         {!isMobile && user?.role !== "admin" ? (
-          <header className="sticky top-0 z-30 border-b border-[#ffbf00]/35 bg-[#ffbf00]/40 px-4 py-4 backdrop-blur sm:px-6" dir="rtl">
+          <header className="sticky top-0 z-30 border-b border-black bg-[#ffbf00] px-4 py-4 backdrop-blur sm:px-6" dir="rtl">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
               <div className="min-w-0">
-                <div className="truncate text-xl font-extrabold leading-tight text-[#ffbf00]">{tenantDisplayName ?? "مساحة المولد"}</div>
+                <div className="truncate text-xl font-extrabold leading-tight text-[#ffbf00] [text-shadow:-1px_-1px_0_#000,1px_-1px_0_#000,-1px_1px_0_#000,1px_1px_0_#000]">{tenantDisplayName ?? "مساحة المولد"}</div>
                 <div className="mt-1 truncate text-base font-medium text-slate-300">{activeMenuItem?.label ?? "لوحة التحكم"}</div>
               </div>
               <div className="shrink-0 text-xs text-slate-500">{displayUser.name || ""}</div>
