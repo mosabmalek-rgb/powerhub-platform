@@ -410,7 +410,7 @@ function DashboardLayoutContent({
                 <div className="truncate text-xl font-extrabold leading-tight tracking-tight text-[#111827]" style={{ WebkitTextStroke: "0px transparent", textShadow: "none" }}>{tenantDisplayName ?? "مساحة المولد"}</div>
                 <div className="mt-1 truncate text-sm font-semibold tracking-tight text-[#292524]">{activeMenuItem?.label ?? "لوحة التحكم"}</div>
               </div>
-              <div className="shrink-0 text-xs font-medium text-[#3f3f46]">{displayUser.name || ""}</div>
+              <div className="shrink-0 text-xs font-medium text-[#292524]">{displayUser.name || ""}</div>
             </div>
           </header>
         ) : null}
