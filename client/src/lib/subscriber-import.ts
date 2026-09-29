@@ -6,8 +6,9 @@ export type SubscriberImportDraft = {
   fullName: string;
   phone: string;
   whatsappNumber?: string;
-  address: string;
-  subscriptionType: string;
+  address: string;  subscriptionType: string;
+  openingReading?: string;
+  openingReadingAt?: string;
 };
 
 export type PreparedSubscriberImportRow = SubscriberImportDraft & {
