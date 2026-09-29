@@ -19,6 +19,7 @@ describe("opening subscriber readings contract", () => {
     expect(migration).toContain("powerhub_resolve_tenant_feature_policy");
     expect(migration).toContain("'subscriber_import'");
     expect(migration).toContain("'bulk_import'");
+    expect(migration).toContain("format('%s:opening:%s',trim(p_client_operation_id),n)");
     expect(migration).toContain("p_request_fingerprint text");
     expect(migration).toContain("return query select out_created,out_updated,out_failed,false");
   });
