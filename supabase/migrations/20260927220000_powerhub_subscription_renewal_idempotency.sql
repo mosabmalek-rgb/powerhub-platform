@@ -28,12 +28,14 @@ create or replace function public.powerhub_admin_renew_subscription_with_addons(
   p_actor_user_id bigint,
   p_subscription_id bigint,
   p_new_ends_at timestamptz,
+  p_package_code text,
   p_addon_decisions jsonb,
   p_request_key uuid
 )
 returns table(
   success boolean,
   ends_at timestamptz,
+  package_code text,
   renewed_addons integer,
   expired_addons integer
 )
@@ -64,6 +66,7 @@ begin
   v_fingerprint := jsonb_build_object(
     'subscriptionId', p_subscription_id,
     'endsAt', p_new_ends_at,
+    'packageCode', p_package_code,
     'addonDecisions', coalesce(p_addon_decisions,'[]'::jsonb)
   );
 
@@ -98,7 +101,9 @@ begin
        or v_existing.request_fingerprint<>v_fingerprint then
       raise exception 'RENEWAL_REQUEST_KEY_REUSED' using errcode='P0001';
     end if;
-    return query select true,v_existing.ends_at,v_existing.renewed_addons,v_existing.expired_addons;
+    return query select true,v_existing.ends_at,
+  (v_existing.request_fingerprint->>'packageCode'),
+  v_existing.renewed_addons,v_existing.expired_addons;
     return;
   end if;
 
@@ -110,6 +115,21 @@ begin
 
   if p_new_ends_at<=now() then
     raise exception 'INVALID_RENEWAL_END_DATE' using errcode='P0001';
+  end if;
+
+  if p_package_code is null or p_package_code not in ('basic','advanced','professional','business','vip') then
+    raise exception 'INVALID_RENEWAL_PACKAGE' using errcode='22023';
+  end if;
+
+  if not exists (
+    select 1
+    from jsonb_array_elements(
+      coalesce((select value->'packages' from public.platform_settings where setting_key='subscription_package_catalog' and is_enabled=true limit 1),'[]'::jsonb)
+    ) package_row
+    where package_row->>'code'=p_package_code
+      and coalesce((package_row->>'active')::boolean,true)=true
+  ) then
+    raise exception 'RENEWAL_PACKAGE_NOT_ACTIVE' using errcode='P0001';
   end if;
 
   select site_id into v_site_id from public.tenant_addon_requests
@@ -181,7 +201,7 @@ begin
   end loop;
 
   update public.tenant_subscriptions
-  set ends_at=p_new_ends_at,status='active',
+  set ends_at=p_new_ends_at,package_code=p_package_code,status='active',
       renewal_count=renewal_count+1,last_renewed_at=now(),updated_at=now()
   where id=s.id;
 
@@ -248,7 +268,13 @@ begin
     )
   );
 
-  return query select true,p_new_ends_at,v_renewed,v_expired;
+  insert into public.subscription_renewal_operations(
+    request_key,subscription_id,request_fingerprint,ends_at,renewed_addons,expired_addons,created_by_user_id
+  ) values (
+    p_request_key,p_subscription_id,v_fingerprint,p_new_ends_at,v_renewed,v_expired,p_actor_user_id
+  );
+
+  return query select true,p_new_ends_at,p_package_code,v_renewed,v_expired;
 end;
 $$;
 
