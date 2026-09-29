@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -1238,6 +1238,11 @@ export const powerhubRouter = router({
       address: z.string().max(1000).optional(),
       subscriptionType: z.enum(["residential", "commercial"]).default("residential"),
       clientOperationId: z.string().uuid().optional(),
+      openingReading: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
+      openingReadingAt: z.string().trim().optional().refine((value) => !value || !Number.isNaN(Date.parse(value)), "تاريخ القراءة الافتتاحية غير صالح."),
+      openingReadingApproved: z.boolean().default(false),
+      openingReadingImageData: z.string().optional(),
+      openingReadingImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
     }).omit({ code: true })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const admin = supabaseAdmin();
@@ -1254,16 +1259,42 @@ export const powerhubRouter = router({
       if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
       const phone = normalizeInternationalPhone(input.phone);
       const whatsappNumber = input.whatsappNumber ? normalizeInternationalPhone(input.whatsappNumber) : undefined;
-      const { data, error } = await admin.rpc("powerhub_create_subscriber", {
+      if (input.openingReadingImageData && !input.openingReadingImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة القراءة الافتتاحية." });
+      if (!input.openingReading && (input.openingReadingImageData || input.openingReadingApproved || input.openingReadingAt)) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل قيمة القراءة الافتتاحية قبل إضافة صورتها أو اعتمادها." });
+      let openingImageKey: string | undefined;
+      let openingImageHash: string | undefined;
+      if (input.openingReadingImageData && input.openingReadingImageMime) {
+        const imageBytes = Buffer.from(input.openingReadingImageData, "base64");
+        if (!imageBytes.length || imageBytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا تتجاوز صورة القراءة الافتتاحية 7 ميغابايت." });
+        openingImageHash = createHash("sha256").update(imageBytes).digest("hex");
+        const extension = input.openingReadingImageMime === "image/png" ? "png" : input.openingReadingImageMime === "image/webp" ? "webp" : "jpg";
+        openingImageKey = (await storagePut(`subscriber-readings/${access.tenantId}/${input.siteId}/${ctx.user.id}/${randomUUID()}.${extension}`, imageBytes, input.openingReadingImageMime)).key;
+      }
+      const hasOpeningReading = Boolean(input.openingReading || openingImageKey);
+      const rpcName = hasOpeningReading ? "powerhub_create_subscriber_with_opening_reading" : "powerhub_create_subscriber";
+      const rpcArgs = hasOpeningReading ? {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
+        p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
+        p_opening_reading: input.openingReading ? Number(input.openingReading) : null, p_opening_reading_at: input.openingReadingAt ? new Date(input.openingReadingAt).toISOString() : null,
+        p_opening_image_key: openingImageKey ?? null, p_opening_image_hash: openingImageHash ?? null, p_opening_reading_approved: input.openingReadingApproved,
+      } : {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
+        p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
+      };
+      const { data, error } = await admin.rpc(rpcName, rpcArgs);
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
         p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
       });
       if (!error && data?.[0]) {
-        const row = data[0] as { subscriber_id: number | string; subscriber_no: string; replayed: boolean };
+        const row = data[0] as { subscriber_id: number | string; subscriber_no: string; opening_reading_id?: number | string | null; opening_reading_status?: string | null; replayed: boolean };
         const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
-        if (!row.replayed) await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } });
-        return response;
+        if (!row.replayed) {
+          try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } }); } catch (alertError) { console.error("[PowerHub] subscriber quota alert failed after successful creation", alertError); }
+        }
+        return row.opening_reading_id ? { ...response, openingReadingId: Number(row.opening_reading_id), openingReadingStatus: row.opening_reading_status } : response;
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_QUOTA_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
@@ -1273,6 +1304,7 @@ export const powerhubRouter = router({
     }),
     bulkImport: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
+      clientOperationId: z.string().uuid().optional(),
       updateExisting: z.boolean().default(false),
       rows: z.array(z.object({
         sourceRow: z.number().int().min(2),
@@ -1282,14 +1314,17 @@ export const powerhubRouter = router({
         whatsappNumber: z.string().trim().max(60).optional(),
         address: z.string().trim().max(1500).optional(),
         subscriptionType: z.enum(["residential", "commercial"]),
+        openingReading: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
+        openingReadingAt: z.string().datetime().optional(),
       })).min(1).max(300),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
+      if (input.approveOpeningReadings && access.role !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "اعتماد القراءات الافتتاحية مباشرة متاح لمالك مساحة المولد فقط." });
       const failureRows: Array<{ sourceRow: number; fullName: string; reason: string }> = [];
       const seenPhones = new Set<string>();
       const seenReferences = new Set<string>();
-      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial" }> = [];
+      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial"; openingReading?: string; openingReadingAt?: string; openingReadingApproved?: boolean }> = [];
       for (const row of input.rows) {
         if (row.fullName.trim().length < 2) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الاسم الكامل قصير جداً." }); continue; }
         let phone: string;
@@ -1304,9 +1339,11 @@ export const powerhubRouter = router({
           if (seenReferences.has(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي مكرر داخل ملف الاستيراد." }); continue; }
           seenReferences.add(subscriberNo);
         }
-        accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, whatsappNumber, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType });
+        accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, whatsappNumber, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType, openingReading: row.openingReading, openingReadingAt: row.openingReadingAt, openingReadingApproved: input.approveOpeningReadings });
       }
       if (!accepted.length) return { created: [], updated: [], failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لا توجد صفوف صالحة للحفظ." };
+      const clientOperationId = input.clientOperationId ?? randomUUID();
+      const requestFingerprint = createHash("sha256").update(JSON.stringify({ siteId: input.siteId, updateExisting: input.updateExisting, approveOpeningReadings: input.approveOpeningReadings, rows: input.rows })).digest("hex");
       const { data, error } = await supabaseAdmin().rpc("powerhub_bulk_upsert_subscribers", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
@@ -1314,20 +1351,25 @@ export const powerhubRouter = router({
         p_rows: accepted,
         p_update_existing: input.updateExisting,
         p_quota_limit: quota.limit,
+        p_client_operation_id: clientOperationId,
+        p_request_fingerprint: requestFingerprint,
       });
       if (error) {
         const errorText = String(error?.code ?? "") + " " + String(error?.message ?? "");
         if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة لا تتبع لمساحة صاحب المولد الحالية." });
-        if (errorText.includes("INVALID_BULK_ROWS")) throw new TRPCError({ code: "BAD_REQUEST", message: "ملف الاستيراد غير صالح أو يتجاوز 300 صف." });
+        if (errorText.includes("INVALID_BULK_ROWS") || errorText.includes("INVALID_OPERATION_ID") || errorText.includes("INVALID_REQUEST_FINGERPRINT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات عملية الاستيراد الجماعي غير صالحة؛ أعد المحاولة." });
+        if (errorText.includes("OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية الاستيراد مستخدم لطلب مختلف." });
         if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "يوجد رقم مرجعي مكرر في الملف أو قاعدة البيانات. عدّل الملف وأعد المحاولة." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ الاستيراد الجماعي في Supabase." });
       }
-      const row = (data as Array<{ created?: unknown; updated?: unknown; failed?: unknown }> | null)?.[0];
+      const row = (data as Array<{ created?: unknown; updated?: unknown; failed?: unknown; replayed?: boolean }> | null)?.[0];
       const created = Array.isArray(row?.created) ? row.created : [];
       const updated = Array.isArray(row?.updated) ? row.updated : [];
       const failed = [...failureRows, ...(Array.isArray(row?.failed) ? row.failed : [])].sort((a, b) => Number(a.sourceRow) - Number(b.sourceRow));
-      if (created.length) await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + created.length, remaining: Math.max(0, quota.remaining - created.length) } });
-      return { created, updated, failed, notificationsQueued: 0, message: "تم حفظ الاستيراد الجماعي ذرياً في Supabase دون إرسال رسائل تلقائية." };
+      if (created.length && !row?.replayed) {
+        try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + created.length, remaining: Math.max(0, quota.remaining - created.length) } }); } catch (alertError) { console.error("[PowerHub] subscriber bulk quota alert failed after successful import", alertError); }
+      }
+      return { created, updated, failed, notificationsQueued: 0, message: row?.replayed ? "تمت إعادة نتيجة استيراد جماعي سابقة بأمان دون إعادة إنشاء المشتركين." : "تم حفظ الاستيراد الجماعي ذرياً في Supabase دون إرسال رسائل تلقائية." };
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
