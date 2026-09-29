@@ -16,6 +16,9 @@ describe("opening subscriber readings contract", () => {
     expect(migration).toContain("p_tenant_id, v_subscriber_id, p_client_operation_id::text");
     expect(migration).not.toContain("meter_readings(site_id");
     expect(migration).toContain("powerhub_bulk_upsert_subscribers");
+    expect(migration).toContain("powerhub_resolve_tenant_feature_policy");
+    expect(migration).toContain("'subscriber_import'");
+    expect(migration).toContain("'bulk_import'");
     expect(migration).toContain("p_request_fingerprint text");
     expect(migration).toContain("return query select out_created,out_updated,out_failed,false");
   });
