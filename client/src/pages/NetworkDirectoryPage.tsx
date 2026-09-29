@@ -18,7 +18,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 type DirectoryKind = "subscribers" | "generators";
-type Values = Record<string, string | number | undefined>;
+type Values = Record<string, string | number | boolean | undefined>;
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
