@@ -1246,6 +1246,9 @@ export const powerhubRouter = router({
     }).omit({ code: true })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const admin = supabaseAdmin();
+      if (input.openingReadingApproved && access.role !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "اعتماد القراءة الافتتاحية مباشرة متاح لمالك مساحة المولد فقط." });
+      }
       if (input.clientOperationId) {
         const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
