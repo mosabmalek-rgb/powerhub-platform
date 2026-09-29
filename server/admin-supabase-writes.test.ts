@@ -90,10 +90,10 @@ describe("renewSubscription addon decisions", () => {
     const { renewSubscription } = await import("./admin-supabase-writes");
     const endsAt = new Date("2027-01-31T00:00:00.000Z");
     const requestKey = "2f0a7c0e-9f0e-4b0f-8e8e-2a5c5a3a7d10";
-    await expect(renewSubscription({ actorUserId:1, subscriptionId:22, endsAt, requestKey, addonDecisions:[{addonRequestId:101,decision:"renew",durationDays:30},{addonRequestId:102,decision:"expire"}] }))
+    await expect(renewSubscription({ actorUserId:1, subscriptionId:22, endsAt, packageCode:"professional", requestKey, addonDecisions:[{addonRequestId:101,decision:"renew",durationDays:30},{addonRequestId:102,decision:"expire"}] }))
       .resolves.toMatchObject({ success:true, renewedAddons:2, expiredAddons:1 });
     expect(rpc).toHaveBeenCalledWith("powerhub_admin_renew_subscription_with_addons", {
-      p_actor_user_id:1,p_subscription_id:22,p_new_ends_at:endsAt.toISOString(),
+      p_actor_user_id:1,p_subscription_id:22,p_new_ends_at:endsAt.toISOString(),p_package_code:"professional",
       p_addon_decisions:[{addonRequestId:101,decision:"renew",durationDays:30},{addonRequestId:102,decision:"expire"}],
       p_request_key:requestKey,
     });
