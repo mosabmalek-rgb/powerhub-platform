@@ -236,7 +236,17 @@ exception when unique_violation then
     where client_operation_id = p_client_operation_id::text
     limit 1;
     if found then
-      return query select v_subscriber_id, v_subscriber_no, (v_response->>'openingReadingId')::bigint, v_response->>'openingReadingStatus', true;
+      select response into v_response
+      from public.offline_sync_operations
+      where user_id = p_user_id
+        and client_operation_id = p_client_operation_id::text
+      limit 1;
+      return query select
+        v_subscriber_id,
+        v_subscriber_no,
+        (v_response->>'openingReadingId')::bigint,
+        v_response->>'openingReadingStatus',
+        true;
       return;
     end if;
   end if;
