@@ -107,6 +107,9 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("تسجيل اشتراك صاحب مولد")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("رقم الهوية")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("رقم WhatsApp (اختياري)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /إدارة التجديدات في المالية/ }));
+    expect(screen.getByRole("button", { name: /تجديد الاشتراك/ })).toBeInTheDocument();
+    fireEvent.click(sidebarNav("اشتراك صاحب مولد"));
     fireEvent.click(sidebarNav("إدارة المستخدمين"));
     expect(screen.getByText("محاسب الاختبار")).toBeInTheDocument();
     fireEvent.click(sidebarNav("المالية والتحصيل"));
