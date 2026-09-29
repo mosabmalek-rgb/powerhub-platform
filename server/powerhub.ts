@@ -1284,6 +1284,7 @@ export const powerhubRouter = router({
         p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
       };
       const { data, error } = await admin.rpc(rpcName, rpcArgs);
+      if (error && openingImageKey) await storageRemove(openingImageKey).catch(() => undefined);
       if (!error && data?.[0]) {
         const row = data[0] as { subscriber_id: number | string; subscriber_no: string; opening_reading_id?: number | string | null; opening_reading_status?: string | null; replayed: boolean };
         const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
