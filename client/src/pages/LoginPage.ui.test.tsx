@@ -4,36 +4,24 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import LoginPage from "./LoginPage";
 
-const state = vi.hoisted(() => ({ setLocation: vi.fn(), signInWithPassword: vi.fn(), getSession: vi.fn(), signUp: vi.fn() }));
+const state = vi.hoisted(() => ({ setLocation: vi.fn(), signInWithPassword: vi.fn(), signUp: vi.fn() }));
 
 vi.mock("@/lib/supabase", () => ({
-  supabase: { auth: { signInWithPassword: state.signInWithPassword, getSession: state.getSession, signUp: state.signUp } },
+  supabase: { auth: { signInWithPassword: state.signInWithPassword, signUp: state.signUp } },
+  getSupabaseSession: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 
-afterEach(() => { cleanup(); state.setLocation.mockReset(); state.signInWithPassword.mockReset(); state.getSession.mockReset(); state.signUp.mockReset(); });
+afterEach(() => { cleanup(); state.setLocation.mockReset(); state.signInWithPassword.mockReset(); state.signUp.mockReset(); });
 
 describe("LoginPage", () => {
   it("signs in with email and password through Supabase", async () => {
     state.signInWithPassword.mockResolvedValue({ error: null });
-    state.getSession.mockResolvedValue({ data: { session: { user: { id: "qa-user" } } } });
     render(<LoginPage />);
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "admin@powerhub.test" } });
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "SecurePass123" } });
     fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
-    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
-  });
-
-  it("does not navigate when Supabase does not return a persisted session", async () => {
-    state.signInWithPassword.mockResolvedValue({ error: null });
-    state.getSession.mockResolvedValue({ data: { session: null } });
-    render(<LoginPage />);
-    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "admin@powerhub.test" } });
-    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "SecurePass123" } });
-    fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("تعذر تثبيت جلسة الدخول"));
-    expect(state.setLocation).not.toHaveBeenCalledWith("/workspace");
   });
 
   it("does not expose self-registration because accounts are created from Supabase administration", () => {

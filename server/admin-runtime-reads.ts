@@ -5,18 +5,17 @@ import { supabaseAdmin } from "./supabase-admin";
 import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
 import { checkTweetSmsAccount, checkTweetSmsBalance, checkTweetSmsSender, type TweetSmsCredentials } from "./tweetsms-client";
 import { adminRouter } from "./admin-runtime";
+import { isPlatformRole } from "./platform-admin";
 
 const legacyRecord = (adminRouter as any)._def.record as Record<string, any>;
 const platformAdminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
-  const platformRole = ctx.user.platformRole ?? "platform_admin";
-  if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(platformRole) || ctx.user.accountStatus !== "active") {
+  if (!isPlatformRole(ctx.user, ["platform_owner", "platform_admin"])) {
     throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
   }
   return next({ ctx });
 });
 const platformFinanceProcedure = authenticatedProcedure.use(({ ctx, next }) => {
-  const platformRole = ctx.user.platformRole ?? "platform_admin";
-  if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin", "finance_admin"].includes(platformRole) || ctx.user.accountStatus !== "active") {
+  if (!isPlatformRole(ctx.user, ["platform_owner", "platform_admin", "finance_admin"])) {
     throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية المالية." });
   }
   return next({ ctx });
@@ -194,9 +193,9 @@ export const adminRouterWithSupabaseReadContracts = router({
     const rpc = (admin as unknown as { rpc?: (name: string, args?: Record<string, unknown>) => Promise<{ data: Array<Record<string, unknown>> | null; error: unknown | null }> }).rpc;
     const rpcResult = typeof rpc === "function" ? await rpc.call(admin, "powerhub_admin_subscription_upgrade_requests") : { data: null, error: new Error("RPC unavailable") };
     if (!rpcResult.error) {
-      return (rpcResult.data ?? []).map((row) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), currentPlan: row.current_plan, requestedPlan: row.requested_plan, status: row.status, note: row.note, createdAt: row.created_at, reviewedAt: row.reviewed_at, tenantName: row.tenant_name ?? "—", ownerName: row.owner_name ?? "—", ownerEmail: row.owner_email ?? null }));
+      return (rpcResult.data ?? []).map((row) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), currentPlan: row.current_package_code, requestedPlan: row.requested_package_code, status: row.status, note: row.note, createdAt: row.created_at, reviewedAt: row.reviewed_at, tenantName: row.tenant_name ?? "—", ownerName: row.owner_name ?? "—", ownerEmail: row.owner_email ?? null }));
     }
-    const requestsResult = await admin.from("subscription_upgrade_requests").select("id,tenant_id,current_plan,requested_plan,status,note,created_at,reviewed_at").order("created_at", { ascending: false }).limit(300);
+    const requestsResult = await admin.from("subscription_upgrade_requests").select("id,tenant_id,current_package_code,requested_package_code,status,note,created_at,reviewed_at").order("created_at", { ascending: false }).limit(300);
     if (requestsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات ترقية الاشتراكات من Supabase." });
     const requests = requestsResult.data ?? [];
     const tenantIds = Array.from(new Set(requests.map((row) => Number(row.tenant_id)).filter(Boolean)));
@@ -205,11 +204,11 @@ export const adminRouterWithSupabaseReadContracts = router({
     if (tenantsResult.error || ownersResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إثراء طلبات الترقية بأسماء المساحات والمالكين." });
     const tenantNames = new Map((tenantsResult.data ?? []).map((row) => [Number(row.id), row.name]));
     const owners = new Map((ownersResult.data ?? []).map((row) => [Number(row.tenant_id), row]));
-    return requests.map((row) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), currentPlan: row.current_plan, requestedPlan: row.requested_plan, status: row.status, note: row.note, createdAt: row.created_at, reviewedAt: row.reviewed_at, tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—", ownerName: owners.get(Number(row.tenant_id))?.full_name ?? "—", ownerEmail: owners.get(Number(row.tenant_id))?.email ?? null }));
+    return requests.map((row) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), currentPackageCode: row.current_package_code, requestedPackageCode: row.requested_package_code, status: row.status, note: row.note, createdAt: row.created_at, reviewedAt: row.reviewed_at, tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—", ownerName: owners.get(Number(row.tenant_id))?.full_name ?? "—", ownerEmail: owners.get(Number(row.tenant_id))?.email ?? null }));
   }),
   listTenantBranchSettings: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
-    const tenantsResult = await admin.from("tenants").select("id,name").order("name", { ascending: true });
+    const tenantsResult = await admin.from("tenants").select("id,name,package_code").order("name", { ascending: true });
     const ownersResult = await admin.from("tenant_owner_profiles").select("tenant_id,full_name");
     const settingsResult = await admin.from("tenant_branch_settings").select("tenant_id,is_enabled_override,max_branches_override,disabled_behavior");
     const sitesResult = await admin.from("sites").select("id,tenant_id,status").eq("status", "archived");
@@ -217,7 +216,7 @@ export const adminRouterWithSupabaseReadContracts = router({
     const owners = new Map((ownersResult.data ?? []).map((row) => [Number(row.tenant_id), row.full_name]));
     const settings = new Map((settingsResult.data ?? []).map((row) => [Number(row.tenant_id), row]));
     const activeCounts = new Map<number, number>(); for (const site of sitesResult.data ?? []) activeCounts.set(Number(site.tenant_id), (activeCounts.get(Number(site.tenant_id)) ?? 0) + 1);
-    return (tenantsResult.data ?? []).map((tenant) => { const setting = settings.get(Number(tenant.id)); return { tenantId: Number(tenant.id), tenantName: tenant.name, ownerName: owners.get(Number(tenant.id)) ?? "—", isEnabledOverride: setting?.is_enabled_override ?? null, maxBranchesOverride: setting?.max_branches_override ?? null, disabledBehavior: setting?.disabled_behavior ?? null, currentBranchCount: activeCounts.get(Number(tenant.id)) ?? 0 }; });
+    return (tenantsResult.data ?? []).map((tenant) => { const setting = settings.get(Number(tenant.id)); return { tenantId: Number(tenant.id), tenantName: tenant.name, ownerName: owners.get(Number(tenant.id)) ?? "—", packageCode: tenant.package_code, plan: tenant.package_code, isEnabledOverride: setting?.is_enabled_override ?? null, maxBranchesOverride: setting?.max_branches_override ?? null, disabledBehavior: setting?.disabled_behavior ?? null, currentBranchCount: activeCounts.get(Number(tenant.id)) ?? 0 }; });
   }),
   globalSearch: platformAdminProcedure.input(z.object({ query: z.string().trim().min(2).max(100) })).query(async ({ input }) => {
     const admin = supabaseAdmin(); const pattern = `%${input.query}%`;

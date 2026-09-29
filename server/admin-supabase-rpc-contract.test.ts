@@ -9,15 +9,13 @@ const renewalMigration = readFileSync(resolve(process.cwd(), "supabase/migration
 const smsReviewMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260912110000_powerhub_admin_review_sms_package_request_rpc.sql"), "utf8");
 const invitationMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260912130000_powerhub_platform_access_invitation_rpcs.sql"), "utf8");
 
-const rpcNames = [
-  "powerhub_admin_set_tenant_membership_status",
-  "powerhub_admin_attach_owner_user",
-  "powerhub_admin_update_subscription",
-];
-
 describe("admin Supabase RPC contracts", () => {
   it("keeps the three migration RPCs SECURITY DEFINER and locked to service_role", () => {
-    for (const name of rpcNames) {
+    for (const name of [
+      "powerhub_admin_set_tenant_membership_status",
+      "powerhub_admin_attach_owner_user",
+      "powerhub_admin_update_subscription",
+    ]) {
       expect(migration).toContain(`create or replace function public.${name}`);
       expect(grants).toContain(`revoke all on function public.${name}`);
       expect(grants).toContain(`grant execute on function public.${name}`);
@@ -78,19 +76,18 @@ describe("admin Supabase RPC contracts", () => {
     expect(invitationMigration).toContain("grant execute on function public.powerhub_accept_pending_platform_invitation");
   });
 
-  it("keeps migrated admin procedures Supabase-only while preserving guards for blocked legacy mutations", () => {
-    const admin = ["server/admin.ts", "server/admin-runtime.ts", "server/admin-runtime-reads.ts"].map((file) => readFileSync(resolve(process.cwd(), file), "utf8")).join("\n");
-    const reviewStart = admin.indexOf("reviewSubscriptionUpgradeRequest:");
-    const reviewEnd = admin.indexOf("quickUpgradeOwnerPlan:", reviewStart);
-    const reviewBlock = admin.slice(reviewStart, reviewEnd);
+  it("keeps migrated admin procedures in the Supabase runtime and blocks retired legacy mutations", () => {
+    const runtime = readFileSync(resolve(process.cwd(), "server/admin-runtime.ts"), "utf8");
+    const facade = readFileSync(resolve(process.cwd(), "server/admin.ts"), "utf8");
+    const reviewStart = runtime.indexOf("reviewSubscriptionUpgradeRequest:");
+    const reviewEnd = runtime.indexOf("quickUpgradeOwnerPlan:", reviewStart);
+    const reviewBlock = runtime.slice(reviewStart, reviewEnd);
     expect(reviewBlock).toContain("reviewSubscriptionUpgradeRequestSupabase");
-    expect(reviewBlock).not.toContain("assertLegacyAdminWriteMigrationGuard");
-    expect(reviewBlock).not.toContain("dbOrThrow");
-    expect(reviewBlock).not.toContain(".transaction(");
-    expect(admin).toContain("const retiredMutation");
-    expect(admin).toContain("PRECONDITION_FAILED");
-    expect(admin).toContain("createGeneratorOwner:");
-    expect(admin).toContain("updateComplaint:");
+    expect(reviewBlock).not.toContain("getDb");
+    expect(reviewBlock).not.toContain("drizzle");
+    expect(runtime).toContain('const retiredMutation =');
+    expect(runtime).toContain('code:"PRECONDITION_FAILED"');
+    expect(facade).toContain("adminRouterWithSupabaseReadContracts");
   });
 
   it("keeps the SMS package review adapter Supabase-only", () => {

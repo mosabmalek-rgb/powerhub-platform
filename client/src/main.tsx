@@ -8,6 +8,7 @@ import App from "./App";
 import { startLogin } from "./const";
 import { getSupabaseAccessToken, getSupabaseSession, subscribeSupabaseAuthState } from "./lib/supabase";
 import { hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
+import { getPowerHubDeviceId, getValidOfflineAuthLease } from "./lib/offline-auth";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -37,7 +38,14 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
   if (!isUnauthorized) return;
-  startLogin();
+
+  // A request can race the first Supabase auth event immediately after login.
+  // Do not redirect on that transient 401; only redirect after a fresh session
+  // read confirms that the browser is genuinely unauthenticated.
+  void getSupabaseSession().then((session) => {
+    if (session) return;
+    if (window.location.pathname !== "/login") window.location.assign("/login");
+  });
 };
 
 queryClient.getQueryCache().subscribe(event => {
@@ -63,7 +71,11 @@ const trpcClient = trpc.createClient({
       transformer: superjson,
       async headers() {
         const token = await getSupabaseAccessToken();
-        return token ? { Authorization: `Bearer ${token}` } : {};
+        const deviceId = await getPowerHubDeviceId().catch(() => null);
+        return {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(deviceId ? { "x-powerhub-device-id": deviceId } : {}),
+        };
       },
       fetch(input, init) {
         return globalThis.fetch(input, {
@@ -80,7 +92,12 @@ let activeOfflineUserId: string | null = null;
 async function bootstrapOfflineState() {
   try {
     const session = await getSupabaseSession();
-    activeOfflineUserId = session?.user.id ?? null;
+    if (session?.user.id) {
+      activeOfflineUserId = session.user.id;
+    } else {
+      const offlineLease = await getValidOfflineAuthLease();
+      activeOfflineUserId = offlineLease?.userId ?? null;
+    }
     if (activeOfflineUserId) await hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
   } catch (error) {
     console.warn("[PowerHub] Offline cache bootstrap skipped", error);
@@ -120,6 +137,6 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     // Versioned URL forces an immediate Service Worker update after changing
     // cache semantics, even when a legacy worker had cached /sw.js itself.
-    void navigator.serviceWorker.register("/sw.js?v=3").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
+    void navigator.serviceWorker.register("/sw.js?v=4").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
   });
 }

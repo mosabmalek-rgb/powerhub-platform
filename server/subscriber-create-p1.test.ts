@@ -16,13 +16,20 @@ describe("subscriber create P1 regression", () => {
     expect(migration).not.toContain("from public.subscribers\n    where client_operation_id");
   });
 
-  it("keeps the existing RPC signature and service-role execution contract", () => {
+  it("locks the current server-generated global subscriber-number contract", () => {
     const migration = readFileSync(
-      resolve(process.cwd(), "supabase/migrations/0010_fix_subscriber_create_rpc_ambiguity.sql"),
+      resolve(process.cwd(), "supabase/migrations/20260916230000_powerhub_global_subscriber_number_source.sql"),
       "utf8",
     );
 
-    expect(migration).toContain("returns table (subscriber_id bigint, subscriber_no text, replayed boolean)");
-    expect(migration).toContain("grant execute on function public.powerhub_create_subscriber(bigint, bigint, bigint, text, text, text, text, text, text, uuid, integer) to service_role;");
+    expect(migration).toContain("create sequence if not exists public.subscriber_global_number_seq");
+    expect(migration).toContain("create unique index if not exists subscribers_subscriber_no_global_uidx");
+    expect(migration).toContain("format('SUB-%s', lpad(nextval('public.subscriber_global_number_seq')::text, 6, '0'))");
+    expect(migration).toContain("p_full_name text,");
+    expect(migration).toContain("p_phone text,");
+    expect(migration).not.toContain("p_subscriber_no text");
+    expect(migration).not.toContain("generateSubscriberReference(site.code)");
+    expect(migration).toContain("revoke all on function public.powerhub_create_subscriber(bigint, bigint, bigint, text, text, text, text, text, uuid, integer) from public, anon, authenticated;");
+    expect(migration).toContain("grant execute on function public.powerhub_create_subscriber(bigint, bigint, bigint, text, text, text, text, text, uuid, integer) to service_role;");
   });
 });

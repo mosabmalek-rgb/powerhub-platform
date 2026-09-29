@@ -7,7 +7,7 @@ export type SupabaseProfileUser = {
   email: string | null;
   loginMethod: string | null;
   role: "user" | "admin";
-  platformRole: "platform_owner" | "platform_admin" | "finance_admin" | null;
+  platformRole: "platform_owner" | "platform_admin" | "finance_admin" | "platform_support" | null;
   accountStatus: "active" | "locked" | "disabled";
   mustChangePassword: boolean;
   temporaryPasswordIssuedAt: Date | null;
@@ -32,21 +32,21 @@ type UserRow = {
   last_signed_in: string;
 };
 
+type SupabaseRpcError = { code?: string; message?: string };
+
+function isMissingRpc(error: SupabaseRpcError | null | undefined) {
+  if (!error) return false;
+  if (error.code === "42883" || error.code === "PGRST202") return true;
+  return /could not find .* function in the schema cache/i.test(error.message ?? "");
+}
+
 export function mapSupabaseProfile(row: UserRow): SupabaseProfileUser {
   return {
-    id: Number(row.id),
-    openId: row.auth_user_id,
-    name: row.name,
-    email: row.email,
-    loginMethod: row.login_method,
-    role: row.role,
-    platformRole: row.platform_role,
-    accountStatus: row.account_status,
-    mustChangePassword: row.must_change_password,
+    id: Number(row.id), openId: row.auth_user_id, name: row.name, email: row.email,
+    loginMethod: row.login_method, role: row.role, platformRole: row.platform_role,
+    accountStatus: row.account_status, mustChangePassword: row.must_change_password,
     temporaryPasswordIssuedAt: row.temporary_password_issued_at ? new Date(row.temporary_password_issued_at) : null,
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
-    lastSignedIn: new Date(row.last_signed_in),
+    createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at), lastSignedIn: new Date(row.last_signed_in),
   };
 }
 
@@ -61,24 +61,24 @@ export async function syncSupabaseProfile(input: { id: string; email?: string | 
   if (error || !data) throw new Error(error?.message || "تعذر مزامنة ملف مستخدم Supabase.");
 
   const { data: platformInvitation, error: platformInvitationError } = await admin.rpc("powerhub_accept_pending_platform_invitation", {
-    p_auth_user_id: input.id,
-    p_email: email,
+    p_auth_user_id: input.id, p_email: email,
   });
-  if (platformInvitationError) throw new Error(platformInvitationError.message || "تعذر معالجة دعوة الوصول إلى إدارة المنصة.");
+  if (platformInvitationError && !isMissingRpc(platformInvitationError)) {
+    throw new Error(platformInvitationError.message || "تعذر معالجة دعوة الوصول إلى إدارة المنصة.");
+  }
 
   const { error: tenantInvitationError } = await admin.rpc("powerhub_accept_pending_tenant_invitations", {
-    p_auth_user_id: input.id,
-    p_email: email,
+    p_auth_user_id: input.id, p_email: email,
   });
-  if (tenantInvitationError) throw new Error(tenantInvitationError.message || "تعذر معالجة دعوة الوصول إلى حساب المولد.");
+  if (tenantInvitationError && !isMissingRpc(tenantInvitationError)) {
+    throw new Error(tenantInvitationError.message || "تعذر معالجة دعوة الوصول إلى حساب المولد.");
+  }
 
-  const platformAccepted = Boolean(platformInvitation?.[0]?.accepted);
-  if (!platformAccepted) return mapSupabaseProfile(data as UserRow);
+  if (!Boolean(platformInvitation?.[0]?.accepted)) return mapSupabaseProfile(data as UserRow);
 
   const { data: refreshed, error: refreshError } = await admin.from("users")
     .select("id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in")
-    .eq("auth_user_id", input.id)
-    .single();
+    .eq("auth_user_id", input.id).single();
   if (refreshError || !refreshed) throw new Error(refreshError?.message || "تعذر تحديث ملف مستخدم Supabase بعد معالجة الدعوة.");
   return mapSupabaseProfile(refreshed as UserRow);
 }

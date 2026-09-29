@@ -21,6 +21,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
+import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, BriefcaseBusiness, ClipboardCheck, ChartNoAxesCombined, Fuel, Gauge,
@@ -29,6 +30,7 @@ import {
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { can, type PowerCapability } from "@shared/powerhub-rbac";
 import { PowerHubLogo } from "./PowerHubLogo";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -36,14 +38,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 const menuGroups = [
   {
     label: "نظرة عامة",
-    items: [{ icon: LayoutDashboard, label: "لوحة التحكم", path: "/workspace" }, { icon: Zap, label: "الإجراءات السريعة", path: "/quick-actions" }],
+    items: [
+      { icon: LayoutDashboard, label: "لوحة التحكم", path: "/workspace" },
+      { icon: Zap, label: "الإجراءات السريعة", path: "/quick-actions" },
+    ],
   },
   {
-    label: "إدارة الشبكة",
+    label: "التشغيل",
     items: [
       { icon: UsersRound, label: "المشتركون", path: "/subscribers" },
-      { icon: Store, label: "الأفرع", path: "/branches" },
       { icon: Bolt, label: "المحطات والمولدات", path: "/generators" },
+      { icon: Store, label: "الأفرع", path: "/branches" },
       { icon: Gauge, label: "إضافة قراءة", path: "/readings" },
     ],
   },
@@ -54,29 +59,55 @@ const menuGroups = [
       { icon: WalletCards, label: "التحصيلات", path: "/collections" },
       { icon: WalletCards, label: "حسابات الشركة", path: "/company-accounts" },
       { icon: Fuel, label: "المصروفات والربحية", path: "/expenses" },
-      { icon: BriefcaseBusiness, label: "الموارد البشرية", path: "/human-resources" },
-      { icon: ClipboardCheck, label: "الحضور والانصراف", path: "/attendance" },
-      { icon: BriefcaseBusiness, label: "الرواتب والأجور", path: "/payroll" },
       { icon: ChartNoAxesCombined, label: "لوحة المالية", path: "/financial-dashboard" },
       { icon: ChartNoAxesCombined, label: "التسويات المالية", path: "/financial-settlements" },
+      { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },
+      { icon: ClipboardCheck, label: "مراجعة توثيق الدفع", path: "/payment-documentation/review", capability: "approvePaymentDocumentation" as PowerCapability },
+    ],
+  },
+  {
+    label: "إدارة الفريق",
+    items: [
+      { icon: BriefcaseBusiness, label: "الموارد البشرية", path: "/human-resources" },
+      { icon: UsersRound, label: "الحسابات الفرعية", path: "/staff" },
+      { icon: ClipboardCheck, label: "الحضور والانصراف", path: "/attendance" },
+      { icon: BriefcaseBusiness, label: "الرواتب والأجور", path: "/payroll" },
+    ],
+  },
+  {
+    label: "التقارير",
+    items: [
       { icon: ChartNoAxesCombined, label: "التقارير", path: "/reports" },
     ],
   },
   {
-    label: "الرقابة",
+    label: "المراسلات والدعم",
     items: [
-      { icon: BellRing, label: "الإشعارات", path: "/notifications" },
-      { icon: Palette, label: "بوابة المشتركين", path: "/portal-settings" },
-      { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
+      { icon: BellRing, label: "المراسلات والإشعارات", path: "/notifications" },
+      { icon: BellRing, label: "أخبار وإعلانات المنصة", path: "/announcements" },
+      { icon: RadioTower, label: "الدردشة والدعم", path: "/support-chat" },
+    ],
+  },
+  {
+    label: "الميدان والرقابة",
+    items: [
       { icon: RadioTower, label: "الميدان والمزامنة", path: "/mobile-sync" },
       { icon: CloudOff, label: "مسودات دون اتصال", path: "/offline-sync" },
+      { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
+    ],
+  },
+  {
+    label: "الإعدادات والتخصيص",
+    items: [
+      { icon: Palette, label: "بوابة المشتركين", path: "/portal-settings" },
       { icon: Settings2, label: "الإعدادات", path: "/settings" },
     ],
   },
   {
     label: "الحساب",
-    items: [      { icon: UserRound, label: "المعلومات وبيانات الدخول", path: "/profile" },
-      { icon: UsersRound, label: "الحسابات الفرعية", path: "/staff" }],
+    items: [
+      { icon: UserRound, label: "المعلومات وبيانات الدخول", path: "/profile" },
+    ],
   },
 ];
 
@@ -137,19 +168,34 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const platformRoleLabel = ({ platform_owner: "مالك المنصة", platform_admin: "مشرف المنصة", finance_admin: "مشرف مالي" } as const)[user?.platformRole ?? "platform_admin"];
+  const platformRoleLabel = ({ platform_owner: "مالك المنصة", platform_admin: "مشرف المنصة", finance_admin: "مشرف مالي", platform_support: "موظف دعم" } as const)[user?.platformRole ?? "platform_admin"];
   const accountRoleLabel = user ? (user.role === "admin" ? platformRoleLabel : "مساحة تشغيل المولد") : "وضع معاينة آمن";
   const workspaceSites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: Boolean(user && user.role !== "admin") });
   const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
+  const { branchId: activeSiteId } = useBranchFilter(workspaceSites.data);
+  const activeAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: activeSiteId ?? 0 }, { enabled: Boolean(activeSiteId && user?.role !== "admin") });
   const smsAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const smsApprovalQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && smsAccess.data?.role === "owner"), refetchInterval: 15000 });
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
   const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
-  const operationalGroups = menuGroups.map((group) => group.label === "إدارة الشبكة" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
+  const paymentDocumentationAccess = trpc.powerhub.paymentDocumentation.access.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
+  const operationalGroups = menuGroups.map((group) => group.label === "التشغيل" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
   const visibleMenuGroups = displayUser.role === "admin" ? [...operationalGroups, platformAdminGroup] : operationalGroups;
-  const activeMenuItem = visibleMenuGroups.flatMap(group => group.items).find(item => item.path === location);
+  const permissionAwareGroups = visibleMenuGroups.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => {
+      const capability = (item as { capability?: PowerCapability }).capability;
+      if (item.path === "/payment-documentation" && displayUser.role !== "admin") return Boolean(paymentDocumentationAccess.data?.allowed);
+      if (!capability || displayUser.role === "admin") return true;
+      return can(activeAccess.data?.role, capability, activeAccess.data?.permissions);
+    }),
+  })).filter((group) => group.items.length > 0);
+  const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
   const isMobile = useIsMobile();
   const approvedSmsRequest = smsApprovalQuery.data?.status === "approved" ? smsApprovalQuery.data : null;
+  const announcementsQuery = trpc.platformAnnouncements.inbox.list.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 60000 });
+  const unreadAnnouncements = (announcementsQuery.data ?? []).filter((item) => !item.readAt).length;
+  const latestAnnouncements = (announcementsQuery.data ?? []).slice(0, 5);
   useEffect(() => { if (approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId) toast.success(`تم اعتماد حزمة الرسائل وإضافة ${Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيدك.`); }, [approvedSmsRequest, dismissedSmsApprovalId]);
 
   useEffect(() => {
@@ -220,7 +266,7 @@ function DashboardLayoutContent({
           </SidebarHeader>
 
           <SidebarContent className="gap-0 py-3">
-            {visibleMenuGroups.map(group => (
+            {permissionAwareGroups.map(group => (
               <div key={group.label} className="mb-3">
                 {!isCollapsed && <p className="px-4 pb-2 pt-2 text-[10px] font-bold tracking-[0.13em] text-slate-500">{group.label}</p>}
                 <SidebarMenu className="px-2 py-0">
@@ -229,13 +275,15 @@ function DashboardLayoutContent({
                     return (
                       <SidebarMenuItem key={item.path}>
                         <SidebarMenuButton
+                          asChild
                           isActive={isActive}
-                          onClick={() => setLocation(item.path)}
                           tooltip={item.label}
                           className="h-10 rounded-lg font-medium text-slate-300 hover:bg-white/5 hover:text-white data-[active=true]:bg-[#F5B800] data-[active=true]:text-[#0D1117] data-[active=true]:font-bold"
                         >
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.label}</span>
+                          <a href={item.path} aria-current={isActive ? "page" : undefined}>
+                            <item.icon className="h-4 w-4" />
+                            <span>{item.label}</span>{item.path === "/announcements" && unreadAnnouncements > 0 ? <span className="mr-auto min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
+                          </a>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     );
@@ -243,53 +291,62 @@ function DashboardLayoutContent({
                 </SidebarMenu>
               </div>
             ))}
-          </SidebarContent>
+                    </SidebarContent>
 
           <SidebarFooter className="border-t border-white/8 p-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button aria-label="فتح قائمة الحساب الشخصي" className="flex w-full items-center gap-3 rounded-lg px-1 py-1 text-right hover:bg-white/5 transition-colors group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800]">
-                  <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
-                    <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
-                      {displayUser.name?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-bold truncate leading-none text-white">
-                      {displayUser.name || "-"}
-                    </p>
-                    <p className="text-xs text-slate-500 truncate mt-1.5">
-                      {accountRoleLabel}
-                    </p>
-                  </div>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">فتح قائمة الحساب الشخصي</TooltipContent>
-                </Tooltip>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48 border-white/10 bg-[#1b222c] text-white">
-                <DropdownMenuItem
-                  onClick={() => toggleTheme?.()}
-                  className="cursor-pointer text-slate-200 focus:text-white"
-                >
-                  {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#F5B800]" /> : <Moon className="mr-2 h-4 w-4 text-[#F5B800]" />}
-                  <span>{theme === "dark" ? "التبديل إلى الوضع النهاري" : "التبديل إلى الوضع الليلي"}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    if (user) logout();
-                  }}
-                  className="cursor-pointer text-rose-300 focus:text-rose-200"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>تسجيل الخروج</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarFooter>
-        </Sidebar>
+            <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="فتح قائمة الحساب الشخصي"
+                    title="فتح قائمة الحساب الشخصي"
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-right transition-colors hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:justify-center"
+                  >
+                    <Avatar className="h-9 w-9 shrink-0 border border-[#F5B800]/30">
+                      <AvatarFallback className="bg-[#F5B800]/10 text-xs font-bold text-[#F5B800]">
+                        {displayUser.name?.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+                      <p className="truncate text-sm font-bold leading-none text-white">
+                        {displayUser.name || "-"}
+                      </p>
+                      <p className="mt-1.5 truncate text-xs text-slate-500">
+                        {accountRoleLabel}
+                      </p>
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48 border-white/10 bg-[#1b222c] text-white">
+                  <DropdownMenuItem
+                    onClick={() => toggleTheme?.()}
+                    className="cursor-pointer text-slate-200 focus:text-white"
+                  >
+                    {theme === "dark" ? <Sun className="mr-2 h-4 w-4 text-[#F5B800]" /> : <Moon className="mr-2 h-4 w-4 text-[#F5B800]" />}
+                    <span>{theme === "dark" ? "التبديل إلى الوضع النهاري" : "التبديل إلى الوضع الليلي"}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (user) void logout();
+                    }}
+                    disabled={!user}
+                    aria-label="تسجيل الخروج"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-rose-300 transition-colors hover:bg-rose-500/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40 group-data-[collapsible=icon]:h-9 group-data-[collapsible=icon]:w-9"
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left">تسجيل الخروج</TooltipContent>
+              </Tooltip>
+            </div>
+          </SidebarFooter>      </Sidebar>
         <div
           className={`absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-[#F5B800]/40 transition-colors ${isCollapsed ? "hidden" : ""}`}
           onMouseDown={() => {
@@ -313,6 +370,33 @@ function DashboardLayoutContent({
                 </div>
               </div>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" aria-label="فتح الإشعارات" className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 hover:bg-white/5 hover:text-white">
+                  <BellRing className="h-4 w-4" />
+                  {unreadAnnouncements > 0 ? <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-rose-500 px-1 text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-80 border-white/10 bg-[#1b222c] text-white">
+                <div className="flex items-center justify-between border-b border-white/8 px-3 py-2"><span className="font-bold">الإشعارات</span><span className="text-xs text-slate-500">{unreadAnnouncements} غير مقروء</span></div>
+                {latestAnnouncements.length ? latestAnnouncements.map((item) => <DropdownMenuItem key={item.id} onClick={() => setLocation("/announcements")} className="cursor-pointer items-start gap-2 whitespace-normal py-3 focus:bg-white/5">
+                  <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate font-bold">{item.title}</span>{!item.readAt ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#F5B800]" /> : null}</div><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{item.body}</p></div>
+                </DropdownMenuItem>) : <div className="px-4 py-6 text-center text-xs text-slate-500">لا توجد إشعارات جديدة.</div>}
+                <button type="button" onClick={() => setLocation("/announcements")} className="w-full border-t border-white/8 px-3 py-3 text-center text-xs font-bold text-[#F5B800] hover:bg-white/5">عرض جميع الإشعارات</button>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              type="button"
+              onClick={() => {
+                if (user) void logout();
+              }}
+              disabled={!user}
+              aria-label="تسجيل الخروج"
+              className="flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-bold text-rose-300 hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-40"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>خروج</span>
+            </button>
           </div>
         )}
         {approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId ? <div className="sticky top-0 z-30 border-b border-emerald-300/25 bg-emerald-400/[.10] px-4 py-3 text-emerald-100 shadow-lg sm:px-6"><div className="mx-auto flex max-w-7xl items-center justify-between gap-3" dir="rtl"><div className="flex min-w-0 items-center gap-3"><CircleCheck className="h-5 w-5 shrink-0 text-emerald-300" /><p className="text-sm font-bold">تم اعتماد طلب شحن الرسائل وإضافة {Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيد SMS.</p></div><button type="button" aria-label="إغلاق إشعار اعتماد الرسائل" onClick={() => { const id = String(approvedSmsRequest.id); setDismissedSmsApprovalId(id); localStorage.setItem("powerhub.sms-approval-notice-dismissed", id); }} className="rounded-lg p-1 text-emerald-200 transition hover:bg-emerald-300/15 hover:text-white"><X className="h-4 w-4" /></button></div></div> : null}

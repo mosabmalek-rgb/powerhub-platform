@@ -16,6 +16,7 @@ export type PowerCapability =
   | "manageTariffs"
   | "issueInvoices"
   | "collectPayments"
+  | "approvePaymentDocumentation"
   | "manageExpenses"
   | "managePayroll"
   | "manageTeam"
@@ -27,7 +28,7 @@ export const powerRoleLabels: Record<PowerRole, string> = {
   manager: "مدير",
   accountant: "محاسب",
   collector: "محصل",
-  technician: "فني",
+  technician: "مدخل قراءة عداد (فني)",
   viewer: "مشاهد",
 };
 
@@ -49,6 +50,7 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   manageTariffs: ["owner", "manager", "accountant"],
   issueInvoices: ["owner", "manager", "accountant"],
   collectPayments: ["owner", "manager", "accountant", "collector"],
+  approvePaymentDocumentation: [],
   manageExpenses: ["owner", "manager", "accountant"],
   managePayroll: ["owner", "accountant"],
   manageTeam: ["owner"],
@@ -65,6 +67,7 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   manageTariffs: "إدارة التعرفات",
   issueInvoices: "إصدار الفواتير",
   collectPayments: "تسجيل التحصيلات",
+  approvePaymentDocumentation: "اعتماد توثيق الدفع الإلكتروني",
   manageExpenses: "إدارة المصروفات",
   managePayroll: "اعتماد وصرف الرواتب",
   manageTeam: "إدارة الحسابات الفرعية",
@@ -73,7 +76,7 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
 };
 
 export function can(role: PowerRole | undefined | null, capability: PowerCapability, permissions?: readonly PowerCapability[] | null) {
-  if (permissions?.length) return permissions.includes(capability);
+  if (permissions !== undefined && permissions !== null) return permissions.includes(capability);
   return Boolean(role && capabilityRoles[capability].includes(role));
 }
 

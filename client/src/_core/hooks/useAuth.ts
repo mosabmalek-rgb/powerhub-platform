@@ -1,6 +1,7 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
+import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { useCallback, useEffect, useState } from "react";
 
@@ -18,6 +19,7 @@ export function useAuth(options?: UseAuthOptions) {
   // desync it from an in-flight login's `state`.
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
+  const releaseDevice = trpc.auth.releaseDevice.useMutation();
   const [sessionReady, setSessionReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
   const [authDataRevision, setAuthDataRevision] = useState(0);
@@ -29,6 +31,7 @@ export function useAuth(options?: UseAuthOptions) {
   });
   type CachedAuthUser = Exclude<typeof meQuery.data, undefined>;
   const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
+  const [offlineLeaseUserId, setOfflineLeaseUserId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -36,9 +39,21 @@ export function useAuth(options?: UseAuthOptions) {
       if (!active) return;
       setHasSession(Boolean(session));
       setSessionReady(true);
-      if (!session) return;
+      if (!session) {
+        const offlineLease = await getValidOfflineAuthLease();
+        if (offlineLease) {
+          const cached = await getOfflineAuthUser<CachedAuthUser>(offlineLease.userId);
+          if (active && cached) {
+            setCachedUser(cached);
+            setOfflineLeaseUserId(offlineLease.userId);
+            setHasSession(true);
+          }
+        }
+        return;
+      }
       const cached = await getOfflineAuthUser<CachedAuthUser>(session.user.id);
       if (active && cached) setCachedUser(cached);
+      if (active) setOfflineLeaseUserId(session.user.id);
     });
 
     const unsubscribe = subscribeSupabaseAuthState((event, session) => {
@@ -46,7 +61,10 @@ export function useAuth(options?: UseAuthOptions) {
       setSessionReady(true);
       if (!session) {
         setCachedUser(null);
+        setOfflineLeaseUserId(null);
+        void revokeOfflineAuthLease();
       } else {
+        setOfflineLeaseUserId(session.user.id);
         void getOfflineAuthUser<CachedAuthUser>(session.user.id).then((cached) => {
           if (cached) setCachedUser(cached);
         });
@@ -76,21 +94,42 @@ export function useAuth(options?: UseAuthOptions) {
       const userId = session?.user.id;
       if (userId) void persistOfflineAuthUser(userId, meQuery.data);
     });
+    // meQuery.data is returned by the authenticated PowerHub API, so this is
+    // the point at which the browser has actually completed an online check.
+    // Only this confirmed online response may renew the 48-hour offline lease.
+    void getSupabaseSession().then((session) => {
+      const userId = session?.user.id;
+      if (userId && typeof navigator !== "undefined" && navigator.onLine) {
+        void renewOfflineAuthLease(userId);
+      }
+    });
   }, [meQuery.data]);
 
   const logout = useCallback(async () => {
-    await supabaseSignOutSafely();
-    setCachedUser(null);
-    utils.auth.me.setData(undefined, null);
-    await utils.auth.me.invalidate();
-  }, [utils]);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("powerhub:explicit-logout", "1");
+    }
+
+    try {
+      await releaseDevice.mutateAsync();
+      await supabaseSignOutSafely();
+    } finally {
+      setCachedUser(null);
+      setOfflineLeaseUserId(null);
+      await revokeOfflineAuthLease();
+      utils.auth.me.setData(undefined, null);
+      await utils.auth.me.invalidate();
+    }
+  }, [releaseDevice, utils]);
 
   const user = meQuery.data ?? cachedUser;
+  const offlineAuthenticated = Boolean(offlineLeaseUserId && cachedUser);
+  const effectiveHasSession = hasSession || offlineAuthenticated;
   const state = {
     user,
-    loading: !sessionReady || (hasSession && meQuery.isLoading && !cachedUser),
+    loading: !sessionReady || (effectiveHasSession && meQuery.isLoading && !cachedUser),
     error: meQuery.error ?? null,
-    isAuthenticated: Boolean(hasSession && user),
+    isAuthenticated: Boolean(effectiveHasSession && user),
   };
 
   useEffect(() => {
@@ -123,5 +162,7 @@ export function useAuth(options?: UseAuthOptions) {
 
 async function supabaseSignOutSafely() {
   const { supabase } = await import("@/lib/supabase");
-  await supabase.auth.signOut();
+  // Logout is device-local by design: remove the current browser session
+  // deterministically, without terminating other active devices.
+  await supabase.auth.signOut({ scope: "local" });
 }

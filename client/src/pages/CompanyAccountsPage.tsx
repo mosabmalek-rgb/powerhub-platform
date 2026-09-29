@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards } from "lucide-react";
 import ExcelJS from "exceljs";
-import jsPDF from "jspdf";
-import { type ElementType, useMemo, useState } from "react";
+import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
+import { type ElementType, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -48,6 +48,7 @@ export default function CompanyAccountsPage() {
   const [movementFromDate, setMovementFromDate] = useState("");
   const [movementToDate, setMovementToDate] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
+  const transactionsRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -71,6 +72,7 @@ export default function CompanyAccountsPage() {
   const refreshAccounts = () => void utils.powerhub.companyAccounts.list.invalidate();
   const updateOpeningBalance = trpc.powerhub.companyAccounts.updateOpeningBalance.useMutation({ onSuccess: () => { toast.success("تم حفظ الرصيد الافتتاحي."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updateSites = trpc.powerhub.companyAccounts.updateSites.useMutation({ onSuccess: () => { toast.success("تم تحديث الفروع المرتبطة."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
+  const updatePaymentDocumentationVisibility = trpc.powerhub.companyAccounts.updatePaymentDocumentationVisibility.useMutation({ onSuccess: () => { toast.success("تم تحديث إعداد ظهور الحساب في توثيق الدفع."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updatePhone = trpc.powerhub.companyAccounts.updatePhone.useMutation({ onSuccess: () => { toast.success("تم حفظ رقم الجوال."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const create = trpc.powerhub.companyAccounts.create.useMutation({
     onSuccess: () => {
@@ -135,6 +137,15 @@ export default function CompanyAccountsPage() {
     setMovementToDate("");
     setMode("deposit");
     setTarget("");
+  };
+
+  const togglePaymentDocumentation = () => {
+    if (!selectedAccount) return;
+    updatePaymentDocumentationVisibility.mutate({
+      siteId,
+      accountId: selectedAccount.id,
+      allow: !Boolean(selectedAccount.allowPaymentDocumentation),
+    });
   };
 
   const saveOpeningBalance = () => {
@@ -203,65 +214,26 @@ export default function CompanyAccountsPage() {
     toast.success("تم تصدير كشف الحساب إلى Excel.");
   };
 
-  const exportPdf = () => {
-    const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-    pdf.setFontSize(16);
-    pdf.text("PowerHub - Company Accounts", 770, 35, { align: "right" });
-    pdf.setFontSize(9);
-    pdf.text(`Accounts: ${filtered.length}`, 770, 52, { align: "right" });
-    let y = 80;
-    pdf.text("Account | Type | Phone | Branches | Balance", 770, y, { align: "right" });
-    y += 18;
-    filtered.forEach((row) => {
-      if (y > 540) { pdf.addPage(); y = 40; }
-      const line = [row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "-", row.linkedSites.map((site) => site.siteName).join(" / ") || "-", Number(row.balance).toLocaleString("en-US")].join(" | ");
-      pdf.text(line.slice(0, 145), 770, y, { align: "right" });
-      y += 14;
-    });
-    pdf.save("كشف-حسابات-الشركة.pdf");
-    toast.success("تم تصدير كشف الحساب إلى PDF.");
-  };
+  const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th><th>الفروع</th><th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${row.name}</td><td>${labels[row.accountType]??row.accountType}</td><td>${row.phoneNumber??"—"}</td><td>${row.linkedSites.map(site=>site.siteName).join("، ")||"—"}</td><td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
 
   const exportTransactionsExcel = async () => {
-    if (!selectedAccount) return;
+    if (!selectedAccount || !transactionRows.length) return;
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("حركات الحساب", { views: [{ rightToLeft: true }] });
-    sheet.addRow(["الحساب", selectedAccount.name]);
-    sheet.addRow(["الرصيد الافتتاحي", Number(selectedAccount.openingBalance ?? 0)]);
-    sheet.addRow([]);
-    sheet.addRow(["التاريخ", "النوع", "المبلغ", "الرصيد التراكمي", "الوصف", "المرجع"]);
-    transactionRows.forEach((row) => sheet.addRow([new Date(row.occurredAt).toLocaleString("ar"), row.transactionType, Number(row.amount), Number(cumulativeById.get(row.id) ?? 0), row.description, row.referenceNo ?? "—"]));
-    sheet.getRow(4).font = { bold: true, color: { argb: "FFFFFFFF" } };
-    sheet.getRow(4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
-    sheet.columns = [{ width: 23 }, { width: 18 }, { width: 16 }, { width: 18 }, { width: 42 }, { width: 22 }];
-    const url = URL.createObjectURL(new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `حركات-${selectedAccount.name}.xlsx`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    const sheet = workbook.addWorksheet("حركات الحساب");
+    sheet.columns = [
+      { header: "الوصف", key: "description", width: 34 },
+      { header: "النوع", key: "type", width: 18 },
+      { header: "المبلغ", key: "amount", width: 16 },
+      { header: "التاريخ", key: "date", width: 24 },
+    ];
+    transactionRows.forEach((row) => sheet.addRow({ description: row.description, type: row.transactionType, amount: Number(row.amount), date: new Date(row.occurredAt).toLocaleString("ar") }));
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `حركات-${selectedAccount.name}.xlsx`; anchor.click(); URL.revokeObjectURL(url);
     toast.success("تم تصدير حركات الحساب إلى Excel.");
   };
-
-  const exportTransactionsPdf = () => {
-    if (!selectedAccount) return;
-    const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-    pdf.setFontSize(16);
-    pdf.text(`PowerHub - ${selectedAccount.name}`, 770, 35, { align: "right" });
-    pdf.setFontSize(9);
-    pdf.text(`Opening balance: ${Number(selectedAccount.openingBalance ?? 0).toLocaleString("en-US")}`, 770, 52, { align: "right" });
-    let y = 80;
-    pdf.text("Date | Type | Amount | Running balance | Description | Reference", 770, y, { align: "right" });
-    y += 18;
-    transactionRows.forEach((row) => {
-      if (y > 540) { pdf.addPage(); y = 40; }
-      const line = [new Date(row.occurredAt).toLocaleDateString("en-US"), row.transactionType, Number(row.amount).toFixed(2), Number(cumulativeById.get(row.id) ?? 0).toFixed(2), row.description, row.referenceNo ?? "-"].join(" | ");
-      pdf.text(line.slice(0, 150), 770, y, { align: "right" });
-      y += 14;
-    });
-    pdf.save(`حركات-${selectedAccount.name}.pdf`);
-    toast.success("تم تصدير حركات الحساب إلى PDF.");
-  };
+  const exportTransactionsPdf = async () => { if (!selectedAccount || !transactionsRef.current) return; try { await downloadReportHtmlAsPdf(transactionsRef.current, `حركات-${selectedAccount.name}.pdf`, { landscape: true, title: `حركات حساب ${selectedAccount.name} - PowerHub` }); toast.success("تم تصدير حركات الحساب إلى PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
 
   return (
     <DashboardLayout>

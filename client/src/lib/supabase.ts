@@ -28,6 +28,14 @@ function ensureAuthSubscription() {
   authSubscriptionReady = true;
 
   supabase.auth.onAuthStateChange((event, session) => {
+    // Supabase can deliver INITIAL_SESSION asynchronously. If a login has
+    // already established a session, do not let a stale null initialization
+    // event briefly erase it and make protected routes redirect to /login.
+    if (event === "INITIAL_SESSION" && session === null && currentSession !== null) {
+      sessionInitialized = true;
+      return;
+    }
+
     currentSession = session;
     sessionInitialized = true;
 
@@ -59,10 +67,39 @@ export async function getSupabaseSession(): Promise<Session | null> {
 
   sessionReadInFlight = supabase.auth
     .getSession()
-    .then(({ data }) => {
-      currentSession = data.session;
+    .then(({ data, error }) => {
+      if (data.session) {
+        currentSession = data.session;
+        sessionInitialized = true;
+        return currentSession;
+      }
+
+      // Supabase may attempt a network refresh when the access token is close
+      // to expiry. If that refresh fails because the device is temporarily
+      // offline, keep using the currently valid access token until its actual
+      // expiry. Never revive an already-expired session offline.
+      const currentExpiresAt = currentSession?.expires_at ?? 0;
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      if (error && currentSession && currentExpiresAt > nowSeconds) {
+        sessionInitialized = true;
+        return currentSession;
+      }
+
+      currentSession = null;
       sessionInitialized = true;
-      return currentSession;
+      return null;
+    })
+    .catch(() => {
+      const currentExpiresAt = currentSession?.expires_at ?? 0;
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      if (currentSession && currentExpiresAt > nowSeconds) {
+        sessionInitialized = true;
+        return currentSession;
+      }
+
+      currentSession = null;
+      sessionInitialized = true;
+      return null;
     })
     .finally(() => {
       sessionReadInFlight = null;

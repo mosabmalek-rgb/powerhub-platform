@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BulkSubscriberImport } from "./BulkSubscriberImport";
@@ -21,15 +21,15 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 describe("استيراد المشتركين من Excel", () => {
   afterEach(() => { cleanup(); state.mutate.mockReset(); state.onSaved.mockClear(); state.options = null; });
 
-  it("يعرض مدخل الملف والقالب مع تحذير مراجعة البيانات قبل الإرسال", () => {
+  it("يعرض مدخل الملف والقالب مع توضيح أن الرقم المرجعي للتحديث فقط", () => {
     render(<BulkSubscriberImport siteId={7} onSaved={state.onSaved} />);
     expect(screen.getByText("إضافة مشتركين جماعياً")).toBeInTheDocument();
-    expect(screen.getByText(/لا تُرسل رسائل الأرقام المرجعية تلقائياً/)).toBeInTheDocument();
+    expect(screen.getByText(/الرقم المرجعي في الملف يُستخدم فقط عند تفعيل تحديث/)).toBeInTheDocument();
     expect(screen.getByText("تنزيل القالب")).toBeInTheDocument();
     expect(screen.getByLabelText("رفع ملف Excel", { selector: "input" })).toHaveAttribute("accept", expect.stringContaining(".xlsx"));
   });
 
-  it("يعرض المعاينة ويرسل الصفوف السليمة إلى الحفظ الذري الجماعي", async () => {
+  it("لا يرسل الرقم المرجعي عند إنشاء مشترك جديد، ويترك رقم المشترك للخادم", async () => {
     render(<BulkSubscriberImport siteId={7} onSaved={state.onSaved} />);
     fireEvent.change(screen.getByLabelText("رفع ملف Excel", { selector: "input" }), { target: { files: [new File(["xlsx"], "subscribers.xlsx")] } });
     await screen.findByText("أحمد العلي");
@@ -38,7 +38,7 @@ describe("استيراد المشتركين من Excel", () => {
     expect(state.mutate).toHaveBeenCalledWith({
       siteId: 7,
       updateExisting: false,
-      rows: [{ sourceRow: 2, subscriberNo: "SUB-NORTH-001", fullName: "أحمد العلي", phone: "+970599000001", whatsappNumber: undefined, address: "غزة", subscriptionType: "residential" }],
+      rows: [{ sourceRow: 2, subscriberNo: undefined, fullName: "أحمد العلي", phone: "+970599000001", whatsappNumber: undefined, address: "غزة", subscriptionType: "residential" }],
     });
   });
 });

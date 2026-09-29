@@ -24,6 +24,7 @@ import FinanceAdminPage from "./pages/FinanceAdminPage";
 import LoginPage from "./pages/LoginPage";
 import ProfileSecurityPage from "./pages/ProfileSecurityPage";
 import SubscriberPortalPage from "./pages/SubscriberPortalPage";
+import SubscriberAccountStatementPage from "./pages/SubscriberAccountStatementPage";
 import SubscriberPortalSettingsPage from "./pages/SubscriberPortalSettingsPage";
 import BranchesPage from "./pages/BranchesPage";
 import HumanResourcesPage from "./pages/HumanResourcesPage";
@@ -35,6 +36,13 @@ import QuickActionsPage from "./pages/QuickActionsPage";
 import OfflineSyncPage from "./pages/OfflineSyncPage";
 import SetupWizardPage from "./pages/SetupWizardPage";
 import TrialSubscriptionManagementPage from "./pages/TrialSubscriptionManagementPage";
+import SupportChatPage from "./pages/SupportChatPage";
+import SupportCenterPage from "./pages/SupportCenterPage";
+import PaymentDocumentationPage from "./pages/PaymentDocumentationPage";
+import PaymentDocumentationReviewPage from "./pages/PaymentDocumentationReviewPage";
+import PlatformAnnouncementsPage from "./pages/PlatformAnnouncementsPage";
+import AdminGeneratorFeaturesPage from "./pages/AdminGeneratorFeaturesPage";
+import AnnouncementsPage from "./pages/AnnouncementsPage";
 
 function Router() {
   return (
@@ -45,8 +53,11 @@ function Router() {
       <Route path={"/setup"}>{() => <RouteAccessGate><SetupWizardPage /></RouteAccessGate>}</Route>
       <Route path={"/quick-actions"}>{() => <RouteAccessGate><QuickActionsPage /></RouteAccessGate>}</Route>
       <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
+      <Route path={"/support-chat"}>{() => <RouteAccessGate><SupportChatPage /></RouteAccessGate>}</Route>
+      <Route path={"/support-center"}>{() => <RouteAccessGate><SupportCenterPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/portal"} component={SubscriberPortalPage} />
+      <Route path={"/subscriber-statement/:subscriberId"}>{() => <RouteAccessGate><SubscriberAccountStatementPage /></RouteAccessGate>}</Route>
       <Route path={"/portal-settings"}>{() => <RouteAccessGate><SubscriberPortalSettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/branches"}>{() => <RouteAccessGate><BranchesPage /></RouteAccessGate>}</Route>
       <Route path={"/subscribers"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="subscribers" /></RouteAccessGate>}</Route>
@@ -58,8 +69,11 @@ function Router() {
       <Route path={"/reports"}>{() => <RouteAccessGate><ReportsPage /></RouteAccessGate>}</Route>
       <Route path={"/financial-dashboard"}>{() => <RouteAccessGate><FinancialDashboardPage /></RouteAccessGate>}</Route>
       <Route path={"/financial-settlements"}>{() => <RouteAccessGate><FinancialSettlementsPage /></RouteAccessGate>}</Route>
+      <Route path={"/payment-documentation/review"}>{() => <RouteAccessGate><PaymentDocumentationReviewPage /></RouteAccessGate>}</Route>
+      <Route path={"/payment-documentation"}>{() => <RouteAccessGate><PaymentDocumentationPage /></RouteAccessGate>}</Route>
       <Route path={"/company-accounts"}>{() => <RouteAccessGate><CompanyAccountsPage /></RouteAccessGate>}</Route>
       <Route path={"/notifications"}>{() => <RouteAccessGate><MessagingSettingsPage /></RouteAccessGate>}</Route>
+      <Route path={"/announcements"}>{() => <RouteAccessGate><AnnouncementsPage /></RouteAccessGate>}</Route>
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync/readings/:readingId"}>{() => <RouteAccessGate><MobileReadingDetailPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync"}>{() => <RouteAccessGate><MobileSyncPage /></RouteAccessGate>}</Route>
@@ -70,7 +84,10 @@ function Router() {
       <Route path={"/payroll"}>{() => <RouteAccessGate><PayrollPage /></RouteAccessGate>}</Route>
       <Route path={"/attendance"}>{() => <RouteAccessGate><AttendancePage /></RouteAccessGate>}</Route>
       <Route path={"/admin/trial-management"}>{() => <RouteAccessGate platformAdminOnly><TrialSubscriptionManagementPage /></RouteAccessGate>}</Route>
-      <Route path={"/admin"}>{() => <RouteAccessGate platformAdminOnly><AdminConsolePage /></RouteAccessGate>}</Route>
+      <Route path={"/admin/generator-features/:tenantId"}>{() => <RouteAccessGate platformAdminOnly><AdminGeneratorFeaturesPage /></RouteAccessGate>}</Route>
+      <Route path={"/admin/generator-features"}>{() => <RouteAccessGate platformAdminOnly><AdminGeneratorFeaturesPage /></RouteAccessGate>}</Route>
+      <Route path={"/admin/announcements"}>{() => <RouteAccessGate platformAdminOnly><PlatformAnnouncementsPage /></RouteAccessGate>}</Route>
+      <Route path={"/admin"}>{() => <RouteAccessGate><AdminConsolePage /></RouteAccessGate>}</Route>
       <Route path={"/finance-admin"}>{() => <RouteAccessGate platformAdminOnly><FinanceAdminPage /></RouteAccessGate>}</Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />

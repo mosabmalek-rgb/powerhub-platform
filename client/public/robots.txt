@@ -23,4 +23,3 @@ Disallow: /offline-sync
 Disallow: /api/
 Allow: /invoice/
 Allow: /portal
-Sitemap: https://powerhub-platform.vercel.app/sitemap.xml

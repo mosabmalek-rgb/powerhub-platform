@@ -14,7 +14,7 @@ export function PowerHubLogo({ compact = false, header = false, className }: { c
   const imageSize = compact
     ? "h-9 w-[9.5rem]"
     : header
-      ? "h-[4.25rem] w-[13.5rem] sm:h-24 sm:w-[18rem]"
+      ? "h-[3.5rem] w-[11rem] md:h-[4.25rem] md:w-[13.5rem] xl:h-24 xl:w-[18rem]"
       : "h-[3.75rem] w-[12rem] sm:h-[4.5rem] sm:w-[14.5rem]";
 
   return (

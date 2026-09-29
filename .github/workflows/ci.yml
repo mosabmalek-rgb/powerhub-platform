@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, p4-production-excellence, p6-scale-operations]
   pull_request:
-    branches: [main, p5-6-commercial-launch]
+    branches: [main, p5-6-commercial-launch, refactor/admin-supabase-migration]
 
 permissions:
   contents: read
@@ -16,7 +16,8 @@ concurrency:
 jobs:
   validate:
     name: TypeScript, tests, and production build
-    runs-on: ubuntu-latest
+    # The repository uses a self-hosted runner to avoid GitHub-hosted minute limits.
+    runs-on: self-hosted
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=4096
@@ -39,11 +40,33 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Supabase runtime boundary
+        run: node scripts/check-supabase-runtime-boundary.mjs
+
       - name: TypeScript check
-        run: pnpm check
+        run: pnpm check > tsc-errors.log 2>&1
+
+      - name: Upload TypeScript diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-diagnostics
+          path: tsc-errors.log
+          if-no-files-found: warn
 
       - name: Run tests
-        run: pnpm test
+        shell: cmd
+        run: |
+          pnpm test > test-errors.log 2>&1
+          if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
+
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-diagnostics
+          path: test-errors.log
+          if-no-files-found: warn
 
       - name: Build production artifacts
         run: pnpm build

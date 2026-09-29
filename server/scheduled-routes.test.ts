@@ -12,14 +12,18 @@ afterEach(async () => {
 });
 
 describe("مسارات الجدولة الخارجية", () => {
-  it("ترفض تشغيل جدولة Heartbeat الموروثة أثناء الانتقال إلى Vercel Cron", async () => {
+  it("ترفض تشغيل جدولة Heartbeat الموروثة بعد اعتماد Supabase Cron", async () => {
     const server = createPowerHubApp().listen(0);
     servers.push(server);
     await new Promise<void>((resolve) => server.once("listening", () => resolve()));
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("تعذر فتح خادم الاختبار.");
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/scheduled/process-notifications`, { method: "POST" });
-    expect(response.status).toBe(410);
-    await expect(response.json()).resolves.toMatchObject({ error: "scheduled_jobs_disabled" });
+    const legacyResponse = await fetch(`http://127.0.0.1:${address.port}/api/scheduled/process-notifications`, { method: "POST" });
+    expect(legacyResponse.status).toBe(410);
+    await expect(legacyResponse.json()).resolves.toMatchObject({ error: "scheduled_jobs_disabled" });
+
+    const protectedResponse = await fetch(`http://127.0.0.1:${address.port}/api/scheduled/process-invoice-notifications`, { method: "GET" });
+    expect(protectedResponse.status).toBe(401);
+    await expect(protectedResponse.json()).resolves.toMatchObject({ error: "unauthorized" });
   });
 });

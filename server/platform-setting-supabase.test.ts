@@ -40,12 +40,13 @@ describe("platform settings Supabase adapter", () => {
 });
 
 describe("platform settings runtime wiring", () => {
-  it("overrides the legacy procedure and exposes it through appRouter", () => {
+  it("overrides the legacy procedure and exposes it through the current appRouter composition", () => {
     const router = read(routerPath);
     const appRouter = read(appRouterPath);
     expect(router).toContain("savePlatformSetting: platformAdminSavePlatformSettingProcedure");
     expect(router).toContain("adminRouterWithSupabaseTariffPolicy");
     expect(appRouter).toContain('import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router"');
-    expect(appRouter).toContain("admin: adminRouterWithSupabasePlatformSetting");
+    expect(appRouter).toContain("const adminRuntimeRouter = (router({");
+    expect(appRouter).toContain("admin: adminRuntimeRouter");
   });
 });

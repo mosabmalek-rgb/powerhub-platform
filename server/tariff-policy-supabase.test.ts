@@ -30,7 +30,7 @@ describe("tariff policy Supabase migration contract", () => {
     expect(source).not.toContain("../drizzle/schema");
   });
 
-  it("keeps the public tRPC procedure wired through the Supabase override chain", async () => {
+  it("keeps the public tRPC procedure wired through the current Supabase override composition", async () => {
     const { readFile } = await import("node:fs/promises");
     const router = await readFile("server/admin-tariff-policy-router.ts", "utf8");
     const platformRouter = await readFile("server/admin-platform-setting-router.ts", "utf8");
@@ -44,6 +44,7 @@ describe("tariff policy Supabase migration contract", () => {
     expect(platformRouter).toContain("adminRouterWithSupabaseTariffPolicy");
     expect(platformRouter).toContain("_def.record");
     expect(appRouter).toContain("adminRouterWithSupabasePlatformSetting");
-    expect(appRouter).toContain("admin: adminRouterWithSupabasePlatformSetting");
+    expect(appRouter).toContain("const adminRuntimeRouter = (router({");
+    expect(appRouter).toContain("admin: adminRuntimeRouter");
   });
 });

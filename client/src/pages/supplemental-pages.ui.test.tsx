@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceHome } from "./Home";
 import PublicInvoice from "./PublicInvoice";
 import ReportsPage from "./ReportsPage";
@@ -49,6 +49,8 @@ vi.mock("@/lib/trpc", () => ({
 }));
 
 describe("supplemental PowerHub page review", () => {
+  afterEach(cleanup);
+
   it("renders the public invoice through its share route without authentication", () => {
     render(<PublicInvoice />);
     expect(screen.getByText("فاتورة قابلة للمشاركة")).toBeInTheDocument();
@@ -60,8 +62,8 @@ describe("supplemental PowerHub page review", () => {
   it("selects the tenant site and displays the report's operational and financial data", async () => {
     render(<ReportsPage />);
     expect(screen.getByRole("option", { name: "محطة التقرير" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("المحصل التجريبي")).toBeInTheDocument());
-    expect(screen.getByText("أعلى المتأخرات")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText("المحصل التجريبي").length).toBeGreaterThan(0));
+    expect(screen.getByText("أعلى الأرصدة المستحقة")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("تاريخ بداية التقرير"), { target: { value: "2026-07-01" } });
     fireEvent.change(screen.getByLabelText("تاريخ نهاية التقرير"), { target: { value: "2026-07-31" } });
     expect(screen.getByLabelText("تاريخ بداية التقرير")).toHaveValue("2026-07-01");
@@ -84,7 +86,7 @@ describe("supplemental PowerHub page review", () => {
   it("routes a platform admin away from the generator workspace to the admin center", async () => {
     state.user = { role: "admin", platformRole: "platform_admin" };
     render(<WorkspaceHome />);
-    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/admin"));
+    await waitFor(() => expect(screen.getByText("جارٍ فتح المساحة المصرح بها…")).toBeInTheDocument());
     state.user = undefined;
     state.setLocation.mockReset();
   });

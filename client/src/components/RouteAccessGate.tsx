@@ -5,15 +5,18 @@ import { useLocation } from "wouter";
 type RouteAccessGateProps = {
   children: React.ReactNode;
   platformAdminOnly?: boolean;
+  supportOnly?: boolean;
 };
 
-export function RouteAccessGate({ children, platformAdminOnly = false }: RouteAccessGateProps) {
+export function RouteAccessGate({ children, platformAdminOnly = false, supportOnly = false }: RouteAccessGateProps) {
   const { user, isAuthenticated, loading } = useAuth();
   const [, setLocation] = useLocation();
-  const shouldRedirect = !loading && (!isAuthenticated || (platformAdminOnly && user?.role !== "admin"));
+  const isPlatformAdmin = user?.role === "admin" && ["platform_owner", "platform_admin", "finance_admin"].includes(user.platformRole ?? "");
+  const isPlatformSupport = user?.role === "admin" && user.platformRole === "platform_support";
+  const shouldRedirect = !loading && (!isAuthenticated || (platformAdminOnly && !isPlatformAdmin) || (supportOnly && !isPlatformSupport));
 
   useEffect(() => {
-    if (shouldRedirect) setLocation("/login");
+    if (shouldRedirect) setLocation("/");
   }, [setLocation, shouldRedirect]);
 
   if (loading || shouldRedirect) {

@@ -23,7 +23,11 @@ const mobileLoginSchema = z.object({
   deviceLabel: z.string().trim().min(1).max(160).optional(),
 });
 const refreshSchema = z.object({ refreshToken: z.string().min(32).max(256) });
-const subscriberQuerySchema = z.object({ branchId: z.coerce.number().int().positive(), limit: z.coerce.number().int().min(1).max(100).default(100) });
+const subscriberQuerySchema = z.object({
+  branchId: z.coerce.number().int().positive(),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+  cursor: z.string().trim().regex(/^[1-9]\d*$/).optional(),
+});
 const readingSchema = z.object({
   clientOperationId: z.string().uuid(),
   branchId: z.number().int().positive(),
@@ -72,7 +76,7 @@ export function hashMobileToken(value: string) {
 }
 
 export function hasFieldAppAccess(role: PowerRole, permissions: readonly PowerCapability[] | null | undefined) {
-  return can(role, "recordReadings", permissions) && can(role, "accessFieldApp", permissions);
+  return role === "technician" && can(role, "recordReadings", permissions) && can(role, "accessFieldApp", permissions);
 }
 
 function newRefreshToken() {
@@ -177,7 +181,12 @@ async function availableTenantsForUser(userId: number) {
 async function createSession(scope: MobileScope, deviceLabel?: string) {
   const refreshToken = newRefreshToken();
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const { data: session, error } = await supabaseAdmin().from("mobile_api_sessions")
+  const admin = supabaseAdmin();
+  const { error: revokeError } = await admin.from("mobile_api_sessions")
+    .update({ revoked_at: isoNow() })
+    .eq("user_id", scope.userId).eq("tenant_id", scope.tenantId).is("revoked_at", null);
+  if (revokeError) throw new Error(revokeError.message || "تعذر إغلاق جلسة الجهاز السابق.");
+  const { data: session, error } = await admin.from("mobile_api_sessions")
     .insert({ user_id: scope.userId, tenant_id: scope.tenantId, refresh_token_hash: hashMobileToken(refreshToken), device_label: deviceLabel, expires_at: expiresAt })
     .select("id")
     .single();
@@ -267,18 +276,29 @@ export function registerMobileApi(app: Express) {
     const parsed = subscriberQuerySchema.safeParse(req.query);
     if (!parsed.success) return sendError(res, 400, "INVALID_QUERY", "بيانات طلب المشتركين غير صالحة.");
     if (!context.scope.branchIds.includes(parsed.data.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
+    const cursorId = parsed.data.cursor ? Number(parsed.data.cursor) : null;
+    if (cursorId !== null && (!Number.isSafeInteger(cursorId) || cursorId <= 0)) {
+      return sendError(res, 400, "INVALID_QUERY", "مؤشر صفحة المشتركين غير صالح.");
+    }
     const admin = supabaseAdmin();
-    const { data: rows, error } = await admin.from("subscribers").select("id, subscriber_no, full_name, phone, address, site_id")
-      .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active").limit(parsed.data.limit);
+    let query = admin.from("subscribers").select("id, subscriber_no, full_name, phone, address, site_id")
+      .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active")
+      .order("id", { ascending: true }).limit(parsed.data.limit + 1);
+    if (cursorId !== null) query = query.gt("id", cursorId);
+    const { data: rows, error } = await query;
     if (error) return sendSupabaseError(res, error);
     try {
-      const items = await Promise.all((rows ?? []).map(async (row) => {
+      const pageRows = (rows ?? []).slice(0, parsed.data.limit);
+      const items = await Promise.all(pageRows.map(async (row) => {
         const { data: last, error: lastError } = await admin.from("meter_readings").select("reading_value, reading_at")
           .eq("subscriber_id", row.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
         if (lastError) throw new Error(lastError.message);
         return { id: toNumber(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone, address: row.address, branchId: toNumber(row.site_id), lastReading: last?.reading_value ?? null, lastReadingAt: last?.reading_at ?? null };
       }));
-      return res.json({ items, nextCursor: null });
+      const nextCursor = (rows ?? []).length > parsed.data.limit
+        ? String(pageRows[pageRows.length - 1]?.id ?? "") || null
+        : null;
+      return res.json({ items, nextCursor });
     } catch (lastReadingError) {
       return sendSupabaseError(res, lastReadingError instanceof Error ? lastReadingError : null);
     }

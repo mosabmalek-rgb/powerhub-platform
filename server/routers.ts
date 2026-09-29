@@ -1,6 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { systemRouter } from "./_core/systemRouter";
 import { authenticatedProcedure, publicProcedure, mergeRouters, router } from "./_core/trpc";
 import { powerhubRuntimeRouter } from "./powerhub-runtime-router";
@@ -9,19 +10,78 @@ import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting
 import { adminRolePolicyRouter } from "./admin-role-policy-router";
 import type { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
+import { supportRouter } from "./support-router";
+import { platformAnnouncementsRouter } from "./platform-announcements-router";
+import { adminFeatureControlsRouter } from "./admin-feature-controls-router";
 
 const adminRuntimeRecord = {
   ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
 };
 delete adminRuntimeRecord.saveRolePolicy;
 Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, unknown>);
+Object.assign(adminRuntimeRecord, (adminFeatureControlsRouter as any)._def.record as Record<string, unknown>);
 
-const adminRuntimeRouter = (router(adminRuntimeRecord as Record<string, any>) as unknown) as typeof adminRouter;
+type AppAdminRouter = Omit<typeof adminRouter, "listComplaints"> & {
+  listComplaints: any;
+  listTenantFeatureEntitlements: any;
+  setTenantFeatureEntitlement: any;
+  featureCatalog: any;
+  tenantFeatureMatrix: any;
+  tenantFeatureSnapshot: any;
+  setTenantFeatureControl: any;
+  resetTenantFeatureControl: any;
+};
+
+const adminRuntimeRouter = (router({
+  ...adminRuntimeRecord,
+  listTenantFeatureEntitlements: (adminRouterWithSupabasePlatformSetting as any)._def.record.listTenantFeatureEntitlements,
+  setTenantFeatureEntitlement: (adminRouterWithSupabasePlatformSetting as any)._def.record.setTenantFeatureEntitlement,
+} as Record<string, any>) as unknown) as AppAdminRouter;
 
 export const appRouter = router({
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    claimDevice: publicProcedure.input(z.object({ deviceId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: "يجب تسجيل الدخول أولاً." });
+      const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
+        p_user_id: ctx.user.openId,
+        p_device_id: input.deviceId,
+        p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تثبيت جهاز الدخول." });
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
+      return { allowed: true } as const;
+    }),
+    releaseDevice: authenticatedProcedure.mutation(async ({ ctx }) => {
+      const deviceId = ctx.req.headers["x-powerhub-device-id"];
+      if (typeof deviceId !== "string" || !z.string().uuid().safeParse(deviceId).success) return { released: false } as const;
+      const { data, error } = await supabaseAdmin().rpc("powerhub_release_user_device", {
+        p_user_id: ctx.user.openId,
+        p_device_id: deviceId,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحرير جهاز الدخول." });
+      return { released: Boolean(data) } as const;
+    }),
+
+    me: publicProcedure.query(async ({ ctx }) => {
+      if (!ctx.user) return null;
+      const deviceId = ctx.req.headers["x-powerhub-device-id"];
+      if (typeof deviceId !== "string" || !z.string().uuid().safeParse(deviceId).success) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "تعذر التحقق من جهاز الدخول." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
+        p_user_id: ctx.user.openId,
+        p_device_id: deviceId,
+        p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الجهاز." });
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row?.allowed) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
+      }
+      return ctx.user;
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -41,8 +101,8 @@ export const appRouter = router({
     }),
   }),
   powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
-  // Canonical composition contract: admin: adminRouterWithSupabasePlatformSetting
-  // Reissued after CI merge-ref drift so GitHub Actions evaluates the current branch head.
+  support: supportRouter,
+  platformAnnouncements: platformAnnouncementsRouter,
   admin: adminRuntimeRouter,
 });
 

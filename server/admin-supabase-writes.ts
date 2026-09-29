@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { supabaseAdmin } from "./supabase-admin";
 
-export type AdminSubscriptionPlan = "starter" | "professional" | "enterprise";
+export type AdminPackageCode = "basic" | "advanced" | "professional" | "business" | "vip";
 export type AdminSubscriptionStatus = "trial" | "active" | "overdue" | "suspended" | "cancelled";
 export type AdminBillingCycle = "monthly" | "yearly";
 
@@ -111,7 +111,7 @@ export async function attachOwnerUser(input: {
 export async function updateSubscription(input: {
   actorUserId: number;
   tenantId: number;
-  plan: AdminSubscriptionPlan;
+  packageCode: AdminPackageCode;
   status: AdminSubscriptionStatus;
   billingCycle: AdminBillingCycle;
   endsAt: Date;
@@ -122,7 +122,7 @@ export async function updateSubscription(input: {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_update_subscription", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
-    p_plan: input.plan,
+    p_package_code: input.packageCode,
     p_status: input.status,
     p_billing_cycle: input.billingCycle,
     p_ends_at: input.endsAt.toISOString(),
@@ -139,19 +139,19 @@ export async function updateSubscription(input: {
 export async function quickUpgradeOwnerPlan(input: {
   actorUserId: number;
   tenantId: number;
-  plan: AdminSubscriptionPlan;
+  packageCode: AdminPackageCode;
   note: string;
 }) {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_quick_upgrade_owner_plan", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
-    p_plan: input.plan,
+    p_package_code: input.packageCode,
     p_note: input.note,
   });
   quickUpgradeOwnerPlanRpcError(error);
-  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
-  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
-  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
+  const row = data?.[0] as { success?: boolean; package_code?: string } | undefined;
+  if (!row || typeof row.package_code !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid quick upgrade result." });
+  return { success: Boolean(row.success), packageCode: row.package_code as AdminPackageCode };
 }
 
 export async function reviewSubscriptionUpgradeRequest(input: {
@@ -167,9 +167,9 @@ export async function reviewSubscriptionUpgradeRequest(input: {
     p_note: input.note ?? null,
   });
   reviewSubscriptionRpcError(error);
-  const row = data?.[0] as { success?: boolean; plan?: string } | undefined;
-  if (!row || typeof row.plan !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription review result." });
-  return { success: Boolean(row.success), plan: row.plan as AdminSubscriptionPlan };
+  const row = data?.[0] as { success?: boolean; package_code?: string } | undefined;
+  if (!row || typeof row.package_code !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription review result." });
+  return { success: Boolean(row.success), packageCode: row.package_code as AdminPackageCode };
 }
 
 export async function reviewSmsPackageRequest(input: {
@@ -217,16 +217,18 @@ function renewSubscriptionRpcError(error: { message?: string } | null) {
 
 export async function renewSubscription(input: {
   actorUserId: number;
-  tenantId: number;
-  periods: number;
+  subscriptionId: number;
+  endsAt: Date;
+  addonDecisions?: Array<{ addonRequestId: number; decision: "renew" | "expire"; durationDays?: number }>;
 }) {
-  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_renew_subscription", {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_renew_subscription_with_addons", {
     p_actor_user_id: input.actorUserId,
-    p_tenant_id: input.tenantId,
-    p_periods: input.periods,
+    p_subscription_id: input.subscriptionId,
+    p_new_ends_at: input.endsAt.toISOString(),
+    p_addon_decisions: input.addonDecisions ?? [],
   });
   renewSubscriptionRpcError(error);
-  const row = data?.[0] as { success?: boolean; ends_at?: string } | undefined;
+  const row = data?.[0] as { success?: boolean; ends_at?: string; renewed_addons?: number; expired_addons?: number } | undefined;
   if (!row || typeof row.ends_at !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription renewal result." });
-  return { success: Boolean(row.success), endsAt: new Date(row.ends_at) };
+  return { success: Boolean(row.success), endsAt: new Date(row.ends_at), renewedAddons: Number(row.renewed_addons ?? 0), expiredAddons: Number(row.expired_addons ?? 0) };
 }
