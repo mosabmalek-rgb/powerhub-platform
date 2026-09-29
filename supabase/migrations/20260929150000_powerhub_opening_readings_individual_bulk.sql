@@ -70,6 +70,7 @@ declare
   v_platform_role text;
   v_current_count integer;
   v_effective_limit integer;
+  v_feature_policy record;
   v_owner boolean := false;
 begin
   if p_client_operation_id is not null then
@@ -100,6 +101,14 @@ begin
     where id = p_site_id and tenant_id = p_tenant_id and status <> 'archived'
   ) then
     raise exception 'SITE_OUT_OF_SCOPE' using errcode = 'P0001';
+  end if;
+
+  select * into v_feature_policy
+  from public.powerhub_resolve_tenant_feature_policy(p_tenant_id, 'subscriber_management');
+
+  if not coalesce(v_feature_policy.eligible, false)
+     or not coalesce(v_feature_policy.enabled, false) then
+    raise exception 'SUBSCRIBER_FEATURE_DISABLED' using errcode = 'P0001';
   end if;
 
   if p_full_name is null or length(trim(p_full_name)) < 2 then
@@ -136,8 +145,8 @@ begin
 
   select count(*)::integer into v_current_count
   from public.subscribers where tenant_id = p_tenant_id;
-  v_effective_limit := public.powerhub_effective_tenant_quota(p_tenant_id,'subscribers');
-  if v_current_count >= v_effective_limit then
+  v_effective_limit := v_feature_policy.effective_limit;
+  if v_effective_limit is not null and v_current_count >= v_effective_limit then
     raise exception 'SUBSCRIBER_QUOTA_REACHED' using errcode = 'P0001';
   end if;
 
@@ -282,6 +291,7 @@ declare
   v_opening_at timestamptz;
   v_opening_approved boolean;
   v_baseline_id bigint;
+  v_feature_policy record;
   v_owner boolean := false;
 begin
   if nullif(trim(p_client_operation_id),'') is null then raise exception 'INVALID_OPERATION_ID'; end if;
@@ -308,6 +318,14 @@ begin
   end if;
 
   if not exists(select 1 from public.sites where id=p_site_id and tenant_id=p_tenant_id and status <> 'archived') then raise exception 'SITE_OUT_OF_SCOPE'; end if;
+
+  select * into v_feature_policy
+  from public.powerhub_resolve_tenant_feature_policy(p_tenant_id, 'subscriber_management');
+
+  if not coalesce(v_feature_policy.eligible, false)
+     or not coalesce(v_feature_policy.enabled, false) then
+    raise exception 'SUBSCRIBER_FEATURE_DISABLED';
+  end if;
 
   select count(*)::int into cnt from public.subscribers where tenant_id=p_tenant_id;
   select platform_role into role_name from public.users where id=p_user_id;
@@ -370,7 +388,7 @@ begin
       continue;
     end if;
 
-    if cnt+made>=p_quota_limit then
+    if v_feature_policy.effective_limit is not null and cnt+made>=v_feature_policy.effective_limit then
       out_failed:=out_failed||jsonb_build_array(jsonb_build_object('sourceRow',n,'fullName',f,'reason','يتجاوز هذا الصف الحد المتاح للمشتركين في الباقة.'));
       continue;
     end if;
@@ -412,6 +430,21 @@ begin
       'openingReadingStatus',case when v_opening_reading is null then null when v_opening_approved then 'approved' else 'pending_review' end
     ));
   end loop;
+
+  insert into public.audit_logs(
+    tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data
+  ) values(
+    p_tenant_id,p_site_id,p_user_id,role_name,'subscriber_import',
+    'bulk-'||gen_random_uuid()::text,'bulk_import',
+    jsonb_build_object(
+      'requested',jsonb_array_length(p_rows),
+      'created',jsonb_array_length(out_created),
+      'updated',jsonb_array_length(out_updated),
+      'failed',jsonb_array_length(out_failed),
+      'updateExisting',p_update_existing,
+      'openingReadings',true
+    )
+  );
 
   v_response:=jsonb_build_object('created',out_created,'updated',out_updated,'failed',out_failed);
   insert into public.offline_sync_operations(
