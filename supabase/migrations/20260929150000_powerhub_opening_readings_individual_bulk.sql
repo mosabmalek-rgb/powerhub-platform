@@ -403,7 +403,7 @@ begin
         consumption_kwh,capture_method,status,entered_by_user_id,reviewed_by_user_id,
         reviewed_at,notes,is_opening_baseline
       ) values(
-        p_tenant_id,sid,v_opening_at,v_opening_reading,null,0,'manual',
+        p_tenant_id,sid,format('%s:opening:%s',trim(p_client_operation_id),n),v_opening_at,v_opening_reading,null,0,'manual',
         case when v_opening_approved then 'approved' else 'pending_review' end,
         p_user_id,case when v_opening_approved then p_user_id else null end,
         case when v_opening_approved then now() else null end,
