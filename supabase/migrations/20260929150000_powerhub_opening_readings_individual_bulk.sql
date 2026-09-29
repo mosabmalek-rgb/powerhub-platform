@@ -155,12 +155,13 @@ begin
 
   if p_opening_reading is not null then
     insert into public.meter_readings (
-      tenant_id, subscriber_id, reading_at, reading_value,
+      tenant_id, subscriber_id, client_operation_id, reading_at, reading_value,
       previous_reading_value, consumption_kwh, capture_method,
       image_key, image_hash, status, entered_by_user_id,
       reviewed_by_user_id, reviewed_at, notes, is_opening_baseline
     ) values (
-      p_tenant_id, v_subscriber_id, coalesce(p_opening_reading_at, now()),
+      p_tenant_id, v_subscriber_id, p_client_operation_id::text,
+      coalesce(p_opening_reading_at, now()),
       p_opening_reading, null, 0,
       case when nullif(trim(coalesce(p_opening_image_key,'')),'') is null then 'manual' else 'photo' end,
       nullif(trim(coalesce(p_opening_image_key,'')),''),
