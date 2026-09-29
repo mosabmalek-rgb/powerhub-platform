@@ -87,8 +87,8 @@ begin
       return query select
         (v_response->>'id')::bigint,
         v_response->>'subscriberNo',
-        null::bigint,
-        null::text,
+        (v_response->>'openingReadingId')::bigint,
+        v_response->>'openingReadingStatus',
         true;
       return;
     end if;
@@ -213,6 +213,8 @@ begin
       jsonb_build_object(
         'id', v_subscriber_id,
         'subscriberNo', v_subscriber_no,
+        'openingReadingId', v_reading_id,
+        'openingReadingStatus', case when p_opening_reading is null then null when p_opening_reading_approved then 'approved' else 'pending_review' end,
         'referenceNotifications', jsonb_build_array()
       )
     );
@@ -234,7 +236,7 @@ exception when unique_violation then
     where client_operation_id = p_client_operation_id::text
     limit 1;
     if found then
-      return query select v_subscriber_id, v_subscriber_no, null::bigint, null::text, true;
+      return query select v_subscriber_id, v_subscriber_no, (v_response->>'openingReadingId')::bigint, v_response->>'openingReadingStatus', true;
       return;
     end if;
   end if;
@@ -399,7 +401,7 @@ begin
 
     if v_opening_reading is not null then
       insert into public.meter_readings(
-        tenant_id,subscriber_id,reading_at,reading_value,previous_reading_value,
+        tenant_id,subscriber_id,client_operation_id,reading_at,reading_value,previous_reading_value,
         consumption_kwh,capture_method,status,entered_by_user_id,reviewed_by_user_id,
         reviewed_at,notes,is_opening_baseline
       ) values(
