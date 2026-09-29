@@ -22,6 +22,20 @@ describe("opening subscriber readings contract", () => {
     expect(migration).toContain("format('%s:opening:%s',trim(p_client_operation_id),n)");
     expect(migration).toContain("p_request_fingerprint text");
     expect(migration).toContain("return query select out_created,out_updated,out_failed,false");
+    expect(migration).toContain("returning id, subscriber_no into v_subscriber_id, v_subscriber_no");
+
+    const ambiguityFix = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20260930000100_powerhub_opening_readings_individual_returning_ambiguity_fix.sql"),
+      "utf8",
+    );
+    expect(ambiguityFix).toContain("returning id into v_subscriber_id");
+    expect(ambiguityFix).not.toContain("returning id, subscriber_no into v_subscriber_id, v_subscriber_no");
+
+    const bulkOperationTypeFix = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20260930000200_powerhub_opening_readings_bulk_operation_type_fix.sql"),
+      "utf8",
+    );
+    expect(bulkOperationTypeFix).toContain("'subscriber_bulk_import'");
   });
 
   it("rejects invalid opening readings and accepts a valid baseline", () => {
