@@ -60,7 +60,7 @@ export default function AdminConsolePage() {
   const createOwner = trpc.admin.createGeneratorOwnerWithTemporaryPassword.useMutation({ onSuccess: async () => { await refresh(); setTab("generators"); toast.success("تم إنشاء صاحب المولد ومولده بحالة انتظار المراجعة. يجب تغيير كلمة المرور عند أول دخول."); }, onError: (error) => toast.error(error.message) });
   const createOwnerSubscription = trpc.admin.createGeneratorOwnerSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم إنشاء اشتراك صاحب المولد. يضيف المالك بيانات أول مولد بعد دخوله وتغيير كلمة المرور."); }, onError: (error) => toast.error(error.message) });
   const updateSubscription = trpc.admin.updateSubscription.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تحديث الاشتراك."); }, onError: (error) => toast.error(error.message) });
-  const renewSubscription = trpc.admin.renewSubscription.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(`تم التجديد حتى ${formatDate(result.endsAt)}. تم تجديد ${result.renewedAddons} إضافة وإنهاء ${result.expiredAddons} إضافة.`); }, onError: (error) => toast.error(error.message) });
+  const renewSubscription = trpc.admin.renewSubscription.useMutation({ onSuccess: async (result) => { await refresh(); toast.success(`تم التجديد حتى ${formatDate(result.endsAt)} على باقة ${result.packageCode}. تم تجديد ${result.renewedAddons} إضافة وإنهاء ${result.expiredAddons} إضافة.`); }, onError: (error) => toast.error(error.message) });
   const setTenantMembershipStatus = trpc.admin.setTenantMembershipStatus.useMutation({ onSuccess: async (_, input) => { await refresh(); toast.success(input.status === "active" ? "تم تنشيط المستخدم." : input.status === "suspended" ? "تم توقيف المستخدم مؤقتًا." : "تم سحب وصول المستخدم."); }, onError: (error) => toast.error(error.message) });
   const setPlatformAccountStatus = trpc.admin.setPlatformAccountStatus.useMutation({ onSuccess: async (_, input) => { await refresh(); toast.success(input.status === "active" ? "تم تنشيط حساب المنصة." : input.status === "locked" ? "تم قفل حساب المنصة." : "تم تعطيل حساب المنصة."); }, onError: (error) => toast.error(error.message) });
   const attachOwner = trpc.admin.attachOwnerUser.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم ربط حساب المالك بالمساحة والمحطة."); }, onError: (error) => toast.error(error.message) });
@@ -94,7 +94,7 @@ export default function AdminConsolePage() {
   return <PlatformAdminLayout activeTab={tab} onTabChange={(nextTab) => setTab(nextTab as Tab)}><main className="space-y-6 pb-12"><header className="rounded-[26px] border border-[#F5B800]/20 bg-[#111823]/85 p-6 shadow-panel"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ShieldAlert className="h-4 w-4" />إدارة PowerHub العليا</div><h1 className="mt-2 text-2xl font-extrabold text-white">مركز قيادة المنصة</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">إشراف مركزي منظم على المولدات والمشتركين والتحصيل والشكاوى وإعدادات الحماية عبر جميع مساحات PowerHub.</p></div><Button variant="outline" onClick={() => void refresh()} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />تحديث البيانات</Button></div></header>
     {tab === "overview" && <><AdvancedDashboard /><OperationalMonitoringPanel onNavigate={(target) => target === "field_sync" ? window.location.assign("/mobile-sync") : setTab(target)} /><OwnerUsagePriorityFiltersPanel /><OwnerUsageQuickActionsPanel /><OwnerUsageReportPanel /></>}
     {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending || approvePendingGenerator.isPending} onStatus={setGeneratorStatus.mutate} onApprove={approvePendingGenerator.mutate} /><GeneratorOperationsInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
-    {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutate} creationAvailable={true} />}
+    {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutate} creationAvailable={true} onGoToFinance={() => setTab("finance")} />}
     {tab === "subscriptionRequests" && <SubscriptionUpgradeRequestsPanel />}
     {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter userSummary={snapshot.data?.users} pending={setTenantMembershipStatus.isPending || setPlatformAccountStatus.isPending} onTenantStatus={setTenantMembershipStatus.mutate} onPlatformStatus={setPlatformAccountStatus.mutate} canManagePlatformAccounts={isPlatformOwner} /><OwnerLifecyclePanel /></>}
     {tab === "supportChat" && <SupportCenterPage embedded />}
@@ -129,6 +129,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
   const activeAddonsQuery = trpc.admin.listActiveTenantAddons.useQuery(undefined, { staleTime: 15000 });
   const [renewingId, setRenewingId] = useState<number | null>(null);
   const [renewEndsAt, setRenewEndsAt] = useState("");
+  const [renewPackageCode, setRenewPackageCode] = useState<"basic" | "advanced" | "professional" | "business" | "vip">("basic");
   const [addonDecisions, setAddonDecisions] = useState<Record<number, { decision: "renew" | "expire"; durationDays: number }>>({});
   const [renewRequestKeys, setRenewRequestKeys] = useState<Record<number, string>>({});
 
@@ -152,6 +153,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
     setRenewingId(subscriptionId);
     setRenewRequestKeys((prev) => ({ ...prev, [subscriptionId]: prev[subscriptionId] ?? crypto.randomUUID() }));
     setRenewEndsAt(nextEnd.toISOString().slice(0,10));
+    setRenewPackageCode((row.subscription?.packageCode ?? "basic") as "basic" | "advanced" | "professional" | "business" | "vip");
     const tenantAddons = (activeAddonsQuery.data ?? []).filter((item:any) => Number(item.tenantId) === Number(row.tenant.id));
     const next: Record<number, { decision: "renew" | "expire"; durationDays: number }> = {};
     tenantAddons.forEach((item:any) => { next[Number(item.addonRequestId)] = { decision: "renew", durationDays: Number(item.durationDays ?? 30) }; });
@@ -167,7 +169,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
       return { addonRequestId: Number(item.addonRequestId), decision: selected.decision, ...(selected.decision === "renew" ? { durationDays: selected.durationDays } : {}) };
     });
     try {
-      await onRenew({ subscriptionId: Number(row.subscription.id), endsAt: new Date(renewEndsAt + "T23:59:59"), addonDecisions: decisions, requestKey: renewRequestKeys[Number(row.subscription.id)] });
+      await onRenew({ subscriptionId: Number(row.subscription.id), endsAt: new Date(renewEndsAt + "T23:59:59"), packageCode: renewPackageCode, addonDecisions: decisions, requestKey: renewRequestKeys[Number(row.subscription.id)] });
       setRenewingId(null);
       setRenewRequestKeys((prev) => { const next = { ...prev }; delete next[Number(row.subscription.id)]; return next; });
     } catch {
@@ -196,7 +198,7 @@ function SubscriptionsTab({ rows, pending, onUpdate, onRenew, smsPlans = [] }: a
           {isRenewing && <div className="mt-5 rounded-2xl border border-[#F5B800]/20 bg-[#F5B800]/[.045] p-4">
             <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
               <div><label className="mb-1 block text-xs text-slate-400">ينتهي الاشتراك في</label><Input type="date" value={renewEndsAt} onChange={(e) => setRenewEndsAt(e.target.value)} className={inputClass} /></div>
-              <div><label className="mb-1 block text-xs text-slate-400">الباقة الحالية</label><div className="flex h-10 items-center rounded-xl border border-white/10 bg-white/[.025] px-3 text-sm font-bold text-white">{packageCode}</div></div>
+              <div><label className="mb-1 block text-xs text-slate-400">الباقة عند التجديد</label><select value={renewPackageCode} onChange={(e) => setRenewPackageCode(e.target.value as typeof renewPackageCode)} className={inputClass}><option value="basic">الناشئة</option><option value="advanced">النمو</option><option value="professional">الاحتراف</option><option value="business">الأعمال</option><option value="vip">الذهبية - VIP</option></select><p className="mt-1 text-[11px] text-slate-500">يمكن تجديد الاشتراك بنفس الباقة أو نقله إلى باقة أخرى ضمن نفس العملية.</p></div>
               <Button type="button" variant="outline" onClick={() => setRenewingId(null)} className="self-end border-white/10 text-white hover:bg-white/5 hover:text-white">إلغاء</Button>
             </div>
 
