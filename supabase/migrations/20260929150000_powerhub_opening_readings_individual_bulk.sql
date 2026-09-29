@@ -134,9 +134,6 @@ begin
       and tm.role = 'owner'
       and tm.is_active
       and tm.membership_status = 'active'
-  ) or exists (
-    select 1 from public.users u
-    where u.id = p_user_id and u.role = 'admin' and u.account_status = 'active'
   ) into v_owner;
 
   if p_opening_reading_approved and not v_owner then
