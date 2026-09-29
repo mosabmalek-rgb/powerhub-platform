@@ -1284,10 +1284,6 @@ export const powerhubRouter = router({
         p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
       };
       const { data, error } = await admin.rpc(rpcName, rpcArgs);
-        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
-        p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
-        p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
-      });
       if (!error && data?.[0]) {
         const row = data[0] as { subscriber_id: number | string; subscriber_no: string; opening_reading_id?: number | string | null; opening_reading_status?: string | null; replayed: boolean };
         const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
@@ -1317,6 +1313,7 @@ export const powerhubRouter = router({
         openingReading: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
         openingReadingAt: z.string().datetime().optional(),
       })).min(1).max(300),
+      approveOpeningReadings: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
