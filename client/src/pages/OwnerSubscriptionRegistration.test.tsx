@@ -36,6 +36,13 @@ describe("OwnerSubscriptionRegistration", () => {
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ trialEnabled: true, trialDurationDays: 21 }));
   });
 
+  it("routes the admin to subscription renewal management", () => {
+    const onGoToRenewal = vi.fn();
+    render(<OwnerSubscriptionRegistration rows={[]} pending={false} creationAvailable onCreate={vi.fn()} onGoToRenewal={onGoToRenewal} />);
+    fireEvent.click(screen.getByRole("button", { name: /إدارة التجديدات/ }));
+    expect(onGoToRenewal).toHaveBeenCalledTimes(1);
+  });
+
   it("renders WhatsApp as optional", () => {
     render(<OwnerSubscriptionRegistration rows={[]} pending={false} creationAvailable onCreate={vi.fn()} />);
     expect(screen.getByPlaceholderText(/رقم WhatsApp/)).not.toBeRequired();
