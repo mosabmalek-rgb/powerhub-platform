@@ -1323,6 +1323,7 @@ export const powerhubRouter = router({
       const seenReferences = new Set<string>();
       const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial"; openingReading?: string; openingReadingAt?: string; openingReadingApproved?: boolean }> = [];
       for (const row of input.rows) {
+        if (!row.openingReading && row.openingReadingAt) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "أدخل قيمة القراءة الافتتاحية قبل تحديد تاريخها." }); continue; }
         if (row.fullName.trim().length < 2) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الاسم الكامل قصير جداً." }); continue; }
         let phone: string;
         try { phone = normalizeInternationalPhone(row.phone); } catch { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "رقم الجوال غير صالح؛ استخدم رمز الدولة مثل +970." }); continue; }
