@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Building2, KeyRound, Plus, UserRoundCheck } from "lucide-react";
+import { ArrowLeft, Building2, KeyRound, Plus, UserRoundCheck } from "lucide-react";
 import { FormEvent } from "react";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
@@ -24,9 +24,10 @@ type OwnerSubscriptionRegistrationProps = {
     trialDurationDays?: number;
   }) => void;
   creationAvailable: boolean;
+  onGoToFinance?: () => void;
 };
 
-export default function OwnerSubscriptionRegistration({ rows, pending, onCreate, creationAvailable }: OwnerSubscriptionRegistrationProps) {
+export default function OwnerSubscriptionRegistration({ rows, pending, onCreate, creationAvailable, onGoToFinance }: OwnerSubscriptionRegistrationProps) {
   return <section className="space-y-6">
     <Card className="border-white/8 bg-[#111823] shadow-panel">
       <CardContent className="p-5">
@@ -42,8 +43,15 @@ export default function OwnerSubscriptionRegistration({ rows, pending, onCreate,
 
     <Card className="border-white/8 bg-[#111823] shadow-panel">
       <CardContent className="p-5">
-        <h2 className="font-bold text-white">اشتراكات أصحاب المولدات</h2>
-        <p className="mt-1 text-sm text-slate-500">إجمالي المساحات المسجلة: {rows.length}</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-bold text-white">اشتراكات أصحاب المولدات</h2>
+            <p className="mt-1 text-sm text-slate-500">إجمالي المساحات المسجلة: {rows.length}</p>
+          </div>
+          {onGoToFinance ? <Button type="button" variant="outline" onClick={onGoToFinance} className="border-[#F5B800]/40 text-[#F5B800] hover:bg-[#F5B800]/10 hover:text-[#ffd23f]">
+            <ArrowLeft className="ml-2 h-4 w-4" />إدارة التجديدات في المالية
+          </Button> : null}
+        </div>
         <div className="mt-4 max-h-64 space-y-3 overflow-auto">{rows.map((row) => <div className="rounded-xl border border-white/8 bg-white/[.02] p-3" key={row.tenant.id}><p className="font-bold text-white">{row.owner?.companyName ?? row.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{row.owner?.fullName ?? "بانتظار ربط الحساب"} · {row.subscription?.packageCode ?? "—"}</p></div>)}{!rows.length && <p className="py-6 text-center text-sm text-slate-500">لا توجد اشتراكات مسجلة بعد.</p>}</div>
       </CardContent>
     </Card>
