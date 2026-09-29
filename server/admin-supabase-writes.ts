@@ -218,6 +218,9 @@ function renewSubscriptionRpcError(error: { message?: string } | null) {
   if (message.includes("INVALID_PERIODS")) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "عدد فترات التجديد يجب أن يكون بين 1 و24." });
   }
+  if (message.includes("INVALID_RENEWAL_PACKAGE") || message.includes("RENEWAL_PACKAGE_NOT_ACTIVE")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "باقة التجديد غير صالحة أو غير مفعلة في كتالوج المنصة." });
+  }
   rpcError("renewSubscription", error);
 }
 
