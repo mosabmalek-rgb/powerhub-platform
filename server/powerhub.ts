@@ -1287,11 +1287,26 @@ export const powerhubRouter = router({
       if (error && openingImageKey) await storageRemove(openingImageKey).catch(() => undefined);
       if (!error && data?.[0]) {
         const row = data[0] as { subscriber_id: number | string; subscriber_no: string; opening_reading_id?: number | string | null; opening_reading_status?: string | null; replayed: boolean };
+        let openingReadingId = row.opening_reading_id ? Number(row.opening_reading_id) : undefined;
+        let openingReadingStatus = row.opening_reading_status ?? undefined;
+        if (row.replayed && !openingReadingId) {
+          const { data: replayReading } = await admin
+            .from("meter_readings")
+            .select("id,status")
+            .eq("tenant_id", access.tenantId)
+            .eq("subscriber_id", Number(row.subscriber_id))
+            .eq("is_opening_baseline", true)
+            .order("reading_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          openingReadingId = replayReading?.id ? Number(replayReading.id) : undefined;
+          openingReadingStatus = replayReading?.status ?? openingReadingStatus;
+        }
         const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
         if (!row.replayed) {
           try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } }); } catch (alertError) { console.error("[PowerHub] subscriber quota alert failed after successful creation", alertError); }
         }
-        return row.opening_reading_id ? { ...response, openingReadingId: Number(row.opening_reading_id), openingReadingStatus: row.opening_reading_status } : response;
+        return openingReadingId ? { ...response, openingReadingId, openingReadingStatus } : response;
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_QUOTA_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
