@@ -7,7 +7,7 @@ import { Download, FileSpreadsheet, Loader2, UploadCloud } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-type ImportResult = { created: Array<{ sourceRow: number; fullName: string; subscriberNo: string }>; updated: Array<{ sourceRow: number; fullName: string; subscriberNo: string }>; failed: Array<{ sourceRow: number; fullName: string; reason: string }>; message: string };
+type ImportResult = { created: Array<{ sourceRow: number; fullName: string; subscriberNo: string; openingReadingStatus?: string | null }>; updated: Array<{ sourceRow: number; fullName: string; subscriberNo: string }>; failed: Array<{ sourceRow: number; fullName: string; reason: string }>; message: string };
 
 function cellText(value: unknown) {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -15,16 +15,18 @@ function cellText(value: unknown) {
   return String(value ?? "").trim();
 }
 
-export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSaved: () => Promise<void> }) {
+export function BulkSubscriberImport({ siteId, onSaved, canApproveOpeningReadings = false }: { siteId: number; onSaved: () => Promise<void>; canApproveOpeningReadings?: boolean }) {
   const [rows, setRows] = useState<SubscriberImportDraft[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
   const [updateExisting, setUpdateExisting] = useState(false);
+  const [approveOpeningReadings, setApproveOpeningReadings] = useState(false);
+  const [clientOperationId, setClientOperationId] = useState<string>();
   const [result, setResult] = useState<ImportResult | null>(null);
   const importSubscribers = trpc.powerhub.subscribers.bulkImport.useMutation({
     onMutate: () => { setProgress(72); setProgressLabel("جارٍ حفظ المشتركين…"); },
-    onSuccess: async (value) => { setProgress(100); setProgressLabel("اكتمل الحفظ بنجاح"); setResult(value); await onSaved(); toast.success(`تمت إضافة ${value.created.length} وتحديث ${value.updated.length} مشتركاً.`); },
+    onSuccess: async (value) => { setProgress(100); setProgressLabel("اكتمل الحفظ بنجاح"); setResult(value); setClientOperationId(undefined); await onSaved(); toast.success(`تمت إضافة ${value.created.length} وتحديث ${value.updated.length} مشتركاً.`); },
     onError: (error) => { setProgress(0); setProgressLabel(""); toast.error(error.message); },
   });
   const prepared = useMemo(() => prepareSubscriberImport(rows), [rows]);
@@ -49,8 +51,8 @@ export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSa
         if (index === 1 || parsed.length >= 300) return;
         const cells = row.values as unknown[];
         const entry = includesWhatsappColumn
-          ? { sourceRow: index, fullName: cellText(cells[1]), phone: cellText(cells[2]), whatsappNumber: cellText(cells[3]) || undefined, address: cellText(cells[4]), subscriptionType: cellText(cells[5]), subscriberNo: cellText(cells[6]) || undefined }
-          : { sourceRow: index, fullName: cellText(cells[1]), phone: cellText(cells[2]), whatsappNumber: undefined, address: cellText(cells[3]), subscriptionType: cellText(cells[4]), subscriberNo: cellText(cells[5]) || undefined };
+          ? { sourceRow: index, fullName: cellText(cells[1]), phone: cellText(cells[2]), whatsappNumber: cellText(cells[3]) || undefined, address: cellText(cells[4]), subscriptionType: cellText(cells[5]), subscriberNo: cellText(cells[6]) || undefined, openingReading: cellText(cells[7]) || undefined, openingReadingAt: cellText(cells[8]) || undefined }
+          : { sourceRow: index, fullName: cellText(cells[1]), phone: cellText(cells[2]), whatsappNumber: undefined, address: cellText(cells[3]), subscriptionType: cellText(cells[4]), subscriberNo: cellText(cells[5]) || undefined, openingReading: cellText(cells[6]) || undefined, openingReadingAt: cellText(cells[7]) || undefined };
         if (entry.fullName || entry.phone || entry.whatsappNumber || entry.address || entry.subscriptionType || entry.subscriberNo) parsed.push(entry);
       });
       if (!parsed.length) throw new Error("لم نعثر على صفوف مشتركين. استخدم الأعمدة: الاسم الكامل، رقم الجوال، رقم واتساب الاختياري، العنوان، نوع الاشتراك، والرقم المرجعي الاختياري.");
@@ -67,9 +69,9 @@ export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSa
       const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
       workbook.creator = "PowerHub";
       const sheet = workbook.addWorksheet("استيراد المشتركين", { views: [{ rightToLeft: true }] });
-      sheet.addRow(["الاسم الكامل", "رقم الجوال الدولي", "رقم واتساب (اختياري)", "العنوان (اختياري)", "نوع الاشتراك: سكني أو تجاري", "الرقم المرجعي (اختياري للتحديث فقط)"]);
-      for (let index = 0; index < 12; index += 1) sheet.addRow(["", "", "", "", "سكني", ""]);
-      sheet.columns = [{ width: 30 }, { width: 24 }, { width: 24 }, { width: 38 }, { width: 28 }, { width: 32 }];
+      sheet.addRow(["الاسم الكامل", "رقم الجوال الدولي", "رقم واتساب (اختياري)", "العنوان (اختياري)", "نوع الاشتراك: سكني أو تجاري", "الرقم المرجعي (اختياري للتحديث فقط)", "القراءة الافتتاحية (اختياري)", "تاريخ القراءة الافتتاحية (اختياري)"]);
+      for (let index = 0; index < 12; index += 1) sheet.addRow(["", "", "", "", "سكني", "", "", ""]);
+      sheet.columns = [{ width: 30 }, { width: 24 }, { width: 24 }, { width: 38 }, { width: 28 }, { width: 32 }, { width: 24 }, { width: 30 }];
       const header = sheet.getRow(1); header.font = { bold: true, color: { argb: "FFFFFFFF" } }; header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; header.alignment = { horizontal: "right", vertical: "middle", wrapText: true }; header.height = 34;
       const buffer = await workbook.xlsx.writeBuffer();
       const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
@@ -80,9 +82,13 @@ export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSa
 
   const saveValid = () => {
     if (!validRows.length) return;
+    const nextOperationId = clientOperationId ?? crypto.randomUUID();
+    setClientOperationId(nextOperationId);
     importSubscribers.mutate({
       siteId,
       updateExisting,
+      clientOperationId: nextOperationId,
+      approveOpeningReadings,
       rows: validRows.map((row) => ({
         sourceRow: row.rowNumber,
         subscriberNo: updateExisting ? row.subscriberNo || undefined : undefined,
@@ -91,6 +97,8 @@ export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSa
         whatsappNumber: row.whatsappNumber || undefined,
         address: row.address || undefined,
         subscriptionType: row.normalizedSubscriptionType === "commercial" ? "commercial" : "residential",
+        ...(row.openingReading?.trim() ? { openingReading: row.openingReading.trim() } : {}),
+        ...(row.openingReadingAt ? { openingReadingAt: new Date(row.openingReadingAt).toISOString() } : {}),
       })),
     });
   };

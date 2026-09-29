@@ -18,7 +18,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 type DirectoryKind = "subscribers" | "generators";
-type Values = Record<string, string | number | undefined>;
+type Values = Record<string, string | number | boolean | undefined>;
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -50,8 +50,9 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const updateGenerator = trpc.powerhub.generators.update.useMutation({ onSuccess: async () => { await refresh(); setEditing(null); toast.success("تم تحديث المولد."); }, onError: (e) => toast.error(e.message) });
 
   const submitSubscriber = async (values: Values) => {
-    const base = { siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone), address: values.address ? String(values.address) : undefined, subscriptionType: values.subscriptionType as "residential" | "commercial", serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected" };
+    const base = { siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone), address: values.address ? String(values.address) : undefined, subscriptionType: values.subscriptionType as "residential" | "commercial", serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected", openingReading: values.openingReading ? String(values.openingReading) : undefined, openingReadingAt: values.openingReadingAt ? String(values.openingReadingAt) : undefined, openingReadingApproved: Boolean(values.openingReadingApproved), openingReadingImageData: values.openingReadingImageData ? String(values.openingReadingImageData) : undefined, openingReadingImageMime: values.openingReadingImageMime ? String(values.openingReadingImageMime) as "image/jpeg" | "image/png" | "image/webp" : undefined };
     if (typeof navigator !== "undefined" && !navigator.onLine) {
+      if (!editing && (base.openingReading || base.openingReadingAt || base.openingReadingApproved || base.openingReadingImageData)) return toast.error("إضافة القراءة الافتتاحية تحتاج اتصالاً بالإنترنت؛ لم يتم حفظ المشترك كمسودة حتى لا تُفقد القراءة أو صورتها.");
       if (!user?.id) return toast.error("تعذر معرفة المستخدم الحالي لحفظ المسودة محلياً.");
       try {
         if (editing) await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "subscriber_update", payload: { subscriberId: editing.id, fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType, serviceStatus: base.serviceStatus, expectedUpdatedAt: new Date(editing.updatedAt).toISOString() } });
@@ -61,7 +62,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
       } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر حفظ المسودة المحلية."); }
       return;
     }
-    if (editing) updateSubscriber.mutate({ ...base, id: editing.id });
+    if (editing) updateSubscriber.mutate({ siteId: base.siteId, fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType, serviceStatus: base.serviceStatus, id: editing.id });
     else createSubscriber.mutate(base);
   };
   const submitGenerator = async (values: Values) => {
@@ -120,9 +121,9 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   return <DashboardLayout><div className="space-y-6 pb-12">
     <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></header>
     {kind === "generators" && canEdit && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}
-    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { await refresh(); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace overview={financialOverviewQuery.data} siteId={siteId!} canRemind={can(role, "manageMessaging")} /></> : null}
+    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} canApproveOpeningReadings={role === "owner"} onSaved={async () => { await refresh(); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace overview={financialOverviewQuery.data} siteId={siteId!} canRemind={can(role, "manageMessaging")} /></> : null}
     <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr]">
-      {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <SubscriberEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} /> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
+      {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <SubscriberEditor key={editing?.id ?? "new"} editing={editing} pending={pending} canApproveOpeningReadings={role === "owner"} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} /> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
       <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex items-center justify-between border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل {title}</h2><span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">{data.length} سجل</span></div><div className="p-5">{data.length ? <div className="space-y-2">{data.map((item) => <RecordRow key={item.id} kind={kind} item={item} canEdit={canEdit} onEdit={() => setEditing(item)} onOpenStatement={kind === "subscribers" && siteId ? () => setLocation(`/subscriber-statement/${item.id}?siteId=${siteId}`) : undefined} />)}</div> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">لا توجد سجلات في {activeSite?.name}. {canEdit ? "استخدم النموذج لإضافة أول سجل." : ""}</div>}</div></CardContent></Card>
     </div>
   </div></DashboardLayout>;
@@ -168,8 +169,146 @@ async function copySubscriberReference(subscriberNo: string) {
   }
 }
 
-function SubscriberEditor({ editing, pending, onCancel, onSubmit }: { editing: any; pending: boolean; onCancel: () => void; onSubmit: (values: Values) => void }) {
-  return <><EditorTitle text={editing ? "تعديل مشترك" : "إضافة مشترك"} editing={Boolean(editing)} onCancel={onCancel} /><form className="mt-5 space-y-4" onSubmit={(e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); onSubmit({ fullName: String(f.get("fullName")), phone: String(f.get("phone")), address: String(f.get("address") || ""), subscriptionType: String(f.get("subscriptionType")), serviceStatus: String(f.get("serviceStatus")) }); }}>{editing && <Field label="الرقم المرجعي"><input value={editing.subscriberNo} readOnly className={`${inputClass} opacity-60`} dir="ltr" /></Field>}<Field label="الاسم"><input required name="fullName" defaultValue={editing?.fullName} className={inputClass} /></Field><Field label="رقم الهاتف الدولي"><input required type="tel" name="phone" defaultValue={editing?.phone} placeholder="+970599000000 أو 00970599000000" className={inputClass} dir="ltr" /><p className="mt-1 text-xs leading-5 text-slate-500">يُنسّق رمز 00 تلقائياً إلى +. لا تُقبل الأرقام المحلية من دون رمز دولة حفاظاً على دقة الإرسال.</p></Field><Field label="العنوان"><input name="address" defaultValue={editing?.address ?? ""} className={inputClass} /></Field><Field label="نوع الاشتراك"><select name="subscriptionType" defaultValue={editing?.subscriptionType ?? "residential"} className={inputClass}><option value="residential">سكني</option><option value="commercial">تجاري</option></select></Field><Field label="حالة الخدمة"><select name="serviceStatus" defaultValue={editing?.serviceStatus ?? "active"} className={inputClass}><option value="active">نشط</option><option value="suspended">معلق</option><option value="disconnected">مفصول</option></select></Field><SubmitButton text={editing ? "حفظ التعديلات" : "إضافة المشترك"} pending={pending} /></form></>;
+function SubscriberEditor({ editing, pending, canApproveOpeningReadings, onCancel, onSubmit }: {
+  editing: any;
+  pending: boolean;
+  canApproveOpeningReadings: boolean;
+  onCancel: () => void;
+  onSubmit: (values: Values) => void;
+}) {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const image = form.get("openingReadingImage") as File | null;
+    const reading = String(form.get("openingReading") || "").trim();
+    const readingAt = String(form.get("openingReadingAt") || "").trim();
+    const approved = form.get("openingReadingApproved") === "on";
+
+    if (image && image.size > 7 * 1024 * 1024) {
+      window.alert("يجب ألا تتجاوز صورة القراءة الافتتاحية 7 ميغابايت.");
+      return;
+    }
+    if (!editing && (readingAt || image || approved) && !reading) {
+      window.alert("أدخل قيمة القراءة الافتتاحية قبل إضافة صورتها أو اعتمادها.");
+      return;
+    }
+
+    const submit = (openingReadingImageData?: string) => onSubmit({
+      fullName: String(form.get("fullName")),
+      phone: String(form.get("phone")),
+      address: String(form.get("address") || ""),
+      subscriptionType: String(form.get("subscriptionType")),
+      serviceStatus: String(form.get("serviceStatus")),
+      openingReading: reading || undefined,
+      openingReadingAt: readingAt || undefined,
+      openingReadingApproved: approved,
+      openingReadingImageData,
+      openingReadingImageMime: image?.type || undefined,
+    });
+
+    if (image && image.size) {
+      const reader = new FileReader();
+      reader.onload = () => submit(String(reader.result).split(",")[1] || "");
+      reader.readAsDataURL(image);
+    } else {
+      submit();
+    }
+  };
+
+  return (
+    <>
+      <EditorTitle
+        text={editing ? "تعديل مشترك" : "إضافة مشترك"}
+        editing={Boolean(editing)}
+        onCancel={onCancel}
+      />
+      <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
+        {editing && (
+          <Field label="الرقم المرجعي">
+            <input value={editing.subscriberNo} readOnly className={`${inputClass} opacity-60`} dir="ltr" />
+          </Field>
+        )}
+        <Field label="الاسم">
+          <input required name="fullName" defaultValue={editing?.fullName} className={inputClass} />
+        </Field>
+        <Field label="رقم الهاتف الدولي">
+          <input
+            required
+            type="tel"
+            name="phone"
+            defaultValue={editing?.phone}
+            placeholder="+970599000000 أو 00970599000000"
+            className={inputClass}
+            dir="ltr"
+          />
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            يُنسّق رمز 00 تلقائياً إلى +. لا تُقبل الأرقام المحلية من دون رمز دولة حفاظاً على دقة الإرسال.
+          </p>
+        </Field>
+        <Field label="العنوان">
+          <input name="address" defaultValue={editing?.address ?? ""} className={inputClass} />
+        </Field>
+        <Field label="نوع الاشتراك">
+          <select name="subscriptionType" defaultValue={editing?.subscriptionType ?? "residential"} className={inputClass}>
+            <option value="residential">سكني</option>
+            <option value="commercial">تجاري</option>
+          </select>
+        </Field>
+        <Field label="حالة الخدمة">
+          <select name="serviceStatus" defaultValue={editing?.serviceStatus ?? "active"} className={inputClass}>
+            <option value="active">نشط</option>
+            <option value="suspended">معلق</option>
+            <option value="disconnected">مفصول</option>
+          </select>
+        </Field>
+
+        {!editing && (
+          <>
+            <Field label="القراءة الافتتاحية (اختيارية)">
+              <input
+                name="openingReading"
+                type="number"
+                min="0"
+                step="0.001"
+                placeholder="مثال: 1250.500"
+                className={inputClass}
+                dir="ltr"
+              />
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                تُستخدم كنقطة بداية ولا تُنشئ فاتورة.
+              </p>
+            </Field>
+            <Field label="تاريخ القراءة الافتتاحية (اختياري)">
+              <input name="openingReadingAt" type="datetime-local" className={inputClass} dir="ltr" />
+            </Field>
+            <Field label="صورة العداد (اختيارية)">
+              <input
+                name="openingReadingImage"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="block w-full text-sm text-slate-300"
+              />
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                الصورة اختيارية، والحد الأقصى 7 ميغابايت.
+              </p>
+            </Field>
+            {canApproveOpeningReadings ? (
+              <label className="flex items-start gap-2 text-xs leading-5 text-amber-100">
+                <input name="openingReadingApproved" type="checkbox" className="mt-1 accent-[#F5B800]" />
+                اعتماد القراءة الافتتاحية مباشرة؛ عند إلغاء الخيار تُرسل للمراجعة.
+              </label>
+            ) : (
+              <p className="text-xs leading-5 text-slate-500">
+                ستُرسل القراءة الافتتاحية للمراجعة.
+              </p>
+            )}
+          </>
+        )}
+
+        <SubmitButton text={editing ? "حفظ التعديلات" : "إضافة المشترك"} pending={pending} />
+      </form>
+    </>
+  );
 }
 
 function GeneratorEditor({ editing, pending, onCancel, onSubmit }: { editing: any; pending: boolean; onCancel: () => void; onSubmit: (values: Values) => void }) {

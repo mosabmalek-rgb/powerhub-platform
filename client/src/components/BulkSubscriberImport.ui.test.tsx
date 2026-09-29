@@ -35,10 +35,12 @@ describe("استيراد المشتركين من Excel", () => {
     await screen.findByText("أحمد العلي");
     expect(screen.getByText(/سيُحفظ الملف كاملاً داخل معاملة ذرية/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /حفظ 1 مشتركاً سليماً/ }));
-    expect(state.mutate).toHaveBeenCalledWith({
+    expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({
       siteId: 7,
       updateExisting: false,
+      clientOperationId: expect.any(String),
+      approveOpeningReadings: false,
       rows: [{ sourceRow: 2, subscriberNo: undefined, fullName: "أحمد العلي", phone: "+970599000001", whatsappNumber: undefined, address: "غزة", subscriptionType: "residential" }],
-    });
+    }));
   });
 });

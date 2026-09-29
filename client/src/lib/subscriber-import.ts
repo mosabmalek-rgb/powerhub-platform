@@ -8,6 +8,8 @@ export type SubscriberImportDraft = {
   whatsappNumber?: string;
   address: string;
   subscriptionType: string;
+  openingReading?: string;
+  openingReadingAt?: string;
 };
 
 export type PreparedSubscriberImportRow = SubscriberImportDraft & {
@@ -65,6 +67,12 @@ export function prepareSubscriberImport(rows: SubscriberImportDraft[]): Prepared
     if (phone && (phones.get(phone) ?? 0) > 1) errors.push("رقم الجوال مكرر داخل الملف.");
     if (subscriberNo && !/^[A-Z0-9][A-Z0-9_-]{1,79}$/.test(subscriberNo)) errors.push("الرقم المرجعي يجب أن يحتوي أحرفاً أو أرقاماً وشرطات فقط.");
     if (subscriberNo && (references.get(subscriberNo) ?? 0) > 1) errors.push("الرقم المرجعي مكرر داخل الملف.");
+    if (row.openingReadingAt && !row.openingReading?.trim()) errors.push("أدخل قيمة القراءة الافتتاحية قبل تحديد تاريخها.");
+    if (row.openingReading?.trim()) {
+      const reading = Number(row.openingReading.trim());
+      if (!Number.isFinite(reading) || reading < 0 || !/^\\d+(\\.\\d{1,3})?$/.test(row.openingReading.trim())) errors.push("القراءة الافتتاحية يجب أن تكون صفراً أو رقماً موجباً حتى 3 منازل عشرية.");
+      if (row.openingReadingAt && Number.isNaN(Date.parse(row.openingReadingAt))) errors.push("تاريخ القراءة الافتتاحية غير صالح.");
+    }
     return { ...row, subscriberNo: subscriberNo || undefined, rowNumber: row.sourceRow ?? index + 2, normalizedSubscriptionType, status: errors.length ? "error" : "ready", errors };
   });
 }
