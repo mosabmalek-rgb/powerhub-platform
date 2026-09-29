@@ -90,12 +90,12 @@ export default function BillingPage() {
   const toggleInvoiceSelection = (invoiceId: number) => setSelectedInvoiceIds((current) => { const next = new Set(current); next.has(invoiceId) ? next.delete(invoiceId) : next.add(invoiceId); return next; });
   const toggleAllVisibleUnsent = () => setSelectedInvoiceIds((current) => { const next = new Set(current); if (allVisibleUnsentSelected) selectableVisibleInvoiceIds.forEach((invoiceId) => next.delete(invoiceId)); else selectableVisibleInvoiceIds.forEach((invoiceId) => next.add(invoiceId)); return next; });
   const sendSelectedInvoices = () => {
+    if (!siteId || !selectedInvoiceIds.size || !window.confirm(`سيتم إرسال إشعارات ${selectedInvoiceIds.size} فاتورة محددة الآن. هل تريد المتابعة؟`)) return;
+    sendSelected.mutate({ siteId, invoiceIds: Array.from(selectedInvoiceIds) });
+  };
   const sendAllEligibleInvoices = () => {
     if (!siteId || sendAllEligible.isPending || !window.confirm("سيبحث النظام عن جميع فواتير الفرع المؤهلة للإرسال، ويقسّمها داخلياً إلى دفعات آمنة دون حد ظاهر للمستخدم. هل تريد المتابعة؟")) return;
     sendAllEligible.mutate({ siteId });
-  };
-    if (!siteId || !selectedInvoiceIds.size || !window.confirm(`سيتم إرسال إشعارات ${selectedInvoiceIds.size} فاتورة محددة الآن. هل تريد المتابعة؟`)) return;
-    sendSelected.mutate({ siteId, invoiceIds: Array.from(selectedInvoiceIds) });
   };
   const clearBulkSendDateFilters = () => { setBulkSendFrom(""); setBulkSendTo(""); };
   const detailItems = bulkInvoiceSendDetailsQuery.data?.items ?? [];
