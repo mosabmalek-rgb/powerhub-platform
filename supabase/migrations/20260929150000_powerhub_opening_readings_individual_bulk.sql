@@ -337,8 +337,8 @@ begin
       out_failed:=out_failed||jsonb_build_array(jsonb_build_object('sourceRow',n,'fullName',f,'reason','القراءة الافتتاحية لا يمكن أن تكون سالبة.'));
       continue;
     end if;
-    if v_opening_reading is null and v_opening_approved then
-      out_failed:=out_failed||jsonb_build_array(jsonb_build_object('sourceRow',n,'fullName',f,'reason','أدخل القراءة الافتتاحية قبل اعتمادها.'));
+    if v_opening_reading is null and (v_opening_approved or nullif(r->>'openingReadingAt','') is not null) then
+      out_failed:=out_failed||jsonb_build_array(jsonb_build_object('sourceRow',n,'fullName',f,'reason','أدخل القراءة الافتتاحية قبل اعتمادها أو تحديد تاريخها.'));
       continue;
     end if;
     if v_opening_approved and not v_owner then
