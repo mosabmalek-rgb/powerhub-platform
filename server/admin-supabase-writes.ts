@@ -218,6 +218,9 @@ function renewSubscriptionRpcError(error: { message?: string } | null) {
   if (message.includes("INVALID_PERIODS")) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "عدد فترات التجديد يجب أن يكون بين 1 و24." });
   }
+  if (message.includes("INVALID_RENEWAL_PACKAGE") || message.includes("RENEWAL_PACKAGE_NOT_ACTIVE")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "باقة التجديد غير صالحة أو غير مفعلة في كتالوج المنصة." });
+  }
   rpcError("renewSubscription", error);
 }
 
@@ -225,6 +228,7 @@ export async function renewSubscription(input: {
   actorUserId: number;
   subscriptionId: number;
   endsAt: Date;
+  packageCode: "basic" | "advanced" | "professional" | "business" | "vip";
   addonDecisions?: Array<{ addonRequestId: number; decision: "renew" | "expire"; durationDays?: number }>;
   requestKey: string;
 }) {
@@ -232,11 +236,12 @@ export async function renewSubscription(input: {
     p_actor_user_id: input.actorUserId,
     p_subscription_id: input.subscriptionId,
     p_new_ends_at: input.endsAt.toISOString(),
+    p_package_code: input.packageCode,
     p_addon_decisions: input.addonDecisions ?? [],
     p_request_key: input.requestKey,
   });
   renewSubscriptionRpcError(error);
-  const row = data?.[0] as { success?: boolean; ends_at?: string; renewed_addons?: number; expired_addons?: number } | undefined;
+  const row = data?.[0] as { success?: boolean; ends_at?: string; package_code?: string; renewed_addons?: number; expired_addons?: number } | undefined;
   if (!row || typeof row.ends_at !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Supabase returned an invalid subscription renewal result." });
-  return { success: Boolean(row.success), endsAt: new Date(row.ends_at), renewedAddons: Number(row.renewed_addons ?? 0), expiredAddons: Number(row.expired_addons ?? 0) };
+  return { success: Boolean(row.success), endsAt: new Date(row.ends_at), packageCode: row.package_code ?? input.packageCode, renewedAddons: Number(row.renewed_addons ?? 0), expiredAddons: Number(row.expired_addons ?? 0) };
 }
