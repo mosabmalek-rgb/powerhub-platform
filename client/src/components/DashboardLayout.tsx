@@ -292,9 +292,9 @@ function DashboardLayoutContent({
   const tenantDisplayName = workspaceSites.data?.[0]?.tenantName ?? null;
 
   useEffect(() => {
-    if (user?.role === "admin" || !workspaceSites.data) return;
+    if (!user || user.role === "admin" || !workspaceSites.data) return;
     writeCachedWorkspaceSites(user.id, workspaceSites.data);
-  }, [user?.id, user?.role, workspaceSites.data]);
+  }, [user, workspaceSites.data]);
   const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
   const { branchId: activeSiteId } = useBranchFilter(workspaceSites.data);
   const resolvedActiveSiteId = activeSiteId && workspaceSites.data?.some((site) => site.id === activeSiteId)
