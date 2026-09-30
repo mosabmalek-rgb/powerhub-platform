@@ -124,14 +124,25 @@ export function useAuth(options?: UseAuthOptions) {
     }
   }, [releaseDevice, utils]);
 
-  const user = meQuery.data ?? cachedUser;
-  const offlineAuthenticated = Boolean(offlineLeaseUserId && cachedUser);
-  const effectiveHasSession = hasSession || offlineAuthenticated;
+  // A cached user is useful for offline mode, but must never authorize the
+  // online workspace before the current Supabase session has completed a live
+  // auth.me check. This prevents protected tenant queries from racing the
+  // login/session handshake and avoids transient 401/403 states in the UI.
+  const isOnlineAuthenticated = Boolean(hasSession && meQuery.isSuccess && meQuery.data);
+  const offlineAuthenticated = Boolean(
+    !hasSession &&
+      offlineLeaseUserId &&
+      cachedUser &&
+      typeof navigator !== "undefined" &&
+      navigator.onLine === false,
+  );
+  const user = meQuery.data ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
     user,
-    loading: !sessionReady || (effectiveHasSession && meQuery.isLoading && !cachedUser),
+    loading: !sessionReady || Boolean(hasSession && meQuery.isPending),
     error: meQuery.error ?? null,
-    isAuthenticated: Boolean(effectiveHasSession && user),
+    isAuthenticated: Boolean(isOnlineAuthenticated || offlineAuthenticated),
+    isOnlineAuthenticated,
   };
 
   useEffect(() => {
