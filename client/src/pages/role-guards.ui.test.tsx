@@ -177,7 +177,7 @@ describe("role guards in administration UI", () => {
     expect(screen.queryByRole("button", { name: /حفظ إعداد WhatsApp/ })).not.toBeInTheDocument();
   });
 
-  it("shows WhatsApp setup while keeping platform-managed messaging details hidden from the owner", () => {
+  it("shows WhatsApp setup while keeping admin-managed messaging details hidden from the owner", () => {
     mocks.activeRole = "owner";
     render(<MessagingSettingsPage />);
     expect(screen.getByText("إعداد WhatsApp Cloud API")).toBeInTheDocument();
