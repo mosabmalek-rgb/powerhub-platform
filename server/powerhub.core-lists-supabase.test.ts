@@ -622,7 +622,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { tenant_id: 99, user_id: 5, role: "member", is_active: true, membership_status: "active" },
     ];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.staff.allowedSubaccountRoles({ siteId: 10 })).resolves.toEqual({ roles: ["accountant"], limit: 3, currentCount: 2, remaining: 1 });
+    await expect(caller.staff.allowedSubaccountRoles({ siteId: 10 })).resolves.toEqual({ roles: ["accountant"], limit: 3, currentCount: 2, remaining: 1, fieldUserLimit: 0, fieldUserCount: 1, fieldUserRemaining: 0 });
   });
 
   it("يعيّن حساباً موجوداً عبر معاملة Supabase الذرية دون MySQL", async () => {
