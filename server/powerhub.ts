@@ -1826,10 +1826,19 @@ export const powerhubRouter = router({
       if (!ids.length) return [];
       const { data: links, error: linkError } = await supabaseAdmin().from("company_account_sites")
         .select("account_id, site_id")
-        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("account_id", ids);
+        .eq("tenant_id", access.tenantId).in("account_id", ids);
       if (linkError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ربط حسابات الدفع بالمحطة." });
-      const linked = new Set((links ?? []).map((row) => Number(row.account_id)));
-      return (data ?? []).filter((row) => linked.has(Number(row.id))).map((row) => ({
+      const linksByAccount = new Map<number, number[]>();
+      for (const row of links ?? []) {
+        const accountId = Number(row.account_id);
+        linksByAccount.set(accountId, [...(linksByAccount.get(accountId) ?? []), Number(row.site_id)]);
+      }
+      return (data ?? []).filter((row) => {
+        const accountLinks = linksByAccount.get(Number(row.id)) ?? [];
+        // No site links means a tenant-wide company account; an account with
+        // explicit links is available only on those branches.
+        return accountLinks.length === 0 || accountLinks.includes(input.siteId);
+      }).map((row) => ({
         id: Number(row.id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number,
       }));
     }),
