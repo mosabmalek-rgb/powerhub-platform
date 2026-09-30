@@ -23,6 +23,7 @@ export function useAuth(options?: UseAuthOptions) {
   const [sessionReady, setSessionReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
   const [authDataRevision, setAuthDataRevision] = useState(0);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: hasSession,
@@ -106,6 +107,9 @@ export function useAuth(options?: UseAuthOptions) {
   }, [meQuery.data]);
 
   const logout = useCallback(async () => {
+    setIsLoggingOut(true);
+    setCachedUser(null);
+    setOfflineLeaseUserId(null);
     if (typeof window !== "undefined") {
       window.localStorage.setItem("powerhub:explicit-logout", "1");
     }
@@ -139,10 +143,11 @@ export function useAuth(options?: UseAuthOptions) {
   const user = meQuery.data ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
     user,
-    loading: !sessionReady || Boolean(hasSession && meQuery.isPending),
+    loading: isLoggingOut || !sessionReady || Boolean(hasSession && meQuery.isPending),
     error: meQuery.error ?? null,
-    isAuthenticated: Boolean(isOnlineAuthenticated || offlineAuthenticated),
-    isOnlineAuthenticated,
+    isAuthenticated: !isLoggingOut && Boolean(isOnlineAuthenticated || offlineAuthenticated),
+    isOnlineAuthenticated: !isLoggingOut && isOnlineAuthenticated,
+    isLoggingOut,
   };
 
   useEffect(() => {
