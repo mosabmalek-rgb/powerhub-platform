@@ -28,10 +28,10 @@ import {
   LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X,
   Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store, RadioTower, Zap, CloudOff,
 } from "lucide-react";
-import { CSSProperties, startTransition, useEffect, useRef, useState } from "react";
+import { CSSProperties, startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { preloadRoute, preloadWorkspaceRoutes } from "@/lib/route-preload";
-import type { PowerCapability } from "@shared/powerhub-rbac";
+import type { PowerCapability, PowerRole } from "@shared/powerhub-rbac";
 import { tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
 import { PowerHubLogo } from "./PowerHubLogo";
 import { toast } from "sonner";
@@ -122,6 +122,117 @@ const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
+const TENANT_ACCESS_CACHE_PREFIX = "powerhub.tenant-access.v1";
+
+type TenantAccessSnapshot = {
+  role: PowerRole;
+  permissions: PowerCapability[];
+  tenantId: number;
+  usesPermissionOverride: boolean;
+};
+
+type WorkspaceSiteSnapshot = {
+  id: number;
+  tenantId: number;
+  tenantName: string;
+  name: string;
+  code: string;
+  city: string | null;
+  address: string | null;
+  status: "active" | "inactive" | "archived";
+  anomalyAlertPercent: number;
+  invoiceDueDays: number;
+  createdAt: Date;
+};
+
+const WORKSPACE_SITES_CACHE_PREFIX = "powerhub.workspace-sites.v1";
+
+function readCachedWorkspaceSites(userId: number | undefined): WorkspaceSiteSnapshot[] | null {
+  if (!userId || typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(`${WORKSPACE_SITES_CACHE_PREFIX}:${userId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Array<Partial<Omit<WorkspaceSiteSnapshot, "createdAt">> & { createdAt?: string }>;
+    if (!Array.isArray(parsed)) return null;
+    const sites = parsed.flatMap((site) => {
+      if (
+        typeof site.id !== "number" ||
+        typeof site.tenantId !== "number" ||
+        typeof site.tenantName !== "string" ||
+        typeof site.name !== "string" ||
+        typeof site.code !== "string" ||
+        !["active", "inactive", "archived"].includes(String(site.status)) ||
+        typeof site.anomalyAlertPercent !== "number" ||
+        typeof site.invoiceDueDays !== "number" ||
+        typeof site.createdAt !== "string"
+      ) return [];
+      const createdAt = new Date(site.createdAt);
+      if (Number.isNaN(createdAt.getTime())) return [];
+      return [{
+        id: site.id,
+        tenantId: site.tenantId,
+        tenantName: site.tenantName,
+        name: site.name,
+        code: site.code,
+        city: site.city ?? null,
+        address: site.address ?? null,
+        status: site.status as WorkspaceSiteSnapshot["status"],
+        anomalyAlertPercent: site.anomalyAlertPercent,
+        invoiceDueDays: site.invoiceDueDays,
+        createdAt,
+      }];
+    });
+    return sites.length ? sites : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedWorkspaceSites(userId: number | undefined, sites: WorkspaceSiteSnapshot[] | undefined) {
+  if (!userId || !sites?.length || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      `${WORKSPACE_SITES_CACHE_PREFIX}:${userId}`,
+      JSON.stringify(sites),
+    );
+  } catch {
+    // Ignore unavailable browser storage.
+  }
+}
+
+function readCachedTenantAccess(userId: number | undefined, siteId: number) {
+  if (!userId || !siteId || typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(`${TENANT_ACCESS_CACHE_PREFIX}:${userId}:${siteId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<TenantAccessSnapshot>;
+    if (
+      (parsed.role === "owner" ||
+        parsed.role === "manager" ||
+        parsed.role === "accountant" ||
+        parsed.role === "collector" ||
+        parsed.role === "technician" ||
+        parsed.role === "viewer") &&
+      Array.isArray(parsed.permissions) &&
+      typeof parsed.tenantId === "number" &&
+      typeof parsed.usesPermissionOverride === "boolean"
+    ) {
+      return parsed as TenantAccessSnapshot;
+    }
+  } catch {
+    // Ignore malformed or unavailable browser storage.
+  }
+  return null;
+}
+
+function writeCachedTenantAccess(userId: number | undefined, siteId: number, access: TenantAccessSnapshot) {
+  if (!userId || !siteId || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(`${TENANT_ACCESS_CACHE_PREFIX}:${userId}:${siteId}`, JSON.stringify(access));
+  } catch {
+    // Ignore unavailable browser storage.
+  }
+}
 
 export default function DashboardLayout({
   children,
@@ -173,29 +284,57 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const platformRoleLabel = ({ platform_owner: "مالك المنصة", platform_admin: "مشرف المنصة", finance_admin: "مشرف مالي", platform_support: "موظف دعم" } as const)[user?.platformRole ?? "platform_admin"];
   const accountRoleLabel = user ? (user.role === "admin" ? platformRoleLabel : "مساحة تشغيل المولد") : "وضع معاينة آمن";
-  const workspaceSites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: Boolean(user && user.role !== "admin") });
+  const cachedWorkspaceSites = useMemo(() => readCachedWorkspaceSites(user?.id), [user?.id]);
+  const workspaceSites = trpc.powerhub.sites.list.useQuery(undefined, {
+    enabled: Boolean(user && user.role !== "admin"),
+    initialData: cachedWorkspaceSites ?? undefined,
+  });
   const tenantDisplayName = workspaceSites.data?.[0]?.tenantName ?? null;
+
+  useEffect(() => {
+    if (!user || user.role === "admin" || !workspaceSites.data) return;
+    writeCachedWorkspaceSites(user.id, workspaceSites.data);
+  }, [user, workspaceSites.data]);
   const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
   const { branchId: activeSiteId } = useBranchFilter(workspaceSites.data);
   const resolvedActiveSiteId = activeSiteId && workspaceSites.data?.some((site) => site.id === activeSiteId)
     ? activeSiteId
     : primarySiteId;
+
+  // Keep the last server-confirmed access snapshot for this browser session.
+  // On a hard refresh this lets the menu render immediately while the server
+  // revalidates the current membership/subscription in the background.
+  const cachedActiveAccess = useMemo(
+    () => readCachedTenantAccess(user?.id, resolvedActiveSiteId),
+    [user?.id, resolvedActiveSiteId],
+  );
+
   const activeAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: resolvedActiveSiteId ?? 0 }, {
-    enabled: Boolean(activeSiteId && user?.role !== "admin"),
-    // Expired subscriptions hide tenant routes, but renewed subscriptions must
-    // become visible in an already-open owner session without re-login.
+    enabled: Boolean(resolvedActiveSiteId && user?.role !== "admin"),
+    initialData: cachedActiveAccess ?? undefined,
+    // The cached value is only a visual bootstrap. The live response remains the
+    // authority and is always fetched on mount/focus/reconnect.
     refetchInterval: 15000,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
-  const activeTenantAccess = activeAccess.data;
+
+  useEffect(() => {
+    if (!activeAccess.data || !resolvedActiveSiteId || user?.role === "admin" || activeAccess.isError) return;
+    writeCachedTenantAccess(user?.id, resolvedActiveSiteId, activeAccess.data);
+  }, [activeAccess.data, activeAccess.isError, resolvedActiveSiteId, user?.id, user?.role]);
+
+  // Never use cached access after the live server check has explicitly failed.
+  // This prevents a stale subscription/permission snapshot from surviving a
+  // confirmed 401/403 while still eliminating the refresh-time menu flash.
+  const activeTenantAccess = activeAccess.isError
+    ? null
+    : activeAccess.data ?? cachedActiveAccess;
   const hasActiveTenantAccess = Boolean(activeTenantAccess?.role);
 
   useEffect(() => {
     if (user?.role === "admin" || !hasActiveTenantAccess) return;
-    // Warm tenant-visible route chunks once the workspace access check succeeds.
-    // This removes the first-click lazy-chunk pause while keeping admin-only code cold.
     preloadWorkspaceRoutes();
   }, [user?.role, hasActiveTenantAccess]);
   useEffect(() => {
