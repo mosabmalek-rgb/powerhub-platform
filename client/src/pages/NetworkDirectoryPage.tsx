@@ -179,7 +179,8 @@ function SubscriberEditor({ editing, pending, canApproveOpeningReadings, onCance
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const image = form.get("openingReadingImage") as File | null;
+    const rawImage = form.get("openingReadingImage");
+    const image = rawImage instanceof File && rawImage.size > 0 ? rawImage : null;
     const reading = String(form.get("openingReading") || "").trim();
     const readingAt = String(form.get("openingReadingAt") || "").trim();
     const approved = form.get("openingReadingApproved") === "on";

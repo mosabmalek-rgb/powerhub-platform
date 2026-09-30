@@ -177,11 +177,12 @@ describe("role guards in administration UI", () => {
     expect(screen.queryByRole("button", { name: /حفظ إعداد WhatsApp/ })).not.toBeInTheDocument();
   });
 
-  it("shows WhatsApp setup and a read-only TweetSMS status to the owner", () => {
+  it("shows WhatsApp setup while keeping platform-managed messaging details hidden from the owner", () => {
     mocks.activeRole = "owner";
     render(<MessagingSettingsPage />);
     expect(screen.getByText("إعداد WhatsApp Cloud API")).toBeInTheDocument();
-    expect(screen.getByText("حساب TweetSMS")).toBeInTheDocument();
+    expect(screen.queryByText("حساب TweetSMS")).not.toBeInTheDocument();
+    expect(screen.queryByText("سياسة آدمن PowerHub")).not.toBeInTheDocument();
     expect(screen.getByLabelText("اسم قالب رسالة الرقم المرجعي")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /حفظ إعداد WhatsApp/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /حفظ إعداد SMS/ })).not.toBeInTheDocument();
