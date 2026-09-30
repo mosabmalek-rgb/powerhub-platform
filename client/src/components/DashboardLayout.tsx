@@ -185,7 +185,8 @@ function DashboardLayoutContent({
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
-  const hasActiveTenantAccess = Boolean(activeAccess.data?.role);
+  const activeTenantAccess = activeAccess.data;
+  const hasActiveTenantAccess = Boolean(activeTenantAccess?.role);
   useEffect(() => {
     if (!activeSiteId || user?.role === "admin" || hasActiveTenantAccess) return;
 
@@ -213,7 +214,8 @@ function DashboardLayoutContent({
       if (displayUser.role === "admin") return true;
       if (item.path === "/payment-documentation") return Boolean(paymentDocumentationAccess.data?.allowed);
       if (!hasActiveTenantAccess) return item.path === "/workspace" || item.path === "/profile";
-      return tenantMenuRouteAllowed(item.path, activeAccess.data.role, activeAccess.data.permissions, activeAccess.data.usesPermissionOverride);
+      if (!activeTenantAccess) return item.path === "/workspace" || item.path === "/profile";
+      return tenantMenuRouteAllowed(item.path, activeTenantAccess.role, activeTenantAccess.permissions, activeTenantAccess.usesPermissionOverride);
     }),
   })).filter((group) => group.items.length > 0);
   const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
