@@ -2021,17 +2021,37 @@ export const powerhubRouter = router({
       return listSupabaseExpensePage(input.siteId, input);
     }),
     create: protectedProcedure.input(z.object({
-      siteId: z.number().int().positive(), generatorId: z.number().int().positive().optional(), category: z.enum(["fuel", "maintenance", "payroll", "parts", "transport", "other"]),
-      description: z.string().min(2).max(255), amount: z.number().positive(), referenceNo: z.string().max(120).optional(),
+      siteId: z.number().int().positive(),
+      generatorId: z.number().int().positive().optional(),
+      companyAccountId: z.number().int().positive(),
+      category: z.enum(["fuel", "maintenance", "payroll", "parts", "transport", "other"]),
+      description: z.string().min(2).max(255),
+      amount: z.number().positive(),
+      referenceNo: z.string().max(120).optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageExpenses");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_expense", {
-        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_generator_id: input.generatorId ?? null,
-        p_category: input.category, p_description: input.description, p_amount: input.amount, p_reference_no: input.referenceNo ?? null,
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_expense_with_account", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_generator_id: input.generatorId ?? null,
+        p_company_account_id: input.companyAccountId,
+        p_category: input.category,
+        p_description: input.description,
+        p_amount: input.amount,
+        p_reference_no: input.referenceNo ?? null,
       });
-      if (!error && data?.[0]) return { id: Number((data[0] as { expense_id: number | string }).expense_id) };
+      if (!error && data?.[0]) {
+        return {
+          id: Number((data[0] as { expense_id: number | string }).expense_id),
+          transactionId: Number((data[0] as { transaction_id: number | string }).transaction_id),
+        };
+      }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("GENERATOR_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
+      if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الصرف غير موجود أو غير نشط." });
+      if (errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "حساب الصرف غير مرتبط بالفرع المحدد." });
+      if (errorText.includes("INSUFFICIENT_ACCOUNT_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "رصيد حساب الصرف لا يكفي لتسجيل هذا المصروف." });
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تعديل أو إضافة بيانات مالية داخلها." });
       if (errorText.includes("INVALID_EXPENSE_AMOUNT") || errorText.includes("INVALID_EXPENSE_CATEGORY")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات المصروف غير صالحة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل المصروف في Supabase." });
