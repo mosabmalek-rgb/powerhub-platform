@@ -181,9 +181,24 @@ function DashboardLayoutContent({
     // Expired subscriptions hide tenant routes, but renewed subscriptions must
     // become visible in an already-open owner session without re-login.
     refetchInterval: 15000,
+    refetchOnMount: "always",
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
+  const hasActiveTenantAccess = Boolean(activeAccess.data?.role);
+  useEffect(() => {
+    if (!activeSiteId || user?.role === "admin" || hasActiveTenantAccess) return;
+
+    // When the last access check failed because the subscription was expired,
+    // retry explicitly until the renewed subscription becomes visible. This
+    // avoids depending solely on React Query's interval scheduling for an
+    // errored query and stops immediately after access is restored.
+    const retryId = window.setInterval(() => {
+      void activeAccess.refetch();
+    }, 5000);
+
+    return () => window.clearInterval(retryId);
+  }, [activeSiteId, user?.role, hasActiveTenantAccess, activeAccess.refetch]);
   const smsAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const smsApprovalQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && smsAccess.data?.role === "owner"), refetchInterval: 15000 });
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
@@ -197,7 +212,7 @@ function DashboardLayoutContent({
     items: group.items.filter((item) => {
       if (displayUser.role === "admin") return true;
       if (item.path === "/payment-documentation") return Boolean(paymentDocumentationAccess.data?.allowed);
-      if (!activeAccess.data?.role) return item.path === "/workspace" || item.path === "/profile";
+      if (!hasActiveTenantAccess) return item.path === "/workspace" || item.path === "/profile";
       return tenantMenuRouteAllowed(item.path, activeAccess.data.role, activeAccess.data.permissions, activeAccess.data.usesPermissionOverride);
     }),
   })).filter((group) => group.items.length > 0);
