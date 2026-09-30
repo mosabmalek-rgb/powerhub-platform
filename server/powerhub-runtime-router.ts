@@ -13,6 +13,10 @@ import { powerhubStaffSuspensionRuntimeRouter } from "./powerhub-staff-suspensio
 const legacyRecord = (powerhubRouter as any)._def.record as Record<string, any>;
 const legacyMobileSync = legacyRecord.mobileSync as any;
 const legacyStaff = legacyRecord.staff as any;
+// Nested routers are represented as plain records by tRPC v11. Do not look
+// only for `_def.record`, otherwise the complete staff API disappears from
+// the runtime bridge and callers receive NOT_FOUND for powerhub.staff.*.
+const legacyStaffRecord = legacyStaff?._def?.record ?? legacyStaff;
 
 export const powerhubRuntimeRouter: typeof powerhubRouter = router({
   ...legacyRecord,
@@ -24,10 +28,10 @@ export const powerhubRuntimeRouter: typeof powerhubRouter = router({
         }),
       }
     : {}),
-  ...((legacyStaff?._def?.record || powerhubStaffSuspensionRuntimeRouter?._def?.record)
+  ...((legacyStaffRecord || powerhubStaffSuspensionRuntimeRouter?._def?.record)
     ? {
         staff: router({
-          ...(legacyStaff?._def?.record ?? {}),
+          ...(legacyStaffRecord ?? {}),
           suspend: powerhubStaffSuspensionRuntimeRouter._def.record.suspend,
           clearSuspension: powerhubStaffSuspensionRuntimeRouter._def.record.clearSuspension,
         }),
