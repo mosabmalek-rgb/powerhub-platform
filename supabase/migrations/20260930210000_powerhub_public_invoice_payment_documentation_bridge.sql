@@ -16,7 +16,7 @@ begin
   return jsonb_build_object(
     'siteId',v_invoice.site_id,
     'tenantId',v_link.tenant_id,
-    'invoice',jsonb_build_object('id',v_invoice.id,'invoiceNo',v_invoice.invoice_no,'billingPeriod',v_invoice.billing_period,'issueDate',v_invoice.issue_date,'dueDate',v_invoice.due_date,'previousReading',v_invoice.previous_reading,'currentReading',v_invoice.current_reading,'consumptionKwh',v_invoice.consumption_kwh,'pricePerKwh',v_invoice.price_per_kwh,'fixedFee',v_invoice.fixed_fee,'taxAmount',v_invoice.tax_amount,'discountAmount',v_invoice.discount_amount,'totalAmount',v_invoice.total_amount,'paidAmount',v_invoice.paid_amount,'balanceDue',v_invoice.balance_due,'status',v_invoice.status),
+    'invoice',jsonb_build_object('id',v_invoice.id,'subscriberId',v_invoice.subscriber_id,'invoiceNo',v_invoice.invoice_no,'billingPeriod',v_invoice.billing_period,'issueDate',v_invoice.issue_date,'dueDate',v_invoice.due_date,'previousReading',v_invoice.previous_reading,'currentReading',v_invoice.current_reading,'consumptionKwh',v_invoice.consumption_kwh,'pricePerKwh',v_invoice.price_per_kwh,'fixedFee',v_invoice.fixed_fee,'taxAmount',v_invoice.tax_amount,'discountAmount',v_invoice.discount_amount,'totalAmount',v_invoice.total_amount,'paidAmount',v_invoice.paid_amount,'balanceDue',v_invoice.balance_due,'status',v_invoice.status),
     'subscriber',case when v_subscriber is null then null else jsonb_build_object('fullName',v_subscriber.full_name,'subscriberNo',v_subscriber.subscriber_no) end,
     'lines',v_lines
   );
