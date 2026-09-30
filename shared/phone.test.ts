@@ -10,7 +10,14 @@ describe("international phone normalization", () => {
     expect(normalizeInternationalPhone("00970599000000")).toBe("+970599000000");
   });
 
-  it("converts a Palestinian local mobile number to canonical E.164", () => {
+  it("converts Palestinian local 059 and 056 numbers to canonical E.164", () => {
     expect(normalizeInternationalPhone("0599000000")).toBe("+970599000000");
+    expect(normalizeInternationalPhone("0569000000")).toBe("+970569000000");
+  });
+
+  it("accepts 970, 972, and 00-prefixed country codes", () => {
+    expect(normalizeInternationalPhone("970599000000")).toBe("+970599000000");
+    expect(normalizeInternationalPhone("+972599000000")).toBe("+970599000000");
+    expect(normalizeInternationalPhone("00972569000000")).toBe("+970569000000");
   });
 });
