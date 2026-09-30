@@ -760,3 +760,4 @@ revoke all on function public.powerhub_request_tenant_addon(bigint,bigint,bigint
   from public,anon,authenticated;
 grant execute on function public.powerhub_request_tenant_addon(bigint,bigint,bigint,text,integer,text)
   to service_role;
+$$;
