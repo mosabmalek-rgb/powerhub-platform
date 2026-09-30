@@ -45,7 +45,7 @@ const entityNames: Record<string, string> = {
   platform_announcement: "إعلان منصة",
   owner_quota_alert: "تنبيه حصة",
 };
-const arabicAuditValue = (value: string | undefined, map: Record<string, string], label: string) =>
+const arabicAuditValue = (value: string | undefined, map: Record<string, string>, label: string) =>
   value ? (map[value] ?? value.replaceAll("_", " ")) : label;
 
 export default function AuditLogPage() {
