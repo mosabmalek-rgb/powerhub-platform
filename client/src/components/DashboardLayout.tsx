@@ -176,7 +176,10 @@ function DashboardLayoutContent({
   const tenantDisplayName = workspaceSites.data?.[0]?.tenantName ?? null;
   const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
   const { branchId: activeSiteId } = useBranchFilter(workspaceSites.data);
-  const activeAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: activeSiteId ?? 0 }, {
+  const resolvedActiveSiteId = activeSiteId && workspaceSites.data?.some((site) => site.id === activeSiteId)
+    ? activeSiteId
+    : primarySiteId;
+  const activeAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: resolvedActiveSiteId ?? 0 }, {
     enabled: Boolean(activeSiteId && user?.role !== "admin"),
     // Expired subscriptions hide tenant routes, but renewed subscriptions must
     // become visible in an already-open owner session without re-login.
@@ -188,7 +191,7 @@ function DashboardLayoutContent({
   const activeTenantAccess = activeAccess.data;
   const hasActiveTenantAccess = Boolean(activeTenantAccess?.role);
   useEffect(() => {
-    if (!activeSiteId || user?.role === "admin" || hasActiveTenantAccess) return;
+    if (!resolvedActiveSiteId || user?.role === "admin" || hasActiveTenantAccess) return;
 
     // When the last access check failed because the subscription was expired,
     // retry explicitly until the renewed subscription becomes visible. This
@@ -199,7 +202,7 @@ function DashboardLayoutContent({
     }, 5000);
 
     return () => window.clearInterval(retryId);
-  }, [activeSiteId, user?.role, hasActiveTenantAccess, activeAccess.refetch]);
+  }, [resolvedActiveSiteId, user?.role, hasActiveTenantAccess, activeAccess.refetch]);
   const smsAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const smsApprovalQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && smsAccess.data?.role === "owner"), refetchInterval: 15000 });
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
