@@ -620,147 +620,51 @@ revoke all on function public.powerhub_admin_review_tenant_addon_request(bigint,
 grant execute on function public.powerhub_admin_review_tenant_addon_request(bigint,bigint,text,text,integer)
   to service_role;
 
--- SMS add-ons renew exactly with the new subscription end; other add-ons keep their existing duration semantics.
-create or replace function public.powerhub_admin_renew_subscription_with_addons(
- p_actor_user_id bigint,
- p_subscription_id bigint,
- p_new_ends_at timestamptz,
- p_addon_decisions jsonb default '[]'::jsonb
-)
-returns table(success boolean,ends_at timestamptz,renewed_addons integer,expired_addons integer)
+-- SMS add-ons always terminate with the tenant subscription.
+-- This also protects the existing idempotent renewal RPC: when it extends an
+-- approved SMS add-on, the trigger forces the add-on end to the new subscription end.
+create or replace function public.powerhub_sync_sms_addon_end_to_subscription()
+returns trigger
 language plpgsql
 security definer
 set search_path=public,pg_temp
 as $$
 declare
- s public.tenant_subscriptions%rowtype;
- d jsonb;
- a public.tenant_addon_requests%rowtype;
- v_renewed int:=0;
- v_expired int:=0;
- v_duration int;
- v_new_end timestamptz;
- v_actor_platform_role text;
+  v_subscription_end timestamptz;
 begin
- select platform_role into v_actor_platform_role
- from public.users
- where id=p_actor_user_id
-   and role='admin'
-   and account_status='active'
-   and platform_role in ('platform_owner','platform_admin');
+  if new.addon_code <> 'sms' or new.status <> 'approved' then
+    return new;
+  end if;
 
- if v_actor_platform_role is null then
-   raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501';
- end if;
+  select ts.ends_at
+    into v_subscription_end
+  from public.tenant_subscriptions ts
+  where ts.tenant_id=new.tenant_id
+  order by ts.ends_at desc nulls last, ts.id desc
+  limit 1;
 
- select * into s
- from public.tenant_subscriptions
- where id=p_subscription_id
- for update;
+  if v_subscription_end is not null then
+    new.ends_at := v_subscription_end;
+    new.duration_days := greatest(
+      1,
+      ceil(extract(epoch from (v_subscription_end-coalesce(new.starts_at,now())))/86400.0)::integer
+    );
+  end if;
 
- if not found then
-   raise exception 'SUBSCRIPTION_NOT_FOUND' using errcode='P0001';
- end if;
-
- if p_new_ends_at<=now() then
-   raise exception 'INVALID_RENEWAL_END_DATE' using errcode='P0001';
- end if;
-
- update public.tenant_subscriptions
- set ends_at=p_new_ends_at,
-     status='active',
-     renewal_count=renewal_count+1,
-     last_renewed_at=now(),
-     updated_at=now()
- where id=s.id;
-
- for d in
-   select * from jsonb_array_elements(coalesce(p_addon_decisions,'[]'::jsonb))
- loop
-   select * into a
-   from public.tenant_addon_requests
-   where id=(d->>'addonRequestId')::bigint
-     and tenant_id=s.tenant_id
-   for update;
-
-   if not found or a.status<>'approved' then
-     continue;
-   end if;
-
-   if coalesce(d->>'decision','expire')='renew' then
-     if a.addon_code='sms' then
-       v_new_end:=p_new_ends_at;
-       v_duration:=greatest(
-         1,
-         ceil(extract(epoch from (v_new_end-coalesce(a.starts_at,now())))/86400.0)::integer
-       );
-     else
-       v_duration:=coalesce(nullif(d->>'durationDays','')::int,a.duration_days,30);
-       if v_duration<1 or v_duration>3650 then
-         raise exception 'INVALID_ADDON_DURATION' using errcode='P0001';
-       end if;
-       v_new_end:=p_new_ends_at+make_interval(days=>v_duration);
-     end if;
-
-     update public.tenant_addon_requests
-     set ends_at=v_new_end,
-         duration_days=v_duration
-     where id=a.id;
-
-     insert into public.tenant_addon_renewal_decisions(
-       tenant_id,subscription_id,addon_request_id,decision,new_duration_days,created_by_user_id
-     )
-     values(
-       s.tenant_id,s.id,a.id,'renew',v_duration,p_actor_user_id
-     )
-     on conflict(subscription_id,addon_request_id)
-     do update set
-       decision='renew',
-       new_duration_days=excluded.new_duration_days,
-       created_by_user_id=excluded.created_by_user_id,
-       created_at=now();
-
-     v_renewed:=v_renewed+1;
-   else
-     update public.tenant_addon_requests
-     set ends_at=least(coalesce(ends_at,now()),now())
-     where id=a.id;
-
-     insert into public.tenant_addon_renewal_decisions(
-       tenant_id,subscription_id,addon_request_id,decision,created_by_user_id
-     )
-     values(s.tenant_id,s.id,a.id,'expire',p_actor_user_id)
-     on conflict(subscription_id,addon_request_id)
-     do update set
-       decision='expire',
-       new_duration_days=null,
-       created_by_user_id=excluded.created_by_user_id,
-       created_at=now();
-
-     v_expired:=v_expired+1;
-   end if;
- end loop;
-
- insert into public.audit_logs(
-   tenant_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data
- )
- values(
-   s.tenant_id,p_actor_user_id,v_actor_platform_role,
-   'tenant_subscription',s.id::text,'renew_subscription_with_addons',
-   jsonb_build_object(
-     'newEndsAt',p_new_ends_at,
-     'renewedAddons',v_renewed,
-     'expiredAddons',v_expired
-   )
- );
-
- return query select true,p_new_ends_at,v_renewed,v_expired;
+  return new;
 end;
 $$;
 
-revoke all on function public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb)
+drop trigger if exists trg_powerhub_sync_sms_addon_end on public.tenant_addon_requests;
+create trigger trg_powerhub_sync_sms_addon_end
+before insert or update of status,starts_at,ends_at,duration_days
+on public.tenant_addon_requests
+for each row
+execute function public.powerhub_sync_sms_addon_end_to_subscription();
+
+revoke all on function public.powerhub_sync_sms_addon_end_to_subscription()
   from public,anon,authenticated;
-grant execute on function public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb)
+grant execute on function public.powerhub_sync_sms_addon_end_to_subscription()
   to service_role;
 
 -- Recreate the SMS add-on request contract with a higher quantity ceiling than user/branch add-ons.
