@@ -153,7 +153,7 @@ function PublicPaymentDocumentationView({ token, loading, error, context, submit
   loading: boolean;
   error: string | null;
   context: any;
-  submit: { isPending: boolean; mutate: (input: any) => void };
+  submit: { isPending: boolean; data?: unknown; mutate: (input: any) => void };
 }) {
   const [method,setMethod]=useState("");
   const [accountId,setAccountId]=useState("");
