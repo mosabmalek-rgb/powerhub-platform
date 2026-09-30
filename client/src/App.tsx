@@ -21,7 +21,6 @@ const CompanyAccountsPage = lazy(() => import("./pages/CompanyAccountsPage"));
 const MessagingSettingsPage = lazy(() => import("./pages/MessagingSettingsPage"));
 const AuditLogPage = lazy(() => import("./pages/AuditLogPage"));
 import PublicInvoice from "./pages/PublicInvoice";
-import PublicPaymentDocumentationPage from "./pages/PublicPaymentDocumentationPage";
 const AdminConsolePage = lazy(() => import("./pages/AdminConsolePage"));
 const FinanceAdminPage = lazy(() => import("./pages/FinanceAdminPage"));
 import LoginPage from "./pages/LoginPage";
@@ -59,7 +58,6 @@ function Router() {
       <Route path={"/support-chat"}>{() => <RouteAccessGate><SupportChatPage /></RouteAccessGate>}</Route>
       <Route path={"/support-center"}>{() => <RouteAccessGate><SupportCenterPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
-      <Route path={"/payment-documentation/public/:token"} component={PublicPaymentDocumentationPage} />
       <Route path={"/portal"} component={SubscriberPortalPage} />
       <Route path={"/subscriber-statement/:subscriberId"}>{() => <RouteAccessGate><SubscriberAccountStatementPage /></RouteAccessGate>}</Route>
       <Route path={"/portal-settings"}>{() => <RouteAccessGate><SubscriberPortalSettingsPage /></RouteAccessGate>}</Route>
