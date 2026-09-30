@@ -118,20 +118,19 @@ begin
     and (ends_at is null or ends_at>p_at);
 
   if p_resource='sms' then
-    select v_delta + coalesce(sum(r.approved_messages),0)::integer
+    select v_delta + coalesce(sum(l.credited_messages),0)::integer
       into v_delta
-    from public.sms_package_requests r
-    where r.tenant_id=p_tenant_id
-      and r.status='approved'
-      and (
-        (r.starts_at is not null
-          and r.starts_at<=p_at
-          and (r.ends_at is null or r.ends_at>p_at))
-        or
-        (r.starts_at is null
-          and r.reviewed_at>=date_trunc('month',p_at)
-          and r.reviewed_at<date_trunc('month',p_at)+interval '1 month')
-      );
+    from public.tenant_sms_recharge_ledger l
+    where l.tenant_id=p_tenant_id
+      and l.status in ('provider_confirmed','manual_confirmed')
+      and l.confirmed_at is not null
+      and (l.request_id is null or exists (
+        select 1
+        from public.sms_package_requests r
+        join public.tenant_subscriptions ts on ts.id=r.subscription_id
+        where r.id=l.request_id
+          and ts.ends_at>p_at
+      ));
   end if;
 
   return v_base + coalesce(v_delta,0);
@@ -202,20 +201,19 @@ as $function$
       and (a.ends_at is null or a.ends_at>now())
   ),
   sms_topups as (
-    select coalesce(sum(r.approved_messages),0)::integer as messages
-    from public.sms_package_requests r
+    select coalesce(sum(l.credited_messages),0)::integer as messages
+    from public.tenant_sms_recharge_ledger l
     where p_feature_key='sms'
-      and r.tenant_id=p_tenant_id
-      and r.status='approved'
-      and (
-        (r.starts_at is not null
-          and r.starts_at<=now()
-          and (r.ends_at is null or r.ends_at>now()))
-        or
-        (r.starts_at is null
-          and r.reviewed_at>=date_trunc('month',now())
-          and r.reviewed_at<date_trunc('month',now())+interval '1 month')
-      )
+      and l.tenant_id=p_tenant_id
+      and l.status in ('provider_confirmed','manual_confirmed')
+      and l.confirmed_at is not null
+      and (l.request_id is null or exists (
+        select 1
+        from public.sms_package_requests r
+        join public.tenant_subscriptions ts on ts.id=r.subscription_id
+        where r.id=l.request_id
+          and ts.ends_at>now()
+      ))
   )
   select
     p_feature_key,
@@ -313,19 +311,18 @@ sms_addons as (
     and (a.ends_at is null or a.ends_at>now())
 ),
 sms_topups as (
-  select coalesce(sum(r.approved_messages),0)::bigint additional_messages
-  from public.sms_package_requests r
-  where r.tenant_id=p_tenant_id
-    and r.status='approved'
-    and (
-      (r.starts_at is not null
-        and r.starts_at<=now()
-        and (r.ends_at is null or r.ends_at>now()))
-      or
-      (r.starts_at is null
-        and r.reviewed_at>=p_period_start
-        and r.reviewed_at<p_period_start+interval '1 month')
-    )
+  select coalesce(sum(l.credited_messages),0)::bigint additional_messages
+  from public.tenant_sms_recharge_ledger l
+  where l.tenant_id=p_tenant_id
+    and l.status in ('provider_confirmed','manual_confirmed')
+    and l.confirmed_at is not null
+    and (l.request_id is null or exists (
+      select 1
+      from public.sms_package_requests r
+      join public.tenant_subscriptions ts on ts.id=r.subscription_id
+      where r.id=l.request_id
+        and ts.ends_at>now()
+    ))
 ),
 extras as (
   select
@@ -777,4 +774,117 @@ $function$;
 revoke all on function public.powerhub_request_tenant_addon(bigint,bigint,bigint,text,integer,text)
   from public,anon,authenticated;
 grant execute on function public.powerhub_request_tenant_addon(bigint,bigint,bigint,text,integer,text)
+  to service_role;
+
+
+-- A one-off SMS recharge creates both the request and its immutable ledger link atomically.
+create or replace function public.powerhub_request_sms_package(
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_user_id bigint,
+  p_requested_messages integer,
+  p_note text
+)
+returns table(request_id bigint, request_status text, already_requested boolean)
+language plpgsql
+security definer
+set search_path='public','pg_temp'
+as $function$
+declare
+  v_request_id bigint;
+  v_ledger_id bigint;
+  v_subscription_id bigint;
+  v_existing_requested integer;
+  v_platform_role text;
+begin
+  if p_requested_messages is null or p_requested_messages<1 or p_requested_messages>100000000 then
+    raise exception 'INVALID_SMS_PACKAGE_QUANTITY' using errcode='P0001';
+  end if;
+
+  if not exists(
+    select 1 from public.tenant_members
+    where tenant_id=p_tenant_id and user_id=p_user_id
+      and role='owner' and is_active=true and membership_status='active'
+  ) then
+    raise exception 'SMS_RECHARGE_OWNER_ONLY' using errcode='42501';
+  end if;
+
+  if not exists(
+    select 1 from public.sites
+    where id=p_site_id and tenant_id=p_tenant_id and status='active'
+  ) then
+    raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001';
+  end if;
+
+  select ts.id into v_subscription_id
+  from public.tenant_subscriptions ts
+  where ts.tenant_id=p_tenant_id
+    and ts.status in ('trial','active')
+    and (ts.ends_at is null or ts.ends_at>now())
+  order by ts.created_at desc,ts.id desc
+  limit 1;
+
+  if v_subscription_id is null then
+    raise exception 'SMS_SUBSCRIPTION_REQUIRED' using errcode='P0001';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('sms-recharge:'||p_tenant_id::text)::bigint);
+
+  select id,requested_messages into v_request_id,v_existing_requested
+  from public.sms_package_requests
+  where tenant_id=p_tenant_id and status='pending'
+  order by created_at desc,id desc
+  limit 1
+  for update;
+
+  if found then
+    if v_existing_requested<>p_requested_messages then
+      raise exception 'SMS_PACKAGE_REQUEST_PENDING' using errcode='P0001';
+    end if;
+    return query select v_request_id,'pending'::text,true;
+  end if;
+
+  insert into public.sms_package_requests(
+    tenant_id,subscription_id,requested_by_user_id,requested_messages,note
+  )
+  values(
+    p_tenant_id,v_subscription_id,p_user_id,p_requested_messages,
+    nullif(trim(coalesce(p_note,'')),'')
+  )
+  returning id into v_request_id;
+
+  insert into public.tenant_sms_recharge_ledger(
+    tenant_id,request_id,provider_mode,status,requested_messages,idempotency_key,requested_by_user_id
+  )
+  values(
+    p_tenant_id,v_request_id,'manual','pending',p_requested_messages,
+    md5('powerhub-sms-recharge:'||v_request_id::text)::uuid,p_user_id
+  )
+  returning id into v_ledger_id;
+
+  select platform_role into v_platform_role
+  from public.users
+  where id=p_user_id;
+
+  insert into public.audit_logs(
+    tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data
+  )
+  values(
+    p_tenant_id,p_site_id,p_user_id,v_platform_role,
+    'tenant_sms_recharge_ledger',v_ledger_id::text,'request_sms_recharge',
+    jsonb_build_object(
+      'requestId',v_request_id,
+      'requestedMessages',p_requested_messages,
+      'providerMode','manual',
+      'status','pending'
+    )
+  );
+
+  return query select v_request_id,'pending'::text,false;
+end;
+$function$;
+
+revoke all on function public.powerhub_request_sms_package(bigint,bigint,bigint,integer,text)
+  from public,anon,authenticated;
+grant execute on function public.powerhub_request_sms_package(bigint,bigint,bigint,integer,text)
   to service_role;
