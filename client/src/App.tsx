@@ -1,3 +1,4 @@
+import { preloadRoute } from "./lib/route-preload";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { OfflineStatusBanner } from "@/components/OfflineStatusBanner";
@@ -44,28 +45,6 @@ const PaymentDocumentationReviewPage = lazy(() => import("./pages/PaymentDocumen
 const PlatformAnnouncementsPage = lazy(() => import("./pages/PlatformAnnouncementsPage"));
 const AdminGeneratorFeaturesPage = lazy(() => import("./pages/AdminGeneratorFeaturesPage"));
 const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
-
-// Warm route chunks as soon as the user shows intent to navigate. This keeps
-// the first click responsive without eagerly downloading every page.
-const routePreloaders: Record<string, () => Promise<unknown>> = {
-  "/subscribers": () => import("./pages/NetworkDirectoryPage"),
-  "/generators": () => import("./pages/NetworkDirectoryPage"),
-  "/readings": () => import("./pages/MeterReadingsPage"),
-  "/invoices": () => import("./pages/BillingPage"),
-  "/collections": () => import("./pages/OperationsPage"),
-  "/expenses": () => import("./pages/OperationsPage"),
-  "/reports": () => import("./pages/ReportsPage"),
-  "/notifications": () => import("./pages/MessagingSettingsPage"),
-  "/audit": () => import("./pages/AuditLogPage"),
-  "/settings": () => import("./pages/SettingsPage"),
-  "/staff": () => import("./pages/SettingsPage"),
-  "/branches": () => import("./pages/BranchesPage"),
-};
-
-export function preloadRoute(path: string) {
-  void routePreloaders[path]?.();
-}
-
 
 function Router() {
   return (
