@@ -21,9 +21,10 @@ const methods = [
 ] as const;
 
 export default function PaymentDocumentationPage() {
-  const { branchId } = useBranchFilter();
+  const { branchId, setBranchId } = useBranchFilter();
   const { user } = useAuth();
   const siteId = branchId ?? 0;
+  const invoiceToken = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("invoiceToken") ?? "";
   const [query,setQuery]=useState("");
   const [selected,setSelected]=useState<any>(null);
   const [invoice,setInvoice]=useState<any>(null);
@@ -39,10 +40,26 @@ export default function PaymentDocumentationPage() {
 
   const search = trpc.powerhub.paymentDocumentation.searchSubscriber.useQuery({siteId,query:query.trim()},{enabled:Boolean(isOnline&&siteId&&query.trim().length>=2)});
   const accounts = trpc.powerhub.paymentDocumentation.availableAccounts.useQuery({siteId: siteId ?? 0},{enabled:Boolean(isOnline&&siteId)});
+  const publicInvoice = trpc.powerhub.invoices.publicByToken.useQuery({ token: invoiceToken }, { enabled: Boolean(invoiceToken && isOnline), retry: false });
   const submit = trpc.powerhub.paymentDocumentation.submit.useMutation({
     onSuccess:()=>{toast.success("تم إرسال طلب الدفع بنجاح. سيتم التحقق لاعتماد الدفع. دمتم بخير 🌷");setInvoice(null);setFile(null);setAmount("");setReferenceNo("");setSenderPhone("");},
     onError:e=>toast.error(e.message)
   });
+
+  useEffect(() => {
+    const data = publicInvoice.data;
+    if (!data?.siteId || !invoiceToken) return;
+    setBranchId(Number(data.siteId));
+    setSelected({
+      id: Number(data.invoice.subscriberId ?? 0),
+      full_name: data.subscriber?.fullName ?? "",
+      subscriber_no: data.subscriber?.subscriberNo ?? "",
+      phone: "",
+      invoices: [data.invoice],
+    });
+    setInvoice(data.invoice);
+    setAmount(String(data.invoice.balanceDue ?? ""));
+  }, [invoiceToken, publicInvoice.data, setBranchId]);
 
   const displayedSearch = isOnline ? (search.data ?? []) : offlineSearchData;
   const displayedAccounts = isOnline ? (accounts.data ?? []) : offlineAccounts;
