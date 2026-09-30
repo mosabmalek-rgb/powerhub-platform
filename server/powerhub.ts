@@ -1025,7 +1025,7 @@ export const powerhubRouter = router({
     }),
     requestAddon: protectedProcedure.input(siteScoped.extend({
       addonCode: z.enum(["fieldUser", "platformUser", "subscribers50", "branch", "sms"]),
-      quantity: z.number().int().positive().max(1000).default(1),
+      quantity: z.number().int().positive().max(10000000).default(1),
       note: z.string().trim().max(500).optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
