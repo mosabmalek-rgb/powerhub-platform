@@ -714,14 +714,17 @@ export const powerhubRouter = router({
     allowedSubaccountRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const admin = supabaseAdmin();
-      const [subscriptionResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult] = await Promise.all([
+      const [subscriptionResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult, fieldUsersResult, platformQuotaResult, fieldQuotaResult] = await Promise.all([
         admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key", "owner_subaccount_roles").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_subaccount_limits").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
         admin.from("tenant_members").select("user_id").eq("tenant_id", access.tenantId).eq("role", "member").eq("is_active", true).eq("membership_status", "active"),
+        admin.from("staff_profiles").select("id").eq("tenant_id", access.tenantId).eq("role", "technician").eq("is_active", true),
+        admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: access.tenantId, p_resource: "platformUser" }),
+        admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: access.tenantId, p_resource: "fieldUser" }),
       ]);
-      if (subscriptionResult.error || rolesPolicyResult.error || limitsPolicyResult.error || overridesResult.error || membersResult.error) {
+      if (subscriptionResult.error || rolesPolicyResult.error || limitsPolicyResult.error || overridesResult.error || membersResult.error || fieldUsersResult.error || platformQuotaResult.error || fieldQuotaResult.error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحسابات الفرعية من Supabase." });
       }
       const plan = subscriptionResult.data?.package_code;
@@ -737,7 +740,18 @@ export const powerhubRouter = router({
       const overrideLimit = typeof overrideRecord.subaccountLimit === "number" && Number.isInteger(overrideRecord.subaccountLimit) && overrideRecord.subaccountLimit >= 0 ? overrideRecord.subaccountLimit : undefined;
       const limit = overrideLimit ?? ownerSubaccountLimitForPlan(plan, limitsPolicyResult.data ? { value: limitsPolicyResult.data.value } : null);
       const currentCount = (membersResult.data ?? []).length;
-      return { roles, limit, currentCount, remaining: Math.max(0, limit - currentCount) };
+      const fieldUserCount = (fieldUsersResult.data ?? []).length;
+      const platformUserLimit = Math.max(0, Number(Array.isArray(platformQuotaResult.data) ? platformQuotaResult.data[0] : platformQuotaResult.data) || limit);
+      const fieldUserLimit = Math.max(0, Number(Array.isArray(fieldQuotaResult.data) ? fieldQuotaResult.data[0] : fieldQuotaResult.data) || 0);
+      return {
+        roles,
+        limit: platformUserLimit,
+        currentCount,
+        remaining: Math.max(0, platformUserLimit - currentCount),
+        fieldUserLimit,
+        fieldUserCount,
+        fieldUserRemaining: Math.max(0, fieldUserLimit - fieldUserCount),
+      };
     }),
     permissionCatalog: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
