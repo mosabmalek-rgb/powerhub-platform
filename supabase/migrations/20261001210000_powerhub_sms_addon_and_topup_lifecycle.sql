@@ -31,7 +31,7 @@ returns integer
 language plpgsql
 security definer
 set search_path=public,pg_temp
-as $$
+as $function$
 declare
   v_package_code text;
   v_catalog jsonb;
@@ -118,7 +118,7 @@ begin
 
   return v_base + coalesce(v_delta,0);
 end;
-$$;
+$function$;
 
 revoke all on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
   from public,anon,authenticated;
@@ -145,7 +145,7 @@ language sql
 stable
 security invoker
 set search_path=public,pg_temp
-as $$
+as $function$
   with subscription as (
     select ts.package_code
     from public.tenant_subscriptions ts
@@ -231,7 +231,7 @@ as $$
     coalesce(c.status, 'inherit') as control_status
   from package_policy pp
   full join control c on true;
-$$;
+$function$;
 
 revoke all on function public.powerhub_resolve_tenant_feature_policy(bigint,text)
   from public,anon,authenticated;
@@ -257,7 +257,7 @@ returns table(
 language sql
 security definer
 set search_path='public','pg_temp'
-as $$
+as $function$
 with current_subscription as (
   select ts.id, ts.sms_plan_id, lower(btrim(ts.package_code)) package_code
   from public.tenant_subscriptions ts
@@ -333,7 +333,7 @@ select
   usage.used_segments,
   greatest(package.base_messages+extras.additional_messages-usage.used_segments,0)
 from package cross join extras cross join usage;
-$$;
+$function$;
 
 revoke all on function public.powerhub_get_sms_quota(bigint,timestamptz)
   from public,anon,authenticated;
@@ -359,7 +359,7 @@ returns table(
 language plpgsql
 security definer
 set search_path='public','pg_temp'
-as $$
+as $function$
 declare
   v_role text;
   v_request public.sms_package_requests%rowtype;
@@ -496,7 +496,7 @@ begin
     case when p_status='approved' then p_approved_messages else 0 end,
     false;
 end;
-$$;
+$function$;
 
 revoke all on function public.powerhub_admin_review_sms_package_request(bigint,bigint,text,integer,text)
   from public,anon,authenticated;
@@ -515,7 +515,7 @@ returns table(success boolean,status text,ends_at timestamptz)
 language plpgsql
 security definer
 set search_path=public,pg_temp
-as $$
+as $function$
 declare
  r public.tenant_addon_requests%rowtype;
  v_days int;
@@ -613,7 +613,7 @@ begin
 
  return query select true,'approved',v_end;
 end;
-$$;
+$function$;
 
 revoke all on function public.powerhub_admin_review_tenant_addon_request(bigint,bigint,text,text,integer)
   from public,anon,authenticated;
@@ -628,7 +628,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path=public,pg_temp
-as $$
+as $function$
 declare
   v_subscription_end timestamptz;
 begin
@@ -653,7 +653,7 @@ begin
 
   return new;
 end;
-$$;
+$function$;
 
 drop trigger if exists trg_powerhub_sync_sms_addon_end on public.tenant_addon_requests;
 create trigger trg_powerhub_sync_sms_addon_end
@@ -680,7 +680,7 @@ returns table(request_id bigint,addon_code text,quantity integer,already_request
 language plpgsql
 security invoker
 set search_path=public,pg_temp
-as $$
+as $function$
 declare
  v_existing_id bigint;
  v_existing_qty integer;
@@ -754,7 +754,7 @@ begin
 
  return query select v_existing_id,p_addon_code,p_quantity,false;
 end;
-$$;
+$function$;
 
 revoke all on function public.powerhub_request_tenant_addon(bigint,bigint,bigint,text,integer,text)
   from public,anon,authenticated;
