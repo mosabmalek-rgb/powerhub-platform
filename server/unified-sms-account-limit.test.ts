@@ -22,4 +22,16 @@ describe("unified SMS account limit", () => {
   it("supports unified unlimited mode", () => {
     expect(sql).toContain("v_feature_policy.effective_limit_mode = 'unlimited'");
   });
+
+  it("covers the SMS add-on and one-off top-up lifecycle migration", () => {
+    const smsMigration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261001210000_powerhub_sms_addon_and_topup_lifecycle.sql"),
+      "utf8",
+    );
+    expect(smsMigration).toContain("addon_code='sms'");
+    expect(smsMigration).toContain("platform_admin_approved_sms_topup");
+    expect(smsMigration).toContain("SMS_SUBSCRIPTION_EXPIRED");
+    expect(smsMigration).toContain("v_new_end:=p_new_ends_at");
+    expect(smsMigration).toContain("p_resource='sms'");
+  });
 });
