@@ -48,12 +48,12 @@ describe("owner invoice messaging settings", () => {
   it("shows admin-gated channels, editable templates, and the invoice delivery log", () => {
     render(<MessagingSettingsPage />);
     expect(screen.getByText("قوالب الفاتورة وحالة الإرسال")).toBeInTheDocument();
-    expect(screen.getByText("القنوات مفتوحة للتجربة")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("قالب فاتورة SMS")).toBeInTheDocument();
     expect(screen.getByText("قالب إيصال الدفع عبر SMS")).toBeInTheDocument();
     expect(screen.getByText("اسم قالب إيصال الدفع المعتمد")).toBeInTheDocument();
-    expect(screen.getByText("حساب TweetSMS")).toBeInTheDocument();
+    expect(screen.queryByText("سياسة آدمن PowerHub")).not.toBeInTheDocument();
+    expect(screen.queryByText("حساب TweetSMS")).not.toBeInTheDocument();
     expect(screen.getByText("رصيد رسائل TweetSMS")).toBeInTheDocument();
     expect(screen.getByText("MouldNorth")).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Jawwal Bulk SMS/ })).not.toBeInTheDocument();
@@ -84,7 +84,7 @@ describe("owner invoice messaging settings", () => {
     state.policy = { configured: false, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" };
     render(<MessagingSettingsPage />);
     expect(screen.getByText("حساب TweetSMS")).toBeInTheDocument();
-    expect(screen.getByText("بانتظار تهيئة الآدمن")).toBeInTheDocument();
+    expect(screen.queryByText("بانتظار تهيئة الآدمن")).not.toBeInTheDocument();
     expect(screen.queryByText("قالب فاتورة WhatsApp")).not.toBeInTheDocument();
   });
 });
