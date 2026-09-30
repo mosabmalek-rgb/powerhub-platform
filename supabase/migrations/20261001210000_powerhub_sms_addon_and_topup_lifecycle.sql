@@ -117,6 +117,23 @@ begin
     and (starts_at is null or starts_at<=p_at)
     and (ends_at is null or ends_at>p_at);
 
+  if p_resource='sms' then
+    select coalesce(sum(r.approved_messages),0)::integer
+      into v_delta
+    from public.sms_package_requests r
+    where r.tenant_id=p_tenant_id
+      and r.status='approved'
+      and (
+        (r.starts_at is not null
+          and r.starts_at<=p_at
+          and (r.ends_at is null or r.ends_at>p_at))
+        or
+        (r.starts_at is null
+          and r.reviewed_at>=date_trunc('month',p_at)
+          and r.reviewed_at<date_trunc('month',p_at)+interval '1 month')
+      );
+  end if;
+
   return v_base + coalesce(v_delta,0);
 end;
 $function$;
