@@ -28,8 +28,9 @@ import {
   LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X,
   Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store, RadioTower, Zap, CloudOff,
 } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, startTransition, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { preloadRoute } from "@/lib/route-preload";
 import type { PowerCapability } from "@shared/powerhub-rbac";
 import { tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
 import { PowerHubLogo } from "./PowerHubLogo";
@@ -326,7 +327,26 @@ function DashboardLayoutContent({
                           tooltip={item.label}
                           className="h-10 rounded-lg font-medium text-slate-300 hover:bg-white/5 hover:text-white data-[active=true]:bg-[#F5B800] data-[active=true]:text-[#0D1117] data-[active=true]:font-bold"
                         >
-                          <a href={item.path} aria-current={isActive ? "page" : undefined}>
+                          <a
+                            href={item.path}
+                            aria-current={isActive ? "page" : undefined}
+                            onMouseEnter={() => preloadRoute(item.path)}
+                            onFocus={() => preloadRoute(item.path)}
+                            onClick={(event) => {
+                              if (
+                                event.defaultPrevented ||
+                                event.button !== 0 ||
+                                event.metaKey ||
+                                event.ctrlKey ||
+                                event.shiftKey ||
+                                event.altKey
+                              ) {
+                                return;
+                              }
+                              event.preventDefault();
+                              startTransition(() => setLocation(item.path));
+                            }}
+                          >
                             <item.icon className="h-4 w-4" />
                             <span>{item.label}</span>{item.path === "/announcements" && unreadAnnouncements > 0 ? <span className="mr-auto min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
                           </a>

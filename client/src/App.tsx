@@ -1,3 +1,4 @@
+import { preloadRoute } from "./lib/route-preload";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { OfflineStatusBanner } from "@/components/OfflineStatusBanner";
