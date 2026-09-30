@@ -238,12 +238,12 @@ function SubscriberEditor({ editing, pending, canApproveOpeningReadings, onCance
             type="tel"
             name="phone"
             defaultValue={editing?.phone}
-            placeholder="+970599000000 أو 00970599000000"
+            placeholder="0599000000 أو 0569000000 أو 970599000000 أو +972569000000"
             className={inputClass}
             dir="ltr"
           />
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            يُنسّق رمز 00 تلقائياً إلى +. لا تُقبل الأرقام المحلية من دون رمز دولة حفاظاً على دقة الإرسال.
+            يمكن إدخال رقم الجوال بصيغ 059 أو 056 أو 970 أو 972، مع أو بدون +، وكذلك 00970 أو 00972. عند الحفظ تُوحَّد الصيغة تلقائياً، وعند الإرسال تُستخدم الصيغة الدولية المطلوبة للقناة.
           </p>
         </Field>
         <Field label="العنوان">
