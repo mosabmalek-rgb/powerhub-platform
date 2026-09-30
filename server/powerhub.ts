@@ -1792,6 +1792,67 @@ export const powerhubRouter = router({
   }),
 
   paymentDocumentation: router({
+    publicContext: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_context", { p_token_hash: hashInvoiceShareToken(input.token) });
+      if (!error && data && typeof data === "object" && !Array.isArray(data)) return data;
+      const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (text.includes("SHARE_LINK_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز نموذج توثيق الدفع." });
+    }),
+    publicSubmit: publicProcedure.input(z.object({
+      token: z.string().min(16).max(200),
+      destinationAccountId: z.number().int().positive(),
+      paymentAmount: z.number().positive(),
+      paymentMethod: z.enum(["cash","jawwal_pay","palpay","bank_of_palestine","wallet","bank_transfer","card"]),
+      senderPhone: z.string().trim().regex(/^\\+?[0-9]{7,20}$/, "رقم الجوال المحوِّل يجب أن يكون صحيحاً.").optional(),
+      referenceNo: z.string().trim().max(120).optional(),
+      receiptImageData: z.string().max(9_500_000).optional(),
+      receiptImageMime: z.enum(["image/jpeg","image/png","image/webp"]).optional(),
+      clientOperationId: z.string().uuid(),
+    })).mutation(async ({ input }) => {
+      const access = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_context", { p_token_hash: hashInvoiceShareToken(input.token) });
+      if (access.error || !access.data || typeof access.data !== "object" || Array.isArray(access.data)) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
+      const context = access.data as { paymentDocumentationAvailable?: boolean; siteId?: number; invoice?: { id: number; balanceDue: number; status: string }; subscriber?: { subscriberId?: number } };
+      if (!context.paymentDocumentationAvailable) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير متاحة لهذه الفاتورة." });
+      if (!context.siteId || !context.invoice?.id) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من سياق الفاتورة." });
+
+      let receiptImageKey: string | undefined;
+      let receiptImageHash: string | undefined;
+      if (input.receiptImageData) {
+        if (!input.receiptImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة التحويل." });
+        const bytes = Buffer.from(input.receiptImageData, "base64");
+        if (bytes.byteLength === 0 || bytes.byteLength > 7 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "يجب ألا تتجاوز صورة التحويل 7 ميغابايت." });
+        receiptImageHash = crypto.createHash("sha256").update(bytes).digest("hex");
+        const extension = input.receiptImageMime === "image/png" ? "png" : input.receiptImageMime === "image/webp" ? "webp" : "jpg";
+        const stored = await storagePut(`payment-documentation/public/${context.siteId}/${crypto.randomUUID()}.${extension}`, bytes, input.receiptImageMime);
+        receiptImageKey = stored.key;
+      }
+
+      const { data, error } = await supabaseAdmin().rpc("powerhub_submit_public_payment_documentation", {
+        p_token_hash: hashInvoiceShareToken(input.token),
+        p_destination_account_id: input.destinationAccountId,
+        p_payment_amount: input.paymentAmount,
+        p_payment_method: input.paymentMethod,
+        p_sender_phone: input.senderPhone ?? null,
+        p_reference_no: input.referenceNo ?? null,
+        p_receipt_image_key: receiptImageKey ?? null,
+        p_receipt_image_hash: receiptImageHash ?? null,
+        p_client_operation_id: input.clientOperationId,
+      });
+      if (!error && data?.[0]) return { id: Number((data[0] as { request_id: number | string }).request_id), replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
+      if (receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
+      const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (text.includes("SHARE_LINK_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
+      if (text.includes("PAYMENT_DOCUMENTATION_DISABLED")) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة." });
+      if (text.includes("INVOICE_ALREADY_PAID")) throw new TRPCError({ code: "CONFLICT", message: "الفاتورة مسددة بالكامل." });
+      if (text.includes("PAYMENT_AMOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "CONFLICT", message: "مبلغ الدفع يتجاوز الرصيد الحالي للفاتورة." });
+      if (text.includes("COMPANY_ACCOUNT_NOT_ENABLED")) throw new TRPCError({ code: "BAD_REQUEST", message: "الحساب المستقبِل غير مفعّل لتوثيق الدفع." });
+      if (text.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة الدفع لا تطابق الحساب المستقبِل." });
+      if (text.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الحساب المستقبِل غير متاح لهذا الفرع." });
+      if (text.includes("PAYMENT_DOCUMENTATION_ALREADY_PENDING")) throw new TRPCError({ code: "CONFLICT", message: "يوجد طلب توثيق قيد التحقق لهذه الفاتورة بالفعل." });
+      if (text.includes("TRANSFER_SOURCE_PHONE_REQUIRED") || text.includes("RECEIPT_IMAGE_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أكمل بيانات التحويل وإرفاق صورة التحويل." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إرسال طلب توثيق الدفع." });
+    }),
     access: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, []);
       const { data, error } = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId });
