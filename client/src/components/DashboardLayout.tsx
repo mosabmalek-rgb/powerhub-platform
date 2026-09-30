@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { CSSProperties, startTransition, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { preloadRoute } from "@/App";
+import { preloadRoute } from "@/lib/route-preload";
 import type { PowerCapability } from "@shared/powerhub-rbac";
 import { tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
 import { PowerHubLogo } from "./PowerHubLogo";
