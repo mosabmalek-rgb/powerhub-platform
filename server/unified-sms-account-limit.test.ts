@@ -31,7 +31,7 @@ describe("unified SMS account limit", () => {
     expect(smsMigration).toContain("addon_code='sms'");
     expect(smsMigration).toContain("platform_admin_approved_sms_topup");
     expect(smsMigration).toContain("SMS_SUBSCRIPTION_EXPIRED");
-    expect(smsMigration).toContain("v_new_end:=p_new_ends_at");
+    expect(smsMigration).toContain("trg_powerhub_sync_sms_addon_end");
     expect(smsMigration).toContain("p_resource='sms'");
   });
 });
