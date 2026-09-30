@@ -379,38 +379,78 @@ function SidebarSeparator({
 function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
   const contentRef = React.useRef<HTMLDivElement>(null);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const element = contentRef.current;
     if (!element) return;
 
-    const saveScrollTop = () => {
+    const readSavedScrollTop = () => {
       try {
-        sessionStorage.setItem(SIDEBAR_SCROLL_STORAGE_KEY, String(element.scrollTop));
+        const saved = Number(sessionStorage.getItem(SIDEBAR_SCROLL_STORAGE_KEY) ?? 0);
+        return Number.isFinite(saved) && saved > 0 ? saved : 0;
+      } catch {
+        return 0;
+      }
+    };
+
+    const saveScrollTop = () => {
+      const scrollTop = Math.max(0, Math.round(element.scrollTop));
+      try {
+        sessionStorage.setItem(SIDEBAR_SCROLL_STORAGE_KEY, String(scrollTop));
       } catch {
         // Storage may be unavailable in restricted browser contexts.
       }
     };
 
     const restoreScrollTop = () => {
-      try {
-        const saved = Number(sessionStorage.getItem(SIDEBAR_SCROLL_STORAGE_KEY) ?? 0);
-        if (!Number.isFinite(saved) || saved <= 0) return;
-        element.scrollTop = Math.min(saved, Math.max(0, element.scrollHeight - element.clientHeight));
-      } catch {
-        // Storage may be unavailable in restricted browser contexts.
+      const saved = readSavedScrollTop();
+      if (saved <= 0) return true;
+
+      const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+      if (maxScrollTop <= 0) return false;
+
+      element.scrollTop = Math.min(saved, maxScrollTop);
+      return element.scrollTop >= Math.min(saved, maxScrollTop) - 1;
+    };
+
+    // React mounts a fresh DashboardLayout for each route. Restore before paint
+    // and again as the menu finishes rendering so late data cannot force the
+    // sidebar back to zero.
+    restoreScrollTop();
+
+    const saveBeforeNavigation = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const link = target.closest("a[href]");
+      if (link && element.contains(link)) {
+        saveScrollTop();
+      }
+    };
+
+    const handleResize = () => {
+      if (restoreScrollTop()) {
+        observer?.disconnect();
       }
     };
 
     element.addEventListener("scroll", saveScrollTop, { passive: true });
-    restoreScrollTop();
-    const frame = window.requestAnimationFrame(restoreScrollTop);
-    const timer = window.setTimeout(restoreScrollTop, 120);
+    element.addEventListener("pointerdown", saveBeforeNavigation, true);
+
+    const frame = window.requestAnimationFrame(() => {
+      if (restoreScrollTop()) observer?.disconnect();
+    });
+    const timer = window.setTimeout(() => {
+      if (restoreScrollTop()) observer?.disconnect();
+    }, 250);
+
+    const observer = new ResizeObserver(handleResize);
+    observer.observe(element);
 
     return () => {
       element.removeEventListener("scroll", saveScrollTop);
+      element.removeEventListener("pointerdown", saveBeforeNavigation, true);
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);
-      saveScrollTop();
+      observer.disconnect();
     };
   }, []);
 
