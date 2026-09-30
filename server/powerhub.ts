@@ -1713,10 +1713,20 @@ export const powerhubRouter = router({
       }),
     publicByToken: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", { p_token_hash: hashInvoiceShareToken(input.token) });
-      if (!error && data && typeof data === "object" && !Array.isArray(data)) return data as {
-        invoice: { id: number; invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; previousReading: number | null; currentReading: number | null; consumptionKwh: number; pricePerKwh: number; fixedFee: number; taxAmount: number; discountAmount: number; totalAmount: number; paidAmount: number; balanceDue: number; status: string };
-        subscriber: { fullName: string; subscriberNo: string } | null;
-        lines: Array<{ id: number; description: string; amount: number; quantity: number; unitPrice: number; displayOrder: number }>;
+      if (!error && data && typeof data === "object" && !Array.isArray(data)) {
+        const payload = data as {
+          siteId?: number;
+          tenantId?: number;
+          invoice: { id: number; invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; previousReading: number | null; currentReading: number | null; consumptionKwh: number; pricePerKwh: number; fixedFee: number; taxAmount: number; discountAmount: number; totalAmount: number; paidAmount: number; balanceDue: number; status: string };
+          subscriber: { fullName: string; subscriberNo: string } | null;
+          lines: Array<{ id: number; description: string; amount: number; quantity: number; unitPrice: number; displayOrder: number }>;
+        };
+        let paymentDocumentationAvailable = false;
+        if (payload.tenantId) {
+          const feature = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) });
+          paymentDocumentationAvailable = !feature.error && Boolean(feature.data?.[0]?.allowed);
+        }
+        return { ...payload, siteId: payload.siteId ? Number(payload.siteId) : null, paymentDocumentationAvailable };
       };
       if (`${error?.code ?? ""} ${error?.message ?? ""}`.includes("SHARE_LINK_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفاتورة المشتركة من Supabase." });
