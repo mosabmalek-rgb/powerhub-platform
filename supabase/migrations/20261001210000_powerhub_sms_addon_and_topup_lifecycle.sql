@@ -44,10 +44,11 @@ begin
     raise exception 'INVALID_QUOTA_RESOURCE' using errcode='P0001';
   end if;
 
-  select coalesce(ts.package_code,t.package_code) into v_package_code
-  from public.tenants t
-  left join public.tenant_subscriptions ts on ts.tenant_id=t.id
-  where t.id=p_tenant_id;
+  select ts.package_code into v_package_code
+  from public.tenant_subscriptions ts
+  where ts.tenant_id=p_tenant_id
+  order by ts.ends_at desc nulls last, ts.id desc
+  limit 1;
 
   select p into v_catalog
   from jsonb_array_elements(
