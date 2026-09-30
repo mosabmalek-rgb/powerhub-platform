@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards } from "lucide-react";
+import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards, Eye, EyeOff } from "lucide-react";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { type ElementType, useMemo, useRef, useState } from "react";
@@ -284,7 +284,7 @@ export default function CompanyAccountsPage() {
               <div className="flex items-center justify-between gap-3"><span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-extrabold shadow-sm ${theme.badge}`}><BrandIcon className="h-4 w-4" />{theme.shortLabel}</span><span className="font-bold text-white print:text-black">{account.name}</span></div>
               <p className="mt-5 text-xs text-white/80 print:text-slate-600">الرصيد المتاح</p><p className="mt-1 text-2xl font-extrabold text-white print:text-slate-900">{money(Number(account.balance))} ش</p>
               <p className="mt-2 text-xs font-semibold text-white/90 print:text-slate-700">افتتاحي: {money(Number(account.openingBalance ?? 0))} ش</p>
-              <p className="mt-2 text-xs font-semibold text-white/90 print:text-slate-700">النوع: {labels[account.accountType] ?? account.accountType}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">الجوال: {account.phoneNumber ?? "غير مرتبط"}</p>
+              <p className="mt-2 text-xs font-semibold text-white/90 print:text-slate-700">النوع: {labels[account.accountType] ?? account.accountType}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">النطاق: {account.linkedSites.length ? account.linkedSites.map((site) => site.siteName).join("، ") : "عام على مستوى الشركة"}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">توثيق الدفع: {account.allowPaymentDocumentation ? "ظاهر" : "مخفي"}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">الجوال: {account.phoneNumber ?? "غير مرتبط"}</p>
             </button>;
           })}
         </div>
