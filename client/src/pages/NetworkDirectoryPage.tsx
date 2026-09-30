@@ -44,7 +44,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const activeSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
   const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
 
-  const createSubscriber = trpc.powerhub.subscribers.create.useMutation({ onSuccess: async (created) => { await refresh(); toast.success(`تمت إضافة المشترك. الرقم المرجعي: ${created.subscriberNo}`); const sent = created.referenceNotifications?.filter((item) => item.status === "submitted").length ?? 0; const failed = created.referenceNotifications?.filter((item) => item.status === "failed").length ?? 0; if (sent) toast.success(`أُرسلت رسالة الرقم المرجعي عبر ${sent} قناة مفعلة.`); else if (failed) toast.warning("سُجلت محاولة إرسال الرقم المرجعي؛ راجع سبب الفشل في سجل الإشعارات."); else toast.message("لا توجد قناة WhatsApp أو SMS مفعلة؛ الرقم المرجعي ظاهر في سجل المشتركين."); }, onError: (e) => toast.error(e.message) });
+  const createSubscriber = trpc.powerhub.subscribers.create.useMutation({ onSuccess: async (created) => { await refresh(); toast.success(`تمت إضافة المشترك. الرقم المرجعي: ${created.subscriberNo}`); }, onError: (e) => toast.error(e.message) });
   const updateSubscriber = trpc.powerhub.subscribers.update.useMutation({ onSuccess: async () => { await refresh(); setEditing(null); toast.success("تم تحديث المشترك."); }, onError: (e) => toast.error(e.message) });
   const createGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت إضافة المولد."); }, onError: (e) => toast.error(e.message) });
   const updateGenerator = trpc.powerhub.generators.update.useMutation({ onSuccess: async () => { await refresh(); setEditing(null); toast.success("تم تحديث المولد."); }, onError: (e) => toast.error(e.message) });
@@ -238,12 +238,12 @@ function SubscriberEditor({ editing, pending, canApproveOpeningReadings, onCance
             type="tel"
             name="phone"
             defaultValue={editing?.phone}
-            placeholder="+970599000000 أو 00970599000000"
+            placeholder="0599000000 أو 0569000000 أو 970599000000 أو +972569000000"
             className={inputClass}
             dir="ltr"
           />
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            يُنسّق رمز 00 تلقائياً إلى +. لا تُقبل الأرقام المحلية من دون رمز دولة حفاظاً على دقة الإرسال.
+            يمكن إدخال رقم الجوال بصيغ 059 أو 056 أو 970 أو 972، مع أو بدون +، وكذلك 00970 أو 00972. عند الحفظ تُوحَّد الصيغة تلقائياً، وعند الإرسال تُستخدم الصيغة الدولية المطلوبة للقناة.
           </p>
         </Field>
         <Field label="العنوان">

@@ -72,7 +72,19 @@ vi.mock("@/lib/trpc", () => ({
       subscribers: { list: { useQuery: () => mocks.query(mocks.subscribers) }, quota: { useQuery: () => mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "basic" }) }, phoneReview: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation } },
       generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: () => mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }) }, create: { useMutation: mocks.mutation } },
-      companyAccounts: { list: { useQuery: () => mocks.query([]) } },
+      companyAccounts: {
+        list: {
+          useQuery: () => mocks.query([{
+            id: 90,
+            name: "كاش",
+            accountType: "cash",
+            phoneNumber: null,
+            balance: 1000,
+            linkedSites: [{ siteId: 1, siteName: "محطة الاختبار" }],
+            allowPaymentDocumentation: true,
+          }]),
+        },
+      },
       expenses: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: () => mocks.query({ items: [], hasNext: false, nextCursor: null }) }, create: { useMutation: mocks.mutation } },
       dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: () => mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }) } },
       paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false }), refetch: vi.fn() }) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
@@ -177,7 +189,7 @@ describe("role guards in administration UI", () => {
     expect(screen.queryByRole("button", { name: /حفظ إعداد WhatsApp/ })).not.toBeInTheDocument();
   });
 
-  it("shows WhatsApp setup while keeping platform-managed messaging details hidden from the owner", () => {
+  it("shows WhatsApp setup while keeping admin-managed messaging details hidden from the owner", () => {
     mocks.activeRole = "owner";
     render(<MessagingSettingsPage />);
     expect(screen.getByText("إعداد WhatsApp Cloud API")).toBeInTheDocument();
