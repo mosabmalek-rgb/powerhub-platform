@@ -138,7 +138,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_approve_and_issue_mobile_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, notification_ids: [], already_processed: false }]);
       if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
       if (name === "powerhub_payment_documentation_access") return resolved([{ allowed: true, policy: "enabled", package_code: "basic", entitlement_enabled: true }]);
-      if (name === "powerhub_create_expense") return resolved([{ expense_id: 82 }]);
+      if (name === "powerhub_create_expense_with_account") return resolved([{ expense_id: 82, transaction_id: 118 }]);
       if (name === "powerhub_create_financial_settlement") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_set_financial_settlement_status") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_exceptional_locked_edit") return resolved([{ before_data: { id: 82, description: "وصف سابق" }, after_data: { id: 82, description: "وصف مصحح" } }]);
@@ -719,8 +719,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يسجل المصروف عبر Supabase مع حارس الفترة المالية", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.expenses.create({ siteId: 10, category: "fuel", description: "وقود التشغيل", amount: 50, referenceNo: "EXP-1" })).resolves.toEqual({ id: 82 });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_expense", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_category: "fuel", p_amount: 50 }) })]);
+    await expect(caller.expenses.create({ siteId: 10, companyAccountId: 90, category: "fuel", description: "وقود التشغيل", amount: 50, referenceNo: "EXP-1" })).resolves.toEqual({ id: 82, transactionId: 118 });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_expense_with_account", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_company_account_id: 90, p_category: "fuel", p_amount: 50 }) })]);
   });
 
   it("ينشئ تسوية مالية بالدالة الذرية في Supabase دون MySQL", async () => {
