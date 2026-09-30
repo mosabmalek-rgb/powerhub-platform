@@ -30,6 +30,7 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+const SIDEBAR_SCROLL_STORAGE_KEY = "powerhub_sidebar_scroll_top";
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
@@ -138,7 +139,7 @@ function SidebarProvider({
             } as React.CSSProperties
           }
           className={cn(
-            "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full",
+            "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full min-w-0 overflow-x-clip",
             className
           )}
           {...props}
@@ -316,7 +317,7 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        "bg-background relative flex w-full flex-1 flex-col",
+        "bg-background relative flex w-full min-w-0 flex-1 flex-col overflow-x-clip",
         "md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
         className
       )}
@@ -376,12 +377,50 @@ function SidebarSeparator({
 }
 
 function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
+  const contentRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+
+    const saveScrollTop = () => {
+      try {
+        sessionStorage.setItem(SIDEBAR_SCROLL_STORAGE_KEY, String(element.scrollTop));
+      } catch {
+        // Storage may be unavailable in restricted browser contexts.
+      }
+    };
+
+    const restoreScrollTop = () => {
+      try {
+        const saved = Number(sessionStorage.getItem(SIDEBAR_SCROLL_STORAGE_KEY) ?? 0);
+        if (!Number.isFinite(saved) || saved <= 0) return;
+        element.scrollTop = Math.min(saved, Math.max(0, element.scrollHeight - element.clientHeight));
+      } catch {
+        // Storage may be unavailable in restricted browser contexts.
+      }
+    };
+
+    element.addEventListener("scroll", saveScrollTop, { passive: true });
+    restoreScrollTop();
+    const frame = window.requestAnimationFrame(restoreScrollTop);
+    const timer = window.setTimeout(restoreScrollTop, 120);
+
+    return () => {
+      element.removeEventListener("scroll", saveScrollTop);
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      saveScrollTop();
+    };
+  }, []);
+
   return (
     <div
+      ref={contentRef}
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
-        "flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
+        "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden group-data-[collapsible=icon]:overflow-hidden",
         className
       )}
       {...props}
