@@ -176,7 +176,14 @@ function DashboardLayoutContent({
   const tenantDisplayName = workspaceSites.data?.[0]?.tenantName ?? null;
   const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
   const { branchId: activeSiteId } = useBranchFilter(workspaceSites.data);
-  const activeAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: activeSiteId ?? 0 }, {\n    enabled: Boolean(activeSiteId && user?.role !== "admin"),\n    // Subscription expiry intentionally removes tenant tabs while expired.\n    // Keep the access query self-healing so a renewal performed by the platform admin\n    // is reflected in an already-open owner session without requiring logout/login.\n    refetchInterval: 15000,\n    refetchOnWindowFocus: true,\n    refetchOnReconnect: true,\n  });
+  const activeAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: activeSiteId ?? 0 }, {
+    enabled: Boolean(activeSiteId && user?.role !== "admin"),
+    // Expired subscriptions hide tenant routes, but renewed subscriptions must
+    // become visible in an already-open owner session without re-login.
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
   const smsAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const smsApprovalQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && smsAccess.data?.role === "owner"), refetchInterval: 15000 });
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
