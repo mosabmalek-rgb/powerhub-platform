@@ -691,7 +691,7 @@ begin
 
  if p_quantity is null
     or p_quantity<1
-    or p_quantity>case when p_addon_code='sms' then 10000000 else 1000 end then
+    or p_quantity>(case when p_addon_code='sms' then 10000000 else 1000 end) then
    raise exception 'INVALID_ADDON_QUANTITY' using errcode='P0001';
  end if;
 
