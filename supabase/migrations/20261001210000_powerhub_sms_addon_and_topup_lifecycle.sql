@@ -118,7 +118,7 @@ begin
     and (ends_at is null or ends_at>p_at);
 
   if p_resource='sms' then
-    select coalesce(sum(r.approved_messages),0)::integer
+    select v_delta + coalesce(sum(r.approved_messages),0)::integer
       into v_delta
     from public.sms_package_requests r
     where r.tenant_id=p_tenant_id
