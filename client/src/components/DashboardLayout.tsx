@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { CSSProperties, startTransition, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { preloadRoute } from "@/lib/route-preload";
+import { preloadRoute, preloadWorkspaceRoutes } from "@/lib/route-preload";
 import type { PowerCapability } from "@shared/powerhub-rbac";
 import { tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
 import { PowerHubLogo } from "./PowerHubLogo";
@@ -191,6 +191,13 @@ function DashboardLayoutContent({
   });
   const activeTenantAccess = activeAccess.data;
   const hasActiveTenantAccess = Boolean(activeTenantAccess?.role);
+
+  useEffect(() => {
+    if (user?.role === "admin" || !hasActiveTenantAccess) return;
+    // Warm tenant-visible route chunks once the workspace access check succeeds.
+    // This removes the first-click lazy-chunk pause while keeping admin-only code cold.
+    preloadWorkspaceRoutes();
+  }, [user?.role, hasActiveTenantAccess]);
   useEffect(() => {
     if (!resolvedActiveSiteId || user?.role === "admin" || hasActiveTenantAccess) return;
 
@@ -478,7 +485,7 @@ function DashboardLayoutContent({
           </header>
         ) : null}
         {approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId ? <div className="sticky top-0 z-30 border-b border-emerald-300/25 bg-emerald-400/[.10] px-4 py-3 text-emerald-100 shadow-lg sm:px-6"><div className="mx-auto flex max-w-7xl items-center justify-between gap-3" dir="rtl"><div className="flex min-w-0 items-center gap-3"><CircleCheck className="h-5 w-5 shrink-0 text-emerald-300" /><p className="text-sm font-bold">تم اعتماد طلب شحن الرسائل وإضافة {Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيد SMS.</p></div><button type="button" aria-label="إغلاق إشعار اعتماد الرسائل" onClick={() => { const id = String(approvedSmsRequest.id); setDismissedSmsApprovalId(id); localStorage.setItem("powerhub.sms-approval-notice-dismissed", id); }} className="rounded-lg p-1 text-emerald-200 transition hover:bg-emerald-300/15 hover:text-white"><X className="h-4 w-4" /></button></div></div> : null}
-        <main className="ph-grid-bg min-h-screen flex-1 bg-[#0D1117] p-4 sm:p-6">{children}</main>
+        <main className="ph-grid-bg min-h-screen min-w-0 flex-1 overflow-x-clip bg-[#0D1117] p-4 sm:p-6">{children}</main>
       </SidebarInset>
     </>
   );
