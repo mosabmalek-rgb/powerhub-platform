@@ -166,6 +166,9 @@ function PublicPaymentDocumentationView({ token, loading, error, context, submit
   useEffect(() => {
     if (context?.invoice?.balanceDue !== undefined) setAmount(String(context.invoice.balanceDue));
   }, [context?.invoice?.id, context?.invoice?.balanceDue]);
+  useEffect(() => {
+    if (submit.data) setSubmitted(true);
+  }, [submit.data]);
 
   async function send() {
     if (!context?.invoice) return;
@@ -197,7 +200,7 @@ function PublicPaymentDocumentationView({ token, loading, error, context, submit
       receiptImageData,
       receiptImageMime,
       clientOperationId:crypto.randomUUID()
-    }, { onSuccess:()=>setSubmitted(true) } as any);
+    });
   }
 
   if (loading) return <div className="grid min-h-screen place-items-center bg-[#0D1117]"><Loader2 className="h-8 w-8 animate-spin text-[#F5B800]" /></div>;
