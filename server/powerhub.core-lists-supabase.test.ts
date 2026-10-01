@@ -101,16 +101,16 @@ const state = vi.hoisted(() => {
     },
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
-      if (name === "powerhub_subscriber_portal_list") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة" }]);
-      if (name === "powerhub_subscriber_portal_theme") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة" }]);
+      if (name === "powerhub_subscriber_portal_list") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
+      if (name === "powerhub_subscriber_portal_theme") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
       if (name === "powerhub_subscriber_portal_lookup") return resolved({
-        portal: { portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", city: "غزة" },
+        portal: { portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", city: "غزة", logoKey: null },
         subscriber: { subscriberNo: "MAIN-001", fullName: "مشترك الاختبار", phone: "+970595000000", address: null, subscriptionType: "residential", serviceStatus: "active", joinedAt: "2026-08-01T00:00:00.000Z" },
         invoices: [{ invoiceNo: "MAIN-202608-0001", billingPeriod: "2026-08", issueDate: "2026-08-02T00:00:00.000Z", dueDate: "2026-08-16T00:00:00.000Z", consumptionKwh: 10, totalAmount: 100, paidAmount: 25, balanceDue: 75, status: "issued" }],
         payments: [{ id: 81, paymentNo: "PAY-202608-0001", amount: 25, paymentMethod: "cash", status: "completed", paidAt: "2026-08-03T00:00:00.000Z", invoiceNo: "MAIN-202608-0001" }],
       });
       if (name === "powerhub_subscriber_portal_invoice") return resolved({
-        portal: { displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800" },
+        portal: { displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", logoKey: null },
         subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001", phone: "+970595000000", address: null },
         invoice: { invoiceNo: "MAIN-202608-0001", billingPeriod: "2026-08", issueDate: "2026-08-02T00:00:00.000Z", dueDate: "2026-08-16T00:00:00.000Z", previousReading: 90, currentReading: 100, consumptionKwh: 10, pricePerKwh: 10, fixedFee: 0, taxAmount: 0, discountAmount: 0, totalAmount: 100, paidAmount: 25, balanceDue: 75, status: "issued" },
         lines: [{ description: "استهلاك كهرباء", quantity: 10, unitPrice: 10, amount: 100 }],
@@ -238,6 +238,32 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.notifications.sendPaymentReceiptSms({ siteId: 10, paymentId: 81, channel: "sms" })).resolves.toMatchObject({ notificationId: 90, status: "submitted", channel: "sms" });
     expect(state.rpcCalls.filter((call) => call.name === "powerhub_queue_payment_sms")).toHaveLength(2);
     expect(notificationWorker.processById).toHaveBeenCalledWith(90, 1);
+  });
+
+  it("يعيد شعار بوابة الاستعلامات في theme وlookup عند وجود logo_key", async () => {
+    const originalRpc = state.client.rpc;
+    state.client.rpc = (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_subscriber_portal_theme") return Promise.resolve({
+        data: [{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: "tenant-portal-branding/20/logo-test.png" }],
+        error: null,
+      });
+      if (name === "powerhub_subscriber_portal_lookup") return Promise.resolve({
+        data: {
+          portal: { portalCode: "main", displayName: "بوابة الفرع الرئيسي", primaryColor: "#0D1117", accentColor: "#F5B800", city: "غزة", logoKey: "tenant-portal-branding/20/logo-test.png" },
+          subscriber: { subscriberNo: "MAIN-001", fullName: "مشترك الاختبار", phone: "+970595000000", address: null, subscriptionType: "residential", serviceStatus: "active", joinedAt: "2026-08-01T00:00:00.000Z" },
+          invoices: [], payments: [],
+        },
+        error: null,
+      });
+      return originalRpc(name,args);
+    };
+    const originalStorage = await import("./storage");
+    const signed = vi.spyOn(originalStorage, "storageGetSignedUrl").mockResolvedValue("https://signed.example/logo.png");
+    const caller = powerhubRouter.createCaller({ user: null as never, req: {} as never, res: {} as never });
+    await expect(caller.subscriberPortal.theme({ portalCode: "main" })).resolves.toMatchObject({ logoUrl: "https://signed.example/logo.png" });
+    await expect(caller.subscriberPortal.lookup({ portalCode: "main", subscriberNo: "MAIN-001", phone: "+970595000000" })).resolves.toMatchObject({ portal: { logoUrl: "https://signed.example/logo.png" } });
+    signed.mockRestore();
   });
 
   it("يعرض بوابة المشترك العامة وفاتورتها عبر دوال Supabase بعد التحقق الثنائي دون MySQL", async () => {
