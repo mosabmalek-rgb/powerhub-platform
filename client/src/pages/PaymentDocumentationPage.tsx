@@ -14,6 +14,7 @@ import { listPaymentDocumentationAccountSnapshots, savePaymentDocumentationSnaps
 import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
 import { Loader2, Search, Upload, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRoute } from "wouter";
 import { toast } from "sonner";
 
 const methods = [
@@ -21,9 +22,13 @@ const methods = [
 ] as const;
 
 export default function PaymentDocumentationPage() {
-  const { branchId } = useBranchFilter();
+  const { branchId, setBranchId } = useBranchFilter();
   const { user } = useAuth();
   const siteId = branchId ?? 0;
+  const [, publicInvoiceParams] = useRoute("/payment-documentation/public/:token");
+  const queryInvoiceToken = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("invoiceToken") ?? "";
+  const invoiceToken = publicInvoiceParams?.token ?? queryInvoiceToken;
+  const isPublicInvoiceFlow = Boolean(publicInvoiceParams?.token);
   const [query,setQuery]=useState("");
   const [selected,setSelected]=useState<any>(null);
   const [invoice,setInvoice]=useState<any>(null);
@@ -39,10 +44,28 @@ export default function PaymentDocumentationPage() {
 
   const search = trpc.powerhub.paymentDocumentation.searchSubscriber.useQuery({siteId,query:query.trim()},{enabled:Boolean(isOnline&&siteId&&query.trim().length>=2)});
   const accounts = trpc.powerhub.paymentDocumentation.availableAccounts.useQuery({siteId: siteId ?? 0},{enabled:Boolean(isOnline&&siteId)});
+  const publicInvoice = trpc.powerhub.invoices.publicByToken.useQuery({ token: invoiceToken }, { enabled: Boolean(queryInvoiceToken && isOnline && !isPublicInvoiceFlow), retry: false });
+  const publicPaymentContext = trpc.powerhub.paymentDocumentation.publicContext.useQuery({ token: invoiceToken }, { enabled: Boolean(isPublicInvoiceFlow && invoiceToken), retry: false });
+  const publicSubmit = trpc.powerhub.paymentDocumentation.publicSubmit.useMutation({ onError: (error) => toast.error(error.message) });
   const submit = trpc.powerhub.paymentDocumentation.submit.useMutation({
     onSuccess:()=>{toast.success("تم إرسال طلب الدفع بنجاح. سيتم التحقق لاعتماد الدفع. دمتم بخير 🌷");setInvoice(null);setFile(null);setAmount("");setReferenceNo("");setSenderPhone("");},
     onError:e=>toast.error(e.message)
   });
+
+  useEffect(() => {
+    const data = publicInvoice.data;
+    if (isPublicInvoiceFlow || !data?.siteId || !invoiceToken) return;
+    setBranchId(Number(data.siteId));
+    setSelected({
+      id: Number(data.invoice.subscriberId ?? 0),
+      full_name: data.subscriber?.fullName ?? "",
+      subscriber_no: data.subscriber?.subscriberNo ?? "",
+      phone: "",
+      invoices: [data.invoice],
+    });
+    setInvoice(data.invoice);
+    setAmount(String(data.invoice.balanceDue ?? ""));
+  }, [invoiceToken, isPublicInvoiceFlow, publicInvoice.data, setBranchId]);
 
   const displayedSearch = isOnline ? (search.data ?? []) : offlineSearchData;
   const displayedAccounts = isOnline ? (accounts.data ?? []) : offlineAccounts;
@@ -51,6 +74,16 @@ export default function PaymentDocumentationPage() {
   useEffect(()=>{const on=()=>setIsOnline(true),off=()=>setIsOnline(false);window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);};},[]);
   useEffect(()=>{if(!isOnline&&query.trim().length>=2)void loadOfflineSnapshots();},[isOnline,query,loadOfflineSnapshots]);
   useEffect(()=>{if(!isOnline||!user?.id||!siteId||!search.data?.length)return;const accountsSnapshot=(accounts.data??[]).map((a:any)=>({id:Number(a.id),name:String(a.name),accountType:String(a.accountType),phoneNumber:a.phoneNumber??null}));for(const sub of search.data as any[]){void savePaymentDocumentationSnapshot({userId:user.id,siteId,subscriber:{id:Number(sub.id),fullName:String(sub.full_name),subscriberNo:String(sub.subscriber_no),phone:String(sub.phone??""),whatsappNumber:sub.whatsapp_number??null,invoices:(sub.invoices??[]).map((i:any)=>({id:Number(i.id),invoiceNo:String(i.invoice_no),billingPeriod:i.billing_period??null,previousReading:i.previous_reading===null?null:Number(i.previous_reading),currentReading:i.current_reading===null?null:Number(i.current_reading),consumptionKwh:Number(i.consumption_kwh??0),pricePerKwh:Number(i.price_per_kwh??0),consumptionValue:null,invoiceTotal:Number(i.total_amount??0),invoiceBalance:Number(i.balance_due??0),status:String(i.status??"unknown")}))},accounts:accountsSnapshot});}},[accounts.data,isOnline,search.data,siteId,user?.id]);
+
+  if (isPublicInvoiceFlow) {
+    return <PublicPaymentDocumentationView
+      token={invoiceToken}
+      loading={publicPaymentContext.isLoading}
+      error={publicPaymentContext.isError ? publicPaymentContext.error?.message : null}
+      context={publicPaymentContext.data}
+      submit={publicSubmit}
+    />;
+  }
 
   async function submitPayment(){
     if(!invoice||!selected||!siteId)return;
@@ -113,4 +146,93 @@ export default function PaymentDocumentationPage() {
       <Button disabled={submit.isPending} onClick={submitPayment}>{submit.isPending?<Loader2 className="animate-spin"/>:<Upload className="ml-2 h-4 w-4"/>}إرسال للتحقق</Button>
     </CardContent></Card>}
   </div></DashboardLayout>;
+}
+
+function PublicPaymentDocumentationView({ token, loading, error, context, submit }: {
+  token: string;
+  loading: boolean;
+  error: string | null;
+  context: any;
+  submit: { isPending: boolean; data?: unknown; mutate: (input: any) => void };
+}) {
+  const [method,setMethod]=useState("");
+  const [accountId,setAccountId]=useState("");
+  const [amount,setAmount]=useState("");
+  const [senderPhone,setSenderPhone]=useState("");
+  const [referenceNo,setReferenceNo]=useState("");
+  const [file,setFile]=useState<File|null>(null);
+  const [submitted,setSubmitted]=useState(false);
+
+  useEffect(() => {
+    if (context?.invoice?.balanceDue !== undefined) setAmount(String(context.invoice.balanceDue));
+  }, [context?.invoice?.id, context?.invoice?.balanceDue]);
+  useEffect(() => {
+    if (submit.data) setSubmitted(true);
+  }, [submit.data]);
+
+  async function send() {
+    if (!context?.invoice) return;
+    if (!method) return toast.error("اختر طريقة الدفع.");
+    if (!accountId) return toast.error("اختر الحساب المستقبِل.");
+    if (!amount || Number(amount) <= 0 || Number(amount) > Number(context.invoice.balanceDue)) return toast.error("أدخل مبلغاً ضمن الرصيد المستحق.");
+    if (method !== "cash" && !senderPhone) return toast.error("أدخل رقم الجوال المحوّل منه.");
+    if (method !== "cash" && !file) return toast.error("أرفق صورة التحويل.");
+
+    let receiptImageData:string|undefined;
+    let receiptImageMime:"image/jpeg"|"image/png"|"image/webp"|undefined;
+    if (file) {
+      try {
+        const prepared=await preparePaymentReceiptImage(file);
+        receiptImageData=prepared.data;
+        receiptImageMime=prepared.mime;
+      } catch (error) {
+        return toast.error(error instanceof Error ? error.message : "تعذر تجهيز صورة التحويل.");
+      }
+    }
+
+    submit.mutate({
+      token,
+      destinationAccountId:Number(accountId),
+      paymentAmount:Number(amount),
+      paymentMethod:method,
+      senderPhone:senderPhone||undefined,
+      referenceNo:referenceNo||undefined,
+      receiptImageData,
+      receiptImageMime,
+      clientOperationId:crypto.randomUUID()
+    });
+  }
+
+  if (loading) return <div className="grid min-h-screen place-items-center bg-[#0D1117]"><Loader2 className="h-8 w-8 animate-spin text-[#F5B800]" /></div>;
+  if (error || !context) return <div className="grid min-h-screen place-items-center bg-[#0D1117] px-4" dir="rtl"><main className="w-full max-w-xl rounded-[28px] border border-white/10 bg-[#111823] p-8 text-center"><Loader2 className="mx-auto h-7 w-7 text-rose-400" /><h1 className="mt-5 text-xl font-extrabold text-white">تعذر تجهيز توثيق الدفع</h1><p className="mt-3 leading-7 text-slate-400">{error || "رابط الفاتورة غير صالح أو منتهي."}</p></main></div>;
+
+  const invoice=context.invoice;
+  const subscriber=context.subscriber;
+  const accounts=context.accounts ?? [];
+  const canPay=Boolean(context.paymentDocumentationAvailable && Number(invoice?.balanceDue)>0 && invoice?.status!=="cancelled");
+
+  if (submitted) return <div className="min-h-screen bg-[#0D1117] px-4 py-10" dir="rtl"><main className="mx-auto max-w-xl rounded-[28px] border border-white/10 bg-[#111823] p-8 text-center shadow-2xl"><div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-emerald-400/10 text-emerald-300"><CheckCircle2 className="h-8 w-8" /></div><h1 className="mt-5 text-2xl font-extrabold text-white">تم إرسال طلب توثيق الدفع</h1><p className="mt-3 leading-7 text-slate-400">تم تسجيل الطلب للمراجعة، ولن تُحتسب الحركة المالية إلا بعد الاعتماد.</p><p className="mt-5 text-sm text-slate-500">الفاتورة: {invoice.invoiceNo}</p></main></div>;
+
+  return <div className="min-h-screen bg-[#0D1117] px-4 py-8" dir="rtl"><main className="mx-auto max-w-3xl overflow-hidden rounded-[28px] border border-white/10 bg-[#111823] shadow-2xl">
+    <header className="border-b border-white/10 px-6 py-6 sm:px-9"><div className="text-sm font-bold text-[#F5B800]">PowerHub</div><div className="mt-5 flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-extrabold text-white">توثيق الدفع الإلكتروني</h1><p className="mt-1 text-sm text-slate-400">نفس نموذج توثيق الدفع؛ تم تحديد المشترك والفاتورة تلقائياً من رابط الفاتورة.</p></div><Badge className="bg-[#F5B800]/10 text-[#F5B800]">فاتورة محددة</Badge></div></header>
+    <section className="space-y-6 px-6 py-7 sm:px-9">
+      {!canPay ? <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[.05] p-5 text-center text-amber-200">توثيق الدفع غير متاح لهذه الفاتورة حالياً.</div> : <>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-white/8 bg-white/[.02] p-4"><p className="text-xs text-slate-500">المشترك</p><p className="mt-2 font-bold text-white">{subscriber?.fullName}</p><p className="mt-1 text-xs text-slate-500">#{subscriber?.subscriberNo}</p></div>
+          <div className="rounded-xl border border-white/8 bg-white/[.02] p-4"><p className="text-xs text-slate-500">الفاتورة</p><p className="mt-2 font-bold text-[#F5B800]">{invoice?.invoiceNo}</p></div>
+          <div className="rounded-xl border border-white/8 bg-white/[.02] p-4"><p className="text-xs text-slate-500">الرصيد المستحق</p><p className="mt-2 text-xl font-extrabold text-[#F5B800]">{invoice?.balanceDue}</p></div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div><Label className="text-slate-300">مبلغ الدفع</Label><Input type="number" min="0.01" max={invoice?.balanceDue} value={amount} onChange={e=>setAmount(e.target.value)} className="mt-2 bg-white/[.03] text-white"/></div>
+          <div><Label className="text-slate-300">طريقة الدفع</Label><select value={method} onChange={e=>{setMethod(e.target.value);setAccountId("");}} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="">اختر طريقة الدفع</option>{methods.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>
+          <div><Label className="text-slate-300">الحساب المستقبِل</Label><select value={accountId} onChange={e=>setAccountId(e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="">اختر الحساب</option>{accounts.filter((a:any)=>!method||a.accountType===method).map((a:any)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+          <div><Label className="text-slate-300">رقم الجوال المحوّل منه</Label><Input value={senderPhone} onChange={e=>setSenderPhone(e.target.value)} disabled={method==="cash"} placeholder={method==="cash"?"غير مطلوب":"مطلوب للتحويل"} className="mt-2 bg-white/[.03] text-white"/></div>
+          <div><Label className="text-slate-300">الرقم المرجعي للتحويل</Label><Input value={referenceNo} onChange={e=>setReferenceNo(e.target.value)} placeholder="اختياري" className="mt-2 bg-white/[.03] text-white"/></div>
+          <div><Label className="text-slate-300">صورة التحويل</Label><Input type="file" accept="image/jpeg,image/png,image/webp" disabled={method==="cash"} onChange={e=>setFile(e.target.files?.[0]??null)} className="mt-2 text-slate-300"/><p className="mt-1 text-xs text-slate-500">{method==="cash"?"غير مطلوبة للدفع النقدي":"مطلوبة لعمليات التحويل."}</p></div>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/10 p-4 text-sm text-slate-400">المشترك والفاتورة مصدرهما رابط الفاتورة الموثوق ولا يمكن تغييرهما من الصفحة. إرسال الطلب يبقى توثيقاً قيد المراجعة ولا ينشئ حركة مالية قبل الاعتماد.</div>
+        <Button disabled={submit.isPending} onClick={()=>void send()} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{submit.isPending?<Loader2 className="animate-spin"/>:<Upload className="ml-2 h-4 w-4"/>}إرسال للتحقق</Button>
+      </>}
+    </section>
+  </main></div>;
 }
