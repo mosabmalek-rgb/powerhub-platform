@@ -1560,7 +1560,6 @@ export const powerhubRouter = router({
         if (message.includes("TARIFF_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل التعرفة." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث التعرفة في Supabase." });
       }
-      await utils;
       return { id: Number(data[0].tariff_id) };
     }),
   }),
