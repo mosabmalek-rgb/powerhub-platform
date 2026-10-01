@@ -48,7 +48,7 @@ alter table public.subscription_upgrade_requests
 alter table public.subscription_upgrade_requests
   drop constraint if exists subscription_upgrade_requests_requested_package_code_check;
 
-create function public.powerhub_admin_quick_upgrade_owner_plan(
+create or replace function public.powerhub_admin_quick_upgrade_owner_plan(
   p_actor_user_id bigint,
   p_tenant_id bigint,
   p_package_code text,
@@ -171,7 +171,7 @@ grant execute on function public.powerhub_admin_quick_upgrade_owner_plan(bigint,
 
 
 
-create function public.powerhub_create_generator_owner_subscription(
+create or replace function public.powerhub_create_generator_owner_subscription(
   p_actor_user_id bigint,
   p_auth_user_id uuid,
   p_tenant_name text,
