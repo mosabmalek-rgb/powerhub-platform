@@ -38,7 +38,17 @@ const adminRuntimeRouter = (router({
   setTenantFeatureEntitlement: (adminRouterWithSupabasePlatformSetting as any)._def.record.setTenantFeatureEntitlement,
 } as Record<string, any>) as unknown) as AppAdminRouter;
 
+const platformContactSettingsRouter = router({
+  public: publicProcedure.query(async () => {
+    const { data, error } = await supabaseAdmin().from("platform_settings").select("is_enabled,value").eq("setting_key","platform_contact").maybeSingle();
+    if (error || !data?.is_enabled || !data.value || typeof data.value !== "object" || Array.isArray(data.value)) return { whatsappNumber: null as string | null };
+    const value = data.value as Record<string, unknown>;
+    return { whatsappNumber: typeof value.whatsappNumber === "string" ? value.whatsappNumber : null };
+  }),
+});
+
 export const appRouter = router({
+  platformContactSettings: platformContactSettingsRouter,
   system: systemRouter,
   auth: router({
     claimDevice: publicProcedure.input(z.object({ deviceId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
