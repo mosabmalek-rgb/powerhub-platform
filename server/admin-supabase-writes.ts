@@ -228,7 +228,7 @@ export async function renewSubscription(input: {
   actorUserId: number;
   subscriptionId: number;
   endsAt: Date;
-  packageCode: "basic" | "advanced" | "professional" | "business" | "vip";
+  packageCode: AdminPackageCode;
   addonDecisions?: Array<{ addonRequestId: number; decision: "renew" | "expire"; durationDays?: number }>;
   requestKey: string;
 }) {
