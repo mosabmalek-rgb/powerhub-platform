@@ -1059,6 +1059,7 @@ export const powerhubRouter = router({
         primaryColor: portal.primaryColor,
         accentColor: portal.accentColor,
         city: portal.city,
+        logoUrl: portal.logoUrl,
       };
     }),
     lookup: publicProcedure.input(subscriberPortalLookupInput).query(async ({ input }) => {
@@ -1067,7 +1068,14 @@ export const powerhubRouter = router({
       const currentInvoice = subscriberInvoices.find((invoice) => invoice.billingPeriod === currentPeriod);
       const outstandingBalance = subscriberInvoices.reduce((total, invoice) => total + Number(invoice.balanceDue || 0), 0);
       return {
-        portal: { portalCode: portal.portalCode, displayName: portal.displayName, primaryColor: portal.primaryColor, accentColor: portal.accentColor, city: portal.city },
+        portal: {
+          portalCode: portal.portalCode,
+          displayName: portal.displayName,
+          primaryColor: portal.primaryColor,
+          accentColor: portal.accentColor,
+          city: portal.city,
+          logoUrl: portal.logoKey ? await storageGetSignedUrl(portal.logoKey) : null,
+        },
         subscriber: {
           subscriberNo: subscriber.subscriberNo,
           fullName: subscriber.fullName,
