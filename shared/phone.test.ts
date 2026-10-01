@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeInternationalPhone } from "./phone";
+import { normalizeInternationalPhone, phoneSearchVariants } from "./phone";
 
 describe("international phone normalization", () => {
   it("keeps an E.164 number and removes readable separators", () => {
@@ -19,5 +19,30 @@ describe("international phone normalization", () => {
     expect(normalizeInternationalPhone("970599000000")).toBe("+970599000000");
     expect(normalizeInternationalPhone("+972599000000")).toBe("+970599000000");
     expect(normalizeInternationalPhone("00972569000000")).toBe("+970569000000");
+  });
+});
+
+describe("Palestinian phone search variants", () => {
+  const equivalent = [
+    "+970598082061",
+    "00970598082061",
+    "0598082061",
+    "+972598082061",
+    "00972598082061",
+    "970598082061",
+    "972598082061",
+    "598082061",
+  ];
+  it.each(equivalent)("treats %s as the same 059 number", (value) => {
+    const variants = new Set(phoneSearchVariants(value));
+    for (const expected of ["+970598082061","+972598082061","970598082061","972598082061","00970598082061","00972598082061","0598082061"]) {
+      expect(variants.has(expected)).toBe(true);
+    }
+  });
+  it.each(["+970569000000","00970569000000","0569000000","+972569000000","00972569000000"])("supports 056 format %s", (value) => {
+    const variants = new Set(phoneSearchVariants(value));
+    expect(variants.has("0569000000")).toBe(true);
+    expect(variants.has("+970569000000")).toBe(true);
+    expect(variants.has("+972569000000")).toBe(true);
   });
 });
