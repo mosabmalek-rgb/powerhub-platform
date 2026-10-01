@@ -26,7 +26,6 @@ function MetricCard({ icon: Icon, label, value, suffix, accent = false }: { icon
 export default function SubscriberPortalPage() {
   const [location, setLocation] = useLocation();
   const [portalCode, setPortalCode] = useState(() => new URLSearchParams(window.location.search).get("g")?.toLowerCase() || "");
-  const portalsQuery = trpc.powerhub.subscriberPortal.list.useQuery(undefined, { enabled: !portalCode });
   const themeQuery = trpc.powerhub.subscriberPortal.theme.useQuery({ portalCode }, { enabled: Boolean(portalCode), retry: false });
   const [subscriberNo, setSubscriberNo] = useState("");
   const [phone, setPhone] = useState("");
@@ -66,7 +65,20 @@ export default function SubscriberPortalPage() {
     }
   };
 
-  if (!portalCode) return <div className="min-h-screen bg-slate-50 px-4 py-10 text-right" dir="rtl"><main className="mx-auto max-w-5xl"><header className="rounded-[30px] bg-[#0D1117] px-6 py-10 text-white shadow-2xl shadow-slate-950/20 sm:px-10"><div className="flex items-center gap-3 text-[#F5B800]"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#F5B800]/15"><Activity className="h-5 w-5" /></span><span className="text-sm font-extrabold tracking-wide">PowerHub</span></div><h1 className="mt-8 text-3xl font-extrabold sm:text-4xl">استعلامات المشتركين</h1><p className="mt-3 max-w-xl leading-7 text-slate-300">اختر اسم المولد للوصول إلى صفحة الاستعلام الخاصة بمشتركيه. لا تظهر أي بيانات قبل التحقق من الرقم المرجعي ورقم الهاتف.</p></header><section className="mt-7"><h2 className="text-lg font-extrabold text-slate-950">اختر المولد</h2>{portalsQuery.isLoading ? <div className="mt-5 grid min-h-48 place-items-center rounded-3xl border border-slate-200 bg-white"><Loader2 className="h-6 w-6 animate-spin text-[#F5B800]" /></div> : <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{(portalsQuery.data || []).map((portal) => <button key={portal.portalCode} type="button" onClick={() => choosePortal(portal.portalCode)} className="group rounded-3xl border border-slate-200 bg-white p-5 text-right shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800]"><span style={{ background: portal.primaryColor, color: portal.accentColor }} className="grid h-11 w-11 place-items-center overflow-hidden rounded-2xl">{portal.logoUrl ? <img src={portal.logoUrl} alt="" className="h-full w-full object-contain bg-white" /> : <Building2 className="h-5 w-5" />}</span><h3 className="mt-5 font-extrabold text-slate-950">{portal.displayName || portal.siteName}</h3><p className="mt-1 text-sm text-slate-500">{portal.city || "بوابة استعلامات خاصة"}</p><span className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-slate-700 group-hover:text-slate-950">فتح البوابة <ChevronLeft className="h-4 w-4" /></span></button>)}</div>}{!portalsQuery.isLoading && !portalsQuery.data?.length ? <p className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">لا توجد بوابات مفعّلة حالياً.</p> : null}</section></main></div>;
+  if (!portalCode) return <div className="min-h-screen bg-slate-50 px-4 py-10 text-right" dir="rtl">
+    <main className="mx-auto flex min-h-[75vh] max-w-xl items-center justify-center">
+      <section className="w-full rounded-[30px] border border-slate-200 bg-white p-8 text-center shadow-xl shadow-slate-200/50 sm:p-10">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-slate-100 text-slate-500">
+          <Building2 className="h-8 w-8" />
+        </div>
+        <p className="mt-6 text-sm font-extrabold text-slate-500">بوابة الاستعلامات</p>
+        <h1 className="mt-2 text-2xl font-extrabold text-slate-950 sm:text-3xl">استخدم رابط المولد المخصص</h1>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-slate-500">
+          هذه الصفحة لا تعرض قائمة بالمولدات. للوصول إلى بيانات اشتراكك، استخدم رابط بوابة الاستعلامات الذي أرسله لك صاحب المولد.
+        </p>
+      </section>
+    </main>
+  </div>;
 
   if (themeQuery.isLoading) return <div className="grid min-h-screen place-items-center bg-slate-50"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div>;
   if (themeQuery.isError || !themeQuery.data) return <div className="grid min-h-screen place-items-center bg-slate-50 p-4 text-right" dir="rtl"><section className="max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm"><Building2 className="mx-auto h-8 w-8 text-slate-400" /><h1 className="mt-4 text-xl font-extrabold text-slate-950">البوابة غير متاحة</h1><p className="mt-2 leading-7 text-slate-500">تأكد من الرابط الذي أرسله لك مشغّل المولد.</p></section></div>;
