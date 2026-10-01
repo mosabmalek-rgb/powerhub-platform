@@ -1,6 +1,43 @@
 -- Dynamic package lifecycle bridge.
 -- Extends the commercial package catalog without leaving legacy five-package constraints
 -- in tenants, upgrade requests, owner creation, quick upgrade, renewal, or admin updates.
+-- Catalog helpers: the catalog is the only source of truth for package existence/activation.
+create or replace function public.powerhub_catalog_package(p_package_code text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path=public,pg_temp
+as $
+  select pkg
+  from public.platform_settings ps
+  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) pkg
+  where ps.setting_key='subscription_package_catalog'
+    and ps.is_enabled=true
+    and lower(trim(pkg->>'code'))=lower(trim(p_package_code))
+    and coalesce((pkg->>'active')::boolean,true)=true
+  limit 1
+$;
+
+create or replace function public.powerhub_validate_package_code(p_package_code text)
+returns void
+language plpgsql
+stable
+security definer
+set search_path=public,pg_temp
+as $
+begin
+  if nullif(trim(p_package_code),'') is null or public.powerhub_catalog_package(p_package_code) is null then
+    raise exception 'INVALID_PACKAGE_CODE' using errcode='22023';
+  end if;
+end;
+$;
+
+revoke all on function public.powerhub_catalog_package(text) from public,anon,authenticated;
+revoke all on function public.powerhub_validate_package_code(text) from public,anon,authenticated;
+grant execute on function public.powerhub_catalog_package(text) to service_role;
+grant execute on function public.powerhub_validate_package_code(text) to service_role;
+
 
 alter table public.tenants
   drop constraint if exists tenants_package_code_check;
