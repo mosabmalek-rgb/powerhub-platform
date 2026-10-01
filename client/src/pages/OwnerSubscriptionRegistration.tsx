@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Building2, KeyRound, Plus, UserRoundCheck } from "lucide-react";
 import { FormEvent } from "react";
+import { trpc } from "@/lib/trpc";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 
@@ -17,7 +18,7 @@ type OwnerSubscriptionRegistrationProps = {
     ownerWhatsapp: string;
     ownerEmail: string;
     temporaryPassword: string;
-    packageCode: "basic" | "advanced" | "professional" | "business" | "vip";
+    packageCode: string;
     billingCycle: "monthly" | "yearly";
     subscriptionDuration: number;
     trialEnabled: boolean;
@@ -28,6 +29,8 @@ type OwnerSubscriptionRegistrationProps = {
 };
 
 export default function OwnerSubscriptionRegistration({ rows, pending, onCreate, creationAvailable, onGoToFinance }: OwnerSubscriptionRegistrationProps) {
+  const catalog = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000 });
+  const availablePackages = (catalog.data?.packages ?? []).filter((pkg: any) => pkg.active !== false);
   return <section className="space-y-6">
     <Card className="border-white/8 bg-[#111823] shadow-panel">
       <CardContent className="p-5">
@@ -72,7 +75,7 @@ export default function OwnerSubscriptionRegistration({ rows, pending, onCreate,
             ownerWhatsapp: String(data.get("ownerWhatsapp")).trim(),
             ownerEmail: String(data.get("ownerEmail")).trim(),
             temporaryPassword: String(data.get("temporaryPassword")),
-            packageCode: String(data.get("packageCode")) as "basic" | "advanced" | "professional" | "business" | "vip",
+            packageCode: String(data.get("packageCode")),
             billingCycle: String(data.get("billingCycle")) as "monthly" | "yearly",
             subscriptionDuration: Number(data.get("subscriptionDuration") || 1),
             trialEnabled: data.get("trialEnabled") === "on",
@@ -86,7 +89,7 @@ export default function OwnerSubscriptionRegistration({ rows, pending, onCreate,
             <div className="grid gap-3 sm:grid-cols-2"><Input required name="ownerPhone" placeholder="رقم الجوال" dir="ltr" className={inputClass} /><Input name="ownerWhatsapp" placeholder="رقم WhatsApp (اختياري)" dir="ltr" className={inputClass} /></div>
             <Input required name="ownerEmail" type="email" placeholder="البريد الإلكتروني لتسجيل الدخول" dir="ltr" className={inputClass} />
             <Input required name="temporaryPassword" type="password" minLength={8} placeholder="كلمة المرور المؤقتة (8+ رموز)" dir="ltr" className={inputClass} />
-            <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">نوع الاشتراك</span><select required name="packageCode" className={inputClass}><option value="basic">الناشئة</option><option value="advanced">النمو</option><option value="professional">الاحتراف</option><option value="business">الأعمال</option><option value="vip">الذهبية - VIP</option></select></label>
+            <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">نوع الاشتراك</span><select required name="packageCode" className={inputClass}>{availablePackages.map((pkg: any) => <option key={String(pkg.code)} value={String(pkg.code)}>{String(pkg.name)} · {Number(pkg.price).toLocaleString("ar-PS")} {catalog.data?.currency === "ILS" ? "₪" : catalog.data?.currency}</option>)}</select>{!availablePackages.length && <span className="mt-1 block text-xs text-rose-300">لا توجد باقات فعّالة متاحة حاليًا.</span>}</label>
             <div className="grid gap-3 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">دورة الاشتراك</span><select required name="billingCycle" defaultValue="monthly" className={inputClass}><option value="monthly">شهري</option><option value="yearly">سنوي</option></select></label><label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">مدة الاشتراك</span><Input required name="subscriptionDuration" type="number" min={1} max={60} defaultValue={1} className={inputClass} dir="ltr" /><span className="mt-1 block text-xs text-slate-500">عدد الأشهر أو السنوات حسب الدورة.</span></label></div>
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.02] p-3 text-sm text-slate-300"><input name="trialEnabled" type="checkbox" className="accent-[#F5B800]" />تفعيل فترة تجريبية اختيارية</label>
             <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">مدة التجربة بالأيام</span><Input name="trialDurationDays" type="number" min={1} max={3650} defaultValue={8} className={inputClass} dir="ltr" /><span className="mt-1 block text-xs text-slate-500">تُستخدم فقط عند تفعيل التجربة، من 1 إلى 3650 يومًا.</span></label>
