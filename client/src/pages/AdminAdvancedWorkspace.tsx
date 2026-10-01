@@ -203,7 +203,7 @@ export function SubscriptionPackageCatalogPanel() {
   const addonValue = (code: string, key: string, fallback: unknown) => addons[code]?.[key] ?? fallback;
   const smsValue = (index: number, key: string, fallback: unknown) => smsAddons[index]?.[key] ?? fallback;
   const storedPackageRows: Array<Record<string, any>> = packages.map((item) => ({ ...item }));
-  const defaultCodes = new Set(packageDefaults.map((item) => item.code));
+  const defaultCodes = new Set<string>(packageDefaults.map((item) => String(item.code)));
   const storedByCode = new Map(storedPackageRows.map((item) => [String(item.code), item]));
   const packageRows: Array<Record<string, any>> = [
     ...packageDefaults.map((item) => ({ ...item, ...(storedByCode.get(String(item.code)) ?? {}) })),
