@@ -8,7 +8,7 @@ import { ownerOverviewFromSupabase, platformSnapshotFromSupabase } from "./admin
 import { getEffectiveAdminSubscriptionStatus, isEffectivelyActiveAdminSubscription, getNextRenewalEndDate } from "./admin-subscription-lifecycle";
 import { attachOwnerUser as attachOwnerUserSupabase, quickUpgradeOwnerPlan as quickUpgradeOwnerPlanSupabase, renewSubscription as renewSubscriptionSupabase, reviewSmsPackageRequest as reviewSmsPackageRequestSupabase, reviewSubscriptionUpgradeRequest as reviewSubscriptionUpgradeRequestSupabase, setTenantMembershipStatus as setTenantMembershipStatusSupabase, updateSubscription as updateSubscriptionSupabase } from "./admin-supabase-writes";
 
-const packageCodeSchema = z.enum(["basic", "advanced", "professional", "business", "vip"]);
+const packageCodeSchema = z.string().trim().min(2).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
 const billingCycleSchema = z.enum(["monthly", "yearly"]);
 type PlatformRole = "platform_owner" | "platform_admin" | "finance_admin";
@@ -121,7 +121,7 @@ export const adminRouter = router({
   renewSubscription: platformAdminProcedure.input(z.object({
     subscriptionId:z.number().int().positive(),
     endsAt:z.coerce.date(),
-    packageCode:z.enum(["basic","advanced","professional","business","vip"]),
+    packageCode:packageCodeSchema,
     addonDecisions:z.array(z.object({addonRequestId:z.number().int().positive(),decision:z.enum(["renew","expire"]),durationDays:z.number().int().min(1).max(3650).optional()})).default([]),
     requestKey:z.string().uuid()
   })).mutation(async ({ctx,input})=>renewSubscriptionSupabase({actorUserId:ctx.user.id,subscriptionId:input.subscriptionId,endsAt:input.endsAt,packageCode:input.packageCode,addonDecisions:input.addonDecisions,requestKey:input.requestKey})),

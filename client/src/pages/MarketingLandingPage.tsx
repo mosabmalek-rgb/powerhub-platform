@@ -77,6 +77,9 @@ function SectionTitle({ eyebrow, title, description }: { eyebrow: string; title:
 
 export default function MarketingLandingPage() {
   const [, setLocation] = useLocation();
+  const contact = trpc.platformContactSettings.public.useQuery(undefined, { staleTime: 60_000, retry: 1 });
+  const whatsappNumber = String(contact.data?.whatsappNumber ?? "").replace(/\\D/g, "");
+  const contactOnWhatsapp = () => { if (whatsappNumber) window.open(`https://wa.me/${whatsappNumber}`, "_blank", "noopener,noreferrer"); else document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" }); };
   const catalog = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000, retry: 1 });
   const plans = catalog.data?.packages?.map((pkg, index) => ({
     name: String(pkg.name),
@@ -118,7 +121,7 @@ export default function MarketingLandingPage() {
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             <ThemeSelector compact />
             <Button variant="ghost" onClick={startLogin} className="inline-flex whitespace-nowrap border border-[#F5B800]/65 bg-white/35 px-3 text-sm font-bold text-[#7d5500] shadow-[0_5px_16px_rgba(151,100,0,.1)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:border-[#F5B800] hover:bg-[#F5B800]/10 hover:text-[#7d5500] hover:shadow-[0_10px_24px_rgba(191,132,0,.2)] active:translate-y-0 active:scale-[.97] motion-reduce:transform-none motion-reduce:transition-none dark:bg-white/5 dark:text-[#F5B800] dark:hover:text-[#F5B800] md:text-sm lg:px-4">تسجيل الدخول</Button>
-            <Button onClick={startLogin} className="hidden whitespace-nowrap bg-[#F5B800] px-3 text-sm font-extrabold text-[#0D1117] shadow-[0_10px_32px_rgba(245,184,0,.2)] hover:bg-[#FFD45A] sm:inline-flex lg:px-4">أنشئ مساحتك <ArrowLeft className="mr-2 h-4 w-4" /></Button>
+            <Button onClick={contactOnWhatsapp} className="hidden whitespace-nowrap bg-[#F5B800] px-3 text-sm font-extrabold text-[#0D1117] shadow-[0_10px_32px_rgba(245,184,0,.2)] hover:bg-[#FFD45A] sm:inline-flex lg:px-4">أنشئ مساحتك <ArrowLeft className="mr-2 h-4 w-4" /></Button>
           </div>
         </div>
       </header>
@@ -131,7 +134,7 @@ export default function MarketingLandingPage() {
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg lg:mx-0">PowerHub ينقل إدارة المولدات من الحسابات المبعثرة إلى تشغيل واضح: قراءة، فوترة، تحصيل، وتقارير ضمن مساحة مستقلة لكل صاحب مولد.</p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">
-            <Button size="lg" onClick={startLogin} className="h-12 bg-[#F5B800] px-6 text-base font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">ابدأ إدارة مولدك <ArrowLeft className="mr-2 h-5 w-5" /></Button>
+            <Button size="lg" onClick={contactOnWhatsapp} className="h-12 bg-[#F5B800] px-6 text-base font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">سجل متجرك <ArrowLeft className="mr-2 h-5 w-5" /></Button>
             <Button size="lg" variant="outline" onClick={goToFeatures} className="h-12 border-white/15 bg-white/[0.025] px-6 text-base font-bold text-white hover:bg-white/8 hover:text-white">استكشف المميزات <ChevronLeft className="mr-1 h-5 w-5" /></Button>
           </div>
           <div className="mt-10 grid max-w-2xl grid-cols-3 gap-3 text-right">
@@ -187,13 +190,13 @@ export default function MarketingLandingPage() {
         <div className="container">
           <SectionTitle eyebrow="نطاقات مرنة" title="باقة تناسب حجم تشغيلك" description="تُضبط خطة الاشتراك وفق عدد المحطات والمولدات ومتطلبات التشغيل؛ لا تعرض هذه الصفحة سعراً ثابتاً قبل تحديد نطاق العمل." />
           <div className="mx-auto mt-12 grid max-w-6xl gap-5 lg:grid-cols-3">
-            {plans.map((plan) => <article key={plan.name} className={`relative rounded-3xl border p-6 ${plan.accent}`}>{plan.highlighted && <Badge className="absolute -top-3 right-6 bg-[#F5B800] px-3 py-1 text-[#0D1117] hover:bg-[#F5B800]">للعمليات النشطة</Badge>}<h3 className="text-2xl font-extrabold text-white">{plan.name}</h3><p className="mt-3 min-h-12 text-sm leading-6 text-slate-400">{plan.description}</p><p className="mt-4 text-3xl font-black text-[#F5B800]" dir="ltr">{Number(plan.price).toLocaleString("ar-IQ")} <span className="text-sm">{plan.currency === "ILS" ? "₪" : plan.currency}</span><span className="mr-1 text-xs font-normal text-slate-400">شهرياً</span></p><div className="my-6 h-px bg-white/8" /><ul className="space-y-3">{plan.items.map((item) => <li key={item} className="flex items-start gap-2 text-sm text-slate-200"><Check className="mt-0.5 h-4 w-4 shrink-0 text-[#F5B800]" />{item}</li>)}</ul><Button onClick={startLogin} variant={plan.highlighted ? "default" : "outline"} className={plan.highlighted ? "mt-8 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#FFD45A]" : "mt-8 w-full border-white/15 bg-white/[0.02] font-bold text-white hover:bg-white/8 hover:text-white"}>{plan.action}</Button></article>)}
+            {plans.map((plan) => <article key={plan.name} className={`relative rounded-3xl border p-6 ${plan.accent}`}>{plan.highlighted && <Badge className="absolute -top-3 right-6 bg-[#F5B800] px-3 py-1 text-[#0D1117] hover:bg-[#F5B800]">للعمليات النشطة</Badge>}<h3 className="text-2xl font-extrabold text-white">{plan.name}</h3><p className="mt-3 min-h-12 text-sm leading-6 text-slate-400">{plan.description}</p><p className="mt-4 text-3xl font-black text-[#F5B800]" dir="ltr">{Number(plan.price).toLocaleString("ar-IQ")} <span className="text-sm">{plan.currency === "ILS" ? "₪" : plan.currency}</span><span className="mr-1 text-xs font-normal text-slate-400">شهرياً</span></p><div className="my-6 h-px bg-white/8" /><ul className="space-y-3">{plan.items.map((item) => <li key={item} className="flex items-start gap-2 text-sm text-slate-200"><Check className="mt-0.5 h-4 w-4 shrink-0 text-[#F5B800]" />{item}</li>)}</ul><Button onClick={contactOnWhatsapp} variant={plan.highlighted ? "default" : "outline"} className={plan.highlighted ? "mt-8 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#FFD45A]" : "mt-8 w-full border-white/15 bg-white/[0.02] font-bold text-white hover:bg-white/8 hover:text-white"}>{plan.action}</Button></article>)}
           </div>
         </div>
       </section>
 
       <section id="contact" className="container py-20 sm:py-28">
-        <div className="relative overflow-hidden rounded-[32px] border border-[#F5B800]/20 bg-gradient-to-l from-[#1c2229] to-[#111823] px-6 py-12 text-center sm:px-12"><div className="absolute left-0 top-0 h-56 w-56 rounded-full bg-[#F5B800]/10 blur-3xl" /><MessageSquareText className="relative mx-auto h-7 w-7 text-[#F5B800]" /><h2 className="relative mt-5 text-3xl font-extrabold text-white sm:text-4xl">راقب، أدر، واحسب بثقة.</h2><p className="relative mx-auto mt-4 max-w-2xl text-base leading-8 text-slate-300">ابدأ مساحة PowerHub لتجعل كل قراءة وفاتورة ودفعة جزءاً من دورة تشغيل واضحة وقابلة للمراجعة.</p><Button size="lg" onClick={startLogin} className="relative mt-8 bg-[#F5B800] px-7 font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">إنشاء حساب وإدارة مولد <ArrowLeft className="mr-2 h-5 w-5" /></Button></div>
+        <div className="relative overflow-hidden rounded-[32px] border border-[#F5B800]/20 bg-gradient-to-l from-[#1c2229] to-[#111823] px-6 py-12 text-center sm:px-12"><div className="absolute left-0 top-0 h-56 w-56 rounded-full bg-[#F5B800]/10 blur-3xl" /><MessageSquareText className="relative mx-auto h-7 w-7 text-[#F5B800]" /><h2 className="relative mt-5 text-3xl font-extrabold text-white sm:text-4xl">راقب، أدر، واحسب بثقة.</h2><p className="relative mx-auto mt-4 max-w-2xl text-base leading-8 text-slate-300">ابدأ مساحة PowerHub لتجعل كل قراءة وفاتورة ودفعة جزءاً من دورة تشغيل واضحة وقابلة للمراجعة.</p><Button size="lg" onClick={contactOnWhatsapp} className="relative mt-8 bg-[#F5B800] px-7 font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">تواصل مع المنصة <ArrowLeft className="mr-2 h-5 w-5" /></Button></div>
       </section>
 
       <footer className="border-t border-white/8 bg-[#090d12]">

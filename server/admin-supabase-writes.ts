@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { supabaseAdmin } from "./supabase-admin";
 
-export type AdminPackageCode = "basic" | "advanced" | "professional" | "business" | "vip";
+export type AdminPackageCode = string;
 export type AdminSubscriptionStatus = "trial" | "active" | "overdue" | "suspended" | "cancelled";
 export type AdminBillingCycle = "monthly" | "yearly";
 
@@ -228,7 +228,7 @@ export async function renewSubscription(input: {
   actorUserId: number;
   subscriptionId: number;
   endsAt: Date;
-  packageCode: "basic" | "advanced" | "professional" | "business" | "vip";
+  packageCode: AdminPackageCode;
   addonDecisions?: Array<{ addonRequestId: number; decision: "renew" | "expire"; durationDays?: number }>;
   requestKey: string;
 }) {
