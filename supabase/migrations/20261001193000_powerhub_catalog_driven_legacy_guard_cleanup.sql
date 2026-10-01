@@ -200,7 +200,7 @@ begin
 
  return query select true,v_tenant_id,v_user_id,v_site_id,v_subscription_id,false;
 end;
-$function$
+$function$;
 
 
 revoke all on function public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz,integer) from public,anon,authenticated;
@@ -342,7 +342,7 @@ begin
 
   return query select true,v_package_code,false;
 end;
-$function$
+$function$;
 
 
 revoke all on function public.powerhub_admin_quick_upgrade_owner_plan_idempotent(bigint,bigint,text,text,text) from public,anon,authenticated;
@@ -506,7 +506,7 @@ begin
       case when p_decision='approved' then v_request.requested_package_code else v_request.current_package_code end,
       false;
 end;
-$function$
+$function$;
 
 
 revoke all on function public.powerhub_admin_review_subscription_upgrade_request(bigint,bigint,text,text) from public,anon,authenticated;
