@@ -8,7 +8,7 @@ language sql
 stable
 security definer
 set search_path=public,pg_temp
-as $
+as $powerhub$
   select pkg
   from public.platform_settings ps
   cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) pkg
@@ -25,7 +25,7 @@ language plpgsql
 stable
 security definer
 set search_path=public,pg_temp
-as $
+as $powerhub$
 begin
   if nullif(trim(p_package_code),'') is null or public.powerhub_catalog_package(p_package_code) is null then
     raise exception 'INVALID_PACKAGE_CODE' using errcode='22023';
