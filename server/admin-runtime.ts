@@ -121,7 +121,7 @@ export const adminRouter = router({
   renewSubscription: platformAdminProcedure.input(z.object({
     subscriptionId:z.number().int().positive(),
     endsAt:z.coerce.date(),
-    packageCode:z.enum(["basic","advanced","professional","business","vip"]),
+    packageCode:packageCodeSchema,
     addonDecisions:z.array(z.object({addonRequestId:z.number().int().positive(),decision:z.enum(["renew","expire"]),durationDays:z.number().int().min(1).max(3650).optional()})).default([]),
     requestKey:z.string().uuid()
   })).mutation(async ({ctx,input})=>renewSubscriptionSupabase({actorUserId:ctx.user.id,subscriptionId:input.subscriptionId,endsAt:input.endsAt,packageCode:input.packageCode,addonDecisions:input.addonDecisions,requestKey:input.requestKey})),
