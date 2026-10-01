@@ -123,6 +123,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_payroll_draft") return resolved([{ payroll_run_id: 126, total_net: 1100 }]);
       if (name === "powerhub_approve_payroll") return resolved([{ payroll_run_id: 122 }]);
       if (name === "powerhub_pay_payroll") return resolved([{ payroll_run_id: 122, expense_id: 125, transaction_id: 126 }]);
+      if (name === "powerhub_create_tariff_idempotent") { inserts.push({ table: "tariffs", values: args }); inserts.push({ table: "audit_logs", values: { entity_type: "tariff" } }); return resolved([{ tariff_id: 41, replayed: false }]); }
       if (name === "powerhub_request_subscription_upgrade") return resolved([{ request_id: 127, requested_package_code: "professional", already_requested: false }]);
       if (name === "powerhub_normalize_subscriber_phones") return resolved([{ updated_count: 1, skipped_count: 0 }]);
       if (name === "powerhub_create_invoice_share_link") return resolved([{ share_link_id: 128 }]);
@@ -354,10 +355,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("ينشئ تعرفة ومولداً ويحدّث المولد عبر Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.tariffs.create({ siteId: 10, name: "تعرفة جديدة", code: "NEW", pricePerKwh: 1.5, fixedFee: 0, taxRate: 0 })).resolves.toEqual({ id: 41 });
+    await expect(caller.tariffs.create({ siteId: 10, name: "تعرفة جديدة", code: "NEW", pricePerKwh: 1.5, fixedFee: 0, taxRate: 0, clientOperationId: "33333333-3333-4333-8333-333333333333" })).resolves.toEqual({ id: 41, replayed: false });
     await expect(caller.generators.create({ siteId: 10, code: "GEN-2", name: "مولد جديد", ratedCapacityKw: "200", fuelType: "diesel" })).resolves.toEqual({ id: 51 });
     await expect(caller.generators.update({ siteId: 10, id: 50, name: "مولد محدث", ratedCapacityKw: "160", fuelLevelLiters: "20", operatingHours: "10", status: "maintenance" })).resolves.toEqual({ success: true });
     expect(state.inserts).toEqual(expect.arrayContaining([expect.objectContaining({ table: "tariffs" }), expect.objectContaining({ table: "generators" }), expect.objectContaining({ table: "audit_logs" })]));
+    expect(state.rpcCalls).toEqual(expect.arrayContaining([expect.objectContaining({ name: "powerhub_create_tariff_idempotent" })]));
     expect(state.updates).toEqual(expect.arrayContaining([expect.objectContaining({ table: "generators", values: expect.objectContaining({ status: "maintenance" }) })]));
   });
 
