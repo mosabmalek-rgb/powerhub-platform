@@ -726,8 +726,8 @@ end;
 $function$;
 
 
-revoke all on function public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,timestamptz,boolean,text,bigint,text) from public,anon,authenticated;
-grant execute on function public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,timestamptz,boolean,text,bigint,text) to service_role;
+revoke all on function public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint,text) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint,text) to service_role;
 
 revoke all on function public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,text,jsonb,uuid) from public,anon,authenticated;
 grant execute on function public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,text,jsonb,uuid) to service_role;
