@@ -183,7 +183,7 @@ begin
   if v_actor_platform_role is null then raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501'; end if;
 
   if p_auth_user_id is null then raise exception 'AUTH_USER_REQUIRED' using errcode='22023'; end if;
-  if p_package_code not in ('basic','advanced','professional','business','vip') then raise exception 'INVALID_PACKAGE_CODE' using errcode='22023'; end if;
+  perform public.powerhub_validate_package_code(p_package_code);
   if p_billing_cycle not in ('monthly','yearly') then raise exception 'INVALID_BILLING_CYCLE' using errcode='22023'; end if;
   if p_subscription_duration is null or p_subscription_duration < 1 or p_subscription_duration > 60 then
     raise exception 'INVALID_SUBSCRIPTION_DURATION' using errcode='22023';
