@@ -1543,6 +1543,25 @@ export const powerhubRouter = router({
       await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "tariff", entityId: String(id), action: "create", afterData: input });
       return { id };
     }),
+    update: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), tariffId: z.number().int().positive(),
+      name: z.string().min(2).max(160), pricePerKwh: z.number().min(0),
+      fixedFee: z.number().min(0).default(0), taxRate: z.number().min(0).max(100).default(0),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageTariffs");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_tariff", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_tariff_id: input.tariffId, p_name: input.name.trim(), p_price_per_kwh: input.pricePerKwh,
+        p_fixed_fee: input.fixedFee, p_tax_rate: input.taxRate,
+      });
+      if (error || !data?.[0]?.tariff_id) {
+        const message = String(error?.message ?? "");
+        if (message.includes("TARIFF_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "التعرفة غير موجودة ضمن المحطة المحددة." });
+        if (message.includes("TARIFF_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل التعرفة." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث التعرفة في Supabase." });
+      }
+      return { id: Number(data[0].tariff_id) };
+    }),
   }),
 
   generators: router({
