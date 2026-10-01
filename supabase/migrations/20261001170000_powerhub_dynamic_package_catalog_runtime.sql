@@ -71,14 +71,39 @@ begin
   if new.setting_key <> 'subscription_package_catalog' or new.is_enabled=false then
     return new;
   end if;
-  if jsonb_typeof(coalesce(new.value->'packages','[]'::jsonb)) <> 'array' then raise exception 'INVALID_PACKAGE_CATALOG'; end if;
-  if exists (select 1 from (select lower(trim(value->>'code')) code from jsonb_array_elements(new.value->'packages') value) x where code is null or code='' or code !~ '^[a-z0-9][a-z0-9_-]*
-    if code is null or code='' then continue; end if;
+  if jsonb_typeof(coalesce(new.value->'packages','[]'::jsonb)) <> 'array' then
+    raise exception 'INVALID_PACKAGE_CATALOG';
+  end if;
+  if exists (
+    select 1
+    from (
+      select lower(trim(value->>'code')) code
+      from jsonb_array_elements(new.value->'packages') value
+    ) x
+    where code is null or code='' or code !~ '^[a-z0-9][a-z0-9_-]*$'
+  ) then
+    raise exception 'INVALID_PACKAGE_CODE' using errcode='22023';
+  end if;
+  if exists (
+    select 1
+    from (
+      select lower(trim(value->>'code')) code, count(*) n
+      from jsonb_array_elements(new.value->'packages') value
+      group by lower(trim(value->>'code'))
+    ) x
+    where n > 1
+  ) then
+    raise exception 'DUPLICATE_PACKAGE_CODE' using errcode='23505';
+  end if;
+
+  for p in select * from jsonb_array_elements(coalesce(new.value->'packages','[]'::jsonb))
+  loop
+    code:=lower(trim(p->>'code'));
     insert into public.package_feature_policies(package_code,feature_key,policy,default_limit,limit_mode,source)
     values
       (code,'subscriber_management','included',nullif(p->'features'->'subscribers'->>'limit','')::integer,'fixed','catalog'),
       (code,'branch_management','included',nullif(p->'features'->'branches'->>'limit','')::integer,'fixed','catalog'),
-      (code,'sms','included',coalesce(nullif(p->'features'->'sms'->>'limit','')::integer,nullif(p->>'includedMessages','')::integer),'fixed','catalog'),
+      (code,'sms','included',coalesce(nullif(p->'features'->sms'->>'limit','')::integer,nullif(p->>'includedMessages','')::integer),'fixed','catalog'),
       (code,'field_users','included',nullif(p->>'fieldUsers','')::integer,'fixed','catalog'),
       (code,'platform_users','included',nullif(p->>'platformUsers','')::integer,'fixed','catalog'),
       (code,'subscriber_portal','included',null,'unlimited','catalog'),
