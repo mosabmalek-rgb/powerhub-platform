@@ -478,7 +478,7 @@ begin
   return query
     select true,v_sub.id,v_site_id,false;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.powerhub_admin_renew_subscription_with_addons(p_actor_user_id bigint, p_subscription_id bigint, p_new_ends_at timestamp with time zone, p_package_code text, p_addon_decisions jsonb, p_request_key uuid)
@@ -700,7 +700,7 @@ begin
 
   return query select true,p_new_ends_at,p_package_code,v_renewed,v_expired;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.powerhub_request_subscription_upgrade(p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_requested_package_code text)
@@ -889,7 +889,7 @@ begin
   return query
     select v_existing_id,v_requested_package,false;
 end;
-$function$
+$function$;
 
 
 revoke all on function public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,timestamptz,boolean,text,bigint,text) from public,anon,authenticated;
