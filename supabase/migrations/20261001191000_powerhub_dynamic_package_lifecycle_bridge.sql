@@ -17,7 +17,7 @@ as $powerhub$
     and lower(trim(pkg->>'code'))=lower(trim(p_package_code))
     and coalesce((pkg->>'active')::boolean,true)=true
   limit 1
-$;
+$powerhub$;
 
 create or replace function public.powerhub_validate_package_code(p_package_code text)
 returns boolean
@@ -32,7 +32,7 @@ begin
   end if;
   return true;
 end;
-$;
+$powerhub$;
 
 revoke all on function public.powerhub_catalog_package(text) from public,anon,authenticated;
 revoke all on function public.powerhub_validate_package_code(text) from public,anon,authenticated;
