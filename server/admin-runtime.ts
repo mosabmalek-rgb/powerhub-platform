@@ -8,7 +8,7 @@ import { ownerOverviewFromSupabase, platformSnapshotFromSupabase } from "./admin
 import { getEffectiveAdminSubscriptionStatus, isEffectivelyActiveAdminSubscription, getNextRenewalEndDate } from "./admin-subscription-lifecycle";
 import { attachOwnerUser as attachOwnerUserSupabase, quickUpgradeOwnerPlan as quickUpgradeOwnerPlanSupabase, renewSubscription as renewSubscriptionSupabase, reviewSmsPackageRequest as reviewSmsPackageRequestSupabase, reviewSubscriptionUpgradeRequest as reviewSubscriptionUpgradeRequestSupabase, setTenantMembershipStatus as setTenantMembershipStatusSupabase, updateSubscription as updateSubscriptionSupabase } from "./admin-supabase-writes";
 
-const packageCodeSchema = z.enum(["basic", "advanced", "professional", "business", "vip"]);
+const packageCodeSchema = z.string().trim().min(2).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/);
 const subscriptionStatusSchema = z.enum(["trial", "active", "overdue", "suspended", "cancelled"]);
 const billingCycleSchema = z.enum(["monthly", "yearly"]);
 type PlatformRole = "platform_owner" | "platform_admin" | "finance_admin";
