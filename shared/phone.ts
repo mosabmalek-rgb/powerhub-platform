@@ -22,6 +22,8 @@ function palestinianEquivalentVariants(value: string) {
     variants.add(canonical.slice(1));
     variants.add(`+${"972"}${national}`);
     variants.add(`972${national}`);
+    variants.add(`00970${national}`);
+    variants.add(`00972${national}`);
     variants.add(`0${national}`);
   };
 
@@ -83,6 +85,8 @@ export function phoneSearchVariants(value: string) {
     unique.add(`972${national}`);
     unique.add(`+970${national}`);
     unique.add(`+972${national}`);
+    unique.add(`00970${national}`);
+    unique.add(`00972${national}`);
   }
 
   return Array.from(unique);
