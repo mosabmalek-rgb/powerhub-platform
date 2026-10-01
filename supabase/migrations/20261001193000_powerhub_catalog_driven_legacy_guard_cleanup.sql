@@ -203,8 +203,6 @@ end;
 $function$;
 
 
-revoke all on function public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz,integer) from public,anon,authenticated;
-grant execute on function public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz,integer) to service_role;
 
 CREATE OR REPLACE FUNCTION public.powerhub_admin_quick_upgrade_owner_plan_idempotent(p_actor_user_id bigint, p_tenant_id bigint, p_package_code text, p_note text, p_client_operation_id text)
  RETURNS TABLE(success boolean, package_code text, replayed boolean)
