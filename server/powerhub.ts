@@ -1012,7 +1012,7 @@ export const powerhubRouter = router({
         reviewedAt: row.reviewed_at ? new Date(row.reviewed_at) : null,
       }));
     }),
-    requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPackageCode: z.enum(["basic", "advanced", "professional", "business", "vip"]) })).mutation(async ({ ctx, input }) => {
+    requestUpgrade: protectedProcedure.input(siteScoped.extend({ requestedPackageCode: z.string().trim().min(2).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
       const { data, error } = await supabaseAdmin().rpc("powerhub_request_subscription_upgrade", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_package_code: input.requestedPackageCode });
       const result = (data as Array<{ request_id: number | string; requested_package_code: string; already_requested: boolean }> | null)?.[0];
