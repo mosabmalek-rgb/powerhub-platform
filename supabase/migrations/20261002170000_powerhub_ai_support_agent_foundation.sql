@@ -590,9 +590,10 @@ grant execute on function public.chat_ai_admin_snapshot() to authenticated;
 -- conservative so the assistant will hand off when a flow is not documented.
 insert into public.chat_knowledge_articles(
   title,primary_question,alternative_questions,answer,category,linked_route,related_operation,status,
-  search_aliases,audience,source,version,published_at
+  search_aliases,audience,source,version,published_at,created_by_user_id,updated_by_user_id
 )
-values
+select seed.*,u.id,u.id
+from (values
 (
   'ما هي منصة PowerHub؟',
   'ما وظيفة PowerHub؟',
@@ -704,5 +705,6 @@ values
   '["لماذا يسألني سؤالًا آخر؟","المساعد طلب توضيح"]',
   'يطلب المساعد التوضيح عندما توجد أكثر من حالة محتملة أو عندما لا تكفي المعلومات الموثوقة لتحديد الإجراء. الهدف هو منع إعطاء تعليمات خاطئة. إذا بقيت الحالة غير واضحة بعد التوضيح، يتم تحويلها للدعم.',
   'support',null,'ai_clarification','published','توضيح,سؤال إضافي,غير واضح','generator_owner','powerhub',1,now()
-)
-on conflict do nothing;
+) as seed(title,primary_question,alternative_questions,answer,category,linked_route,related_operation,status,search_aliases,audience,source,version,published_at)
+cross join lateral (select id from public.users where platform_role is not null order by id limit 1) u
+where not exists (select 1 from public.chat_knowledge_articles a where a.primary_question=seed.primary_question);
