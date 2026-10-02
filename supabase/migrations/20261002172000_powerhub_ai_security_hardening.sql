@@ -358,9 +358,9 @@ begin
 end;
 $$;
 
-revoke all on function public.chat_ai_record_run(uuid,bigint,bigint,bigint,text,text,text,text,text,real,bigint[],bigint,integer,text)
+revoke all on function public.chat_ai_record_run(uuid,bigint,bigint,bigint,text,text,text,text,real,bigint[],bigint,integer,text)
   from public, anon, authenticated;
-grant execute on function public.chat_ai_record_run(uuid,bigint,bigint,bigint,text,text,text,text,text,real,bigint[],bigint,integer,text)
+grant execute on function public.chat_ai_record_run(uuid,bigint,bigint,bigint,text,text,text,text,real,bigint[],bigint,integer,text)
   to service_role;
 
 -- Avoid surfacing raw AI request text in the support admin snapshot.
