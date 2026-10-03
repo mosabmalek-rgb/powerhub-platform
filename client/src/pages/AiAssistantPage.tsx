@@ -132,8 +132,9 @@ export default function AiAssistantPage() {
 
   useEffect(() => {
     // The assistant conversation is created lazily on the first question.
-    // This keeps a disabled assistant completely side-effect free until the user interacts.
-  }, [isAuthenticated, user?.id]);
+    // The page itself must render without waiting for a conversation.
+    if (isAuthenticated) setLoadingConversation(false);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!conversation?.id) return;
