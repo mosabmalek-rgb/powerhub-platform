@@ -55,17 +55,21 @@ describe("PowerHub health endpoints", () => {
       else process.env.VITE_SUPABASE_PUBLISHABLE_KEY = previousKey;
     }
   });
-  it("reports AI Gateway configuration without exposing its secret", async () => {
-    const previous = process.env.AI_GATEWAY_API_KEY;
-    process.env.AI_GATEWAY_API_KEY = "test-secret";
+  it("reports Gemini configuration without exposing its secret", async () => {
+    const previousGemini = process.env.GEMINI_API_KEY;
+    const previousGoogle = process.env.GOOGLE_API_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    process.env.GEMINI_API_KEY = "test-gemini-secret";
     try {
       const response = createResponse();
       await readinessHandler({}, response as never);
       expect(response.body).toMatchObject({ aiGatewayConfigured: true });
-      expect(JSON.stringify(response.body)).not.toContain("test-secret");
+      expect(JSON.stringify(response.body)).not.toContain("test-gemini-secret");
     } finally {
-      if (previous === undefined) delete process.env.AI_GATEWAY_API_KEY;
-      else process.env.AI_GATEWAY_API_KEY = previous;
+      if (previousGemini === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = previousGemini;
+      if (previousGoogle === undefined) delete process.env.GOOGLE_API_KEY;
+      else process.env.GOOGLE_API_KEY = previousGoogle;
     }
   });
 });
