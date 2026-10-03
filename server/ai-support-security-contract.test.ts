@@ -92,3 +92,14 @@ describe("AI idempotency contract", () => {
     expect(router).not.toContain("const assistantId = crypto.randomUUID()");
   });
 });
+
+
+describe("AI deterministic safety gate", () => {
+  it("does not call the model when retrieval is empty or mutation intent is detected", () => {
+    expect(router).toContain("function deterministicDecision");
+    expect(router).toContain("if (eligible.length === 0)");
+    expect(router).toContain("if (isSensitiveMutationRequest(question))");
+    expect(router).toContain("deterministicDecision(input.question, normalizedArticles, minScore)");
+    expect(router).toContain('code: "PRECONDITION_FAILED"');
+  });
+});
