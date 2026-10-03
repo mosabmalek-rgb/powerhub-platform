@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { router, authenticatedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
@@ -25,12 +25,12 @@ type AiResult = {
 };
 
 function gatewayConfig() {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "مساعد PowerHub غير مهيأ على الخادم." });
   return {
     apiKey,
-    model: process.env.POWERHUB_AI_MODEL ?? "openai/gpt-5",
-    endpoint: "https://ai-gateway.vercel.sh/v1/chat/completions",
+    model: process.env.POWERHUB_AI_MODEL ?? "gemini-2.5-flash",
+    endpointBase: "https://generativelanguage.googleapis.com/v1beta/models",
   };
 }
 
@@ -62,17 +62,16 @@ async function callModel(input: {
 }): Promise<AiResult> {
   const cfg = gatewayConfig();
   const body = {
-    model: cfg.model,
-    temperature: 0.1,
-    max_tokens: 900,
-    messages: [
-      { role: "system", content: buildSystemPrompt() },
-      {
-        role: "user",
-        content: JSON.stringify({
+    system_instruction: {
+      parts: [{ text: buildSystemPrompt() }],
+    },
+    contents: [{
+      role: "user",
+      parts: [{
+        text: JSON.stringify({
           task: "Answer the PowerHub support question using only the supplied sources and permitted account context.",
           question: cleanForModel(input.question, 4000),
-          knowledge: input.articles.map(a => ({
+          knowledge: input.articles.map((a) => ({
             id: a.article_id,
             title: cleanForModel(String(a.title ?? ""), 300),
             question: cleanForModel(String(a.primary_question ?? ""), 500),
@@ -83,47 +82,52 @@ async function callModel(input: {
           accountContext: input.accountContext,
           allowedDecisions: ["answer", "clarify", "handoff", "refuse"],
         }),
-      },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "powerhub_support_decision",
-        strict: true,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            decision: { type: "string", enum: ["answer", "clarify", "handoff", "refuse"] },
-            answer: { type: "string", maxLength: 8000 },
-            reason: { type: "string", maxLength: 500 },
-            summary: { type: "string", maxLength: 1200 },
-            category: { type: "string", maxLength: 80 },
-            priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
-          },
-          required: ["decision", "answer", "reason", "summary", "category", "priority"],
+      }],
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 900,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "OBJECT",
+        additionalProperties: false,
+        properties: {
+          decision: { type: "STRING", enum: ["answer", "clarify", "handoff", "refuse"] },
+          answer: { type: "STRING" },
+          reason: { type: "STRING" },
+          summary: { type: "STRING" },
+          category: { type: "STRING" },
+          priority: { type: "STRING", enum: ["low", "normal", "high", "urgent"] },
         },
+        required: ["decision", "answer", "reason", "summary", "category", "priority"],
       },
     },
   };
 
-  const response = await fetch(cfg.endpoint, {
+  const url = cfg.endpointBase + "/" + encodeURIComponent(cfg.model) + ":generateContent";
+  const response = await fetch(url, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${cfg.apiKey}`,
+      "x-goog-api-key": cfg.apiKey,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
   });
 
-  if (!response.ok) throw new Error(`AI_GATEWAY_${response.status}`);
-  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const raw = payload.choices?.[0]?.message?.content;
-  if (!raw) throw new Error("AI_EMPTY_RESPONSE");
+  if (!response.ok) throw new Error("GEMINI_" + response.status);
+  const payload = await response.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+  };
+  const raw = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("")?.trim();
+  if (!raw) throw new Error("GEMINI_EMPTY_RESPONSE");
 
   let parsed: unknown;
-  try { parsed = JSON.parse(raw); } catch { throw new Error("AI_INVALID_JSON"); }
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("GEMINI_INVALID_JSON");
+  }
 
   return z.object({
     decision: z.enum(["answer", "clarify", "handoff", "refuse"]),
@@ -251,7 +255,7 @@ export const aiSupportRouter = router({
       });
     } catch (error) {
       await admin.rpc("chat_ai_record_run", {
-        p_request_id: randomUUID(),
+        p_request_id: assistantId,
         p_conversation_id: input.conversationId,
         p_tenant_id: input.tenantId,
         p_user_id: ctx.user.id,
