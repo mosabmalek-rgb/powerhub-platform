@@ -103,3 +103,17 @@ describe("AI deterministic safety gate", () => {
     expect(router).toContain('code: "PRECONDITION_FAILED"');
   });
 });
+
+
+describe("AI handoff safety behavior", () => {
+  it("requires server-side handoff when knowledge is insufficient", () => {
+    expect(router).toContain('settings.handoff_on_unknown !== false');
+    expect(router).toContain('p_trigger: isSensitiveMutationRequest(input.question) ? "sensitive" : "insufficient_knowledge"');
+    expect(router).toContain("p_current_page: input.currentPage ?? null");
+  });
+  it("does not load account context for generic knowledge questions", () => {
+    expect(router).toContain("function shouldLoadAccountContext");
+    expect(router).toContain("const accountContextNeeded = shouldLoadAccountContext");
+    expect(router).toContain("accountContextNeeded");
+  });
+});
