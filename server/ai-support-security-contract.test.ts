@@ -8,6 +8,7 @@ const foundation = readFileSync(resolve(process.cwd(), "supabase/migrations/2026
 const runtimeBoundary = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002172500_powerhub_ai_runtime_security_boundary.sql"), "utf8");
 const rateLimit = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002173000_powerhub_ai_rate_limit_server_fix.sql"), "utf8");
 const retrievalBoundary = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002173500_powerhub_ai_search_server_boundary.sql"), "utf8");
+const claimMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002180000_powerhub_ai_request_claims.sql"), "utf8");
 
 describe("PowerHub AI security contract", () => {
   it("keeps the AI entrypoint authenticated and tenant/message scoped", () => {
@@ -90,5 +91,30 @@ describe("AI idempotency contract", () => {
   it("derives a stable request id from conversation and user message", () => {
     expect(router).toContain('const assistantId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);');
     expect(router).not.toContain("const assistantId = crypto.randomUUID()");
+  });
+});
+
+
+describe("AI replay and tenant isolation contract", () => {
+  it("claims requests atomically before the model path", () => {
+    expect(claimMigration).toContain("create table if not exists private.chat_ai_request_claims");
+    expect(claimMigration).toContain("on conflict(request_id) do update");
+    expect(claimMigration).toContain("grant execute on function public.chat_ai_claim_request");
+    expect(claimMigration).toContain("raise exception 'INTERNAL_ONLY'");
+    expect(router).toContain('p_request_id: assistantId');
+    expect(router).toContain('p_lease_seconds: 45');
+  });
+
+  it("binds AI request inputs to the authenticated user's tenant and message", () => {
+    expect(router).toContain('.eq("tenant_id", input.tenantId)');
+    expect(router).toContain('.eq("conversation_id", input.conversationId)');
+    expect(router).toContain('.eq("sender_user_id", ctx.user.id)');
+    expect(router).toContain('.eq("sender_type", "human")');
+    expect(router).toContain('p_actor_user_id: ctx.user.id');
+  });
+
+  it("never exposes a browser-callable account-context function", () => {
+    expect(runtimeBoundary).toContain("revoke all on function public.chat_ai_get_account_context(bigint,bigint) from public,anon,authenticated");
+    expect(runtimeBoundary).toContain("grant execute on function public.chat_ai_get_account_context(bigint,bigint) to service_role");
   });
 });
