@@ -28,6 +28,7 @@ const TENANT_MENU_RULES: Record<string, TenantMenuRule> = {
   "/profile": {},
   "/announcements": {},
   "/support-chat": {},
+  "/ai-support": {},
   "/offline-sync": {},
   "/subscribers": { roles: READ_ROLES.subscribers, capability: "manageSubscribers" },
   "/generators": { roles: READ_ROLES.generators },
