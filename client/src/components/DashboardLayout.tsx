@@ -26,7 +26,7 @@ import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, BriefcaseBusiness, ClipboardCheck, ChartNoAxesCombined, Fuel, Gauge,
   LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X,
-  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store, RadioTower, Zap, CloudOff,
+  Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store, RadioTower, Zap, CloudOff, Bot,
 } from "lucide-react";
 import { CSSProperties, startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
