@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { router, authenticatedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
+import { evaluateAiPolicy, shouldLoadAccountContext } from "./ai-support-policy";
 
 const askInput = z.object({
   conversationId: z.number().int().positive(),
@@ -202,18 +203,20 @@ export const aiSupportRouter = router({
 
     const normalizedArticles = (articles ?? []) as Array<Record<string, unknown>>;
     const topScore = normalizedArticles.length ? Number(normalizedArticles[0].score ?? 0) : 0;
+    const policy = evaluateAiPolicy(input.question, normalizedArticles, Number(settings.min_retrieval_score ?? 0.05));
 
-    const { data: context, error: contextError } = await admin.rpc("chat_ai_get_account_context", {
-      p_tenant_id: input.tenantId,
-      p_actor_user_id: ctx.user.id,
-    });
-    if (contextError) throw new TRPCError({ code: "FORBIDDEN", message: "تعذر قراءة سياق الحساب المصرح به." });
+    const context = shouldLoadAccountContext(input.question, policy.articles)
+      ? (await admin.rpc("chat_ai_get_account_context", {
+          p_tenant_id: input.tenantId,
+          p_actor_user_id: ctx.user.id,
+        })).data ?? {}
+      : {};
 
     let result: AiResult;
     try {
       result = await callModel({
         question: input.question,
-        articles: normalizedArticles.filter(a => Number(a.score ?? 0) >= Number(settings.min_retrieval_score ?? 0.05)),
+        articles: policy.articles,
         accountContext: context ?? {},
       });
     } catch (error) {
