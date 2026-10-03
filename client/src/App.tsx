@@ -57,6 +57,7 @@ function Router() {
       <Route path={"/quick-actions"}>{() => <RouteAccessGate><QuickActionsPage /></RouteAccessGate>}</Route>
       <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
       <Route path={"/support-chat"}>{() => <RouteAccessGate><SupportChatPage /></RouteAccessGate>}</Route>
+      <Route path={"/ai-support"}>{() => <RouteAccessGate><AiAssistantPage /></RouteAccessGate>}</Route>
       <Route path={"/support-center"}>{() => <RouteAccessGate><SupportCenterPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/portal"} component={SubscriberPortalPage} />
