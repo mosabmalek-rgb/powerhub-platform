@@ -105,14 +105,14 @@ async function callModel(input: {
   const response = await fetch(cfg.endpoint, {
     method: "POST",
     headers: {
-      "Authorization": \`Bearer \${cfg.apiKey}\`,
+      "Authorization": `Bearer ${cfg.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
   });
 
-  if (!response.ok) throw new Error(\`AI_GATEWAY_\${response.status}\`);
+  if (!response.ok) throw new Error(`AI_GATEWAY_${response.status}`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const raw = payload.choices?.[0]?.message?.content;
   if (!raw) throw new Error("AI_EMPTY_RESPONSE");
@@ -252,7 +252,7 @@ export const aiSupportRouter = router({
         p_tenant_id: input.tenantId,
         p_user_id: ctx.user.id,
         p_question_preview: input.question,
-        p_question_hash: Buffer.from(input.question).toString("base64url"),
+        p_question_hash: createHash("sha256").update(input.question).digest("hex"),
         p_decision: result.decision,
         p_model: String(settings.model ?? "openai/gpt-5"),
         p_top_retrieval_score: topScore,
@@ -293,7 +293,7 @@ export const aiSupportRouter = router({
       p_tenant_id: input.tenantId,
       p_user_id: ctx.user.id,
       p_question_preview: input.question,
-      p_question_hash: Buffer.from(input.question).toString("base64url"),
+      p_question_hash: createHash("sha256").update(input.question).digest("hex"),
       p_decision: "handoff",
       p_model: String(settings.model ?? "openai/gpt-5"),
       p_top_retrieval_score: topScore,
