@@ -56,16 +56,20 @@ describe("PowerHub health endpoints", () => {
     }
   });
   it("reports Gemini configuration without exposing its secret", async () => {
+    const previousGoogleGenerative = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     const previousGemini = process.env.GEMINI_API_KEY;
     const previousGoogle = process.env.GOOGLE_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     delete process.env.GOOGLE_API_KEY;
-    process.env.GEMINI_API_KEY = "test-gemini-secret";
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "test-gemini-secret";
     try {
       const response = createResponse();
       await readinessHandler({}, response as never);
       expect(response.body).toMatchObject({ aiGatewayConfigured: true });
       expect(JSON.stringify(response.body)).not.toContain("test-gemini-secret");
     } finally {
+      if (previousGoogleGenerative === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      else process.env.GOOGLE_GENERATIVE_AI_API_KEY = previousGoogleGenerative;
       if (previousGemini === undefined) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = previousGemini;
       if (previousGoogle === undefined) delete process.env.GOOGLE_API_KEY;
