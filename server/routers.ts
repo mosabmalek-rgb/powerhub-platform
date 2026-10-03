@@ -11,6 +11,7 @@ import { adminRolePolicyRouter } from "./admin-role-policy-router";
 import type { adminRouter } from "./admin";
 import { supabaseAdmin } from "./supabase-admin";
 import { supportRouter } from "./support-router";
+import { aiSupportRouter } from "./ai-support-router";
 import { platformAnnouncementsRouter } from "./platform-announcements-router";
 import { adminFeatureControlsRouter } from "./admin-feature-controls-router";
 
@@ -112,6 +113,7 @@ export const appRouter = router({
   }),
   powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
   support: supportRouter,
+  aiSupport: aiSupportRouter,
   platformAnnouncements: platformAnnouncementsRouter,
   admin: adminRuntimeRouter,
 });
