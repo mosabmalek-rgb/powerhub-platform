@@ -118,3 +118,26 @@ describe("AI replay and tenant isolation contract", () => {
     expect(runtimeBoundary).toContain("grant execute on function public.chat_ai_get_account_context(bigint,bigint) to service_role");
   });
 });
+
+
+describe("Gemini provider security contract", () => {
+  it("uses server-side Gemini credentials and never browser credentials", () => {
+    expect(router).toContain("process.env.GEMINI_API_KEY");
+    expect(router).not.toContain("import.meta.env.GEMINI_API_KEY");
+    expect(router).toContain('"x-goog-api-key"');
+    expect(router).not.toContain("console.log(cfg.apiKey)");
+  });
+
+  it("uses structured JSON output with a bounded timeout", () => {
+    expect(router).toContain('responseMimeType: "application/json"');
+    expect(router).toContain('responseSchema: {');
+    expect(router).toContain("AbortSignal.timeout(15000)");
+    expect(router).toContain('z.enum(["answer", "clarify", "handoff", "refuse"])');
+  });
+
+  it("keeps Gemini configuration out of readiness secrets", () => {
+    expect(health).toContain("aiGatewayConfigured");
+    expect(health).toContain("process.env.GEMINI_API_KEY");
+    expect(health).not.toContain("process.env.GEMINI_API_KEY,");
+  });
+});
