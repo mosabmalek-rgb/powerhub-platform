@@ -98,6 +98,15 @@ describe("AI idempotency contract", () => {
 
 
 describe("AI replay and tenant isolation contract", () => {
+  it("uses a unique request id and lease semantics for concurrent replay protection", () => {
+    expect(claimMigration).toContain("request_id text primary key");
+    expect(claimMigration).toContain("on conflict(request_id) do update");
+    expect(claimMigration).toContain("where private.chat_ai_request_claims.expires_at <= v_now");
+    expect(claimMigration).toContain("p_lease_seconds < 10");
+    expect(claimMigration).toContain("p_lease_seconds > 180");
+    expect(router).toContain('hashSha256(input.conversationId + ":" + input.messageId)');
+  });
+
   it("claims requests atomically before the model path", () => {
     expect(claimMigration).toContain("create table if not exists private.chat_ai_request_claims");
     expect(claimMigration).toContain("on conflict(request_id) do update");
