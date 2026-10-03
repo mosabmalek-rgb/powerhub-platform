@@ -88,7 +88,7 @@ describe("PowerHub AI security contract", () => {
 
 describe("AI idempotency contract", () => {
   it("derives a stable request id from conversation and user message", () => {
-    expect(c).toContain('createHash("sha256").update(\`\${input.conversationId}:\${input.messageId}\`)');
-    expect(c).not.toContain("const assistantId = crypto.randomUUID()");
+    expect(router).toContain('createHash("sha256").update(\`\${input.conversationId}:\${input.messageId}\`)');
+    expect(router).not.toContain("const assistantId = crypto.randomUUID()");
   });
 });
