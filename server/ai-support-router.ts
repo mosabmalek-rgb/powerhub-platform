@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { router, authenticatedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
@@ -218,7 +219,7 @@ export const aiSupportRouter = router({
         p_tenant_id: input.tenantId,
         p_user_id: ctx.user.id,
         p_question_preview: input.question,
-        p_question_hash: Buffer.from(input.question).toString("base64url"),
+        p_question_hash: createHash("sha256").update(input.question).digest("hex"),
         p_decision: "error",
         p_model: String(settings.model ?? cfgModelFallback()),
         p_top_retrieval_score: topScore,
