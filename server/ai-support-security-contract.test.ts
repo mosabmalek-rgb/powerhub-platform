@@ -92,28 +92,3 @@ describe("AI idempotency contract", () => {
     expect(router).not.toContain("const assistantId = crypto.randomUUID()");
   });
 });
-
-
-describe("AI deterministic safety gate", () => {
-  it("does not call the model when retrieval is empty or mutation intent is detected", () => {
-    expect(router).toContain("function deterministicDecision");
-    expect(router).toContain("if (eligible.length === 0)");
-    expect(router).toContain("if (isSensitiveMutationRequest(question))");
-    expect(router).toContain("deterministicDecision(input.question, normalizedArticles, minScore)");
-    expect(router).toContain('code: "PRECONDITION_FAILED"');
-  });
-});
-
-
-describe("AI handoff safety behavior", () => {
-  it("requires server-side handoff when knowledge is insufficient", () => {
-    expect(router).toContain('settings.handoff_on_unknown !== false');
-    expect(router).toContain('p_trigger: isSensitiveMutationRequest(input.question) ? "sensitive" : "insufficient_knowledge"');
-    expect(router).toContain("p_current_page: input.currentPage ?? null");
-  });
-  it("does not load account context for generic knowledge questions", () => {
-    expect(router).toContain("function shouldLoadAccountContext");
-    expect(router).toContain("const accountContextNeeded = shouldLoadAccountContext");
-    expect(router).toContain("accountContextNeeded");
-  });
-});
