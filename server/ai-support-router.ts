@@ -176,6 +176,19 @@ export const aiSupportRouter = router({
     if (!userMessage) throw new TRPCError({ code: "FORBIDDEN", message: "رسالة المستخدم غير صالحة لهذه المحادثة." });
 
     const assistantId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);
+
+    const { data: claimAccepted, error: claimError } = await admin.rpc("chat_ai_claim_request", {
+      p_request_id: assistantId,
+      p_conversation_id: input.conversationId,
+      p_message_id: input.messageId,
+      p_tenant_id: input.tenantId,
+      p_user_id: ctx.user.id,
+      p_lease_seconds: 45,
+    });
+    if (claimError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تثبيت طلب المساعد بأمان." });
+    if (claimAccepted !== true) {
+      return { decision: "continue" as const, messageId: null, handoffId: null };
+    }
     const { data: existingRun } = await admin
       .schema("private")
       .from("chat_ai_runs")
