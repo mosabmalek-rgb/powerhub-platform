@@ -39,6 +39,7 @@ const OfflineSyncPage = lazy(() => import("./pages/OfflineSyncPage"));
 const SetupWizardPage = lazy(() => import("./pages/SetupWizardPage"));
 const TrialSubscriptionManagementPage = lazy(() => import("./pages/TrialSubscriptionManagementPage"));
 const SupportChatPage = lazy(() => import("./pages/SupportChatPage"));
+const AiAssistantPage = lazy(() => import("./pages/AiAssistantPage"));
 const SupportCenterPage = lazy(() => import("./pages/SupportCenterPage"));
 const PaymentDocumentationPage = lazy(() => import("./pages/PaymentDocumentationPage"));
 const PaymentDocumentationReviewPage = lazy(() => import("./pages/PaymentDocumentationReviewPage"));
