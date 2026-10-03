@@ -131,7 +131,8 @@ export default function AiAssistantPage() {
   }
 
   useEffect(() => {
-    if (isAuthenticated && user) void ensureConversation();
+    // The assistant conversation is created lazily on the first question.
+    // This keeps a disabled assistant completely side-effect free until the user interacts.
   }, [isAuthenticated, user?.id]);
 
   useEffect(() => {
@@ -166,12 +167,46 @@ export default function AiAssistantPage() {
 
   async function sendMessage() {
     const body = input.trim();
-    if (!body || !conversation || !user || sending) return;
+    if (!body || !user || sending) return;
 
     setSending(true);
 
+    let activeConversation = conversation;
+    if (!activeConversation) {
+      const { data: memberships, error: membershipError } = await supabase
+        .from("tenant_members")
+        .select("tenant_id")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .eq("membership_status", "active")
+        .limit(1);
+
+      if (membershipError || !memberships?.[0]) {
+        setSending(false);
+        toast.error("لم يتم العثور على مساحة عمل نشطة.");
+        return;
+      }
+
+      const tenantId = Number(memberships[0].tenant_id);
+      const { data: createdConversation, error: createError } = await supabase.rpc("chat_create_conversation", {
+        p_tenant_id: tenantId,
+        p_conversation_type: "assistant",
+        p_subject: "مساعد PowerHub",
+        p_priority: "normal",
+      });
+
+      if (createError || !createdConversation) {
+        setSending(false);
+        toast.error("تعذر إنشاء مساحة المساعد.");
+        return;
+      }
+
+      activeConversation = createdConversation as Conversation;
+      setConversation(activeConversation);
+    }
+
     const { data: createdMessage, error: messageError } = await supabase.rpc("chat_send_message", {
-      p_conversation_id: conversation.id,
+      p_conversation_id: activeConversation.id,
       p_body: body,
       p_client_message_id: crypto.randomUUID(),
       p_reply_to_message_id: null,
@@ -189,10 +224,10 @@ export default function AiAssistantPage() {
 
     try {
       const result = await aiRequest.mutateAsync({
-        conversationId: conversation.id,
+        conversationId: activeConversation.id,
         messageId: message.id,
         question: body,
-        tenantId: conversation.tenant_id,
+        tenantId: activeConversation.tenant_id,
         currentPage: "/ai-support",
       });
 
@@ -317,7 +352,7 @@ export default function AiAssistantPage() {
                 type="button"
                 size="icon"
                 onClick={() => void sendMessage()}
-                disabled={!input.trim() || sending || !conversation}
+                disabled={!input.trim() || sending}
                 className="h-12 w-12 shrink-0 bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]"
                 aria-label="إرسال السؤال"
               >
