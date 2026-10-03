@@ -175,6 +175,23 @@ export const aiSupportRouter = router({
 
     if (!userMessage) throw new TRPCError({ code: "FORBIDDEN", message: "رسالة المستخدم غير صالحة لهذه المحادثة." });
 
+    const assistantId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);
+    const { data: existingRun } = await admin
+      .schema("private")
+      .from("chat_ai_runs")
+      .select("decision,request_id,handoff_id")
+      .eq("conversation_id", input.conversationId)
+      .eq("request_id", assistantId)
+      .maybeSingle();
+
+    if (existingRun) {
+      return {
+        decision: existingRun.decision as AiDecision,
+        messageId: null,
+        handoffId: existingRun.handoff_id ? Number(existingRun.handoff_id) : null,
+      };
+    }
+
     const { data: allowed, error: rateError } = await admin.rpc("chat_ai_rate_limit", {
       p_user_id: ctx.user.id,
       p_limit: 12,
@@ -238,17 +255,6 @@ export const aiSupportRouter = router({
       throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مع الدعم مباشرة." });
     }
 
-    const assistantId = hashSha256(`${input.conversationId}:${input.messageId}`).slice(0, 32);
-    const { data: existingRun } = await admin
-      .schema("private")
-      .from("chat_ai_runs")
-      .select("decision,request_id")
-      .eq("conversation_id", input.conversationId)
-      .eq("request_id", assistantId)
-      .maybeSingle();
-    if (existingRun) {
-      return { decision: existingRun.decision as AiDecision, messageId: null };
-    }
 
     if (result.decision === "answer" || result.decision === "clarify" || result.decision === "refuse") {
       const { data: message, error: messageError } = await admin.rpc("chat_ai_append_assistant_message", {
