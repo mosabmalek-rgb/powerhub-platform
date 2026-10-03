@@ -88,6 +88,7 @@ const menuGroups = [
       { icon: BellRing, label: "المراسلات والإشعارات", path: "/notifications" },
       { icon: BellRing, label: "أخبار وإعلانات المنصة", path: "/announcements" },
       { icon: RadioTower, label: "الدردشة والدعم", path: "/support-chat" },
+      { icon: Bot, label: "مساعد PowerHub الذكي", path: "/ai-support" },
     ],
   },
   {
