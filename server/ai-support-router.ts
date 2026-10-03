@@ -37,6 +37,16 @@ function hashSha256(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+function isSensitiveMutationRequest(question: string) {
+  return /(اعتماد|تأكيد|تعديل|حذف|إنشاء|إصدار|تغيير)\s*(الدفع|الفاتورة|الاشتراك|الصلاحيات|المستخدم|الرصيد|الفواتير|الرسائل|sms)|\b(approve|delete|issue|change|update|send\s*sms)\b/i.test(question);
+}
+
+function deterministicDecision(question: string, articles: Array<Record<string, unknown>>, minScore: number) {
+  const eligible = articles.filter((a) => Number(a.score ?? 0) >= minScore);
+  if (isSensitiveMutationRequest(question)) return { decision: "handoff" as const, reason: "طلب تنفيذ عملية حساسة؛ لا ينفذها المساعد.", articles: eligible };
+  if (eligible.length === 0) return { decision: "handoff" as const, reason: "لا توجد مصادر موثوقة كافية للإجابة.", articles: eligible };
+  return { decision: null, reason: null, articles: eligible };
+}
 function cleanForModel(value: string, max: number) {
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").slice(0, max);
 }
@@ -202,6 +212,27 @@ export const aiSupportRouter = router({
 
     const normalizedArticles = (articles ?? []) as Array<Record<string, unknown>>;
     const topScore = normalizedArticles.length ? Number(normalizedArticles[0].score ?? 0) : 0;
+    const minScore = Number(settings.min_retrieval_score ?? 0.05);
+    const deterministic = deterministicDecision(input.question, normalizedArticles, minScore);
+
+    if (deterministic.decision === "handoff") {
+      await admin.rpc("chat_ai_record_run", {
+        p_request_id: hashSha256(input.conversationId + ":" + input.messageId + ":policy").slice(0, 32),
+        p_conversation_id: input.conversationId,
+        p_tenant_id: input.tenantId,
+        p_user_id: ctx.user.id,
+        p_question_preview: input.question,
+        p_question_hash: hashSha256(input.question),
+        p_decision: "handoff",
+        p_model: String(settings.model ?? "openai/gpt-5"),
+        p_top_retrieval_score: topScore,
+        p_retrieved_article_ids: normalizedArticles.map((a) => Number(a.article_id)).filter(Number.isFinite),
+        p_handoff_id: null,
+        p_latency_ms: Date.now() - started,
+        p_error_code: deterministic.reason,
+      });
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد إجابة آمنة كافية لهذا السؤال. استخدم خيار التواصل مع الدعم." });
+    }
 
     const { data: context, error: contextError } = await admin.rpc("chat_ai_get_account_context", {
       p_tenant_id: input.tenantId,
