@@ -231,7 +231,17 @@ export const aiSupportRouter = router({
       throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مع الدعم مباشرة." });
     }
 
-    const assistantId = crypto.randomUUID();
+    const assistantId = crypto.createHash("sha256").update(`${input.conversationId}:${input.messageId}`).digest("hex").slice(0, 32);
+    const { data: existingRun } = await admin
+      .schema("private")
+      .from("chat_ai_runs")
+      .select("decision,request_id")
+      .eq("conversation_id", input.conversationId)
+      .eq("request_id", assistantId)
+      .maybeSingle();
+    if (existingRun) {
+      return { decision: existingRun.decision as AiDecision, messageId: null };
+    }
 
     if (result.decision === "answer" || result.decision === "clarify" || result.decision === "refuse") {
       const { data: message, error: messageError } = await admin.rpc("chat_ai_append_assistant_message", {
