@@ -1,7 +1,14 @@
 export type AiPolicyDecision = "handoff" | "continue";
 
 export function isSensitiveMutationRequest(question: string): boolean {
-  return /(اعتماد|تأكيد|تعديل|حذف|إنشاء|إصدار|تغيير)\s*(الدفع|الفاتورة|الاشتراك|الصلاحيات|المستخدم|الرصيد|الفواتير|الرسائل|sms)|\b(approve|delete|issue|change|update|send\s*sms)\b/i.test(question);
+  const q = question.trim();
+  if (/(اعتماد|اعتمَد|تأكيد|تعديل|عدّل|حذف|احذف|إنشاء|أنشئ|إصدار|أصدر|تغيير|غيّر|غير)\s*(الدفع|الدفعة|الفاتورة|الفواتير|الاشتراك|الاشتراكات|الصلاحيات|صلاحيات|المستخدم|المستخدمين|الرصيد|الأرصدة|الرسائل|sms)\b/i.test(q)) {
+    return true;
+  }
+  if (/(صلاحيات|دور|أدوار|role|permission)/i.test(q) && /(غيّر|غير|تغيير|عدّل|تعديل|منح|سحب|remove|grant|change|update)/i.test(q)) {
+    return true;
+  }
+  return /\b(approve|delete|issue|change|update|send\s*sms|grant|revoke)\b/i.test(q);
 }
 
 export function selectSafeArticles(
