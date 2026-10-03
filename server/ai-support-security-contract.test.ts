@@ -23,7 +23,7 @@ describe("PowerHub AI security contract", () => {
   });
 
   it("keeps the model credential server-only and exposes no executable AI tools", () => {
-    expect(router).toContain("process.env.GEMINI_API_KEY");
+    expect(router).toContain("process.env.GOOGLE_GENERATIVE_AI_API_KEY");
     expect(router).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(router).not.toContain("tools:");
     expect(router).not.toContain("tool_choice");
@@ -124,8 +124,8 @@ describe("AI replay and tenant isolation contract", () => {
 
 describe("Gemini provider security contract", () => {
   it("uses server-side Gemini credentials and never browser credentials", () => {
-    expect(router).toContain("process.env.GEMINI_API_KEY");
-    expect(router).not.toContain("import.meta.env.GEMINI_API_KEY");
+    expect(router).toContain("process.env.GOOGLE_GENERATIVE_AI_API_KEY");
+    expect(router).not.toContain("import.meta.env.GOOGLE_GENERATIVE_AI_API_KEY");
     expect(router).toContain('"x-goog-api-key"');
     expect(router).not.toContain("console.log(cfg.apiKey)");
   });
@@ -139,7 +139,7 @@ describe("Gemini provider security contract", () => {
 
   it("keeps Gemini configuration out of readiness secrets", () => {
     expect(health).toContain("aiGatewayConfigured");
-    expect(health).toContain("process.env.GEMINI_API_KEY");
-    expect(health).not.toContain("process.env.GEMINI_API_KEY,");
+    expect(health).toContain("process.env.GOOGLE_GENERATIVE_AI_API_KEY");
+    expect(health).not.toContain("process.env.GOOGLE_GENERATIVE_AI_API_KEY,");
   });
 });
