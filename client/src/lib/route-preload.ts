@@ -15,6 +15,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   "/quick-actions": () => import("../pages/QuickActionsPage"),
   "/profile": () => import("../pages/ProfileSecurityPage"),
   "/support-chat": () => import("../pages/SupportChatPage"),
+  "/ai-support": () => import("../pages/AiAssistantPage"),
   "/announcements": () => import("../pages/AnnouncementsPage"),
   "/mobile-sync": () => import("../pages/MobileSyncPage"),
   "/offline-sync": () => import("../pages/OfflineSyncPage"),
