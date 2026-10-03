@@ -1,5 +1,11 @@
 export type AiPolicyDecision = "handoff" | "continue";
 
+export function isUserRequestedHandoff(question: string): boolean {
+  const q = question.trim();
+  return /(أريد|اريد|أحتاج|احتاج|حوّلني|حولني|وصلني|contact|talk|speak)/i.test(q)
+    && /(الدعم|موظف|تحدث|تكلم|تواصل|support|help\s*desk)/i.test(q);
+}
+
 export function isSensitiveMutationRequest(question: string): boolean {
   const q = question.trim();
   if (/(اعتماد|اعتمَد|تأكيد|تعديل|عدّل|حذف|احذف|إنشاء|أنشئ|إصدار|أصدر|تغيير|غيّر|غير)\s*(الدفع|الدفعة|الفاتورة|الفواتير|الاشتراك|الاشتراكات|الصلاحيات|صلاحيات|المستخدم|المستخدمين|الرصيد|الأرصدة|الرسائل|sms)(?:$|\s|[؟?!.,])/i.test(q)) {
@@ -29,6 +35,14 @@ export function evaluateAiPolicy(
     return {
       decision: "handoff",
       reason: "طلب تنفيذ عملية حساسة؛ لا ينفذها المساعد.",
+      articles: eligible,
+    };
+  }
+
+  if (isUserRequestedHandoff(question)) {
+    return {
+      decision: "handoff",
+      reason: "طلب المستخدم التواصل مع فريق الدعم.",
       articles: eligible,
     };
   }

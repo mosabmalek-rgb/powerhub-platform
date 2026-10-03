@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { router, authenticatedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
-import { evaluateAiPolicy, shouldLoadAccountContext } from "./ai-support-policy";
+import { evaluateAiPolicy, isSensitiveMutationRequest, shouldLoadAccountContext } from "./ai-support-policy";
 
 const askInput = z.object({
   conversationId: z.number().int().positive(),
@@ -25,17 +25,25 @@ type AiResult = {
 };
 
 function gatewayConfig() {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "مساعد PowerHub غير مهيأ على الخادم." });
   return {
     apiKey,
-    model: process.env.POWERHUB_AI_MODEL ?? "openai/gpt-5",
-    endpoint: "https://ai-gateway.vercel.sh/v1/chat/completions",
+    model: process.env.POWERHUB_AI_MODEL ?? "gemini-2.5-flash",
+    endpointBase: "https://generativelanguage.googleapis.com/v1beta/models",
   };
 }
 
 function hashSha256(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function stableUuid(value: string) {
+  const chars = hashSha256(value).slice(0, 32).split("");
+  chars[12] = "5";
+  chars[16] = ["8", "9", "a", "b"][Number.parseInt(chars[16], 16) & 0x3];
+  const hex = chars.join("");
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20, 32)].join("-");
 }
 
 function cleanForModel(value: string, max: number) {
@@ -62,17 +70,16 @@ async function callModel(input: {
 }): Promise<AiResult> {
   const cfg = gatewayConfig();
   const body = {
-    model: cfg.model,
-    temperature: 0.1,
-    max_tokens: 900,
-    messages: [
-      { role: "system", content: buildSystemPrompt() },
-      {
-        role: "user",
-        content: JSON.stringify({
+    system_instruction: {
+      parts: [{ text: buildSystemPrompt() }],
+    },
+    contents: [{
+      role: "user",
+      parts: [{
+        text: JSON.stringify({
           task: "Answer the PowerHub support question using only the supplied sources and permitted account context.",
           question: cleanForModel(input.question, 4000),
-          knowledge: input.articles.map(a => ({
+          knowledge: input.articles.map((a) => ({
             id: a.article_id,
             title: cleanForModel(String(a.title ?? ""), 300),
             question: cleanForModel(String(a.primary_question ?? ""), 500),
@@ -83,47 +90,52 @@ async function callModel(input: {
           accountContext: input.accountContext,
           allowedDecisions: ["answer", "clarify", "handoff", "refuse"],
         }),
-      },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "powerhub_support_decision",
-        strict: true,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            decision: { type: "string", enum: ["answer", "clarify", "handoff", "refuse"] },
-            answer: { type: "string", maxLength: 8000 },
-            reason: { type: "string", maxLength: 500 },
-            summary: { type: "string", maxLength: 1200 },
-            category: { type: "string", maxLength: 80 },
-            priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
-          },
-          required: ["decision", "answer", "reason", "summary", "category", "priority"],
+      }],
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 900,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "OBJECT",
+        additionalProperties: false,
+        properties: {
+          decision: { type: "STRING", enum: ["answer", "clarify", "handoff", "refuse"] },
+          answer: { type: "STRING" },
+          reason: { type: "STRING" },
+          summary: { type: "STRING" },
+          category: { type: "STRING" },
+          priority: { type: "STRING", enum: ["low", "normal", "high", "urgent"] },
         },
+        required: ["decision", "answer", "reason", "summary", "category", "priority"],
       },
     },
   };
 
-  const response = await fetch(cfg.endpoint, {
+  const url = cfg.endpointBase + "/" + encodeURIComponent(cfg.model) + ":generateContent";
+  const response = await fetch(url, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${cfg.apiKey}`,
+      "x-goog-api-key": cfg.apiKey,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
   });
 
-  if (!response.ok) throw new Error(`AI_GATEWAY_${response.status}`);
-  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const raw = payload.choices?.[0]?.message?.content;
-  if (!raw) throw new Error("AI_EMPTY_RESPONSE");
+  if (!response.ok) throw new Error("GEMINI_" + response.status);
+  const payload = await response.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+  };
+  const raw = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("")?.trim();
+  if (!raw) throw new Error("GEMINI_EMPTY_RESPONSE");
 
   let parsed: unknown;
-  try { parsed = JSON.parse(raw); } catch { throw new Error("AI_INVALID_JSON"); }
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("GEMINI_INVALID_JSON");
+  }
 
   return z.object({
     decision: z.enum(["answer", "clarify", "handoff", "refuse"]),
@@ -175,10 +187,11 @@ export const aiSupportRouter = router({
 
     if (!userMessage) throw new TRPCError({ code: "FORBIDDEN", message: "رسالة المستخدم غير صالحة لهذه المحادثة." });
 
-    const assistantId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);
+    const requestId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);
+    const assistantId = stableUuid(input.conversationId + ":" + input.messageId);
 
     const { data: claimAccepted, error: claimError } = await admin.rpc("chat_ai_claim_request", {
-      p_request_id: assistantId,
+      p_request_id: requestId,
       p_conversation_id: input.conversationId,
       p_message_id: input.messageId,
       p_tenant_id: input.tenantId,
@@ -194,7 +207,7 @@ export const aiSupportRouter = router({
       .from("chat_ai_runs")
       .select("decision,request_id,handoff_id")
       .eq("conversation_id", input.conversationId)
-      .eq("request_id", assistantId)
+      .eq("request_id", requestId)
       .maybeSingle();
 
     if (existingRun) {
@@ -235,23 +248,43 @@ export const aiSupportRouter = router({
     const topScore = normalizedArticles.length ? Number(normalizedArticles[0].score ?? 0) : 0;
     const policy = evaluateAiPolicy(input.question, normalizedArticles, Number(settings.min_retrieval_score ?? 0.05));
 
-    const context = shouldLoadAccountContext(input.question, policy.articles)
-      ? (await admin.rpc("chat_ai_get_account_context", {
+    let result: AiResult;
+    let handoffTrigger: "unknown" | "insufficient_knowledge" | "sensitive" | "user_requested" | "repeated_failure" = "unknown";
+
+    if (policy.decision === "handoff") {
+      const sensitive = isSensitiveMutationRequest(input.question);
+      handoffTrigger = sensitive ? "sensitive" : "insufficient_knowledge";
+      result = {
+        decision: "handoff",
+        answer: sensitive
+          ? "لا أستطيع تنفيذ هذه العملية من خلال المساعد. سأحوّل طلبك إلى فريق الدعم."
+          : "لا أملك معلومات موثوقة كافية للإجابة عن هذا السؤال، لذلك سأحوّله إلى فريق الدعم.",
+        reason: policy.reason,
+        summary: sensitive ? "طلب حساس تم تحويله إلى فريق الدعم." : "السؤال يحتاج إلى معلومات إضافية من فريق الدعم.",
+        category: "other",
+        priority: sensitive ? "high" : "normal",
+      };
+    } else {
+      let context: Record<string, unknown> = {};
+      if (shouldLoadAccountContext(input.question, policy.articles)) {
+        const { data, error: contextError } = await admin.rpc("chat_ai_get_account_context", {
           p_tenant_id: input.tenantId,
           p_actor_user_id: ctx.user.id,
-        })).data ?? {}
-      : {};
-
-    let result: AiResult;
-    try {
-      result = await callModel({
-        question: input.question,
-        articles: policy.articles,
-        accountContext: context ?? {},
-      });
-    } catch (error) {
+        });
+        if (contextError) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل معلومات الحساب بأمان." });
+        }
+        context = (data ?? {}) as Record<string, unknown>;
+      }
+      try {
+        result = await callModel({
+          question: input.question,
+          articles: policy.articles,
+          accountContext: context,
+        });
+      } catch (error) {
       await admin.rpc("chat_ai_record_run", {
-        p_request_id: randomUUID(),
+        p_request_id: requestId,
         p_conversation_id: input.conversationId,
         p_tenant_id: input.tenantId,
         p_user_id: ctx.user.id,
@@ -265,7 +298,8 @@ export const aiSupportRouter = router({
         p_latency_ms: Date.now() - started,
         p_error_code: error instanceof Error ? error.message : "AI_ERROR",
       });
-      throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مع الدعم مباشرة." });
+      throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مباشرة بالدعم." });
+      }
     }
 
 
@@ -283,14 +317,14 @@ export const aiSupportRouter = router({
       if (messageError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ رد المساعد." });
 
       await admin.rpc("chat_ai_record_run", {
-        p_request_id: assistantId,
+        p_request_id: requestId,
         p_conversation_id: input.conversationId,
         p_tenant_id: input.tenantId,
         p_user_id: ctx.user.id,
         p_question_preview: input.question,
         p_question_hash: createHash("sha256").update(input.question).digest("hex"),
         p_decision: result.decision,
-        p_model: String(settings.model ?? "openai/gpt-5"),
+        p_model: String(settings.model ?? process.env.POWERHUB_AI_MODEL ?? "gemini-2.5-flash"),
         p_top_retrieval_score: topScore,
         p_retrieved_article_ids: normalizedArticles.map(a => Number(a.article_id)).filter(Number.isFinite),
         p_handoff_id: null,
@@ -314,7 +348,7 @@ export const aiSupportRouter = router({
       p_user_message_id: input.messageId,
       p_ai_message_id: Number((message as { id: number }).id),
       p_actor_user_id: ctx.user.id,
-      p_trigger: "unknown",
+      p_trigger: handoffTrigger,
       p_reason: result.reason || "لم يتم العثور على إجابة موثوقة.",
       p_summary: result.summary || "تم تحويل السؤال من مساعد PowerHub إلى الدعم.",
       p_category: result.category || "other",
@@ -324,14 +358,14 @@ export const aiSupportRouter = router({
     if (handoffError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحويل الطلب إلى الدعم." });
 
     await admin.rpc("chat_ai_record_run", {
-      p_request_id: assistantId,
+      p_request_id: requestId,
       p_conversation_id: input.conversationId,
       p_tenant_id: input.tenantId,
       p_user_id: ctx.user.id,
       p_question_preview: input.question,
       p_question_hash: createHash("sha256").update(input.question).digest("hex"),
       p_decision: "handoff",
-      p_model: String(settings.model ?? "openai/gpt-5"),
+      p_model: String(settings.model ?? process.env.POWERHUB_AI_MODEL ?? "gemini-2.5-flash"),
       p_top_retrieval_score: topScore,
       p_retrieved_article_ids: normalizedArticles.map(a => Number(a.article_id)).filter(Number.isFinite),
       p_handoff_id: Number((handoff as { id: number }).id),
@@ -343,4 +377,4 @@ export const aiSupportRouter = router({
   }),
 });
 
-function cfgModelFallback() { return "openai/gpt-5"; }
+function cfgModelFallback() { return process.env.POWERHUB_AI_MODEL ?? "gemini-2.5-flash"; }

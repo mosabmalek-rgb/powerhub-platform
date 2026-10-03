@@ -58,7 +58,7 @@ export async function readinessHandler(_req: unknown, res: Response) {
   const ready = Object.values(checks).every(Boolean);
 
   // Expose only configuration presence; never return the secret value.
-  const aiGatewayConfigured = Boolean(process.env.AI_GATEWAY_API_KEY);
+  const aiGatewayConfigured = Boolean(process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY);
   res.status(ready ? 200 : 503).json({
     status: ready ? "ok" : "not_ready",
     service: "powerhub-platform",

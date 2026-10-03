@@ -9,6 +9,7 @@ const runtimeBoundary = readFileSync(resolve(process.cwd(), "supabase/migrations
 const rateLimit = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002173000_powerhub_ai_rate_limit_server_fix.sql"), "utf8");
 const retrievalBoundary = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002173500_powerhub_ai_search_server_boundary.sql"), "utf8");
 const claimMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002180000_powerhub_ai_request_claims.sql"), "utf8");
+const health = readFileSync(resolve(process.cwd(), "server/_core/health.ts"), "utf8");
 
 describe("PowerHub AI security contract", () => {
   it("keeps the AI entrypoint authenticated and tenant/message scoped", () => {
@@ -22,7 +23,7 @@ describe("PowerHub AI security contract", () => {
   });
 
   it("keeps the model credential server-only and exposes no executable AI tools", () => {
-    expect(router).toContain("process.env.AI_GATEWAY_API_KEY");
+    expect(router).toContain("process.env.GEMINI_API_KEY");
     expect(router).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(router).not.toContain("tools:");
     expect(router).not.toContain("tool_choice");
@@ -89,7 +90,8 @@ describe("PowerHub AI security contract", () => {
 
 describe("AI idempotency contract", () => {
   it("derives a stable request id from conversation and user message", () => {
-    expect(router).toContain('const assistantId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);');
+    expect(router).toContain('const requestId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);');
+    expect(router).toContain('const assistantId = stableUuid(input.conversationId + ":" + input.messageId);');
     expect(router).not.toContain("const assistantId = crypto.randomUUID()");
   });
 });
@@ -101,7 +103,7 @@ describe("AI replay and tenant isolation contract", () => {
     expect(claimMigration).toContain("on conflict(request_id) do update");
     expect(claimMigration).toContain("grant execute on function public.chat_ai_claim_request");
     expect(claimMigration).toContain("raise exception 'INTERNAL_ONLY'");
-    expect(router).toContain('p_request_id: assistantId');
+    expect(router).toContain('p_request_id: requestId');
     expect(router).toContain('p_lease_seconds: 45');
   });
 
@@ -116,5 +118,28 @@ describe("AI replay and tenant isolation contract", () => {
   it("never exposes a browser-callable account-context function", () => {
     expect(runtimeBoundary).toContain("revoke all on function public.chat_ai_get_account_context(bigint,bigint) from public,anon,authenticated");
     expect(runtimeBoundary).toContain("grant execute on function public.chat_ai_get_account_context(bigint,bigint) to service_role");
+  });
+});
+
+
+describe("Gemini provider security contract", () => {
+  it("uses server-side Gemini credentials and never browser credentials", () => {
+    expect(router).toContain("process.env.GEMINI_API_KEY");
+    expect(router).not.toContain("import.meta.env.GEMINI_API_KEY");
+    expect(router).toContain('"x-goog-api-key"');
+    expect(router).not.toContain("console.log(cfg.apiKey)");
+  });
+
+  it("uses structured JSON output with a bounded timeout", () => {
+    expect(router).toContain('responseMimeType: "application/json"');
+    expect(router).toContain('responseSchema: {');
+    expect(router).toContain("AbortSignal.timeout(15000)");
+    expect(router).toContain('z.enum(["answer", "clarify", "handoff", "refuse"])');
+  });
+
+  it("keeps Gemini configuration out of readiness secrets", () => {
+    expect(health).toContain("aiGatewayConfigured");
+    expect(health).toContain("process.env.GEMINI_API_KEY");
+    expect(health).not.toContain("process.env.GEMINI_API_KEY,");
   });
 });
