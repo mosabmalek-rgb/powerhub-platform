@@ -9,6 +9,7 @@ const runtimeBoundary = readFileSync(resolve(process.cwd(), "supabase/migrations
 const rateLimit = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002173000_powerhub_ai_rate_limit_server_fix.sql"), "utf8");
 const retrievalBoundary = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002173500_powerhub_ai_search_server_boundary.sql"), "utf8");
 const claimMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002180000_powerhub_ai_request_claims.sql"), "utf8");
+const health = readFileSync(resolve(process.cwd(), "server/_core/health.ts"), "utf8");
 
 describe("PowerHub AI security contract", () => {
   it("keeps the AI entrypoint authenticated and tenant/message scoped", () => {
@@ -22,7 +23,7 @@ describe("PowerHub AI security contract", () => {
   });
 
   it("keeps the model credential server-only and exposes no executable AI tools", () => {
-    expect(router).toContain("process.env.AI_GATEWAY_API_KEY");
+    expect(router).toContain("process.env.GEMINI_API_KEY");
     expect(router).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(router).not.toContain("tools:");
     expect(router).not.toContain("tool_choice");
