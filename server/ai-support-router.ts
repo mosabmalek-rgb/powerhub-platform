@@ -298,7 +298,8 @@ export const aiSupportRouter = router({
         p_latency_ms: Date.now() - started,
         p_error_code: error instanceof Error ? error.message : "AI_ERROR",
       });
-      throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مع الدعم مباشرة." });
+      throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مباشرة بالدعم." });
+      }
     }
 
 
