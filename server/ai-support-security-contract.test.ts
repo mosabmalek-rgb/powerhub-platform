@@ -79,7 +79,8 @@ describe("PowerHub AI security contract", () => {
   });
 
   it("uses SHA-256 telemetry hashing instead of reversible encoding", () => {
-    expect(router).toContain('createHash("sha256")');
+    expect(router).toContain('function hashSha256(value: string)');
+    expect(router).toContain('return createHash("sha256")');
     expect(router).not.toContain('toString("base64url")');
   });
 });
