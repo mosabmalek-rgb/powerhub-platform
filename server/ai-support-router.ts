@@ -33,6 +33,10 @@ function gatewayConfig() {
   };
 }
 
+function hashSha256(value: string) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
 function cleanForModel(value: string, max: number) {
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").slice(0, max);
 }
@@ -219,7 +223,7 @@ export const aiSupportRouter = router({
         p_tenant_id: input.tenantId,
         p_user_id: ctx.user.id,
         p_question_preview: input.question,
-        p_question_hash: createHash("sha256").update(input.question).digest("hex"),
+        p_question_hash: hashSha256(input.question),
         p_decision: "error",
         p_model: String(settings.model ?? cfgModelFallback()),
         p_top_retrieval_score: topScore,
@@ -231,7 +235,7 @@ export const aiSupportRouter = router({
       throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مع الدعم مباشرة." });
     }
 
-    const assistantId = createHash("sha256").update(`${input.conversationId}:${input.messageId}`).digest("hex").slice(0, 32);
+    const assistantId = hashSha256(`${input.conversationId}:${input.messageId}`).slice(0, 32);
     const { data: existingRun } = await admin
       .schema("private")
       .from("chat_ai_runs")
