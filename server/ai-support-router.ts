@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { router, authenticatedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
@@ -214,7 +214,7 @@ export const aiSupportRouter = router({
       });
     } catch (error) {
       await admin.rpc("chat_ai_record_run", {
-        p_request_id: crypto.randomUUID(),
+        p_request_id: randomUUID(),
         p_conversation_id: input.conversationId,
         p_tenant_id: input.tenantId,
         p_user_id: ctx.user.id,
@@ -231,7 +231,7 @@ export const aiSupportRouter = router({
       throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مع الدعم مباشرة." });
     }
 
-    const assistantId = crypto.createHash("sha256").update(`${input.conversationId}:${input.messageId}`).digest("hex").slice(0, 32);
+    const assistantId = createHash("sha256").update(`${input.conversationId}:${input.messageId}`).digest("hex").slice(0, 32);
     const { data: existingRun } = await admin
       .schema("private")
       .from("chat_ai_runs")
