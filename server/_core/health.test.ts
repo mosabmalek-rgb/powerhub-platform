@@ -55,8 +55,6 @@ describe("PowerHub health endpoints", () => {
       else process.env.VITE_SUPABASE_PUBLISHABLE_KEY = previousKey;
     }
   });
-});
-
   it("reports AI Gateway configuration without exposing its secret", () => {
     const previous = process.env.AI_GATEWAY_API_KEY;
     process.env.AI_GATEWAY_API_KEY = "test-secret";
@@ -70,3 +68,4 @@ describe("PowerHub health endpoints", () => {
       else process.env.AI_GATEWAY_API_KEY = previous;
     }
   });
+});
