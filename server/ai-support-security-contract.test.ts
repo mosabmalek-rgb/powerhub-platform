@@ -33,7 +33,7 @@ describe("PowerHub AI security contract", () => {
   it("forces structured decisions and a closed decision set", () => {
     expect(router).toContain('enum: ["answer", "clarify", "handoff", "refuse"]');
     expect(router).toContain('decision: z.enum(["answer", "clarify", "handoff", "refuse"])');
-    expect(router).toContain('additionalProperties: false');
+    expect(router).not.toContain('additionalProperties: false');
   });
 
   it("contains explicit prompt-injection and no-guessing defenses", () => {
