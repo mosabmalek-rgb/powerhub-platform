@@ -112,17 +112,39 @@ async function callModel(input: {
   };
 
   const url = cfg.endpointBase + "/" + encodeURIComponent(cfg.model) + ":generateContent";
-  const response = await fetch(url, {
+  const request = (structured: boolean) => fetch(url, {
     method: "POST",
     headers: {
       "x-goog-api-key": cfg.apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(structured ? body : {
+      ...body,
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 900,
+        responseMimeType: "application/json",
+      },
+    }),
     signal: AbortSignal.timeout(15000),
   });
 
-  if (!response.ok) throw new Error("GEMINI_" + response.status);
+  let response = await request(true);
+  // Some Gemini deployments reject responseSchema even when JSON output is
+  // supported. Retry once without the schema; the Zod parser below remains
+  // the authoritative closed-world validation boundary.
+  if (response.status === 400) response = await request(false);
+
+  if (!response.ok) {
+    let providerCode = "UNKNOWN";
+    try {
+      const errorPayload = await response.json() as { error?: { status?: string; code?: number } };
+      providerCode = String(errorPayload.error?.status ?? errorPayload.error?.code ?? "UNKNOWN").slice(0, 40);
+    } catch {
+      // Keep provider failures opaque and never expose response bodies.
+    }
+    throw new Error("GEMINI_" + response.status + "_" + providerCode);
+  }
   const payload = await response.json() as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
   };
