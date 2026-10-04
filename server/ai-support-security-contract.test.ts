@@ -90,7 +90,7 @@ describe("PowerHub AI security contract", () => {
 
 describe("AI idempotency contract", () => {
   it("derives a stable request id from conversation and user message", () => {
-    expect(router).toContain('const requestId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);');
+    expect(router).toContain('const requestId = stableUuid(input.conversationId + ":" + input.messageId);');
     expect(router).toContain('const assistantId = stableUuid(input.conversationId + ":" + input.messageId);');
     expect(router).not.toContain("const assistantId = crypto.randomUUID()");
   });
@@ -104,7 +104,7 @@ describe("AI replay and tenant isolation contract", () => {
     expect(claimMigration).toContain("where private.chat_ai_request_claims.expires_at <= v_now");
     expect(claimMigration).toContain("p_lease_seconds < 10");
     expect(claimMigration).toContain("p_lease_seconds > 180");
-    expect(router).toContain('hashSha256(input.conversationId + ":" + input.messageId)');
+    expect(router).toContain('stableUuid(input.conversationId + ":" + input.messageId)');
   });
 
   it("claims requests atomically before the model path", () => {
