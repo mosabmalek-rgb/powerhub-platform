@@ -53,9 +53,10 @@ describe("PowerHub AI security contract", () => {
     expect(foundation).toContain("revoke all on function public.chat_ai_handoff");
   });
 
-  it("keeps knowledge retrieval server-only", () => {
-    expect(retrievalBoundary).toContain("raise exception 'INTERNAL_ONLY'");
-    expect(retrievalBoundary).toContain("revoke all on function public.chat_ai_search_knowledge(text,text,integer)");
+  it("keeps knowledge retrieval server-only through ACL", () => {
+    expect(retrievalBoundary).toContain("security definer");
+    expect(retrievalBoundary).not.toContain("request.jwt.claim.role");
+    expect(retrievalBoundary).toContain("revoke all on function public.chat_ai_search_knowledge(text,text,integer) from public,anon,authenticated");
     expect(retrievalBoundary).toContain("grant execute on function public.chat_ai_search_knowledge(text,text,integer) to service_role");
   });
 
