@@ -229,11 +229,15 @@ export const aiSupportRouter = router({
     const { data: settings } = await admin
       .schema("private")
       .from("chat_ai_settings")
-      .select("enabled,model,min_retrieval_score,max_articles,max_history_messages,handoff_on_unknown")
+      .select("enabled,canary_enabled,canary_tenant_id,model,min_retrieval_score,max_articles,max_history_messages,handoff_on_unknown")
       .eq("id", true)
       .maybeSingle();
 
-    if (!settings?.enabled) {
+    const canaryAllowed =
+      settings?.canary_enabled === true &&
+      Number(settings.canary_tenant_id ?? 0) === input.tenantId;
+
+    if (!settings?.enabled && !canaryAllowed) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "مساعد PowerHub غير مفعّل حاليًا." });
     }
 
