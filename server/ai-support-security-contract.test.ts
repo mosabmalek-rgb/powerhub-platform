@@ -53,9 +53,10 @@ describe("PowerHub AI security contract", () => {
     expect(foundation).toContain("revoke all on function public.chat_ai_handoff");
   });
 
-  it("keeps knowledge retrieval server-only", () => {
-    expect(retrievalBoundary).toContain("raise exception 'INTERNAL_ONLY'");
-    expect(retrievalBoundary).toContain("revoke all on function public.chat_ai_search_knowledge(text,text,integer)");
+  it("keeps knowledge retrieval server-only through ACL", () => {
+    expect(retrievalBoundary).toContain("security definer");
+    expect(retrievalBoundary).not.toContain("request.jwt.claim.role");
+    expect(retrievalBoundary).toContain("revoke all on function public.chat_ai_search_knowledge(text,text,integer) from public,anon,authenticated");
     expect(retrievalBoundary).toContain("grant execute on function public.chat_ai_search_knowledge(text,text,integer) to service_role");
   });
 
@@ -90,7 +91,7 @@ describe("PowerHub AI security contract", () => {
 
 describe("AI idempotency contract", () => {
   it("derives a stable request id from conversation and user message", () => {
-    expect(router).toContain('const requestId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);');
+    expect(router).toContain('const requestId = stableUuid(input.conversationId + ":" + input.messageId);');
     expect(router).toContain('const assistantId = stableUuid(input.conversationId + ":" + input.messageId);');
     expect(router).not.toContain("const assistantId = crypto.randomUUID()");
   });
@@ -104,7 +105,7 @@ describe("AI replay and tenant isolation contract", () => {
     expect(claimMigration).toContain("where private.chat_ai_request_claims.expires_at <= v_now");
     expect(claimMigration).toContain("p_lease_seconds < 10");
     expect(claimMigration).toContain("p_lease_seconds > 180");
-    expect(router).toContain('hashSha256(input.conversationId + ":" + input.messageId)');
+    expect(router).toContain('stableUuid(input.conversationId + ":" + input.messageId)');
   });
 
   it("claims requests atomically before the model path", () => {

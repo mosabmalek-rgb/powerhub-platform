@@ -26,10 +26,6 @@ declare
   v_limit integer := greatest(1, least(coalesce(p_limit,5),12));
   v_query text := nullif(btrim(coalesce(p_query,'')),'');
 begin
-  if coalesce(current_setting('request.jwt.claim.role', true),'') <> 'service_role' then
-    raise exception 'INTERNAL_ONLY';
-  end if;
-
   if v_query is null then return; end if;
 
   return query
