@@ -249,6 +249,8 @@ export const aiSupportRouter = router({
       p_query: input.question,
       p_category: null,
       p_limit: Math.min(Number(settings.max_articles ?? 5), 12),
+      p_tenant_id: input.tenantId,
+      p_user_id: ctx.user.id,
     });
     if (searchError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر البحث في قاعدة المعرفة." });
 
