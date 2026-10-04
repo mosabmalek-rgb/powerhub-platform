@@ -98,7 +98,6 @@ async function callModel(input: {
       responseMimeType: "application/json",
       responseSchema: {
         type: "OBJECT",
-        additionalProperties: false,
         properties: {
           decision: { type: "STRING", enum: ["answer", "clarify", "handoff", "refuse"] },
           answer: { type: "STRING" },
