@@ -226,14 +226,22 @@ export const aiSupportRouter = router({
     if (rateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تطبيق حماية معدل الطلبات." });
     if (!allowed) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "تم الوصول إلى حد طلبات المساعد مؤقتًا. حاول بعد قليل." });
 
-    const { data: settings } = await admin
-      .schema("private")
-      .from("chat_ai_settings")
-      .select("enabled,model,min_retrieval_score,max_articles,max_history_messages,handoff_on_unknown")
-      .eq("id", true)
-      .maybeSingle();
+    const { data: settingsPayload, error: settingsError } = await admin.rpc("chat_ai_get_settings");
 
-    if (!settings?.enabled) {
+    if (settingsError) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر قراءة إعدادات المساعد بأمان." });
+    }
+
+    const settings = (settingsPayload ?? {}) as {
+      enabled?: boolean;
+      model?: string;
+      min_retrieval_score?: number;
+      max_articles?: number;
+      max_history_messages?: number;
+      handoff_on_unknown?: boolean;
+    };
+
+    if (settings.enabled !== true) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "مساعد PowerHub غير مفعّل حاليًا." });
     }
 
