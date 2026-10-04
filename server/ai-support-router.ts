@@ -250,7 +250,9 @@ export const aiSupportRouter = router({
       p_category: null,
       p_limit: Math.min(Number(settings.max_articles ?? 5), 12),
       p_tenant_id: input.tenantId,
-      p_user_id: ctx.user.id,
+      // Knowledge retrieval authorizes against public.users.auth_user_id (UUID),
+      // while claim/rate-limit/account RPCs intentionally use the internal bigint id.
+      p_user_id: ctx.user.openId,
     });
     if (searchError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر البحث في قاعدة المعرفة." });
 
