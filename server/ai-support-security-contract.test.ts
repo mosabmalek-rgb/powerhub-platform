@@ -66,6 +66,13 @@ describe("PowerHub AI security contract", () => {
     expect(router).toContain("p_actor_user_id: ctx.user.id");
   });
 
+  it("normalizes the internal user id and fails closed when optional account context is unavailable", () => {
+    expect(router).toContain("const actorUserId = Number(ctx.user.id);");
+    expect(router).toContain("p_actor_user_id: actorUserId");
+    expect(router).toContain("context = {};");
+    expect(router).not.toContain('message: "تعذر تحميل معلومات الحساب بأمان."');
+  });
+
   it("keeps rate limiting server-only and keyed by PowerHub user id", () => {
     expect(rateLimit).toContain("p_user_id bigint");
     expect(rateLimit).toContain("private.chat_ai_rate_limit_buckets");

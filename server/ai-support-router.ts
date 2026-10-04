@@ -151,6 +151,10 @@ export const aiSupportRouter = router({
   ask: authenticatedProcedure.input(askInput).mutation(async ({ ctx, input }) => {
     const started = Date.now();
     const admin = supabaseAdmin();
+    const actorUserId = Number(ctx.user.id);
+    if (!Number.isSafeInteger(actorUserId) || actorUserId <= 0) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من هوية الحساب بأمان." });
+    }
 
     const { data: membership, error: membershipError } = await admin
       .from("tenant_members")
@@ -285,12 +289,16 @@ export const aiSupportRouter = router({
       if (shouldLoadAccountContext(input.question, policy.articles)) {
         const { data, error: contextError } = await admin.rpc("chat_ai_get_account_context", {
           p_tenant_id: input.tenantId,
-          p_actor_user_id: ctx.user.id,
+          p_actor_user_id: actorUserId,
         });
         if (contextError) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل معلومات الحساب بأمان." });
+          // Account context is optional model augmentation. Authorization has
+          // already succeeded above; never expose private data when this
+          // enrichment is unavailable, but keep safe knowledge answers usable.
+          context = {};
+        } else {
+          context = (data ?? {}) as Record<string, unknown>;
         }
-        context = (data ?? {}) as Record<string, unknown>;
       }
       try {
         result = await callModel({
