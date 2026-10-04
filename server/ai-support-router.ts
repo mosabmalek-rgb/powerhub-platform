@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { router, authenticatedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
+import { invokeLLM } from "./_core/llm";
 import { evaluateAiPolicy, isSensitiveMutationRequest, isUserRequestedHandoff, shouldLoadAccountContext } from "./ai-support-policy";
 
 const askInput = z.object({
@@ -23,6 +24,15 @@ type AiResult = {
   category?: string;
   priority?: "low" | "normal" | "high" | "urgent";
 };
+
+const aiResultSchema = z.object({
+  decision: z.enum(["answer", "clarify", "handoff", "refuse"]),
+  answer: z.string().max(8000),
+  reason: z.string().max(500),
+  summary: z.string().max(1200),
+  category: z.string().max(80),
+  priority: z.enum(["low", "normal", "high", "urgent"]),
+});
 
 function gatewayConfig() {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
@@ -158,14 +168,33 @@ async function callModel(input: {
     throw new Error("GEMINI_INVALID_JSON");
   }
 
-  return z.object({
-    decision: z.enum(["answer", "clarify", "handoff", "refuse"]),
-    answer: z.string().max(8000),
-    reason: z.string().max(500),
-    summary: z.string().max(1200),
-    category: z.string().max(80),
-    priority: z.enum(["low", "normal", "high", "urgent"]),
-  }).parse(parsed);
+  return aiResultSchema.parse(parsed);
+}
+
+async function callBuiltInModel(input: {
+  question: string;
+  articles: Array<Record<string, unknown>>;
+  accountContext: Record<string, unknown>;
+}): Promise<AiResult> {
+  const result = await invokeLLM({
+    messages: [
+      { role: "system", content: buildSystemPrompt() },
+      {
+        role: "user",
+        content: JSON.stringify({
+          question: cleanForModel(input.question, 4000),
+          knowledge: input.articles,
+          accountContext: input.accountContext,
+          allowedDecisions: ["answer", "clarify", "handoff", "refuse"],
+        }),
+      },
+    ],
+    responseFormat: { type: "json_object" },
+    maxTokens: 900,
+  });
+  const content = result.choices[0]?.message?.content;
+  const raw = typeof content === "string" ? content : JSON.stringify(content ?? "");
+  return aiResultSchema.parse(JSON.parse(raw));
 }
 
 export const aiSupportRouter = router({
@@ -328,6 +357,13 @@ export const aiSupportRouter = router({
           accountContext: context,
         });
       } catch (error) {
+      try {
+        result = await callBuiltInModel({
+          question: input.question,
+          articles: policy.articles,
+          accountContext: context,
+        });
+      } catch (fallbackError) {
       await admin.rpc("chat_ai_record_run", {
         p_request_id: requestId,
         p_conversation_id: input.conversationId,
@@ -341,9 +377,10 @@ export const aiSupportRouter = router({
         p_retrieved_article_ids: normalizedArticles.map(a => Number(a.article_id)).filter(Number.isFinite),
         p_handoff_id: null,
         p_latency_ms: Date.now() - started,
-        p_error_code: error instanceof Error ? error.message : "AI_ERROR",
+        p_error_code: `${error instanceof Error ? error.message : "AI_ERROR"};FALLBACK_${fallbackError instanceof Error ? fallbackError.message : "AI_ERROR"}`.slice(0, 160),
       });
       throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مباشرة بالدعم." });
+      }
       }
     }
 
