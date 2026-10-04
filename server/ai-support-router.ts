@@ -187,7 +187,7 @@ export const aiSupportRouter = router({
 
     if (!userMessage) throw new TRPCError({ code: "FORBIDDEN", message: "رسالة المستخدم غير صالحة لهذه المحادثة." });
 
-    const requestId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);
+    const requestId = stableUuid(input.conversationId + ":" + input.messageId);
     const assistantId = stableUuid(input.conversationId + ":" + input.messageId);
 
     const { data: claimAccepted, error: claimError } = await admin.rpc("chat_ai_claim_request", {
