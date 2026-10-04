@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { router, authenticatedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
-import { evaluateAiPolicy, isSensitiveMutationRequest, shouldLoadAccountContext } from "./ai-support-policy";
+import { evaluateAiPolicy, isSensitiveMutationRequest, isUserRequestedHandoff, shouldLoadAccountContext } from "./ai-support-policy";
 
 const askInput = z.object({
   conversationId: z.number().int().positive(),
@@ -253,7 +253,11 @@ export const aiSupportRouter = router({
 
     if (policy.decision === "handoff") {
       const sensitive = isSensitiveMutationRequest(input.question);
-      handoffTrigger = sensitive ? "sensitive" : "insufficient_knowledge";
+      handoffTrigger = sensitive
+        ? "sensitive"
+        : isUserRequestedHandoff(input.question)
+          ? "user_requested"
+          : "insufficient_knowledge";
       result = {
         decision: "handoff",
         answer: sensitive
