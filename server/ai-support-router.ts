@@ -364,6 +364,18 @@ export const aiSupportRouter = router({
           accountContext: context,
         });
       } catch (fallbackError) {
+        const safeArticle = policy.articles[0];
+        const safeAnswer = typeof safeArticle?.answer === "string" ? safeArticle.answer.trim() : "";
+        if (safeAnswer && policy.decision === "continue") {
+          result = {
+            decision: "answer",
+            answer: safeAnswer,
+            reason: "SAFE_KNOWLEDGE_FALLBACK",
+            summary: "تمت الإجابة من قاعدة المعرفة المنشورة بعد تعذر الوصول إلى مزود النموذج.",
+            category: String(safeArticle.category ?? "other"),
+            priority: "normal",
+          };
+        } else {
       await admin.rpc("chat_ai_record_run", {
         p_request_id: requestId,
         p_conversation_id: input.conversationId,
@@ -380,6 +392,7 @@ export const aiSupportRouter = router({
         p_error_code: `${error instanceof Error ? error.message : "AI_ERROR"};FALLBACK_${fallbackError instanceof Error ? fallbackError.message : "AI_ERROR"}`.slice(0, 160),
       });
       throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مباشرة بالدعم." });
+        }
       }
       }
     }
