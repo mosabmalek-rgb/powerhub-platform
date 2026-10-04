@@ -70,6 +70,8 @@ describe("PowerHub AI security contract", () => {
   it("keeps AI disabled by default at the database layer", () => {
     expect(foundation).toContain("enabled boolean not null default false");
     expect(foundation).toContain("insert into private.chat_ai_settings(id)");
+    expect(router).not.toContain('if (!settings?.enabled) {');
+
   });
 
   it("wires the AI router through the application router without granting support privileges", () => {
@@ -92,6 +94,10 @@ describe("AI idempotency contract", () => {
   it("derives a stable request id from conversation and user message", () => {
     expect(router).toContain('const requestId = hashSha256(input.conversationId + ":" + input.messageId).slice(0, 32);');
     expect(router).toContain('const assistantId = stableUuid(input.conversationId + ":" + input.messageId);');
+    expect(router).toContain('const canaryAllowed =');
+    expect(router).toContain('settings?.canary_enabled === true');
+    expect(router).toContain('settings.canary_tenant_id');
+
     expect(router).not.toContain("const assistantId = crypto.randomUUID()");
   });
 });
