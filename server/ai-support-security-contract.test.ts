@@ -60,6 +60,12 @@ describe("PowerHub AI security contract", () => {
     expect(retrievalBoundary).toContain("grant execute on function public.chat_ai_search_knowledge(text,text,integer) to service_role");
   });
 
+  it("passes the Supabase auth UUID to knowledge retrieval, not the internal bigint id", () => {
+    expect(router).toContain("p_user_id: ctx.user.openId");
+    expect(router).toContain("p_user_id: ctx.user.id");
+    expect(router).toContain("p_actor_user_id: ctx.user.id");
+  });
+
   it("keeps rate limiting server-only and keyed by PowerHub user id", () => {
     expect(rateLimit).toContain("p_user_id bigint");
     expect(rateLimit).toContain("private.chat_ai_rate_limit_buckets");
