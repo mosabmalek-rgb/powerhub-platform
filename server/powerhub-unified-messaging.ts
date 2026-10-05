@@ -83,7 +83,7 @@ export const powerhubUnifiedMessagingRouter = router({
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_template_id: input.templateId, p_name: input.name,
       p_event_type: input.eventType ?? null, p_send_type: input.sendType, p_schedule_type: input.scheduleType,
       p_schedule_anchor_at: input.scheduleAnchorAt?.toISOString() ?? null, p_timezone: input.timezone,
-      p_audience: input.audience, p_enabled: input.enabled, p_actor_user_id: ctx.user.id,
+      p_audience: input.audience, p_trigger_config: input.triggerConfig, p_enabled: input.enabled, p_actor_user_id: ctx.user.id,
     });
     if (error) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر حفظ أتمتة المراسلة." });
     const id = Number((data as Array<{ id: number }> | null)?.[0]?.id ?? 0);
