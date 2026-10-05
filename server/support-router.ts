@@ -16,6 +16,17 @@ const queueInput = z.object({
 export const supportRouter = router({
   assertAccess: platformSupportProcedure.query(() => ({ allowed: true as const })),
 
+  deleteConversations: platformSupportProcedure
+    .input(z.object({ conversationIds: z.array(z.number().int().positive()).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const { data, error } = await supabaseAdmin().rpc("chat_admin_delete_support_conversations", {
+        p_conversation_ids: input.conversationIds,
+        p_actor_user_id: ctx.user.id,
+      });
+      if (error) throw new TRPCError({ code: "FORBIDDEN", message: error.message || "تعذر حذف المحادثات." });
+      return { deletedCount: Number(data?.[0]?.deleted_count ?? 0) };
+    }),
+
   queueSnapshot: platformSupportProcedure.input(queueInput).query(async ({ ctx, input }) => {
     const admin = supabaseAdmin();
     const pageSize = Math.min(input.limit, 100);
