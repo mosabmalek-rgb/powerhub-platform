@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { renderInvoiceMessage } from "./invoice-message-template";
 
 const sendType = z.enum(["manual","automatic","scheduled"]);
 const scheduleType = z.enum(["none","one_time","weekly","every_10_days","every_15_days","monthly","custom"]);
