@@ -83,14 +83,14 @@ export default function SupportChatPage() {
 
   async function loadConversations(selectFirst = true) {
     if (!isAuthenticated) return;
-    setLoadingConversations(true);
+    if (selectFirst) setLoadingConversations(true);
     const { data, error } = await supabase
       .from("chat_conversations")
 .select("id,tenant_id,conversation_type,status,subject,priority,last_message_at,created_at,ticket_number,first_response_due_at,resolution_due_at")
       .order("last_message_at", { ascending: false, nullsFirst: false });
     if (error) {
       setLoadingConversations(false);
-      toast.error("تعذر تحميل محادثات الدعم.");
+      if (conversations.length === 0) toast.error("تعذر تحميل محادثات الدعم.");
       return;
     }
     const rows = (data ?? []) as Conversation[];
