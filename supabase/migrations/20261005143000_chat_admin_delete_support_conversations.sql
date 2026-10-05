@@ -15,6 +15,7 @@ declare
   v_actor_role text;
   v_row record;
   v_deleted integer := 0;
+  v_site_id bigint;
 begin
   select array_agg(distinct x order by x) into v_ids
   from unnest(coalesce(p_conversation_ids,'{}'::bigint[])) as x
@@ -58,11 +59,19 @@ begin
     where c.id=any(v_ids)
       and c.conversation_type='support'
   loop
+    select min(cas.site_id) into v_site_id
+    from public.company_account_sites cas
+    where cas.tenant_id=v_row.tenant_id;
+
+    if v_site_id is null then
+      raise exception 'SITE_NOT_FOUND_FOR_TENANT';
+    end if;
+
     insert into public.audit_logs(
       tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,before_data,metadata
     )
     values(
-      v_row.tenant_id,null,p_actor_user_id,v_actor_role,
+      v_row.tenant_id,v_site_id,p_actor_user_id,v_actor_role,
       'chat_conversation',v_row.id::text,'delete',
       jsonb_build_object(
         'id',v_row.id,
