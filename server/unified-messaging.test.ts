@@ -32,5 +32,6 @@ describe("unified messaging contract", () => {
     expect(message).toContain("INV-1");
     expect(message).toContain("https://powerhub.example/i/token");
     expect(message).not.toContain("{{subscriber_name}}");
+    expect(message).not.toContain("{{invoice_link}}");
   });
 });
