@@ -34,6 +34,7 @@ import { preloadRoute, preloadWorkspaceRoutes } from "@/lib/route-preload";
 import type { PowerCapability, PowerRole } from "@shared/powerhub-rbac";
 import { tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
 import { PowerHubLogo } from "./PowerHubLogo";
+import { subscribeToChatNotifications } from "@/lib/chatReceipts";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -373,6 +374,34 @@ function DashboardLayoutContent({
   const isMobile = useIsMobile();
   const approvedSmsRequest = smsApprovalQuery.data?.status === "approved" ? smsApprovalQuery.data : null;
   const announcementsQuery = trpc.platformAnnouncements.inbox.list.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 60000 });
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let audioContext: AudioContext | null = null;
+    const playAlert = () => {
+      try {
+        const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioCtx) return;
+        audioContext ??= new AudioCtx();
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.frequency.value = 880; gain.gain.value = 0.045;
+        osc.connect(gain); gain.connect(audioContext.destination);
+        osc.start(); osc.stop(audioContext.currentTime + 0.12);
+      } catch { /* browser may block audio until interaction */ }
+    };
+    const unsubscribe = subscribeToChatNotifications(user.id, (event) => {
+      playAlert();
+      toast.info("لديك رسالة أو تحديث جديد في الدردشة والدعم.", { duration: 4000 });
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("PowerHub — الدردشة والدعم", { body: "لديك رسالة أو تحديث جديد." });
+      }
+    });
+    return () => {
+      unsubscribe();
+      void audioContext?.close();
+    };
+  }, [user?.id]);
   const unreadAnnouncements = (announcementsQuery.data ?? []).filter((item) => !item.readAt).length;
   const latestAnnouncements = (announcementsQuery.data ?? []).slice(0, 5);
   useEffect(() => { if (approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId) toast.success(`تم اعتماد حزمة الرسائل وإضافة ${Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيدك.`); }, [approvedSmsRequest, dismissedSmsApprovalId]);
