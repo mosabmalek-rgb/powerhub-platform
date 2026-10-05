@@ -3,6 +3,30 @@
 -- Direct client execution is intentionally disabled; server procedures use service_role
 -- only after PowerHub capability + site/tenant scope checks.
 
+-- Canonical business events. The catalog is intentionally data-free so tenant
+-- automation rows remain backward compatible while the UI can present stable names.
+-- invoice_issued: an approved reading creates an invoice; each invoice gets queued.
+-- subscriber_created: a new subscriber gets the reference/welcome message immediately.
+-- invoice_overdue: a subscriber who misses the due date can receive a reminder.
+-- payment_received: existing payment receipt flow remains available.
+-- service_alert: reserved for future operational alerts.
+
+alter table public.tenant_messaging_configurations
+  add column if not exists invoice_message_style text not null default 'details',
+  add column if not exists payment_reminder_enabled boolean not null default true,
+  add column if not exists payment_reminder_after_days integer not null default 1;
+
+alter table public.tenant_messaging_configurations
+  drop constraint if exists tenant_messaging_configurations_invoice_message_style_check,
+  drop constraint if exists tenant_messaging_configurations_payment_reminder_after_days_check;
+
+alter table public.tenant_messaging_configurations
+  add constraint tenant_messaging_configurations_invoice_message_style_check
+    check (invoice_message_style in ('details','portal_link')),
+  add constraint tenant_messaging_configurations_payment_reminder_after_days_check
+    check (payment_reminder_after_days between 0 and 90);
+
+
 alter table public.notification_messages
   add column if not exists send_type text,
   add column if not exists schedule_type text,
@@ -40,6 +64,14 @@ create table if not exists public.powerhub_message_templates (
   constraint powerhub_message_templates_body_check check (char_length(trim(body)) between 1 and 4096)
 );
 
+
+alter table public.powerhub_message_templates
+  drop constraint if exists powerhub_message_templates_event_type_check;
+alter table public.powerhub_message_templates
+  add constraint powerhub_message_templates_event_type_check check (
+    event_type is null or event_type in ('invoice_issued','subscriber_created','invoice_overdue','payment_received','service_alert')
+  );
+
 create unique index if not exists powerhub_message_templates_unique
   on public.powerhub_message_templates(tenant_id, lower(name), channel, coalesce(event_type, ''));
 
@@ -59,6 +91,8 @@ create table if not exists public.powerhub_message_automations (
   schedule_anchor_at timestamptz,
   timezone text not null default 'Asia/Gaza',
   audience jsonb not null default '{}'::jsonb,
+
+  trigger_config jsonb not null default '{}'::jsonb,
   enabled boolean not null default true,
   created_by bigint references public.users(id) on delete set null,
   updated_by bigint references public.users(id) on delete set null,
@@ -129,6 +163,7 @@ for each row execute function public.powerhub_touch_unified_messaging_updated_at
 
 alter table public.powerhub_message_templates enable row level security;
 alter table public.powerhub_message_automations enable row level security;
+create index if not exists powerhub_message_automations_event_idx on public.powerhub_message_automations(tenant_id, site_id, event_type, enabled);
 
 -- No direct browser CRUD. All access is through protected PowerHub procedures.
 revoke all on public.powerhub_message_templates from anon, authenticated;
@@ -230,6 +265,7 @@ returns table(
   schedule_anchor_at timestamptz,
   timezone text,
   audience jsonb,
+  trigger_config jsonb,
   enabled boolean,
   created_at timestamptz,
   updated_at timestamptz
@@ -240,7 +276,7 @@ set search_path = public, pg_temp
 as $function$
   select a.id,a.tenant_id,a.site_id,a.template_id,t.name,a.name,a.event_type,
          a.send_type,a.schedule_type,a.schedule_anchor_at,a.timezone,a.audience,
-         a.enabled,a.created_at,a.updated_at
+         a.trigger_config,a.enabled,a.created_at,a.updated_at
   from public.powerhub_message_automations a
   join public.powerhub_message_templates t on t.id=a.template_id
   where a.tenant_id=p_tenant_id
@@ -259,6 +295,7 @@ create or replace function public.powerhub_unified_messaging_upsert_automation(
   p_schedule_anchor_at timestamptz,
   p_timezone text,
   p_audience jsonb,
+  p_trigger_config jsonb,
   p_enabled boolean,
   p_actor_user_id bigint
 )
@@ -293,7 +330,7 @@ begin
     set site_id=excluded.site_id,template_id=excluded.template_id,event_type=excluded.event_type,
         send_type=excluded.send_type,schedule_type=excluded.schedule_type,
         schedule_anchor_at=excluded.schedule_anchor_at,timezone=excluded.timezone,
-        audience=excluded.audience,enabled=excluded.enabled,updated_by=p_actor_user_id,updated_at=now()
+        audience=excluded.audience,trigger_config=excluded.trigger_config,enabled=excluded.enabled,updated_by=p_actor_user_id,updated_at=now()
   returning id into v_id;
 
   return v_id;
@@ -303,8 +340,8 @@ $function$;
 revoke all on function public.powerhub_unified_messaging_templates(bigint,text,text) from public,anon,authenticated;
 revoke all on function public.powerhub_unified_messaging_upsert_template(bigint,text,text,text,text,text,jsonb,boolean,bigint) from public,anon,authenticated;
 revoke all on function public.powerhub_unified_messaging_automations(bigint,bigint) from public,anon,authenticated;
-revoke all on function public.powerhub_unified_messaging_upsert_automation(bigint,bigint,bigint,text,text,text,text,timestamptz,text,jsonb,boolean,bigint) from public,anon,authenticated;
+revoke all on function public.powerhub_unified_messaging_upsert_automation(bigint,bigint,bigint,text,text,text,text,timestamptz,text,jsonb,jsonb,boolean,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_unified_messaging_templates(bigint,text,text) to service_role;
 grant execute on function public.powerhub_unified_messaging_upsert_template(bigint,text,text,text,text,text,jsonb,boolean,bigint) to service_role;
 grant execute on function public.powerhub_unified_messaging_automations(bigint,bigint) to service_role;
-grant execute on function public.powerhub_unified_messaging_upsert_automation(bigint,bigint,bigint,text,text,text,text,timestamptz,text,jsonb,boolean,bigint) to service_role;
+grant execute on function public.powerhub_unified_messaging_upsert_automation(bigint,bigint,bigint,text,text,text,text,timestamptz,text,jsonb,jsonb,boolean,bigint) to service_role;
