@@ -90,6 +90,43 @@ export const powerhubUnifiedMessagingRouter = router({
     return { id };
   }),
 
+  sendManual: protectedProcedure.input(z.object({
+    siteId: z.number().int().positive(), templateId: z.number().int().positive(),
+    subscriberIds: z.array(z.number().int().positive()).min(1).max(500),
+  })).mutation(async ({ ctx, input }) => {
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+    const admin = supabaseAdmin();
+    const { data: template, error: templateError } = await admin.from("powerhub_message_templates")
+      .select("id, tenant_id, channel, body, is_active").eq("id", input.templateId).eq("tenant_id", access.tenantId).maybeSingle();
+    if (templateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قالب الرسالة." });
+    if (!template || !template.is_active) throw new TRPCError({ code: "NOT_FOUND", message: "قالب الرسالة غير متاح ضمن مساحة الشركة." });
+    if (template.channel !== "sms") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الإرسال اليدوي متاح حالياً عبر SMS؛ قناة WhatsApp ستُفعّل بعد اعتماد موصل الإرسال." });
+    const { data: subscribers, error: subscribersError } = await admin.from("subscribers")
+      .select("id, phone, full_name, subscriber_no").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("id", input.subscriberIds);
+    if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المشتركين المحددين." });
+    const byId = new Map((subscribers ?? []).map(s => [Number(s.id), s]));
+    if (byId.size !== new Set(input.subscriberIds).size) throw new TRPCError({ code: "NOT_FOUND", message: "بعض المشتركين المحددين خارج نطاق الفرع." });
+    const operationKey = `manual:${ctx.user.id}:${crypto.randomUUID()}`;
+    const rows = input.subscriberIds.map(id => {
+      const s = byId.get(id)!;
+      const renderedText = template.body
+        .replace(/{{\\s*subscriber_name\\s*}}/g, s.full_name ?? "")
+        .replace(/{{\\s*subscriber_no\\s*}}/g, s.subscriber_no ?? "");
+      return { tenant_id: access.tenantId, subscriber_id: id, channel: "sms", event_type: "manual", recipient: s.phone,
+        status: "pending", send_type: "manual", schedule_type: "none",
+        template_id: Number(template.id), payload: { renderedText, queuedBy: "manual_unified", operationKey } };
+    });
+    const { data: inserted, error } = await admin.from("notification_messages").insert(rows).select("id");
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إدخال الرسائل إلى طابور الإرسال." });
+    const results: Array<{ notificationId: number; status: string; error?: string }> = [];
+    for (const row of inserted ?? []) {
+      try { const result = await (await import("./notification-worker")).processNotificationById(Number(row.id), ctx.user.id); results.push({ notificationId: Number(row.id), status: result.status, error: result.error }); }
+      catch (error) { results.push({ notificationId: Number(row.id), status: "failed", error: error instanceof Error ? error.message : "تعذر إرسال الرسالة." }); }
+    }
+    await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "message_campaign", entityId: operationKey, action: "send_manual", metadata: { requested: input.subscriberIds.length, queued: rows.length, submitted: results.filter(r => r.status === "submitted").length, failed: results.filter(r => r.status === "failed").length } });
+    return { operationKey, requested: input.subscriberIds.length, submitted: results.filter(r => r.status === "submitted").length, failed: results.filter(r => r.status === "failed").length, results };
+  }),
+
   overview: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "manageMessaging");
     const [templates, automations, queue] = await Promise.all([
