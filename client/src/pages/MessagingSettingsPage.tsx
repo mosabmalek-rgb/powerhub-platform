@@ -93,7 +93,8 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
   </Card>;
 }
 
-\nfunction UnifiedMessagingPanel({ siteId }: { siteId: number }) {
+
+function UnifiedMessagingPanel({ siteId }: { siteId: number }) {
   const templates = trpc.powerhub.unifiedMessaging.templates.useQuery({ siteId });
   const automations = trpc.powerhub.unifiedMessaging.automations.useQuery({ siteId });
   const saveTemplate = trpc.powerhub.unifiedMessaging.saveTemplate.useMutation({ onSuccess: () => templates.refetch(), onError: (e) => toast.error(e.message) });
@@ -124,7 +125,8 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
     </div>
   </CardContent></Card>;
 }
-\nexport default function MessagingSettingsPage() {
+
+export default function MessagingSettingsPage() {
   const { isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();  const [retryingNotificationId, setRetryingNotificationId] = useState<number | undefined>();
