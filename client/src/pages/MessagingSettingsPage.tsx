@@ -79,7 +79,38 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
   </Card>;
 }
 
-export default function MessagingSettingsPage() {
+\nfunction UnifiedMessagingPanel({ siteId }: { siteId: number }) {
+  const templates = trpc.powerhub.unifiedMessaging.templates.useQuery({ siteId });
+  const automations = trpc.powerhub.unifiedMessaging.automations.useQuery({ siteId });
+  const saveTemplate = trpc.powerhub.unifiedMessaging.saveTemplate.useMutation({ onSuccess: () => templates.refetch(), onError: (e) => toast.error(e.message) });
+  const saveAutomation = trpc.powerhub.unifiedMessaging.saveAutomation.useMutation({ onSuccess: () => automations.refetch(), onError: (e) => toast.error(e.message) });
+  const [name, setName] = useState(""); const [body, setBody] = useState(""); const [templateId, setTemplateId] = useState<number | null>(null);
+  const [automationName, setAutomationName] = useState(""); const [scheduleType, setScheduleType] = useState<"none"|"weekly"|"every_10_days"|"every_15_days"|"monthly">("none");
+  const [anchor, setAnchor] = useState("");
+  return <Card className="border-[#F5B800]/20 bg-[#F5B800]/[.025]"><CardContent className="space-y-5 p-5">
+    <div><div className="flex items-center gap-2"><MessageSquareText className="h-5 w-5 text-[#F5B800]" /><h2 className="font-bold text-white">مركز المراسلة الموحد</h2></div><p className="mt-1 text-sm text-slate-400">إدارة القوالب، الإرسال الآلي، والجدولة من طبقة واحدة دون تعطيل مسار رسائل الفواتير الحالي.</p></div>
+    <div className="grid gap-5 xl:grid-cols-2">
+      <div className="space-y-3 rounded-xl border border-white/10 p-4">
+        <h3 className="font-bold text-white">قالب جديد</h3>
+        <input className={inputClass} value={name} onChange={e=>setName(e.target.value)} placeholder="اسم القالب" />
+        <select className={inputClass} defaultValue="sms" id="unified-channel"><option value="sms">SMS</option><option value="whatsapp" disabled>WhatsApp — غير مفعّل بعد</option></select>
+        <textarea className={inputClass+" min-h-28 py-2"} value={body} onChange={e=>setBody(e.target.value)} placeholder="نص الرسالة. مثال: مرحباً {{subscriber_name}}" />
+        <Button disabled={saveTemplate.isPending || !name.trim() || !body.trim()} onClick={()=>saveTemplate.mutate({siteId,name,channel:"sms",body,variables:["{{subscriber_name}}","{{subscriber_no}}"]})}>حفظ القالب</Button>
+        <div className="space-y-2">{(templates.data ?? []).map(t=><div key={t.id} className="rounded-lg border border-white/10 p-3"><div className="font-medium text-white">{t.name} <Badge>{t.channel}</Badge></div><div className="mt-1 text-xs text-slate-500">الإصدار {t.version} · {t.isActive ? "نشط" : "متوقف"}</div></div>)}</div>
+      </div>
+      <div className="space-y-3 rounded-xl border border-white/10 p-4">
+        <h3 className="font-bold text-white">أتمتة / جدولة</h3>
+        <input className={inputClass} value={automationName} onChange={e=>setAutomationName(e.target.value)} placeholder="اسم الأتمتة" />
+        <select className={inputClass} value={templateId ?? ""} onChange={e=>setTemplateId(Number(e.target.value)||null)}><option value="">اختر القالب</option>{(templates.data ?? []).filter(t=>t.isActive).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
+        <select className={inputClass} value={scheduleType} onChange={e=>setScheduleType(e.target.value as typeof scheduleType)}><option value="none">آلي عند الحدث</option><option value="weekly">أسبوعي</option><option value="every_10_days">كل 10 أيام</option><option value="every_15_days">كل 15 يوماً</option><option value="monthly">شهري</option></select>
+        {scheduleType !== "none" ? <input type="datetime-local" className={inputClass} value={anchor} onChange={e=>setAnchor(e.target.value)} /> : null}
+        <Button disabled={saveAutomation.isPending || !automationName.trim() || !templateId || (scheduleType!=="none"&&!anchor)} onClick={()=>saveAutomation.mutate({siteId,templateId:templateId!,name:automationName,sendType:scheduleType==="none"?"automatic":"scheduled",scheduleType,scheduleAnchorAt:scheduleType==="none"?undefined:new Date(anchor),audience:{}})}>حفظ الأتمتة</Button>
+        <div className="space-y-2">{(automations.data ?? []).map(a=><div key={a.id} className="rounded-lg border border-white/10 p-3"><div className="font-medium text-white">{a.name}</div><div className="mt-1 text-xs text-slate-500">{a.sendType==="automatic"?"آلي":"مجدول"} · {a.scheduleType} · {a.enabled?"مفعّل":"متوقف"}</div></div>)}</div>
+      </div>
+    </div>
+  </CardContent></Card>;
+}
+\nexport default function MessagingSettingsPage() {
   const { isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();  const [retryingNotificationId, setRetryingNotificationId] = useState<number | undefined>();
@@ -132,7 +163,7 @@ export default function MessagingSettingsPage() {
     {!owner ? <Card className="border-white/8 bg-[#111823]"><CardContent className="p-8 text-center text-sm text-slate-500">تحتاج إلى صلاحية <strong className="text-[#F5B800]">إدارة المراسلات</strong> لعرض حالة الرسائل وقوالبها.</CardContent></Card> : <><section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <ChannelForm title="إعداد WhatsApp Cloud API" channel="whatsapp" existing={configs.find((item) => item.channel === "whatsapp")} pending={saveConfig.isPending} onSubmit={saveConfig.mutate} siteId={siteId!} /> : null}</section>{owner ? <><TweetSmsQuotaCard quota={smsQuotaQuery.data} /><SmsDailyUsageCard data={smsDailyUsageQuery.data} loading={smsDailyUsageQuery.isLoading} /></> : null}
     {available.sms && owner && siteId ? <AutoSendPolicyCard config={smsConfig} siteId={siteId} /> : null}
       {available.sms && owner && siteId ? <FailedSmsPanel siteId={siteId} /> : null}{open ? <section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <TemplateEditor channel="whatsapp" template={templates.find((item) => item.channel === "whatsapp")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <TemplateEditor channel="sms" template={templates.find((item) => item.channel === "sms")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <PaymentReceiptSmsEditor template={receiptTemplates.find((item) => item.channel === "sms")} pending={saveReceiptTemplate.isPending} onSubmit={saveReceiptTemplate.mutate} siteId={siteId!} /> : null}</section> : null}</>}
-    {canViewFinancialAlerts ? <FinancialCollectionAlerts overview={financialOverviewQuery.data} canCollect={canCollect} onOpenInvoice={(invoiceId: number) => navigate(`/invoices?invoiceId=${invoiceId}`)} onCollect={(row: any) => navigate(`/collections?subscriberId=${row.subscriberId}&invoiceId=${row.invoiceId}`)} /> : null}
+    {owner && siteId ? <UnifiedMessagingPanel siteId={siteId} /> : null}\n    {canViewFinancialAlerts ? <FinancialCollectionAlerts overview={financialOverviewQuery.data} canCollect={canCollect} onOpenInvoice={(invoiceId: number) => navigate(`/invoices?invoiceId=${invoiceId}`)} onCollect={(row: any) => navigate(`/collections?subscriberId=${row.subscriberId}&invoiceId=${row.invoiceId}`)} /> : null}
     {owner && siteId ? <InvoiceSmsQueue rows={notificationsQuery.data ?? []} config={smsConfig} siteId={siteId} /> : null}
     {owner ? <PhoneNormalizationTool rows={phoneReviewQuery.data ?? []} pending={applyPhoneNormalization.isPending} onApply={(subscriberIds: number[]) => applyPhoneNormalization.mutate({ siteId: siteId!, subscriberIds })} /> : null}
     <InvoiceLog rows={notificationsQuery.data ?? []} canRetry={owner} pendingId={retryingNotificationId} onRetry={(id) => { setRetryingNotificationId(id); retryInvoiceNotification.mutate({ siteId: siteId!, notificationId: id }); }} />
