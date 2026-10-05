@@ -19,6 +19,7 @@ import { isActivePlatformAdmin } from "./platform-admin";
 import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReading } from "./powerhub-mobile-approve-runtime";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
+import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
@@ -402,7 +403,7 @@ async function sendPendingInvoiceSmsRuntime(
   return result;
 }
 
-export const powerhubRouter = router({
+export const powerhubRouter = router({\n  unifiedMessaging: powerhubUnifiedMessagingRouter,
   publicPackageCatalog: publicProcedure.query(async () => {
     const fallback = {
       currency: "ILS",
