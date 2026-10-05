@@ -1,4 +1,4 @@
-import { router, platformSupportProcedure } from "./_core/trpc";
+import { router, platformSupportProcedure, protectedProcedure } from "./_core/trpc";
 import { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
 import { TRPCError } from "@trpc/server";
@@ -14,6 +14,23 @@ const queueInput = z.object({
 });
 
 export const supportRouter = router({
+  archiveConversationForSelf: protectedProcedure
+    .input(z.object({ conversationId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { data: participant, error: participantError } = await supabaseAdmin()
+        .from("chat_participants")
+        .select("id")
+        .eq("conversation_id", input.conversationId)
+        .eq("user_id", ctx.user.id)
+        .is("left_at", null)
+        .maybeSingle();
+      if (participantError || !participant) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك حذف هذه المحادثة من قائمتك." });
+      const { error } = await supabaseAdmin().from("chat_participants").update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", participant.id).eq("user_id", ctx.user.id);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حذف المحادثة من قائمتك." });
+      return { success: true };
+    }),
+
+
   assertAccess: platformSupportProcedure.query(() => ({ allowed: true as const })),
 
   transitionConversation: platformSupportProcedure
