@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
+import { trpcClient } from "@/lib/trpcClient";
 import { listChatNotifications, subscribeToChatNotifications, subscribeToChatConversation } from "@/lib/chatReceipts";
 import { Loader2, MessageCircle, RefreshCw, Send, Settings2, ShieldAlert, UserRoundCheck } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -252,32 +253,26 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   async function refreshQueue() {
     if (!access.data?.allowed) return;
     setLoadingQueue(true);
-    const [queueResult, assignmentResult, userResult, categoryResult, tagResult] = await Promise.all([
-      supabase.rpc("chat_support_queue", {
-        p_status: filter.status || null,
-        p_priority: filter.priority || null,
-        p_category_code: filter.category || null,
-        p_assigned_user_id: null,
-        p_search: filter.search.trim() || null,
-        p_limit: 100,
-        p_offset: 0,
-      }),
-      supabase.from("chat_support_assignments").select("id,conversation_id,assigned_user_id,status"),
-      supabase.rpc("chat_support_users"),
-      supabase.from("chat_support_categories").select("code,name").eq("is_active", true).order("sort_order"),
-      supabase.from("chat_support_tags").select("id,name").eq("is_active", true).order("name"),
-    ]);
-    if (queueResult.error || assignmentResult.error || userResult.error || categoryResult.error || tagResult.error) {
+    const queueResult = await trpcClient.support.queueSnapshot.query({
+      status: filter.status || null,
+      priority: filter.priority || null,
+      category: filter.category || null,
+      assignedUserId: null,
+      search: filter.search.trim() || null,
+      limit: 100,
+      offset: 0,
+    }).catch((error: unknown) => ({ error }));
+    if (!queueResult || "error" in queueResult) {
       toast.error("تعذر تحميل طابور الدعم.");
       setLoadingQueue(false);
       return;
     }
-    const rows = (queueResult.data ?? []).map((row: any) => ({ ...row, id: Number(row.conversation_id) })) as Conversation[];
+    const rows = (queueResult.conversations ?? []).map((row: any) => ({ ...row, id: Number(row.conversation_id) })) as Conversation[];
     setConversations(rows);
-    setAssignments((assignmentResult.data ?? []) as Assignment[]);
-    setSupportUsers((userResult.data ?? []) as SupportUser[]);
-    setCategories((categoryResult.data ?? []) as Array<{ code: string; name: string }>);
-    setTags((tagResult.data ?? []) as Array<{ id: number; name: string }>);
+    setAssignments((queueResult.assignments ?? []) as Assignment[]);
+    setSupportUsers((queueResult.supportUsers ?? []) as SupportUser[]);
+    setCategories((queueResult.categories ?? []) as Array<{ code: string; name: string }>);
+    setTags((queueResult.tags ?? []) as Array<{ id: number; name: string }>);
     setLoadingQueue(false);
     if (adminControlsOpen) await loadAdminControls();
     if (selectedId === null && rows.length) setSelectedId(rows[0].id);
