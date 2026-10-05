@@ -503,7 +503,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
           <CardContent className="min-h-0 flex flex-1 flex-col overflow-hidden">{!selected && <div className="grid min-h-[520px] place-items-center text-muted-foreground">اختر محادثة من الطابور.</div>}{selected && <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
             <div className="rounded-xl border bg-muted/20 p-3">
               <div className="mb-2 text-xs font-bold">السجل الزمني للتذكرة</div>
-              <ScrollArea className="h-32"><div className="space-y-2 text-xs">
+              <div className="h-32 overflow-y-auto overscroll-contain"><div className="space-y-2 text-xs">
                 {timeline.map((event) => <div key={event.id} className="flex items-start gap-2 border-b pb-2 last:border-0">
                   <span className="font-medium">{event.event_type}</span>
                   <span className="text-muted-foreground">{event.actor_name || "النظام"}</span>
