@@ -46,7 +46,7 @@ export const powerhubUnifiedMessagingRouter = router({
       p_variables: input.variables, p_is_active: input.isActive, p_actor_user_id: ctx.user.id,
     });
     if (error) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر حفظ قالب المراسلة الموحدة." });
-    const id = Number((data as Array<{ id: number }> | null)?.[0]?.id ?? 0);
+    const id = Number(Array.isArray(data) ? (data as Array<{ id: number }>)[0]?.id ?? 0 : data ?? 0);
     if (!id) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد قاعدة البيانات معرف القالب." });
     await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "message_template", entityId: String(id), action: "upsert", afterData: { ...input, id } });
     return { id };
@@ -86,7 +86,7 @@ export const powerhubUnifiedMessagingRouter = router({
       p_audience: input.audience, p_trigger_config: input.triggerConfig, p_enabled: input.enabled, p_actor_user_id: ctx.user.id,
     });
     if (error) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر حفظ أتمتة المراسلة." });
-    const id = Number((data as Array<{ id: number }> | null)?.[0]?.id ?? 0);
+    const id = Number(Array.isArray(data) ? (data as Array<{ id: number }>)[0]?.id ?? 0 : data ?? 0);
     if (!id) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد قاعدة البيانات معرف الأتمتة." });
     await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "message_automation", entityId: String(id), action: "upsert", afterData: { ...input, id } });
     return { id };
