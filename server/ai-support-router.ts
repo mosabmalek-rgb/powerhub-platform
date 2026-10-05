@@ -60,6 +60,82 @@ function cleanForModel(value: string, max: number) {
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").slice(0, max);
 }
 
+type PackageCatalog = {
+  currency: string;
+  packages: Array<Record<string, unknown>>;
+  addons: Record<string, unknown>;
+  smsAddons: Array<Record<string, unknown>>;
+};
+
+function isPackageCatalogQuestion(question: string) {
+  return /(باقة|باقات|الأسعار|الاسعار|سعر|أسعار|تكلفة|خطة|خطط|package|plan|price|pricing)/i.test(question);
+}
+
+async function loadLivePackageCatalog(admin: ReturnType<typeof supabaseAdmin>): Promise<PackageCatalog | null> {
+  const { data, error } = await admin
+    .from("platform_settings")
+    .select("is_enabled,value")
+    .eq("setting_key", "subscription_package_catalog")
+    .maybeSingle();
+  if (error || !data?.is_enabled || !data.value || typeof data.value !== "object" || Array.isArray(data.value)) return null;
+  const value = data.value as Record<string, unknown>;
+  const packages = Array.isArray(value.packages)
+    ? value.packages.filter((item): item is Record<string, unknown> =>
+        Boolean(
+          item &&
+          typeof item === "object" &&
+          !Array.isArray(item) &&
+          item.active !== false &&
+          typeof item.name === "string" &&
+          typeof item.price === "number",
+        ),
+      )
+    : [];
+  if (!packages.length) return null;
+  return {
+    currency: typeof value.currency === "string" ? value.currency : "ILS",
+    packages,
+    addons: value.addons && typeof value.addons === "object" && !Array.isArray(value.addons) ? value.addons as Record<string, unknown> : {},
+    smsAddons: Array.isArray(value.smsAddons) ? value.smsAddons.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))) : [],
+  };
+}
+
+function buildPackageCatalogAnswer(catalog: PackageCatalog) {
+  const lines = catalog.packages.map((pkg) => {
+    const name = String(pkg.name ?? pkg.code ?? "");
+    const price = Number(pkg.price ?? 0);
+    const subscribers = Number(pkg.includedSubscribers ?? 0);
+    const messages = Number(pkg.includedMessages ?? 0);
+    const branches = Number(pkg.branches ?? 0);
+    return `• ${name}: ${price} ${catalog.currency} — ${subscribers} مشتركًا، ${messages} رسالة SMS، ${branches} فرع/فروع.`;
+  });
+  const addonLines = Object.values(catalog.addons)
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+    .map((item) => {
+      const name = String(item.name ?? "");
+      const price = Number(item.price ?? 0);
+      const quantity = item.quantity ? ` (${item.quantity})` : "";
+      return `• ${name}${quantity}: ${price} ${catalog.currency}.`;
+    });
+  const smsAddonLines = catalog.smsAddons.map((item) => {
+    const messages = Number(item.messages ?? 0);
+    const price = Number(item.price ?? 0);
+    return `• ${messages} رسالة SMS: ${price} ${catalog.currency}.`;
+  });
+  return [
+    "الباقات المتاحة حاليًا وفق الكتالوج التجاري المعتمد في PowerHub:",
+    ...lines,
+    addonLines.length ? "" : null,
+    addonLines.length ? "الإضافات المتاحة:" : null,
+    ...addonLines,
+    smsAddonLines.length ? "" : null,
+    smsAddonLines.length ? "حزم SMS الإضافية:" : null,
+    ...smsAddonLines,
+    "",
+    "الأسعار مأخوذة مباشرة من الكتالوج الحالي وقد تتغير عند تحديثه.",
+  ].filter((line): line is string => line !== null).join("\n");
+}
+
 function buildSystemPrompt() {
   return [
     "أنت مساعد الدعم الرسمي لمنصة PowerHub.",
@@ -77,6 +153,7 @@ async function callModel(input: {
   question: string;
   articles: Array<Record<string, unknown>>;
   accountContext: Record<string, unknown>;
+  packageCatalog: PackageCatalog | null;
 }): Promise<AiResult> {
   const cfg = gatewayConfig();
   const body = {
@@ -98,6 +175,7 @@ async function callModel(input: {
             score: a.score,
           })),
           accountContext: input.accountContext,
+          packageCatalog: input.packageCatalog,
           allowedDecisions: ["answer", "clarify", "handoff", "refuse"],
         }),
       }],
@@ -175,6 +253,7 @@ async function callBuiltInModel(input: {
   question: string;
   articles: Array<Record<string, unknown>>;
   accountContext: Record<string, unknown>;
+  packageCatalog: PackageCatalog | null;
 }): Promise<AiResult> {
   const result = await invokeLLM({
     messages: [
@@ -185,6 +264,7 @@ async function callBuiltInModel(input: {
           question: cleanForModel(input.question, 4000),
           knowledge: input.articles,
           accountContext: input.accountContext,
+          packageCatalog: input.packageCatalog,
           allowedDecisions: ["answer", "clarify", "handoff", "refuse"],
         }),
       },
@@ -336,6 +416,9 @@ export const aiSupportRouter = router({
       };
     } else {
       let context: Record<string, unknown> = {};
+      const packageCatalog = isPackageCatalogQuestion(input.question)
+        ? await loadLivePackageCatalog(admin)
+        : null;
       if (shouldLoadAccountContext(input.question, policy.articles)) {
         const { data, error: contextError } = await admin.rpc("chat_ai_get_account_context", {
           p_tenant_id: input.tenantId,
@@ -350,20 +433,32 @@ export const aiSupportRouter = router({
           context = (data ?? {}) as Record<string, unknown>;
         }
       }
-      try {
-        result = await callModel({
-          question: input.question,
-          articles: policy.articles,
-          accountContext: context,
-        });
-      } catch (error) {
-      try {
-        result = await callBuiltInModel({
-          question: input.question,
-          articles: policy.articles,
-          accountContext: context,
-        });
-      } catch (fallbackError) {
+      if (packageCatalog && packageCatalog.packages.length && isPackageCatalogQuestion(input.question)) {
+        result = {
+          decision: "answer",
+          answer: buildPackageCatalogAnswer(packageCatalog),
+          reason: "LIVE_PACKAGE_CATALOG",
+          summary: "تمت الإجابة من الكتالوج التجاري الحالي.",
+          category: "subscription",
+          priority: "normal",
+        };
+      } else {
+        try {
+          result = await callModel({
+            question: input.question,
+            articles: policy.articles,
+            accountContext: context,
+            packageCatalog,
+          });
+        } catch (error) {
+          try {
+            result = await callBuiltInModel({
+              question: input.question,
+              articles: policy.articles,
+              accountContext: context,
+              packageCatalog,
+            });
+          } catch (fallbackError) {
         const safeArticle = policy.articles[0];
         const safeAnswer = typeof safeArticle?.answer === "string" ? safeArticle.answer.trim() : "";
         if (safeAnswer && policy.decision === "continue") {
@@ -392,9 +487,11 @@ export const aiSupportRouter = router({
         p_error_code: `${error instanceof Error ? error.message : "AI_ERROR"};FALLBACK_${fallbackError instanceof Error ? fallbackError.message : "AI_ERROR"}`.slice(0, 160),
       });
       throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مباشرة بالدعم." });
+          }
         }
       }
-      }
+
+
     }
 
 
