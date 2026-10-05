@@ -165,6 +165,11 @@ export function AIChatBox({
     }
   };
 
+  useEffect(() => {
+    if (displayMessages.length === 0 && !isLoading) return;
+    requestAnimationFrame(() => scrollToBottom());
+  }, [messages.length, isLoading]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedInput = input.trim();
