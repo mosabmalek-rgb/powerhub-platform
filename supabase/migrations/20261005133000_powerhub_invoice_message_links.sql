@@ -279,6 +279,10 @@ begin
       raise exception 'INVOICE_OUT_OF_SCOPE' using errcode = 'P0001';
     end if;
 
+    -- Serialize all invoice-message preparation paths for this invoice. This
+    -- prevents concurrent manual/automatic queueing from minting two links.
+    perform pg_advisory_xact_lock(v_invoice.id);
+
     if v_invoice.status in ('draft', 'cancelled') then
       raise exception 'INVOICE_NOT_SENDABLE' using errcode = 'P0001';
     end if;
