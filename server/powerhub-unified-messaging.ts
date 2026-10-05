@@ -24,7 +24,7 @@ export const powerhubUnifiedMessagingRouter = router({
     channel: channelSchema.optional(),
     eventType: z.string().trim().max(100).optional(),
   })).query(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "manageMessaging");
     const { data, error } = await supabaseAdmin().rpc("powerhub_unified_messaging_templates", {
       p_tenant_id: access.tenantId, p_channel: input.channel ?? null, p_event_type: input.eventType ?? null,
     });
