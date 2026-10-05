@@ -307,13 +307,13 @@ export default function AiAssistantPage() {
                 const mine = message.sender_type === "human" && message.sender_user_id === user?.id;
                 return (
                   <div key={message.id} className={mine ? "flex justify-start" : "flex justify-end"}>
-                    <div className={mine ? "max-w-[82%] rounded-2xl bg-[#F5B800] px-4 py-3 text-[#0D1117]" : "max-w-[82%] rounded-2xl bg-white/[.06] px-4 py-3 text-slate-100"}>
+                    <div className={mine ? "max-w-[82%] rounded-2xl bg-[#F5B800] px-4 py-3 text-[#0D1117]" : "max-w-[82%] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 dark:border-white/10 dark:bg-white/[.06] dark:text-slate-100"}>
                       <div className="mb-1 flex items-center gap-1.5 text-[10px] opacity-70">
                         {mine ? <UserRound className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
                         <span>{mine ? "أنت" : message.sender_type === "assistant" ? "مساعد PowerHub" : "النظام"}</span>
                       </div>
-                      <p className="whitespace-pre-wrap text-sm leading-6">{message.body}</p>
-                      <p className="mt-1.5 text-[10px] opacity-60">
+                      <p className="whitespace-pre-wrap text-sm font-medium leading-6 text-slate-900 dark:text-slate-100">{message.body}</p>
+                      <p className="mt-1.5 text-[10px] text-slate-500 dark:text-slate-400">
                         {new Date(message.created_at).toLocaleTimeString("ar-PS", { hour: "2-digit", minute: "2-digit" })}
                       </p>
                     </div>
