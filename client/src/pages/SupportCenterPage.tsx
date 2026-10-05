@@ -270,6 +270,25 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [adminWorking, setAdminWorking] = useState(false);
   const [timeline, setTimeline] = useState<Array<{ id:number; event_type:string; actor_name:string|null; from_status:string|null; to_status:string|null; from_priority:string|null; to_priority:string|null; metadata:Record<string,unknown>; created_at:string }>>([]);
   const messageEndRef = useRef<HTMLDivElement>(null);
+  const messageViewportRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<AudioContext | null>(null);
+  const lastMessageIdRef = useRef<number | null>(null);
+
+  function playChatAlert() {
+    try {
+      const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = audioRef.current ?? new AudioCtx();
+      audioRef.current = ctx;
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.frequency.value = 880; gain.gain.value = 0.045;
+      osc.connect(gain); gain.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.12);
+    } catch { /* browser audio may require prior interaction */ }
+  }
+  function scrollMessagesToEnd(behavior: ScrollBehavior = "auto") {
+    const viewport = messageViewportRef.current;
+    if (viewport) viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+  }
 
   const selected = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) ?? null, [conversations, selectedId]);
   const selectedAssignment = useMemo(() => assignments.find((assignment) => assignment.conversation_id === selectedId && ["pending", "active"].includes(assignment.status)) ?? null, [assignments, selectedId]);
@@ -326,7 +345,12 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     const { data, error } = await supabase.from("chat_messages").select("id,conversation_id,sender_user_id,sender_type,message_type,body,visibility,created_at").eq("conversation_id", conversationId).order("created_at", { ascending: true });
     if (error) toast.error("تعذر تحميل الرسائل.");
     const loadedMessages = (data ?? []) as MessageRow[];
+    const previousLastId = lastMessageIdRef.current;
     setMessages(loadedMessages);
+    const newest = loadedMessages[loadedMessages.length - 1];
+    const hasNewIncoming = Boolean(newest && previousLastId !== null && newest.id !== previousLastId && newest.sender_user_id !== user?.id);
+    if (hasNewIncoming) playChatAlert();
+    lastMessageIdRef.current = newest?.id ?? null;
     const receiptEntries = await Promise.all(loadedMessages.map(async (message) => {
       if (message.sender_user_id !== user?.id && message.sender_type !== "human") return [message.id, "sent" as ReceiptState] as const;
       const rows = await listChatMessageReceipts(message.id).catch(() => []);
@@ -348,7 +372,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     const { data: timelineData } = await supabase.rpc("chat_ticket_timeline", { p_conversation_id: conversationId });
     setTimeline((timelineData ?? []) as typeof timeline);
     setLoadingMessages(false);
-    requestAnimationFrame(() => messageEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
+    if (previousLastId === null || hasNewIncoming) requestAnimationFrame(() => scrollMessagesToEnd("auto"));
   }
 
   async function saveAdminRpc(fn: string, args: Record<string, unknown>, success: string) {
@@ -460,16 +484,16 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
           <CardContent className="min-h-0 flex flex-1 flex-col overflow-hidden">{!selected && <div className="grid min-h-[520px] place-items-center text-muted-foreground">اختر محادثة من الطابور.</div>}{selected && <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
             <div className="rounded-xl border bg-muted/20 p-3">
               <div className="mb-2 text-xs font-bold">السجل الزمني للتذكرة</div>
-              <ScrollArea className="h-32"><div className="space-y-2 text-xs">
+              <div className="h-32 overflow-y-auto overscroll-contain"><div className="space-y-2 text-xs">
                 {timeline.map((event) => <div key={event.id} className="flex items-start gap-2 border-b pb-2 last:border-0">
                   <span className="font-medium">{event.event_type}</span>
                   <span className="text-muted-foreground">{event.actor_name || "النظام"}</span>
                   <span className="mr-auto text-muted-foreground">{new Date(event.created_at).toLocaleString("ar-PS")}</span>
                 </div>)}
                 {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
-              </div></ScrollArea>
+              </div></div>
             </div>
-            <ScrollArea className="min-h-0 flex-1 rounded-xl border p-4 overscroll-contain">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></ScrollArea>
+            <div ref={messageViewportRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></div>
             <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
         </div>
