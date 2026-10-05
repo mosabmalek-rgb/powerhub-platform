@@ -220,6 +220,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const { user } = useAuth({ redirectOnUnauthenticated: true });
   const supportOnly = user?.role === "admin" && user.platformRole === "platform_support";
   const access = trpc.support.assertAccess.useQuery(undefined, { retry: false });
+  const [filter, setFilter] = useState({ status: "", priority: "", category: "", search: "" });
   const supportQueue = trpc.support.queueSnapshot.useQuery({
     status: filter.status || null,
     priority: filter.priority || null,
@@ -240,7 +241,6 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [sending, setSending] = useState(false);
   const [working, setWorking] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
-  const [filter, setFilter] = useState({ status: "", priority: "", category: "", search: "" });
   const [categories, setCategories] = useState<Array<{ code: string; name: string }>>([]);
   const [internalNote, setInternalNote] = useState(false);
   const [tags, setTags] = useState<Array<{ id: number; name: string }>>([]);
@@ -273,15 +273,6 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     setSupportUsers((data.supportUsers ?? []) as SupportUser[]);
     setCategories((data.categories ?? []) as Array<{ code: string; name: string }>);
     setTags((data.tags ?? []) as Array<{ id: number; name: string }>);
-    setLoadingQueue(false);
-      return;
-    }
-    const rows = (queueResult.conversations ?? []).map((row: any) => ({ ...row, id: Number(row.conversation_id) })) as Conversation[];
-    setConversations(rows);
-    setAssignments((queueResult.assignments ?? []) as Assignment[]);
-    setSupportUsers((queueResult.supportUsers ?? []) as SupportUser[]);
-    setCategories((queueResult.categories ?? []) as Array<{ code: string; name: string }>);
-    setTags((queueResult.tags ?? []) as Array<{ id: number; name: string }>);
     setLoadingQueue(false);
     if (adminControlsOpen) await loadAdminControls();
     if (selectedId === null && rows.length) setSelectedId(rows[0].id);
