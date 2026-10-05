@@ -475,6 +475,17 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
           </CardContent></Card>
 
           <Card className="min-w-0 min-h-0 overflow-hidden lg:order-1"><CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>{selected?.subject || "اختر محادثة"}</CardTitle>{selected && <div className="mt-1 text-xs text-muted-foreground">#{selected.id} · {statusLabel(selected.status)}</div>}</div>{selected && <div className="flex flex-wrap gap-2">
+            <select className="h-9 rounded-md border bg-background px-2 text-sm" value={selected?.category_code ?? ""} onChange={async (event) => {
+              const categoryCode = event.target.value;
+              if (!selected || !categoryCode) return;
+              setWorking(true);
+              try {
+                await setConversationCategory.mutateAsync({ conversationId: selected.id, categoryCode });
+                await refreshQueue({ silent: true });
+              } catch (error: any) {
+                toast.error(error?.message || "تعذر تصنيف المحادثة.");
+              } finally { setWorking(false); }
+            }} disabled={working}><option value="">التصنيف</option>{categories.map((category) => <option key={category.code} value={category.code}>{category.name}</option>)}</select>
             <select className="h-9 rounded-md border bg-background px-2 text-sm" value={selectedAssignment?.assigned_user_id ?? ""} onChange={(event) => event.target.value && void assignConversation(Number(event.target.value))} disabled={working}><option value="">إسناد لموظف دعم</option>{supportUsers.map((supportUser) => <option key={supportUser.id} value={supportUser.id}>{supportUser.name} — {supportUser.platform_role}</option>)}</select>
             {selectedAssignment && <Button variant="outline" size="sm" onClick={() => void releaseConversation()} disabled={working}><UserRoundCheck className="ml-2 h-4 w-4" />تحرير الإسناد</Button>}
             {selected.status === "SUPPORT_ACTIVE" && <Button variant="outline" size="sm" onClick={() => void transition("WAITING_USER")} disabled={working}>انتظار المستخدم</Button>}
@@ -482,9 +493,9 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
             {(selected.status === "RESOLVED" || selected.status === "WAITING_USER") && <Button variant="outline" size="sm" onClick={() => void transition("SUPPORT_ACTIVE")} disabled={working}>إعادة فتح</Button>}
           </div>}</div></CardHeader>
           <CardContent className="min-h-0 flex flex-1 flex-col overflow-hidden">{!selected && <div className="grid min-h-[520px] place-items-center text-muted-foreground">اختر محادثة من الطابور.</div>}{selected && <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-            <div className="rounded-xl border bg-muted/20 p-3">
-              <div className="mb-2 text-xs font-bold">السجل الزمني للتذكرة</div>
-              <div className="h-32 overflow-y-auto overscroll-contain"><div className="space-y-2 text-xs">
+            <details className="shrink-0 rounded-xl border bg-muted/20">
+              <summary className="cursor-pointer px-3 py-2 text-xs font-bold">السجل الزمني للتذكرة ({timeline.length})</summary>
+              <div className="max-h-36 overflow-y-auto overscroll-contain px-3 pb-2"><div className="space-y-2 text-xs">
                 {timeline.map((event) => <div key={event.id} className="flex items-start gap-2 border-b pb-2 last:border-0">
                   <span className="font-medium">{event.event_type}</span>
                   <span className="text-muted-foreground">{event.actor_name || "النظام"}</span>
@@ -492,7 +503,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
                 </div>)}
                 {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
               </div></div>
-            </div>
+            </details>
             <div ref={messageViewportRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></div>
             <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
