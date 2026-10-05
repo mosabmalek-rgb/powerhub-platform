@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { listChatMessageReceipts, listChatNotifications, subscribeToChatNotifications, subscribeToChatConversation, type ChatReceipt } from "@/lib/chatReceipts";
 import { Check, CheckCheck, Loader2, MessageCircle, RefreshCw, Send, Settings2, ShieldAlert, Trash2, UserRoundCheck } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 type Conversation = {
@@ -263,6 +263,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [adminControls, setAdminControls] = useState<any | null>(null);
   const [adminWorking, setAdminWorking] = useState(false);
   const [timeline, setTimeline] = useState<Array<{ id:number; event_type:string; actor_name:string|null; from_status:string|null; to_status:string|null; from_priority:string|null; to_priority:string|null; metadata:Record<string,unknown>; created_at:string }>>([]);
+  const messageEndRef = useRef<HTMLDivElement>(null);
 
   const selected = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) ?? null, [conversations, selectedId]);
   const selectedAssignment = useMemo(() => assignments.find((assignment) => assignment.conversation_id === selectedId && ["pending", "active"].includes(assignment.status)) ?? null, [assignments, selectedId]);
@@ -331,6 +332,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     const { data: timelineData } = await supabase.rpc("chat_ticket_timeline", { p_conversation_id: conversationId });
     setTimeline((timelineData ?? []) as typeof timeline);
     setLoadingMessages(false);
+    requestAnimationFrame(() => messageEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
   }
 
   async function saveAdminRpc(fn: string, args: Record<string, unknown>, success: string) {
@@ -451,7 +453,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
                 {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
               </div></ScrollArea>
             </div>
-            <ScrollArea className="h-[430px] min-h-0 rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => <div key={message.id} className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "mx-auto bg-muted text-center text-foreground" : message.sender_user_id === selectedAssignment?.assigned_user_id ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-card text-card-foreground border border-border"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{message.sender_user_id === user?.id ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div>)}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}</ScrollArea>
+            <ScrollArea className="h-[430px] min-h-0 rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => <div key={message.id} className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "mx-auto bg-muted text-center text-foreground" : message.sender_user_id === selectedAssignment?.assigned_user_id ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-card text-card-foreground border border-border"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{message.sender_user_id === user?.id ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div>)}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></ScrollArea>
             <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
         </div>
