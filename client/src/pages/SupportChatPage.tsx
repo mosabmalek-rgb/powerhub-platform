@@ -68,6 +68,7 @@ export default function SupportChatPage() {
   const [input, setInput] = useState("");
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [sending, setSending] = useState(false);
   const [creating, setCreating] = useState(false);
   const [rating, setRating] = useState(0);
@@ -96,7 +97,7 @@ export default function SupportChatPage() {
   }
 
   async function loadMessages(conversationId: number) {
-    setLoadingMessages(true);
+    setLoadingMessages(!messagesLoaded || messages.length === 0);
     const { data, error } = await supabase
       .from("chat_messages")
       .select("id,conversation_id,sender_user_id,sender_type,message_type,body,created_at,client_message_id")
@@ -109,8 +110,9 @@ export default function SupportChatPage() {
     }
     const rows = (data ?? []) as MessageRow[];
     setMessages(rows);
+    setMessagesLoaded(true);
     setLoadingMessages(false);
-    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "auto" }));
 
     const incoming = rows.filter((row) => row.sender_user_id !== user?.id && row.sender_type === "human");
     if (incoming.length) {
@@ -132,8 +134,15 @@ export default function SupportChatPage() {
 
   useEffect(() => {
     if (selectedId === null) return;
+    setMessagesLoaded(false);
     void loadMessages(selectedId);
 
+    const timer = window.setInterval(() => { void loadMessages(selectedId); }, 5000);
+    return () => { window.clearInterval(timer); };
+  }, [selectedId, user?.id]);
+
+  useEffect(() => {
+    if (selectedId === null) return;
     return subscribeToChatConversation(selectedId, async (event) => {
       if (event.event === "chat_message") {
         const { data } = await supabase
@@ -258,8 +267,8 @@ export default function SupportChatPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-5" dir="rtl">
-        <header className="rounded-[24px] border border-white/8 bg-[#111823]/90 p-5 shadow-panel">
+      <div className="flex min-h-[calc(100vh-5.5rem)] flex-col gap-4 overflow-hidden" dir="rtl">
+        <header className="shrink-0 rounded-[24px] border border-white/8 bg-[#111823]/90 p-5 shadow-panel">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><MessageCircle className="h-4 w-4" />الدعم الذكي</div>
@@ -272,10 +281,10 @@ export default function SupportChatPage() {
           </div>
         </header>
 
-        <div className="grid min-h-[760px] gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
           <Card className="border-white/8 bg-[#111823] shadow-panel min-h-0 lg:order-2">
             <CardHeader><CardTitle className="text-white">محادثاتي</CardTitle></CardHeader>
-            <CardContent className="px-3 pb-3 max-h-[680px] overflow-y-auto">
+            <CardContent className="px-3 pb-3 min-h-0 overflow-y-auto">
               <div className="space-y-2">
                 {conversations.map((conversation) => (
                   <button key={conversation.id} type="button" onClick={() => setSelectedId(conversation.id)} className={`w-full rounded-xl border p-3 text-right transition ${selectedId === conversation.id ? "border-[#F5B800]/50 bg-[#F5B800]/10" : "border-white/6 bg-white/[.02] hover:bg-white/[.04]"}`}>
@@ -290,9 +299,9 @@ export default function SupportChatPage() {
 
           <Card className="min-w-0 border-white/8 bg-[#111823] shadow-panel lg:order-1">
             {!selected ? (
-              <CardContent className="grid h-full min-h-[620px] place-items-center p-8 text-center"><div><ShieldQuestion className="mx-auto h-10 w-10 text-[#F5B800]/70" /><h2 className="mt-4 text-xl font-extrabold text-white">اختر محادثة أو ابدأ محادثة دعم</h2><p className="mt-2 max-w-md text-sm leading-6 text-slate-400">ستظهر هنا الرسائل مع حالة الإرسال والتسليم والقراءة.</p></div></CardContent>
+              <CardContent className="grid h-full min-h-0 place-items-center p-8 text-center"><div><ShieldQuestion className="mx-auto h-10 w-10 text-[#F5B800]/70" /><h2 className="mt-4 text-xl font-extrabold text-white">اختر محادثة أو ابدأ محادثة دعم</h2><p className="mt-2 max-w-md text-sm leading-6 text-slate-400">ستظهر هنا الرسائل مع حالة الإرسال والتسليم والقراءة.</p></div></CardContent>
             ) : (
-              <div className="flex h-full min-h-[620px] flex-col">
+              <div className="flex h-full min-h-0 flex-col">
                 <CardHeader className="border-b border-white/7"><div className="flex items-center justify-between gap-3"><div><CardTitle className="text-white">{selected.subject || "محادثة دعم"}</CardTitle><p className="mt-2 text-xs text-slate-500">التذكرة: <span className="font-mono text-slate-300">{selected.ticket_number || "#" + selected.id}</span> · الحالة: {selected.status === "SUPPORT_PENDING" ? "بانتظار الدعم" : selected.status === "SUPPORT_ACTIVE" ? "نشطة" : selected.status === "WAITING_USER" ? "بانتظار ردك" : selected.status === "RESOLVED" ? "محلولة" : selected.status === "CLOSED" ? "مغلقة" : selected.status}</p>
                 {selected.first_response_due_at || selected.resolution_due_at ? <p className="mt-1 text-[11px] text-slate-500">أول استجابة: {selected.first_response_due_at ? formatTime(selected.first_response_due_at) : "—"} · موعد الحل: {selected.resolution_due_at ? formatTime(selected.resolution_due_at) : "—"}</p> : null}
                 {(selected.status === "RESOLVED" || selected.status === "CLOSED") ? <div className="mt-3 flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" onClick={() => void reopenConversation()}>إعادة فتح التذكرة</Button><span className="text-[11px] text-slate-500">يمكن إعادة الفتح ضمن نافذة المتابعة.</span></div> : null}</div><Badge className="bg-emerald-400/10 text-emerald-300">Private Chat</Badge></div></CardHeader>
