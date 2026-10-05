@@ -327,11 +327,12 @@ begin
 
   insert into public.powerhub_message_automations(
     tenant_id,site_id,template_id,name,event_type,send_type,schedule_type,
-    schedule_anchor_at,timezone,audience,enabled,created_by,updated_by
+    schedule_anchor_at,timezone,audience,trigger_config,enabled,created_by,updated_by
   ) values (
     p_tenant_id,p_site_id,p_template_id,trim(p_name),nullif(trim(p_event_type),''),
     p_send_type,p_schedule_type,p_schedule_anchor_at,coalesce(nullif(trim(p_timezone),''),'Asia/Gaza'),
-    coalesce(p_audience,'{}'::jsonb),coalesce(p_enabled,true),p_actor_user_id,p_actor_user_id
+    coalesce(p_audience,'{}'::jsonb),coalesce(p_trigger_config,'{}'::jsonb),
+    coalesce(p_enabled,true),p_actor_user_id,p_actor_user_id
   )
   on conflict (tenant_id, lower(name)) do update
     set site_id=excluded.site_id,template_id=excluded.template_id,event_type=excluded.event_type,
@@ -367,40 +368,58 @@ set search_path = public, pg_temp
 as $function$
 declare
   v_anchor timestamptz := coalesce(p_anchor_at, p_created_at);
-  v_candidate timestamptz;
+  v_created_local timestamp;
+  v_anchor_local timestamp;
+  v_candidate_local timestamp;
+  v_anchor_time interval;
   v_steps bigint;
   v_cycle_days integer;
   v_anchor_day integer;
-  v_month_start timestamptz;
-  v_next_month_start timestamptz;
+  v_anchor_dow integer;
+  v_month_start_local timestamp;
+  v_next_month_start_local timestamp;
   v_last_day integer;
 begin
   if p_mode = 'immediate' or p_anchor_at is null then return p_created_at; end if;
 
+  v_created_local := p_created_at at time zone 'Asia/Gaza';
+  v_anchor_local := p_anchor_at at time zone 'Asia/Gaza';
+  v_anchor_time := v_anchor_local - date_trunc('day', v_anchor_local);
+
   if p_mode = 'monthly' then
-    v_anchor_day := extract(day from v_anchor)::integer;
-    v_month_start := date_trunc('month', v_anchor);
+    v_anchor_day := extract(day from v_anchor_local)::integer;
+    v_month_start_local := date_trunc('month', v_anchor_local);
     loop
-      v_next_month_start := v_month_start + interval '1 month';
-      v_last_day := extract(day from (v_next_month_start - interval '1 day'))::integer;
-      v_candidate := v_month_start
+      v_next_month_start_local := v_month_start_local + interval '1 month';
+      v_last_day := extract(day from (v_next_month_start_local - interval '1 day'))::integer;
+      v_candidate_local := v_month_start_local
         + make_interval(days => least(v_anchor_day, v_last_day) - 1)
-        + (v_anchor - date_trunc('day', v_anchor));
-      exit when v_candidate >= p_created_at;
-      v_month_start := v_next_month_start;
+        + v_anchor_time;
+      exit when v_candidate_local >= v_created_local;
+      v_month_start_local := v_next_month_start_local;
     end loop;
-    return v_candidate;
+    return v_candidate_local at time zone 'Asia/Gaza';
   end if;
 
-  if p_mode = 'weekly' then v_cycle_days := 7;
-  elsif p_mode = 'every_10_days' then v_cycle_days := 10;
+  if p_mode = 'weekly' then
+    v_anchor_dow := extract(dow from v_anchor_local)::integer;
+    v_candidate_local := date_trunc('day', v_created_local)
+      + make_interval(days => mod(v_anchor_dow - extract(dow from v_created_local)::integer + 7, 7))
+      + v_anchor_time;
+    if v_candidate_local < v_created_local then
+      v_candidate_local := v_candidate_local + interval '7 days';
+    end if;
+    return v_candidate_local at time zone 'Asia/Gaza';
+  end if;
+
+  if p_mode = 'every_10_days' then v_cycle_days := 10;
   elsif p_mode = 'every_15_days' then v_cycle_days := 15;
   else return p_created_at;
   end if;
 
-  v_steps := greatest(0, ceil(extract(epoch from (p_created_at - v_anchor)) / (v_cycle_days * 86400))::bigint);
-  v_candidate := v_anchor + make_interval(days => (v_steps * v_cycle_days)::integer);
-  return greatest(v_candidate, p_created_at);
+  v_steps := greatest(0, ceil(extract(epoch from (v_created_local - v_anchor_local)) / 86400 / v_cycle_days)::bigint);
+  v_candidate_local := v_anchor_local + make_interval(days => (v_steps * v_cycle_days)::integer);
+  return v_candidate_local at time zone 'Asia/Gaza';
 end;
 $function$;
 
