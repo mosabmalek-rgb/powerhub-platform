@@ -270,6 +270,25 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [adminWorking, setAdminWorking] = useState(false);
   const [timeline, setTimeline] = useState<Array<{ id:number; event_type:string; actor_name:string|null; from_status:string|null; to_status:string|null; from_priority:string|null; to_priority:string|null; metadata:Record<string,unknown>; created_at:string }>>([]);
   const messageEndRef = useRef<HTMLDivElement>(null);
+  const messageViewportRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<AudioContext | null>(null);
+  const lastMessageIdRef = useRef<number | null>(null);
+
+  function playChatAlert() {
+    try {
+      const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = audioRef.current ?? new AudioCtx();
+      audioRef.current = ctx;
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.frequency.value = 880; gain.gain.value = 0.045;
+      osc.connect(gain); gain.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.12);
+    } catch { /* browser audio may require prior interaction */ }
+  }
+  function scrollMessagesToEnd(behavior: ScrollBehavior = "auto") {
+    const viewport = messageViewportRef.current;
+    if (viewport) viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+  }
 
   const selected = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) ?? null, [conversations, selectedId]);
   const selectedAssignment = useMemo(() => assignments.find((assignment) => assignment.conversation_id === selectedId && ["pending", "active"].includes(assignment.status)) ?? null, [assignments, selectedId]);
@@ -467,9 +486,9 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
                   <span className="mr-auto text-muted-foreground">{new Date(event.created_at).toLocaleString("ar-PS")}</span>
                 </div>)}
                 {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
-              </div></ScrollArea>
+              </div></div>
             </div>
-            <ScrollArea className="min-h-0 flex-1 rounded-xl border p-4 overscroll-contain">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></ScrollArea>
+            <div ref={messageViewportRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></ScrollArea>
             <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
         </div>
