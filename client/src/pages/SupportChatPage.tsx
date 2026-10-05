@@ -50,9 +50,9 @@ function messageReceipt(receipts: Array<{ delivered_at: string | null; read_at: 
 }
 
 function ReceiptMark({ state }: { state: ReceiptState }) {
-  if (state === "read") return <span className="inline-flex items-center text-sky-300" title="تمت القراءة"><CheckCheck className="h-3.5 w-3.5" /></span>;
-  if (state === "delivered") return <span className="inline-flex items-center text-slate-300" title="تم التسليم"><CheckCheck className="h-3.5 w-3.5" /></span>;
-  return <span className="inline-flex items-center text-slate-400" title="تم الإرسال"><Check className="h-3.5 w-3.5" /></span>;
+  if (state === "read") return <span className="inline-flex items-center text-sky-100 drop-shadow-[0_0_2px_rgba(14,165,233,0.95)]" title="تمت القراءة"><CheckCheck className="h-3.5 w-3.5" /></span>;
+  if (state === "delivered") return <span className="inline-flex items-center text-white drop-shadow-[0_0_2px_rgba(0,0,0,0.9)]" title="تم التسليم"><CheckCheck className="h-3.5 w-3.5" /></span>;
+  return <span className="inline-flex items-center text-slate-200" title="تم الإرسال"><Check className="h-3.5 w-3.5" /></span>;
 }
 
 function formatTime(value: string) {
@@ -269,7 +269,7 @@ export default function SupportChatPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex min-h-[calc(100vh-5.5rem)] flex-col gap-4 overflow-hidden" dir="rtl">
+      <div className="flex h-[calc(100dvh-5.5rem)] min-h-0 flex-col gap-4 overflow-hidden overscroll-none" dir="rtl">
         <header className="shrink-0 rounded-[24px] border border-white/8 bg-[#111823]/90 p-5 shadow-panel">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -286,7 +286,7 @@ export default function SupportChatPage() {
         <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
           <Card className="border-white/8 bg-[#111823] shadow-panel min-h-0 lg:order-2">
             <CardHeader><CardTitle className="text-white">محادثاتي</CardTitle></CardHeader>
-            <CardContent className="px-3 pb-3 min-h-0 overflow-y-auto">
+            <CardContent className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 overscroll-contain">
               <div className="space-y-2">
                 {conversations.map((conversation) => (
                   <button key={conversation.id} type="button" onClick={() => setSelectedId(conversation.id)} className={`w-full rounded-xl border p-3 text-right transition ${selectedId === conversation.id ? "border-[#F5B800]/50 bg-[#F5B800]/10" : "border-white/6 bg-white/[.02] hover:bg-white/[.04]"}`}>
@@ -299,7 +299,7 @@ export default function SupportChatPage() {
             </CardContent>
           </Card>
 
-          <Card className="min-w-0 border-white/8 bg-[#111823] shadow-panel lg:order-1">
+          <Card className="min-w-0 min-h-0 overflow-hidden border-white/8 bg-[#111823] shadow-panel lg:order-1">
             {!selected ? (
               <CardContent className="grid h-full min-h-0 place-items-center p-8 text-center"><div><ShieldQuestion className="mx-auto h-10 w-10 text-[#F5B800]/70" /><h2 className="mt-4 text-xl font-extrabold text-white">اختر محادثة أو ابدأ محادثة دعم</h2><p className="mt-2 max-w-md text-sm leading-6 text-slate-400">ستظهر هنا الرسائل مع حالة الإرسال والتسليم والقراءة.</p></div></CardContent>
             ) : (
@@ -307,7 +307,7 @@ export default function SupportChatPage() {
                 <CardHeader className="border-b border-white/7"><div className="flex items-center justify-between gap-3"><div><CardTitle className="text-white">{selected.subject || "محادثة دعم"}</CardTitle><p className="mt-2 text-xs text-slate-500">التذكرة: <span className="font-mono text-slate-300">{selected.ticket_number || "#" + selected.id}</span> · الحالة: {selected.status === "SUPPORT_PENDING" ? "بانتظار الدعم" : selected.status === "SUPPORT_ACTIVE" ? "نشطة" : selected.status === "WAITING_USER" ? "بانتظار ردك" : selected.status === "RESOLVED" ? "محلولة" : selected.status === "CLOSED" ? "مغلقة" : selected.status}</p>
                 {selected.first_response_due_at || selected.resolution_due_at ? <p className="mt-1 text-[11px] text-slate-500">أول استجابة: {selected.first_response_due_at ? formatTime(selected.first_response_due_at) : "—"} · موعد الحل: {selected.resolution_due_at ? formatTime(selected.resolution_due_at) : "—"}</p> : null}
                 {(selected.status === "RESOLVED" || selected.status === "CLOSED") ? <div className="mt-3 flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" onClick={() => void reopenConversation()}>إعادة فتح التذكرة</Button><span className="text-[11px] text-slate-500">يمكن إعادة الفتح ضمن نافذة المتابعة.</span></div> : null}</div><Badge className="bg-emerald-400/10 text-emerald-300">Private Chat</Badge></div></CardHeader>
-                <ScrollArea className="flex-1 px-4 py-5"><div className="mx-auto flex max-w-3xl flex-col gap-4">
+                <ScrollArea className="min-h-0 flex-1 px-4 py-5 overscroll-contain"><div className="mx-auto flex max-w-3xl flex-col gap-4">
                   {loadingMessages ? <div className="grid min-h-[420px] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-[#F5B800]" /></div> : messages.map((message) => {
                     const mine = message.sender_user_id === user?.id;
                     const state = receipts[message.id] ?? "sent";
