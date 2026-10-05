@@ -441,64 +441,59 @@ export const aiSupportRouter = router({
           p_actor_user_id: actorUserId,
         });
         if (contextError) {
-          // Account context is optional model augmentation. Authorization has
-          // already succeeded above; never expose private data when this
-          // enrichment is unavailable, but keep safe knowledge answers usable.
           context = {};
         } else {
           context = (data ?? {}) as Record<string, unknown>;
         }
       }
-      {
+
+      try {
+        result = await callModel({
+          question: input.question,
+          articles: policy.articles,
+          accountContext: context,
+          packageCatalog,
+        });
+      } catch (error) {
         try {
-          result = await callModel({
+          result = await callBuiltInModel({
             question: input.question,
             articles: policy.articles,
             accountContext: context,
             packageCatalog,
           });
-        } catch (error) {
-          try {
-            result = await callBuiltInModel({
-              question: input.question,
-              articles: policy.articles,
-              accountContext: context,
-              packageCatalog,
+        } catch (fallbackError) {
+          const safeArticle = policy.articles[0];
+          const safeAnswer = typeof safeArticle?.answer === "string" ? safeArticle.answer.trim() : "";
+          if (safeAnswer && policy.decision === "continue") {
+            result = {
+              decision: "answer",
+              answer: safeAnswer,
+              reason: "SAFE_KNOWLEDGE_FALLBACK",
+              summary: "تمت الإجابة من قاعدة المعرفة المنشورة بعد تعذر الوصول إلى مزود النموذج.",
+              category: String(safeArticle.category ?? "other"),
+              priority: "normal",
+            };
+          } else {
+            await admin.rpc("chat_ai_record_run", {
+              p_request_id: requestId,
+              p_conversation_id: input.conversationId,
+              p_tenant_id: input.tenantId,
+              p_user_id: ctx.user.id,
+              p_question_preview: input.question,
+              p_question_hash: hashSha256(input.question),
+              p_decision: "error",
+              p_model: String(settings.model ?? cfgModelFallback()),
+              p_top_retrieval_score: topScore,
+              p_retrieved_article_ids: normalizedArticles.map(a => Number(a.article_id)).filter(Number.isFinite),
+              p_handoff_id: null,
+              p_latency_ms: Date.now() - started,
+              p_error_code: `${error instanceof Error ? error.message : "AI_ERROR"};FALLBACK_${fallbackError instanceof Error ? fallbackError.message : "AI_ERROR"}`.slice(0, 160),
             });
-          } catch (fallbackError) {
-        const safeArticle = policy.articles[0];
-        const safeAnswer = typeof safeArticle?.answer === "string" ? safeArticle.answer.trim() : "";
-        if (safeAnswer && policy.decision === "continue") {
-          result = {
-            decision: "answer",
-            answer: safeAnswer,
-            reason: "SAFE_KNOWLEDGE_FALLBACK",
-            summary: "تمت الإجابة من قاعدة المعرفة المنشورة بعد تعذر الوصول إلى مزود النموذج.",
-            category: String(safeArticle.category ?? "other"),
-            priority: "normal",
-          };
-        } else {
-      await admin.rpc("chat_ai_record_run", {
-        p_request_id: requestId,
-        p_conversation_id: input.conversationId,
-        p_tenant_id: input.tenantId,
-        p_user_id: ctx.user.id,
-        p_question_preview: input.question,
-        p_question_hash: hashSha256(input.question),
-        p_decision: "error",
-        p_model: String(settings.model ?? cfgModelFallback()),
-        p_top_retrieval_score: topScore,
-        p_retrieved_article_ids: normalizedArticles.map(a => Number(a.article_id)).filter(Number.isFinite),
-        p_handoff_id: null,
-        p_latency_ms: Date.now() - started,
-        p_error_code: `${error instanceof Error ? error.message : "AI_ERROR"};FALLBACK_${fallbackError instanceof Error ? fallbackError.message : "AI_ERROR"}`.slice(0, 160),
-      });
-      throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مباشرة بالدعم." });
+            throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر الحصول على رد آمن من المساعد. يمكنك التواصل مباشرة بالدعم." });
           }
         }
       }
-
-
     }
 
 
