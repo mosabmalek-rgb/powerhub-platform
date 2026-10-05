@@ -131,10 +131,19 @@ export default function AiAssistantPage() {
   }
 
   useEffect(() => {
-    // The assistant conversation is created lazily on the first question.
-    // The page itself must render without waiting for a conversation.
-    if (isAuthenticated) setLoadingConversation(false);
-  }, [isAuthenticated]);
+    if (!isAuthenticated || !user) {
+      setLoadingConversation(false);
+      return;
+    }
+    void ensureConversation();
+  }, [isAuthenticated, user?.id]);
+
+  useEffect(() => {
+    if (!sortedMessages.length) return;
+    requestAnimationFrame(() => {
+      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+  }, [sortedMessages.length]);
 
   useEffect(() => {
     if (!conversation?.id) return;
@@ -235,6 +244,7 @@ export default function AiAssistantPage() {
       if (result.decision === "handoff") {
         toast.info("تم تحويل الطلب إلى فريق الدعم.");
       }
+      await loadMessages(activeConversation.id);
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "تعذر الحصول على رد من المساعد.";
       if (messageText.includes("غير مفعّل")) {
