@@ -352,3 +352,53 @@ grant execute on function public.powerhub_unified_messaging_templates(bigint,tex
 grant execute on function public.powerhub_unified_messaging_upsert_template(bigint,text,text,text,text,text,jsonb,boolean,bigint) to service_role;
 grant execute on function public.powerhub_unified_messaging_automations(bigint,bigint) to service_role;
 grant execute on function public.powerhub_unified_messaging_upsert_automation(bigint,bigint,bigint,text,text,text,text,timestamptz,text,jsonb,jsonb,boolean,bigint) to service_role;
+
+-- Calendar-aware cycle calculation: weekly uses the weekday/time of the anchor;
+-- monthly uses the day-of-month/time and clamps 29/30/31 to the last valid day.
+create or replace function public.powerhub_invoice_sms_next_schedule(
+  p_created_at timestamptz,
+  p_mode text,
+  p_anchor_at timestamptz
+)
+returns timestamptz
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $function$
+declare
+  v_anchor timestamptz := coalesce(p_anchor_at, p_created_at);
+  v_candidate timestamptz;
+  v_elapsed bigint;
+  v_steps bigint;
+  v_day integer;
+  v_month_start timestamptz;
+  v_next_month_start timestamptz;
+  v_last_day integer;
+begin
+  if p_mode = 'immediate' or p_anchor_at is null then return p_created_at; end if;
+  if p_mode = 'monthly' then
+    v_day := extract(day from v_anchor)::integer;
+    v_month_start := date_trunc('month', v_anchor);
+    loop
+      v_next_month_start := v_month_start + interval '1 month';
+      v_last_day := extract(day from (v_next_month_start - interval '1 day'))::integer;
+      v_candidate := (v_month_start + make_interval(days => least(v_day, v_last_day) - 1))
+        + (v_anchor - date_trunc('day', v_anchor));
+      exit when v_candidate >= p_created_at;
+      v_month_start := v_next_month_start;
+    end loop;
+    return v_candidate;
+  end if;
+  v_elapsed := greatest(0, floor(extract(epoch from (p_created_at - v_anchor)) / 86400));
+  if p_mode = 'weekly' then v_steps := ceil(v_elapsed / 7.0)::bigint;
+  elsif p_mode = 'every_10_days' then v_steps := ceil(v_elapsed / 10.0)::bigint;
+  elsif p_mode = 'every_15_days' then v_steps := ceil(v_elapsed / 15.0)::bigint;
+  else return p_created_at;
+  end if;
+  v_candidate := v_anchor + make_interval(days => (v_steps * case when p_mode = 'weekly' then 7 when p_mode = 'every_10_days' then 10 else 15 end)::int);
+  return greatest(v_candidate, p_created_at);
+end;
+$function$;
+
+grant execute on function public.powerhub_invoice_sms_next_schedule(timestamptz,text,timestamptz) to service_role;
+revoke execute on function public.powerhub_invoice_sms_next_schedule(timestamptz,text,timestamptz) from public,anon,authenticated;
