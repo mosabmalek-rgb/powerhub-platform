@@ -327,6 +327,16 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
       return [message.id, messageReceiptState(rows)] as const;
     }));
     setReceipts(Object.fromEntries(receiptEntries));
+    const incoming = loadedMessages.filter((message) => message.sender_type === "human" && message.sender_user_id !== user?.id);
+    if (incoming.length) {
+      const latest = incoming[incoming.length - 1];
+      try {
+        await supabase.rpc("chat_mark_delivered", { p_message_id: latest.id });
+        await supabase.rpc("chat_mark_read", { p_message_id: latest.id });
+      } catch {
+        // Receipt updates remain best-effort.
+      }
+    }
     const { data: currentTags } = await supabase.from("chat_conversation_tags").select("tag_id").eq("conversation_id", conversationId);
     setTagIds((currentTags ?? []).map((row: any) => Number(row.tag_id)));
     const { data: timelineData } = await supabase.rpc("chat_ticket_timeline", { p_conversation_id: conversationId });
