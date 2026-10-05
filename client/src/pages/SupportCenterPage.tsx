@@ -8,7 +8,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
-import { trpcClient } from "@/lib/trpcClient";
 import { listChatNotifications, subscribeToChatNotifications, subscribeToChatConversation } from "@/lib/chatReceipts";
 import { Loader2, MessageCircle, RefreshCw, Send, Settings2, ShieldAlert, UserRoundCheck } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -221,6 +220,15 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const { user } = useAuth({ redirectOnUnauthenticated: true });
   const supportOnly = user?.role === "admin" && user.platformRole === "platform_support";
   const access = trpc.support.assertAccess.useQuery(undefined, { retry: false });
+  const supportQueue = trpc.support.queueSnapshot.useQuery({
+    status: filter.status || null,
+    priority: filter.priority || null,
+    category: filter.category || null,
+    assignedUserId: null,
+    search: filter.search.trim() || null,
+    limit: 100,
+    offset: 0,
+  }, { enabled: access.data?.allowed === true, retry: false });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [supportUsers, setSupportUsers] = useState<SupportUser[]>([]);
@@ -253,18 +261,19 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   async function refreshQueue() {
     if (!access.data?.allowed) return;
     setLoadingQueue(true);
-    const queueResult = await trpcClient.support.queueSnapshot.query({
-      status: filter.status || null,
-      priority: filter.priority || null,
-      category: filter.category || null,
-      assignedUserId: null,
-      search: filter.search.trim() || null,
-      limit: 100,
-      offset: 0,
-    }).catch((error: unknown) => ({ error }));
-    if (!queueResult || "error" in queueResult) {
-      toast.error("تعذر تحميل طابور الدعم.");
+    const { data, error } = await supportQueue.refetch();
+    if (error || !data) {
+      toast.error(error?.message || "تعذر تحميل طابور الدعم.");
       setLoadingQueue(false);
+      return;
+    }
+    const rows = (data.conversations ?? []).map((row: any) => ({ ...row, id: Number(row.conversation_id) })) as Conversation[];
+    setConversations(rows);
+    setAssignments((data.assignments ?? []) as Assignment[]);
+    setSupportUsers((data.supportUsers ?? []) as SupportUser[]);
+    setCategories((data.categories ?? []) as Array<{ code: string; name: string }>);
+    setTags((data.tags ?? []) as Array<{ id: number; name: string }>);
+    setLoadingQueue(false);
       return;
     }
     const rows = (queueResult.conversations ?? []).map((row: any) => ({ ...row, id: Number(row.conversation_id) })) as Conversation[];
