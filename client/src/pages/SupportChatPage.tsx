@@ -118,12 +118,14 @@ export default function SupportChatPage() {
     if (incoming.length) {
       const latest = incoming[incoming.length - 1];
       try {
+        await markChatMessageDelivered(latest.id);
+        await markChatMessageRead(latest.id);
         await supabase.rpc("chat_mark_read_up_to", {
           p_conversation_id: conversationId,
           p_message_id: latest.id,
         });
       } catch {
-        // Read state is best-effort for UI; access control remains server-side.
+        // Receipt updates remain best-effort; access control remains server-side.
       }
     }
   }
