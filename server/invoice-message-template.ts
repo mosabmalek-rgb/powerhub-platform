@@ -10,5 +10,5 @@ export const defaultInvoiceMessageTemplates: Record<InvoiceNotificationChannel, 
 export type InvoiceTemplateData = Record<(typeof invoiceTemplateVariables)[number], string>;
 
 export function renderInvoiceMessageTemplate(template: string, values: InvoiceTemplateData) {
-  return template.replace(/{{\s*(subscriber_name|invoice_no|billing_period|total_amount|due_date)\s*}}/g, (_, key: keyof InvoiceTemplateData) => values[key] ?? "");
+  return template.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|due_date|invoice_link|portal_link)\s*}}/g, (_, key: keyof InvoiceTemplateData) => values[key] ?? "");
 }
