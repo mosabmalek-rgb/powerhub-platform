@@ -24,6 +24,12 @@ type Conversation = {
   created_at: string;
   ticket_number?: string | null;
   category_code?: string | null;
+  tenant_name?: string | null;
+  requester_name?: string | null;
+  requester_email?: string | null;
+  subscription_package_code?: string | null;
+  subscription_package_name?: string | null;
+  subscription_ends_at?: string | null;
   category_name?: string | null;
   assigned_user_id?: number | null;
   assigned_user_name?: string | null;
