@@ -71,6 +71,13 @@ function isPackageCatalogQuestion(question: string) {
   return /(باقة|باقات|الأسعار|الاسعار|سعر|أسعار|تكلفة|خطة|خطط|package|plan|price|pricing)/i.test(question);
 }
 
+const VALID_SUPPORT_CATEGORIES = new Set(["technical", "account", "subscription", "billing", "sms", "field_app", "security", "other"]);
+
+function normalizeSupportCategory(value: unknown) {
+  const category = typeof value === "string" ? value.trim() : "";
+  return VALID_SUPPORT_CATEGORIES.has(category) ? category : "other";
+}
+
 async function loadLivePackageCatalog(admin: ReturnType<typeof supabaseAdmin>): Promise<PackageCatalog | null> {
   const { data, error } = await admin
     .from("platform_settings")
@@ -392,12 +399,24 @@ export const aiSupportRouter = router({
 
     const normalizedArticles = (articles ?? []) as Array<Record<string, unknown>>;
     const topScore = normalizedArticles.length ? Number(normalizedArticles[0].score ?? 0) : 0;
+    const packageCatalog = isPackageCatalogQuestion(input.question)
+      ? await loadLivePackageCatalog(admin)
+      : null;
     const policy = evaluateAiPolicy(input.question, normalizedArticles, Number(settings.min_retrieval_score ?? 0.05));
 
     let result: AiResult;
     let handoffTrigger: "unknown" | "insufficient_knowledge" | "sensitive" | "user_requested" | "repeated_failure" = "unknown";
 
-    if (policy.decision === "handoff") {
+    if (packageCatalog && packageCatalog.packages.length && isPackageCatalogQuestion(input.question)) {
+      result = {
+        decision: "answer",
+        answer: buildPackageCatalogAnswer(packageCatalog),
+        reason: "LIVE_PACKAGE_CATALOG",
+        summary: "تمت الإجابة من الكتالوج التجاري الحالي.",
+        category: "subscription",
+        priority: "normal",
+      };
+    } else if (policy.decision === "handoff") {
       const sensitive = isSensitiveMutationRequest(input.question);
       handoffTrigger = sensitive
         ? "sensitive"
@@ -416,9 +435,6 @@ export const aiSupportRouter = router({
       };
     } else {
       let context: Record<string, unknown> = {};
-      const packageCatalog = isPackageCatalogQuestion(input.question)
-        ? await loadLivePackageCatalog(admin)
-        : null;
       if (shouldLoadAccountContext(input.question, policy.articles)) {
         const { data, error: contextError } = await admin.rpc("chat_ai_get_account_context", {
           p_tenant_id: input.tenantId,
@@ -433,16 +449,7 @@ export const aiSupportRouter = router({
           context = (data ?? {}) as Record<string, unknown>;
         }
       }
-      if (packageCatalog && packageCatalog.packages.length && isPackageCatalogQuestion(input.question)) {
-        result = {
-          decision: "answer",
-          answer: buildPackageCatalogAnswer(packageCatalog),
-          reason: "LIVE_PACKAGE_CATALOG",
-          summary: "تمت الإجابة من الكتالوج التجاري الحالي.",
-          category: "subscription",
-          priority: "normal",
-        };
-      } else {
+      {
         try {
           result = await callModel({
             question: input.question,
@@ -543,7 +550,7 @@ export const aiSupportRouter = router({
       p_trigger: handoffTrigger,
       p_reason: result.reason || "لم يتم العثور على إجابة موثوقة.",
       p_summary: result.summary || "تم تحويل السؤال من مساعد PowerHub إلى الدعم.",
-      p_category: result.category || "other",
+      p_category: normalizeSupportCategory(result.category),
       p_priority: result.priority || "normal",
       p_current_page: input.currentPage ?? null,
     });
