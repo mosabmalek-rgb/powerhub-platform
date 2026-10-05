@@ -295,7 +295,7 @@ create or replace function public.powerhub_unified_messaging_upsert_automation(
   p_schedule_anchor_at timestamptz,
   p_timezone text,
   p_audience jsonb,
-  p_trigger_config jsonb default '{}'::jsonb,
+  p_trigger_config jsonb,
   p_enabled boolean,
   p_actor_user_id bigint
 )
