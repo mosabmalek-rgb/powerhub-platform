@@ -61,7 +61,7 @@ export const powerhubUnifiedMessagingRouter = router({
       templateId: Number(row.template_id), templateName: row.template_name, name: row.name, eventType: row.event_type,
       sendType: row.send_type, scheduleType: row.schedule_type,
       scheduleAnchorAt: row.schedule_anchor_at ? new Date(row.schedule_anchor_at) : null,
-      timezone: row.timezone, audience: row.audience ?? {}, enabled: Boolean(row.enabled),
+      timezone: row.timezone, audience: row.audience ?? {}, triggerConfig: row.trigger_config ?? {}, enabled: Boolean(row.enabled),
       createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
     }));
   }),
@@ -73,6 +73,7 @@ export const powerhubUnifiedMessagingRouter = router({
     sendType: sendTypeSchema, scheduleType: scheduleTypeSchema.default("none"),
     scheduleAnchorAt: z.date().optional(), timezone: z.string().trim().min(1).max(80).default("Asia/Gaza"),
     audience: z.object({ subscriberIds: z.array(z.number().int().positive()).max(5000).optional(), serviceStatus: z.enum(["active", "suspended", "disconnected"]).optional(), tags: z.array(z.string().trim().max(80)).max(50).optional() }).default({}),
+    triggerConfig: z.object({ afterDueDays: z.number().int().min(0).max(90).optional(), minBalance: z.number().min(0).optional() }).default({}),
     enabled: z.boolean().default(true),
   })).mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
