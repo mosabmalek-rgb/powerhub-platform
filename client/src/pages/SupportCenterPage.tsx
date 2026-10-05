@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
-import { listChatNotifications, subscribeToChatNotifications, subscribeToChatConversation } from "@/lib/chatReceipts";
+import { listChatMessageReceipts, listChatNotifications, subscribeToChatNotifications, subscribeToChatConversation, type ChatReceipt } from "@/lib/chatReceipts";
 import { Check, CheckCheck, Loader2, MessageCircle, RefreshCw, Send, Settings2, ShieldAlert, Trash2, UserRoundCheck } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -51,6 +51,17 @@ type Assignment = {
 };
 
 type SupportUser = { id: number; name: string; email: string; platform_role: string };
+type ReceiptState = "sent" | "delivered" | "read";
+function messageReceiptState(rows: ChatReceipt[]): ReceiptState {
+  if (rows.some((row) => row.read_at)) return "read";
+  if (rows.some((row) => row.delivered_at)) return "delivered";
+  return "sent";
+}
+function ReceiptMark({ state }: { state: ReceiptState }) {
+  if (state === "read") return <span className="inline-flex items-center text-sky-500" title="تمت القراءة"><CheckCheck className="h-3.5 w-3.5" /></span>;
+  if (state === "delivered") return <span className="inline-flex items-center text-muted-foreground" title="تم التسليم"><CheckCheck className="h-3.5 w-3.5" /></span>;
+  return <span className="inline-flex items-center text-muted-foreground" title="أُرسلت"><Check className="h-3.5 w-3.5" /></span>;
+}
 
 const priorityLabels: Record<string, string> = { low: "منخفض", normal: "عادي", high: "مرتفع", urgent: "عاجل" };
 
@@ -237,6 +248,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const deleteConversations = trpc.support.deleteConversations.useMutation();
   const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [receipts, setReceipts] = useState<Record<number, ReceiptState>>({});
   const [input, setInput] = useState("");
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -306,7 +318,14 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     setLoadingMessages(true);
     const { data, error } = await supabase.from("chat_messages").select("id,conversation_id,sender_user_id,sender_type,message_type,body,visibility,created_at").eq("conversation_id", conversationId).order("created_at", { ascending: true });
     if (error) toast.error("تعذر تحميل الرسائل.");
-    setMessages((data ?? []) as MessageRow[]);
+    const loadedMessages = (data ?? []) as MessageRow[];
+    setMessages(loadedMessages);
+    const receiptEntries = await Promise.all(loadedMessages.map(async (message) => {
+      if (message.sender_user_id !== user?.id && message.sender_type !== "human") return [message.id, "sent" as ReceiptState] as const;
+      const rows = await listChatMessageReceipts(message.id).catch(() => []);
+      return [message.id, messageReceiptState(rows)] as const;
+    }));
+    setReceipts(Object.fromEntries(receiptEntries));
     const { data: currentTags } = await supabase.from("chat_conversation_tags").select("tag_id").eq("conversation_id", conversationId);
     setTagIds((currentTags ?? []).map((row: any) => Number(row.tag_id)));
     const { data: timelineData } = await supabase.rpc("chat_ticket_timeline", { p_conversation_id: conversationId });
@@ -379,7 +398,16 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   useEffect(() => {
     if (!selectedId) return;
     void loadMessages(selectedId);
-    return subscribeToChatConversation(selectedId, () => void loadMessages(selectedId));
+    const unsubscribe = subscribeToChatConversation(selectedId, async (event) => {
+      if (event.event === "chat_receipt") {
+        const rows = await listChatMessageReceipts(event.message_id).catch(() => []);
+        setReceipts((current) => ({ ...current, [event.message_id]: messageReceiptState(rows) }));
+      } else {
+        await loadMessages(selectedId);
+      }
+    });
+    const timer = window.setInterval(() => { void loadMessages(selectedId); }, 3000);
+    return () => { unsubscribe(); window.clearInterval(timer); };
   }, [selectedId]);
 
   if (access.isLoading) return <div className="grid min-h-[55vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin" /></div>;
@@ -423,7 +451,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
                 {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
               </div></ScrollArea>
             </div>
-            <ScrollArea className="h-[430px] min-h-0 rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => <div key={message.id} className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "mx-auto bg-muted text-center text-foreground" : message.sender_user_id === selectedAssignment?.assigned_user_id ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-card text-card-foreground border border-border"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{message.sender_user_id === selectedAssignment?.assigned_user_id && <span title="حالة الرسالة"><CheckCheck className="h-3.5 w-3.5" /></span>}</div></div>)}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}</ScrollArea>
+            <ScrollArea className="h-[430px] min-h-0 rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => <div key={message.id} className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "mx-auto bg-muted text-center text-foreground" : message.sender_user_id === selectedAssignment?.assigned_user_id ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-card text-card-foreground border border-border"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{message.sender_user_id === user?.id ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div>)}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}</ScrollArea>
             <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
         </div>
