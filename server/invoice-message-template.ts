@@ -10,5 +10,8 @@ export const defaultInvoiceMessageTemplates: Record<InvoiceNotificationChannel, 
 export type InvoiceTemplateData = Record<(typeof invoiceTemplateVariables)[number], string>;
 
 export function renderInvoiceMessageTemplate(template: string, values: InvoiceTemplateData) {
-  return template.replace(/{{\s*([a-z_]+)\s*}}/g, (_, key: string) => Object.prototype.hasOwnProperty.call(values, key) ? values[key as keyof InvoiceTemplateData] ?? "" : "");
+  return invoiceTemplateVariables.reduce(
+    (message, key) => message.replace(new RegExp("\\{\\{\\s*" + key + "\\s*\\}\\}", "g"), values[key] ?? ""),
+    template,
+  );
 }
