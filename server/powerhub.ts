@@ -403,7 +403,8 @@ async function sendPendingInvoiceSmsRuntime(
   return result;
 }
 
-export const powerhubRouter = router({\n  unifiedMessaging: powerhubUnifiedMessagingRouter,
+export const powerhubRouter = router({
+  unifiedMessaging: powerhubUnifiedMessagingRouter,
   publicPackageCatalog: publicProcedure.query(async () => {
     const fallback = {
       currency: "ILS",
