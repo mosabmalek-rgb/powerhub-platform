@@ -16,6 +16,30 @@ const queueInput = z.object({
 export const supportRouter = router({
   assertAccess: platformSupportProcedure.query(() => ({ allowed: true as const })),
 
+  transitionConversation: platformSupportProcedure
+    .input(z.object({ conversationId: z.number().int().positive(), nextStatus: z.string().min(1).max(40) }))
+    .mutation(async ({ ctx, input }) => {
+      const { data, error } = await supabaseAdmin().rpc("chat_admin_transition_conversation", {
+        p_conversation_id: input.conversationId,
+        p_next_status: input.nextStatus,
+        p_actor_user_id: ctx.user.id,
+      });
+      if (error) throw new TRPCError({ code: "BAD_REQUEST", message: error.message || "تعذر تغيير حالة المحادثة." });
+      return data;
+    }),
+
+  setConversationCategory: platformSupportProcedure
+    .input(z.object({ conversationId: z.number().int().positive(), categoryCode: z.string().trim().min(1).max(60) }))
+    .mutation(async ({ ctx, input }) => {
+      const { data, error } = await supabaseAdmin().rpc("chat_admin_set_conversation_category", {
+        p_conversation_id: input.conversationId,
+        p_category_code: input.categoryCode,
+        p_actor_user_id: ctx.user.id,
+      });
+      if (error) throw new TRPCError({ code: "BAD_REQUEST", message: error.message || "تعذر تصنيف المحادثة." });
+      return data;
+    }),
+
   deleteConversations: platformSupportProcedure
     .input(z.object({ conversationIds: z.array(z.number().int().positive()).min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
