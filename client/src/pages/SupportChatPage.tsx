@@ -171,10 +171,11 @@ export default function SupportChatPage() {
         const list = await listChatMessageReceipts(message.id).catch(() => []);
         result[message.id] = messageReceipt(list);
       }
-      if (!cancelled) setReceipts(result);
+      if (!cancelled) setReceipts((current) => ({ ...current, ...result }));
     }
     if (messages.length) void hydrateReceipts();
-    return () => { cancelled = true; };
+    const timer = window.setInterval(() => { if (messages.length) void hydrateReceipts(); }, 3000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, [messages, user?.id]);
 
   async function createConversation() {
@@ -271,10 +272,10 @@ export default function SupportChatPage() {
           </div>
         </header>
 
-        <div className="grid min-h-[650px] gap-4 lg:grid-cols-[300px_1fr]">
-          <Card className="border-white/8 bg-[#111823] shadow-panel lg:order-1">
+        <div className="grid min-h-[760px] gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
+          <Card className="border-white/8 bg-[#111823] shadow-panel min-h-0 lg:order-2">
             <CardHeader><CardTitle className="text-white">محادثاتي</CardTitle></CardHeader>
-            <CardContent className="px-3 pb-3">
+            <CardContent className="px-3 pb-3 max-h-[680px] overflow-y-auto">
               <div className="space-y-2">
                 {conversations.map((conversation) => (
                   <button key={conversation.id} type="button" onClick={() => setSelectedId(conversation.id)} className={`w-full rounded-xl border p-3 text-right transition ${selectedId === conversation.id ? "border-[#F5B800]/50 bg-[#F5B800]/10" : "border-white/6 bg-white/[.02] hover:bg-white/[.04]"}`}>
@@ -287,7 +288,7 @@ export default function SupportChatPage() {
             </CardContent>
           </Card>
 
-          <Card className="min-w-0 border-white/8 bg-[#111823] shadow-panel lg:order-2">
+          <Card className="min-w-0 border-white/8 bg-[#111823] shadow-panel lg:order-1">
             {!selected ? (
               <CardContent className="grid h-full min-h-[620px] place-items-center p-8 text-center"><div><ShieldQuestion className="mx-auto h-10 w-10 text-[#F5B800]/70" /><h2 className="mt-4 text-xl font-extrabold text-white">اختر محادثة أو ابدأ محادثة دعم</h2><p className="mt-2 max-w-md text-sm leading-6 text-slate-400">ستظهر هنا الرسائل مع حالة الإرسال والتسليم والقراءة.</p></div></CardContent>
             ) : (
@@ -299,7 +300,7 @@ export default function SupportChatPage() {
                   {loadingMessages ? <div className="grid min-h-[420px] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-[#F5B800]" /></div> : messages.map((message) => {
                     const mine = message.sender_user_id === user?.id;
                     const state = receipts[message.id] ?? "sent";
-                    return <div key={message.id} className={`flex ${mine ? "justify-start" : "justify-end"}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 ${mine ? "bg-[#F5B800] text-[#0D1117]" : "bg-white/[.06] text-slate-100"}`}><p className="whitespace-pre-wrap text-sm leading-6">{message.body}</p><div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-[#0D1117]/65" : "text-slate-500"}`}><span>{formatTime(message.created_at)}</span>{mine ? <ReceiptMark state={state} /> : null}</div></div></div>;
+                    return <div key={message.id} className={`flex ${mine ? "justify-start" : "justify-end"}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 ${mine ? "bg-[#F5B800] text-[#0D1117]" : "bg-slate-800 text-slate-100"}`}><p className="whitespace-pre-wrap text-sm leading-6">{message.body}</p><div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-[#0D1117]/65" : "text-slate-500"}`}><span>{formatTime(message.created_at)}</span>{mine ? <ReceiptMark state={state} /> : null}</div></div></div>;
                   })}
                   <div ref={endRef} />
                 </div></ScrollArea>

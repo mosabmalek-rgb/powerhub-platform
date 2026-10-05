@@ -165,6 +165,11 @@ export function AIChatBox({
     }
   };
 
+  useEffect(() => {
+    if (displayMessages.length === 0 && !isLoading) return;
+    requestAnimationFrame(() => scrollToBottom());
+  }, [messages.length, isLoading]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedInput = input.trim();
@@ -261,11 +266,11 @@ export function AIChatBox({
                       )}
                     >
                       {message.role === "assistant" ? (
-                        <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <div className="prose prose-sm max-w-none text-card-foreground [&_p]:text-card-foreground [&_li]:text-card-foreground [&_strong]:text-card-foreground [&_a]:text-primary [&_code]:text-card-foreground">
                           <Streamdown>{message.content}</Streamdown>
                         </div>
                       ) : (
-                        <p className="whitespace-pre-wrap text-sm">
+                        <p className="whitespace-pre-wrap text-sm leading-6 text-current">
                           {message.content}
                         </p>
                       )}
