@@ -220,6 +220,16 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const { user } = useAuth({ redirectOnUnauthenticated: true });
   const supportOnly = user?.role === "admin" && user.platformRole === "platform_support";
   const access = trpc.support.assertAccess.useQuery(undefined, { retry: false });
+  const [filter, setFilter] = useState({ status: "", priority: "", category: "", search: "" });
+  const supportQueue = trpc.support.queueSnapshot.useQuery({
+    status: filter.status || null,
+    priority: filter.priority || null,
+    category: filter.category || null,
+    assignedUserId: null,
+    search: filter.search.trim() || null,
+    limit: 100,
+    offset: 0,
+  }, { enabled: access.data?.allowed === true, retry: false });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [supportUsers, setSupportUsers] = useState<SupportUser[]>([]);
@@ -231,7 +241,6 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [sending, setSending] = useState(false);
   const [working, setWorking] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
-  const [filter, setFilter] = useState({ status: "", priority: "", category: "", search: "" });
   const [categories, setCategories] = useState<Array<{ code: string; name: string }>>([]);
   const [internalNote, setInternalNote] = useState(false);
   const [tags, setTags] = useState<Array<{ id: number; name: string }>>([]);
@@ -252,32 +261,18 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   async function refreshQueue() {
     if (!access.data?.allowed) return;
     setLoadingQueue(true);
-    const [queueResult, assignmentResult, userResult, categoryResult, tagResult] = await Promise.all([
-      supabase.rpc("chat_support_queue", {
-        p_status: filter.status || null,
-        p_priority: filter.priority || null,
-        p_category_code: filter.category || null,
-        p_assigned_user_id: null,
-        p_search: filter.search.trim() || null,
-        p_limit: 100,
-        p_offset: 0,
-      }),
-      supabase.from("chat_support_assignments").select("id,conversation_id,assigned_user_id,status"),
-      supabase.rpc("chat_support_users"),
-      supabase.from("chat_support_categories").select("code,name").eq("is_active", true).order("sort_order"),
-      supabase.from("chat_support_tags").select("id,name").eq("is_active", true).order("name"),
-    ]);
-    if (queueResult.error || assignmentResult.error || userResult.error || categoryResult.error || tagResult.error) {
-      toast.error("تعذر تحميل طابور الدعم.");
+    const { data, error } = await supportQueue.refetch();
+    if (error || !data) {
+      toast.error(error?.message || "تعذر تحميل طابور الدعم.");
       setLoadingQueue(false);
       return;
     }
-    const rows = (queueResult.data ?? []).map((row: any) => ({ ...row, id: Number(row.conversation_id) })) as Conversation[];
+    const rows = (data.conversations ?? []).map((row: any) => ({ ...row, id: Number(row.conversation_id) })) as Conversation[];
     setConversations(rows);
-    setAssignments((assignmentResult.data ?? []) as Assignment[]);
-    setSupportUsers((userResult.data ?? []) as SupportUser[]);
-    setCategories((categoryResult.data ?? []) as Array<{ code: string; name: string }>);
-    setTags((tagResult.data ?? []) as Array<{ id: number; name: string }>);
+    setAssignments((data.assignments ?? []) as Assignment[]);
+    setSupportUsers((data.supportUsers ?? []) as SupportUser[]);
+    setCategories((data.categories ?? []) as Array<{ code: string; name: string }>);
+    setTags((data.tags ?? []) as Array<{ id: number; name: string }>);
     setLoadingQueue(false);
     if (adminControlsOpen) await loadAdminControls();
     if (selectedId === null && rows.length) setSelectedId(rows[0].id);
