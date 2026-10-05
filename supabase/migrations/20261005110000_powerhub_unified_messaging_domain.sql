@@ -368,34 +368,38 @@ as $function$
 declare
   v_anchor timestamptz := coalesce(p_anchor_at, p_created_at);
   v_candidate timestamptz;
-  v_elapsed bigint;
   v_steps bigint;
-  v_day integer;
+  v_cycle_days integer;
+  v_anchor_day integer;
   v_month_start timestamptz;
   v_next_month_start timestamptz;
   v_last_day integer;
 begin
   if p_mode = 'immediate' or p_anchor_at is null then return p_created_at; end if;
+
   if p_mode = 'monthly' then
-    v_day := extract(day from v_anchor)::integer;
+    v_anchor_day := extract(day from v_anchor)::integer;
     v_month_start := date_trunc('month', v_anchor);
     loop
       v_next_month_start := v_month_start + interval '1 month';
       v_last_day := extract(day from (v_next_month_start - interval '1 day'))::integer;
-      v_candidate := (v_month_start + make_interval(days => least(v_day, v_last_day) - 1))
+      v_candidate := v_month_start
+        + make_interval(days => least(v_anchor_day, v_last_day) - 1)
         + (v_anchor - date_trunc('day', v_anchor));
       exit when v_candidate >= p_created_at;
       v_month_start := v_next_month_start;
     end loop;
     return v_candidate;
   end if;
-  v_elapsed := greatest(0, floor(extract(epoch from (p_created_at - v_anchor)) / 86400));
-  if p_mode = 'weekly' then v_steps := ceil(v_elapsed / 7.0)::bigint;
-  elsif p_mode = 'every_10_days' then v_steps := ceil(v_elapsed / 10.0)::bigint;
-  elsif p_mode = 'every_15_days' then v_steps := ceil(v_elapsed / 15.0)::bigint;
+
+  if p_mode = 'weekly' then v_cycle_days := 7;
+  elsif p_mode = 'every_10_days' then v_cycle_days := 10;
+  elsif p_mode = 'every_15_days' then v_cycle_days := 15;
   else return p_created_at;
   end if;
-  v_candidate := v_anchor + make_interval(days => (v_steps * case when p_mode = 'weekly' then 7 when p_mode = 'every_10_days' then 10 else 15 end)::int);
+
+  v_steps := greatest(0, ceil(extract(epoch from (p_created_at - v_anchor)) / (v_cycle_days * 86400))::bigint);
+  v_candidate := v_anchor + make_interval(days => (v_steps * v_cycle_days)::integer);
   return greatest(v_candidate, p_created_at);
 end;
 $function$;
