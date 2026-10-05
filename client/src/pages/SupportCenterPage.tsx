@@ -273,9 +273,6 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const messageViewportRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const lastMessageIdRef = useRef<number | null>(null);
-  const messageViewportRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<AudioContext | null>(null);
-  const lastMessageIdRef = useRef<number | null>(null);
 
   function playChatAlert() {
     try {
