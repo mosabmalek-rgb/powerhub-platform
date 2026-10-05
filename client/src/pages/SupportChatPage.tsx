@@ -166,7 +166,7 @@ export default function SupportChatPage() {
     if (selectedId === null) return;
     setMessagesLoaded(false);
     void loadMessages(selectedId, { initial: true });
-    const timer = window.setInterval(() => { void loadMessages(selectedId); }, 5000);
+    const timer = window.setInterval(() => { void loadMessages(selectedId, { silent: true }); }, 5000);
     return () => { window.clearInterval(timer); };
   }, [selectedId, user?.id]);
 
