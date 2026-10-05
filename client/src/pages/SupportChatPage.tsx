@@ -75,6 +75,9 @@ export default function SupportChatPage() {
   const [feedbackComment, setFeedbackComment] = useState("");
   const [ratingSaving, setRatingSaving] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const messageViewportRef = useRef<HTMLDivElement>(null);
+  const lastMessageIdRef = useRef<number | null>(null);
+  const audioRef = useRef<AudioContext | null>(null);
 
   const selected = useMemo(() => conversations.find((row) => row.id === selectedId) ?? null, [conversations, selectedId]);
 
@@ -96,8 +99,29 @@ export default function SupportChatPage() {
     if (selectFirst && rows.length && selectedId === null) setSelectedId(rows[0].id);
   }
 
-  async function loadMessages(conversationId: number) {
-    setLoadingMessages(!messagesLoaded || messages.length === 0);
+  function playChatAlert() {
+    try {
+      const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = audioRef.current ?? new AudioCtx();
+      audioRef.current = ctx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 880;
+      gain.gain.value = 0.045;
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.12);
+    } catch { /* browser audio may require prior interaction */ }
+  }
+
+  function scrollMessagesToEnd(behavior: ScrollBehavior = "auto") {
+    const viewport = messageViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+  }
+
+  async function loadMessages(conversationId: number, options: { initial?: boolean } = {}) {
+    if (options.initial || !messagesLoaded || messages.length === 0) setLoadingMessages(true);
     const { data, error } = await supabase
       .from("chat_messages")
       .select("id,conversation_id,sender_user_id,sender_type,message_type,body,created_at,client_message_id")
@@ -109,10 +133,14 @@ export default function SupportChatPage() {
       return;
     }
     const rows = (data ?? []) as MessageRow[];
+    const previousLastId = lastMessageIdRef.current;
     setMessages(rows);
     setMessagesLoaded(true);
+    const newest = rows[rows.length - 1];
+    if (newest && previousLastId !== null && newest.id !== previousLastId && newest.sender_user_id !== user?.id) playChatAlert();
+    lastMessageIdRef.current = newest?.id ?? null;
     setLoadingMessages(false);
-    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "auto" }));
+    requestAnimationFrame(() => scrollMessagesToEnd("auto"));
 
     const incoming = rows.filter((row) => row.sender_user_id !== user?.id && row.sender_type === "human");
     if (incoming.length) {
@@ -137,8 +165,7 @@ export default function SupportChatPage() {
   useEffect(() => {
     if (selectedId === null) return;
     setMessagesLoaded(false);
-    void loadMessages(selectedId);
-
+    void loadMessages(selectedId, { initial: true });
     const timer = window.setInterval(() => { void loadMessages(selectedId); }, 5000);
     return () => { window.clearInterval(timer); };
   }, [selectedId, user?.id]);
@@ -163,7 +190,8 @@ export default function SupportChatPage() {
               // Receipt updates are best-effort; message access remains RLS-protected.
             }
           }
-          requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+          if (row.sender_user_id !== user?.id) playChatAlert();
+          requestAnimationFrame(() => scrollMessagesToEnd("smooth"));
         }
       }
       if (event.event === "chat_receipt" && event.user_id !== user?.id) {
@@ -260,7 +288,7 @@ export default function SupportChatPage() {
     const row = data as MessageRow;
     setMessages((current) => current.some((item) => item.id === row.id) ? current : [...current, row]);
     setInput("");
-    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+    requestAnimationFrame(() => scrollMessagesToEnd("smooth"));
   }
 
   if (loading || loadingConversations) {
@@ -307,14 +335,14 @@ export default function SupportChatPage() {
                 <CardHeader className="border-b border-white/7"><div className="flex items-center justify-between gap-3"><div><CardTitle className="text-white">{selected.subject || "محادثة دعم"}</CardTitle><p className="mt-2 text-xs text-slate-500">التذكرة: <span className="font-mono text-slate-300">{selected.ticket_number || "#" + selected.id}</span> · الحالة: {selected.status === "SUPPORT_PENDING" ? "بانتظار الدعم" : selected.status === "SUPPORT_ACTIVE" ? "نشطة" : selected.status === "WAITING_USER" ? "بانتظار ردك" : selected.status === "RESOLVED" ? "محلولة" : selected.status === "CLOSED" ? "مغلقة" : selected.status}</p>
                 {selected.first_response_due_at || selected.resolution_due_at ? <p className="mt-1 text-[11px] text-slate-500">أول استجابة: {selected.first_response_due_at ? formatTime(selected.first_response_due_at) : "—"} · موعد الحل: {selected.resolution_due_at ? formatTime(selected.resolution_due_at) : "—"}</p> : null}
                 {(selected.status === "RESOLVED" || selected.status === "CLOSED") ? <div className="mt-3 flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" onClick={() => void reopenConversation()}>إعادة فتح التذكرة</Button><span className="text-[11px] text-slate-500">يمكن إعادة الفتح ضمن نافذة المتابعة.</span></div> : null}</div><Badge className="bg-emerald-400/10 text-emerald-300">Private Chat</Badge></div></CardHeader>
-                <ScrollArea className="min-h-0 flex-1 px-4 py-5 overscroll-contain"><div className="mx-auto flex max-w-3xl flex-col gap-4">
+                <div ref={messageViewportRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5"><div className="mx-auto flex max-w-3xl flex-col gap-4">
                   {loadingMessages ? <div className="grid min-h-[420px] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-[#F5B800]" /></div> : messages.map((message) => {
                     const mine = message.sender_user_id === user?.id;
                     const state = receipts[message.id] ?? "sent";
                     return <div key={message.id} className={`flex ${mine ? "justify-start" : "justify-end"}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 ${mine ? "bg-[#F5B800] text-[#0D1117]" : "bg-slate-800 text-slate-100"}`}><p className="whitespace-pre-wrap text-sm leading-6">{message.body}</p><div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-[#0D1117]/65" : "text-slate-500"}`}><span>{formatTime(message.created_at)}</span>{mine ? <ReceiptMark state={state} /> : null}</div></div></div>;
                   })}
                   <div ref={endRef} />
-                </div></ScrollArea>
+                </div></div>
                 {selected.status === "RESOLVED" || selected.status === "CLOSED" ? <div className="border-t border-white/7 bg-white/[.015] p-4"><div className="mx-auto max-w-3xl"><div className="flex items-center gap-2"><Star className="h-4 w-4 text-[#F5B800]" /><span className="text-sm font-bold text-white">كيف كانت تجربة الدعم؟</span></div><div className="mt-2 flex gap-1">{[1,2,3,4,5].map((value) => <button key={value} type="button" onClick={() => setRating(value)} aria-label={`تقييم ${value} من 5`} className={`rounded-md p-1 ${rating >= value ? "text-[#F5B800]" : "text-slate-600"}`}><Star className="h-5 w-5 fill-current" /></button>)}</div><Textarea value={feedbackComment} onChange={(e) => setFeedbackComment(e.target.value)} placeholder="ملاحظة اختيارية..." className="mt-2 min-h-16 border-white/10 bg-white/[.03] text-white" /><Button className="mt-2" size="sm" onClick={() => void rateConversation()} disabled={rating < 1 || ratingSaving}>{ratingSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}حفظ التقييم</Button></div></div> : null}
                 <div className="border-t border-white/7 p-4"><div className="mx-auto flex max-w-3xl items-end gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="اكتب رسالتك…" className="min-h-12 resize-none border-white/10 bg-white/[.03] text-white" rows={1} /><Button type="button" size="icon" onClick={() => void sendMessage()} disabled={!input.trim() || sending} className="h-12 w-12 shrink-0 bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div><p className="mx-auto mt-2 max-w-3xl text-[11px] text-slate-500">✓ أُرسلت · ✓✓ تم التسليم · ✓✓ تمت القراءة</p></div>
               </div>
