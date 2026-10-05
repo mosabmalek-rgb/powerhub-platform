@@ -6,6 +6,14 @@ const sendType = z.enum(["manual","automatic","scheduled"]);
 const scheduleType = z.enum(["none","one_time","weekly","every_10_days","every_15_days","monthly","custom"]);
 
 describe("unified messaging contract", () => {
+  it("renders subscriber and portal tokens independently", () => {
+    const message = renderInvoiceMessageTemplate("{{subscriber_no}} {{portal_link}}", {
+      subscriber_name: "أحمد", subscriber_no: "SUB-1", invoice_no: "INV-1", billing_period: "سبتمبر",
+      total_amount: "100", due_date: "10 أكتوبر", invoice_link: "https://powerhub.example/i/token",
+      portal_link: "https://powerhub.example/portal?g=1",
+    });
+    expect(message).toBe("SUB-1 https://powerhub.example/portal?g=1");
+  });
   it("supports the three delivery modes", () => {
     expect(sendType.options).toEqual(["manual","automatic","scheduled"]);
   });
