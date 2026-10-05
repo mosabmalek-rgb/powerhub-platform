@@ -313,14 +313,14 @@ export default function SupportChatPage() {
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
           <Card className="border-white/8 bg-[#111823] shadow-panel min-h-0 lg:order-2">
-            <CardHeader><CardTitle className="text-white">محادثاتي</CardTitle></CardHeader>
+            <CardHeader className="py-3"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base text-white">محادثاتي</CardTitle>{selectedConversationIds.length ? <Button size="sm" variant="destructive" onClick={async()=>{for(const id of selectedConversationIds) await archiveConversationForSelf.mutateAsync({conversationId:id}); setSelectedConversationIds([]); await loadConversations(false); if(selectedId && selectedConversationIds.includes(selectedId)) setSelectedId(null);}}>حذف من قائمتي</Button> : null}</div></CardHeader>
             <CardContent className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 overscroll-contain">
               <div className="space-y-2">
                 {conversations.map((conversation) => (
-                  <button key={conversation.id} type="button" onClick={() => setSelectedId(conversation.id)} className={`w-full rounded-xl border p-3 text-right transition ${selectedId === conversation.id ? "border-[#F5B800]/50 bg-[#F5B800]/10" : "border-white/6 bg-white/[.02] hover:bg-white/[.04]"}`}>
+                  <div key={conversation.id} className="flex items-center gap-2"><input type="checkbox" checked={selectedConversationIds.includes(conversation.id)} onChange={(event) => { event.stopPropagation(); setSelectedConversationIds((current) => event.target.checked ? [...current, conversation.id] : current.filter((id) => id !== conversation.id)); }} aria-label="تحديد المحادثة" /><button type="button" onClick={() => setSelectedId(conversation.id)} className={`w-full rounded-xl border p-3 text-right transition ${selectedId === conversation.id ? "border-[#F5B800]/50 bg-[#F5B800]/10" : "border-white/6 bg-white/[.02] hover:bg-white/[.04]"}`}>
                     <div className="flex items-center justify-between gap-2"><span className="truncate font-bold text-white">{conversation.subject || "محادثة دعم"}</span><Badge className="bg-white/5 text-slate-300">{conversation.status === "SUPPORT_PENDING" ? "بانتظار الدعم" : conversation.status === "SUPPORT_ACTIVE" ? "نشطة" : conversation.status}</Badge></div>
                     <p className="mt-1 text-xs text-slate-500">{conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleString("ar-PS") : "لا رسائل بعد"}</p>
-                  </button>
+                  </button></div>
                 ))}
                 {!conversations.length ? <div className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">لا توجد محادثات دعم بعد.</div> : null}
               </div>
