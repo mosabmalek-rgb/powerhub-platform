@@ -290,22 +290,6 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     if (viewport) viewport.scrollTo({ top: viewport.scrollHeight, behavior });
   }
 
-  function playChatAlert() {
-    try {
-      const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = audioRef.current ?? new AudioCtx();
-      audioRef.current = ctx;
-      const osc = ctx.createOscillator(); const gain = ctx.createGain();
-      osc.frequency.value = 880; gain.gain.value = 0.045;
-      osc.connect(gain); gain.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.12);
-    } catch { /* browser may block audio until interaction */ }
-  }
-  function scrollMessagesToEnd(behavior: ScrollBehavior = "auto") {
-    const viewport = messageViewportRef.current;
-    if (viewport) viewport.scrollTo({ top: viewport.scrollHeight, behavior });
-  }
-
   const selected = useMemo(() => conversations.find((conversation) => conversation.id === selectedId) ?? null, [conversations, selectedId]);
   const selectedAssignment = useMemo(() => assignments.find((assignment) => assignment.conversation_id === selectedId && ["pending", "active"].includes(assignment.status)) ?? null, [assignments, selectedId]);
 
