@@ -10,6 +10,7 @@ const rateLimit = readFileSync(resolve(process.cwd(), "supabase/migrations/20261
 const retrievalBoundary = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002173500_powerhub_ai_search_server_boundary.sql"), "utf8");
 const claimMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261002180000_powerhub_ai_request_claims.sql"), "utf8");
 const health = readFileSync(resolve(process.cwd(), "server/_core/health.ts"), "utf8");
+const supportRouterSource = readFileSync(resolve(process.cwd(), "server/support-router.ts"), "utf8");
 
 describe("PowerHub AI security contract", () => {
   it("keeps the AI entrypoint authenticated and tenant/message scoped", () => {
@@ -164,5 +165,23 @@ describe("Gemini provider security contract", () => {
     expect(health).toContain("aiGatewayConfigured");
     expect(health).toContain("process.env.GOOGLE_GENERATIVE_AI_API_KEY");
     expect(health).not.toContain("process.env.GOOGLE_GENERATIVE_AI_API_KEY,");
+  });
+});
+
+
+describe("Support queue deletion and identity contract", () => {
+  it("requires a real tenant site for deletion audit logs", () => {
+    const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261005143000_chat_admin_delete_support_conversations.sql"), "utf8");
+    expect(migration).toContain("select min(cas.site_id) into v_site_id");
+    expect(migration).toContain("if v_site_id is null then");
+    expect(migration).toContain("raise exception 'SITE_NOT_FOUND_FOR_TENANT'");
+    expect(migration).toContain("v_row.tenant_id,v_site_id,p_actor_user_id");
+    expect(migration).not.toContain("v_row.tenant_id,null,p_actor_user_id");
+  });
+
+  it("returns owner and active subscription identity in the support queue", () => {
+    expect(supportRouterSource).toContain("subscription_package_name");
+    expect(supportRouterSource).toContain("requester_name");
+    expect(supportRouterSource).toContain("tenant_name");
   });
 });

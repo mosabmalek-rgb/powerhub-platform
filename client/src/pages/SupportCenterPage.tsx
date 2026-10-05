@@ -24,6 +24,12 @@ type Conversation = {
   created_at: string;
   ticket_number?: string | null;
   category_code?: string | null;
+  tenant_name?: string | null;
+  requester_name?: string | null;
+  requester_email?: string | null;
+  subscription_package_code?: string | null;
+  subscription_package_name?: string | null;
+  subscription_ends_at?: string | null;
   category_name?: string | null;
   assigned_user_id?: number | null;
   assigned_user_name?: string | null;
@@ -273,9 +279,9 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     if (!error && data) setAdminControls(data);
   }
 
-  async function refreshQueue() {
+  async function refreshQueue(options: { silent?: boolean } = {}) {
     if (!access.data?.allowed) return;
-    setLoadingQueue(true);
+    if (!options.silent) setLoadingQueue(true);
     const { data, error } = await supportQueue.refetch();
     if (error || !data) {
       toast.error(error?.message || "تعذر تحميل طابور الدعم.");
@@ -315,8 +321,8 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     }
   }
 
-  async function loadMessages(conversationId: number) {
-    setLoadingMessages(true);
+  async function loadMessages(conversationId: number, options: { silent?: boolean } = {}) {
+    if (!options.silent) setLoadingMessages(true);
     const { data, error } = await supabase.from("chat_messages").select("id,conversation_id,sender_user_id,sender_type,message_type,body,visibility,created_at").eq("conversation_id", conversationId).order("created_at", { ascending: true });
     if (error) toast.error("تعذر تحميل الرسائل.");
     const loadedMessages = (data ?? []) as MessageRow[];
@@ -327,6 +333,16 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
       return [message.id, messageReceiptState(rows)] as const;
     }));
     setReceipts(Object.fromEntries(receiptEntries));
+    const incoming = loadedMessages.filter((message) => message.sender_type === "human" && message.sender_user_id !== user?.id);
+    if (incoming.length) {
+      const latest = incoming[incoming.length - 1];
+      try {
+        await supabase.rpc("chat_mark_delivered", { p_message_id: latest.id });
+        await supabase.rpc("chat_mark_read", { p_message_id: latest.id });
+      } catch {
+        // Receipt updates remain best-effort.
+      }
+    }
     const { data: currentTags } = await supabase.from("chat_conversation_tags").select("tag_id").eq("conversation_id", conversationId);
     setTagIds((currentTags ?? []).map((row: any) => Number(row.tag_id)));
     const { data: timelineData } = await supabase.rpc("chat_ticket_timeline", { p_conversation_id: conversationId });
@@ -391,7 +407,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
 
   useEffect(() => {
     if (!access.data?.allowed) return;
-    void refreshQueue();
+    void refreshQueue({ silent: true });
     void listChatNotifications(100).then((rows) => setNotificationCount(rows.filter((row) => !row.read_at).length)).catch(() => undefined);
     if (!user?.id) return;
     return subscribeToChatNotifications(user.id, () => setNotificationCount((count) => count + 1));
@@ -405,10 +421,10 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
         const rows = await listChatMessageReceipts(event.message_id).catch(() => []);
         setReceipts((current) => ({ ...current, [event.message_id]: messageReceiptState(rows) }));
       } else {
-        await loadMessages(selectedId);
+        await loadMessages(selectedId, { silent: true });
       }
     });
-    const timer = window.setInterval(() => { void loadMessages(selectedId); }, 3000);
+    const timer = window.setInterval(() => { void loadMessages(selectedId, { silent: true }); }, 5000);
     return () => { unsubscribe(); window.clearInterval(timer); };
   }, [selectedId]);
 
@@ -430,7 +446,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
 
         <div className="grid min-h-[760px] gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
           <Card className="min-h-0 lg:order-2"><CardHeader><div className="flex items-center justify-between gap-2"><CardTitle>الطابور</CardTitle>{selectedIds.length ? <Button size="sm" variant="destructive" onClick={() => void deleteSelectedConversations()} disabled={deleteConversations.isPending}><Trash2 className="ml-2 h-4 w-4" />حذف المحدد ({selectedIds.length})</Button> : null}</div></CardHeader><CardContent className="space-y-2 px-3 max-h-[680px] overflow-y-auto">
-            {conversations.map((conversation) => { const assignment = assignments.find((row) => row.conversation_id === conversation.id && ["pending", "active"].includes(row.status)); return <div key={conversation.id} className={`flex items-stretch gap-2 rounded-xl border p-2 ${selectedId === conversation.id ? "border-primary bg-primary/5" : "border-border"}`}><input aria-label={`تحديد المحادثة ${conversation.id}`} type="checkbox" checked={selectedIds.includes(conversation.id)} onChange={() => toggleConversationSelection(conversation.id)} className="mt-1 h-4 w-4 shrink-0" /><button type="button" onClick={() => setSelectedId(conversation.id)} className="min-w-0 flex-1 text-right"><div className="flex items-center justify-between gap-2"><span className="truncate font-bold">{conversation.subject || "محادثة دعم"}</span><Badge variant="secondary">{statusLabel(conversation.status)}</Badge></div><div className="mt-2 text-xs text-muted-foreground">{conversation.ticket_number || ("#" + conversation.id)} · الأولوية: {conversation.priority} · {conversation.category_name || "غير مصنف"}</div><div className="mt-1 text-[11px] text-muted-foreground">{conversation.assigned_user_name ? ("مسندة إلى " + conversation.assigned_user_name) : "غير مسندة"}{conversation.unread_count ? (" · " + conversation.unread_count + " غير مقروء") : ""}{conversation.sla_state ? (" · " + conversation.sla_state) : ""}</div></button></div>; })}
+            {conversations.map((conversation) => { const assignment = assignments.find((row) => row.conversation_id === conversation.id && ["pending", "active"].includes(row.status)); return <div key={conversation.id} className={`flex items-stretch gap-2 rounded-xl border p-2 ${selectedId === conversation.id ? "border-primary bg-primary/5" : "border-border"}`}><input aria-label={`تحديد المحادثة ${conversation.id}`} type="checkbox" checked={selectedIds.includes(conversation.id)} onChange={() => toggleConversationSelection(conversation.id)} className="mt-1 h-4 w-4 shrink-0" /><button type="button" onClick={() => setSelectedId(conversation.id)} className="min-w-0 flex-1 text-right"><div className="flex items-center justify-between gap-2"><span className="truncate font-bold">{conversation.subject || "محادثة دعم"}</span><Badge variant="secondary">{statusLabel(conversation.status)}</Badge></div><div className="mt-2 text-xs text-muted-foreground">{conversation.ticket_number || ("#" + conversation.id)} · الأولوية: {conversation.priority} · {conversation.category_name || "غير مصنف"}</div><div className="mt-1 grid gap-0.5 text-[11px] text-foreground"><span><strong>صاحب المولد:</strong> {conversation.tenant_name || "غير معروف"}</span><span><strong>المستخدم:</strong> {conversation.requester_name || conversation.requester_email || "غير معروف"}</span><span><strong>الاشتراك:</strong> {conversation.subscription_package_name || "غير معروف"}</span></div><div className="mt-1 text-[11px] text-muted-foreground">{conversation.assigned_user_name ? ("مسندة إلى " + conversation.assigned_user_name) : "غير مسندة"}{conversation.unread_count ? (" · " + conversation.unread_count + " غير مقروء") : ""}{conversation.sla_state ? (" · " + conversation.sla_state) : ""}</div></button></div>; })}
             {!conversations.length && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">لا توجد محادثات دعم في الطابور.</div>}
           </CardContent></Card>
 
@@ -453,7 +469,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
                 {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
               </div></ScrollArea>
             </div>
-            <ScrollArea className="h-[430px] min-h-0 rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => <div key={message.id} className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "mx-auto bg-muted text-center text-foreground" : message.sender_user_id === selectedAssignment?.assigned_user_id ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-card text-card-foreground border border-border"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{message.sender_user_id === user?.id ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div>)}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></ScrollArea>
+            <ScrollArea className="h-[430px] min-h-0 rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></ScrollArea>
             <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
         </div>

@@ -45,22 +45,26 @@ export const supportRouter = router({
       rows.flatMap((row) => [Number(row.assigned_user_id), Number(row.created_by_user_id)]).filter(Number.isFinite),
     )];
 
-    const [tenantsResult, usersResult, categoriesResult, assignmentsResult, supportUsersResult, tagsResult] = await Promise.all([
+    const [tenantsResult, usersResult, categoriesResult, assignmentsResult, supportUsersResult, tagsResult, subscriptionsResult] = await Promise.all([
       tenantIds.length ? admin.from("tenants").select("id,name").in("id", tenantIds) : Promise.resolve({ data: [], error: null }),
       userIds.length ? admin.from("users").select("id,name,email,platform_role").in("id", userIds) : Promise.resolve({ data: [], error: null }),
       admin.from("chat_support_categories").select("code,name").eq("is_active", true).order("sort_order"),
       admin.from("chat_support_assignments").select("id,conversation_id,assigned_user_id,status"),
       admin.rpc("chat_support_users"),
       admin.from("chat_support_tags").select("id,name").eq("is_active", true).order("name"),
+      tenantIds.length ? admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").in("tenant_id", tenantIds).eq("status","active").order("ends_at",{ascending:false}) : Promise.resolve({ data: [], error: null }),
     ]);
 
-    if (tenantsResult.error || usersResult.error || categoriesResult.error || assignmentsResult.error || supportUsersResult.error || tagsResult.error) {
+    if (tenantsResult.error || usersResult.error || categoriesResult.error || assignmentsResult.error || supportUsersResult.error || tagsResult.error || subscriptionsResult.error) {
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات طابور الدعم." });
     }
 
     const tenants = new Map((tenantsResult.data ?? []).map((row: any) => [Number(row.id), row]));
     const users = new Map((usersResult.data ?? []).map((row: any) => [Number(row.id), row]));
     const categories = new Map((categoriesResult.data ?? []).map((row: any) => [String(row.code), row]));
+    const subscriptions = new Map<number, any>();
+    for (const row of subscriptionsResult.data ?? []) if (!subscriptions.has(Number(row.tenant_id))) subscriptions.set(Number(row.tenant_id), row);
+    const packageNames: Record<string,string> = { basic:"الناشئة", advanced:"النمو", professional:"الاحتراف", business:"الأعمال", vip:"الذهبية / VIP" };
 
     const messageRows = rows.length
       ? await admin.from("chat_messages")
@@ -92,6 +96,7 @@ export const supportRouter = router({
       const assigned = users.get(Number(row.assigned_user_id));
       const requester = users.get(Number(row.created_by_user_id));
       const category = categories.get(String(row.category_code));
+      const subscription = subscriptions.get(Number(row.tenant_id));
       const sla =
         row.status === "CLOSED" ? "closed" :
         row.status === "RESOLVED" ? "resolved" :
@@ -103,6 +108,9 @@ export const supportRouter = router({
         conversation_id: Number(row.id),
         tenant_name: tenant?.name ?? null,
         category_name: category?.name ?? null,
+        subscription_package_code: subscription?.package_code ?? null,
+        subscription_package_name: subscription ? (packageNames[String(subscription.package_code)] ?? String(subscription.package_code)) : null,
+        subscription_ends_at: subscription?.ends_at ?? null,
         assigned_user_name: assigned?.name ?? null,
         requester_user_id: Number(row.created_by_user_id),
         requester_name: requester?.name ?? null,
