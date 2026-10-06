@@ -253,6 +253,8 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const deleteConversations = trpc.support.deleteConversations.useMutation();
+  const transitionConversation = trpc.support.transitionConversation.useMutation();
+  const setConversationCategory = trpc.support.setConversationCategory.useMutation();
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [receipts, setReceipts] = useState<Record<number, ReceiptState>>({});
   const [input, setInput] = useState("");
@@ -406,12 +408,16 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   }
 
   async function transition(nextStatus: string) {
-    if (!selectedId) return;
+    if (!selectedId || transitionConversation.isPending) return;
     setWorking(true);
-    const { error } = await supabase.rpc("chat_transition_conversation", { p_conversation_id: selectedId, p_next_status: nextStatus });
-    setWorking(false);
-    if (error) { toast.error("تعذر تغيير حالة المحادثة."); return; }
-    await refreshQueue();
+    try {
+      await transitionConversation.mutateAsync({ conversationId: selectedId, nextStatus });
+      await refreshQueue({ silent: true });
+    } catch (error: any) {
+      toast.error(error?.message || "تعذر تغيير حالة المحادثة.");
+    } finally {
+      setWorking(false);
+    }
   }
 
   async function sendMessage() {
