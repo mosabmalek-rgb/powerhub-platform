@@ -442,7 +442,12 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     void refreshQueue({ silent: true });
     void listChatNotifications(100).then((rows) => setNotificationCount(rows.filter((row) => !row.read_at).length)).catch(() => undefined);
     if (!user?.id) return;
-    return subscribeToChatNotifications(user.id, () => setNotificationCount((count) => count + 1));
+    return subscribeToChatNotifications(user.id, () => {
+        setNotificationCount((count) => count + 1);
+        playChatAlert();
+        toast.info("وصلت رسالة دعم جديدة.");
+        void refreshQueue({ silent: true });
+      });
   }, [access.data?.allowed, user?.id, filter.status, filter.priority, filter.category]);
 
   useEffect(() => {
