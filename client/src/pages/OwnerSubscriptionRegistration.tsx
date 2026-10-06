@@ -29,6 +29,7 @@ type OwnerSubscriptionRegistrationProps = {
 };
 
 export default function OwnerSubscriptionRegistration({ rows, pending, onCreate, creationAvailable, onGoToFinance }: OwnerSubscriptionRegistrationProps) {
+  const openProfile = (tenantId: number) => { window.history.pushState({}, "", `/admin/owner-subscriptions/${tenantId}`); window.dispatchEvent(new PopStateEvent("popstate")); };
   const catalog = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000 });
   const availablePackages = (catalog.data?.packages ?? []).filter((pkg: any) => pkg.active !== false);
   return <section className="space-y-6">
@@ -55,7 +56,7 @@ export default function OwnerSubscriptionRegistration({ rows, pending, onCreate,
             <ArrowLeft className="ml-2 h-4 w-4" />إدارة التجديدات في المالية
           </Button> : null}
         </div>
-        <div className="mt-4 max-h-64 space-y-3 overflow-auto">{rows.map((row) => <div className="rounded-xl border border-white/8 bg-white/[.02] p-3" key={row.tenant.id}><p className="font-bold text-white">{row.owner?.companyName ?? row.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{row.owner?.fullName ?? "بانتظار ربط الحساب"} · {row.subscription?.packageCode ?? "—"}</p></div>)}{!rows.length && <p className="py-6 text-center text-sm text-slate-500">لا توجد اشتراكات مسجلة بعد.</p>}</div>
+        <div className="mt-4 max-h-64 space-y-3 overflow-auto">{rows.map((row) => <button type="button" className="w-full rounded-xl border border-white/8 bg-white/[.02] p-3 text-right transition hover:border-[#F5B800]/40 hover:bg-[#F5B800]/[.04]" key={row.tenant.id} onClick={() => openProfile(Number(row.tenant.id))}><div className="flex items-center justify-between gap-3"><div><p className="font-bold text-white">{row.owner?.companyName ?? row.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{row.owner?.fullName ?? "بانتظار ربط الحساب"} · {row.subscription?.packageCode ?? "—"}</p></div><span className="text-xs font-bold text-[#F5B800]">فتح الملف</span></div></button>)}{!rows.length && <p className="py-6 text-center text-sm text-slate-500">لا توجد اشتراكات مسجلة بعد.</p>}</div>
       </CardContent>
     </Card>
 

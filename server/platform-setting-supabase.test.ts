@@ -46,7 +46,7 @@ describe("platform settings runtime wiring", () => {
     expect(router).toContain("savePlatformSetting: platformAdminSavePlatformSettingProcedure");
     expect(router).toContain("adminRouterWithSupabaseTariffPolicy");
     expect(appRouter).toContain('import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router"');
-    expect(appRouter).toContain("const adminRuntimeRouter = (router({");
+    expect(appRouter).toContain("const adminRuntimeRouter = router({");
     expect(appRouter).toContain("admin: adminRuntimeRouter");
   });
 });

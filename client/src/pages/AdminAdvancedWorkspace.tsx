@@ -129,33 +129,14 @@ const ownerSubaccountRoleOptions: Array<{ id: Exclude<PowerRole, "owner">; label
 ];
 
 export function OwnerUsageReportPanel() {
-  const owners = trpc.admin.listOwners.useQuery();
-  const branches = trpc.admin.listTenantBranchSettings.useQuery();
-  const sms = trpc.admin.listTweetSmsAccounts.useQuery();
-  const configuration = trpc.admin.platformConfiguration.useQuery();
-  const settingValue = (key: string) => { const setting = configuration.data?.settings.find((item) => item.settingKey === key); return setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value) ? setting.value as Record<string, unknown> : {}; };
-  const subscriberLimits = (settingValue("owner_subscriber_limits").limits ?? {}) as Record<string, unknown>;
-  const branchLimits = ((settingValue("branch_feature").defaultLimit ?? {}) as Record<string, unknown>);
-  const overrideValue = settingValue("owner_limit_overrides");
-  const overrides = (overrideValue.overrides && typeof overrideValue.overrides === "object" && !Array.isArray(overrideValue.overrides) ? overrideValue.overrides : {}) as Record<string, Record<string, unknown>>;
-  const branchByTenant = new Map((branches.data ?? []).map((item: any) => [item.tenantId, item]));
-  const smsByTenant = new Map((sms.data ?? []).map((item: any) => [item.tenantId, item]));
-  const rows = (owners.data ?? []).map((owner: any) => {
-    const packageCode = owner.subscription?.packageCode ?? "";
-    const override = overrides[String(owner.tenant.id)] ?? {};
-    const branch = branchByTenant.get(owner.tenant.id);
-    const account = smsByTenant.get(owner.tenant.id);
-    const subscribers = Number(owner.subscribers?.total ?? 0);
-    const subscriberLimit = Number(typeof override.subscriberLimit === "number" ? override.subscriberLimit : subscriberLimits[packageCode] ?? 0);
-    const branchLimit = Number(branch?.maxBranchesOverride ?? branchLimits[packageCode] ?? 0);
-    const reportBranch = { ...branch, maxBranchesOverride: branchLimit };
-    const smsLimit = Number(account?.monthlyLimit ?? 0);
-    const smsUsed = Number(account?.usedThisMonth ?? 0);
-    owner.subscriberQuota = { limit: subscriberLimit };
-    owner.packageCode = packageCode;
-    return { owner, subscribers, branch: reportBranch, account, smsLimit, smsUsed, severity: Math.max(subscriberLimit ? subscribers / subscriberLimit : 0, branchLimit ? Number(branch?.currentBranchCount ?? 0) / branchLimit : 0, smsLimit ? smsUsed / smsLimit : 0) };
-  }).sort((a: any, b: any) => b.severity - a.severity);
-  return <Card className="border-sky-400/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div><h2 className="font-bold text-white">تقرير استهلاك باقات أصحاب المولدات</h2><p className="mt-1 text-sm leading-7 text-slate-400">متابعة مركزية للمشتركين والأفرع والرسائل. يظهر اللون التحذيري عند 80% والأحمر عند بلوغ الحد.</p></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[980px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="pb-3">صاحب المولد</th><th className="pb-3">الباقة</th><th className="pb-3">المشتركون</th><th className="pb-3">الأفرع</th><th className="pb-3">رسائل SMS</th><th className="pb-3">الحالة</th></tr></thead><tbody>{rows.map((row: any) => { const subscriberLimit = Number(row.owner.subscriberQuota?.limit ?? 0); const subscriberPct = subscriberLimit ? Math.min(100, Math.round(row.subscribers / subscriberLimit * 100)) : 0; const branchLimit = Number(row.branch?.maxBranchesOverride ?? 0); const branchPct = branchLimit ? Math.min(100, Math.round(Number(row.branch.currentBranchCount ?? 0) / branchLimit * 100)) : 0; const smsPct = row.smsLimit ? Math.min(100, Math.round(row.smsUsed / row.smsLimit * 100)) : 0; const worst = Math.max(subscriberPct, branchPct, smsPct); const tone = worst >= 100 ? "bg-rose-400/10 text-rose-300" : worst >= 80 ? "bg-amber-400/10 text-amber-200" : "bg-emerald-400/10 text-emerald-300"; return <tr key={row.owner.tenant.id} className="border-t border-white/7"><td className="py-3"><p className="font-bold text-white">{row.owner.owner?.fullName ?? row.owner.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{row.owner.tenant.name}</p></td><td className="py-3 text-slate-300">{row.owner.subscription?.packageCode ?? ""}</td><td className="py-3 text-slate-300">{row.subscribers}{subscriberLimit ? ` / ${subscriberLimit}` : ""} <span className="text-xs text-slate-500">{subscriberPct}%</span></td><td className="py-3 text-slate-300">{row.branch?.currentBranchCount ?? "—"}{branchLimit ? ` / ${branchLimit}` : ""} <span className="text-xs text-slate-500">{branchPct}%</span></td><td className="py-3 text-slate-300">{row.smsUsed}{row.smsLimit ? ` / ${row.smsLimit}` : ""} <span className="text-xs text-slate-500">{smsPct}%</span></td><td className="py-3"><Badge className={tone}>{worst >= 100 ? "بلغ الحد" : worst >= 80 ? "قريب من الحد" : "ضمن الحد"}</Badge></td></tr>; })}{!rows.length && <tr><td colSpan={6} className="py-10 text-center text-slate-500">لا توجد بيانات أصحاب مولدات لعرضها.</td></tr>}</tbody></table></div></CardContent></Card>;
+  const report = trpc.admin.ownerQuotaUsageReport.useQuery(undefined, { staleTime: 15000 });
+  const rows = report.data ?? [];
+  const cell = (used:number, limit:number) => { const pct=limit>0?Math.min(100,Math.round(used/limit*100)):0; return {used,limit,pct}; };
+  return <Card className="border-sky-400/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <div><h2 className="font-bold text-white">تقرير استهلاك باقات أصحاب المولدات</h2><p className="mt-1 text-sm leading-7 text-slate-400">يعتمد على الحدود الفعلية الناتجة من الباقة والإضافات والاستثناءات، ويعرض المشتركين والأفرع والرسائل ومستخدمي المنصة والتطبيق الميداني.</p></div>
+    <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1500px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="pb-3">صاحب المولد</th><th className="pb-3">الباقة</th><th className="pb-3">المشتركون</th><th className="pb-3">الأفرع</th><th className="pb-3">الرسائل</th><th className="pb-3">مستخدمو المنصة</th><th className="pb-3">التطبيق الميداني</th><th className="pb-3">المضافات</th><th className="pb-3">المتبقي</th></tr></thead>
+    <tbody>{rows.map((row:any)=>{const s=cell(row.usage.subscribers,row.limits.subscribers),b=cell(row.usage.branches,row.limits.branches),m=cell(row.messages.used,row.limits.messages),p=cell(row.usage.platformUsers,row.limits.platformUsers),f=cell(row.usage.fieldUsers,row.limits.fieldUsers);const worst=Math.max(s.pct,b.pct,m.pct,p.pct,f.pct);const tone=worst>=100?"bg-rose-400/10 text-rose-300":worst>=80?"bg-amber-400/10 text-amber-200":"bg-emerald-400/10 text-emerald-300";const addonText=row.addons.length?row.addons.map((a:any)=>"+"+a.quantity+" "+a.code).join("، "):"لا توجد";return <tr key={row.tenant.id} className="border-t border-white/7"><td className="py-3"><p className="font-bold text-white">{row.owner?.fullName??row.tenant.name}</p><p className="mt-1 text-xs text-slate-500">{row.tenant.name}</p></td><td className="py-3 text-slate-300">{row.package?.name??row.subscription?.packageCode??"—"}</td>{[s,b,m,p,f].map((x:any,i:number)=><td key={i} className="py-3 text-slate-300">{x.used} / {x.limit} <span className="text-xs text-slate-500">{x.pct}%</span></td>)}<td className="py-3 text-xs text-slate-400">{addonText}</td><td className="py-3"><Badge className={tone}>{worst>=100?"بلغ الحد":worst>=80?"قريب من الحد":"ضمن الحد"}</Badge><p className="mt-1 text-xs text-slate-500">{row.daysRemaining==null?"—":"متبقٍ "+row.daysRemaining+" يوم"}</p></td></tr>})}{!rows.length&&<tr><td colSpan={9} className="py-10 text-center text-slate-500">{report.isLoading?"جارٍ تحميل التقرير…":"لا توجد بيانات أصحاب مولدات لعرضها."}</td></tr>}</tbody></table></div>
+  </CardContent></Card>;
 }
 
 export function OwnerUsagePriorityFiltersPanel() {

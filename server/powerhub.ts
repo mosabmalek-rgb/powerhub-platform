@@ -430,16 +430,18 @@ export const powerhubRouter = router({
       monthStart.setUTCDate(1);
       monthStart.setUTCHours(0, 0, 0, 0);
       const admin = supabaseAdmin();
-      const [accountResult, usageResult] = await Promise.all([
+      const [accountResult, usageResult, quotaResult] = await Promise.all([
         admin.from("tenant_tweetsms_accounts").select("sender_name, monthly_limit, is_active, credential_ciphertext, last_error").eq("tenant_id", scope.tenantId).maybeSingle(),
         admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read"]),
+        admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: scope.tenantId, p_resource: "sms" }),
       ]);
-      if (accountResult.error || usageResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة الرسائل من Supabase." });
+      if (accountResult.error || usageResult.error || quotaResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة الرسائل من Supabase." });
       const account = accountResult.data;
       const included = Number(account?.monthly_limit ?? 0);
-      const additional = 0;
-      const used = (usageResult.data ?? []).reduce((total, message) => total + Math.max(1, Number(message.segment_count ?? 1)), 0);
-      return { plan: "tweetsms", planName: "TweetSMS", senderName: account?.sender_name ?? null, isActive: account?.is_active ?? false, configured: Boolean(account?.credential_ciphertext), lastError: account?.last_error ?? null, included, additional, total: included, used, remaining: Math.max(0, included - used) };
+      const total = Number(Array.isArray(quotaResult.data) ? quotaResult.data[0] : quotaResult.data ?? included);
+      const additional = Math.max(0, total - included);
+      const used = (usageResult.data ?? []).reduce((sum, message) => sum + Math.max(1, Number(message.segment_count ?? 1)), 0);
+      return { plan: "tweetsms", planName: "TweetSMS", senderName: account?.sender_name ?? null, isActive: account?.is_active ?? false, configured: Boolean(account?.credential_ciphertext), lastError: account?.last_error ?? null, included, additional, total, used, remaining: Math.max(0, total - used) };
     }),
     smsDailyUsage: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");

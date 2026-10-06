@@ -59,7 +59,7 @@ describe("platform access role Supabase migration contract", () => {
     expect(platformRouter).toContain("adminRouterWithSupabaseTariffPolicy");
     expect(platformRouter).toContain("_def.record");
     expect(appRouter).toContain("adminRouterWithSupabasePlatformSetting");
-    expect(appRouter).toContain("const adminRuntimeRouter = (router({");
+    expect(appRouter).toContain("const adminRuntimeRouter = router({");
     expect(appRouter).toContain("admin: adminRuntimeRouter");
   });
 });
