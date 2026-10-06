@@ -45,6 +45,7 @@ const PaymentDocumentationPage = lazy(() => import("./pages/PaymentDocumentation
 const PaymentDocumentationReviewPage = lazy(() => import("./pages/PaymentDocumentationReviewPage"));
 const PlatformAnnouncementsPage = lazy(() => import("./pages/PlatformAnnouncementsPage"));
 const AdminGeneratorFeaturesPage = lazy(() => import("./pages/AdminGeneratorFeaturesPage"));
+const AdminOwnerSubscriptionProfilePage = lazy(() => import("./pages/AdminOwnerSubscriptionProfilePage"));
 const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
 
 function Router() {
@@ -88,6 +89,7 @@ function Router() {
       <Route path={"/payroll"}>{() => <RouteAccessGate><PayrollPage /></RouteAccessGate>}</Route>
       <Route path={"/attendance"}>{() => <RouteAccessGate><AttendancePage /></RouteAccessGate>}</Route>
       <Route path={"/admin/trial-management"}>{() => <RouteAccessGate platformAdminOnly><TrialSubscriptionManagementPage /></RouteAccessGate>}</Route>
+      <Route path={"/admin/owner-subscriptions/:tenantId"}>{() => <RouteAccessGate platformAdminOnly><AdminOwnerSubscriptionProfilePage /></RouteAccessGate>}</Route>
       <Route path={"/admin/generator-features/:tenantId"}>{() => <RouteAccessGate platformAdminOnly><AdminGeneratorFeaturesPage /></RouteAccessGate>}</Route>
       <Route path={"/admin/generator-features"}>{() => <RouteAccessGate platformAdminOnly><AdminGeneratorFeaturesPage /></RouteAccessGate>}</Route>
       <Route path={"/admin/announcements"}>{() => <RouteAccessGate platformAdminOnly><PlatformAnnouncementsPage /></RouteAccessGate>}</Route>
