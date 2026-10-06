@@ -31,6 +31,7 @@ type AppAdminRouter = Omit<typeof adminRouter, "listComplaints"> & {
   tenantFeatureSnapshot: any;
   setTenantFeatureControl: any;
   resetTenantFeatureControl: any;
+  ownerQuotaUsageReport: any;
 };
 
 const adminRuntimeRouter = (router({
