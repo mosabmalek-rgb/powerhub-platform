@@ -138,6 +138,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_approve_and_issue_mobile_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, notification_ids: [], already_processed: false }]);
       if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
       if (name === "powerhub_payment_documentation_access") return resolved([{ allowed: true, policy: "enabled", package_code: "basic", entitlement_enabled: true }]);
+      if (name === "powerhub_effective_tenant_quota") return resolved([1000]);
       if (name === "powerhub_create_expense_with_account") return resolved([{ expense_id: 82, transaction_id: 118 }]);
       if (name === "powerhub_create_financial_settlement") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_set_financial_settlement_status") return resolved([{ settlement_id: 97 }]);
