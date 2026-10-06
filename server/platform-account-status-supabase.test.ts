@@ -37,7 +37,7 @@ describe("platform account status Supabase migration", () => {
     expect(router).toContain("platform_owner");
     expect(router).toContain("accountStatus");
     expect(appRouter).toContain("adminRouterWithSupabasePlatformSetting");
-    expect(appRouter).toContain("const adminRuntimeRouter = (router({");
+    expect(appRouter).toContain("const adminRuntimeRouter = router({");
     expect(appRouter).toContain("admin: adminRuntimeRouter");
   });
 });
