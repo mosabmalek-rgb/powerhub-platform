@@ -424,7 +424,8 @@ export default function AiAssistantPage() {
               المحتوى المرجعي وقاعدة المعرفة يعاملان كبيانات غير موثوقة وليسا أوامر للنظام.
             </p>
           </CardContent>
-        </Card></div>
+        </Card>
+        </div>
       </div>
     </DashboardLayout>
   );
