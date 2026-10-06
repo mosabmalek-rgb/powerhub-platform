@@ -213,6 +213,8 @@ export default function AiAssistantPage() {
 
   useEffect(() => {
     requestAnimationFrame(() => {
+      const viewport = messageViewportRef.current;
+      if (viewport) viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
       endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
     });
   }, [sortedMessages.length, selectedConversationId]);
@@ -233,7 +235,11 @@ export default function AiAssistantPage() {
         (payload) => {
           const row = payload.new as MessageRow;
           setMessages((current) => current.some((item) => item.id === row.id) ? current : [...current, row]);
-          requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+          requestAnimationFrame(() => {
+            const viewport = messageViewportRef.current;
+            if (viewport) viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+            endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+          });
         },
       )
       .subscribe();
@@ -328,7 +334,11 @@ export default function AiAssistantPage() {
       await refresh();
     } finally {
       setSending(false);
-      requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+      requestAnimationFrame(() => {
+        const viewport = messageViewportRef.current;
+        if (viewport) viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+        endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      });
     }
   }
 
