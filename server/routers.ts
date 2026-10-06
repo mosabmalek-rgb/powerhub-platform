@@ -24,9 +24,6 @@ Object.assign(adminRuntimeRecord, (adminFeatureControlsRouter as any)._def.recor
 
 const adminRuntimeRouter = router({
   ...adminRuntimeRecord,
-  listTenantFeatureEntitlements: (adminRouterWithSupabasePlatformSetting as any)._def.record.listTenantFeatureEntitlements,
-  setTenantFeatureEntitlement: (adminRouterWithSupabasePlatformSetting as any)._def.record.setTenantFeatureEntitlement,
-  ownerQuotaUsageReport: (adminFeatureControlsRouter as any)._def.record.ownerQuotaUsageReport,
 });
 const platformContactSettingsRouter = router({
   public: publicProcedure.query(async () => {
@@ -107,4 +104,9 @@ export const appRouter = router({
   admin: adminRuntimeRouter,
 });
 
-export type AppRouter = typeof appRouter;
+type AppAdminRouter =
+  typeof adminRouterWithSupabasePlatformSetting &
+  typeof adminRolePolicyRouter &
+  typeof adminFeatureControlsRouter;
+
+export type AppRouter = Omit<typeof appRouter, "admin"> & { admin: AppAdminRouter };
