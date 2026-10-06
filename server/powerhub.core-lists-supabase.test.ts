@@ -615,7 +615,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يعرض قائمة الحسابات ودليل التعيين من Supabase ضمن المستأجر والفرع فقط دون MySQL", async () => {
     state.tables.users = [
-      { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", name: "مدير المنصة", email: "admin@example.com", auth_user_id: "00000000-0000-4000-8000-000000000001", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-05T00:00:00.000Z" },
+      { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", name: "مدير المنصة", email: "admin@example.com", auth_user_id: "00000000-0000-4000-8000-000000000001", login_method: "supabase", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-05T00:00:00.000Z" },
       { id: 2, role: "user", name: "محاسب الفرع", email: "accountant@example.com", auth_user_id: "00000000-0000-4000-8000-000000000002", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-04T00:00:00.000Z" },
       { id: 3, role: "user", name: "موظف مستأجر آخر", email: "outside@example.com", auth_user_id: "00000000-0000-4000-8000-000000000003", login_method: "supabase", account_status: "active", must_change_password: false, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z", last_signed_in: "2026-08-06T00:00:00.000Z" },
     ];
@@ -644,8 +644,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.tables.tenant_members = [
       { tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active" },
       { tenant_id: 20, user_id: 3, role: "member", is_active: true, membership_status: "active" },
+      { tenant_id: 20, user_id: 6, role: "member", is_active: true, membership_status: "active" },
       { tenant_id: 20, user_id: 4, role: "member", is_active: false, membership_status: "active" },
       { tenant_id: 99, user_id: 5, role: "member", is_active: true, membership_status: "active" },
+    ];
+    state.tables.staff_profiles = [
+      { id: 126, tenant_id: 20, user_id: 2, site_id: 10, role: "accountant", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null },
+      { id: 127, tenant_id: 20, user_id: 3, site_id: 10, role: "technician", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null },
+      { id: 128, tenant_id: 20, user_id: 6, site_id: 10, role: "viewer", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null },
+      { id: 129, tenant_id: 20, user_id: 4, site_id: 10, role: "accountant", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null },
     ];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.allowedSubaccountRoles({ siteId: 10 })).resolves.toEqual({ roles: ["accountant"], limit: 3, currentCount: 2, remaining: 1, fieldUserLimit: 0, fieldUserCount: 1, fieldUserRemaining: 0 });
