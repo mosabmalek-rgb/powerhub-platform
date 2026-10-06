@@ -3,7 +3,6 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
@@ -45,6 +44,7 @@ export default function AiAssistantPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const messageViewportRef = useRef<HTMLDivElement>(null);
 
   const aiRequest = trpc.aiSupport.ask.useMutation();
   const archiveConversationForSelf = trpc.support.archiveConversationForSelf.useMutation();
@@ -88,7 +88,11 @@ export default function AiAssistantPage() {
       if (startMessageId > 0) visibleMessages = visibleMessages.filter((message) => message.id >= startMessageId);
     }
     setMessages(visibleMessages);
-    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
+    requestAnimationFrame(() => {
+      const viewport = messageViewportRef.current;
+      if (viewport) viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
+      endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    });
   }
 
   async function loadConversations(tenantId: number, selectLatest = true) {
@@ -370,7 +374,7 @@ export default function AiAssistantPage() {
             </CardTitle>
           </CardHeader>
 
-          <ScrollArea className="h-[min(65vh,680px)] px-4 py-5">
+          <div ref={messageViewportRef} className="h-[min(65vh,680px)] overflow-y-auto overscroll-contain px-4 py-5">
             <div className="mx-auto flex max-w-3xl flex-col gap-4">
               {!sortedMessages.length ? (
                 <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center">
@@ -389,7 +393,7 @@ export default function AiAssistantPage() {
                     <div className={mine ? "max-w-[82%] rounded-2xl bg-[#F5B800] px-4 py-3 text-[#0D1117]" : "max-w-[82%] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 dark:border-white/10 dark:bg-white/[.06] dark:text-slate-100"}>
                       <div className="mb-1 flex items-center gap-1.5 text-[10px] opacity-70">
                         {mine ? <UserRound className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
-                        <span>{mine ? "أنت" : message.sender_type === "assistant" ? "مساعد PowerHub" : "النظام"}</span>
+                        <span>{mine ? "أنت" : message.sender_type === "assistant" ? "مساعد PowerHub" : "فريق الدعم"}</span>
                       </div>
                       <p className="whitespace-pre-wrap text-sm font-medium leading-6 text-slate-900 dark:text-slate-100">{message.body}</p>
                       <p className="mt-1.5 text-[10px] text-slate-500 dark:text-slate-400">
@@ -410,7 +414,7 @@ export default function AiAssistantPage() {
 
               <div ref={endRef} />
             </div>
-          </ScrollArea>
+          </div>
 
           <CardContent className="border-t border-white/7 p-4">
             <div className="mx-auto flex max-w-3xl items-end gap-2">
