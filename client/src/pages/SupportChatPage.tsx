@@ -51,9 +51,9 @@ function messageReceipt(receipts: Array<{ delivered_at: string | null; read_at: 
 }
 
 function ReceiptMark({ state }: { state: ReceiptState }) {
-  if (state === "read") return <span className="inline-flex items-center text-sky-100 drop-shadow-[0_0_2px_rgba(14,165,233,0.95)]" title="تمت القراءة"><CheckCheck className="h-3.5 w-3.5" /></span>;
-  if (state === "delivered") return <span className="inline-flex items-center text-white drop-shadow-[0_0_2px_rgba(0,0,0,0.9)]" title="تم التسليم"><CheckCheck className="h-3.5 w-3.5" /></span>;
-  return <span className="inline-flex items-center text-slate-200" title="تم الإرسال"><Check className="h-3.5 w-3.5" /></span>;
+  if (state === "read") return <span className="font-extrabold tracking-[-0.08em] text-sky-700 dark:text-sky-300" title="✓✓ تمت القراءة" aria-label="✓✓ تمت القراءة">✓✓</span>;
+  if (state === "delivered") return <span className="font-extrabold tracking-[-0.08em] text-emerald-700 dark:text-emerald-300" title="✓✓ تم التسليم" aria-label="✓✓ تم التسليم">✓✓</span>;
+  return <span className="font-extrabold tracking-[-0.08em] text-slate-800 dark:text-slate-200" title="✓ أُرسلت" aria-label="✓ أُرسلت">✓</span>;
 }
 
 function formatTime(value: string) {
@@ -82,7 +82,7 @@ export default function SupportChatPage() {
   const messageViewportRef = useRef<HTMLDivElement>(null);
   const lastMessageIdRef = useRef<number | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
-  const hydratedReceiptIdsRef = useRef<Set<number>>(new Set());
+  const playedSoundKeysRef = useRef<Set<string>>(new Set());
 
   const selected = useMemo(() => conversations.find((row) => row.id === selectedId) ?? null, [conversations, selectedId]);
 
@@ -131,7 +131,10 @@ export default function SupportChatPage() {
     if (selectedId !== null && !rows.some((row) => row.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
   }
 
-  function playChatAlert() {
+  function playChatAlertOnce(messageId: number | null, notificationId?: number | null) {
+    const key = messageId !== null ? `message:${messageId}` : notificationId !== null && notificationId !== undefined ? `notification:${notificationId}` : null;
+    if (key && playedSoundKeysRef.current.has(key)) return;
+    if (key) playedSoundKeysRef.current.add(key);
     try {
       const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
@@ -145,6 +148,20 @@ export default function SupportChatPage() {
       osc.connect(gain); gain.connect(ctx.destination);
       osc.start(); osc.stop(ctx.currentTime + 0.12);
     } catch { /* browser audio may require prior interaction */ }
+  }
+
+  async function hydrateReceiptsBatch(messageIds: number[]) {
+    if (!messageIds.length) return;
+    const { data } = await supabase
+      .from("chat_message_receipts")
+      .select("message_id,delivered_at,read_at")
+      .in("message_id", messageIds);
+    const states: Record<number, ReceiptState> = {};
+    for (const messageId of messageIds) {
+      const rows = (data ?? []).filter((row) => Number(row.message_id) === messageId);
+      states[messageId] = messageReceipt(rows);
+    }
+    setReceipts((current) => ({ ...current, ...states }));
   }
 
   function scrollMessagesToEnd(behavior: ScrollBehavior = "auto") {
@@ -176,7 +193,7 @@ export default function SupportChatPage() {
     const newest = rows[rows.length - 1];
     const hasNewIncoming = newlyArrivedIncoming.length > 0 || Boolean(newest && previousLastId !== null && newest.id !== previousLastId && newest.sender_user_id !== user?.id);
     if (newlyArrivedIncoming.length > 0) {
-      playChatAlert();
+      playChatAlertOnce(newlyArrivedIncoming[0]?.id ?? null);
       setUnreadNotificationCount((count) => count + newlyArrivedIncoming.length);
     }
     lastMessageIdRef.current = newest?.id ?? null;
@@ -211,9 +228,9 @@ export default function SupportChatPage() {
     void import("@/lib/chatReceipts").then(async ({ listChatNotifications, subscribeToChatNotifications }) => {
       const rows = await listChatNotifications(20).catch(() => []);
       setUnreadNotificationCount(rows.filter((row) => !row.read_at).length);
-      unsubscribe = subscribeToChatNotifications(user.id, () => {
+      unsubscribe = subscribeToChatNotifications(user.id, (payload) => {
         setUnreadNotificationCount((count) => count + 1);
-        playChatAlert();
+        playChatAlertOnce(payload.message_id ?? null, payload.notification_id);
         toast.info("وصلت رسالة دعم جديدة.");
         void loadConversations(false);
       });
@@ -225,7 +242,6 @@ export default function SupportChatPage() {
     if (selectedId === null) return;
     setMessagesLoaded(false);
     setUnreadNotificationCount(0);
-    hydratedReceiptIdsRef.current.clear();
     void loadMessages(selectedId, { initial: true });
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void loadMessages(selectedId, { silent: true });
@@ -253,7 +269,7 @@ export default function SupportChatPage() {
               // Receipt updates are best-effort; message access remains RLS-protected.
             }
           }
-          if (row.sender_user_id !== user?.id) playChatAlert();
+          if (row.sender_user_id !== user?.id) playChatAlertOnce(row.id);
           requestAnimationFrame(() => scrollMessagesToEnd("smooth"));
         }
       }
@@ -265,23 +281,12 @@ export default function SupportChatPage() {
   }, [selectedId, user?.id]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function hydrateReceipts() {
-      const outgoing = messages
-        .filter((row) => row.sender_user_id === user?.id)
-        .slice(-50)
-        .filter((message) => !hydratedReceiptIdsRef.current.has(message.id));
-      if (!outgoing.length) return;
-      const entries = await Promise.all(outgoing.map(async (message) => {
-        const list = await listChatMessageReceipts(message.id).catch(() => []);
-        return [message.id, messageReceipt(list)] as const;
-      }));
-      if (cancelled) return;
-      for (const [messageId] of entries) hydratedReceiptIdsRef.current.add(messageId);
-      setReceipts((current) => ({ ...current, ...Object.fromEntries(entries) }));
-    }
-    if (messages.length) void hydrateReceipts();
-    return () => { cancelled = true; };
+    const outgoingIds = messages.filter((row) => row.sender_user_id === user?.id).slice(-50).map((row) => row.id);
+    if (outgoingIds.length) void hydrateReceiptsBatch(outgoingIds);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && outgoingIds.length) void hydrateReceiptsBatch(outgoingIds);
+    }, 30_000);
+    return () => window.clearInterval(timer);
   }, [messages, user?.id]);
 
   async function createConversation() {
