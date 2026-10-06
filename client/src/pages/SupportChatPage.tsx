@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
+import { trpc } from "@/lib/trpc";
 import {
   listChatMessageReceipts,
   markChatMessageDelivered,
@@ -63,6 +64,7 @@ export default function SupportChatPage() {
   const { isAuthenticated, loading, user } = useAuth({ redirectOnUnauthenticated: true });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedConversationIds, setSelectedConversationIds] = useState<number[]>([]);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [receipts, setReceipts] = useState<Record<number, ReceiptState>>({});
   const [input, setInput] = useState("");
@@ -74,6 +76,7 @@ export default function SupportChatPage() {
   const [rating, setRating] = useState(0);
   const [feedbackComment, setFeedbackComment] = useState("");
   const [ratingSaving, setRatingSaving] = useState(false);
+  const archiveConversationForSelf = trpc.support.archiveConversationForSelf.useMutation();
   const endRef = useRef<HTMLDivElement>(null);
   const messageViewportRef = useRef<HTMLDivElement>(null);
   const lastMessageIdRef = useRef<number | null>(null);
@@ -82,21 +85,48 @@ export default function SupportChatPage() {
   const selected = useMemo(() => conversations.find((row) => row.id === selectedId) ?? null, [conversations, selectedId]);
 
   async function loadConversations(selectFirst = true) {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !user?.id) return;
     if (selectFirst) setLoadingConversations(true);
+
+    const { data: participants, error: participantsError } = await supabase
+      .from("chat_participants")
+      .select("conversation_id")
+      .eq("user_id", user.id)
+      .is("left_at", null)
+      .is("archived_at", null);
+
+    if (participantsError) {
+      setLoadingConversations(false);
+      if (conversations.length === 0) toast.error("تعذر تحميل محادثات الدعم.");
+      return;
+    }
+
+    const conversationIds = [...new Set((participants ?? []).map((row) => Number(row.conversation_id)).filter(Number.isFinite))];
+    if (conversationIds.length === 0) {
+      setConversations([]);
+      setLoadingConversations(false);
+      if (selectFirst) setSelectedId(null);
+      return;
+    }
+
     const { data, error } = await supabase
       .from("chat_conversations")
-.select("id,tenant_id,conversation_type,status,subject,priority,last_message_at,created_at,ticket_number,first_response_due_at,resolution_due_at")
+      .select("id,tenant_id,conversation_type,status,subject,priority,last_message_at,created_at,ticket_number,first_response_due_at,resolution_due_at")
+      .in("id", conversationIds)
       .order("last_message_at", { ascending: false, nullsFirst: false });
+
     if (error) {
       setLoadingConversations(false);
       if (conversations.length === 0) toast.error("تعذر تحميل محادثات الدعم.");
       return;
     }
+
     const rows = (data ?? []) as Conversation[];
     setConversations(rows);
+    setSelectedConversationIds((current) => current.filter((id) => rows.some((row) => row.id === id)));
     setLoadingConversations(false);
     if (selectFirst && rows.length && selectedId === null) setSelectedId(rows[0].id);
+    if (selectedId !== null && !rows.some((row) => row.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
   }
 
   function playChatAlert() {
@@ -323,7 +353,27 @@ export default function SupportChatPage() {
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
           <Card className="border-white/8 bg-[#111823] shadow-panel min-h-0 lg:order-2">
-            <CardHeader className="py-3"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base text-white">محادثاتي</CardTitle>{selectedConversationIds.length ? <Button size="sm" variant="destructive" onClick={async()=>{for(const id of selectedConversationIds) await archiveConversationForSelf.mutateAsync({conversationId:id}); setSelectedConversationIds([]); await loadConversations(false); if(selectedId && selectedConversationIds.includes(selectedId)) setSelectedId(null);}}>حذف من قائمتي</Button> : null}</div></CardHeader>
+            <CardHeader className="py-3"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base text-white">محادثاتي</CardTitle>{selectedConversationIds.length ? <Button size="sm" variant="destructive" onClick={async () => {
+              if (archiveConversationForSelf.isPending) return;
+              try {
+                for (const conversationId of selectedConversationIds) {
+                  await archiveConversationForSelf.mutateAsync({ conversationId });
+                }
+                const archivedIds = selectedConversationIds;
+                setSelectedConversationIds([]);
+                if (selectedId !== null && archivedIds.includes(selectedId)) {
+                  setSelectedId(null);
+                  setMessages([]);
+                  setMessagesLoaded(false);
+                  lastMessageIdRef.current = null;
+                }
+                await loadConversations(false);
+                toast.success("تم حذف المحادثة من قائمتك.");
+              } catch (error: any) {
+                await loadConversations(false);
+                toast.error(error?.message || "تعذر حذف المحادثة من قائمتك.");
+              }
+            }} disabled={archiveConversationForSelf.isPending}>حذف من قائمتي</Button> : null}</div></CardHeader>
             <CardContent className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 overscroll-contain">
               <div className="space-y-2">
                 {conversations.map((conversation) => (
