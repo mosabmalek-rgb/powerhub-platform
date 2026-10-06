@@ -7,7 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
-import { Bot, Loader2, MessageCircle, RefreshCw, Send, ShieldCheck, UserRound } from "lucide-react";
+import { Bot, Loader2, MessageCircle, RefreshCw, Send, ShieldCheck, UserRound, Trash2, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -36,6 +36,9 @@ type MessageRow = {
 export default function AiAssistantPage() {
   const { isAuthenticated, loading, user } = useAuth({ redirectOnUnauthenticated: true });
   const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
+  const [deletingConversationId, setDeletingConversationId] = useState<number | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [input, setInput] = useState("");
   const [loadingConversation, setLoadingConversation] = useState(true);
@@ -44,6 +47,7 @@ export default function AiAssistantPage() {
   const endRef = useRef<HTMLDivElement>(null);
 
   const aiRequest = trpc.aiSupport.ask.useMutation();
+  const archiveConversationForSelf = trpc.support.archiveConversationForSelf.useMutation();
 
   const sortedMessages = useMemo(
     () => [...messages].sort((a, b) => a.created_at.localeCompare(b.created_at)),
@@ -64,8 +68,89 @@ export default function AiAssistantPage() {
       return;
     }
 
-    setMessages((data ?? []) as MessageRow[]);
-    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+    let visibleMessages = (data ?? []) as MessageRow[];
+    const activeConversation = conversations.find((item) => item.id === conversationId) ?? conversation;
+    const { data: conversationTypeRow } = await supabase
+      .from("chat_conversations")
+      .select("conversation_type")
+      .eq("id", conversationId)
+      .maybeSingle();
+    const isSupportConversation = conversationTypeRow?.conversation_type === "support" || activeConversation?.conversation_type === "support";
+    if (isSupportConversation) {
+      const { data: handoff } = await supabase
+        .from("chat_bot_handoffs")
+        .select("user_message_id")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const startMessageId = Number(handoff?.user_message_id ?? 0);
+      if (startMessageId > 0) visibleMessages = visibleMessages.filter((message) => message.id >= startMessageId);
+    }
+    setMessages(visibleMessages);
+    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
+  }
+
+  async function loadConversations(tenantId: number, selectLatest = true) {
+    const { data, error } = await supabase
+      .from("chat_conversations")
+      .select("id,tenant_id,conversation_type,status,subject,priority,last_message_at,created_at")
+      .eq("tenant_id", tenantId)
+      .in("conversation_type", ["assistant", "support"])
+      .order("last_message_at", { ascending: false, nullsFirst: false });
+    if (error) {
+      toast.error("تعذر تحميل بطاقات المحادثات.");
+      return;
+    }
+    const rows = (data ?? []) as Conversation[];
+    setConversations(rows);
+    if (selectLatest && rows.length) {
+      const latest = rows[0];
+      setSelectedConversationId(latest.id);
+      setConversation(latest);
+      await loadMessages(latest.id);
+    }
+  }
+
+  async function createConversation(tenantId: number) {
+    const { data: created, error } = await supabase.rpc("chat_create_conversation", {
+      p_tenant_id: tenantId,
+      p_conversation_type: "assistant",
+      p_subject: "محادثة مساعد PowerHub",
+      p_priority: "normal",
+    });
+    if (error || !created) {
+      toast.error("تعذر إنشاء محادثة المساعد.");
+      return;
+    }
+    const row = created as Conversation;
+    setConversations((current) => [row, ...current]);
+    setSelectedConversationId(row.id);
+    setConversation(row);
+    setMessages([]);
+    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
+  }
+
+  async function deleteConversation(conversationId: number) {
+    if (deletingConversationId !== null) return;
+    setDeletingConversationId(conversationId);
+    try {
+      await archiveConversationForSelf.mutateAsync({ conversationId });
+      const remaining = conversations.filter((item) => item.id !== conversationId);
+      setConversations(remaining);
+      if (selectedConversationId === conversationId) {
+        const next = remaining[0] ?? null;
+        setSelectedConversationId(next?.id ?? null);
+        setConversation(next);
+        setMessages([]);
+        if (next) await loadMessages(next.id);
+      }
+      toast.success("تم حذف المحادثة من قائمتك.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر حذف المحادثة.");
+    } finally {
+      setDeletingConversationId(null);
+    }
   }
 
   async function ensureConversation() {
@@ -87,7 +172,6 @@ export default function AiAssistantPage() {
     }
 
     const tenantId = Number(memberships[0].tenant_id);
-
     const { data: existing, error: conversationError } = await supabase
       .from("chat_conversations")
       .select("id,tenant_id,conversation_type,status,subject,priority,last_message_at,created_at")
@@ -104,30 +188,15 @@ export default function AiAssistantPage() {
     }
 
     if (existing) {
-      const row = existing as Conversation;
-      setConversation(row);
+      setConversation(existing as Conversation);
+      setSelectedConversationId(Number((existing as Conversation).id));
       setLoadingConversation(false);
-      await loadMessages(row.id);
+      await loadConversations(tenantId, true);
       return;
     }
 
-    const { data: created, error: createError } = await supabase.rpc("chat_create_conversation", {
-      p_tenant_id: tenantId,
-      p_conversation_type: "assistant",
-      p_subject: "مساعد PowerHub",
-      p_priority: "normal",
-    });
-
-    if (createError || !created) {
-      setLoadingConversation(false);
-      toast.error("تعذر إنشاء مساحة المساعد.");
-      return;
-    }
-
-    const row = created as Conversation;
-    setConversation(row);
+    await createConversation(tenantId);
     setLoadingConversation(false);
-    setMessages([]);
   }
 
   useEffect(() => {
@@ -139,11 +208,10 @@ export default function AiAssistantPage() {
   }, [isAuthenticated, user?.id]);
 
   useEffect(() => {
-    if (!sortedMessages.length) return;
     requestAnimationFrame(() => {
-      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
     });
-  }, [sortedMessages.length]);
+  }, [sortedMessages.length, selectedConversationId]);
 
   useEffect(() => {
     if (!conversation?.id) return;
@@ -243,6 +311,7 @@ export default function AiAssistantPage() {
 
       if (result.decision === "handoff") {
         toast.info("تم تحويل الطلب إلى فريق الدعم.");
+        await loadConversations(activeConversation.tenant_id, true);
       }
       await loadMessages(activeConversation.id);
     } catch (error) {
@@ -293,7 +362,7 @@ export default function AiAssistantPage() {
           </div>
         </header>
 
-        <Card className="border-white/8 bg-[#111823] shadow-panel">
+        <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]"><Card className="border-white/8 bg-[#111823] shadow-panel"><CardHeader className="border-b border-white/7"><CardTitle className="flex items-center justify-between text-white"><span>محادثات المساعد</span><Button size="sm" onClick={() => { const tenantId = conversation?.tenant_id; if (tenantId) void createConversation(tenantId); }}><Plus className="ml-1 h-4 w-4" />جديدة</Button></CardTitle></CardHeader><CardContent className="max-h-[min(65vh,680px)] overflow-y-auto p-2">{conversations.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedConversationId(item.id); setConversation(item); void loadMessages(item.id); }} className={`mb-2 w-full rounded-xl border p-3 text-right ${item.id === selectedConversationId ? "border-[#F5B800]/50 bg-[#F5B800]/10" : "border-white/8 bg-white/[.02]"}`}><div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-bold text-white">{item.subject ?? "محادثة مساعد"}</span><Trash2 className="h-4 w-4 text-slate-400" onClick={(e) => { e.stopPropagation(); void deleteConversation(item.id); }} /></div><span className="mt-1 block text-[11px] text-slate-500">{item.status === "SUPPORT_PENDING" ? "تم التحويل للدعم" : "مساعد PowerHub"}</span></button>)}</CardContent></Card><Card className="border-white/8 bg-[#111823] shadow-panel">
           <CardHeader className="border-b border-white/7">
             <CardTitle className="flex items-center justify-between gap-3 text-white">
               <span className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-[#F5B800]" />محادثة المساعد</span>
@@ -375,6 +444,7 @@ export default function AiAssistantPage() {
             </p>
           </CardContent>
         </Card>
+        </div>
       </div>
     </DashboardLayout>
   );
