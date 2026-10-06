@@ -66,7 +66,7 @@ export const adminFeatureControlsRouter = router({
     const [tenantsResult, ownersResult, subscriptionsResult, sitesResult, membersResult, subscribersResult] = await Promise.all([
       // Production schema does not have the legacy plan/package_code columns on tenants.
       // Subscription is the source of truth for the current package.
-      admin.from("tenants").select("id,name,status,slug").order("name", { ascending: true }).limit(500),
+      admin.from("tenants").select("id,name,status,slug,created_at").order("name", { ascending: true }).limit(500),
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
       admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").order("created_at", { ascending: false }).limit(1000),
       admin.from("sites").select("id,tenant_id,status").limit(5000),
@@ -153,12 +153,11 @@ export const adminFeatureControlsRouter = router({
     const catalog=(catalogResult.data?.value&&typeof catalogResult.data.value==="object"&&!Array.isArray(catalogResult.data.value)?catalogResult.data.value as Record<string,unknown>:{});
     const packages=Array.isArray(catalog.packages)?catalog.packages as Array<Record<string,any>>:[];
     const pkgMap=new Map(packages.map(p=>[String(p.code),p]));
-    const quota=async (tenantId:number,resource:"subscribers"|"platformUser"|"fieldUser"|"branch")=>{const {data,error}=await admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:resource});if(error)throw error;return Number(Array.isArray(data)?data[0]:data??0);};
+    const quota=async (tenantId:number,resource:"subscribers"|"platformUser"|"fieldUser"|"branch"|"sms")=>{const {data,error}=await admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:resource});if(error)throw error;return Number(Array.isArray(data)?data[0]:data??0);};
     const rows=[];
     for(const tenant of tenants){
       const id=Number(tenant.id); const sub=subscriptions.get(id); const pkg=pkgMap.get(String(sub?.package_code)); const u=members.get(id)??{platform:0,field:0}; const sms=smsAccounts.get(id); const a=addons.get(id)??[];
-      const [subscriberLimit,branchLimit,platformLimit,fieldLimit]=await Promise.all([quota(id,"subscribers"),quota(id,"branch"),quota(id,"platformUser"),quota(id,"fieldUser")]);
-      const smsLimit=Number(sms?.monthly_limit??0)+a.filter(x=>x.addon_code==="sms").reduce((n,x)=>n+Number(x.quantity??0),0);
+      const [subscriberLimit,branchLimit,platformLimit,fieldLimit,smsLimit]=await Promise.all([quota(id,"subscribers"),quota(id,"branch"),quota(id,"platformUser"),quota(id,"fieldUser"),quota(id,"sms")]);
       const smsValue=smsUsed.get(id)??0;
       rows.push({tenant:{id,name:tenant.name,status:tenant.status,createdAt:tenant.created_at},owner:owners.get(id)?{fullName:owners.get(id)?.full_name??null,companyName:owners.get(id)?.company_name??null}:null,subscription:sub?{packageCode:sub.package_code,status:sub.status,startedAt:sub.started_at,endsAt:sub.ends_at,billingCycle:sub.billing_cycle,archivedAt:sub.archived_at}:null,package:{name:pkg?.name??sub?.package_code??"—"},usage:{subscribers:subscribers.get(id)??0,branches:branches.get(id)??0,platformUsers:u.platform,fieldUsers:u.field},limits:{subscribers:subscriberLimit,branches:branchLimit,platformUsers:platformLimit,fieldUsers:fieldLimit,messages:smsLimit},messages:{used:smsValue,remaining:Math.max(0,smsLimit-smsValue)},addons:a.map(x=>({id:Number(x.id),code:x.addon_code,quantity:Number(x.quantity),durationDays:x.duration_days,startsAt:x.starts_at,endsAt:x.ends_at})),daysRemaining:sub?.ends_at?Math.max(0,Math.ceil((new Date(sub.ends_at).getTime()-Date.now())/86400000)):null});
     }
