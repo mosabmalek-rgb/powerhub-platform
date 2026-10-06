@@ -20,6 +20,8 @@ describe("Mobile API v1 contract", () => {
   it("requires email credentials and protects refresh values through a stable hash", () => {
     expect(mobileApiSchemas.login.safeParse({ email: "field@powerhub.test", password: "SecurePass123" }).success).toBe(true);
     expect(mobileApiSchemas.login.safeParse({ email: "not-an-email", password: "short" }).success).toBe(false);
+    expect(mobileApiSchemas.changePassword.safeParse({ newPassword: "NewSecurePass123" }).success).toBe(true);
+    expect(mobileApiSchemas.changePassword.safeParse({ newPassword: "short" }).success).toBe(false);
     expect(hashMobileToken("refresh-token-example")).toHaveLength(64);
     expect(hashMobileToken("refresh-token-example")).toBe(hashMobileToken("refresh-token-example"));
     expect(hashMobileToken("refresh-token-example")).not.toBe(hashMobileToken("different-token"));

@@ -22,6 +22,9 @@ const mobileLoginSchema = z.object({
   tenantId: z.number().int().positive().optional(),
   deviceLabel: z.string().trim().min(1).max(160).optional(),
 });
+const mobileChangePasswordSchema = z.object({
+  newPassword: z.string().min(8).max(128),
+}).strict();
 const refreshSchema = z.object({ refreshToken: z.string().min(32).max(256) });
 const subscriberQuerySchema = z.object({
   branchId: z.coerce.number().int().positive(),
@@ -66,6 +69,7 @@ type MobileScope = {
   branchIds: number[];
   role: PowerRole;
   permissions: string[] | null;
+  mustChangePassword: boolean;
 };
 
 const toNumber = (value: number | string | null | undefined) => Number(value);
@@ -117,7 +121,7 @@ async function syncMobileProfile(input: { id: string; email: string; name?: stri
   return { id: toNumber(data.id), name: data.name as string | null, accountStatus: data.account_status as string, mustChangePassword: Boolean(data.must_change_password) };
 }
 
-async function resolveMobileScope(userId: number, tenantId: number): Promise<MobileScope | null> {
+async function resolveMobileScope(userId: number, tenantId: number, allowPasswordChange = false): Promise<MobileScope | null> {
   const admin = supabaseAdmin();
   const [userResult, membershipResult, tenantResult, profilesResult] = await Promise.all([
     admin.from("users").select("id, name, account_status, must_change_password").eq("id", userId).maybeSingle(),
@@ -127,7 +131,7 @@ async function resolveMobileScope(userId: number, tenantId: number): Promise<Mob
   ]);
   if (userResult.error || membershipResult.error || tenantResult.error || profilesResult.error) throw new Error("Supabase mobile scope lookup failed");
   const user = userResult.data;
-  if (!user || user.account_status !== "active" || user.must_change_password || !membershipResult.data || tenantResult.data?.status !== "active") return null;
+  if (!user || user.account_status !== "active" || (!allowPasswordChange && user.must_change_password) || !membershipResult.data || tenantResult.data?.status !== "active") return null;
 
   const now = new Date();
   const permitted = (profilesResult.data ?? []).filter((profile) => {
@@ -146,10 +150,10 @@ async function resolveMobileScope(userId: number, tenantId: number): Promise<Mob
     : Array.from(new Set(permitted.flatMap((profile) => profile.site_id ? [toNumber(profile.site_id)] : [])));
   if (!branchIds.length) return null;
   const selected = permitted[0];
-  return { userId, userName: user.name as string | null, tenantId, branchIds, role: selected.role as PowerRole, permissions: (selected.permissions as string[] | null) ?? null };
+  return { userId, userName: user.name as string | null, tenantId, branchIds, role: selected.role as PowerRole, permissions: (selected.permissions as string[] | null) ?? null, mustChangePassword: Boolean(user.must_change_password) };
 }
 
-async function authenticateMobile(req: Request): Promise<{ scope: MobileScope; sessionId: number } | null> {
+async function authenticateMobile(req: Request, allowPasswordChange = false): Promise<{ scope: MobileScope; sessionId: number } | null> {
   const token = readBearerToken(req);
   if (!token) return null;
   try {
@@ -161,7 +165,7 @@ async function authenticateMobile(req: Request): Promise<{ scope: MobileScope; s
     const { data: session, error } = await admin.from("mobile_api_sessions").select("id")
       .eq("id", payload.sessionId).eq("user_id", userId).eq("tenant_id", payload.tenantId).is("revoked_at", null).gt("expires_at", isoNow()).maybeSingle();
     if (error || !session) return null;
-    const scope = await resolveMobileScope(userId, payload.tenantId);
+    const scope = await resolveMobileScope(userId, payload.tenantId, allowPasswordChange);
     if (!scope) return null;
     await admin.from("mobile_api_sessions").update({ last_used_at: isoNow() }).eq("id", session.id);
     return { scope, sessionId: toNumber(session.id) };
@@ -196,7 +200,7 @@ async function createSession(scope: MobileScope, deviceLabel?: string) {
 }
 
 function mobileUserPayload(scope: MobileScope) {
-  return { id: scope.userId, name: scope.userName, role: scope.role, tenantId: scope.tenantId, branchIds: scope.branchIds };
+  return { id: scope.userId, name: scope.userName, role: scope.role, tenantId: scope.tenantId, branchIds: scope.branchIds, mustChangePassword: scope.mustChangePassword };
 }
 
 async function writeAudit(input: { tenantId: number; branchId: number; userId: number; role: string; entityType: string; entityId: string; action: string; afterData: Record<string, unknown> }) {
@@ -228,12 +232,30 @@ export function registerMobileApi(app: Express) {
       const memberships = await availableTenantsForUser(user.id);
       const tenantId = parsed.data.tenantId ?? (memberships.length === 1 ? memberships[0].id : undefined);
       if (!tenantId) return res.status(409).json({ error: { code: "TENANT_SELECTION_REQUIRED", message: "اختر مساحة الشركة قبل المتابعة.", retryable: false }, tenants: memberships });
-      const scope = await resolveMobileScope(user.id, tenantId);
-      if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يملك هذا الحساب صلاحيتي الدخول للتطبيق الميداني وتسجيل القراءات، أو يجب تغيير كلمة المرور المؤقتة أولاً.");
+      const scope = await resolveMobileScope(user.id, tenantId, true);
+      if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يملك هذا الحساب صلاحية الدخول للتطبيق الميداني.");
       return res.json({ ...(await createSession(scope, parsed.data.deviceLabel)), user: mobileUserPayload(scope) });
     } catch (profileError) {
       return sendSupabaseError(res, profileError instanceof Error ? profileError : null, "تعذر تهيئة حساب الموبايل.");
     }
+  });
+
+  app.post("/api/mobile/v1/auth/change-password", async (req, res) => {
+    const parsed = mobileChangePasswordSchema.safeParse(req.body);
+    if (!parsed.success) return sendError(res, 400, "INVALID_PASSWORD_INPUT", "كلمة المرور الجديدة غير صالحة.");
+    const context = await authenticateMobile(req, true);
+    if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة.");
+    if (!context.scope.mustChangePassword) return sendError(res, 409, "PASSWORD_CHANGE_NOT_REQUIRED", "لا توجد كلمة مرور مؤقتة معلقة.");
+    const admin = supabaseAdmin();
+    const { data: user, error: userError } = await admin.from("users").select("auth_user_id").eq("id", context.scope.userId).maybeSingle();
+    if (userError) return sendSupabaseError(res, userError);
+    if (!user?.auth_user_id) return sendError(res, 409, "AUTH_PROFILE_MISSING", "تعذر ربط حساب الموبايل بحساب المصادقة.");
+    const { error: authError } = await admin.auth.admin.updateUserById(user.auth_user_id, { password: parsed.data.newPassword });
+    if (authError) return sendError(res, 400, "PASSWORD_CHANGE_FAILED", "تعذر تغيير كلمة المرور.");
+    const { error: profileError } = await admin.from("users").update({ must_change_password: false, temporary_password_issued_at: null, updated_at: isoNow() }).eq("id", context.scope.userId);
+    if (profileError) return sendSupabaseError(res, profileError, "تم تغيير كلمة المرور لكن تعذر تحديث حالة الحساب.");
+    await admin.from("mobile_api_sessions").update({ last_used_at: isoNow() }).eq("id", context.sessionId);
+    return res.json({ success: true });
   });
 
   app.post("/api/mobile/v1/auth/refresh", async (req, res) => {
@@ -386,4 +408,4 @@ export function registerMobileApi(app: Express) {
   });
 }
 
-export const mobileApiSchemas = { login: mobileLoginSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
+export const mobileApiSchemas = { login: mobileLoginSchema, changePassword: mobileChangePasswordSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
