@@ -1,5 +1,10 @@
 export type AiPolicyDecision = "handoff" | "continue";
 
+export function isSimpleGreeting(question: string): boolean {
+  const q = question.trim().toLowerCase().replace(/[؟?!.,،]+/g, " ").replace(/\s+/g, " ");
+  return /^(مرحبا|مرحبًا|اهلا|أهلا|أهلًا|السلام عليكم|السلام عليكم ورحمة الله وبركاته|صباح الخير|مساء الخير|hello|hi|hey)(\s+يا\s+)?(مساء الخير|صباح الخير)?$/.test(q);
+}
+
 export function isUserRequestedHandoff(question: string): boolean {
   const q = question.trim();
   return /(أريد|اريد|أحتاج|احتاج|حوّلني|حولني|وصلني|contact|talk|speak)/i.test(q)
@@ -30,6 +35,10 @@ export function evaluateAiPolicy(
   minScore: number,
 ): { decision: AiPolicyDecision; reason: string; articles: Array<Record<string, unknown>> } {
   const eligible = selectSafeArticles(articles, minScore);
+
+  if (isSimpleGreeting(question)) {
+    return { decision: "continue", reason: "تحية بسيطة يمكن للمساعد الرد عليها مباشرة.", articles: [] };
+  }
 
   if (isSensitiveMutationRequest(question)) {
     return {

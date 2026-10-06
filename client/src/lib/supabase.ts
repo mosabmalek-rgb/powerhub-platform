@@ -10,7 +10,7 @@ if (!supabaseUrl || !supabasePublishableKey) {
 export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
     persistSession: true,
-    autoRefreshToken: true,
+    autoRefreshToken: false,
     detectSessionInUrl: true,
   },
 });
@@ -19,9 +19,38 @@ let currentSession: Session | null = null;
 let sessionInitialized = false;
 let sessionReadInFlight: Promise<Session | null> | null = null;
 let authSubscriptionReady = false;
+let refreshSessionInFlight: Promise<Session | null> | null = null;
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 type AuthSubscriber = (event: AuthChangeEvent, session: Session | null) => void;
 const authSubscribers = new Set<AuthSubscriber>();
+
+function scheduleSessionRefresh(session: Session | null) {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
+  if (!session?.expires_at || typeof window === "undefined") return;
+  const delay = Math.max(15_000, (session.expires_at * 1000) - Date.now() - 60_000);
+  refreshTimer = setTimeout(() => { void refreshSupabaseSession(); }, delay);
+}
+
+async function refreshSupabaseSession(): Promise<Session | null> {
+  if (refreshSessionInFlight) return refreshSessionInFlight;
+  refreshSessionInFlight = supabase.auth.refreshSession()
+    .then(({ data }) => {
+      if (data.session) {
+        currentSession = data.session;
+        sessionInitialized = true;
+        scheduleSessionRefresh(currentSession);
+        return currentSession;
+      }
+      return currentSession;
+    })
+    .catch(() => currentSession)
+    .finally(() => { refreshSessionInFlight = null; });
+  return refreshSessionInFlight;
+}
 
 function ensureAuthSubscription() {
   if (authSubscriptionReady) return;
@@ -38,6 +67,7 @@ function ensureAuthSubscription() {
 
     currentSession = session;
     sessionInitialized = true;
+    scheduleSessionRefresh(session);
 
     // Keep the Supabase callback synchronous. Consumers may perform async work
     // after React schedules their state updates; this avoids re-entrancy inside
@@ -57,53 +87,35 @@ export async function getSupabaseSession(): Promise<Session | null> {
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   const expiresAt = currentSession?.expires_at ?? 0;
-  const hasRefreshWindow = expiresAt > nowSeconds + 30;
-
-  if (sessionInitialized && (currentSession === null || hasRefreshWindow)) {
-    return currentSession;
+  if (sessionInitialized && currentSession) {
+    if (expiresAt > nowSeconds) {
+      // Refresh is centrally scheduled; ordinary API calls must not trigger
+      // their own refresh requests and create a refresh-token race.
+      if (expiresAt <= nowSeconds + 60) void refreshSupabaseSession();
+      return currentSession;
+    }
+    return refreshSupabaseSession();
   }
 
   if (sessionReadInFlight) return sessionReadInFlight;
 
   sessionReadInFlight = supabase.auth
     .getSession()
-    .then(({ data, error }) => {
-      if (data.session) {
-        currentSession = data.session;
-        sessionInitialized = true;
-        return currentSession;
-      }
-
-      // Supabase may attempt a network refresh when the access token is close
-      // to expiry. If that refresh fails because the device is temporarily
-      // offline, keep using the currently valid access token until its actual
-      // expiry. Never revive an already-expired session offline.
-      const currentExpiresAt = currentSession?.expires_at ?? 0;
-      const nowSeconds = Math.floor(Date.now() / 1000);
-      if (error && currentSession && currentExpiresAt > nowSeconds) {
-        sessionInitialized = true;
-        return currentSession;
-      }
-
-      currentSession = null;
+    .then(({ data }) => {
+      currentSession = data.session ?? null;
       sessionInitialized = true;
-      return null;
+      scheduleSessionRefresh(currentSession);
+      return currentSession;
     })
     .catch(() => {
-      const currentExpiresAt = currentSession?.expires_at ?? 0;
-      const nowSeconds = Math.floor(Date.now() / 1000);
-      if (currentSession && currentExpiresAt > nowSeconds) {
-        sessionInitialized = true;
-        return currentSession;
-      }
-
+      // Never manufacture a new session after a transient storage/network
+      // failure. Keep a still-valid in-memory session if one exists.
+      if (currentSession && (currentSession.expires_at ?? 0) > Math.floor(Date.now() / 1000)) return currentSession;
       currentSession = null;
       sessionInitialized = true;
       return null;
     })
-    .finally(() => {
-      sessionReadInFlight = null;
-    });
+    .finally(() => { sessionReadInFlight = null; });
 
   return sessionReadInFlight;
 }

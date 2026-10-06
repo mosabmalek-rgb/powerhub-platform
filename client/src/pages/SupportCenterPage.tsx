@@ -357,8 +357,10 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     const hasNewIncoming = newlyArrivedIncoming.length > 0 || Boolean(newest && previousLastId !== null && newest.id !== previousLastId && newest.sender_user_id !== user?.id);
     if (newlyArrivedIncoming.length > 0) playChatAlert();
     lastMessageIdRef.current = newest?.id ?? null;
-    const receiptEntries = await Promise.all(loadedMessages.map(async (message) => {
-      if (message.sender_user_id !== user?.id && message.sender_type !== "human") return [message.id, "sent" as ReceiptState] as const;
+    const receiptCandidates = loadedMessages
+      .filter((message) => message.sender_user_id === user?.id && message.sender_type === "human")
+      .slice(-50);
+    const receiptEntries = await Promise.all(receiptCandidates.map(async (message) => {
       const rows = await listChatMessageReceipts(message.id).catch(() => []);
       return [message.id, messageReceiptState(rows)] as const;
     }));
@@ -442,14 +444,18 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   useEffect(() => {
     if (!access.data?.allowed) return;
     void refreshQueue({ silent: true });
-    void listChatNotifications(100).then((rows) => setNotificationCount(rows.filter((row) => !row.read_at).length)).catch(() => undefined);
+    void listChatNotifications(20).then((rows) => setNotificationCount(rows.filter((row) => !row.read_at).length)).catch(() => undefined);
+    const fallbackTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshQueue({ silent: true });
+    }, 60_000);
     if (!user?.id) return;
-    return subscribeToChatNotifications(user.id, () => {
+    const notificationUnsubscribe = subscribeToChatNotifications(user.id, () => {
         setNotificationCount((count) => count + 1);
         playChatAlert();
         toast.info("وصلت رسالة دعم جديدة.");
         void refreshQueue({ silent: true });
       });
+    return () => { notificationUnsubscribe(); window.clearInterval(fallbackTimer); };
   }, [access.data?.allowed, user?.id, filter.status, filter.priority, filter.category]);
 
   useEffect(() => {
@@ -459,11 +465,29 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
       if (event.event === "chat_receipt") {
         const rows = await listChatMessageReceipts(event.message_id).catch(() => []);
         setReceipts((current) => ({ ...current, [event.message_id]: messageReceiptState(rows) }));
-      } else {
-        await loadMessages(selectedId, { silent: true });
+      } else if (event.event === "chat_message") {
+        const { data } = await supabase
+          .from("chat_messages")
+          .select("id,conversation_id,sender_user_id,sender_type,message_type,body,visibility,created_at")
+          .eq("id", event.message_id)
+          .maybeSingle();
+        if (data) {
+          const row = data as MessageRow;
+          setMessages((current) => current.some((item) => item.id === row.id) ? current : [...current, row].sort((a, b) => a.created_at.localeCompare(b.created_at)));
+          if (row.sender_type === "human" && row.sender_user_id !== user?.id) {
+            try {
+              await supabase.rpc("chat_mark_delivered", { p_message_id: row.id });
+              await supabase.rpc("chat_mark_read", { p_message_id: row.id });
+            } catch { /* best effort */ }
+            playChatAlert();
+            requestAnimationFrame(() => scrollMessagesToEnd("smooth"));
+          }
+        }
       }
     });
-    const timer = window.setInterval(() => { void loadMessages(selectedId, { silent: true }); }, 5000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadMessages(selectedId, { silent: true });
+    }, 60_000);
     return () => { unsubscribe(); window.clearInterval(timer); };
   }, [selectedId]);
 

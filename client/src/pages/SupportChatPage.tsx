@@ -82,6 +82,7 @@ export default function SupportChatPage() {
   const messageViewportRef = useRef<HTMLDivElement>(null);
   const lastMessageIdRef = useRef<number | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
+  const hydratedReceiptIdsRef = useRef<Set<number>>(new Set());
 
   const selected = useMemo(() => conversations.find((row) => row.id === selectedId) ?? null, [conversations, selectedId]);
 
@@ -208,7 +209,7 @@ export default function SupportChatPage() {
     if (!isAuthenticated || !user?.id) return;
     let unsubscribe: (() => void) | undefined;
     void import("@/lib/chatReceipts").then(async ({ listChatNotifications, subscribeToChatNotifications }) => {
-      const rows = await listChatNotifications(100).catch(() => []);
+      const rows = await listChatNotifications(20).catch(() => []);
       setUnreadNotificationCount(rows.filter((row) => !row.read_at).length);
       unsubscribe = subscribeToChatNotifications(user.id, () => {
         setUnreadNotificationCount((count) => count + 1);
@@ -224,8 +225,11 @@ export default function SupportChatPage() {
     if (selectedId === null) return;
     setMessagesLoaded(false);
     setUnreadNotificationCount(0);
+    hydratedReceiptIdsRef.current.clear();
     void loadMessages(selectedId, { initial: true });
-    const timer = window.setInterval(() => { void loadMessages(selectedId, { silent: true }); }, 5000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadMessages(selectedId, { silent: true });
+    }, 60_000);
     return () => { window.clearInterval(timer); };
   }, [selectedId, user?.id]);
 
@@ -263,17 +267,21 @@ export default function SupportChatPage() {
   useEffect(() => {
     let cancelled = false;
     async function hydrateReceipts() {
-      const outgoing = messages.filter((row) => row.sender_user_id === user?.id);
-      const result: Record<number, ReceiptState> = {};
-      for (const message of outgoing) {
+      const outgoing = messages
+        .filter((row) => row.sender_user_id === user?.id)
+        .slice(-50)
+        .filter((message) => !hydratedReceiptIdsRef.current.has(message.id));
+      if (!outgoing.length) return;
+      const entries = await Promise.all(outgoing.map(async (message) => {
         const list = await listChatMessageReceipts(message.id).catch(() => []);
-        result[message.id] = messageReceipt(list);
-      }
-      if (!cancelled) setReceipts((current) => ({ ...current, ...result }));
+        return [message.id, messageReceipt(list)] as const;
+      }));
+      if (cancelled) return;
+      for (const [messageId] of entries) hydratedReceiptIdsRef.current.add(messageId);
+      setReceipts((current) => ({ ...current, ...Object.fromEntries(entries) }));
     }
     if (messages.length) void hydrateReceipts();
-    const timer = window.setInterval(() => { if (messages.length) void hydrateReceipts(); }, 3000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    return () => { cancelled = true; };
   }, [messages, user?.id]);
 
   async function createConversation() {
