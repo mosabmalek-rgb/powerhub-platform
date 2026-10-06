@@ -64,9 +64,9 @@ function messageReceiptState(rows: ChatReceipt[]): ReceiptState {
   return "sent";
 }
 function ReceiptMark({ state }: { state: ReceiptState }) {
-  if (state === "read") return <span className="inline-flex items-center text-sky-500" title="تمت القراءة"><CheckCheck className="h-3.5 w-3.5" /></span>;
-  if (state === "delivered") return <span className="inline-flex items-center text-muted-foreground" title="تم التسليم"><CheckCheck className="h-3.5 w-3.5" /></span>;
-  return <span className="inline-flex items-center text-muted-foreground" title="أُرسلت"><Check className="h-3.5 w-3.5" /></span>;
+  if (state === "read") return <span className="inline-flex items-center font-bold text-sky-600 dark:text-sky-300 drop-shadow-[0_0_1px_currentColor]" title="✓✓ تمت القراءة" aria-label="✓✓ تمت القراءة"><CheckCheck className="h-4 w-4" /></span>;
+  if (state === "delivered") return <span className="inline-flex items-center font-bold text-emerald-600 dark:text-emerald-300 drop-shadow-[0_0_1px_currentColor]" title="✓✓ تم التسليم" aria-label="✓✓ تم التسليم"><CheckCheck className="h-4 w-4" /></span>;
+  return <span className="inline-flex items-center font-bold text-slate-700 dark:text-slate-200" title="✓ أُرسلت" aria-label="✓ أُرسلت"><Check className="h-4 w-4" /></span>;
 }
 
 const priorityLabels: Record<string, string> = { low: "منخفض", normal: "عادي", high: "مرتفع", urgent: "عاجل" };
@@ -348,10 +348,12 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     if (error) toast.error("تعذر تحميل الرسائل.");
     const loadedMessages = (data ?? []) as MessageRow[];
     const previousLastId = lastMessageIdRef.current;
+    const previousIds = new Set(messages.map((message) => message.id));
+    const newlyArrivedIncoming = loadedMessages.filter((message) => !previousIds.has(message.id) && message.sender_type === "human" && message.sender_user_id !== user?.id);
     setMessages(loadedMessages);
     const newest = loadedMessages[loadedMessages.length - 1];
-    const hasNewIncoming = Boolean(newest && previousLastId !== null && newest.id !== previousLastId && newest.sender_user_id !== user?.id);
-    if (hasNewIncoming) playChatAlert();
+    const hasNewIncoming = newlyArrivedIncoming.length > 0 || Boolean(newest && previousLastId !== null && newest.id !== previousLastId && newest.sender_user_id !== user?.id);
+    if (newlyArrivedIncoming.length > 0) playChatAlert();
     lastMessageIdRef.current = newest?.id ?? null;
     const receiptEntries = await Promise.all(loadedMessages.map(async (message) => {
       if (message.sender_user_id !== user?.id && message.sender_type !== "human") return [message.id, "sent" as ReceiptState] as const;
@@ -440,7 +442,12 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     void refreshQueue({ silent: true });
     void listChatNotifications(100).then((rows) => setNotificationCount(rows.filter((row) => !row.read_at).length)).catch(() => undefined);
     if (!user?.id) return;
-    return subscribeToChatNotifications(user.id, () => setNotificationCount((count) => count + 1));
+    return subscribeToChatNotifications(user.id, () => {
+        setNotificationCount((count) => count + 1);
+        playChatAlert();
+        toast.info("وصلت رسالة دعم جديدة.");
+        void refreshQueue({ silent: true });
+      });
   }, [access.data?.allowed, user?.id, filter.status, filter.priority, filter.category]);
 
   useEffect(() => {
@@ -480,7 +487,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
             {!conversations.length && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">لا توجد محادثات دعم في الطابور.</div>}
           </CardContent></Card>
 
-          <Card className="min-w-0 min-h-0 overflow-hidden lg:order-1"><CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>{selected?.subject || "اختر محادثة"}</CardTitle>{selected && <div className="mt-1 text-xs text-muted-foreground">#{selected.id} · {statusLabel(selected.status)}</div>}</div>{selected && <div className="flex flex-wrap gap-2">
+          <Card className="min-w-0 min-h-0 overflow-hidden lg:order-1"><CardHeader className="shrink-0"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>{selected?.subject || "اختر محادثة"}</CardTitle>{selected && <div className="mt-1 text-xs text-muted-foreground">#{selected.id} · {statusLabel(selected.status)}</div>}</div>{selected && <div className="flex flex-wrap gap-2">
             <select className="h-9 rounded-md border bg-background px-2 text-sm" value={selected?.category_code ?? ""} onChange={async (event) => {
               const categoryCode = event.target.value;
               if (!selected || !categoryCode) return;
@@ -510,8 +517,8 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
                 {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
               </div></div>
             </details>
-            <div ref={messageViewportRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></div>
-            <div className="rounded-xl border bg-muted/20 p-3"><div className="mb-2 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[90px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
+            <div ref={messageViewportRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px]"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></div>
+            <div className="rounded-xl border bg-muted/20 p-2"><div className="mb-1.5 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[63px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
         </div>
       </div>;

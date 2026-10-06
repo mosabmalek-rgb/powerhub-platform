@@ -55,6 +55,16 @@ export async function listChatNotifications(limit = 50): Promise<ChatInboxNotifi
   return (data ?? []) as ChatInboxNotification[];
 }
 
+export async function getChatNotification(notificationId: number): Promise<ChatInboxNotification | null> {
+  const { data, error } = await supabase
+    .from("chat_inbox_notifications")
+    .select("*")
+    .eq("id", notificationId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? (data as ChatInboxNotification) : null;
+}
+
 export async function listChatMessageReceipts(messageId: number): Promise<ChatReceipt[]> {
   const { data, error } = await supabase.rpc("chat_receipts_for_message", {
     p_message_id: messageId,
