@@ -38,6 +38,7 @@ const adminRuntimeRouter = (router({
   ...adminRuntimeRecord,
   listTenantFeatureEntitlements: (adminRouterWithSupabasePlatformSetting as any)._def.record.listTenantFeatureEntitlements,
   setTenantFeatureEntitlement: (adminRouterWithSupabasePlatformSetting as any)._def.record.setTenantFeatureEntitlement,
+  ownerQuotaUsageReport: (adminFeatureControlsRouter as any)._def.record.ownerQuotaUsageReport,
 } as Record<string, any>) as unknown) as AppAdminRouter;
 
 const platformContactSettingsRouter = router({
