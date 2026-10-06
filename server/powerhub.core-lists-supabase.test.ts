@@ -624,7 +624,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { tenant_id: 99, user_id: 3, role: "member", is_active: true, membership_status: "active" },
     ];
     state.tables.staff_profiles = [
-      { id: 126, tenant_id: 20, user_id: 2, site_id: 10, role: "accountant", custom_role_id: null, permissions: ["collectPayments"], suspension_started_at: null, suspension_ends_at: null, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
+      { id: 126, tenant_id: 20, user_id: 2, site_id: 10, role: "accountant", custom_role_id: null, permissions: ["collectPayments"], suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
       { id: 127, tenant_id: 20, user_id: 3, site_id: 11, role: "collector", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
     ];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
