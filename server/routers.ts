@@ -15,32 +15,19 @@ import { aiSupportRouter } from "./ai-support-router";
 import { platformAnnouncementsRouter } from "./platform-announcements-router";
 import { adminFeatureControlsRouter } from "./admin-feature-controls-router";
 
-const adminRuntimeRecord = {
-  ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, unknown>),
+const adminRuntimeRecord: Record<string, any> = {
+  ...((adminRouterWithSupabasePlatformSetting as any)._def.record as Record<string, any>),
 };
 delete adminRuntimeRecord.saveRolePolicy;
-Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, unknown>);
-Object.assign(adminRuntimeRecord, (adminFeatureControlsRouter as any)._def.record as Record<string, unknown>);
+Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, any>);
+Object.assign(adminRuntimeRecord, (adminFeatureControlsRouter as any)._def.record as Record<string, any>);
 
-type AppAdminRouter = Omit<typeof adminRouter, "listComplaints"> & {
-  listComplaints: any;
-  listTenantFeatureEntitlements: any;
-  setTenantFeatureEntitlement: any;
-  featureCatalog: any;
-  tenantFeatureMatrix: any;
-  tenantFeatureSnapshot: any;
-  setTenantFeatureControl: any;
-  resetTenantFeatureControl: any;
-  ownerQuotaUsageReport: any;
-};
-
-const adminRuntimeRouter = (router({
+const adminRuntimeRouter = router({
   ...adminRuntimeRecord,
   listTenantFeatureEntitlements: (adminRouterWithSupabasePlatformSetting as any)._def.record.listTenantFeatureEntitlements,
   setTenantFeatureEntitlement: (adminRouterWithSupabasePlatformSetting as any)._def.record.setTenantFeatureEntitlement,
   ownerQuotaUsageReport: (adminFeatureControlsRouter as any)._def.record.ownerQuotaUsageReport,
-} as Record<string, any>) as unknown) as AppAdminRouter;
-
+});
 const platformContactSettingsRouter = router({
   public: publicProcedure.query(async () => {
     const { data, error } = await supabaseAdmin().from("platform_settings").select("is_enabled,value").eq("setting_key","platform_contact").maybeSingle();
@@ -120,4 +107,4 @@ export const appRouter = router({
   admin: adminRuntimeRouter,
 });
 
-export type AppRouter = Omit<typeof appRouter, "admin"> & { admin: typeof adminRuntimeRouter };
+export type AppRouter = typeof appRouter;
