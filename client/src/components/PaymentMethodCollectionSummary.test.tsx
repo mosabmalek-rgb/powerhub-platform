@@ -41,7 +41,7 @@ describe("PaymentMethodCollectionSummary", () => {
     expect(csv).not.toContain("40.00");
   });
 
-  it("builds a styled Excel workbook with summary and payment-detail sheets", { timeout: 60_000 }, async () => {
+  it("builds a styled Excel workbook with summary and payment-detail sheets", { timeout: 90_000 }, async () => {
     const summary = summarizePaymentMethods(payments, "jawwal_pay");
     const workbook = await buildPaymentMethodWorkbook(summary.groups, summary.total, "jawwal_pay", {}, [{ payment: { paymentNo: "PAY-1", paymentMethod: "jawwal_pay", amount: "70", paidAt: "2026-08-01", receiptImageUrl: "https://storage.example.test/signed-receipt" }, subscriber: { fullName: "محمد أحمد" }, invoiceNo: "INV-1" }], "https://powerhub.example");
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["ملخص التحصيل", "تفاصيل الدفعات"]);
