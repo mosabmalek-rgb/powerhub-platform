@@ -1,4 +1,3 @@
--- Make tenant-level Features & Limits controls affect the same effective quota authority used by runtime guards.
 create or replace function public.powerhub_effective_tenant_quota(
   p_tenant_id bigint,
   p_resource text,
@@ -61,218 +60,18 @@ begin
     where setting_key='owner_limit_overrides';
 
     if p_resource='subscribers' then
-      v_override:=case when (v_overrides->>'subscriberLimit')~'^\\d+
-
-  select coalesce(
-    sum(
-      quantity * case
-        when addon_code='subscribers50' and p_resource='subscribers' then 50
-        else 1
-      end
-    ),
-    0
-  )::integer
-  into v_delta
-  from public.tenant_addon_requests
-  where tenant_id=p_tenant_id
-    and status='approved'
-    and addon_code=case
-      when p_resource='subscribers' then 'subscribers50'
-      when p_resource='platformUser' then 'platformUser'
-      when p_resource='fieldUser' then 'fieldUser'
-      when p_resource='branch' then 'branch'
-      when p_resource='sms' then 'sms'
-    end
-    and (starts_at is null or starts_at<=p_at)
-    and (ends_at is null or ends_at>p_at);
-
-  if p_resource='sms' then
-    select v_delta + coalesce(sum(l.credited_messages),0)::integer
-      into v_delta
-    from public.tenant_sms_recharge_ledger l
-    where l.tenant_id=p_tenant_id
-      and l.status in ('provider_confirmed','manual_confirmed')
-      and l.confirmed_at is not null
-      and (l.request_id is null or exists (
-        select 1
-        from public.sms_package_requests r
-        join public.tenant_subscriptions ts on ts.id=r.subscription_id
-        where r.id=l.request_id
-          and ts.ends_at>p_at
-      ));
-  end if;
-
-  return v_base + coalesce(v_delta,0);
-end;
-$function$;
-
-revoke all on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
-  from public,anon,authenticated;
-grant execute on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
-  to service_role;
-
- then (v_overrides->>'subscriberLimit')::integer end;
+      v_override:=case when (v_overrides->>'subscriberLimit')~'^\\d+$' then (v_overrides->>'subscriberLimit')::integer end;
     elsif p_resource='platformUser' then
-      v_override:=case when (v_overrides->>'subaccountLimit')~'^\\d+
-
-  select coalesce(
-    sum(
-      quantity * case
-        when addon_code='subscribers50' and p_resource='subscribers' then 50
-        else 1
-      end
-    ),
-    0
-  )::integer
-  into v_delta
-  from public.tenant_addon_requests
-  where tenant_id=p_tenant_id
-    and status='approved'
-    and addon_code=case
-      when p_resource='subscribers' then 'subscribers50'
-      when p_resource='platformUser' then 'platformUser'
-      when p_resource='fieldUser' then 'fieldUser'
-      when p_resource='branch' then 'branch'
-      when p_resource='sms' then 'sms'
-    end
-    and (starts_at is null or starts_at<=p_at)
-    and (ends_at is null or ends_at>p_at);
-
-  if p_resource='sms' then
-    select v_delta + coalesce(sum(l.credited_messages),0)::integer
-      into v_delta
-    from public.tenant_sms_recharge_ledger l
-    where l.tenant_id=p_tenant_id
-      and l.status in ('provider_confirmed','manual_confirmed')
-      and l.confirmed_at is not null
-      and (l.request_id is null or exists (
-        select 1
-        from public.sms_package_requests r
-        join public.tenant_subscriptions ts on ts.id=r.subscription_id
-        where r.id=l.request_id
-          and ts.ends_at>p_at
-      ));
-  end if;
-
-  return v_base + coalesce(v_delta,0);
-end;
-$function$;
-
-revoke all on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
-  from public,anon,authenticated;
-grant execute on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
-  to service_role;
-
- then (v_overrides->>'subaccountLimit')::integer end;
+      v_override:=case when (v_overrides->>'subaccountLimit')~'^\\d+$' then (v_overrides->>'subaccountLimit')::integer end;
     elsif p_resource='fieldUser' then
-      v_override:=case when (v_overrides->>'fieldUserLimit')~'^\\d+
-
-  select coalesce(
-    sum(
-      quantity * case
-        when addon_code='subscribers50' and p_resource='subscribers' then 50
-        else 1
-      end
-    ),
-    0
-  )::integer
-  into v_delta
-  from public.tenant_addon_requests
-  where tenant_id=p_tenant_id
-    and status='approved'
-    and addon_code=case
-      when p_resource='subscribers' then 'subscribers50'
-      when p_resource='platformUser' then 'platformUser'
-      when p_resource='fieldUser' then 'fieldUser'
-      when p_resource='branch' then 'branch'
-      when p_resource='sms' then 'sms'
-    end
-    and (starts_at is null or starts_at<=p_at)
-    and (ends_at is null or ends_at>p_at);
-
-  if p_resource='sms' then
-    select v_delta + coalesce(sum(l.credited_messages),0)::integer
-      into v_delta
-    from public.tenant_sms_recharge_ledger l
-    where l.tenant_id=p_tenant_id
-      and l.status in ('provider_confirmed','manual_confirmed')
-      and l.confirmed_at is not null
-      and (l.request_id is null or exists (
-        select 1
-        from public.sms_package_requests r
-        join public.tenant_subscriptions ts on ts.id=r.subscription_id
-        where r.id=l.request_id
-          and ts.ends_at>p_at
-      ));
-  end if;
-
-  return v_base + coalesce(v_delta,0);
-end;
-$function$;
-
-revoke all on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
-  from public,anon,authenticated;
-grant execute on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
-  to service_role;
-
- then (v_overrides->>'fieldUserLimit')::integer end;
+      v_override:=case when (v_overrides->>'fieldUserLimit')~'^\\d+$' then (v_overrides->>'fieldUserLimit')::integer end;
     else
-      v_override:=case when (v_overrides->>'branchLimit')~'^\\d+
-
-  select coalesce(
-    sum(
-      quantity * case
-        when addon_code='subscribers50' and p_resource='subscribers' then 50
-        else 1
-      end
-    ),
-    0
-  )::integer
-  into v_delta
-  from public.tenant_addon_requests
-  where tenant_id=p_tenant_id
-    and status='approved'
-    and addon_code=case
-      when p_resource='subscribers' then 'subscribers50'
-      when p_resource='platformUser' then 'platformUser'
-      when p_resource='fieldUser' then 'fieldUser'
-      when p_resource='branch' then 'branch'
-      when p_resource='sms' then 'sms'
-    end
-    and (starts_at is null or starts_at<=p_at)
-    and (ends_at is null or ends_at>p_at);
-
-  if p_resource='sms' then
-    select v_delta + coalesce(sum(l.credited_messages),0)::integer
-      into v_delta
-    from public.tenant_sms_recharge_ledger l
-    where l.tenant_id=p_tenant_id
-      and l.status in ('provider_confirmed','manual_confirmed')
-      and l.confirmed_at is not null
-      and (l.request_id is null or exists (
-        select 1
-        from public.sms_package_requests r
-        join public.tenant_subscriptions ts on ts.id=r.subscription_id
-        where r.id=l.request_id
-          and ts.ends_at>p_at
-      ));
-  end if;
-
-  return v_base + coalesce(v_delta,0);
-end;
-$function$;
-
-revoke all on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
-  from public,anon,authenticated;
-grant execute on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
-  to service_role;
-
- then (v_overrides->>'branchLimit')::integer end;
+      v_override:=case when (v_overrides->>'branchLimit')~'^\\d+$' then (v_overrides->>'branchLimit')::integer end;
     end if;
 
     v_base:=greatest(0,coalesce(v_override,v_base));
   end if;
-  -- Tenant-level feature controls are the authoritative per-owner limit override.
+
   v_control_feature:=case p_resource
     when 'subscribers' then 'subscriber_management'
     when 'platformUser' then 'platform_users'
@@ -338,4 +137,5 @@ revoke all on function public.powerhub_effective_tenant_quota(bigint,text,timest
 grant execute on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz)
   to service_role;
 
-
+revoke all on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz) from public,anon,authenticated;
+grant execute on function public.powerhub_effective_tenant_quota(bigint,text,timestamptz) to service_role;
