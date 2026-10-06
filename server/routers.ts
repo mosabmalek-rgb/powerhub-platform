@@ -99,9 +99,4 @@ export const appRouter = router({
   admin: adminRuntimeRouter,
 });
 
-type AppAdminRouter =
-  typeof adminRouterWithSupabasePlatformSetting &
-  typeof adminRolePolicyRouter &
-  typeof adminFeatureControlsRouter;
-
-export type AppRouter = Omit<typeof appRouter, "admin"> & { admin: AppAdminRouter };
+export type AppRouter = Omit<typeof appRouter, "admin"> & { admin: typeof adminRuntimeRouter };
