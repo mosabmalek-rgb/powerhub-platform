@@ -13,6 +13,7 @@ const capabilitySchema = z.enum([
   "manageTariffs",
   "issueInvoices",
   "collectPayments",
+  "approvePaymentDocumentation",
   "manageExpenses",
   "managePayroll",
   "manageTeam",
