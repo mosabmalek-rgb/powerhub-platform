@@ -22,9 +22,14 @@ delete adminRuntimeRecord.saveRolePolicy;
 Object.assign(adminRuntimeRecord, (adminRolePolicyRouter as any)._def.record as Record<string, any>);
 Object.assign(adminRuntimeRecord, (adminFeatureControlsRouter as any)._def.record as Record<string, any>);
 
+type AppAdminRuntimeRouter =
+  typeof adminRouterWithSupabasePlatformSetting
+  & typeof adminRolePolicyRouter
+  & typeof adminFeatureControlsRouter;
+
 const adminRuntimeRouter = router({
   ...adminRuntimeRecord,
-});
+}) as unknown as AppAdminRuntimeRouter;
 const platformContactSettingsRouter = router({
   public: publicProcedure.query(async () => {
     const { data, error } = await supabaseAdmin().from("platform_settings").select("is_enabled,value").eq("setting_key","platform_contact").maybeSingle();
