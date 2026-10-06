@@ -120,7 +120,7 @@ export default function SupportChatPage() {
     viewport.scrollTo({ top: viewport.scrollHeight, behavior });
   }
 
-  async function loadMessages(conversationId: number, options: { initial?: boolean } = {}) {
+  async function loadMessages(conversationId: number, options: { initial?: boolean; silent?: boolean } = {}) {
     if (options.initial || !messagesLoaded || messages.length === 0) setLoadingMessages(true);
     const { data, error } = await supabase
       .from("chat_messages")
@@ -128,8 +128,10 @@ export default function SupportChatPage() {
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true });
     if (error) {
-      toast.error("تعذر تحميل رسائل المحادثة.");
-      setLoadingMessages(false);
+      if (!options.silent) {
+        toast.error("تعذر تحميل رسائل المحادثة.");
+        setLoadingMessages(false);
+      }
       return;
     }
     const rows = (data ?? []) as MessageRow[];
@@ -137,10 +139,18 @@ export default function SupportChatPage() {
     setMessages(rows);
     setMessagesLoaded(true);
     const newest = rows[rows.length - 1];
-    if (newest && previousLastId !== null && newest.id !== previousLastId && newest.sender_user_id !== user?.id) playChatAlert();
+    const hasNewIncoming = Boolean(
+      newest &&
+      previousLastId !== null &&
+      newest.id !== previousLastId &&
+      newest.sender_user_id !== user?.id,
+    );
+    if (hasNewIncoming) playChatAlert();
     lastMessageIdRef.current = newest?.id ?? null;
     setLoadingMessages(false);
-    requestAnimationFrame(() => scrollMessagesToEnd("auto"));
+    if (!options.silent || hasNewIncoming) {
+      requestAnimationFrame(() => scrollMessagesToEnd("auto"));
+    }
 
     const incoming = rows.filter((row) => row.sender_user_id !== user?.id && row.sender_type === "human");
     if (incoming.length) {
