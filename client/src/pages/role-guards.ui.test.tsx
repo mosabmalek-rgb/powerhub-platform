@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
   const queryCache = new Map<string, { data: unknown; isLoading: boolean; isFetching: boolean }>();
   return {
   activeRole: "viewer",
+  location: "/readings",
   site: { id: 1, name: "محطة الاختبار", code: "TEST-01" },
   user: { id: 1, role: "owner", platformRole: "platform_owner", accountStatus: "active" },
   portalSettings: { portalCode: "test-portal", displayName: "بوابة الاختبار", primaryColor: "#0D1117", accentColor: "#F5B800", isEnabled: true },
@@ -56,7 +57,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/ui/switch", () => ({ Switch: ({ checked, onCheckedChange, ...props }: { checked: boolean; onCheckedChange: (value: boolean) => void; [key: string]: unknown }) => <button type="button" aria-pressed={checked} onClick={() => onCheckedChange(!checked)} {...props} /> }));
 vi.mock("qrcode.react", () => ({ QRCodeCanvas: ({ value }: { value: string }) => <canvas aria-label="رمز QR للرابط" data-value={value} /> }));
-vi.mock("wouter", () => ({ useLocation: () => ["/readings", vi.fn()] }));
+vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()] }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
@@ -97,7 +98,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); mocks.activeRole = "viewer"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("hides invoice issuance and sharing controls from the viewer", () => {
@@ -211,6 +212,7 @@ describe("role guards in administration UI", () => {
 
   it("shows team administration to the owner", () => {
     mocks.activeRole = "owner";
+    mocks.location = "/staff";
     render(<SettingsPage />);
     expect(screen.getByRole("button", { name: /حفظ الدور/ })).toBeInTheDocument();
   });
