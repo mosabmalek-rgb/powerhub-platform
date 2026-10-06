@@ -4,7 +4,7 @@ import { z } from "zod";
 import { router, authenticatedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { invokeLLM } from "./_core/llm";
-import { evaluateAiPolicy, isSensitiveMutationRequest, isUserRequestedHandoff, shouldLoadAccountContext } from "./ai-support-policy";
+import { evaluateAiPolicy, isSensitiveMutationRequest, isUserRequestedHandoff, isSimpleGreeting, shouldLoadAccountContext } from "./ai-support-policy";
 
 const askInput = z.object({
   conversationId: z.number().int().positive(),
@@ -407,7 +407,16 @@ export const aiSupportRouter = router({
     let result: AiResult;
     let handoffTrigger: "unknown" | "insufficient_knowledge" | "sensitive" | "user_requested" | "repeated_failure" = "unknown";
 
-    if (packageCatalog && packageCatalog.packages.length && isPackageCatalogQuestion(input.question)) {
+    if (isSimpleGreeting(input.question)) {
+      result = {
+        decision: "answer",
+        answer: "مرحبًا بك في PowerHub 👋\nأنا مساعد PowerHub. اكتب سؤالك وسأحاول مساعدتك، وإذا احتاج الأمر إلى تدخل بشري سأحوّلك إلى فريق الدعم.",
+        reason: "SIMPLE_GREETING",
+        summary: "رد ترحيبي من المساعد.",
+        category: "other",
+        priority: "low",
+      };
+    } else if (packageCatalog && packageCatalog.packages.length && isPackageCatalogQuestion(input.question)) {
       result = {
         decision: "answer",
         answer: buildPackageCatalogAnswer(packageCatalog),
