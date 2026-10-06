@@ -16,6 +16,8 @@ declare
   v_override integer;
   v_delta integer:=0;
   v_overrides jsonb;
+  v_control record;
+  v_control_feature text;
 begin
   if p_resource not in ('subscribers','platformUser','fieldUser','branch','sms') then
     raise exception 'INVALID_QUOTA_RESOURCE' using errcode='P0001';
@@ -271,27 +273,22 @@ grant execute on function public.powerhub_effective_tenant_quota(bigint,text,tim
     v_base:=greatest(0,coalesce(v_override,v_base));
   end if;
   -- Tenant-level feature controls are the authoritative per-owner limit override.
-  declare
-    v_control record;
-    v_control_feature text;
-  begin
-    v_control_feature:=case p_resource
-      when 'subscribers' then 'subscriber_management'
-      when 'platformUser' then 'platform_users'
-      when 'fieldUser' then 'field_users'
-      when 'branch' then 'branch_management'
-      when 'sms' then 'sms'
-    end;
-    select c.limit_mode,c.manual_limit into v_control
-    from public.tenant_feature_controls c
-    where c.tenant_id=p_tenant_id and c.feature_key=v_control_feature
-    order by c.updated_at desc nulls last,c.id desc limit 1;
-    if coalesce(v_control.limit_mode,'inherit')='manual' and v_control.manual_limit is not null then
-      v_base:=greatest(0,v_control.manual_limit);
-    elsif coalesce(v_control.limit_mode,'inherit')='unlimited' then
-      v_base:=2147483647;
-    end if;
+  v_control_feature:=case p_resource
+    when 'subscribers' then 'subscriber_management'
+    when 'platformUser' then 'platform_users'
+    when 'fieldUser' then 'field_users'
+    when 'branch' then 'branch_management'
+    when 'sms' then 'sms'
   end;
+  select c.limit_mode,c.manual_limit into v_control
+  from public.tenant_feature_controls c
+  where c.tenant_id=p_tenant_id and c.feature_key=v_control_feature
+  order by c.updated_at desc nulls last,c.id desc limit 1;
+  if coalesce(v_control.limit_mode,'inherit')='manual' and v_control.manual_limit is not null then
+    v_base:=greatest(0,v_control.manual_limit);
+  elsif coalesce(v_control.limit_mode,'inherit')='unlimited' then
+    v_base:=2147483647;
+  end if;
 
   select coalesce(
     sum(
