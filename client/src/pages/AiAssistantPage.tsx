@@ -47,6 +47,7 @@ export default function AiAssistantPage() {
   const endRef = useRef<HTMLDivElement>(null);
 
   const aiRequest = trpc.aiSupport.ask.useMutation();
+  const archiveConversationForSelf = trpc.support.archiveConversationForSelf.useMutation();
 
   const sortedMessages = useMemo(
     () => [...messages].sort((a, b) => a.created_at.localeCompare(b.created_at)),
@@ -67,8 +68,21 @@ export default function AiAssistantPage() {
       return;
     }
 
-    setMessages((data ?? []) as MessageRow[]);
-    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+    let visibleMessages = (data ?? []) as MessageRow[];
+    const activeConversation = conversations.find((item) => item.id === conversationId) ?? conversation;
+    if (activeConversation?.conversation_type === "support") {
+      const { data: handoff } = await supabase
+        .from("chat_bot_handoffs")
+        .select("user_message_id")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const startMessageId = Number(handoff?.user_message_id ?? 0);
+      if (startMessageId > 0) visibleMessages = visibleMessages.filter((message) => message.id >= startMessageId);
+    }
+    setMessages(visibleMessages);
+    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
   }
 
   async function loadConversations(tenantId: number, selectLatest = true) {
@@ -115,8 +129,7 @@ export default function AiAssistantPage() {
     if (deletingConversationId !== null) return;
     setDeletingConversationId(conversationId);
     try {
-      const { error } = await supabase.rpc("chat_archive_conversation_for_self", { p_conversation_id: conversationId });
-      if (error) throw error;
+      await archiveConversationForSelf.mutateAsync({ conversationId });
       const remaining = conversations.filter((item) => item.id !== conversationId);
       setConversations(remaining);
       if (selectedConversationId === conversationId) {
