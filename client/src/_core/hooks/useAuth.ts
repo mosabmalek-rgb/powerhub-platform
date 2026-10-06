@@ -132,7 +132,7 @@ export function useAuth(options?: UseAuthOptions) {
   // online workspace before the current Supabase session has completed a live
   // auth.me check. This prevents protected tenant queries from racing the
   // login/session handshake and avoids transient 401/403 states in the UI.
-  const isOnlineAuthenticated = Boolean(hasSession && meQuery.isSuccess && meQuery.data);
+  const isOnlineAuthenticated = Boolean(hasSession && (meQuery.isSuccess && meQuery.data || cachedUser));
   const offlineAuthenticated = Boolean(
     !hasSession &&
       offlineLeaseUserId &&
@@ -140,7 +140,10 @@ export function useAuth(options?: UseAuthOptions) {
       typeof navigator !== "undefined" &&
       navigator.onLine === false,
   );
-  const user = meQuery.data ?? (offlineAuthenticated ? cachedUser : null);
+  // Keep the last confirmed profile during a transient auth.me failure/refetch.
+  // The server remains the authority for every protected operation; this prevents
+  // a temporary profile/API error from looking like a real logout in the UI.
+  const user = meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
     user,
     loading: isLoggingOut || !sessionReady || Boolean(hasSession && meQuery.isPending),
@@ -157,12 +160,19 @@ export function useAuth(options?: UseAuthOptions) {
     if (typeof window === "undefined") return;
     if (redirectPath && window.location.pathname === redirectPath) return;
 
-    // Navigate at this moment only. startLogin() mints the nonce + cookie itself.
-    if (redirectPath) {
-      window.location.href = redirectPath;
-    } else {
-      startLogin();
-    }
+    // Do not treat a transient auth.me/API failure as a logout. Confirm the
+    // browser session itself is gone before starting a new login flow.
+    void getSupabaseSession().then(async (session) => {
+      if (session) return;
+      const lease = await getValidOfflineAuthLease();
+      if (lease || (typeof navigator !== "undefined" && navigator.onLine === false)) return;
+
+      if (redirectPath) {
+        window.location.href = redirectPath;
+      } else {
+        startLogin();
+      }
+    });
   }, [
     redirectOnUnauthenticated,
     redirectPath,
