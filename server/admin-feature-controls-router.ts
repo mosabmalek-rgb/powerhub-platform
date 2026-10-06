@@ -18,7 +18,7 @@ const limitModeSchema = z.enum(["inherit","manual","unlimited"]);
 async function tenantFeatureSnapshot(tenantId: number) {
   const admin = supabaseAdmin();
   const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult] = await Promise.all([
-    admin.from("tenants").select("id,name,status,slug").eq("id",tenantId).maybeSingle(),
+    admin.from("tenants").select("id,name,status,slug,created_at").eq("id",tenantId).maybeSingle(),
     admin.from("tenant_owner_profiles").select("tenant_id,owner_user_id,full_name,phone,email,company_name").eq("tenant_id",tenantId).maybeSingle(),
     admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
     admin.from("sites").select("id,status",{count:"exact",head:true}).eq("tenant_id",tenantId),
@@ -160,7 +160,7 @@ export const adminFeatureControlsRouter = router({
       const [subscriberLimit,branchLimit,platformLimit,fieldLimit]=await Promise.all([quota(id,"subscribers"),quota(id,"branch"),quota(id,"platformUser"),quota(id,"fieldUser")]);
       const smsLimit=Number(sms?.monthly_limit??0)+a.filter(x=>x.addon_code==="sms").reduce((n,x)=>n+Number(x.quantity??0),0);
       const smsValue=smsUsed.get(id)??0;
-      rows.push({tenant:{id,name:tenant.name,status:tenant.status},owner:owners.get(id)?{fullName:owners.get(id)?.full_name??null,companyName:owners.get(id)?.company_name??null}:null,subscription:sub?{packageCode:sub.package_code,status:sub.status,startedAt:sub.started_at,endsAt:sub.ends_at,billingCycle:sub.billing_cycle,archivedAt:sub.archived_at}:null,package:{name:pkg?.name??sub?.package_code??"—"},usage:{subscribers:subscribers.get(id)??0,branches:branches.get(id)??0,platformUsers:u.platform,fieldUsers:u.field},limits:{subscribers:subscriberLimit,branches:branchLimit,platformUsers:platformLimit,fieldUsers:fieldLimit,messages:smsLimit},messages:{used:smsValue,remaining:Math.max(0,smsLimit-smsValue)},addons:a.map(x=>({id:Number(x.id),code:x.addon_code,quantity:Number(x.quantity),durationDays:x.duration_days,startsAt:x.starts_at,endsAt:x.ends_at})),daysRemaining:sub?.ends_at?Math.max(0,Math.ceil((new Date(sub.ends_at).getTime()-Date.now())/86400000)):null});
+      rows.push({tenant:{id,name:tenant.name,status:tenant.status,createdAt:tenant.created_at},owner:owners.get(id)?{fullName:owners.get(id)?.full_name??null,companyName:owners.get(id)?.company_name??null}:null,subscription:sub?{packageCode:sub.package_code,status:sub.status,startedAt:sub.started_at,endsAt:sub.ends_at,billingCycle:sub.billing_cycle,archivedAt:sub.archived_at}:null,package:{name:pkg?.name??sub?.package_code??"—"},usage:{subscribers:subscribers.get(id)??0,branches:branches.get(id)??0,platformUsers:u.platform,fieldUsers:u.field},limits:{subscribers:subscriberLimit,branches:branchLimit,platformUsers:platformLimit,fieldUsers:fieldLimit,messages:smsLimit},messages:{used:smsValue,remaining:Math.max(0,smsLimit-smsValue)},addons:a.map(x=>({id:Number(x.id),code:x.addon_code,quantity:Number(x.quantity),durationDays:x.duration_days,startsAt:x.starts_at,endsAt:x.ends_at})),daysRemaining:sub?.ends_at?Math.max(0,Math.ceil((new Date(sub.ends_at).getTime()-Date.now())/86400000)):null});
     }
     return rows;
   }),
