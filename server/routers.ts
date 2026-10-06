@@ -120,4 +120,4 @@ export const appRouter = router({
   admin: adminRuntimeRouter,
 });
 
-export type AppRouter = Omit<typeof appRouter, "admin"> & { admin: AppAdminRouter };
+export type AppRouter = Omit<typeof appRouter, "admin"> & { admin: typeof adminRuntimeRouter };
