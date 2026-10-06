@@ -675,8 +675,8 @@ export const powerhubRouter = router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam");
       const { data: profiles, error: profilesError } = await supabaseAdmin().from("staff_profiles")
-        .select("id, user_id, tenant_id, site_id, role, custom_role_id, permissions, suspension_started_at, suspension_ends_at, is_active, created_at, updated_at")
-        .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`);
+        .select("id, user_id, tenant_id, site_id, role, custom_role_id, permissions, suspension_started_at, suspension_ends_at, is_active, archived_at, created_at, updated_at")
+        .eq("tenant_id", access.tenantId).is("archived_at", null).or(`site_id.eq.${input.siteId},site_id.is.null`);
       if (profilesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الحسابات الفرعية من Supabase." });
       const userIds = Array.from(new Set((profiles ?? []).map((profile) => Number(profile.user_id))));
       const { data: userRows, error: usersError } = userIds.length
@@ -696,8 +696,39 @@ export const powerhubRouter = router({
           id: Number(profile.id), userId: Number(profile.user_id), tenantId: profile.tenant_id === null ? null : Number(profile.tenant_id), siteId: profile.site_id === null ? null : Number(profile.site_id),
           role: profile.role, customRoleId: profile.custom_role_id === null ? null : Number(profile.custom_role_id), permissions: profile.permissions,
           suspensionStartedAt: profile.suspension_started_at ? new Date(profile.suspension_started_at) : null, suspensionEndsAt: profile.suspension_ends_at ? new Date(profile.suspension_ends_at) : null,
-          isActive: profile.is_active, createdAt: new Date(profile.created_at), updatedAt: new Date(profile.updated_at),
+          isActive: profile.is_active, archivedAt: profile.archived_at ? new Date(profile.archived_at) : null, createdAt: new Date(profile.created_at), updatedAt: new Date(profile.updated_at),
         }, user }];
+      });
+    }),
+    archived: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data: profiles, error: profilesError } = await supabaseAdmin().from("staff_profiles")
+        .select("id, user_id, tenant_id, site_id, role, custom_role_id, permissions, suspension_started_at, suspension_ends_at, is_active, archived_at, created_at, updated_at")
+        .eq("tenant_id", access.tenantId).not("archived_at", "is", null).or(`site_id.eq.${input.siteId},site_id.is.null`);
+      if (profilesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الحسابات الفرعية المؤرشفة من Supabase." });
+      const userIds = Array.from(new Set((profiles ?? []).map((profile) => Number(profile.user_id))));
+      const { data: userRows, error: usersError } = userIds.length
+        ? await supabaseAdmin().from("users").select("id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in").in("id", userIds)
+        : { data: [], error: null };
+      if (usersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الحسابات المؤرشفة من Supabase." });
+      const usersById = new Map((userRows ?? []).map((user) => [Number(user.id), {
+        id: Number(user.id), openId: user.auth_user_id, name: user.name, email: user.email, loginMethod: user.login_method, role: user.role,
+        platformRole: user.platform_role, accountStatus: user.account_status, mustChangePassword: user.must_change_password,
+        temporaryPasswordIssuedAt: user.temporary_password_issued_at ? new Date(user.temporary_password_issued_at) : null,
+        createdAt: new Date(user.created_at), updatedAt: new Date(user.updated_at), lastSignedIn: new Date(user.last_signed_in),
+      }]));
+      return (profiles ?? []).flatMap((profile) => {
+        const user = usersById.get(Number(profile.user_id));
+        if (!user) return [];
+        return [{
+          profile: {
+            id: Number(profile.id), userId: Number(profile.user_id), tenantId: profile.tenant_id === null ? null : Number(profile.tenant_id), siteId: profile.site_id === null ? null : Number(profile.site_id),
+            role: profile.role, customRoleId: profile.custom_role_id === null ? null : Number(profile.custom_role_id), permissions: profile.permissions,
+            suspensionStartedAt: profile.suspension_started_at ? new Date(profile.suspension_started_at) : null, suspensionEndsAt: profile.suspension_ends_at ? new Date(profile.suspension_ends_at) : null,
+            isActive: profile.is_active, archivedAt: profile.archived_at ? new Date(profile.archived_at) : null,
+            createdAt: new Date(profile.created_at), updatedAt: new Date(profile.updated_at),
+          }, user,
+        }];
       });
     }),
     directory: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
@@ -714,17 +745,17 @@ export const powerhubRouter = router({
     allowedSubaccountRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const admin = supabaseAdmin();
-      const [subscriptionResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult, fieldUsersResult, platformQuotaResult, fieldQuotaResult] = await Promise.all([
+      const [subscriptionResult, rolesPolicyResult, limitsPolicyResult, overridesResult, membersResult, activeStaffResult, platformQuotaResult, fieldQuotaResult] = await Promise.all([
         admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).maybeSingle(),
         admin.from("platform_settings").select("is_enabled, value").eq("setting_key", "owner_subaccount_roles").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_subaccount_limits").maybeSingle(),
         admin.from("platform_settings").select("value").eq("setting_key", "owner_limit_overrides").maybeSingle(),
         admin.from("tenant_members").select("user_id").eq("tenant_id", access.tenantId).eq("role", "member").eq("is_active", true).eq("membership_status", "active"),
-        admin.from("staff_profiles").select("id").eq("tenant_id", access.tenantId).eq("role", "technician").eq("is_active", true),
+        admin.from("staff_profiles").select("user_id, role").eq("tenant_id", access.tenantId).eq("is_active", true).is("archived_at", null),
         admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: access.tenantId, p_resource: "platformUser" }),
         admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: access.tenantId, p_resource: "fieldUser" }),
       ]);
-      if (subscriptionResult.error || rolesPolicyResult.error || limitsPolicyResult.error || overridesResult.error || membersResult.error || fieldUsersResult.error || platformQuotaResult.error || fieldQuotaResult.error) {
+      if (subscriptionResult.error || rolesPolicyResult.error || limitsPolicyResult.error || overridesResult.error || membersResult.error || activeStaffResult.error || platformQuotaResult.error || fieldQuotaResult.error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحسابات الفرعية من Supabase." });
       }
       const plan = subscriptionResult.data?.package_code;
@@ -739,8 +770,10 @@ export const powerhubRouter = router({
       const roles = overrideRoles ? globalRoles.filter((role) => overrideRoles.includes(role)) : globalRoles;
       const overrideLimit = typeof overrideRecord.subaccountLimit === "number" && Number.isInteger(overrideRecord.subaccountLimit) && overrideRecord.subaccountLimit >= 0 ? overrideRecord.subaccountLimit : undefined;
       const limit = overrideLimit ?? ownerSubaccountLimitForPlan(plan, limitsPolicyResult.data ? { value: limitsPolicyResult.data.value } : null);
-      const currentCount = (membersResult.data ?? []).length;
-      const fieldUserCount = (fieldUsersResult.data ?? []).length;
+      const activeMemberIds = new Set((membersResult.data ?? []).map((member) => Number(member.user_id)));
+      const activeStaffRows = activeStaffResult.data ?? [];
+      const currentCount = new Set(activeStaffRows.filter((row) => ["manager", "accountant", "collector", "viewer"].includes(String(row.role)) && activeMemberIds.has(Number(row.user_id))).map((row) => Number(row.user_id))).size;
+      const fieldUserCount = new Set(activeStaffRows.filter((row) => row.role === "technician" && activeMemberIds.has(Number(row.user_id))).map((row) => Number(row.user_id))).size;
       const platformUserLimit = Math.max(0, Number(Array.isArray(platformQuotaResult.data) ? platformQuotaResult.data[0] : platformQuotaResult.data) || limit);
       const fieldUserLimit = Math.max(0, Number(Array.isArray(fieldQuotaResult.data) ? fieldQuotaResult.data[0] : fieldQuotaResult.data) || 0);
       return {
@@ -955,6 +988,37 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر رفع توقيف الحساب الفرعي في Supabase." });
       }
       return { success: true };
+    }),
+    archive: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_status", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_profile_id: input.profileId,
+        p_operation: "archive", p_suspension_started_at: null, p_suspension_ends_at: null, p_is_active: false,
+      });
+      if (error) {
+        const text = error.message ?? "";
+        if (text.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+        if (text.includes("OWNER_PROFILE_PROTECTED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن أرشفة حساب المالك." });
+        if (text.includes("STAFF_STATUS_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية أرشفة الحسابات الفرعية." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر أرشفة الحساب الفرعي في Supabase." });
+      }
+      return { success: true, archivedAt: data?.[0]?.archived_at ? new Date(data[0].archived_at) : new Date() };
+    }),
+    restore: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_status", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_profile_id: input.profileId,
+        p_operation: "restore", p_suspension_started_at: null, p_suspension_ends_at: null, p_is_active: true,
+      });
+      if (error) {
+        const text = error.message ?? "";
+        if (text.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب المؤرشف غير موجود ضمن نطاقك." });
+        if (text.includes("FIELD_USER_LIMIT_REACHED") || text.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن استعادة الحساب لأن الحصة المسموح بها لنوع الحساب ممتلئة. حرّر حصة أولاً ثم أعد المحاولة." });
+        if (text.includes("FIELD_USERS_FEATURE_DISABLED") || text.includes("PLATFORM_USERS_FEATURE_DISABLED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "ميزة نوع الحساب غير مفعلة حالياً من إدارة PowerHub." });
+        if (text.includes("STAFF_STATUS_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية استعادة الحسابات الفرعية." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر استعادة الحساب الفرعي من Supabase." });
+      }
+      return { success: true, isActive: Boolean(data?.[0]?.is_active), archivedAt: data?.[0]?.archived_at ? new Date(data[0].archived_at) : null };
     }),
     setActive: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
@@ -2702,10 +2766,12 @@ export const powerhubRouter = router({
       });
       if (error) {
         const message = error.message ?? "";
-        throw new TRPCError({
-          code: message.includes("ACCOUNT_SITE_OUT_OF_SCOPE") ? "FORBIDDEN" : message.includes("ACCOUNT_NOT_FOUND") ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR",
-          message: message.includes("ACCOUNT_SITE_OUT_OF_SCOPE") ? "الحساب غير مرتبط بالفرع المحدد." : "تعذر تحديث إعداد ظهور الحساب في توثيق الدفع.",
-        });
+        if (message.includes("ACCOUNT_SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الحساب غير مرتبط بالفرع المحدد." });
+        if (message.includes("ACCOUNT_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الدفع غير موجود ضمن مساحة الشركة." });
+        if (message.includes("ACCOUNT_INACTIVE")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن إظهار حساب دفع غير نشط في توثيق الدفع." });
+        if (message.includes("PAYMENT_DOCUMENTATION_TENANT_DISABLED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "فعّل توثيق الدفع الإلكتروني من الإعدادات أولاً، ثم أظهر حساب الاستلام المطلوب." });
+        if (message.includes("COMPANY_ACCOUNT_PAYMENT_VISIBILITY_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل ظهور حساب الدفع في توثيق الدفع." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث إعداد ظهور الحساب في توثيق الدفع." });
       }
       const row = (data as Array<{ account_id: number | string; allow_payment_documentation: boolean }> | null)?.[0];
       if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة إعداد الحساب استجابة صالحة." });
