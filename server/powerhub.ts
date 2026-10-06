@@ -675,8 +675,10 @@ export const powerhubRouter = router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager"], "manageTeam");
       const { data: profiles, error: profilesError } = await supabaseAdmin().from("staff_profiles")
-        .select("id, user_id, tenant_id, site_id, role, custom_role_id, permissions, suspension_started_at, suspension_ends_at, is_active, created_at, updated_at")
-        .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`);
+        .select("id, user_id, tenant_id, site_id, role, custom_role_id, permissions, suspension_started_at, suspension_ends_at, is_active, archived_at, archived_by_user_id, created_at, updated_at")
+        .eq("tenant_id", access.tenantId)
+        .or(`site_id.eq.${input.siteId},site_id.is.null`)
+        .is("archived_at", null);
       if (profilesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الحسابات الفرعية من Supabase." });
       const userIds = Array.from(new Set((profiles ?? []).map((profile) => Number(profile.user_id))));
       const { data: userRows, error: usersError } = userIds.length
@@ -696,7 +698,7 @@ export const powerhubRouter = router({
           id: Number(profile.id), userId: Number(profile.user_id), tenantId: profile.tenant_id === null ? null : Number(profile.tenant_id), siteId: profile.site_id === null ? null : Number(profile.site_id),
           role: profile.role, customRoleId: profile.custom_role_id === null ? null : Number(profile.custom_role_id), permissions: profile.permissions,
           suspensionStartedAt: profile.suspension_started_at ? new Date(profile.suspension_started_at) : null, suspensionEndsAt: profile.suspension_ends_at ? new Date(profile.suspension_ends_at) : null,
-          isActive: profile.is_active, createdAt: new Date(profile.created_at), updatedAt: new Date(profile.updated_at),
+          isActive: profile.is_active, archivedAt: profile.archived_at ? new Date(profile.archived_at) : null, archivedByUserId: profile.archived_by_user_id === null ? null : Number(profile.archived_by_user_id), createdAt: new Date(profile.created_at), updatedAt: new Date(profile.updated_at),
         }, user }];
       });
     }),
@@ -956,6 +958,36 @@ export const powerhubRouter = router({
       }
       return { success: true };
     }),
+    archived: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data: profiles, error } = await supabaseAdmin().from("staff_profiles")
+        .select("id,user_id,tenant_id,site_id,role,custom_role_id,permissions,suspension_started_at,suspension_ends_at,is_active,archived_at,archived_by_user_id,created_at,updated_at")
+        .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`).not("archived_at","is",null)
+        .order("archived_at",{ascending:false});
+      if (error) throw new TRPCError({ code:"INTERNAL_SERVER_ERROR", message:"تعذر تحميل الحسابات الفرعية المؤرشفة من Supabase." });
+      const userIds=Array.from(new Set((profiles??[]).map(p=>Number(p.user_id))));
+      const { data: users, error: usersError }=userIds.length
+        ? await supabaseAdmin().from("users").select("id,auth_user_id,name,email,role,platform_role,account_status,must_change_password,temporary_password_issued_at,created_at,updated_at,last_signed_in").in("id",userIds)
+        : {data:[],error:null};
+      if(usersError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل بيانات الحسابات المؤرشفة."});
+      const byId=new Map((users??[]).map(u=>[Number(u.id),u]));
+      return (profiles??[]).flatMap(p=>{
+        const u=byId.get(Number(p.user_id)); if(!u) return [];
+        return [{profile:{id:Number(p.id),userId:Number(p.user_id),tenantId:Number(p.tenant_id),siteId:p.site_id===null?null:Number(p.site_id),role:p.role,customRoleId:p.custom_role_id===null?null:Number(p.custom_role_id),permissions:p.permissions,suspensionStartedAt:null,suspensionEndsAt:null,isActive:false,archivedAt:p.archived_at?new Date(p.archived_at):null,archivedByUserId:p.archived_by_user_id===null?null:Number(p.archived_by_user_id),createdAt:new Date(p.created_at),updatedAt:new Date(p.updated_at)},user:{id:Number(u.id),openId:u.auth_user_id,name:u.name,email:u.email,role:u.role,platformRole:u.platform_role,accountStatus:u.account_status,mustChangePassword:u.must_change_password,temporaryPasswordIssuedAt:u.temporary_password_issued_at?new Date(u.temporary_password_issued_at):null,createdAt:new Date(u.created_at),updatedAt:new Date(u.updated_at),lastSignedIn:new Date(u.last_signed_in)}}];
+      });
+    }),
+    archive: protectedProcedure.input(z.object({siteId:z.number().int().positive(),profileId:z.number().int().positive()})).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageTeam");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_update_staff_profile_status",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_actor_user_id:ctx.user.id,p_profile_id:input.profileId,p_operation:"archive",p_suspension_started_at:null,p_suspension_ends_at:null,p_is_active:false});
+      if(error){const t=error.message??""; if(t.includes("OWNER_PROFILE_PROTECTED")) throw new TRPCError({code:"FORBIDDEN",message:"لا يمكن أرشفة حساب مالك المولد."}); if(t.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({code:"NOT_FOUND",message:"الحساب الفرعي غير موجود ضمن نطاقك."}); throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر أرشفة الحساب الفرعي."});}
+      return {success:true,archivedAt:data?.[0]?.archived_at?new Date(data[0].archived_at):new Date()};
+    }),
+    restore: protectedProcedure.input(z.object({siteId:z.number().int().positive(),profileId:z.number().int().positive()})).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageTeam");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_restore_staff_profile",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_actor_user_id:ctx.user.id,p_profile_id:input.profileId});
+      if(error){const t=error.message??""; if(t.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا يمكن استعادة الحساب: حد الحسابات الفرعية ممتلئ."}); if(t.includes("FIELD_USER_LIMIT_REACHED")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا يمكن استعادة الحساب: حد الحسابات الميدانية ممتلئ."}); if(t.includes("PLATFORM_USERS_FEATURE_DISABLED")) throw new TRPCError({code:"FORBIDDEN",message:"ميزة حسابات المنصة غير مفعلة حالياً."}); if(t.includes("FIELD_USERS_FEATURE_DISABLED")) throw new TRPCError({code:"FORBIDDEN",message:"ميزة الحسابات الميدانية غير مفعلة حالياً."}); if(t.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({code:"NOT_FOUND",message:"الحساب المؤرشف غير موجود ضمن نطاقك."}); throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر استعادة الحساب المؤرشف."});}
+      return {success:true,profileId:Number(data?.[0]?.profile_id??input.profileId)};
+    }),
     setActive: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), profileId: z.number().int().positive(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const { error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_status", {
@@ -963,8 +995,12 @@ export const powerhubRouter = router({
         p_operation: "set_active", p_suspension_started_at: null, p_suspension_ends_at: null, p_is_active: input.isActive,
       });
       if (error) {
-        if (error.message.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
-        if (error.message.includes("STAFF_STATUS_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تفعيل أو تعطيل الحسابات الفرعية." });
+        const text = error.message ?? "";
+        if (text.includes("STAFF_PROFILE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب الفرعي غير موجود ضمن نطاقك." });
+        if (text.includes("OWNER_PROFILE_PROTECTED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تعطيل حساب مالك المولد." });
+        if (text.includes("STAFF_STATUS_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تفعيل أو تعطيل الحسابات الفرعية." });
+        if (text.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك." });
+        if (text.includes("FIELD_USER_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى لمستخدمي التطبيق الميداني في باقتك." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالة الحساب الفرعي في Supabase." });
       }
       return { success: true, isActive: input.isActive };
