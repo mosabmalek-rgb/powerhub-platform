@@ -343,6 +343,8 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   }
 
   async function loadMessages(conversationId: number, options: { silent?: boolean } = {}) {
+    const viewport = messageViewportRef.current;
+    const wasNearBottom = !viewport || viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 160;
     if (!options.silent) setLoadingMessages(true);
     const { data, error } = await supabase.from("chat_messages").select("id,conversation_id,sender_user_id,sender_type,message_type,body,visibility,created_at").eq("conversation_id", conversationId).order("created_at", { ascending: true });
     if (error) toast.error("تعذر تحميل الرسائل.");
@@ -376,7 +378,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     const { data: timelineData } = await supabase.rpc("chat_ticket_timeline", { p_conversation_id: conversationId });
     setTimeline((timelineData ?? []) as typeof timeline);
     setLoadingMessages(false);
-    if (previousLastId === null || hasNewIncoming) requestAnimationFrame(() => scrollMessagesToEnd("auto"));
+    if (previousLastId === null || wasNearBottom || hasNewIncoming) requestAnimationFrame(() => scrollMessagesToEnd("auto"));
   }
 
   async function saveAdminRpc(fn: string, args: Record<string, unknown>, success: string) {
