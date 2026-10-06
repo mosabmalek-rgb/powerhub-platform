@@ -67,6 +67,7 @@ function ensureAuthSubscription() {
 
     currentSession = session;
     sessionInitialized = true;
+    scheduleSessionRefresh(session);
 
     // Keep the Supabase callback synchronous. Consumers may perform async work
     // after React schedules their state updates; this avoids re-entrancy inside
