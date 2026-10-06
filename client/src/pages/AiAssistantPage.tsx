@@ -70,7 +70,13 @@ export default function AiAssistantPage() {
 
     let visibleMessages = (data ?? []) as MessageRow[];
     const activeConversation = conversations.find((item) => item.id === conversationId) ?? conversation;
-    if (activeConversation?.conversation_type === "support") {
+    const { data: conversationTypeRow } = await supabase
+      .from("chat_conversations")
+      .select("conversation_type")
+      .eq("id", conversationId)
+      .maybeSingle();
+    const isSupportConversation = conversationTypeRow?.conversation_type === "support" || activeConversation?.conversation_type === "support";
+    if (isSupportConversation) {
       const { data: handoff } = await supabase
         .from("chat_bot_handoffs")
         .select("user_message_id")
