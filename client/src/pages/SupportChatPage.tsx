@@ -136,6 +136,7 @@ export default function SupportChatPage() {
       if (!AudioCtx) return;
       const ctx = audioRef.current ?? new AudioCtx();
       audioRef.current = ctx;
+      if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.frequency.value = 880;
