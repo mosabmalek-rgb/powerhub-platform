@@ -275,17 +275,36 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
   const messageViewportRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const lastMessageIdRef = useRef<number | null>(null);
+  const playedSoundKeysRef = useRef<Set<string>>(new Set());
 
-  function playChatAlert() {
+  function playChatAlertOnce(messageId: number | null, notificationId?: number | null) {
+    const key = messageId !== null ? `message:${messageId}` : notificationId !== null && notificationId !== undefined ? `notification:${notificationId}` : null;
+    if (key && playedSoundKeysRef.current.has(key)) return;
+    if (key) playedSoundKeysRef.current.add(key);
     try {
       const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = audioRef.current ?? new AudioCtx();
       audioRef.current = ctx;
+      if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
       const osc = ctx.createOscillator(); const gain = ctx.createGain();
       osc.frequency.value = 880; gain.gain.value = 0.045;
       osc.connect(gain); gain.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.12);
     } catch { /* browser audio may require prior interaction */ }
+  }
+
+  async function hydrateReceiptsBatch(messageIds: number[]) {
+    if (!messageIds.length) return;
+    const { data } = await supabase
+      .from("chat_message_receipts")
+      .select("message_id,delivered_at,read_at")
+      .in("message_id", messageIds);
+    const states: Record<number, ReceiptState> = {};
+    for (const messageId of messageIds) {
+      const rows = (data ?? []).filter((row) => Number(row.message_id) === messageId);
+      states[messageId] = messageReceiptState(rows as ChatReceipt[]);
+    }
+    setReceipts((current) => ({ ...current, ...states }));
   }
   function scrollMessagesToEnd(behavior: ScrollBehavior = "auto") {
     const viewport = messageViewportRef.current;
@@ -355,16 +374,13 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     setMessages(loadedMessages);
     const newest = loadedMessages[loadedMessages.length - 1];
     const hasNewIncoming = newlyArrivedIncoming.length > 0 || Boolean(newest && previousLastId !== null && newest.id !== previousLastId && newest.sender_user_id !== user?.id);
-    if (newlyArrivedIncoming.length > 0) playChatAlert();
+    if (newlyArrivedIncoming.length > 0) playChatAlertOnce(newlyArrivedIncoming[0]?.id ?? null);
     lastMessageIdRef.current = newest?.id ?? null;
     const receiptCandidates = loadedMessages
       .filter((message) => message.sender_user_id === user?.id && message.sender_type === "human")
-      .slice(-50);
-    const receiptEntries = await Promise.all(receiptCandidates.map(async (message) => {
-      const rows = await listChatMessageReceipts(message.id).catch(() => []);
-      return [message.id, messageReceiptState(rows)] as const;
-    }));
-    setReceipts(Object.fromEntries(receiptEntries));
+      .slice(-50)
+      .map((message) => message.id);
+    await hydrateReceiptsBatch(receiptCandidates);
     const incoming = loadedMessages.filter((message) => message.sender_type === "human" && message.sender_user_id !== user?.id);
     if (incoming.length) {
       const latest = incoming[incoming.length - 1];
@@ -438,7 +454,8 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     setMessages((current) => [...current, data as MessageRow]);
     setInput("");
     setInternalNote(false);
-    await refreshQueue();
+    requestAnimationFrame(() => scrollMessagesToEnd("smooth"));
+    await refreshQueue({ silent: true });
   }
 
   useEffect(() => {
@@ -449,9 +466,9 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
       if (document.visibilityState === "visible") void refreshQueue({ silent: true });
     }, 60_000);
     if (!user?.id) return;
-    const notificationUnsubscribe = subscribeToChatNotifications(user.id, () => {
+    const notificationUnsubscribe = subscribeToChatNotifications(user.id, (payload) => {
         setNotificationCount((count) => count + 1);
-        playChatAlert();
+        playChatAlertOnce(payload.message_id ?? null, payload.notification_id);
         toast.info("وصلت رسالة دعم جديدة.");
         void refreshQueue({ silent: true });
       });
@@ -463,8 +480,8 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     void loadMessages(selectedId);
     const unsubscribe = subscribeToChatConversation(selectedId, async (event) => {
       if (event.event === "chat_receipt") {
-        const rows = await listChatMessageReceipts(event.message_id).catch(() => []);
-        setReceipts((current) => ({ ...current, [event.message_id]: messageReceiptState(rows) }));
+        const next = event.read_at ? "read" : event.delivered_at ? "delivered" : "sent";
+        setReceipts((current) => ({ ...current, [event.message_id]: next }));
       } else if (event.event === "chat_message") {
         const { data } = await supabase
           .from("chat_messages")
@@ -479,7 +496,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
               await supabase.rpc("chat_mark_delivered", { p_message_id: row.id });
               await supabase.rpc("chat_mark_read", { p_message_id: row.id });
             } catch { /* best effort */ }
-            playChatAlert();
+            playChatAlertOnce(row.id);
             requestAnimationFrame(() => scrollMessagesToEnd("smooth"));
           }
         }
@@ -507,7 +524,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
           </div>
         </header>
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,2.2fr)_minmax(260px,.7fr)]">
           <Card className="min-h-0 overflow-hidden lg:order-2"><CardHeader><div className="flex items-center justify-between gap-2"><CardTitle>الطابور</CardTitle>{selectedIds.length ? <Button size="sm" variant="destructive" onClick={() => void deleteSelectedConversations()} disabled={deleteConversations.isPending}><Trash2 className="ml-2 h-4 w-4" />حذف المحدد ({selectedIds.length})</Button> : null}</div></CardHeader><CardContent className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3">
             {conversations.map((conversation) => { const assignment = assignments.find((row) => row.conversation_id === conversation.id && ["pending", "active"].includes(row.status)); return <div key={conversation.id} className={`flex items-stretch gap-2 rounded-xl border p-2 ${selectedId === conversation.id ? "border-primary bg-primary/5" : "border-border"}`}><input aria-label={`تحديد المحادثة ${conversation.id}`} type="checkbox" checked={selectedIds.includes(conversation.id)} onChange={() => toggleConversationSelection(conversation.id)} className="mt-1 h-4 w-4 shrink-0" /><button type="button" onClick={() => setSelectedId(conversation.id)} className="min-w-0 flex-1 text-right"><div className="flex items-center justify-between gap-2"><span className="truncate font-bold">{conversation.subject || "محادثة دعم"}</span><Badge variant="secondary">{statusLabel(conversation.status)}</Badge></div><div className="mt-2 text-xs text-muted-foreground">{conversation.ticket_number || ("#" + conversation.id)} · الأولوية: {conversation.priority} · {conversation.category_name || "غير مصنف"}</div><div className="mt-1 grid gap-0.5 text-[11px] text-foreground"><span><strong>صاحب المولد:</strong> {conversation.tenant_name || "غير معروف"}</span><span><strong>المستخدم:</strong> {conversation.requester_name || conversation.requester_email || "غير معروف"}</span><span><strong>الاشتراك:</strong> {conversation.subscription_package_name || "غير معروف"}</span></div><div className="mt-1 text-[11px] text-muted-foreground">{conversation.assigned_user_name ? ("مسندة إلى " + conversation.assigned_user_name) : "غير مسندة"}{conversation.unread_count ? (" · " + conversation.unread_count + " غير مقروء") : ""}{conversation.sla_state ? (" · " + conversation.sla_state) : ""}</div></button></div>; })}
             {!conversations.length && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">لا توجد محادثات دعم في الطابور.</div>}
@@ -543,7 +560,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
                 {!timeline.length && <div className="py-3 text-center text-muted-foreground">لا توجد أحداث مسجلة.</div>}
               </div></div>
             </details>
-            <div ref={messageViewportRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border p-4">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px]"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></div>
+            <div ref={messageViewportRef} className="min-h-0 flex-[1.15] overflow-y-auto overscroll-contain rounded-xl border p-5">{loadingMessages ? <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : <div className="space-y-3">{messages.map((message) => { const mine = message.sender_user_id === user?.id && message.sender_type === "human"; const incoming = message.sender_type === "human" && !mine; return <div key={message.id} className={`flex ${mine ? "justify-start" : incoming ? "justify-end" : "justify-center"}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.sender_type === "system" ? "bg-muted text-center text-foreground" : mine ? "bg-primary text-primary-foreground" : "border border-border bg-card text-card-foreground"}`}><div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div><div className="mt-1 flex items-center justify-end gap-1 text-[10px]"><span>{new Date(message.created_at).toLocaleString("ar-PS")}</span>{mine ? <ReceiptMark state={receipts[message.id] ?? "sent"} /> : null}</div></div></div>; })}{!messages.length && <div className="py-10 text-center text-sm text-muted-foreground">لا توجد رسائل.</div>}</div>}<div ref={messageEndRef} /></div>
             <div className="rounded-xl border bg-muted/20 p-2"><div className="mb-1.5 flex items-center gap-3"><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={internalNote} onChange={(e) => setInternalNote(e.target.checked)} /> ملاحظة داخلية</label><span className="text-xs text-muted-foreground">{internalNote ? "لن تظهر للعميل" : "ستظهر للعميل"}</span></div><div className="flex gap-2"><Textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={internalNote ? "اكتب ملاحظة لفريق الدعم..." : "اكتب رد الدعم للعميل..."} className="min-h-[63px]" /><Button className="self-end" onClick={() => void sendMessage()} disabled={sending || !input.trim()}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</Button></div></div>
           </div>}</CardContent></Card>
         </div>
