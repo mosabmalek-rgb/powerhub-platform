@@ -76,6 +76,7 @@ export default function SupportChatPage() {
   const [rating, setRating] = useState(0);
   const [feedbackComment, setFeedbackComment] = useState("");
   const [ratingSaving, setRatingSaving] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const archiveConversationForSelf = trpc.support.archiveConversationForSelf.useMutation();
   const endRef = useRef<HTMLDivElement>(null);
   const messageViewportRef = useRef<HTMLDivElement>(null);
@@ -151,7 +152,7 @@ export default function SupportChatPage() {
   }
 
   async function loadMessages(conversationId: number, options: { initial?: boolean; silent?: boolean } = {}) {
-    if (options.initial || !messagesLoaded || messages.length === 0) setLoadingMessages(true);
+    if (options.initial) setLoadingMessages(true);
     const { data, error } = await supabase
       .from("chat_messages")
       .select("id,conversation_id,sender_user_id,sender_type,message_type,body,created_at,client_message_id")
@@ -166,16 +167,16 @@ export default function SupportChatPage() {
     }
     const rows = (data ?? []) as MessageRow[];
     const previousLastId = lastMessageIdRef.current;
+    const previousIds = new Set(messages.map((message) => message.id));
+    const newlyArrivedIncoming = rows.filter((row) => !previousIds.has(row.id) && row.sender_type === "human" && row.sender_user_id !== user?.id);
     setMessages(rows);
     setMessagesLoaded(true);
     const newest = rows[rows.length - 1];
-    const hasNewIncoming = Boolean(
-      newest &&
-      previousLastId !== null &&
-      newest.id !== previousLastId &&
-      newest.sender_user_id !== user?.id,
-    );
-    if (hasNewIncoming) playChatAlert();
+    const hasNewIncoming = newlyArrivedIncoming.length > 0 || Boolean(newest && previousLastId !== null && newest.id !== previousLastId && newest.sender_user_id !== user?.id);
+    if (newlyArrivedIncoming.length > 0) {
+      playChatAlert();
+      setUnreadNotificationCount((count) => count + newlyArrivedIncoming.length);
+    }
     lastMessageIdRef.current = newest?.id ?? null;
     setLoadingMessages(false);
     if (!options.silent || hasNewIncoming) {
@@ -203,8 +204,25 @@ export default function SupportChatPage() {
   }, [isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    let unsubscribe: (() => void) | undefined;
+    void import("@/lib/chatReceipts").then(async ({ listChatNotifications, subscribeToChatNotifications }) => {
+      const rows = await listChatNotifications(100).catch(() => []);
+      setUnreadNotificationCount(rows.filter((row) => !row.read_at).length);
+      unsubscribe = subscribeToChatNotifications(user.id, () => {
+        setUnreadNotificationCount((count) => count + 1);
+        playChatAlert();
+        toast.info("وصلت رسالة دعم جديدة.");
+        void loadConversations(false);
+      });
+    });
+    return () => { unsubscribe?.(); };
+  }, [isAuthenticated, user?.id]);
+
+  useEffect(() => {
     if (selectedId === null) return;
     setMessagesLoaded(false);
+    setUnreadNotificationCount(0);
     void loadMessages(selectedId, { initial: true });
     const timer = window.setInterval(() => { void loadMessages(selectedId, { silent: true }); }, 5000);
     return () => { window.clearInterval(timer); };
@@ -345,9 +363,9 @@ export default function SupportChatPage() {
               <h1 className="mt-1 text-2xl font-extrabold text-white">محادثات PowerHub</h1>
               <p className="mt-2 text-sm text-slate-400">تواصل مباشر مع الدعم، مع مؤشرات إرسال وتسليم وقراءة وإشعارات فورية.</p>
             </div>
-            <Button onClick={() => void createConversation()} disabled={creating} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">
+            <div className="flex items-center gap-2"><Badge className="bg-[#F5B800]/15 text-[#F5B800]">{unreadNotificationCount ? unreadNotificationCount + " رسالة جديدة" : "لا رسائل جديدة"}</Badge><Button onClick={() => void createConversation()} disabled={creating} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">
               {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}محادثة دعم جديدة
-            </Button>
+            </Button></div>
           </div>
         </header>
 
