@@ -26,6 +26,7 @@ const messageVariableOptions = [
   { token: "{{invoice_no}}", label: "رقم الفاتورة", description: "رقم الفاتورة الصادرة" },
   { token: "{{billing_period}}", label: "فترة الفوترة", description: "الفترة التي تخصها الفاتورة" },
   { token: "{{total_amount}}", label: "قيمة الفاتورة", description: "إجمالي قيمة الفاتورة" },
+  { token: "{{balance_due}}", label: "الرصيد المتبقي", description: "المبلغ المتبقي المطلوب سداده" },
   { token: "{{due_date}}", label: "تاريخ الاستحقاق", description: "آخر موعد للسداد" },
   { token: "{{invoice_link}}", label: "رابط الفاتورة", description: "رابط مباشر للفواتير" },
   { token: "{{portal_link}}", label: "رابط بوابة المشترك", description: "رابط بوابة المشترك للاستعلام والمتابعة" },
@@ -34,11 +35,11 @@ const variableLabels = messageVariableOptions.map((item) => item.token);
 const variableButtonLabels: Record<string, string> = Object.fromEntries(messageVariableOptions.map((item) => [item.token, item.label]));
 const previewValues: Record<string, string> = {
   subscriber_name: "أحمد علي", subscriber_no: "SUB-00125", invoice_no: "INV-2026-00125",
-  billing_period: "آب 2026", total_amount: "33,000 د.ع", due_date: "31 آب 2026",
+  billing_period: "آب 2026", total_amount: "33,000", balance_due: "18,000", due_date: "31 آب 2026",
   invoice_link: "https://powerhub.example/invoice/INV-2026-00125", portal_link: "https://powerhub.example/portal?g=MAIN",
 };
 const statusLabels: Record<string, string> = { pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "مرسلة", delivered: "مرسلة", read: "مرسلة", failed: "غير مرسلة" };
-const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|due_date|invoice_link|portal_link)\s*}}/g, (_, key) => previewValues[key] ?? "");
+const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|due_date|invoice_link|portal_link)\s*}}/g, (_, key) => previewValues[key] ?? "");
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
 
@@ -115,8 +116,8 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         <h3 className="font-bold text-white">قالب جديد</h3>
         <input className={inputClass} value={name} onChange={e=>setName(e.target.value)} placeholder="اسم القالب" />
         <select className={inputClass} defaultValue="sms" id="unified-channel"><option value="sms">SMS</option><option value="whatsapp" disabled>WhatsApp — غير مفعّل بعد</option></select>
-        <select className={inputClass} value={eventType} onChange={e=>setEventType(e.target.value as typeof eventType)}><option value="invoice_issued">إرسال الفاتورة</option><option value="subscriber_created">الرقم المرجعي والترحيب</option><option value="invoice_overdue">تذكير بالسداد</option><option value="payment_received">إيصال الدفع</option><option value="service_alert">تنبيه تشغيلي</option></select><select className={inputClass} value={invoiceStyle} onChange={e=>setInvoiceStyle(e.target.value as typeof invoiceStyle)}><option value="details">الفاتورة بالطريقة الافتراضية</option><option value="portal_link">رابط الفاتورة + نص</option></select><textarea className={inputClass+" min-h-28 py-2"} value={body} onChange={e=>setBody(e.target.value)} placeholder="مثال: مرحباً {{subscriber_name}}، رقمك المرجعي {{subscriber_no}}" />
-        <Button disabled={saveTemplate.isPending || !name.trim() || !body.trim()} onClick={()=>saveTemplate.mutate({siteId,name,channel:"sms",body,eventType, variables:["{{subscriber_name}}","{{subscriber_no}}","{{invoice_no}}","{{billing_period}}","{{total_amount}}","{{due_date}}","{{invoice_link}}","{{portal_link}}"]})}>حفظ القالب</Button>
+        <select className={inputClass} value={eventType} onChange={e=>setEventType(e.target.value as typeof eventType)}><option value="invoice_issued">إرسال الفاتورة</option><option value="subscriber_created">الرقم المرجعي والترحيب</option><option value="invoice_overdue">تذكير بالسداد</option><option value="payment_received">إيصال الدفع</option><option value="service_alert">تنبيه تشغيلي</option></select>{eventType === "invoice_issued" ? <select className={inputClass} value={invoiceStyle} onChange={e=>setInvoiceStyle(e.target.value as typeof invoiceStyle)}><option value="details">الفاتورة بالطريقة الافتراضية</option><option value="portal_link">رابط الفاتورة + نص</option></select> : null}<textarea className={inputClass+" min-h-28 py-2"} value={body} onChange={e=>setBody(e.target.value)} placeholder={eventType === "invoice_overdue" ? "مثال: {{subscriber_name}}، تذكير بالسداد للفاتورة {{invoice_no}}. المتبقي {{balance_due}}." : "مثال: مرحباً {{subscriber_name}}، رقمك المرجعي {{subscriber_no}}"} />
+        <Button disabled={saveTemplate.isPending || !name.trim() || !body.trim()} onClick={()=>saveTemplate.mutate({siteId,name,channel:"sms",body,eventType, variables:["{{subscriber_name}}","{{subscriber_no}}","{{invoice_no}}","{{billing_period}}","{{total_amount}}","{{balance_due}}","{{due_date}}","{{invoice_link}}","{{portal_link}}"]})}>حفظ القالب</Button>
         <div className="space-y-2">{(templates.data ?? []).map((t: { id: number; name: string; channel: string; version: number; isActive: boolean })=><div key={t.id} className="rounded-lg border border-white/10 p-3"><div className="font-medium text-white">{t.name} <Badge>{t.channel}</Badge></div><div className="mt-1 text-xs text-slate-500">الإصدار {t.version} · {t.isActive ? "نشط" : "متوقف"}</div></div>)}</div>
       </div>
       <div className="space-y-3 rounded-xl border border-white/10 p-4">
