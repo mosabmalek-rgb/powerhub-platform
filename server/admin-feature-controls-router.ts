@@ -126,7 +126,7 @@ export const adminFeatureControlsRouter = router({
 
   ownerQuotaUsageReport: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
-    const [tenantsResult, ownersResult, subscriptionsResult, sitesResult, membersResult, subscribersResult, smsAccountsResult, smsUsageResult, addonsResult, catalogResult] = await Promise.all([
+    const [tenantsResult, ownersResult, subscriptionsResult, sitesResult, membersResult, subscribersResult, smsAccountsResult, smsUsageResult, addonsResult, controlsResult, catalogResult] = await Promise.all([
       admin.from("tenants").select("id,name,status,slug").order("name", { ascending: true }).limit(500),
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
       admin.from("tenant_subscriptions").select("tenant_id,package_code,status,started_at,ends_at,billing_cycle,archived_at").order("created_at", { ascending: false }).limit(1000),
@@ -136,9 +136,10 @@ export const adminFeatureControlsRouter = router({
       admin.from("tenant_tweetsms_accounts").select("tenant_id,monthly_limit,is_active,credential_ciphertext").limit(500),
       admin.from("notification_messages").select("tenant_id,segment_count,status,created_at").eq("channel","sms").gte("created_at", new Date(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1).toISOString()).in("status",["processing","submitted","delivered","read"]).limit(100000),
       admin.from("tenant_addon_requests").select("id,tenant_id,addon_code,quantity,status,duration_days,starts_at,ends_at").eq("status","approved").limit(5000),
+      admin.from("tenant_feature_controls").select("tenant_id,feature_key,status,limit_mode,manual_limit,updated_at").limit(5000),
       admin.from("platform_settings").select("value").eq("setting_key","subscription_package_catalog").maybeSingle(),
     ]);
-    const errors=[tenantsResult.error,ownersResult.error,subscriptionsResult.error,membersResult.error,subscribersResult.error,smsAccountsResult.error,smsUsageResult.error,addonsResult.error,catalogResult.error].filter(Boolean);
+    const errors=[tenantsResult.error,ownersResult.error,subscriptionsResult.error,membersResult.error,subscribersResult.error,smsAccountsResult.error,smsUsageResult.error,addonsResult.error,controlsResult.error,catalogResult.error].filter(Boolean);
     if(errors.length) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل تقرير حدود واستهلاك أصحاب المولدات."});
     const tenants=tenantsResult.data??[];
     const owners=new Map((ownersResult.data??[]).map(r=>[Number(r.tenant_id),r]));
@@ -150,6 +151,7 @@ export const adminFeatureControlsRouter = router({
     const smsAccounts=new Map((smsAccountsResult.data??[]).map(r=>[Number(r.tenant_id),r]));
     const smsUsed=new Map<number,number>(); for(const row of smsUsageResult.data??[]){const id=Number(row.tenant_id);smsUsed.set(id,(smsUsed.get(id)??0)+Math.max(1,Number(row.segment_count??1)));}
     const addons=new Map<number,any[]>(); for(const row of addonsResult.data??[]){const id=Number(row.tenant_id);const active=!row.starts_at||new Date(row.starts_at)<=new Date();const unexpired=!row.ends_at||new Date(row.ends_at)>new Date();if(active&&unexpired)(addons.get(id)??addons.set(id,[]).get(id)!).push(row);}
+    const controls=new Map<number,any[]>(); for(const row of controlsResult.data??[]){const id=Number(row.tenant_id);(controls.get(id)??controls.set(id,[]).get(id)!).push(row);}
     const catalog=(catalogResult.data?.value&&typeof catalogResult.data.value==="object"&&!Array.isArray(catalogResult.data.value)?catalogResult.data.value as Record<string,unknown>:{});
     const packages=Array.isArray(catalog.packages)?catalog.packages as Array<Record<string,any>>:[];
     const pkgMap=new Map(packages.map(p=>[String(p.code),p]));
@@ -157,9 +159,20 @@ export const adminFeatureControlsRouter = router({
     const rows=[];
     for(const tenant of tenants){
       const id=Number(tenant.id); const sub=subscriptions.get(id); const pkg=pkgMap.get(String(sub?.package_code)); const u=members.get(id)??{platform:0,field:0}; const sms=smsAccounts.get(id); const a=addons.get(id)??[];
+      const baseLimits={subscribers:Number(pkg?.includedSubscribers??0),branches:Number(pkg?.branches??0),platformUsers:Number(pkg?.platformUsers??0),fieldUsers:Number(pkg?.fieldUsers??0),messages:Number(pkg?.includedMessages??0)};
       const [subscriberLimit,branchLimit,platformLimit,fieldLimit,smsLimit]=await Promise.all([quota(id,"subscribers"),quota(id,"branch"),quota(id,"platformUser"),quota(id,"fieldUser"),quota(id,"sms")]);
+      const manualFeatureMap: Record<string,string>={subscriber_management:"subscribers",branch_management:"branches",platform_users:"platformUsers",field_users:"fieldUsers",sms:"messages"};
+      const manualAdjustments=(controls.get(id)??[]).flatMap((control:any)=>{
+        if(control.status==="disabled"||control.limit_mode!=="manual"||control.manual_limit==null) return [];
+        const resource=manualFeatureMap[String(control.feature_key)];
+        if(!resource) return [];
+        const baseLimit=Number(baseLimits[resource as keyof typeof baseLimits]??0);
+        const delta=Number(control.manual_limit)-baseLimit;
+        if(delta===0) return [];
+        return [{featureKey:String(control.feature_key),resource,baseLimit,manualLimit:Number(control.manual_limit),delta,updatedAt:control.updated_at}];
+      });
       const smsValue=smsUsed.get(id)??0;
-      rows.push({tenant:{id,name:tenant.name,status:tenant.status,createdAt:(tenant as { created_at?: string | null }).created_at ?? null},owner:owners.get(id)?{fullName:owners.get(id)?.full_name??null,companyName:owners.get(id)?.company_name??null}:null,subscription:sub?{packageCode:sub.package_code,status:sub.status,startedAt:sub.started_at,endsAt:sub.ends_at,billingCycle:sub.billing_cycle,archivedAt:sub.archived_at}:null,package:{name:pkg?.name??sub?.package_code??"—"},usage:{subscribers:subscribers.get(id)??0,branches:branches.get(id)??0,platformUsers:u.platform,fieldUsers:u.field},limits:{subscribers:subscriberLimit,branches:branchLimit,platformUsers:platformLimit,fieldUsers:fieldLimit,messages:smsLimit},messages:{used:smsValue,remaining:Math.max(0,smsLimit-smsValue)},addons:a.map(x=>({id:Number(x.id),code:x.addon_code,quantity:Number(x.quantity),durationDays:x.duration_days,startsAt:x.starts_at,endsAt:x.ends_at})),daysRemaining:sub?.ends_at?Math.max(0,Math.ceil((new Date(sub.ends_at).getTime()-Date.now())/86400000)):null});
+      rows.push({tenant:{id,name:tenant.name,status:tenant.status,createdAt:(tenant as { created_at?: string | null }).created_at ?? null},owner:owners.get(id)?{fullName:owners.get(id)?.full_name??null,companyName:owners.get(id)?.company_name??null}:null,subscription:sub?{packageCode:sub.package_code,status:sub.status,startedAt:sub.started_at,endsAt:sub.ends_at,billingCycle:sub.billing_cycle,archivedAt:sub.archived_at}:null,package:{name:pkg?.name??sub?.package_code??"—"},usage:{subscribers:subscribers.get(id)??0,branches:branches.get(id)??0,platformUsers:u.platform,fieldUsers:u.field},baseLimits,limits:{subscribers:subscriberLimit,branches:branchLimit,platformUsers:platformLimit,fieldUsers:fieldLimit,messages:smsLimit},messages:{used:smsValue,remaining:Math.max(0,smsLimit-smsValue)},addons:a.map(x=>({id:Number(x.id),code:x.addon_code,quantity:Number(x.quantity),durationDays:x.duration_days,startsAt:x.starts_at,endsAt:x.ends_at})),manualAdjustments,daysRemaining:sub?.ends_at?Math.max(0,Math.ceil((new Date(sub.ends_at).getTime()-Date.now())/86400000)):null});
     }
     return rows;
   }),
