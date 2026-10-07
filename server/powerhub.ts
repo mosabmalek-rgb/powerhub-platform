@@ -2668,26 +2668,27 @@ export const powerhubRouter = router({
     sendPaymentReminderSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const admin = supabaseAdmin();
-      const { data: invoice, error: invoiceError } = await admin.from("invoices").select("id, subscriber_id, invoice_no, billing_period, balance_due, due_date, status").eq("id", input.invoiceId).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      const { data: invoice, error: invoiceError } = await admin.from("invoices").select("id, subscriber_id, invoice_no, billing_period, total_amount, balance_due, due_date, status").eq("id", input.invoiceId).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
       if (invoiceError || !invoice) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للفرع المحدد." });
-      const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id, full_name, phone").eq("id", Number(invoice.subscriber_id)).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id, full_name, subscriber_no, phone").eq("id", Number(invoice.subscriber_id)).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
       if (subscriberError || !subscriber?.phone) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يوجد رقم هاتف صالح للمشترك ضمن الفرع المحدد." });
       let recipient: string;
       try { recipient = normalizeInternationalPhone(subscriber.phone); } catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." }); }
-      const { data: template } = await admin.from("powerhub_message_templates").select("body").eq("tenant_id", scope.tenantId).eq("channel", "sms").eq("event_type", "invoice_overdue").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      const reminderTemplate = template?.body ?? defaultPaymentReminderSmsTemplate;
       const values = {
         subscriber_name: subscriber.full_name ?? "",
-        subscriber_no: String((subscriber as { subscriber_no?: string | null }).subscriber_no ?? ""),
+        subscriber_no: String(subscriber.subscriber_no ?? ""),
         invoice_no: String(invoice.invoice_no),
         billing_period: String(invoice.billing_period),
-        total_amount: String(invoice.balance_due),
+        total_amount: String(invoice.total_amount),
         balance_due: String(invoice.balance_due),
         due_date: String(invoice.due_date ?? ""),
-        invoice_link: "",
-        portal_link: "",
+        invoice_link: reminderTemplate.includes("{{invoice_link}}") ? "{{invoice_link}}" : "",
+        portal_link: reminderTemplate.includes("{{portal_link}}") ? "{{portal_link}}" : "",
       };
-      const renderedText = renderInvoiceMessageTemplate(template?.body ?? defaultPaymentReminderSmsTemplate, values);
-      const { data: queueRows, error: queueError } = await admin.rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_event_type: "payment_reminder", p_invoice_id: Number(invoice.id), p_payment_id: null, p_operation_key: `payment_reminder:${invoice.id}:${new Date().toISOString().slice(0, 10)}`, p_rendered_text: renderedText });
+      const renderedText = renderInvoiceMessageTemplate(reminderTemplate, values);
+      const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      const { data: queueRows, error: queueError } = await admin.rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_event_type: "payment_reminder", p_invoice_id: Number(invoice.id), p_payment_id: null, p_operation_key: `payment_reminder:${invoice.id}:${localDate}`, p_rendered_text: renderedText });
       if (queueError || !(queueRows as Array<{ notification_id: number }> | null)?.[0]) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تجهيز تذكير SMS للفواتير المستحقة." });
       const notificationId = Number((queueRows as Array<{ notification_id: number }>)[0].notification_id);
       const dispatch = await processNotificationById(notificationId, ctx.user.id);
