@@ -17,7 +17,6 @@ describe("invoice message templates", () => {
 
 
   it("renders the dedicated payment reminder template with balance and deferred invoice-link placeholder", () => {
-    const { defaultPaymentReminderSmsTemplate } = require("./invoice-message-template") as typeof import("./invoice-message-template");
     const rendered = renderInvoiceMessageTemplate(defaultPaymentReminderSmsTemplate, {
       subscriber_name: "أحمد",
       invoice_no: "INV-77",
