@@ -715,20 +715,20 @@ export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
   return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenantResult.data.package_code as string };
 }
 
-export async function recordSupabaseSubscriberQuotaAlert(input: { tenantId: number; siteId: number; userId: number; quota: { limit: number; currentCount: number; remaining: number; plan: string } }) {
-  if (!Number.isFinite(input.quota.limit) || input.quota.limit <= 0 || input.quota.currentCount <= 0) return;
-  const percentage = Math.min(100, Math.round((input.quota.currentCount / input.quota.limit) * 100));
-  const threshold = percentage >= 100 ? 100 : percentage >= 80 ? 80 : 0;
-  if (!threshold) return;
-  const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
-  const action = `subscriber_quota_alert_${threshold}`;
-  const { data: existing, error } = await supabaseAdmin().from("audit_logs").select("id")
-    .eq("tenant_id", input.tenantId).eq("action", action).gte("created_at", monthStart.toISOString()).maybeSingle();
-  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تنبيه حصة المشتركين في Supabase." });
-  if (!existing) await writeSupabaseAudit({
-    userId: input.userId, tenantId: input.tenantId, siteId: input.siteId, entityType: "owner_quota_alert", entityId: String(input.tenantId), action,
-    metadata: { threshold, percentage, current: input.quota.currentCount, limit: input.quota.limit, remaining: input.quota.remaining, plan: input.quota.plan, automatic: true },
+export async function recordSupabaseSubscriberQuotaAlert(input: { tenantId: number; siteId: number; userId: number; quota: { limit: number; currentCount: number; remaining: number; plan: string }; blockedAttempt?: boolean }) {
+  if (!Number.isFinite(input.quota.limit) || input.quota.limit <= 0 || input.quota.currentCount < input.quota.limit) return;
+  const admin = supabaseAdmin();
+  const subscription = await admin.from("tenant_subscriptions").select("id").eq("tenant_id", input.tenantId)
+    .in("status", ["trial", "active"]).order("ends_at", { ascending: false, nullsFirst: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (subscription.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديد دورة الاشتراك لتنبيه الحصة." });
+  const { data, error } = await admin.rpc("powerhub_record_quota_alert", {
+    p_tenant_id: input.tenantId, p_site_id: input.siteId, p_user_id: input.userId,
+    p_resource: "subscribers", p_alert_type: input.blockedAttempt ? "blocked_attempt" : "reached",
+    p_current_count: input.quota.currentCount, p_quota_limit: input.quota.limit,
+    p_subscription_id: subscription.data?.id ? Number(subscription.data.id) : null,
   });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل تنبيه حصة المشتركين." });
+  return { recorded: Boolean(data?.[0]?.recorded), alertId: data?.[0]?.alert_id ? Number(data[0].alert_id) : null };
 }
 
 export async function writeSupabaseAudit(input: { userId?: number; tenantId: number; siteId: number; entityType: string; entityId: string; action: string; beforeData?: unknown; afterData?: unknown; metadata?: unknown }) {
