@@ -185,6 +185,7 @@ export default function MessagingSettingsPage() {
     {!owner ? <Card className="border-white/8 bg-[#111823]"><CardContent className="p-8 text-center text-sm text-slate-500">تحتاج إلى صلاحية <strong className="text-[#F5B800]">إدارة المراسلات</strong> لعرض حالة الرسائل وقوالبها.</CardContent></Card> : <><section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <ChannelForm title="إعداد WhatsApp Cloud API" channel="whatsapp" existing={configs.find((item) => item.channel === "whatsapp")} pending={saveConfig.isPending} onSubmit={saveConfig.mutate} siteId={siteId!} /> : null}</section>{owner ? <><TweetSmsQuotaCard quota={smsQuotaQuery.data} /><SmsDailyUsageCard data={smsDailyUsageQuery.data} loading={smsDailyUsageQuery.isLoading} /></> : null}
     {available.sms && owner && siteId ? <AutoSendPolicyCard config={smsConfig} siteId={siteId} /> : null}
       {available.sms && owner && siteId ? <FailedSmsPanel siteId={siteId} /> : null}{open ? <section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <TemplateEditor channel="whatsapp" template={templates.find((item) => item.channel === "whatsapp")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <TemplateEditor channel="sms" template={templates.find((item) => item.channel === "sms")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <PaymentReceiptSmsEditor template={receiptTemplates.find((item) => item.channel === "sms")} pending={saveReceiptTemplate.isPending} onSubmit={saveReceiptTemplate.mutate} siteId={siteId!} /> : null}</section> : null}</>}
+    {owner && siteId ? <ReadingCycleSettingsCard siteId={siteId} /> : null}
     {owner && siteId ? <UnifiedMessagingPanel siteId={siteId} /> : null}\n    {canViewFinancialAlerts ? <FinancialCollectionAlerts overview={financialOverviewQuery.data} canCollect={canCollect} onOpenInvoice={(invoiceId: number) => navigate(`/invoices?invoiceId=${invoiceId}`)} onCollect={(row: any) => navigate(`/collections?subscriberId=${row.subscriberId}&invoiceId=${row.invoiceId}`)} /> : null}
     {owner && siteId ? <InvoiceSmsQueue rows={notificationsQuery.data ?? []} config={smsConfig} siteId={siteId} /> : null}
     {owner ? <PhoneNormalizationTool rows={phoneReviewQuery.data ?? []} pending={applyPhoneNormalization.isPending} onApply={(subscriberIds: number[]) => applyPhoneNormalization.mutate({ siteId: siteId!, subscriberIds })} /> : null}
@@ -204,6 +205,34 @@ export function buildMonthlyScheduleAnchor(cycleMonthDay: number, cycleTime: str
     ? new Date(year, month + 1, cycleMonthDay, hours, minutes, 0, 0)
     : new Date(year, month, cycleMonthDay, hours, minutes, 0, 0);
   return target.toISOString();
+}
+
+function ReadingCycleSettingsCard({ siteId }: { siteId: number }) {
+  const utils = trpc.useUtils();
+  const query = trpc.powerhub.readingCycle.get.useQuery({ siteId });
+  const [cycleType, setCycleType] = useState<"WEEKLY" | "EVERY_10_DAYS" | "EVERY_15_DAYS" | "MONTHLY">("MONTHLY");
+  const [weeklyStartDay, setWeeklyStartDay] = useState(7);
+  const [monthlyStartDay, setMonthlyStartDay] = useState<1 | 30>(1);
+  useEffect(() => {
+    if (!query.data) return;
+    setCycleType(query.data.cycleType);
+    setWeeklyStartDay(query.data.weeklyStartDay);
+    setMonthlyStartDay(query.data.monthlyStartDay === 30 ? 30 : 1);
+  }, [query.data]);
+  const save = trpc.powerhub.readingCycle.save.useMutation({
+    onSuccess: async () => { await utils.powerhub.readingCycle.get.invalidate(); toast.success("تم حفظ دورة القراءات والفوترة."); },
+    onError: (e) => toast.error(e.message),
+  });
+  const days = [[1,"الأحد"],[2,"الإثنين"],[3,"الثلاثاء"],[4,"الأربعاء"],[5,"الخميس"],[6,"الجمعة"],[7,"السبت"]] as const;
+  return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="font-bold text-white">دورة القراءات والفوترة</h2><p className="mt-1 text-sm leading-6 text-slate-400">الدورة المرجعية للتطبيق الميداني والفواتير ورسائل الفواتير. كل دورة لها هوية مستقلة، لذلك يمكن إصدار أكثر من فاتورة في الشهر عند اختيار 10 أو 15 يوماً.</p></div><Badge className="bg-sky-400/10 text-sky-200">Asia/Gaza</Badge></div>
+    <div className="mt-4 grid gap-3 md:grid-cols-2"><Field label="الدورة"><select value={cycleType} onChange={e=>setCycleType(e.target.value as typeof cycleType)} className={inputClass}><option value="WEEKLY">كل أسبوع</option><option value="EVERY_10_DAYS">كل 10 أيام (1، 11، 21)</option><option value="EVERY_15_DAYS">كل 15 يوم (1، 16)</option><option value="MONTHLY">كل شهر</option></select></Field>
+      {cycleType === "WEEKLY" ? <Field label="يوم بدء الدورة"><select value={weeklyStartDay} onChange={e=>setWeeklyStartDay(Number(e.target.value))} className={inputClass}>{days.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field> : null}
+      {cycleType === "MONTHLY" ? <Field label="يوم بدء الدورة الشهرية"><select value={monthlyStartDay} onChange={e=>setMonthlyStartDay(Number(e.target.value) === 30 ? 30 : 1)} className={inputClass}><option value={1}>1 من كل شهر</option><option value={30}>30 من كل شهر — فبراير 28</option></select></Field> : null}
+    </div>
+    <div className="mt-4 rounded-xl border border-white/8 bg-white/[.02] p-3 text-xs leading-6 text-slate-400">{cycleType === "WEEKLY" ? "كل قراءة تقع ضمن أسبوع يبدأ في اليوم المحدد." : cycleType === "EVERY_10_DAYS" ? "الدورات: 1–10، 11–20، 21–نهاية الشهر." : cycleType === "EVERY_15_DAYS" ? "الدورات: 1–15، 16–نهاية الشهر." : "الدورة تبدأ يوم 1 أو 30. عند اختيار 30 يبدأ فبراير في 28 فبراير تحديداً."}</div>
+    <div className="mt-4 flex justify-end"><Button onClick={()=>save.mutate({siteId,cycleType,weeklyStartDay,monthlyStartDay})} disabled={save.isPending || query.isLoading} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{save.isPending ? "جارٍ الحفظ…" : "حفظ دورة القراءات والفوترة"}</Button></div>
+  </CardContent></Card>;
 }
 
 function AutoSendPolicyCard({ config, siteId }: { config: any; siteId: number }) {
