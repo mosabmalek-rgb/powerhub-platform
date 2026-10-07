@@ -175,13 +175,15 @@ begin
   local_at := p_reading_at at time zone c.timezone;
 
   if c.cycle_type='WEEKLY' then
+    -- Android Calendar: Sunday=1 ... Saturday=7.
+    -- PostgreSQL dow: Sunday=0 ... Saturday=6.
     start_local := date_trunc('day', local_at)
-      - make_interval(days => mod(extract(dow from local_at)::integer - c.weekly_start_day + 7,7));
-    if c.weekly_start_day=7 then
-      -- PostgreSQL dow: Sunday=0 ... Saturday=6. Stored day 7 means Saturday.
-      start_local := date_trunc('day', local_at)
-        - make_interval(days => mod(extract(dow from local_at)::integer - 6 + 7,7));
-    end if;
+      - make_interval(days => mod(
+          extract(dow from local_at)::integer
+          - case when c.weekly_start_day=7 then 6 else c.weekly_start_day-1 end
+          + 7,
+          7
+        ));
     end_local := start_local + interval '7 days' - interval '1 millisecond';
   elsif c.cycle_type='EVERY_10_DAYS' then
     start_day := case when extract(day from local_at)::integer between 1 and 10 then 1
@@ -200,11 +202,17 @@ begin
       (date_trunc('month',local_at)+interval '1 month'-interval '1 millisecond')
     );
   else
-    start_day := least(c.monthly_start_day, extract(day from (date_trunc('month',local_at)+interval '1 month'-interval '1 day'))::integer);
+    start_day := case
+      when c.monthly_start_day=30 and extract(month from local_at)::integer=2 then 28
+      else least(c.monthly_start_day, extract(day from (date_trunc('month',local_at)+interval '1 month'-interval '1 day'))::integer)
+    end;
     start_local := date_trunc('month',local_at) + make_interval(days => start_day-1);
     if local_at < start_local then
       start_local := date_trunc('month',local_at)-interval '1 month';
-      start_day := least(c.monthly_start_day, extract(day from (date_trunc('month',local_at)-interval '1 day'))::integer);
+      start_day := case
+        when c.monthly_start_day=30 and extract(month from (date_trunc('month',local_at)-interval '1 day'))::integer=2 then 28
+        else least(c.monthly_start_day, extract(day from (date_trunc('month',local_at)-interval '1 day'))::integer)
+      end;
       start_local := date_trunc('month',local_at)-interval '1 month' + make_interval(days => start_day-1);
     end if;
     end_local := date_trunc('month',start_local)+interval '1 month'-interval '1 millisecond';
