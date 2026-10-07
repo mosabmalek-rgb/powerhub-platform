@@ -14,10 +14,12 @@ const platformAdminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
 const featureKeySchema = z.string().trim().min(2).max(100);
 const statusSchema = z.enum(["inherit","enabled","disabled"]);
 const limitModeSchema = z.enum(["inherit","manual","unlimited"]);
+const addonBillingModeSchema = z.enum(["free","paid"]);
+const addonFeatureMap: Record<string, string> = { subscriber_management: "subscribers50", platform_users: "platformUser", field_users: "fieldUser", branch_management: "branch", sms: "sms" };
 
 async function tenantFeatureSnapshot(tenantId: number) {
   const admin = supabaseAdmin();
-  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult] = await Promise.all([
+  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult] = await Promise.all([
     admin.from("tenants").select("id,name,status,slug,created_at").eq("id",tenantId).maybeSingle(),
     admin.from("tenant_owner_profiles").select("tenant_id,owner_user_id,full_name,phone,email,company_name").eq("tenant_id",tenantId).maybeSingle(),
     admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
@@ -26,8 +28,9 @@ async function tenantFeatureSnapshot(tenantId: number) {
     admin.from("tenant_members").select("user_id,role,is_active,membership_status").eq("tenant_id",tenantId),
     admin.rpc("powerhub_admin_tenant_feature_controls",{p_tenant_id:tenantId}),
     admin.from("package_feature_policies").select("package_code,feature_key,policy,default_limit,limit_mode").order("feature_key"),
+    admin.from("tenant_addon_requests").select("id,addon_code,quantity,status,billing_mode,source,starts_at,ends_at,duration_days").eq("tenant_id",tenantId).eq("status","approved").order("ends_at",{ascending:true}).limit(200),
   ]);
-  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error].filter(Boolean);
+  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error,addonsResult.error].filter(Boolean);
   if (errors.length) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل مصفوفة ميزات صاحب المولد."});
   const subscription = subscriptionResult.data;
   const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.package_code);
@@ -45,6 +48,7 @@ async function tenantFeatureSnapshot(tenantId: number) {
     },
     controls: controls.map((row:any)=>({tenantId:Number(row.tenant_id),featureKey:row.feature_key,status:row.status,limitMode:row.limit_mode,manualLimit:row.manual_limit == null ? null : Number(row.manual_limit),overrideReason:row.override_reason,updatedByUserId:row.updated_by_user_id == null ? null : Number(row.updated_by_user_id),updatedAt:row.updated_at})),
     packagePolicies: packagePolicies.map((row:any)=>({featureKey:row.feature_key,policy:row.policy,defaultLimit:row.default_limit == null ? null : Number(row.default_limit),limitMode:row.limit_mode})),
+    activeAddons: (addonsResult.data ?? []).filter((row:any)=>!row.starts_at || new Date(row.starts_at).getTime() <= Date.now()).filter((row:any)=>!row.ends_at || new Date(row.ends_at).getTime() > Date.now()).map((row:any)=>({id:Number(row.id),addonCode:String(row.addon_code),quantity:Number(row.quantity),billingMode:String(row.billing_mode ?? "free"),source:String(row.source ?? "owner_request"),startsAt:row.starts_at,endsAt:row.ends_at,durationDays:Number(row.duration_days ?? 0)})),
   };
 }
 
@@ -118,6 +122,14 @@ export const adminFeatureControlsRouter = router({
 
   tenantFeatureSnapshot: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive()})).query(async ({input}) => tenantFeatureSnapshot(input.tenantId)),
 
+  grantTenantAddon: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive(),featureKey:featureKeySchema,quantity:z.number().int().positive().max(100000000),billingMode:addonBillingModeSchema,note:z.string().trim().max(2000).optional(),requestKey:z.string().uuid()})).mutation(async ({ctx,input}) => {
+    const {data,error}=await supabaseAdmin().rpc("powerhub_admin_grant_tenant_addon",{p_actor_user_id:ctx.user.id,p_tenant_id:input.tenantId,p_feature_key:input.featureKey,p_quantity:input.quantity,p_billing_mode:input.billingMode,p_note:input.note ?? null,p_request_key:input.requestKey});
+    if(error){const message=String(error.message ?? "");if(message.includes("FEATURE_NOT_ADDON_MANAGEABLE")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"هذه الميزة لا تملك سعة قابلة للإضافة. استخدم التفعيل/التعطيل فقط."});if(message.includes("FEATURE_NOT_AVAILABLE_IN_PACKAGE")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"هذه الميزة غير متاحة في الباقة الحالية."});if(message.includes("SUBSCRIPTION_REQUIRED")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا يوجد اشتراك فعال يمكن ربط الإضافة به."});if(message.includes("INVALID_ADDON_QUANTITY")||message.includes("SUBSCRIBER_ADDON_QUANTITY_MULTIPLE_REQUIRED")) throw new TRPCError({code:"BAD_REQUEST",message:"كمية الإضافة غير صالحة. إضافة المشتركين يجب أن تكون بمضاعفات 50."});throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر إضافة السعة إلى الاشتراك."});}
+    const row=data?.[0];
+    if(!row?.success) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لم يتم اعتماد الإضافة."});
+    return {requestId:Number(row.request_id),tenantId:Number(row.tenant_id),featureKey:String(row.feature_key),addonCode:String(row.addon_code),quantity:Number(row.display_quantity ?? row.quantity),billingMode:String(row.billing_mode),startsAt:row.starts_at,endsAt:row.ends_at,replayed:Boolean(row.replayed)};
+  }),
+
   setTenantFeatureControl: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive(),featureKey:featureKeySchema,status:statusSchema,limitMode:limitModeSchema,manualLimit:z.number().int().min(0).max(100000000).nullable().optional(),reason:z.string().trim().max(2000).optional()})).mutation(async ({ctx,input}) => {
     const {data,error}=await supabaseAdmin().rpc("powerhub_admin_set_tenant_feature_control",{p_actor_user_id:ctx.user.id,p_tenant_id:input.tenantId,p_feature_key:input.featureKey,p_status:input.status,p_limit_mode:input.limitMode,p_manual_limit:input.limitMode === "manual" ? (input.manualLimit ?? null) : null,p_reason:input.reason ?? null});
     if(error){const message=String(error.message ?? "");if(message.includes("FEATURE_NOT_AVAILABLE_IN_PACKAGE")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا يمكن تفعيل هذه الميزة لأن الباقة الحالية لا تتيحها."});if(message.includes("TENANT_NOT_FOUND")) throw new TRPCError({code:"NOT_FOUND",message:"صاحب المولد غير موجود."});if(message.includes("FEATURE_NOT_FOUND")) throw new TRPCError({code:"NOT_FOUND",message:"الميزة غير موجودة في كتالوج المنصة."});if(message.includes("FEATURE_NOT_TENANT_CONTROLLABLE")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"هذه ميزة عامة على مستوى المنصة ولا تُدار لكل صاحب مولد من هذه الشاشة."});throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر حفظ إعداد الميزة."});}
@@ -157,9 +169,10 @@ export const adminFeatureControlsRouter = router({
     const rows=[];
     for(const tenant of tenants){
       const id=Number(tenant.id); const sub=subscriptions.get(id); const pkg=pkgMap.get(String(sub?.package_code)); const u=members.get(id)??{platform:0,field:0}; const sms=smsAccounts.get(id); const a=addons.get(id)??[];
+      const baseLimits={subscribers:Number(pkg?.includedSubscribers??0),branches:Number(pkg?.branches??0),platformUsers:Number(pkg?.platformUsers??0),fieldUsers:Number(pkg?.fieldUsers??0),messages:Number(pkg?.includedMessages??0)};
       const [subscriberLimit,branchLimit,platformLimit,fieldLimit,smsLimit]=await Promise.all([quota(id,"subscribers"),quota(id,"branch"),quota(id,"platformUser"),quota(id,"fieldUser"),quota(id,"sms")]);
       const smsValue=smsUsed.get(id)??0;
-      rows.push({tenant:{id,name:tenant.name,status:tenant.status,createdAt:(tenant as { created_at?: string | null }).created_at ?? null},owner:owners.get(id)?{fullName:owners.get(id)?.full_name??null,companyName:owners.get(id)?.company_name??null}:null,subscription:sub?{packageCode:sub.package_code,status:sub.status,startedAt:sub.started_at,endsAt:sub.ends_at,billingCycle:sub.billing_cycle,archivedAt:sub.archived_at}:null,package:{name:pkg?.name??sub?.package_code??"—"},usage:{subscribers:subscribers.get(id)??0,branches:branches.get(id)??0,platformUsers:u.platform,fieldUsers:u.field},limits:{subscribers:subscriberLimit,branches:branchLimit,platformUsers:platformLimit,fieldUsers:fieldLimit,messages:smsLimit},messages:{used:smsValue,remaining:Math.max(0,smsLimit-smsValue)},addons:a.map(x=>({id:Number(x.id),code:x.addon_code,quantity:Number(x.quantity),durationDays:x.duration_days,startsAt:x.starts_at,endsAt:x.ends_at})),daysRemaining:sub?.ends_at?Math.max(0,Math.ceil((new Date(sub.ends_at).getTime()-Date.now())/86400000)):null});
+      rows.push({tenant:{id,name:tenant.name,status:tenant.status,createdAt:(tenant as { created_at?: string | null }).created_at ?? null},owner:owners.get(id)?{fullName:owners.get(id)?.full_name??null,companyName:owners.get(id)?.company_name??null}:null,subscription:sub?{packageCode:sub.package_code,status:sub.status,startedAt:sub.started_at,endsAt:sub.ends_at,billingCycle:sub.billing_cycle,archivedAt:sub.archived_at}:null,package:{name:pkg?.name??sub?.package_code??"—"},usage:{subscribers:subscribers.get(id)??0,branches:branches.get(id)??0,platformUsers:u.platform,fieldUsers:u.field},baseLimits,limits:{subscribers:subscriberLimit,branches:branchLimit,platformUsers:platformLimit,fieldUsers:fieldLimit,messages:smsLimit},messages:{used:smsValue,remaining:Math.max(0,smsLimit-smsValue)},addons:a.map(x=>({id:Number(x.id),code:x.addon_code,quantity:Number(x.quantity),durationDays:x.duration_days,billingMode:x.billing_mode ?? "free",source:x.source ?? "owner_request",startsAt:x.starts_at,endsAt:x.ends_at})),daysRemaining:sub?.ends_at?Math.max(0,Math.ceil((new Date(sub.ends_at).getTime()-Date.now())/86400000)):null});
     }
     return rows;
   }),
