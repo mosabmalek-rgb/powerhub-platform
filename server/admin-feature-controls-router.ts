@@ -19,7 +19,7 @@ const addonFeatureMap: Record<string, string> = { subscriber_management: "subscr
 
 async function tenantFeatureSnapshot(tenantId: number) {
   const admin = supabaseAdmin();
-  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult] = await Promise.all([
+  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult] = await Promise.all([
     admin.from("tenants").select("id,name,status,slug,created_at").eq("id",tenantId).maybeSingle(),
     admin.from("tenant_owner_profiles").select("tenant_id,owner_user_id,full_name,phone,email,company_name").eq("tenant_id",tenantId).maybeSingle(),
     admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
