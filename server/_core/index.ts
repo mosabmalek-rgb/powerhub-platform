@@ -76,6 +76,20 @@ export function createPowerHubApp() {
       return res.status(500).json({ ok: false, error: "invoice_notification_schedule_failed" });
     }
   });
+  app.all("/api/scheduled/subscriber-retention", async (req, res) => {
+    const configuredSecret = process.env.CRON_SECRET;
+    const authorization = req.headers.authorization ?? "";
+    if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) return res.status(401).json({ error: "unauthorized" });
+    if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+    try {
+      const { processSubscriberRetention } = await import("../subscriber-retention");
+      const result = await processSubscriberRetention();
+      return res.status(200).json({ ok: true, ...result });
+    } catch (error) {
+      console.error("[subscriber-retention] scheduled run failed", error);
+      return res.status(500).json({ ok: false, error: "subscriber_retention_failed" });
+    }
+  });
   app.all("/api/scheduled/payment-documentation-retention", async (req, res) => {
     const configuredSecret = process.env.CRON_SECRET;
     const authorization = req.headers.authorization ?? "";

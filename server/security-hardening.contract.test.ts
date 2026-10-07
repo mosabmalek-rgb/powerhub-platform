@@ -19,9 +19,13 @@ describe("HTTP security hardening contract", () => {
     expect(source).toContain("webhook_payload_too_large");
   });
 
-  it("authenticates scheduled jobs before rejecting non-POST methods", () => {
+  it("authenticates every scheduled job before rejecting non-POST methods", () => {
+    const scheduledRoutes = source.match(/app\.all\("\/api\/scheduled\/[^"]+"/g) ?? [];
+    const protectedPostChecks = source.match(/if \(req\.method !== "POST"\)/g) ?? [];
+    expect(scheduledRoutes.length).toBeGreaterThanOrEqual(3);
+    expect(protectedPostChecks.length).toBe(scheduledRoutes.filter((route) => !route.includes("/*")).length);
     expect(source).toContain('app.all("/api/scheduled/process-invoice-notifications"');
     expect(source).toContain('app.all("/api/scheduled/payment-documentation-retention"');
-    expect(source.match(/if \(req\.method !== "POST"\)/g)?.length).toBe(2);
+    expect(source).toContain('app.all("/api/scheduled/subscriber-retention"');
   });
 });

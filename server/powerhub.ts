@@ -1348,6 +1348,46 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       return listSupabaseSubscribers(input.siteId);
     }),
+    archived: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const { data, error } = await supabaseAdmin().from("subscribers")
+        .select("id, tenant_id, site_id, subscriber_no, full_name, phone, whatsapp_number, address, subscription_type, service_status, archived_at, purge_after_at, created_at, updated_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).not("archived_at", "is", null)
+        .order("archived_at", { ascending: false });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المشتركين المؤرشفين." });
+      return (data ?? []).map((row) => ({
+        id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberNo: row.subscriber_no,
+        fullName: row.full_name, phone: row.phone, whatsappNumber: row.whatsapp_number, address: row.address,
+        subscriptionType: row.subscription_type, serviceStatus: row.service_status, archivedAt: new Date(row.archived_at as string),
+        purgeAfterAt: row.purge_after_at ? new Date(row.purge_after_at) : null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+      }));
+    }),
+    lifecycle: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      subscriberId: z.number().int().positive(),
+      action: z.enum(["suspend","activate","archive","restore"]),
+      clientOperationId: z.string().uuid().optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner","manager","accountant"], "manageSubscribers");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_change_subscriber_lifecycle", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_subscriber_id: input.subscriberId, p_action: input.action, p_client_operation_id: input.clientOperationId ?? null,
+      });
+      if (!error && data?.[0]) return {
+        subscriberId: Number(data[0].subscriber_id), action: data[0].action, serviceStatus: data[0].service_status,
+        archivedAt: data[0].archived_at ? new Date(data[0].archived_at) : null,
+        purgeAfterAt: data[0].purge_after_at ? new Date(data[0].purge_after_at) : null,
+        replayed: Boolean(data[0].replayed),
+      };
+      const message = String(error?.message ?? "");
+      if (message.includes("SUBSCRIBER_QUOTA_REACHED")) throw new TRPCError({ code:"PRECONDITION_FAILED", message:"لا توجد سعة متاحة في الحصة لاستعادة المشترك." });
+      if (message.includes("SUBSCRIBER_ALREADY_ARCHIVED")) throw new TRPCError({ code:"CONFLICT", message:"المشترك مؤرشف بالفعل." });
+      if (message.includes("SUBSCRIBER_NOT_ARCHIVED")) throw new TRPCError({ code:"CONFLICT", message:"المشترك ليس مؤرشفة." });
+      if (message.includes("SUBSCRIBER_ARCHIVED")) throw new TRPCError({ code:"PRECONDITION_FAILED", message:"المشترك مؤرشف ولا يقبل هذه العملية." });
+      if (message.includes("SUBSCRIBER_PURGE_IN_PROGRESS")) throw new TRPCError({ code:"CONFLICT", message:"بدأت عملية الحذف النهائي لهذا المشترك؛ لا يمكن تغيير حالته الآن." });
+      if (message.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code:"NOT_FOUND", message:"المشترك غير موجود ضمن الفرع المحدد." });
+      throw new TRPCError({ code:"INTERNAL_SERVER_ERROR", message:"تعذر تغيير دورة حياة المشترك." });
+    }),
     accountStatement: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       subscriberId: z.number().int().positive(),
@@ -1360,7 +1400,7 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       const [subscriptionResponse, countResponse, quotaResponse] = await Promise.all([
         admin.from("tenant_subscriptions").select("package_code").eq("tenant_id", access.tenantId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-        admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", access.tenantId),
+        admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", access.tenantId).is("archived_at", null),
         admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: access.tenantId, p_resource: "subscribers" }),
       ]);
       if (subscriptionResponse.error || countResponse.error || quotaResponse.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
@@ -1573,7 +1613,7 @@ export const powerhubRouter = router({
     }),
     phoneReview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
-      const { data, error } = await supabaseAdmin().from("subscribers").select("id, subscriber_no, full_name, phone").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("full_name");
+      const { data, error } = await supabaseAdmin().from("subscribers").select("id, subscriber_no, full_name, phone").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).is("archived_at", null).order("full_name");
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر مراجعة أرقام المشتركين من Supabase." });
       return (data ?? []).map((row) => {
         const mapped = { id: Number(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone };
@@ -1973,7 +2013,7 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       const { data: subscribers, error: subscriberError } = await admin.from("subscribers")
         .select("id, full_name, subscriber_no, phone, whatsapp_number, service_status")
-        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).is("archived_at", null)
         .or(searchClauses)
         .limit(20);
       if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر البحث عن المشترك." });
