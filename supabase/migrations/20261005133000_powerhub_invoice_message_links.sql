@@ -204,6 +204,7 @@ declare
   v_share_token text;
   v_portal_code text;
   v_candidate_id bigint;
+  v_existing_found boolean := false;
 begin
   if coalesce(array_length(p_invoice_ids, 1), 0) = 0
      or coalesce(array_length(p_invoice_ids, 1), 0) > 50 then
@@ -309,7 +310,9 @@ begin
     limit 1
     for update;
 
-    if found and v_existing.status in ('processing', 'submitted', 'delivered', 'read') then
+    v_existing_found := found;
+
+    if v_existing_found and v_existing.status in ('processing', 'submitted', 'delivered', 'read') then
       notification_id := v_existing.id;
       invoice_id := v_invoice.id;
       queued := false;
@@ -367,7 +370,7 @@ begin
     v_rendered_text := replace(v_rendered_text, '{{invoice_link}}', coalesce(v_invoice_link, ''));
     v_rendered_text := replace(v_rendered_text, '{{portal_link}}', coalesce(v_portal_link, ''));
 
-    if found then
+    if v_existing_found then
       update public.notification_messages
       set status = 'pending',
           recipient = v_subscriber.phone,
