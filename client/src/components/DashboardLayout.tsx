@@ -520,6 +520,12 @@ function DashboardLayoutContent({
                                 return;
                               }
                               event.preventDefault();
+                              // Reset only the page viewport when switching sidebar pages.
+                              // Do not change the sidebar's own scroll position: SidebarContent
+                              // persists that independently across route changes and refreshes.
+                              if (location !== item.path) {
+                                window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+                              }
                               startTransition(() => setLocation(item.path));
                             }}
                           >
