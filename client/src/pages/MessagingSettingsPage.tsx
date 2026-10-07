@@ -195,6 +195,17 @@ export default function MessagingSettingsPage() {
   </div></DashboardLayout>;
 }
 
+export function buildMonthlyScheduleAnchor(cycleMonthDay: number, cycleTime: string, now = new Date()) {
+  const [hours, minutes] = cycleTime.split(":").map(Number);
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const lastDayOfCurrentMonth = new Date(year, month + 1, 0).getDate();
+  const target = cycleMonthDay > lastDayOfCurrentMonth
+    ? new Date(year, month + 1, cycleMonthDay, hours, minutes, 0, 0)
+    : new Date(year, month, cycleMonthDay, hours, minutes, 0, 0);
+  return target.toISOString();
+}
+
 function AutoSendPolicyCard({ config, siteId }: { config: any; siteId: number }) {
   const [enabled, setEnabled] = useState(Boolean(config?.autoSendAfterApproval));
   const [mode, setMode] = useState(config?.scheduleMode ?? "immediate");
@@ -213,9 +224,7 @@ function AutoSendPolicyCard({ config, siteId }: { config: any; siteId: number })
       const d = new Date(now); const delta = (cycleDay - d.getDay() + 7) % 7; d.setDate(d.getDate() + delta);
       const [h,m] = cycleTime.split(":").map(Number); d.setHours(h,m,0,0); return d.toISOString();
     }
-    if (mode === "monthly") {
-      const d = new Date(now); d.setDate(Math.min(cycleMonthDay, 28)); const [h,m] = cycleTime.split(":").map(Number); d.setHours(h,m,0,0); return d.toISOString();
-    }
+    if (mode === "monthly") return buildMonthlyScheduleAnchor(cycleMonthDay, cycleTime, now);
     return anchor ? new Date(anchor).toISOString() : undefined;
   };
   const save = trpc.powerhub.messaging.configureInvoiceAutoSend.useMutation({ onSuccess: () => toast.success("تم حفظ دورة إرسال رسائل الفواتير."), onError: (e) => toast.error(e.message) });
