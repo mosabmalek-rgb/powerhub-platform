@@ -222,7 +222,7 @@ export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmi
 export async function listSupabaseSubscribers(siteId: number) {
   const { data, error } = await supabaseAdmin().from("subscribers")
     .select("id, tenant_id, site_id, subscriber_no, client_operation_id, full_name, phone, whatsapp_number, address, subscription_type, service_status, created_at, updated_at")
-    .eq("site_id", siteId).order("created_at", { ascending: false });
+    .eq("site_id", siteId).is("archived_at", null).order("created_at", { ascending: false });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المشتركين من Supabase." });
   return (data ?? []).map((row) => ({
     id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberNo: row.subscriber_no,
@@ -235,7 +235,7 @@ export async function listSupabaseSubscribers(siteId: number) {
 export async function getSupabaseSubscriberAccountStatement(siteId: number, subscriberId: number) {
   const admin = supabaseAdmin();
   const { data: subscriber, error: subscriberError } = await admin.from("subscribers")
-    .select("id, tenant_id, site_id, subscriber_no, full_name, phone, whatsapp_number, address, subscription_type, service_status, created_at, updated_at")
+    .select("id, tenant_id, site_id, subscriber_no, full_name, phone, whatsapp_number, address, subscription_type, service_status, archived_at, purge_after_at, created_at, updated_at")
     .eq("site_id", siteId).eq("id", subscriberId).maybeSingle();
   if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المشترك من Supabase." });
   if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن الفرع المحدد." });
@@ -299,6 +299,8 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       address: subscriber.address,
       subscriptionType: subscriber.subscription_type,
       serviceStatus: subscriber.service_status,
+      archivedAt: subscriber.archived_at ? new Date(subscriber.archived_at) : null,
+      purgeAfterAt: subscriber.purge_after_at ? new Date(subscriber.purge_after_at) : null,
       createdAt: new Date(subscriber.created_at),
       updatedAt: new Date(subscriber.updated_at),
     },
@@ -701,7 +703,7 @@ export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
+    admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).is("archived_at", null),
     admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: tenantId, p_resource: "subscribers" }),
   ]);
   if (tenantResult.error || countResult.error || quotaResult.error) {
