@@ -39,7 +39,6 @@ where cycle_key is null;
 alter table public.invoices
   alter column cycle_key set not null;
 
-drop index if exists invoices_subscriber_id_billing_period_key;
 alter table public.invoices
   drop constraint if exists invoices_subscriber_id_billing_period_key;
 
