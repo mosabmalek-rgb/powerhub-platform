@@ -15,7 +15,7 @@ export async function processSubscriberRetention(batchSize = 50) {
       else await admin.rpc("powerhub_reset_subscriber_purge_claim", { p_subscriber_id: subscriberId });
     } catch (error) {
       failed += 1;
-      await admin.rpc("powerhub_reset_subscriber_purge_claim", { p_subscriber_id: subscriberId }).catch(() => undefined);
+      try { await admin.rpc("powerhub_reset_subscriber_purge_claim", { p_subscriber_id: subscriberId }); } catch { /* keep original purge failure */ }
       failures.push({ subscriberId, message: error instanceof Error ? error.message : "تعذر حذف بيانات المشترك نهائياً." });
     }
   }
