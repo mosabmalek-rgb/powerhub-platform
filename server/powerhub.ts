@@ -1455,7 +1455,14 @@ export const powerhubRouter = router({
         return openingReadingId ? { ...response, openingReadingId, openingReadingStatus } : response;
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
-      if (errorText.includes("SUBSCRIBER_QUOTA_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
+      if (errorText.includes("SUBSCRIBER_QUOTA_REACHED")) {
+        try {
+          await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota, blockedAttempt: true });
+        } catch (alertError) {
+          console.error("[PowerHub] subscriber quota blocked-attempt alert failed", alertError);
+        }
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). لا يمكن إضافة مشترك جديد قبل إضافة سعة أو ترقية الباقة.` });
+      }
       if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة لا تتبع لمساحة صاحب المولد الحالية." });
       if (errorText.includes("INVALID_SUBSCRIBER_PHONE")) throw new TRPCError({ code: "BAD_REQUEST", message: "رقم الهاتف مطلوب وصالح." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء المشترك في Supabase." });
