@@ -8,7 +8,7 @@ import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
-import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
+import { defaultInvoiceMessageTemplates, defaultPaymentReminderSmsTemplate, renderInvoiceMessageTemplate } from "./invoice-message-template";
 import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
 import { normalizeInternationalPhone, phoneSearchVariants } from "../shared/phone";
@@ -2674,9 +2674,19 @@ export const powerhubRouter = router({
       if (subscriberError || !subscriber?.phone) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يوجد رقم هاتف صالح للمشترك ضمن الفرع المحدد." });
       let recipient: string;
       try { recipient = normalizeInternationalPhone(subscriber.phone); } catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." }); }
-      const { data: template } = await admin.from("tenant_invoice_message_templates").select("body").eq("tenant_id", scope.tenantId).eq("channel", "sms").eq("event_type", "invoice_issued").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle();
-      const values = { subscriber_name: subscriber.full_name ?? "", invoice_no: String(invoice.invoice_no), billing_period: String(invoice.billing_period), total_amount: String(invoice.balance_due), due_date: String(invoice.due_date ?? ""), invoice_link: "", portal_link: "", subscriber_no: String((subscriber as { subscriber_no?: string | null }).subscriber_no ?? "") };
-      const renderedText = `تذكير بالسداد: ${renderInvoiceMessageTemplate(template?.body ?? defaultInvoiceMessageTemplates.sms, values)}`;
+      const { data: template } = await admin.from("powerhub_message_templates").select("body").eq("tenant_id", scope.tenantId).eq("channel", "sms").eq("event_type", "invoice_overdue").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      const values = {
+        subscriber_name: subscriber.full_name ?? "",
+        subscriber_no: String((subscriber as { subscriber_no?: string | null }).subscriber_no ?? ""),
+        invoice_no: String(invoice.invoice_no),
+        billing_period: String(invoice.billing_period),
+        total_amount: String(invoice.balance_due),
+        balance_due: String(invoice.balance_due),
+        due_date: String(invoice.due_date ?? ""),
+        invoice_link: "",
+        portal_link: "",
+      };
+      const renderedText = renderInvoiceMessageTemplate(template?.body ?? defaultPaymentReminderSmsTemplate, values);
       const { data: queueRows, error: queueError } = await admin.rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_event_type: "payment_reminder", p_invoice_id: Number(invoice.id), p_payment_id: null, p_operation_key: `payment_reminder:${invoice.id}:${new Date().toISOString().slice(0, 10)}`, p_rendered_text: renderedText });
       if (queueError || !(queueRows as Array<{ notification_id: number }> | null)?.[0]) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تجهيز تذكير SMS للفواتير المستحقة." });
       const notificationId = Number((queueRows as Array<{ notification_id: number }>)[0].notification_id);
