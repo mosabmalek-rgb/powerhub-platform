@@ -1613,7 +1613,7 @@ export const powerhubRouter = router({
     }),
     phoneReview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageSubscribers");
-      const { data, error } = await supabaseAdmin().from("subscribers").select("id, subscriber_no, full_name, phone").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("full_name");
+      const { data, error } = await supabaseAdmin().from("subscribers").select("id, subscriber_no, full_name, phone").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).is("archived_at", null).order("full_name");
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر مراجعة أرقام المشتركين من Supabase." });
       return (data ?? []).map((row) => {
         const mapped = { id: Number(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone };
@@ -2013,7 +2013,7 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       const { data: subscribers, error: subscriberError } = await admin.from("subscribers")
         .select("id, full_name, subscriber_no, phone, whatsapp_number, service_status")
-        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).is("archived_at", null)
         .or(searchClauses)
         .limit(20);
       if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر البحث عن المشترك." });
