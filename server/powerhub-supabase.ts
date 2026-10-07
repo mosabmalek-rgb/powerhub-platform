@@ -715,20 +715,93 @@ export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
   return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenantResult.data.package_code as string };
 }
 
-export async function recordSupabaseSubscriberQuotaAlert(input: { tenantId: number; siteId: number; userId: number; quota: { limit: number; currentCount: number; remaining: number; plan: string }; blockedAttempt?: boolean }) {
-  if (!Number.isFinite(input.quota.limit) || input.quota.limit <= 0 || input.quota.currentCount < input.quota.limit) return;
+export type SupabaseQuotaResource = "subscribers" | "platformUser" | "fieldUser" | "branch" | "sms";
+
+async function resolveSupabaseQuotaAlertState(input: {
+  tenantId: number;
+  resource: SupabaseQuotaResource;
+  currentCount?: number;
+  quotaLimit?: number;
+}) {
   const admin = supabaseAdmin();
-  const subscription = await admin.from("tenant_subscriptions").select("id").eq("tenant_id", input.tenantId)
-    .in("status", ["trial", "active"]).order("ends_at", { ascending: false, nullsFirst: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+  let currentCount = input.currentCount;
+  let quotaLimit = input.quotaLimit;
+  if (currentCount == null) {
+    if (input.resource === "subscribers") {
+      const result = await admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", input.tenantId);
+      if (result.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب استهلاك المشتركين." });
+      currentCount = result.count ?? 0;
+    } else if (input.resource === "branch") {
+      const result = await admin.from("sites").select("id", { count: "exact", head: true }).eq("tenant_id", input.tenantId).neq("status", "archived");
+      if (result.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب استهلاك الفروع." });
+      currentCount = result.count ?? 0;
+    } else if (input.resource === "fieldUser") {
+      const result = await admin.from("tenant_members").select("user_id", { count: "exact", head: true })
+        .eq("tenant_id", input.tenantId).eq("role", "technician").eq("is_active", true).eq("membership_status", "active");
+      if (result.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب المستخدمين الميدانيين." });
+      currentCount = result.count ?? 0;
+    } else if (input.resource === "platformUser") {
+      const result = await admin.from("tenant_members").select("user_id", { count: "exact", head: true })
+        .eq("tenant_id", input.tenantId).eq("is_active", true).eq("membership_status", "active").neq("role", "owner");
+      if (result.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب مستخدمي المنصة." });
+      currentCount = result.count ?? 0;
+    }
+  }
+  if (quotaLimit == null) {
+    const result = await admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: input.tenantId, p_resource: input.resource });
+    if (result.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حد الميزة من Supabase." });
+    const raw = Array.isArray(result.data) ? result.data[0] : result.data;
+    quotaLimit = Number(raw ?? 0);
+  }
+  return { currentCount: currentCount ?? 0, quotaLimit: quotaLimit ?? 0 };
+}
+
+export async function recordSupabaseQuotaAlert(input: {
+  tenantId: number;
+  siteId: number;
+  userId: number;
+  resource: SupabaseQuotaResource;
+  alertType?: "reached" | "blocked_attempt";
+  currentCount?: number;
+  quotaLimit?: number;
+}) {
+  const state = await resolveSupabaseQuotaAlertState(input);
+  if (state.quotaLimit <= 0 || state.currentCount < state.quotaLimit) return { recorded: false, alertId: null };
+  const admin = supabaseAdmin();
+  const subscription = await admin.from("tenant_subscriptions").select("id")
+    .eq("tenant_id", input.tenantId).in("status", ["trial", "active"])
+    .order("ends_at", { ascending: false, nullsFirst: false }).order("id", { ascending: false }).limit(1).maybeSingle();
   if (subscription.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديد دورة الاشتراك لتنبيه الحصة." });
   const { data, error } = await admin.rpc("powerhub_record_quota_alert", {
-    p_tenant_id: input.tenantId, p_site_id: input.siteId, p_user_id: input.userId,
-    p_resource: "subscribers", p_alert_type: input.blockedAttempt ? "blocked_attempt" : "reached",
-    p_current_count: input.quota.currentCount, p_quota_limit: input.quota.limit,
+    p_tenant_id: input.tenantId,
+    p_site_id: input.siteId,
+    p_user_id: input.userId,
+    p_resource: input.resource,
+    p_alert_type: input.alertType ?? "reached",
+    p_current_count: state.currentCount,
+    p_quota_limit: state.quotaLimit,
     p_subscription_id: subscription.data?.id ? Number(subscription.data.id) : null,
   });
-  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل تنبيه حصة المشتركين." });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل تنبيه الحصة." });
   return { recorded: Boolean(data?.[0]?.recorded), alertId: data?.[0]?.alert_id ? Number(data[0].alert_id) : null };
+}
+
+export async function recordSupabaseSubscriberQuotaAlert(input: {
+  tenantId: number;
+  siteId: number;
+  userId: number;
+  quota: { limit: number; currentCount: number; remaining: number; plan: string };
+  blockedAttempt?: boolean;
+}) {
+  return recordSupabaseQuotaAlert({
+    tenantId: input.tenantId,
+    siteId: input.siteId,
+    userId: input.userId,
+    resource: "subscribers",
+    alertType: input.blockedAttempt ? "blocked_attempt" : "reached",
+    currentCount: input.quota.currentCount,
+    quotaLimit: input.quota.limit,
+  });
 }
 
 export async function writeSupabaseAudit(input: { userId?: number; tenantId: number; siteId: number; entityType: string; entityId: string; action: string; beforeData?: unknown; afterData?: unknown; metadata?: unknown }) {
