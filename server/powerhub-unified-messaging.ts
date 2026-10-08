@@ -24,12 +24,18 @@ function render(body: string, values: Record<string, string | null | undefined>)
   return body.replace(/{{\s*([a-z_]+)\s*}}/g, (_, key) => values[key] ?? "");
 }
 
-async function processNotificationIdsInBatches(tenantId: number, actorUserId: number, notificationIds: number[]) {
+async function processNotificationIdsInBatches(
+  tenantId: number,
+  actorUserId: number,
+  notificationIds: number[],
+  heartbeat?: () => Promise<void>,
+) {
   const all: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string }> = [];
   for (let offset = 0; offset < notificationIds.length; offset += 50) {
     const batch = notificationIds.slice(offset, offset + 50);
     const result = await processNotificationQueueForTenant(tenantId, actorUserId, batch);
     all.push(...(result.results ?? []));
+    if (heartbeat && offset + 50 < notificationIds.length) await heartbeat();
   }
   return {
     requested: notificationIds.length,
@@ -201,7 +207,21 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
   }
 
   const result = notificationIds.length
-    ? await processNotificationIdsInBatches(tenantId, actorUserId, notificationIds)
+    ? await processNotificationIdsInBatches(
+    tenantId,
+    actorUserId,
+    notificationIds,
+    async () => {
+      const heartbeat = await admin.rpc("powerhub_touch_unified_automation_run", {
+        p_tenant_id: Number(automation.tenant_id),
+        p_automation_id: Number(automation.id),
+        p_occurrence_key: occ.occurrence_key,
+      });
+      if (heartbeat.error || heartbeat.data !== true) {
+        throw new Error("تعذر تجديد قفل تنفيذ أتمتة المراسلة.");
+      }
+    },
+  )
     : { submitted: 0, failed: 0, skipped: 0 };
   await admin.rpc("powerhub_finish_unified_automation_run", {
     p_tenant_id: tenantId, p_automation_id: Number(automation.id), p_occurrence_key: String(occ.occurrence_key),
