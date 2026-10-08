@@ -651,6 +651,27 @@ export const powerhubRouter = router({
       if (!setting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting({ isEnabled: setting.is_enabled, value: setting.value }))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب لقناة معطلة من آدمن المنصة." });
       const { error } = await admin.from("tenant_invoice_message_templates").upsert({ tenant_id: scope.tenantId, channel: input.channel, event_type: "invoice_issued", body: input.body, is_active: input.isActive }, { onConflict: "tenant_id,channel,event_type" });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ قالب رسالة الفاتورة في Supabase." });
+
+      // Keep the legacy editor backward-compatible while making the unified domain
+      // the canonical runtime source for invoice_issued.
+      if (input.channel === "sms") {
+        const { data: config } = await admin.from("tenant_messaging_configurations")
+          .select("invoice_message_style").eq("tenant_id", scope.tenantId).eq("channel", "sms").maybeSingle();
+        const { error: unifiedError } = await admin.rpc("powerhub_unified_messaging_upsert_template_v2", {
+          p_id: null,
+          p_tenant_id: scope.tenantId,
+          p_name: "invoice_sms",
+          p_description: "Canonical invoice SMS template synchronized from the invoice editor.",
+          p_channel: "sms",
+          p_event_type: "invoice_issued",
+          p_body: input.body,
+          p_variables: ["{{subscriber_name}}","{{subscriber_no}}","{{invoice_no}}","{{billing_period}}","{{total_amount}}","{{balance_due}}","{{due_date}}","{{invoice_link}}","{{portal_link}}"],
+          p_is_active: input.isActive,
+          p_actor_user_id: ctx.user.id,
+          p_invoice_style: config?.invoice_message_style ?? "details",
+        });
+        if (unifiedError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم حفظ القالب القديم لكن تعذر مزامنة القالب الموحد؛ لم يتم اعتماد التغيير تشغيلياً." });
+      }
       await writeSupabaseAudit({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "tenant_invoice_message_template", entityId: `${scope.tenantId}:${input.channel}`, action: "upsert", afterData: { channel: input.channel, isActive: input.isActive }, metadata: { bodyLength: input.body.length } });
       return { success: true };
     }),
