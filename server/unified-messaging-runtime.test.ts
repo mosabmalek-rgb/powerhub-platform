@@ -61,6 +61,12 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("TEMPLATE_OUT_OF_SCOPE");
   });
 
+  it("counts needs_review in the authoritative SMS claim quota gate", () => {
+    expect(deliveryUncertaintyMigration).toContain("and messages.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review')");
+    expect(deliveryUncertaintyMigration).toContain("revoke all on function public.powerhub_claim_sms_notification(bigint,bigint) from public, anon, authenticated");
+    expect(deliveryUncertaintyMigration).toContain("grant execute on function public.powerhub_claim_sms_notification(bigint,bigint) to service_role");
+  });
+
   it("uses a conflict-safe automation claim for concurrent occurrences", () => {
     expect(migration).toContain("on conflict (automation_id, occurrence_key) do nothing");
     expect(migration).toContain("returning id into v_id");
