@@ -23,6 +23,8 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain("operationId:z.string().uuid()");
     expect(migration).toContain("unique (tenant_id, site_id, operation_id)");
     expect(migration).toContain("unique (tenant_id, operation_key)");
+    expect(migration).toContain("add column if not exists automation_id bigint");
+    expect(migration).toContain("notification_messages_automation_runtime_idx");
   });
 
   it("supports automation lifecycle and replay-safe execution", () => {
