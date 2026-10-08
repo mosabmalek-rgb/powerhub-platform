@@ -274,6 +274,63 @@ begin
 end;
 $function$;
 
+create or replace function public.powerhub_sync_invoice_sms_template(
+  p_tenant_id bigint,
+  p_body text,
+  p_is_active boolean,
+  p_actor_user_id bigint,
+  p_invoice_style text default 'details'
+)
+returns bigint
+language plpgsql
+security invoker
+set search_path=public,pg_temp
+as $function$
+declare
+  v_id bigint;
+begin
+  if p_tenant_id is null or p_tenant_id < 1 then
+    raise exception 'INVALID_TENANT_ID' using errcode='22023';
+  end if;
+  if char_length(trim(coalesce(p_body,''))) not between 12 and 1600 then
+    raise exception 'INVALID_INVOICE_TEMPLATE_BODY' using errcode='22023';
+  end if;
+  if p_invoice_style not in ('details','portal_link') then
+    raise exception 'INVALID_INVOICE_STYLE' using errcode='22023';
+  end if;
+
+  v_id := public.powerhub_unified_messaging_upsert_template_v2(
+    null,
+    p_tenant_id,
+    'invoice_sms',
+    'Canonical invoice SMS template synchronized from the invoice editor.',
+    'sms',
+    'invoice_issued',
+    p_body,
+    jsonb_build_array(
+      '{{subscriber_name}}','{{subscriber_no}}','{{invoice_no}}','{{billing_period}}',
+      '{{total_amount}}','{{balance_due}}','{{due_date}}','{{invoice_link}}','{{portal_link}}'
+    ),
+    p_is_active,
+    p_actor_user_id,
+    p_invoice_style
+  );
+
+  insert into public.tenant_invoice_message_templates(
+    tenant_id,channel,event_type,body,is_active
+  )
+  values(
+    p_tenant_id,'sms','invoice_issued',p_body,p_is_active
+  )
+  on conflict (tenant_id,channel,event_type) do update
+    set body=excluded.body,
+        is_active=excluded.is_active,
+        updated_at=now();
+
+  return v_id;
+end;
+$function$;
+
 create or replace function public.powerhub_unified_messaging_upsert_automation_v2(
   p_id bigint,
   p_tenant_id bigint,
@@ -836,6 +893,7 @@ revoke execute on function public.powerhub_finish_unified_automation_run(bigint,
 
 grant execute on function public.powerhub_public_base_url() to service_role;
 grant execute on function public.powerhub_unified_messaging_upsert_template_v2(bigint,bigint,text,text,text,text,text,jsonb,boolean,bigint,text) to service_role;
+grant execute on function public.powerhub_sync_invoice_sms_template(bigint,text,boolean,bigint,text) to service_role;
 grant execute on function public.powerhub_unified_messaging_upsert_automation_v2(bigint,bigint,bigint,bigint,text,text,text,text,timestamptz,text,jsonb,jsonb,boolean,bigint) to service_role;
 grant execute on function public.powerhub_unified_messaging_set_automation_state(bigint,bigint,bigint,boolean,boolean,bigint) to service_role;
 grant execute on function public.powerhub_prepare_manual_message_campaign(bigint,bigint,bigint,uuid,bigint[],bigint) to service_role;
