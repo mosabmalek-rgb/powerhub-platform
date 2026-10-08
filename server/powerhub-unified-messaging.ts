@@ -73,6 +73,9 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
   const eventType = String(automation.event_type);
   const audience = automation.audience ?? {};
   const trigger = automation.trigger_config ?? {};
+  const notificationIds: number[] = [];
+  let skipped = 0;
+  let requestedCount = 0;
   const baseQuery = admin.from("subscribers")
     .select("id,full_name,subscriber_no,phone,service_status,created_at")
     .eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null);
@@ -83,6 +86,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       .eq("tenant_id", tenantId).eq("site_id", siteId).eq("status", "completed")
       .gte("created_at", new Date(automation.created_at).toISOString()).order("id", { ascending: true }).limit(500);
     if (paymentsError) throw new Error("تعذر تحميل دفعات الأتمتة.");
+    requestedCount = payments?.length ?? 0;
     for (const payment of payments ?? []) {
       const { data: subscriber } = await admin.from("subscribers").select("id,full_name,subscriber_no,phone").eq("id", Number(payment.subscriber_id)).eq("tenant_id", tenantId).eq("site_id", siteId).maybeSingle();
       if (!subscriber) { skipped++; continue; }
@@ -115,6 +119,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
     if (Array.isArray(audience.subscriberIds) && audience.subscriberIds.length) subscribersQuery = subscribersQuery.in("id", audience.subscriberIds.map(Number));
     if (audience.serviceStatus) subscribersQuery = subscribersQuery.eq("service_status", audience.serviceStatus);
     let subscribers = (await subscribersQuery.limit(500)).data ?? [];
+    requestedCount = subscribers.length;
 
     if (eventType === "subscriber_created") {
       subscribers = subscribers.filter((s: any) => new Date(s.created_at) >= new Date(automation.created_at));
@@ -184,14 +189,14 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
     : { submitted: 0, failed: 0, skipped: 0 };
   await admin.rpc("powerhub_finish_unified_automation_run", {
     p_tenant_id: tenantId, p_automation_id: Number(automation.id), p_occurrence_key: String(occ.occurrence_key),
-    p_status: result.failed ? "partial" : "completed", p_requested: subscribers.length, p_queued: notificationIds.length,
+    p_status: result.failed ? "partial" : "completed", p_requested: requestedCount, p_queued: notificationIds.length,
     p_skipped: skipped + result.skipped, p_failed: result.failed, p_error: null,
   });
   await writeSupabaseAudit({
     userId: actorUserId, tenantId, siteId, entityType: "message_automation", entityId: String(automation.id),
-    action: "execute", metadata: { occurrenceKey: occ.occurrence_key, requested: subscribers.length, queued: notificationIds.length, submitted: result.submitted, failed: result.failed, skipped },
+    action: "execute", metadata: { occurrenceKey: occ.occurrence_key, requested: requestedCount, queued: notificationIds.length, submitted: result.submitted, failed: result.failed, skipped },
   });
-  return { status: result.failed ? "partial" : "completed", requested: subscribers.length, queued: notificationIds.length, failed: result.failed, skipped: skipped + result.skipped };
+  return { status: result.failed ? "partial" : "completed", requested: requestedCount, queued: notificationIds.length, failed: result.failed, skipped: skipped + result.skipped };
 }
 
 export async function processUnifiedMessagingAutomations(now = new Date()) {
