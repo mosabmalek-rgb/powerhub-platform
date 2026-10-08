@@ -492,6 +492,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     }));
   });
 
+  it("يحتسب needs_review ضمن استهلاك SMS ولا يعيده إلى الطابور تلقائياً", () => {
+    expect(powerhubSource).toContain('["processing", "submitted", "delivered", "read", "needs_review"]');
+    expect(notificationWorkerSource).toContain('status', "pending");
+    expect(notificationWorkerSource).toContain('"needs_review"');
+  });
+
   it("يعرض حصة SMS واستهلاكها وطلب الحزمة من Supabase فقط", async () => {
     state.tables.notification_messages = [
       { id: 90, tenant_id: 20, channel: "sms", status: "submitted", created_at: "2026-08-25T08:00:00.000Z" },
