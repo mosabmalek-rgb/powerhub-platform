@@ -134,6 +134,7 @@ function UnifiedMessagingPanel({ siteId }: { siteId: number }) {
   const [manualTemplateId, setManualTemplateId] = useState<number | null>(null);
   const [manualSearch, setManualSearch] = useState("");
   const [selectedSubscribers, setSelectedSubscribers] = useState<number[]>([]);
+  const [manualOperationId, setManualOperationId] = useState(() => crypto.randomUUID());
 
   const activeSmsTemplates = (templates.data ?? []).filter((t: any) => t.channel === "sms" && t.isActive);
   const filteredSubscribers = (subscribers.data ?? []).filter((s: any) =>
@@ -185,7 +186,7 @@ function UnifiedMessagingPanel({ siteId }: { siteId: number }) {
   const submitManual = () => {
     if (!manualTemplateId) return toast.error("اختر قالب SMS صالحاً.");
     if (!selectedSubscribers.length) return toast.error("حدد مشتركاً واحداً على الأقل.");
-    sendManual.mutate({ siteId, templateId: manualTemplateId, subscriberIds: selectedSubscribers, operationId: crypto.randomUUID() });
+    sendManual.mutate({ siteId, templateId: manualTemplateId, subscriberIds: selectedSubscribers, operationId: manualOperationId });
   };
 
   return <Card className="border-[#F5B800]/20 bg-[#F5B800]/[.025]">
