@@ -30,7 +30,7 @@ async function processNotificationIdsInBatches(
   notificationIds: number[],
   heartbeat?: () => Promise<void>,
 ) {
-  const all: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string }> = [];
+  const all: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped" | "needs_review"; providerMessageId?: string | null; error?: string }> = [];
   for (let offset = 0; offset < notificationIds.length; offset += 50) {
     const batch = notificationIds.slice(offset, offset + 50);
     const result = await processNotificationQueueForTenant(tenantId, actorUserId, batch);
@@ -42,6 +42,7 @@ async function processNotificationIdsInBatches(
     submitted: all.filter((row) => row.status === "submitted").length,
     failed: all.filter((row) => row.status === "failed").length,
     skipped: all.filter((row) => row.status === "skipped").length,
+    needsReview: all.filter((row) => row.status === "needs_review").length,
     results: all,
   };
 }
