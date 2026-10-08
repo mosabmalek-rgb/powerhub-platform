@@ -336,12 +336,24 @@ export const powerhubUnifiedMessagingRouter = router({
     const row=Array.isArray(data)?data[0]:data;
     const campaignId=Number(row?.campaign_id);
     if(!campaignId) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات معرف الحملة."});
+    if (row?.replayed) {
+      const current = await supabaseAdmin().rpc("powerhub_refresh_message_campaign", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_campaign_id: campaignId,
+      });
+      if (current.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل نتيجة الحملة السابقة."});
+      const replayRow = Array.isArray(current.data) ? current.data[0] : current.data;
+      return {campaignId,operationId:input.operationId,requested:Number(replayRow?.requested ?? 0),submitted:Number(replayRow?.submitted ?? 0),failed:Number(replayRow?.failed ?? 0),skipped:Number(replayRow?.skipped ?? 0),results:[],replayed:true};
+    }
     const ids=await supabaseAdmin().from("powerhub_message_campaign_recipients").select("notification_id").eq("campaign_id",campaignId);
     const notificationIds=(ids.data??[]).map((r:any)=>Number(r.notification_id)).filter(Number.isInteger);
     const result=notificationIds.length?await processNotificationIdsInBatches(access.tenantId,ctx.user.id,notificationIds):{submitted:0,failed:0,skipped:0,results:[]};
-    await supabaseAdmin().from("powerhub_message_campaigns").update({status:result.failed?"partial":"completed",submitted:result.submitted,failed:result.failed,skipped:result.skipped,completed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",campaignId).eq("tenant_id",access.tenantId);
+    const refreshed = await supabaseAdmin().rpc("powerhub_refresh_message_campaign", {
+      p_tenant_id: access.tenantId, p_site_id: input.siteId, p_campaign_id: campaignId,
+    });
+    if (refreshed.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحديث الحالة النهائية للحملة."});
+    const finalRow = Array.isArray(refreshed.data) ? refreshed.data[0] : refreshed.data;
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped}});
-    return {campaignId,operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped,results:result.results,replayed:Boolean(row?.replayed)};
+    return {campaignId,operationId:input.operationId,requested:Number(finalRow?.requested ?? input.subscriberIds.length),submitted:Number(finalRow?.submitted ?? result.submitted),failed:Number(finalRow?.failed ?? result.failed),skipped:Number(finalRow?.skipped ?? result.skipped),results:result.results,replayed:false};
   }),
 
   campaign: protectedProcedure.input(z.object({siteId:z.number().int().positive(),operationId:z.string().uuid()})).query(async({ctx,input})=>{
@@ -360,6 +372,12 @@ export const powerhubUnifiedMessagingRouter = router({
     const ids=(rows.data??[]).map((r:any)=>Number(r.notification_id)).filter(Number.isInteger);
     const failed=await supabaseAdmin().from("notification_messages").select("id").eq("tenant_id",access.tenantId).in("id",ids).eq("status","failed");
     const result=failed.data?.length?await processNotificationIdsInBatches(access.tenantId,ctx.user.id,failed.data.map((r:any)=>Number(r.id))):{submitted:0,failed:0,skipped:0,results:[]};
-    return {requested:failed.data?.length??0,submitted:result.submitted,failed:result.failed,skipped:result.skipped,results:result.results};
+    const refreshed = await supabaseAdmin().rpc("powerhub_refresh_message_campaign", {
+      p_tenant_id: access.tenantId, p_site_id: input.siteId, p_campaign_id: input.campaignId,
+    });
+    if (refreshed.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحديث نتيجة إعادة المحاولة."});
+    const finalRow = Array.isArray(refreshed.data) ? refreshed.data[0] : refreshed.data;
+    await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(input.campaignId),action:"retry_failed",metadata:{requested:failed.data?.length??0,submitted:result.submitted,failed:result.failed,skipped:result.skipped}});
+    return {requested:failed.data?.length??0,submitted:result.submitted,failed:result.failed,skipped:result.skipped,results:result.results,campaignStatus:finalRow?.status??null};
   }),
 });
