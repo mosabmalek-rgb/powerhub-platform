@@ -221,7 +221,9 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
 
           const operationKey = eventType === "invoice_overdue"
             ? `automation:${automation.id}:invoice:${invoice.id}:${occ.occurrence_key}`
-            : `automation:${automation.id}:subscriber:${subscriber.id}`;
+            : eventType === "service_alert"
+              ? `automation:${automation.id}:subscriber:${subscriber.id}:occurrence:${occ.occurrence_key}`
+              : `automation:${automation.id}:subscriber:${subscriber.id}`;
           const values = {
             subscriber_name: subscriber.full_name ?? "", subscriber_no: subscriber.subscriber_no ?? "",
             invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
