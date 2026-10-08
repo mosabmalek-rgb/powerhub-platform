@@ -2656,6 +2656,29 @@ export const powerhubRouter = router({
       });
       return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, needsReview: results.filter((r) => r.status === "needs_review").length, results };
     }),
+    resolveSmsNeedsReview: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive(), resolution: z.enum(["submitted","failed"]), reason: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const { data: rows, error } = await supabaseAdmin().from("notification_messages")
+        .select("id, subscriber_id, status, channel")
+        .eq("tenant_id", scope.tenantId).eq("id", input.notificationId).limit(1);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الرسالة للمراجعة." });
+      const row = rows?.[0];
+      if (!row || row.channel !== "sms" || row.status !== "needs_review") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الرسالة ليست بانتظار المراجعة." });
+      }
+      const { data: subscribers, error: subscriberError } = await supabaseAdmin().from("subscribers")
+        .select("id").eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).eq("id", Number(row.subscriber_id)).limit(1);
+      if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق الرسالة." });
+      if (!subscribers?.length) throw new TRPCError({ code: "NOT_FOUND", message: "الرسالة خارج نطاق الفرع." });
+      const { data, error: rpcError } = await supabaseAdmin().rpc("powerhub_resolve_sms_needs_review", {
+        p_user_id: ctx.user.id,
+        p_notification_id: input.notificationId,
+        p_resolution: input.resolution,
+        p_reason: input.reason ?? null,
+      });
+      if (rpcError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: rpcError.message.includes("MESSAGING_PERMISSION_REQUIRED") ? "لا تملك صلاحية مراجعة رسائل SMS." : "تعذر تثبيت نتيجة مراجعة الرسالة." });
+      return data?.[0] ?? { notification_id: input.notificationId, status: input.resolution };
+    }),
     listBulkInvoiceSends: protectedProcedure.input(bulkInvoiceSendLogInput).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const start = input.from ? new Date(`${input.from}T00:00:00.000Z`) : undefined;
