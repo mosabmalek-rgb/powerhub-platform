@@ -125,6 +125,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_pay_payroll") return resolved([{ payroll_run_id: 122, expense_id: 125, transaction_id: 126 }]);
       if (name === "powerhub_request_subscription_upgrade") return resolved([{ request_id: 127, requested_package_code: "professional", already_requested: false }]);
       if (name === "powerhub_normalize_subscriber_phones") return resolved([{ updated_count: 1, skipped_count: 0 }]);
+      if (name === "powerhub_sync_invoice_sms_template") return resolved([{ template_id: 129 }]);
       if (name === "powerhub_create_invoice_share_link") return resolved([{ share_link_id: 128 }]);
       if (name === "powerhub_get_shared_invoice_by_token_hash") return resolved({ invoice: { id: 70, invoice_no: "MAIN-202608-0001" }, subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, lines: [{ id: 129, invoice_id: 70, description: "استهلاك كهرباء" }] });
       if (name === "powerhub_update_report_branding") return resolved([{ company_name: "شركة الاختبار", report_logo_key: null }]);
@@ -528,7 +529,16 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.messaging.saveInvoiceTemplate({ siteId: 10, channel: "sms", body: "مرحباً {{subscriber_name}}، فاتورتك {{invoice_no}} جاهزة.", isActive: true })).resolves.toEqual({ success: true });
     await expect(caller.messaging.savePaymentReceiptTemplate({ siteId: 10, body: "مرحباً {{subscriber_name}}، تم استلام دفعتك بنجاح.", isActive: true })).resolves.toEqual({ success: true });
-    expect(state.inserts).toContainEqual({ table: "tenant_invoice_message_templates", values: expect.objectContaining({ tenant_id: 20, channel: "sms", event_type: "invoice_issued", is_active: true }) });
+    expect(state.rpcCalls).toContainEqual({
+      name: "powerhub_sync_invoice_sms_template",
+      args: expect.objectContaining({
+        p_tenant_id: 20,
+        p_body: "مرحباً {{subscriber_name}}، فاتورتك {{invoice_no}} جاهزة.",
+        p_is_active: true,
+        p_actor_user_id: 1,
+      }),
+    });
+    expect(state.inserts).not.toContainEqual({ table: "tenant_invoice_message_templates", values: expect.anything() });
     expect(state.inserts).toContainEqual({ table: "tenant_payment_receipt_message_templates", values: expect.objectContaining({ tenant_id: 20, channel: "sms", is_active: true }) });
     await expect(caller.messaging.saveConfiguration({ siteId: 10, channel: "sms", provider: "tweetsms", credential: "credential-long-enough", isActive: true })).resolves.toMatchObject({ success: true, channel: "sms", provider: "tweetsms", isActive: true });
   });
