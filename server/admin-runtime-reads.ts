@@ -24,7 +24,7 @@ const platformFinanceProcedure = authenticatedProcedure.use(({ ctx, next }) => {
 const reportInput = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() }).optional();
 const generatorStatusInput = z.object({ id: z.number().int().positive(), status: z.enum(["active", "maintenance", "stopped", "offline", "blocked"]) });
 const generatorApprovalInput = z.object({ generatorId: z.number().int().positive() });
-const notificationInput = z.object({ status: z.enum(["pending", "submitted", "delivered", "read", "failed"]).optional() }).optional();
+const notificationInput = z.object({ status: z.enum(["pending", "processing", "submitted", "delivered", "read", "failed", "needs_review"]).optional() }).optional();
 const securityEventInput = z.object({ eventType: z.enum(["suspicious_login", "backup", "security_change"]), severity: z.enum(["info", "warning", "critical"]), status: z.enum(["open", "resolved", "success", "failed"]), title: z.string().min(3).max(180), details: z.string().max(4000).optional(), relatedUserId: z.number().int().positive().optional() });
 const securitySettingInput = z.object({ settingKey: z.string().min(2).max(100), isEnabled: z.boolean(), value: z.string().max(4000).optional() });
 const tweetSmsAccountInput = z.object({ tenantId: z.number().int().positive(), apiEndpoint: z.string().trim().max(500).optional(), apiKey: z.string().trim().min(8).max(4096).optional(), apiSecret: z.string().trim().max(4096).optional(), senderName: z.string().trim().min(1).max(120), monthlyLimit: z.number().int().min(0).max(10_000_000), isActive: z.boolean() });
