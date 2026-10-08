@@ -339,7 +339,6 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
         submitted: result.submitted,
         failed: result.failed,
         skipped: result.skipped,
-        needs_review: result.needsReview ?? 0,
         error: null,
         task_uid: "supabase:invoice-sms-dispatch:v2",
         started_at: now.toISOString(),
