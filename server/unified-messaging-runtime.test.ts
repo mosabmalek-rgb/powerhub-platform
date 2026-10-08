@@ -27,6 +27,12 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("notification_messages_automation_runtime_idx");
   });
 
+  it("reconciles queued counts from persisted operation keys after replay", () => {
+    expect(runtime).toContain('from("notification_messages")');
+    expect(runtime).toContain('.in("operation_key", operationKeys)');
+    expect(runtime).toContain("تعذر التحقق من رسائل الأتمتة المثبتة في الطابور.");
+  });
+
   it("does not allow an automation run to report completion when finalization fails", () => {
     expect(runtime).toContain('async function finishRun(status: "completed" | "skipped" | "failed"');
     expect(runtime).toContain('if (result.error) throw new Error("تعذر تثبيت نتيجة دورة الأتمتة.");');
