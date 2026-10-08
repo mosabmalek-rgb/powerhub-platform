@@ -224,6 +224,7 @@ begin
           'portalLink', v_portal_link
         ),
         last_error = null,
+        operation_key = trim(p_operation_key),
         updated_at = now()
     where id = v_existing.id;
 
@@ -237,7 +238,8 @@ begin
       event_type,
       recipient,
       status,
-      payload
+      payload,
+      operation_key
     )
     values (
       p_tenant_id,
@@ -253,7 +255,8 @@ begin
         'paymentId', p_payment_id,
         'invoiceLink', v_invoice_link,
         'portalLink', v_portal_link
-      )
+      ),
+      trim(p_operation_key)
     )
     returning id into notification_id;
   end if;
