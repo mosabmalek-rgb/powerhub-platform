@@ -265,7 +265,15 @@ export const powerhubUnifiedMessagingRouter = router({
       p_tenant_id: access.tenantId, p_channel: input.channel ?? null, p_event_type: input.eventType ?? null,
     });
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قوالب المراسلة الموحدة." });
-    return (data ?? []).map(asTemplate);
+    let invoiceStyle: "details" | "portal_link" = "details";
+    const invoiceConfig = await supabaseAdmin().from("tenant_messaging_configurations")
+      .select("invoice_message_style").eq("tenant_id", access.tenantId).eq("channel", "sms").maybeSingle();
+    if (invoiceConfig.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعداد طريقة رسالة الفاتورة." });
+    invoiceStyle = invoiceConfig.data?.invoice_message_style === "portal_link" ? "portal_link" : "details";
+    return (data ?? []).map((row: any) => ({
+      ...asTemplate(row),
+      invoiceStyle: row.event_type === "invoice_issued" && row.channel === "sms" ? invoiceStyle : null,
+    }));
   }),
 
   saveTemplate: protectedProcedure.input(z.object({
