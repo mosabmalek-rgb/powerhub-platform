@@ -1,3 +1,25 @@
+create or replace function public.powerhub_payment_public_base_url()
+returns text
+language plpgsql
+stable
+security invoker
+set search_path = public, pg_temp
+as $function$
+declare
+  v_url text;
+begin
+  select nullif(trim(value->>'baseUrl'),'') into v_url
+  from public.platform_settings
+  where setting_key='powerhub_public_url' and is_enabled=true
+  limit 1;
+  if v_url is null then v_url := 'https://powerhub-platform.vercel.app'; end if;
+  return regexp_replace(v_url,'/+$','');
+end;
+$function$;
+
+revoke execute on function public.powerhub_payment_public_base_url() from public,anon,authenticated;
+grant execute on function public.powerhub_payment_public_base_url() to service_role;
+
 -- PowerHub: payment reminder queue hardening.
 -- Keeps the reminder template independent from invoice issuance and makes
 -- invoice/portal links atomic, idempotent, tenant-scoped, and retry-safe.
@@ -27,6 +49,7 @@ declare
   v_portal_link text;
   v_share_token text;
   v_portal_code text;
+  v_base_url text;
   v_rendered_text text := p_rendered_text;
 begin
   if p_event_type not in ('payment_reminder', 'payment_received') then
@@ -130,13 +153,15 @@ begin
     end if;
   end if;
 
+  v_base_url := public.powerhub_payment_public_base_url();
+
   select *
   into v_existing
   from public.notification_messages
   where tenant_id = p_tenant_id
     and channel = 'sms'
     and event_type = p_event_type
-    and payload->>'operationKey' = trim(p_operation_key)
+    and operation_key = trim(p_operation_key)
   order by created_at desc, id desc
   limit 1
   for update;
@@ -163,7 +188,7 @@ begin
         left(v_share_token, 8),
         null
       );
-      v_invoice_link := 'https://powerhub-platform.vercel.app/invoice/' || v_share_token;
+      v_invoice_link := v_base_url || '/invoice/' || v_share_token;
     end if;
 
     if position('{{portal_link}}' in v_rendered_text) > 0 and v_portal_link is null then
@@ -175,7 +200,7 @@ begin
       limit 1;
 
       if v_portal_code is not null then
-        v_portal_link := 'https://powerhub-platform.vercel.app/portal?g=' || v_portal_code;
+        v_portal_link := v_base_url || '/portal?g=' || v_portal_code;
       else
         v_portal_link := '';
       end if;
