@@ -2589,7 +2589,7 @@ export const powerhubRouter = router({
         .select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, created_at, updated_at")
         .eq("tenant_id", scope.tenantId)
         .eq("channel", "sms")
-        .eq("status", "failed")
+        .in("status", ["failed", "needs_review"])
         .order("created_at", { ascending: false })
         .limit(500);
       const { data, error } = await query;
