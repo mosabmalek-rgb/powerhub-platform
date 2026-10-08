@@ -69,7 +69,12 @@ export function createPowerHubApp() {
     if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     try {
       const { processAutomaticInvoiceNotifications } = await import("../notification-worker");
-      const result = await processAutomaticInvoiceNotifications();
+      const { processUnifiedMessagingAutomations } = await import("../powerhub-unified-messaging");
+      const [invoiceResult, unifiedResult] = await Promise.all([
+        processAutomaticInvoiceNotifications(),
+        processUnifiedMessagingAutomations(),
+      ]);
+      const result = { invoice: invoiceResult, unified: unifiedResult };
       return res.status(200).json({ ok: true, ...result });
     } catch (error) {
       console.error("[process-invoice-notifications] scheduled run failed", error);
