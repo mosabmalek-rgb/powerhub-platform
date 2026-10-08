@@ -146,7 +146,7 @@ export const adminFeatureControlsRouter = router({
       admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(10000),
       admin.from("subscribers").select("tenant_id").limit(20000),
       admin.from("tenant_tweetsms_accounts").select("tenant_id,monthly_limit,is_active,credential_ciphertext").limit(500),
-      admin.from("notification_messages").select("tenant_id,segment_count,status,created_at").eq("channel","sms").gte("created_at", new Date(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1).toISOString()).in("status",["processing","submitted","delivered","read"]).limit(100000),
+      admin.from("notification_messages").select("tenant_id,segment_count,status,created_at").eq("channel","sms").gte("created_at", new Date(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1).toISOString()).in("status",["processing","submitted","delivered","read","needs_review"]).limit(100000),
       admin.from("tenant_addon_requests").select("id,tenant_id,addon_code,quantity,status,duration_days,starts_at,ends_at").eq("status","approved").limit(5000),
       admin.from("platform_settings").select("value").eq("setting_key","subscription_package_catalog").maybeSingle(),
     ]);
