@@ -27,6 +27,12 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("notification_messages_automation_runtime_idx");
   });
 
+  it("keeps recurring service alerts unique per occurrence while subscriber creation stays one-time", () => {
+    expect(runtime).toContain('eventType === "service_alert"');
+    expect(runtime).toContain(':occurrence:${occ.occurrence_key}');
+    expect(runtime).toContain('automation:${automation.id}:subscriber:${subscriber.id}');
+  });
+
   it("supports automation lifecycle and replay-safe execution", () => {
     expect(runtime).toContain("setAutomationState");
     expect(runtime).toContain("powerhub_claim_unified_automation_run");
