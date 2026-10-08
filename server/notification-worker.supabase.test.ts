@@ -84,7 +84,7 @@ describe("عامل TweetSMS عبر Supabase", () => {
     const now = new Date("2026-10-08T10:00:00.000Z");
     const pendingRows = [
       { id: 21, tenant_id: 20, subscriber_id: 301 },
-      { id: 22, tenant_id: 20, subscriber_id: 302 },
+      { id: 22, tenant_id: 20, subscriber_id: 302, status: "needs_review" },
     ];
     state.rpc.mockImplementation(async (name: string) => {
       if (name === "powerhub_reclaim_stale_sms_notifications") return { data: 0, error: null };
@@ -97,7 +97,11 @@ describe("عامل TweetSMS عبر Supabase", () => {
     state.from.mockImplementation((table: string) => {
       const query: any = {
         select(value: string) { query.selection = value; return query; },
-        eq() { return query; }, in() { return query; }, neq() { return query; }, not() { return query; }, lte() { return query; },
+        eq(field: string, value: unknown) { (query.eqCalls ??= []).push([field, value]); return query; },
+        in(field: string, value: unknown) { (query.inCalls ??= []).push([field, value]); return query; },
+        neq(field: string, value: unknown) { (query.neqCalls ??= []).push([field, value]); return query; },
+        not(field: string, operator: string, value: unknown) { (query.notCalls ??= []).push([field, operator, value]); return query; },
+        lte(field: string, value: unknown) { (query.lteCalls ??= []).push([field, value]); return query; },
         order() { return query; }, limit() { return query; },
         maybeSingle: async () => table === "users" ? { data: { id: 7 }, error: null } : { data: null, error: null },
         insert: async () => ({ data: null, error: null }),
@@ -111,7 +115,13 @@ describe("عامل TweetSMS عبر Supabase", () => {
       return query;
     });
 
-    await expect(processAutomaticUnifiedNotifications(now)).resolves.toMatchObject({ scanned: 1, submitted: 1, failed: 0 });
+    await expect(processAutomaticUnifiedNotifications(now)).resolves.toMatchObject({ scanned: 1, submitted: 1, failed: 0, needsReview: 0 });
+    const notificationQuery = state.from.mock.results.find((entry: any) => entry.value?.selection?.includes("tenant_id"))?.value;
+    expect(notificationQuery?.eqCalls).toEqual(expect.arrayContaining([
+      ["channel", "sms"],
+      ["status", "pending"],
+    ]));
+    expect(notificationQuery?.neqCalls).toEqual(expect.arrayContaining([["event_type", "invoice_issued"]]));
     expect(provider.send).toHaveBeenCalledTimes(1);
   });
 
