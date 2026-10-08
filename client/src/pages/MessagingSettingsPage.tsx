@@ -96,41 +96,146 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
 
 
 function UnifiedMessagingPanel({ siteId }: { siteId: number }) {
-  const unifiedMessaging = (trpc.powerhub as typeof trpc.powerhub & { unifiedMessaging?: unknown }).unifiedMessaging;
-  if (!unifiedMessaging) return null;
-  return <UnifiedMessagingPanelContent siteId={siteId} />;
-}
-
-function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
+  const utils = trpc.useUtils();
   const templates = trpc.powerhub.unifiedMessaging.templates.useQuery({ siteId });
   const automations = trpc.powerhub.unifiedMessaging.automations.useQuery({ siteId });
-  const saveTemplate = trpc.powerhub.unifiedMessaging.saveTemplate.useMutation({ onSuccess: () => templates.refetch(), onError: (e) => toast.error(e.message) });
-  const saveAutomation = trpc.powerhub.unifiedMessaging.saveAutomation.useMutation({ onSuccess: () => automations.refetch(), onError: (e) => toast.error(e.message) });
-  const [name, setName] = useState(""); const [body, setBody] = useState(""); const [templateId, setTemplateId] = useState<number | null>(null);
-  const [automationName, setAutomationName] = useState(""); const [scheduleType, setScheduleType] = useState<"none"|"weekly"|"every_10_days"|"every_15_days"|"monthly">("none");
-  const [anchor, setAnchor] = useState(""); const [eventType, setEventType] = useState<"invoice_issued"|"subscriber_created"|"invoice_overdue"|"payment_received"|"service_alert">("invoice_issued"); const [invoiceStyle, setInvoiceStyle] = useState<"details"|"portal_link">("details"); const [afterDueDays, setAfterDueDays] = useState(1);
-  return <Card className="border-[#F5B800]/20 bg-[#F5B800]/[.025]"><CardContent className="space-y-5 p-5">
-    <div><div className="flex items-center gap-2"><MessageSquareText className="h-5 w-5 text-[#F5B800]" /><h2 className="font-bold text-white">مركز المراسلة الموحد</h2></div><p className="mt-1 text-sm text-slate-400">إدارة القوالب، الإرسال الآلي، والجدولة من طبقة واحدة دون تعطيل مسار رسائل الفواتير الحالي.</p></div>
-    <div className="grid gap-5 xl:grid-cols-2">
-      <div className="space-y-3 rounded-xl border border-white/10 p-4">
-        <h3 className="font-bold text-white">قالب جديد</h3>
-        <input className={inputClass} value={name} onChange={e=>setName(e.target.value)} placeholder="اسم القالب" />
-        <select className={inputClass} defaultValue="sms" id="unified-channel"><option value="sms">SMS</option><option value="whatsapp" disabled>WhatsApp — غير مفعّل بعد</option></select>
-        <select className={inputClass} value={eventType} onChange={e=>setEventType(e.target.value as typeof eventType)}><option value="invoice_issued">إرسال الفاتورة</option><option value="subscriber_created">الرقم المرجعي والترحيب</option><option value="invoice_overdue">تذكير بالسداد</option><option value="payment_received">إيصال الدفع</option><option value="service_alert">تنبيه تشغيلي</option></select>{eventType === "invoice_issued" ? <select className={inputClass} value={invoiceStyle} onChange={e=>setInvoiceStyle(e.target.value as typeof invoiceStyle)}><option value="details">الفاتورة بالطريقة الافتراضية</option><option value="portal_link">رابط الفاتورة + نص</option></select> : null}<textarea className={inputClass+" min-h-28 py-2"} value={body} onChange={e=>setBody(e.target.value)} placeholder={eventType === "invoice_overdue" ? "مثال: {{subscriber_name}}، تذكير بالسداد للفاتورة {{invoice_no}}. المتبقي {{balance_due}}." : "مثال: مرحباً {{subscriber_name}}، رقمك المرجعي {{subscriber_no}}"} />
-        <Button disabled={saveTemplate.isPending || !name.trim() || !body.trim()} onClick={()=>saveTemplate.mutate({siteId,name,channel:"sms",body,eventType, variables:["{{subscriber_name}}","{{subscriber_no}}","{{invoice_no}}","{{billing_period}}","{{total_amount}}","{{balance_due}}","{{due_date}}","{{invoice_link}}","{{portal_link}}"]})}>حفظ القالب</Button>
-        <div className="space-y-2">{(templates.data ?? []).map((t: { id: number; name: string; channel: string; version: number; isActive: boolean })=><div key={t.id} className="rounded-lg border border-white/10 p-3"><div className="font-medium text-white">{t.name} <Badge>{t.channel}</Badge></div><div className="mt-1 text-xs text-slate-500">الإصدار {t.version} · {t.isActive ? "نشط" : "متوقف"}</div></div>)}</div>
+  const subscribers = trpc.powerhub.subscribers.list.useQuery({ siteId });
+  const saveTemplate = trpc.powerhub.unifiedMessaging.saveTemplate.useMutation({
+    onSuccess: async () => { await templates.refetch(); toast.success("تم حفظ القالب الموحد وربطه بالمصدر التشغيلي."); },
+    onError: (e) => toast.error(e.message),
+  });
+  const saveAutomation = trpc.powerhub.unifiedMessaging.saveAutomation.useMutation({
+    onSuccess: async () => { await automations.refetch(); toast.success("تم حفظ الأتمتة."); },
+    onError: (e) => toast.error(e.message),
+  });
+  const setAutomationState = trpc.powerhub.unifiedMessaging.setAutomationState.useMutation({
+    onSuccess: async () => { await automations.refetch(); toast.success("تم تحديث حالة الأتمتة."); },
+    onError: (e) => toast.error(e.message),
+  });
+  const sendManual = trpc.powerhub.unifiedMessaging.sendManual.useMutation({
+    onSuccess: async (result) => {
+      await utils.powerhub.unifiedMessaging.campaign.invalidate();
+      toast.success(result.replayed ? "تم استرجاع نتيجة الحملة السابقة بأمان." : `تمت معالجة الحملة: ${result.submitted} ناجحة، ${result.failed} فاشلة.`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const [templateId, setTemplateId] = useState<number | null>(null);
+  const [name, setName] = useState("");
+  const [body, setBody] = useState("");
+  const [eventType, setEventType] = useState<"invoice_issued"|"subscriber_created"|"invoice_overdue"|"payment_received"|"service_alert">("invoice_issued");
+  const [invoiceStyle, setInvoiceStyle] = useState<"details"|"portal_link">("details");
+  const [automationId, setAutomationId] = useState<number | null>(null);
+  const [automationName, setAutomationName] = useState("");
+  const [scheduleType, setScheduleType] = useState<"none"|"weekly"|"every_10_days"|"every_15_days"|"monthly">("none");
+  const [anchor, setAnchor] = useState("");
+  const [afterDueDays, setAfterDueDays] = useState(1);
+  const [minBalance, setMinBalance] = useState("");
+  const [manualTemplateId, setManualTemplateId] = useState<number | null>(null);
+  const [manualSearch, setManualSearch] = useState("");
+  const [selectedSubscribers, setSelectedSubscribers] = useState<number[]>([]);
+
+  const activeSmsTemplates = (templates.data ?? []).filter((t: any) => t.channel === "sms" && t.isActive);
+  const filteredSubscribers = (subscribers.data ?? []).filter((s: any) =>
+    `${s.fullName ?? ""} ${s.subscriberNo ?? ""} ${s.phone ?? ""}`.toLowerCase().includes(manualSearch.toLowerCase())
+  ).slice(0, 500);
+
+  const loadTemplate = (id: number) => {
+    const t: any = (templates.data ?? []).find((row: any) => row.id === id);
+    if (!t) return;
+    setTemplateId(t.id); setName(t.name); setBody(t.body);
+    setEventType(t.eventType ?? "invoice_issued");
+  };
+  const loadAutomation = (id: number) => {
+    const a: any = (automations.data ?? []).find((row: any) => row.id === id);
+    if (!a) return;
+    setAutomationId(a.id); setAutomationName(a.name); setEventType(a.eventType);
+    setScheduleType(a.scheduleType === "none" ? "none" : a.scheduleType);
+    setAnchor(a.scheduleAnchorAt ? new Date(a.scheduleAnchorAt).toISOString().slice(0,16) : "");
+    setAfterDueDays(Number(a.triggerConfig?.afterDueDays ?? 1));
+    setMinBalance(a.triggerConfig?.minBalance == null ? "" : String(a.triggerConfig.minBalance));
+  };
+
+  const submitTemplate = () => saveTemplate.mutate({
+    siteId, id: templateId ?? undefined, name, body, channel: "sms", eventType,
+    invoiceStyle: eventType === "invoice_issued" ? invoiceStyle : undefined,
+    variables: variableLabels,
+  });
+
+  const submitAutomation = () => {
+    const derivedAnchor = scheduleType === "none" ? undefined : (anchor ? new Date(anchor) : undefined);
+    if (scheduleType !== "none" && !derivedAnchor) return toast.error("حدد موعد بداية الجدولة.");
+    saveAutomation.mutate({
+      siteId, id: automationId ?? undefined, templateId: templateId ?? activeSmsTemplates[0]?.id,
+      name: automationName, eventType,
+      sendType: scheduleType === "none" ? "automatic" : "scheduled",
+      scheduleType, scheduleAnchorAt: derivedAnchor, audience: {},
+      triggerConfig: eventType === "invoice_overdue"
+        ? { afterDueDays, ...(minBalance ? { minBalance: Number(minBalance) } : {}) }
+        : {},
+    });
+  };
+
+  const toggleAll = () => {
+    const ids = filteredSubscribers.map((s: any) => Number(s.id));
+    const all = ids.length > 0 && ids.every((id) => selectedSubscribers.includes(id));
+    setSelectedSubscribers((current) => all ? current.filter((id) => !ids.includes(id)) : Array.from(new Set([...current, ...ids])).slice(0, 500));
+  };
+
+  const submitManual = () => {
+    if (!manualTemplateId) return toast.error("اختر قالب SMS صالحاً.");
+    if (!selectedSubscribers.length) return toast.error("حدد مشتركاً واحداً على الأقل.");
+    sendManual.mutate({ siteId, templateId: manualTemplateId, subscriberIds: selectedSubscribers, operationId: crypto.randomUUID() });
+  };
+
+  return <Card className="border-[#F5B800]/20 bg-[#F5B800]/[.025]">
+    <CardContent className="space-y-6 p-5">
+      <div>
+        <div className="flex items-center gap-2"><MessageSquareText className="h-5 w-5 text-[#F5B800]" /><h2 className="font-bold text-white">مركز المراسلة الموحد</h2></div>
+        <p className="mt-1 text-sm leading-6 text-slate-400">القالب والحدث والأتمتة والحملة اليدوية تمر الآن عبر مسار موحد: صلاحية → قاعدة بيانات → طابور → عامل SMS → نتيجة مدققة.</p>
       </div>
-      <div className="space-y-3 rounded-xl border border-white/10 p-4">
-        <h3 className="font-bold text-white">أتمتة / جدولة</h3>
-        <input className={inputClass} value={automationName} onChange={e=>setAutomationName(e.target.value)} placeholder="اسم الأتمتة" />
-        <select className={inputClass} value={templateId ?? ""} onChange={e=>setTemplateId(Number(e.target.value)||null)}><option value="">اختر القالب</option>{(templates.data ?? []).filter((t: { isActive: boolean })=>t.isActive).map((t: { id: number; name: string })=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
-        <select className={inputClass} value={scheduleType} onChange={e=>setScheduleType(e.target.value as typeof scheduleType)}><option value="none">آلي عند الحدث</option><option value="weekly">أسبوعي</option><option value="every_10_days">كل 10 أيام</option><option value="every_15_days">كل 15 يوماً</option><option value="monthly">شهري</option></select>
-        {scheduleType === "none" && eventType === "invoice_overdue" ? <input type="number" min="0" max="90" className={inputClass} value={afterDueDays} onChange={e=>setAfterDueDays(Number(e.target.value))} placeholder="عدد أيام التأخر قبل التذكير" /> : null}{scheduleType !== "none" ? <input type="datetime-local" className={inputClass} value={anchor} onChange={e=>setAnchor(e.target.value)} /> : null}
-        <Button disabled={saveAutomation.isPending || !automationName.trim() || !templateId || (scheduleType!=="none"&&!anchor)} onClick={()=>saveAutomation.mutate({siteId,templateId:templateId!,name:automationName,eventType,sendType:scheduleType==="none"?"automatic":"scheduled",scheduleType,scheduleAnchorAt:scheduleType==="none"?undefined:new Date(anchor),audience:{},triggerConfig:{afterDueDays:eventType==="invoice_overdue"?afterDueDays:undefined}})}>حفظ الأتمتة</Button>
-        <div className="space-y-2">{(automations.data ?? []).map((a: { id: number; name: string; sendType: string; scheduleType: string; enabled: boolean })=><div key={a.id} className="rounded-lg border border-white/10 p-3"><div className="font-medium text-white">{a.name}</div><div className="mt-1 text-xs text-slate-500">{a.sendType==="automatic"?"آلي":"مجدول"} · {a.scheduleType} · {a.enabled?"مفعّل":"متوقف"}</div></div>)}</div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <div className="space-y-3 rounded-xl border border-white/10 p-4">
+          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{templateId ? "تعديل القالب" : "قالب جديد"}</h3>{templateId ? <Button size="sm" variant="outline" onClick={() => { setTemplateId(null); setName(""); setBody(""); }}>قالب جديد</Button> : null}</div>
+          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم القالب" />
+          <select className={inputClass} value={eventType} onChange={(e) => setEventType(e.target.value as typeof eventType)}>
+            <option value="invoice_issued">إرسال الفاتورة</option><option value="subscriber_created">الترحيب والرقم المرجعي</option><option value="invoice_overdue">تذكير بالسداد</option><option value="payment_received">إيصال الدفع</option><option value="service_alert">تنبيه تشغيلي</option>
+          </select>
+          {eventType === "invoice_issued" ? <select className={inputClass} value={invoiceStyle} onChange={(e) => setInvoiceStyle(e.target.value as typeof invoiceStyle)}><option value="details">الفاتورة بالطريقة الافتراضية</option><option value="portal_link">رابط الفاتورة + النص</option></select> : null}
+          <textarea className={inputClass + " min-h-32 py-2"} value={body} onChange={(e) => setBody(e.target.value)} placeholder="اكتب نص الرسالة باستخدام المتغيرات المعتمدة." />
+          <div className="grid gap-2 sm:grid-cols-2">{messageVariableOptions.map((item) => <Button key={item.token} type="button" size="sm" variant="outline" onClick={() => setBody((current) => current + (current && !current.endsWith(" ") ? " " : "") + item.token)} className="justify-start border-white/10 text-slate-200"><span className="font-bold">+ {item.label}</span><code className="mr-auto text-[10px] text-slate-500" dir="ltr">{item.token}</code></Button>)}</div>
+          <div className="rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-3"><p className="text-xs font-bold text-[#F5B800]">معاينة</p><p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white">{previewTemplate(body)}</p></div>
+          <Button disabled={saveTemplate.isPending || !name.trim() || !body.trim()} onClick={submitTemplate}>{saveTemplate.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ القالب الموحد</Button>
+          <div className="space-y-2">{(templates.data ?? []).map((t: any) => <button type="button" key={t.id} onClick={() => loadTemplate(t.id)} className="w-full rounded-lg border border-white/10 p-3 text-right hover:border-[#F5B800]/30"><div className="font-medium text-white">{t.name} <Badge>{t.channel}</Badge></div><div className="mt-1 text-xs text-slate-500">v{t.version} · {t.eventType ?? "عام"} · {t.isActive ? "نشط" : "متوقف"}</div></button>)}</div>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-white/10 p-4">
+          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); }}>جديدة</Button> : null}</div>
+          <input className={inputClass} value={automationName} onChange={(e) => setAutomationName(e.target.value)} placeholder="اسم الأتمتة" />
+          <select className={inputClass} value={templateId ?? ""} onChange={(e) => setTemplateId(Number(e.target.value) || null)}><option value="">اختر القالب</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+          <select className={inputClass} value={eventType} onChange={(e) => setEventType(e.target.value as typeof eventType)}><option value="subscriber_created">مشترك جديد</option><option value="invoice_overdue">فاتورة متأخرة</option><option value="payment_received">استلام دفعة</option><option value="service_alert">تنبيه تشغيلي</option><option value="invoice_issued">إصدار فاتورة (المسار الأساسي)</option></select>
+          <select className={inputClass} value={scheduleType} onChange={(e) => setScheduleType(e.target.value as typeof scheduleType)}><option value="none">عند الحدث</option><option value="weekly">أسبوعي</option><option value="every_10_days">كل 10 أيام</option><option value="every_15_days">كل 15 يوماً</option><option value="monthly">شهري</option></select>
+          {eventType === "invoice_overdue" && scheduleType === "none" ? <div className="grid grid-cols-2 gap-2"><input type="number" min="0" max="90" className={inputClass} value={afterDueDays} onChange={(e) => setAfterDueDays(Number(e.target.value))} placeholder="بعد كم يوم" /><input type="number" min="0" className={inputClass} value={minBalance} onChange={(e) => setMinBalance(e.target.value)} placeholder="أقل رصيد" /></div> : null}
+          {scheduleType !== "none" ? <input type="datetime-local" className={inputClass} value={anchor} onChange={(e) => setAnchor(e.target.value)} /> : null}
+          <Button disabled={saveAutomation.isPending || !automationName.trim() || !(templateId ?? activeSmsTemplates[0]?.id) || (scheduleType !== "none" && !anchor)} onClick={submitAutomation}>{saveAutomation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الأتمتة</Button>
+          <div className="space-y-2">{(automations.data ?? []).map((a: any) => <div key={a.id} className="rounded-lg border border-white/10 p-3"><button type="button" className="w-full text-right" onClick={() => loadAutomation(a.id)}><div className="font-medium text-white">{a.name}</div><div className="mt-1 text-xs text-slate-500">{a.eventType} · {a.sendType === "automatic" ? "عند الحدث" : a.scheduleType} · {a.enabled ? "مفعّل" : "متوقف"}</div></button><div className="mt-2 flex gap-2"><Button size="sm" variant="outline" disabled={setAutomationState.isPending} onClick={() => setAutomationState.mutate({siteId, automationId:a.id, enabled:!a.enabled, archived:false})}>{a.enabled ? "تعطيل" : "تفعيل"}</Button><Button size="sm" variant="outline" disabled={setAutomationState.isPending} onClick={() => setAutomationState.mutate({siteId, automationId:a.id, enabled:false, archived:true})}>أرشفة</Button></div></div>)}</div>
+        </div>
       </div>
-    </div>
-  </CardContent></Card>;
+
+      <div className="space-y-3 rounded-xl border border-emerald-400/15 p-4">
+        <div><h3 className="font-bold text-white">إرسال يدوي</h3><p className="mt-1 text-xs text-slate-500">اختيار المشتركين يتم من الفرع الحالي فقط. الحد الأقصى 500 مستلم للحملة، وإعادة الطلب بنفس operationId لا تنشئ رسائل ثانية.</p></div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <select className={inputClass} value={manualTemplateId ?? ""} onChange={(e) => setManualTemplateId(Number(e.target.value) || null)}><option value="">اختر قالب SMS</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+          <input className={inputClass} value={manualSearch} onChange={(e) => setManualSearch(e.target.value)} placeholder="بحث بالاسم أو الرقم أو الهاتف" />
+          <Button type="button" variant="outline" onClick={toggleAll}>{filteredSubscribers.length && filteredSubscribers.every((s: any) => selectedSubscribers.includes(Number(s.id))) ? "إلغاء تحديد الظاهر" : "تحديد الظاهر"}</Button>
+        </div>
+        <div className="rounded-lg border border-white/10 p-3 text-sm text-slate-300">تم تحديد <strong className="text-[#F5B800]">{selectedSubscribers.length}</strong> مشترك</div>
+        <div className="max-h-72 overflow-auto rounded-lg border border-white/10">{filteredSubscribers.map((s: any) => <label key={s.id} className="flex items-center gap-3 border-b border-white/5 p-3 text-sm text-slate-200"><input type="checkbox" checked={selectedSubscribers.includes(Number(s.id))} onChange={() => setSelectedSubscribers((current) => current.includes(Number(s.id)) ? current.filter((id) => id !== Number(s.id)) : [...current,Number(s.id)].slice(0,500))} /><span>{s.fullName}</span><span className="mr-auto text-xs text-slate-500" dir="ltr">{s.subscriberNo}</span></label>)}</div>
+        <div className="flex justify-end"><Button disabled={sendManual.isPending || !manualTemplateId || !selectedSubscribers.length} onClick={submitManual}>{sendManual.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال الحملة</Button></div>
+      </div>
+    </CardContent>
+  </Card>;
 }
 
 export default function MessagingSettingsPage() {
