@@ -1,10 +1,3 @@
-alter table public.powerhub_message_campaigns enable row level security;
-alter table public.powerhub_message_campaign_recipients enable row level security;
-alter table public.powerhub_message_automation_runs enable row level security;
-revoke all on public.powerhub_message_campaigns from anon, authenticated;
-revoke all on public.powerhub_message_campaign_recipients from anon, authenticated;
-revoke all on public.powerhub_message_automation_runs from anon, authenticated;
-
 create or replace function public.powerhub_unified_messaging_automations(
   p_tenant_id bigint,
   p_site_id bigint default null
@@ -134,6 +127,13 @@ create table if not exists public.powerhub_message_automation_runs (
 
 create index if not exists powerhub_message_automation_runs_scope_idx
   on public.powerhub_message_automation_runs (tenant_id, site_id, started_at desc);
+
+alter table public.powerhub_message_campaigns enable row level security;
+alter table public.powerhub_message_campaign_recipients enable row level security;
+alter table public.powerhub_message_automation_runs enable row level security;
+revoke all on public.powerhub_message_campaigns from anon, authenticated;
+revoke all on public.powerhub_message_campaign_recipients from anon, authenticated;
+revoke all on public.powerhub_message_automation_runs from anon, authenticated;
 
 insert into public.platform_settings(setting_key,is_enabled,value,message)
 values(
