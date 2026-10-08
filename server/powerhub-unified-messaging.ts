@@ -24,6 +24,22 @@ function render(body: string, values: Record<string, string | null | undefined>)
   return body.replace(/{{\s*([a-z_]+)\s*}}/g, (_, key) => values[key] ?? "");
 }
 
+async function processNotificationIdsInBatches(tenantId: number, actorUserId: number, notificationIds: number[]) {
+  const all: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string }> = [];
+  for (let offset = 0; offset < notificationIds.length; offset += 50) {
+    const batch = notificationIds.slice(offset, offset + 50);
+    const result = await processNotificationQueueForTenant(tenantId, actorUserId, batch);
+    all.push(...(result.results ?? []));
+  }
+  return {
+    requested: notificationIds.length,
+    submitted: all.filter((row) => row.status === "submitted").length,
+    failed: all.filter((row) => row.status === "failed").length,
+    skipped: all.filter((row) => row.status === "skipped").length,
+    results: all,
+  };
+}
+
 async function getPlatformActorId() {
   const { data, error } = await supabaseAdmin().from("users").select("id")
     .eq("account_status", "active").in("platform_role", ["platform_owner", "platform_admin"])
@@ -185,7 +201,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
   }
 
   const result = notificationIds.length
-    ? await processNotificationQueueForTenant(tenantId, actorUserId, notificationIds.slice(0,50))
+    ? await processNotificationIdsInBatches(tenantId, actorUserId, notificationIds)
     : { submitted: 0, failed: 0, skipped: 0 };
   await admin.rpc("powerhub_finish_unified_automation_run", {
     p_tenant_id: tenantId, p_automation_id: Number(automation.id), p_occurrence_key: String(occ.occurrence_key),
@@ -301,7 +317,7 @@ export const powerhubUnifiedMessagingRouter = router({
     if(!campaignId) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات معرف الحملة."});
     const ids=await supabaseAdmin().from("powerhub_message_campaign_recipients").select("notification_id").eq("campaign_id",campaignId);
     const notificationIds=(ids.data??[]).map((r:any)=>Number(r.notification_id)).filter(Number.isInteger);
-    const result=notificationIds.length?await processNotificationQueueForTenant(access.tenantId,ctx.user.id,notificationIds.slice(0,50)):{submitted:0,failed:0,skipped:0,results:[]};
+    const result=notificationIds.length?await processNotificationIdsInBatches(access.tenantId,ctx.user.id,notificationIds):{submitted:0,failed:0,skipped:0,results:[]};
     await supabaseAdmin().from("powerhub_message_campaigns").update({status:result.failed?"partial":"completed",submitted:result.submitted,failed:result.failed,skipped:result.skipped,completed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",campaignId).eq("tenant_id",access.tenantId);
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped}});
     return {campaignId,operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped,results:result.results,replayed:Boolean(row?.replayed)};
@@ -319,7 +335,7 @@ export const powerhubUnifiedMessagingRouter = router({
     const rows=await supabaseAdmin().from("powerhub_message_campaign_recipients").select("notification_id").eq("campaign_id",input.campaignId);
     const ids=(rows.data??[]).map((r:any)=>Number(r.notification_id)).filter(Number.isInteger);
     const failed=await supabaseAdmin().from("notification_messages").select("id").eq("tenant_id",access.tenantId).in("id",ids).eq("status","failed");
-    const result=failed.data?.length?await processNotificationQueueForTenant(access.tenantId,ctx.user.id,failed.data.map((r:any)=>Number(r.id)).slice(0,50)):{submitted:0,failed:0,skipped:0,results:[]};
+    const result=failed.data?.length?await processNotificationIdsInBatches(access.tenantId,ctx.user.id,failed.data.map((r:any)=>Number(r.id))):{submitted:0,failed:0,skipped:0,results:[]};
     return {requested:failed.data?.length??0,submitted:result.submitted,failed:result.failed,skipped:result.skipped,results:result.results};
   }),
 });
