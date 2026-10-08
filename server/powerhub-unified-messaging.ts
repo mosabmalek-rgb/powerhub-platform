@@ -34,15 +34,23 @@ async function getPlatformActorId() {
 
 async function executeAutomation(automation: any, now: Date, actorUserId: number) {
   const admin = supabaseAdmin();
-  const occurrence = await admin.rpc("powerhub_unified_messaging_next_occurrence", {
-    p_schedule_type: automation.schedule_type,
-    p_schedule_anchor_at: automation.schedule_anchor_at,
-    p_timezone: automation.timezone,
-    p_now: now.toISOString(),
-  });
-  if (occurrence.error || !occurrence.data?.[0]?.due) return { status: "skipped", requested: 0, queued: 0, failed: 0, skipped: 0 };
-
-  const occ = occurrence.data[0];
+  let occ: { due: boolean; occurrence_at: string; occurrence_key: string };
+  if (automation.send_type === "automatic") {
+    occ = {
+      due: true,
+      occurrence_at: now.toISOString(),
+      occurrence_key: `event:${automation.event_type}:${now.toISOString().slice(0, 10)}`,
+    };
+  } else {
+    const occurrence = await admin.rpc("powerhub_unified_messaging_next_occurrence", {
+      p_schedule_type: automation.schedule_type,
+      p_schedule_anchor_at: automation.schedule_anchor_at,
+      p_timezone: automation.timezone,
+      p_now: now.toISOString(),
+    });
+    if (occurrence.error || !occurrence.data?.[0]?.due) return { status: "skipped", requested: 0, queued: 0, failed: 0, skipped: 0 };
+    occ = occurrence.data[0];
+  }
   const claim = await admin.rpc("powerhub_claim_unified_automation_run", {
     p_tenant_id: Number(automation.tenant_id), p_site_id: Number(automation.site_id),
     p_automation_id: Number(automation.id), p_occurrence_key: String(occ.occurrence_key),
@@ -65,71 +73,110 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
   const eventType = String(automation.event_type);
   const audience = automation.audience ?? {};
   const trigger = automation.trigger_config ?? {};
-  const query = admin.from("subscribers")
-    .select("id,full_name,subscriber_no,phone,service_status")
+  const baseQuery = admin.from("subscribers")
+    .select("id,full_name,subscriber_no,phone,service_status,created_at")
     .eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null);
 
-  if (Array.isArray(audience.subscriberIds) && audience.subscriberIds.length) query.in("id", audience.subscriberIds.map(Number));
-  if (audience.serviceStatus) query.eq("service_status", audience.serviceStatus);
-
-  let subscribers = (await query.limit(500)).data ?? [];
-  if (eventType === "subscriber_created") {
-    subscribers = subscribers.filter((s: any) => new Date(s.created_at ?? automation.created_at) >= new Date(automation.created_at));
-  }
-
-  const notificationIds: number[] = [];
-  let skipped = 0;
-  for (const subscriber of subscribers) {
-    const operationKey = `automation:${automation.id}:${occ.occurrence_key}:${subscriber.id}`;
-    let invoice: any = null;
-    if (eventType === "invoice_overdue") {
-      const { data } = await admin.from("invoices")
-        .select("id,invoice_no,billing_period,total_amount,balance_due,due_date,status")
-        .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", Number(subscriber.id))
-        .in("status", ["issued","partially_paid","overdue"]).gt("balance_due", 0)
-        .lte("due_date", now.toISOString()).order("due_date", { ascending: false }).limit(1).maybeSingle();
-      invoice = data;
-      const afterDueDays = Number(trigger.afterDueDays ?? 0);
-      if (!invoice || (now.getTime() - new Date(invoice.due_date).getTime()) < afterDueDays * 86400000) { skipped++; continue; }
-      if (trigger.minBalance != null && Number(invoice.balance_due) < Number(trigger.minBalance)) { skipped++; continue; }
+  if (eventType === "payment_received") {
+    const { data: payments, error: paymentsError } = await admin.from("payments")
+      .select("id,subscriber_id,invoice_id,amount,paid_at")
+      .eq("tenant_id", tenantId).eq("site_id", siteId).eq("status", "completed")
+      .gte("created_at", new Date(automation.created_at).toISOString()).order("id", { ascending: true }).limit(500);
+    if (paymentsError) throw new Error("تعذر تحميل دفعات الأتمتة.");
+    for (const payment of payments ?? []) {
+      const { data: subscriber } = await admin.from("subscribers").select("id,full_name,subscriber_no,phone").eq("id", Number(payment.subscriber_id)).eq("tenant_id", tenantId).eq("site_id", siteId).maybeSingle();
+      if (!subscriber) { skipped++; continue; }
+      const { data: invoice } = payment.invoice_id
+        ? await admin.from("invoices").select("id,invoice_no,billing_period,total_amount,balance_due,due_date").eq("id",Number(payment.invoice_id)).eq("tenant_id",tenantId).eq("site_id",siteId).maybeSingle()
+        : { data: null };
+      const operationKey = `automation:${automation.id}:payment:${payment.id}`;
+      const values = {
+        subscriber_name: subscriber.full_name ?? "", subscriber_no: subscriber.subscriber_no ?? "",
+        invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
+        total_amount: invoice?.total_amount == null ? "" : String(invoice.total_amount),
+        balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
+        due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
+      };
+      const inserted = await admin.from("notification_messages").insert({
+        tenant_id: tenantId, subscriber_id: Number(subscriber.id), invoice_id: invoice?.id ?? null,
+        channel: "sms", event_type: "payment_received", recipient: subscriber.phone ?? "", status: "pending",
+        send_type: automation.send_type, schedule_type: automation.schedule_type, template_id: Number(template.id),
+        automation_id: Number(automation.id), operation_key: operationKey,
+        payload: { renderedText: render(template.body, values), operationKey, automationId: Number(automation.id) },
+      }).select("id").maybeSingle();
+      if (inserted.error) {
+        if (String(inserted.error.message).toLowerCase().includes("duplicate")) { skipped++; continue; }
+        throw new Error("تعذر إدخال إيصال الدفع إلى الطابور.");
+      }
+      if (inserted.data?.id) notificationIds.push(Number(inserted.data.id));
     }
-    const values: Record<string,string> = {
-      subscriber_name: subscriber.full_name ?? "", subscriber_no: subscriber.subscriber_no ?? "",
-      invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
-      total_amount: invoice?.total_amount == null ? "" : String(invoice.total_amount),
-      balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
-      due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
-    };
-    let textBody = render(template.body, values);
-    if (textBody.includes("{{invoice_link}}") || textBody.includes("{{portal_link}}")) {
-      if (invoice?.id) {
+  } else {
+    let subscribersQuery = baseQuery;
+    if (Array.isArray(audience.subscriberIds) && audience.subscriberIds.length) subscribersQuery = subscribersQuery.in("id", audience.subscriberIds.map(Number));
+    if (audience.serviceStatus) subscribersQuery = subscribersQuery.eq("service_status", audience.serviceStatus);
+    let subscribers = (await subscribersQuery.limit(500)).data ?? [];
+
+    if (eventType === "subscriber_created") {
+      subscribers = subscribers.filter((s: any) => new Date(s.created_at) >= new Date(automation.created_at));
+    }
+    if (eventType === "invoice_issued") {
+      // Invoice issuance already has the canonical atomic trigger. Do not create a second message here.
+      subscribers = [];
+    }
+
+    for (const subscriber of subscribers) {
+      let invoice: any = null;
+      if (eventType === "invoice_overdue") {
+        const { data } = await admin.from("invoices")
+          .select("id,invoice_no,billing_period,total_amount,balance_due,due_date,status")
+          .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", Number(subscriber.id))
+          .in("status", ["issued","partially_paid","overdue"]).gt("balance_due", 0)
+          .lte("due_date", now.toISOString()).order("due_date", { ascending: false }).limit(1).maybeSingle();
+        invoice = data;
+        const afterDueDays = Number(trigger.afterDueDays ?? 0);
+        if (!invoice || (now.getTime() - new Date(invoice.due_date).getTime()) < afterDueDays * 86400000) { skipped++; continue; }
+        if (trigger.minBalance != null && Number(invoice.balance_due) < Number(trigger.minBalance)) { skipped++; continue; }
+      }
+      const operationKey = eventType === "invoice_overdue"
+        ? `automation:${automation.id}:invoice:${invoice.id}:${occ.occurrence_key}`
+        : `automation:${automation.id}:subscriber:${subscriber.id}`;
+      const values = {
+        subscriber_name: subscriber.full_name ?? "", subscriber_no: subscriber.subscriber_no ?? "",
+        invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
+        total_amount: invoice?.total_amount == null ? "" : String(invoice.total_amount),
+        balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
+        due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
+      };
+      let textBody = render(template.body, values);
+      if (textBody.includes("{{invoice_link}}") || textBody.includes("{{portal_link}}")) {
         const base = await admin.rpc("powerhub_public_base_url");
         if (base.error || !base.data) throw new Error("PUBLIC_BASE_URL_NOT_CONFIGURED");
-        const actor = actorUserId;
-        const token = crypto.randomBytes(24).toString("base64url");
-        const link = await admin.rpc("powerhub_create_invoice_share_link", {
-          p_tenant_id: tenantId, p_site_id: siteId, p_user_id: actor, p_invoice_id: Number(invoice.id),
-          p_token_hash: crypto.createHash("sha256").update(token).digest("hex"), p_token_preview: token.slice(0,8), p_expires_at: null,
-        });
-        if (link.error) throw new Error("تعذر إنشاء رابط الفاتورة.");
-        textBody = textBody.replace(/{{\s*invoice_link\s*}}/g, `${base.data}/invoice/${token}`);
+        if (invoice?.id) {
+          const token = crypto.randomBytes(24).toString("base64url");
+          const link = await admin.rpc("powerhub_create_invoice_share_link", {
+            p_tenant_id: tenantId, p_site_id: siteId, p_user_id: actorUserId, p_invoice_id: Number(invoice.id),
+            p_token_hash: crypto.createHash("sha256").update(token).digest("hex"), p_token_preview: token.slice(0,8), p_expires_at: null,
+          });
+          if (link.error) throw new Error("تعذر إنشاء رابط الفاتورة.");
+          textBody = textBody.replace(/{{\\s*invoice_link\\s*}}/g, `${base.data}/invoice/${token}`);
+        }
+        const portal = await admin.from("site_portal_settings").select("portal_code").eq("tenant_id",tenantId).eq("site_id",siteId).maybeSingle();
+        textBody = textBody.replace(/{{\\s*portal_link\\s*}}/g, portal.data?.portal_code ? `${base.data}/portal?g=${portal.data.portal_code}` : "");
       }
-      const portal = await admin.from("site_portal_settings").select("portal_code").eq("tenant_id",tenantId).eq("site_id",siteId).maybeSingle();
-      const base = await admin.rpc("powerhub_public_base_url");
-      textBody = textBody.replace(/{{\s*portal_link\s*}}/g, portal.data?.portal_code && base.data ? `${base.data}/portal?g=${portal.data.portal_code}` : "");
+      const inserted = await admin.from("notification_messages").insert({
+        tenant_id: tenantId, subscriber_id: Number(subscriber.id), invoice_id: invoice?.id ?? null,
+        channel: "sms", event_type: eventType === "subscriber_created" ? "subscriber_reference" : eventType,
+        recipient: subscriber.phone ?? "", status: "pending", send_type: automation.send_type,
+        schedule_type: automation.schedule_type, template_id: Number(template.id), automation_id: Number(automation.id),
+        operation_key: operationKey,
+        payload: { renderedText: textBody, operationKey, automationId: Number(automation.id), occurrenceKey: occ.occurrence_key },
+      }).select("id").maybeSingle();
+      if (inserted.error) {
+        if (String(inserted.error.message).toLowerCase().includes("duplicate")) { skipped++; continue; }
+        throw new Error("تعذر إدخال رسالة الأتمتة إلى الطابور.");
+      }
+      if (inserted.data?.id) notificationIds.push(Number(inserted.data.id));
     }
-    const inserted = await admin.from("notification_messages").insert({
-      tenant_id: tenantId, subscriber_id: Number(subscriber.id), invoice_id: invoice?.id ?? null,
-      channel: "sms", event_type: eventType === "subscriber_created" ? "subscriber_reference" : eventType,
-      recipient: subscriber.phone ?? "", status: "pending", send_type: automation.send_type,
-      schedule_type: automation.schedule_type, template_id: Number(template.id), automation_id: Number(automation.id),
-      operation_key: operationKey, payload: { renderedText: textBody, operationKey, automationId: Number(automation.id), occurrenceKey: occ.occurrence_key },
-    }).select("id").maybeSingle();
-    if (inserted.error) {
-      if (String(inserted.error.message).includes("duplicate")) { skipped++; continue; }
-      throw new Error("تعذر إدخال رسالة الأتمتة إلى الطابور.");
-    }
-    if (inserted.data?.id) notificationIds.push(Number(inserted.data.id));
   }
 
   const result = notificationIds.length
@@ -152,7 +199,7 @@ export async function processUnifiedMessagingAutomations(now = new Date()) {
   await admin.rpc("powerhub_reclaim_stale_sms_notifications", { p_limit: 200 });
   const { data: rows, error } = await admin.from("powerhub_message_automations")
     .select("id,tenant_id,site_id,template_id,name,event_type,send_type,schedule_type,schedule_anchor_at,timezone,audience,trigger_config,created_at")
-    .eq("enabled", true).is("archived_at", null).eq("site_id", admin.rpc ? undefined as any : undefined);
+    .eq("enabled", true).is("archived_at", null);
   if (error) throw new Error("تعذر تحميل أتمتة المراسلة المفعلة.");
   const actor = await getPlatformActorId();
   const ids = (rows ?? []).filter((r: any) => r.site_id != null);
