@@ -711,6 +711,28 @@ begin
 end;
 $function$;
 
+create or replace function public.powerhub_touch_unified_automation_run(
+  p_tenant_id bigint,
+  p_automation_id bigint,
+  p_occurrence_key text
+)
+returns boolean
+language plpgsql
+security invoker
+set search_path=public,pg_temp
+as $function$
+begin
+  update public.powerhub_message_automation_runs
+  set lease_until=now() + interval '15 minutes'
+  where tenant_id=p_tenant_id
+    and automation_id=p_automation_id
+    and occurrence_key=p_occurrence_key
+    and status='processing'
+    and (lease_until is null or lease_until > now());
+  return found;
+end;
+$function$;
+
 create or replace function public.powerhub_finish_unified_automation_run(
   p_tenant_id bigint,
   p_automation_id bigint,
@@ -762,6 +784,7 @@ grant execute on function public.powerhub_unified_messaging_campaign(bigint,bigi
 grant execute on function public.powerhub_unified_messaging_next_occurrence(text,timestamptz,text,timestamptz) to service_role;
 grant execute on function public.powerhub_claim_unified_automation_run(bigint,bigint,bigint,text) to service_role;
 grant execute on function public.powerhub_finish_unified_automation_run(bigint,bigint,text,text,integer,integer,integer,integer,text) to service_role;
+grant execute on function public.powerhub_touch_unified_automation_run(bigint,bigint,text) to service_role;
 
 -- Keep the PR's canonical invoice/payment queue paths idempotent and configurable.
 create or replace function public.powerhub_queue_invoice_sms_after_issue()
