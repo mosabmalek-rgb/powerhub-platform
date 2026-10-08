@@ -8,6 +8,7 @@ const scheduler = fs.readFileSync(path.join(root, "server/_core/index.ts"), "utf
 const ui = fs.readFileSync(path.join(root, "client/src/pages/MessagingSettingsPage.tsx"), "utf8");
 const migration = fs.readFileSync(path.join(root, "supabase/migrations/20261008130000_powerhub_unified_messaging_runtime.sql"), "utf8");
 const reminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008110000_powerhub_payment_reminder_links.sql"), "utf8");
+const deliveryUncertaintyMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008143000_powerhub_sms_delivery_uncertainty.sql"), "utf8");
 
 describe("unified messaging runtime contract", () => {
   it("has one protected scheduler for legacy invoice and unified automations", () => {
