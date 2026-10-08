@@ -32,7 +32,7 @@ alter table public.notification_messages
   drop constraint if exists notification_messages_event_type_check;
 alter table public.notification_messages
   add constraint notification_messages_event_type_check
-  check (event_type in ('invoice_issued','payment_reminder','payment_received','service_alert','subscriber_reference','manual'));
+  check (event_type in ('invoice_issued','invoice_overdue','payment_reminder','payment_received','service_alert','subscriber_reference','manual'));
 
 alter table public.notification_messages
   add column if not exists send_type text,
