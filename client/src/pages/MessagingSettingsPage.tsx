@@ -138,6 +138,7 @@ function UnifiedMessagingPanel({ siteId }: { siteId: number }) {
   const [manualOperationId, setManualOperationId] = useState(() => crypto.randomUUID());
 
   const activeSmsTemplates = (templates.data ?? []).filter((t: any) => t.channel === "sms" && t.isActive);
+  const manualSmsTemplates = activeSmsTemplates.filter((t: any) => !t.eventType || ["subscriber_created","service_alert"].includes(t.eventType));
   const filteredSubscribers = (subscribers.data ?? []).filter((s: any) =>
     `${s.fullName ?? ""} ${s.subscriberNo ?? ""} ${s.phone ?? ""}`.toLowerCase().includes(manualSearch.toLowerCase())
   ).slice(0, 500);
