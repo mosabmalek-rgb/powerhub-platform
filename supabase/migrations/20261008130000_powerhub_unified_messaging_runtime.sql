@@ -903,7 +903,7 @@ begin
 
   select * into v_template
   from public.powerhub_message_templates
-  where tenant_id=new.tenant_id and channel='sms' and event_type='invoice_issued' and is_active
+  where tenant_id=new.tenant_id and channel='sms' and event_type='invoice_issued'
   order by updated_at desc,id desc
   limit 1;
 
@@ -913,6 +913,9 @@ begin
     where tenant_id=new.tenant_id and channel='sms' and event_type='invoice_issued' and is_active
     order by updated_at desc limit 1;
     v_rendered_text := coalesce(v_legacy_template,'PowerHub: {{subscriber_name}}، فاتورتك {{invoice_no}} للفترة {{billing_period}} بقيمة {{total_amount}}. الاستحقاق: {{due_date}}.');
+  elsif v_template.is_active is not true then
+    -- A disabled canonical template is authoritative: never silently fall back to legacy.
+    return new;
   else
     v_rendered_text := v_template.body;
   end if;
