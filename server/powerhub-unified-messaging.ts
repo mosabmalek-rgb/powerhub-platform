@@ -165,7 +165,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
         };
         rows.push({
           tenant_id: tenantId, subscriber_id: Number(subscriber.id), invoice_id: invoice?.id ?? null,
-          channel: "sms", event_type: "payment_received", recipient: subscriber.phone ?? "", status: "pending",
+          channel: "sms", event_type: "payment_received", recipient: subscriber.phone ?? "", status: "pending", scheduled_at: occ.occurrence_at,
           send_type: automation.send_type, schedule_type: automation.schedule_type, template_id: Number(template.id),
           automation_id: Number(automation.id), operation_key: `automation:${automation.id}:payment:${payment.id}`,
           payload: { renderedText: render(template.body, values), operationKey: `automation:${automation.id}:payment:${payment.id}`, automationId: Number(automation.id), occurrenceKey: occ.occurrence_key },
@@ -247,7 +247,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           rows.push({
             tenant_id: tenantId, subscriber_id: Number(subscriber.id), invoice_id: invoice?.id ?? null,
             channel: "sms", event_type: eventType === "subscriber_created" ? "subscriber_reference" : eventType,
-            recipient: subscriber.phone ?? "", status: "pending", send_type: automation.send_type,
+            recipient: subscriber.phone ?? "", status: "pending", scheduled_at: occ.occurrence_at, send_type: automation.send_type,
             schedule_type: automation.schedule_type, template_id: Number(template.id), automation_id: Number(automation.id),
             operation_key: operationKey, payload: { renderedText: textBody, operationKey, automationId: Number(automation.id), occurrenceKey: occ.occurrence_key },
           });

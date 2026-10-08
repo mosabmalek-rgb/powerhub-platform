@@ -1,18 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ rpc: vi.fn() }));
+const state = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 const provider = vi.hoisted(() => ({ send: vi.fn(), balance: vi.fn() }));
 
 vi.hoisted(() => { process.env.JWT_SECRET = "notification-worker-supabase-test-secret"; });
-vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => ({ rpc: state.rpc }) }));
+vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => ({ rpc: state.rpc, from: state.from }) }));
+vi.mock("./powerhub-supabase", () => ({ writeSupabaseAudit: vi.fn() }));
 vi.mock("./tweetsms-client", () => ({ sendTweetSms: provider.send, checkTweetSmsBalance: provider.balance }));
 
 import { encryptTenantCredential } from "./tenant-crypto";
-import { processNotificationById } from "./notification-worker";
+import { processAutomaticUnifiedNotifications, processNotificationById } from "./notification-worker";
 
 describe("عامل TweetSMS عبر Supabase", () => {
   beforeEach(() => {
     state.rpc.mockReset();
+    state.from.mockReset();
     provider.send.mockReset();
     provider.balance.mockReset();
   });
@@ -37,7 +39,7 @@ describe("عامل TweetSMS عبر Supabase", () => {
     expect(state.rpc).toHaveBeenNthCalledWith(2, "powerhub_finish_sms_notification", expect.objectContaining({ p_success: true, p_attempt_number: 1 }));
   });
 
-  it("يثبت الفشل بعد رفض المزود ولا يعيد محاولة الإرسال تلقائياً", async () => {
+  it("يثبت الفشل بعد رفض المزود ولا يعاود محاولة الإرسال تلقائياً", async () => {
     const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
     state.rpc
       .mockResolvedValueOnce({ data: [{ notification_id: 12, tenant_id: 20, recipient: "+970599000000", rendered_text: "فاتورتك جاهزة", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHup", attempt_number: 3, character_count: 13, segment_count: 1 }], error: null })
@@ -47,6 +49,76 @@ describe("عامل TweetSMS عبر Supabase", () => {
 
     await expect(processNotificationById(12, 7)).resolves.toMatchObject({ status: "failed", error: "رفض المزود" });
     expect(state.rpc).toHaveBeenNthCalledWith(2, "powerhub_finish_sms_notification", expect.objectContaining({ p_success: false, p_attempt_number: 3 }));
+  });
+
+  it("يحمي replay من إرسال المزود مرتين لنفس الإشعار", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 13, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: [{ notification_id: 13, status: "submitted" }], error: null })
+      .mockResolvedValueOnce({ data: [], error: null });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 }).mockResolvedValueOnce({ ok: true, balance: 9 });
+    provider.send.mockResolvedValueOnce({ ok: true, providerMessageId: "provider-13" });
+
+    await expect(processNotificationById(13, 7)).resolves.toMatchObject({ status: "submitted" });
+    await expect(processNotificationById(13, 7)).resolves.toMatchObject({ status: "skipped" });
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("لا يعلن submitted إذا فشل finish RPC", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 14, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: [], error: new Error("finish failed") });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 });
+    provider.send.mockResolvedValueOnce({ ok: true, providerMessageId: "provider-14" });
+
+    await expect(processNotificationById(14, 7)).resolves.toMatchObject({ status: "failed" });
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("يعالج الرسائل الموحدة المستحقة ويستثني invoice_issued والمجدولة مستقبلاً", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    const now = new Date("2026-10-08T10:00:00.000Z");
+    const pendingRows = [
+      { id: 21, tenant_id: 20, subscriber_id: 301 },
+      { id: 22, tenant_id: 20, subscriber_id: 302 },
+    ];
+    state.rpc.mockImplementation(async (name: string) => {
+      if (name === "powerhub_reclaim_stale_sms_notifications") return { data: 0, error: null };
+      if (name === "powerhub_claim_sms_notification") return { data: [{ notification_id: 21, tenant_id: 20, recipient: "+970599000000", rendered_text: "تم استلام الدفعة", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 15, segment_count: 1 }], error: null };
+      if (name === "powerhub_finish_sms_notification") return { data: [{ notification_id: 21, status: "submitted" }], error: null };
+      throw new Error(`unexpected rpc ${name}`);
+    });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 100 }).mockResolvedValueOnce({ ok: true, balance: 99 });
+    provider.send.mockResolvedValueOnce({ ok: true, providerMessageId: "provider-21" });
+    state.from.mockImplementation((table: string) => {
+      const query: any = {
+        select(value: string) { query.selection = value; return query; },
+        eq() { return query; }, in() { return query; }, neq() { return query; }, not() { return query; }, lte() { return query; },
+        order() { return query; }, limit() { return query; },
+        maybeSingle: async () => table === "users" ? { data: { id: 7 }, error: null } : { data: null, error: null },
+        insert: async () => ({ data: null, error: null }),
+        then(resolve: (value: unknown) => unknown) {
+          if (table === "notification_messages" && query.selection?.includes("tenant_id")) return Promise.resolve({ data: pendingRows, error: null }).then(resolve);
+          if (table === "notification_messages") return Promise.resolve({ data: [{ id: 21, subscriber_id: 301 }], error: null }).then(resolve);
+          if (table === "subscribers") return Promise.resolve({ data: [{ id: 301, tenant_id: 20, site_id: 30 }], error: null }).then(resolve);
+          return Promise.resolve({ data: [], error: null }).then(resolve);
+        },
+      };
+      return query;
+    });
+
+    await expect(processAutomaticUnifiedNotifications(now)).resolves.toMatchObject({ scanned: 1, submitted: 1, failed: 0 });
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("يعالج الدفعات الداخلية بحد 50 دون Promise.all غير محدود", async () => {
+    const source = await import("node:fs");
+    const worker = source.readFileSync(new URL("./notification-worker.ts", import.meta.url), "utf8");
+    expect(worker).toContain(".limit(200)");
+    expect(worker).toContain("Array.from(new Set(notificationIds)).slice(0, 50)");
+    expect(worker).not.toContain("Promise.all(Array.from(byScope");
   });
 
 });
