@@ -5,7 +5,7 @@ import { checkTweetSmsBalance, sendTweetSms, type TweetSmsCredentials } from "./
 import { normalizeInternationalPhone } from "../shared/phone";
 import { writeSupabaseAudit } from "./powerhub-supabase";
 
-type DispatchResult = { status: "submitted" | "failed" | "skipped"; providerMessageId?: string | null; error?: string };
+type DispatchResult = { status: "submitted" | "failed" | "skipped" | "needs_review"; providerMessageId?: string | null; error?: string };
 type SmsClaim = {
   notification_id: number;
   tenant_id: number;
@@ -114,7 +114,17 @@ export async function processNotificationById(notificationId: number, actorUserI
     p_error: sendError,
   });
   if (finishError || !(rawFinish as unknown[] | null)?.[0]) {
-    return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال؛ لا تعاود المحاولة قبل مراجعة سجل التدقيق." };
+    if (sent) {
+      const { error: reviewError } = await admin.rpc("powerhub_mark_sms_needs_review", {
+        p_user_id: actorUserId,
+        p_notification_id: claim.notification_id,
+        p_attempt_number: claim.attempt_number,
+        p_error: "تم قبول الرسالة والتحقق من خصم الرصيد، لكن تعذر تثبيت حالة الإرسال؛ أوقفت إعادة المحاولة التلقائية لحماية عدم التكرار.",
+      });
+      if (reviewError) return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال أو عزلها للمراجعة؛ راجع سجل التدقيق قبل أي إعادة محاولة." };
+      return { status: "needs_review", error: "تم قبول الإرسال لكن حالة النظام غير مؤكدة؛ أوقفت إعادة المحاولة التلقائية." };
+    }
+    return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال؛ راجع سجل التدقيق قبل إعادة المحاولة." };
   }
   if (!sent) return { status: "failed", error: sendError ?? "رفض مزود TweetSMS الإرسال." };
   return { status: "submitted", providerMessageId };
@@ -134,6 +144,7 @@ export async function processNotificationQueueForTenant(tenantId: number, actorU
     submitted: results.filter((result) => result.status === "submitted").length,
     failed: results.filter((result) => result.status === "failed").length,
     skipped: results.filter((result) => result.status === "skipped").length,
+    needsReview: results.filter((result) => result.status === "needs_review").length,
     results,
   };
 }
