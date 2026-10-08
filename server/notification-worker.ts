@@ -203,7 +203,7 @@ export async function processAutomaticUnifiedNotifications(now = new Date()) {
     byScope.set(key, group);
   }
 
-  const results: Array<{ tenantId: number; siteId: number; scanned: number; submitted: number; failed: number; skipped: number }> = [];
+  const results: Array<{ tenantId: number; siteId: number; scanned: number; submitted: number; failed: number; skipped: number; needsReview: number }> = [];
   for (const { tenantId, siteId, ids: notificationIds } of byScope.values()) {
     // Re-read the tenant scope before invoking the worker. Never hand a mixed-tenant
     // ID list to a tenant worker, even if the queue changed between the two reads.
@@ -224,7 +224,7 @@ export async function processAutomaticUnifiedNotifications(now = new Date()) {
       .filter(Number.isInteger);
     if (!scopedIds.length) continue;
 
-    const totals = { requested: 0, submitted: 0, failed: 0, skipped: 0 };
+    const totals = { requested: 0, submitted: 0, failed: 0, skipped: 0, needsReview: 0 };
     for (let offset = 0; offset < scopedIds.length; offset += 50) {
       const batch = scopedIds.slice(offset, offset + 50);
       const result = await processNotificationQueueForTenant(tenantId, Number(actor.id), batch);
@@ -232,6 +232,7 @@ export async function processAutomaticUnifiedNotifications(now = new Date()) {
       totals.submitted += result.submitted;
       totals.failed += result.failed;
       totals.skipped += result.skipped;
+      totals.needsReview += result.needsReview ?? 0;
     }
     const summary = {
       tenantId,
@@ -240,6 +241,7 @@ export async function processAutomaticUnifiedNotifications(now = new Date()) {
       submitted: totals.submitted,
       failed: totals.failed,
       skipped: totals.skipped,
+      needsReview: totals.needsReview,
     };
     results.push(summary);
     await writeSupabaseAudit({
@@ -258,6 +260,7 @@ export async function processAutomaticUnifiedNotifications(now = new Date()) {
     submitted: results.reduce((sum, row) => sum + row.submitted, 0),
     failed: results.reduce((sum, row) => sum + row.failed, 0),
     skipped: results.reduce((sum, row) => sum + row.skipped, 0),
+    needsReview: results.reduce((sum, row) => sum + row.needsReview, 0),
     results,
   };
 }
@@ -315,6 +318,7 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
       submitted: result.submitted,
       failed: result.failed,
       skipped: result.skipped,
+      needsReview: result.needsReview ?? 0,
     };
 
     // Keep the existing operational audit trail, but explicitly identify this
@@ -335,6 +339,7 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
         submitted: result.submitted,
         failed: result.failed,
         skipped: result.skipped,
+        needs_review: result.needsReview ?? 0,
         error: null,
         task_uid: "supabase:invoice-sms-dispatch:v2",
         started_at: now.toISOString(),
@@ -349,6 +354,7 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
     submitted: results.reduce((sum, row) => sum + row.submitted, 0),
     failed: results.reduce((sum, row) => sum + row.failed, 0),
     skipped: results.reduce((sum, row) => sum + row.skipped, 0),
+    needsReview: results.reduce((sum, row) => sum + row.needsReview, 0),
     results,
   };
 }
