@@ -81,13 +81,24 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
   if (claim.error) throw new Error("تعذر حجز دورة الأتمتة.");
   if (claim.data !== true && !(Array.isArray(claim.data) && claim.data[0] === true)) return { status: "skipped", requested: 0, queued: 0, failed: 0, skipped: 0 };
 
+  async function finishRun(status: "completed" | "skipped" | "failed", requested: number, queued: number, skippedCount: number, failed: number, error: string | null) {
+    const result = await admin.rpc("powerhub_finish_unified_automation_run", {
+      p_tenant_id: Number(automation.tenant_id),
+      p_automation_id: Number(automation.id),
+      p_occurrence_key: String(occ.occurrence_key),
+      p_status: status,
+      p_requested: requested,
+      p_queued: queued,
+      p_skipped: skippedCount,
+      p_failed: failed,
+      p_error: error,
+    });
+    if (result.error) throw new Error("تعذر تثبيت نتيجة دورة الأتمتة.");
+  }
+
   const template = automation.template;
   if (!template?.is_active || template.channel !== "sms") {
-    await admin.rpc("powerhub_finish_unified_automation_run", {
-      p_tenant_id: Number(automation.tenant_id), p_automation_id: Number(automation.id),
-      p_occurrence_key: String(occ.occurrence_key), p_status: "skipped",
-      p_requested: 0, p_queued: 0, p_skipped: 0, p_failed: 0, p_error: "TEMPLATE_DISABLED",
-    });
+    await finishRun("skipped", 0, 0, 0, 0, "TEMPLATE_DISABLED");
     return { status: "skipped", requested: 0, queued: 0, failed: 0, skipped: 0 };
   }
 
@@ -262,11 +273,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
     }
   }
 
-  await admin.rpc("powerhub_finish_unified_automation_run", {
-    p_tenant_id: tenantId, p_automation_id: Number(automation.id), p_occurrence_key: String(occ.occurrence_key),
-    p_status: "completed", p_requested: requestedCount, p_queued: queuedCount,
-    p_skipped: skipped, p_failed: 0, p_error: null,
-  });
+  await finishRun("completed", requestedCount, queuedCount, skipped, 0, null);
   await writeSupabaseAudit({
     userId: actorUserId, tenantId, siteId, entityType: "message_automation", entityId: String(automation.id),
     action: "execute", metadata: { occurrenceKey: occ.occurrence_key, requested: requestedCount, queued: queuedCount, submitted: 0, failed: 0, skipped },
@@ -276,7 +283,8 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
 
 export async function processUnifiedMessagingAutomations(now = new Date()) {
   const admin = supabaseAdmin();
-  await admin.rpc("powerhub_reclaim_stale_sms_notifications", { p_limit: 200 });
+  const { error: reclaimError } = await admin.rpc("powerhub_reclaim_stale_sms_notifications", { p_limit: 200 });
+  if (reclaimError) throw new Error("تعذر استرداد رسائل المراسلة الموحدة العالقة قبل بدء دورة الأتمتة.");
   const { data: rows, error } = await admin.from("powerhub_message_automations")
     .select("id,tenant_id,site_id,template_id,name,event_type,send_type,schedule_type,schedule_anchor_at,timezone,audience,trigger_config,created_at")
     .eq("enabled", true).is("archived_at", null);
