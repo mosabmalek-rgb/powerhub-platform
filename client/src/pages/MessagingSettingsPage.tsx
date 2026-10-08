@@ -38,7 +38,7 @@ const previewValues: Record<string, string> = {
   billing_period: "آب 2026", total_amount: "33,000", balance_due: "18,000", due_date: "31 آب 2026",
   invoice_link: "https://powerhub.example/invoice/INV-2026-00125", portal_link: "https://powerhub.example/portal?g=MAIN",
 };
-const statusLabels: Record<string, string> = { pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "مرسلة", delivered: "مرسلة", read: "مرسلة", failed: "غير مرسلة" };
+const statusLabels: Record<string, string> = { pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "مرسلة", delivered: "مرسلة", read: "مرسلة", failed: "غير مرسلة", needs_review: "تحتاج مراجعة" };
 const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|due_date|invoice_link|portal_link)\s*}}/g, (_, key) => previewValues[key] ?? "");
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
@@ -49,10 +49,17 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
     { siteId },
     { refetchInterval: 15000 }
   );
+  const resolveReview = trpc.powerhub.notifications.resolveSmsNeedsReview.useMutation({
+    onSuccess: async () => {
+      await failedQuery.refetch();
+      toast.success("تم تثبيت نتيجة مراجعة الرسالة.");
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const retry = trpc.powerhub.notifications.retryFailedSmsBatch.useMutation({
     onSuccess: async (result) => {
       await utils.powerhub.notifications.listFailedSms.invalidate();
-      toast.success(`تمت معالجة إعادة الإرسال: ${result.submitted} ناجحة، ${result.failed} فاشلة، ${result.skipped} متجاوزة.`);
+      toast.success(`تمت معالجة إعادة الإرسال: ${result.submitted} ناجحة، ${result.failed} فاشلة، ${result.skipped} متجاوزة${result.needsReview ? `، ${result.needsReview} تحتاج مراجعة` : ""}.`);
     },
     onError: (error) => toast.error(error.message),
   });
@@ -69,7 +76,7 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2"><CircleAlert className="h-5 w-5 text-rose-300" /><h2 className="font-bold text-white">الرسائل الفاشلة</h2></div>
-          <p className="mt-1 text-sm leading-6 text-slate-400">مكان موحّد لرسائل SMS التي لم تُرسل، سواء أُنشئت آلياً مع إصدار الفاتورة أو أُرسلت يدوياً.</p>
+          <p className="mt-1 text-sm leading-6 text-slate-400">مكان موحّد لرسائل SMS الفاشلة والرسائل التي تحتاج مراجعة بسبب نتيجة تسليم غير مؤكدة. الرسائل غير المؤكدة لا تُعاد تلقائياً.</p>
         </div>
         <Button type="button" variant="outline" onClick={() => failedQuery.refetch()} disabled={failedQuery.isFetching}><RotateCcw className={`ml-2 h-4 w-4 ${failedQuery.isFetching ? "animate-spin" : ""}`} />تحديث</Button>
       </div>
@@ -84,10 +91,10 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
             <td className="px-3 py-3"><div className="font-medium text-white">{row.subscriber.name}</div><div className="text-xs text-slate-500">{row.subscriber.phone}</div>{row.invoice ? <div className="text-xs text-slate-500">فاتورة {row.invoice.invoiceNo}</div> : null}</td>
             <td className="px-3 py-3 text-slate-300">{row.notification.eventType === "invoice_issued" ? "فاتورة" : row.notification.eventType === "payment_reminder" ? "تذكير" : row.notification.eventType === "payment_received" ? "إيصال دفع" : row.notification.eventType}</td>
             <td className="px-3 py-3">{row.source === "automatic" ? <Badge className="bg-sky-400/10 text-sky-300">آلي</Badge> : <Badge className="bg-amber-400/10 text-amber-200">يدوي</Badge>}</td>
-            <td className="px-3 py-3"><Badge className="bg-rose-400/10 text-rose-300">غير مرسلة</Badge></td>
+            <td className="px-3 py-3"><Badge className={row.notification.status === "needs_review" ? "bg-amber-400/10 text-amber-200" : "bg-rose-400/10 text-rose-300"}>{row.notification.status === "needs_review" ? "تحتاج مراجعة" : "غير مرسلة"}</Badge></td>
             <td className="px-3 py-3 text-slate-300">{row.notification.attempts}</td>
             <td className="max-w-xs px-3 py-3 text-xs text-rose-200">{row.notification.lastError ?? "—"}</td>
-            <td className="px-3 py-3"><Button type="button" size="sm" variant="outline" disabled={row.notification.status !== "failed" || retry.isPending} onClick={() => retry.mutate({ siteId, notificationIds: [row.notification.id] })}>إعادة إرسال</Button></td>
+            <td className="px-3 py-3">{row.notification.status === "needs_review" ? <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" disabled={resolveReview.isPending} onClick={() => resolveReview.mutate({ siteId, notificationId: row.notification.id, resolution: "submitted" })}>تأكيد أنها أُرسلت</Button><Button type="button" size="sm" variant="outline" disabled={resolveReview.isPending} onClick={() => resolveReview.mutate({ siteId, notificationId: row.notification.id, resolution: "failed", reason: "تمت المراجعة يدوياً وتأكيد عدم التسليم." })}>تأكيد فشلها</Button></div> : <Button type="button" size="sm" variant="outline" disabled={row.notification.status !== "failed" || retry.isPending} onClick={() => retry.mutate({ siteId, notificationIds: [row.notification.id] })}>إعادة إرسال</Button>}</td>
           </tr>)}
         </tbody></table></div>}
     </CardContent>
