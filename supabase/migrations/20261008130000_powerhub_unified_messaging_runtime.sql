@@ -373,8 +373,7 @@ begin
   if v_template_tenant is null or v_template_tenant <> p_tenant_id or v_template_active is not true then
     raise exception 'TEMPLATE_OUT_OF_SCOPE' using errcode='P0001';
   end if;
-  if p_event_type <> 'service_alert'
-     and nullif((select event_type from public.powerhub_message_templates where id=p_template_id),'') is not null
+  if nullif((select event_type from public.powerhub_message_templates where id=p_template_id),'') is not null
      and (select event_type from public.powerhub_message_templates where id=p_template_id) <> p_event_type then
     raise exception 'TEMPLATE_EVENT_MISMATCH' using errcode='P0001';
   end if;
