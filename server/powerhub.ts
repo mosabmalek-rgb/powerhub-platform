@@ -337,7 +337,7 @@ async function sendPendingInvoiceSmsRuntime(
       action: "send_invoice_sms_batch",
       metadata: { notificationIds: [], requested: 0, submitted: 0, failed: 0, skipped: 0, internalBatchSize: 50, includeFailed: input.includeFailed, dueOnly: Boolean(input.dueOnly) },
     });
-    return { requested: 0, submitted: 0, failed: 0, skipped: 0, results: [] as Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; error?: string }> };
+    return { requested: 0, submitted: 0, failed: 0, skipped: 0, needsReview: 0, results: [] as Array<{ notificationId: number; status: "submitted" | "failed" | "skipped" | "needs_review"; error?: string }> };
   }
 
   const { data: notificationRows, error: notificationLookupError } = await admin
@@ -379,6 +379,7 @@ async function sendPendingInvoiceSmsRuntime(
     submitted: results.reduce((sum, item) => sum + item.submitted, 0),
     failed: results.reduce((sum, item) => sum + item.failed, 0),
     skipped: results.reduce((sum, item) => sum + item.skipped, 0) + skippedIds.length,
+    needsReview: results.reduce((sum, item) => sum + (item.needsReview ?? 0), 0),
     results: results.flatMap((item) => item.results ?? []).concat(skippedIds.map((notificationId) => ({ notificationId, status: "skipped" as const, error: "رقم الهاتف غير صالح أو المشترك خارج نطاق الفرع." }))),
   };
 
@@ -395,6 +396,7 @@ async function sendPendingInvoiceSmsRuntime(
       submitted: result.submitted,
       failed: result.failed,
       skipped: result.skipped,
+      needsReview: result.needsReview,
       internalBatchSize: 50,
       includeFailed: input.includeFailed,
       dueOnly: Boolean(input.dueOnly),
