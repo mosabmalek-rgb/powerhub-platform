@@ -27,6 +27,12 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("notification_messages_automation_runtime_idx");
   });
 
+  it("does not allow an automation run to report completion when finalization fails", () => {
+    expect(runtime).toContain('async function finishRun(status: "completed" | "skipped" | "failed"');
+    expect(runtime).toContain('if (result.error) throw new Error("تعذر تثبيت نتيجة دورة الأتمتة.");');
+    expect(runtime).toContain('await finishRun("completed", requestedCount, queuedCount, skipped, 0, null);');
+  });
+
   it("keeps recurring service alerts unique per occurrence while subscriber creation stays one-time", () => {
     expect(runtime).toContain('eventType === "service_alert"');
     expect(runtime).toContain(':occurrence:${occ.occurrence_key}');
