@@ -466,7 +466,7 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       const [accountResult, usageResult, quotaResult] = await Promise.all([
         admin.from("tenant_tweetsms_accounts").select("sender_name, monthly_limit, is_active, credential_ciphertext, last_error").eq("tenant_id", scope.tenantId).maybeSingle(),
-        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read"]),
+        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
         admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: scope.tenantId, p_resource: "sms" }),
       ]);
       if (accountResult.error || usageResult.error || quotaResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة الرسائل من Supabase." });
@@ -489,7 +489,7 @@ export const powerhubRouter = router({
       ]);
       if (accountResult.error || messagesResult.error || monthUsageResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استخدام الرسائل من Supabase." });
       const messages = messagesResult.data ?? [];
-      const daily = new Map<string, number>(); for (const message of messages) { if (!["processing", "submitted", "delivered", "read"].includes(message.status)) continue; const key = new Date(message.created_at).toISOString().slice(0, 10); daily.set(key, (daily.get(key) ?? 0) + Math.max(1, Number(message.segment_count ?? 1))); }
+      const daily = new Map<string, number>(); for (const message of messages) { if (!["processing", "submitted", "delivered", "read", "needs_review"].includes(message.status)) continue; const key = new Date(message.created_at).toISOString().slice(0, 10); daily.set(key, (daily.get(key) ?? 0) + Math.max(1, Number(message.segment_count ?? 1))); }
       const today = new Date(); const points = Array.from({ length: 14 }, (_, index) => { const date = new Date(today); date.setDate(today.getDate() - (13 - index)); const key = date.toISOString().slice(0, 10); return { date: key, count: daily.get(key) ?? 0 }; });
       const included = Number(accountResult.data?.monthly_limit ?? 0); const additional = 0; const total = included; const used = (monthUsageResult.data ?? []).reduce((sum, message) => sum + Math.max(1, Number(message.segment_count ?? 1)), 0);
       return { points, included, additional, total, used, remaining: Math.max(0, total - used) };
