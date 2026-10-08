@@ -129,6 +129,7 @@ create table if not exists public.powerhub_message_automation_runs (
   started_at timestamptz not null default now(),
   finished_at timestamptz,
   error text,
+  lease_until timestamptz not null default (now() + interval '15 minutes'),
   unique (automation_id, occurrence_key)
 );
 
@@ -672,11 +673,41 @@ language plpgsql
 security invoker
 set search_path=public,pg_temp
 as $function$
+declare
+  v_id bigint;
+  v_status text;
+  v_lease_until timestamptz;
 begin
-  insert into public.powerhub_message_automation_runs(tenant_id,site_id,automation_id,occurrence_key,status)
-  values(p_tenant_id,p_site_id,p_automation_id,p_occurrence_key,'processing')
-  on conflict (automation_id,occurrence_key) do nothing;
-  return found;
+  select id,status,lease_until
+  into v_id,v_status,v_lease_until
+  from public.powerhub_message_automation_runs
+  where tenant_id=p_tenant_id
+    and automation_id=p_automation_id
+    and occurrence_key=p_occurrence_key
+  for update;
+
+  if found then
+    if v_status='processing' and (v_lease_until is null or v_lease_until <= now()) then
+      update public.powerhub_message_automation_runs
+      set status='processing',
+          started_at=now(),
+          finished_at=null,
+          lease_until=now() + interval '15 minutes',
+          error=null
+      where id=v_id;
+      return true;
+    end if;
+    return false;
+  end if;
+
+  insert into public.powerhub_message_automation_runs(
+    tenant_id,site_id,automation_id,occurrence_key,status,lease_until
+  )
+  values(
+    p_tenant_id,p_site_id,p_automation_id,p_occurrence_key,'processing',
+    now() + interval '15 minutes'
+  );
+  return true;
 end;
 $function$;
 
@@ -704,8 +735,11 @@ begin
       skipped=p_skipped,
       failed=p_failed,
       error=nullif(left(coalesce(p_error,''),2000),''),
-      finished_at=now()
-  where tenant_id=p_tenant_id and automation_id=p_automation_id and occurrence_key=p_occurrence_key;
+      finished_at=now(),
+      lease_until=null
+  where tenant_id=p_tenant_id
+    and automation_id=p_automation_id
+    and occurrence_key=p_occurrence_key;
 end;
 $function$;
 
