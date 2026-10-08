@@ -721,7 +721,7 @@ revoke execute on function public.powerhub_finish_unified_automation_run(bigint,
 
 grant execute on function public.powerhub_public_base_url() to service_role;
 grant execute on function public.powerhub_unified_messaging_upsert_template_v2(bigint,bigint,text,text,text,text,text,jsonb,boolean,bigint,text) to service_role;
-grant execute on function public.powerhub_unified_messaging_upsert_automation_v2(bigint,bigint,bigint,text,text,text,text,timestamptz,text,jsonb,jsonb,boolean,bigint) to service_role;
+grant execute on function public.powerhub_unified_messaging_upsert_automation_v2(bigint,bigint,bigint,bigint,text,text,text,text,timestamptz,text,jsonb,jsonb,boolean,bigint) to service_role;
 grant execute on function public.powerhub_unified_messaging_set_automation_state(bigint,bigint,bigint,boolean,boolean,bigint) to service_role;
 grant execute on function public.powerhub_prepare_manual_message_campaign(bigint,bigint,bigint,uuid,bigint[],bigint) to service_role;
 grant execute on function public.powerhub_unified_messaging_campaign(bigint,bigint,uuid) to service_role;
