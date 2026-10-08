@@ -48,6 +48,13 @@ describe("unified messaging runtime contract", () => {
     expect(reminderMigration).toContain("operation_key = trim(p_operation_key)");
   });
 
+  it("rejects invoice_issued as a generic automation and validates retry campaign site scope", () => {
+    expect(runtime).toContain('input.eventType==="invoice_issued"');
+    expect(runtime).toContain("إصدار الفاتورة يُدار عبر مسار رسائل الفاتورة الموحد");
+    expect(runtime).toContain('.eq("site_id",input.siteId).maybeSingle()');
+    expect(runtime).toContain("الحملة غير موجودة ضمن الفرع المحدد.");
+  });
+
   it("exposes real manual messaging controls in the UI", () => {
     expect(ui).toContain("إرسال يدوي");
     expect(ui).toContain("تحديد الظاهر");
