@@ -817,8 +817,11 @@ begin
   values(
     p_tenant_id,p_site_id,p_automation_id,p_occurrence_key,'processing',
     now() + interval '15 minutes'
-  );
-  return true;
+  )
+  on conflict (automation_id, occurrence_key) do nothing
+  returning id into v_id;
+
+  return v_id is not null;
 end;
 $function$;
 
