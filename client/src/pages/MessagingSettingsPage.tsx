@@ -229,7 +229,7 @@ function UnifiedMessagingPanel({ siteId }: { siteId: number }) {
       <div className="space-y-3 rounded-xl border border-emerald-400/15 p-4">
         <div><h3 className="font-bold text-white">إرسال يدوي</h3><p className="mt-1 text-xs text-slate-500">اختيار المشتركين يتم من الفرع الحالي فقط. الحد الأقصى 500 مستلم للحملة، وإعادة الطلب بنفس operationId لا تنشئ رسائل ثانية.</p></div>
         <div className="grid gap-3 md:grid-cols-3">
-          <select className={inputClass} value={manualTemplateId ?? ""} onChange={(e) => setManualTemplateId(Number(e.target.value) || null)}><option value="">اختر قالب SMS</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+          <select className={inputClass} value={manualTemplateId ?? ""} onChange={(e) => setManualTemplateId(Number(e.target.value) || null)}><option value="">اختر قالب SMS</option>{manualSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
           <input className={inputClass} value={manualSearch} onChange={(e) => setManualSearch(e.target.value)} placeholder="بحث بالاسم أو الرقم أو الهاتف" />
           <Button type="button" variant="outline" onClick={toggleAll}>{filteredSubscribers.length && filteredSubscribers.every((s: any) => selectedSubscribers.includes(Number(s.id))) ? "إلغاء تحديد الظاهر" : "تحديد الظاهر"}</Button>
         </div>
