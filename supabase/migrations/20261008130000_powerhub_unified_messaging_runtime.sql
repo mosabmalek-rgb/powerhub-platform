@@ -460,27 +460,26 @@ begin
     raise exception 'SUBSCRIBER_OUT_OF_SCOPE' using errcode='P0001';
   end if;
 
-  select *
-  into v_campaign
+insert into public.powerhub_message_campaigns(
+  tenant_id,site_id,template_id,operation_id,status,requested,created_by
+) values (
+  p_tenant_id,p_site_id,p_template_id,p_operation_id,'queued',array_length(v_ids,1),p_actor_user_id
+)
+on conflict (tenant_id,site_id,operation_id) do nothing
+returning * into v_campaign;
+
+if v_campaign.id is null then
+  select * into v_campaign
   from public.powerhub_message_campaigns
   where tenant_id=p_tenant_id and site_id=p_site_id and operation_id=p_operation_id
   for update;
-
-  if found then
-    campaign_id := v_campaign.id;
-    requested := v_campaign.requested;
-    queued := v_campaign.queued;
-    replayed := true;
-    return next;
-    return;
-  end if;
-
-  insert into public.powerhub_message_campaigns(
-    tenant_id,site_id,template_id,operation_id,status,requested,created_by
-  ) values (
-    p_tenant_id,p_site_id,p_template_id,p_operation_id,'queued',array_length(v_ids,1),p_actor_user_id
-  )
-  returning * into v_campaign;
+  campaign_id := v_campaign.id;
+  requested := v_campaign.requested;
+  queued := v_campaign.queued;
+  replayed := true;
+  return next;
+  return;
+end if;
 
   v_base_url := public.powerhub_public_base_url();
 
@@ -501,7 +500,7 @@ begin
     v_rendered := replace(v_rendered,'{{portal_link}}',
       case when v_portal_code is null then '' else v_base_url || '/portal?g=' || v_portal_code end);
 
-    if v_rendered ~ '{{s*(invoice_no|billing_period|total_amount|balance_due|due_date|invoice_link)s*}}' then
+    if v_rendered ~ '{{\\s*(invoice_no|billing_period|total_amount|balance_due|due_date|invoice_link)\\s*}}' then
       raise exception 'MANUAL_TEMPLATE_CONTEXT_REQUIRED' using errcode='P0001';
     end if;
 
