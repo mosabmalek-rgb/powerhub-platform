@@ -118,7 +118,15 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       ignoreDuplicates: true,
     }).select("id");
     if (result.error) throw new Error("تعذر إدخال رسائل الأتمتة إلى الطابور.");
-    queuedCount += result.data?.length ?? 0;
+    const operationKeys = rows.map((row) => String(row.operation_key)).filter(Boolean);
+    if (!operationKeys.length) return;
+    const { data: persistedRows, error: persistedError } = await admin
+      .from("notification_messages")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .in("operation_key", operationKeys);
+    if (persistedError) throw new Error("تعذر التحقق من رسائل الأتمتة المثبتة في الطابور.");
+    queuedCount += new Set((persistedRows ?? []).map((row: any) => Number(row.id)).filter(Number.isInteger)).size;
   }
 
   async function heartbeat() {
