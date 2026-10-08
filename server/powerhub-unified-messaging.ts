@@ -284,6 +284,7 @@ export const powerhubUnifiedMessagingRouter = router({
   })).mutation(async ({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageMessaging");
     if(input.sendType==="manual") throw new TRPCError({code:"BAD_REQUEST",message:"الإرسال اليدوي لا يُحفظ كأتمتة؛ استخدم حملة يدوية."});
+    if(input.eventType==="invoice_issued") throw new TRPCError({code:"BAD_REQUEST",message:"إصدار الفاتورة يُدار عبر مسار رسائل الفاتورة الموحد وإعداد دورة الإرسال؛ لا تُنشئ له أتمتة منفصلة."});
     const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_upsert_automation_v2",{
       p_id:input.id??null,p_tenant_id:access.tenantId,p_site_id:input.siteId,p_template_id:input.templateId,p_name:input.name,p_event_type:input.eventType,
       p_send_type:input.sendType,p_schedule_type:input.scheduleType,p_schedule_anchor_at:input.scheduleAnchorAt?.toISOString()??null,p_timezone:input.timezone,
@@ -332,6 +333,9 @@ export const powerhubUnifiedMessagingRouter = router({
 
   retryFailed: protectedProcedure.input(z.object({siteId:z.number().int().positive(),campaignId:z.number().int().positive()})).mutation(async({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageMessaging");
+    const campaign=await supabaseAdmin().from("powerhub_message_campaigns")
+      .select("id,site_id").eq("id",input.campaignId).eq("tenant_id",access.tenantId).eq("site_id",input.siteId).maybeSingle();
+    if(campaign.error || !campaign.data) throw new TRPCError({code:"NOT_FOUND",message:"الحملة غير موجودة ضمن الفرع المحدد."});
     const rows=await supabaseAdmin().from("powerhub_message_campaign_recipients").select("notification_id").eq("campaign_id",input.campaignId);
     const ids=(rows.data??[]).map((r:any)=>Number(r.notification_id)).filter(Number.isInteger);
     const failed=await supabaseAdmin().from("notification_messages").select("id").eq("tenant_id",access.tenantId).in("id",ids).eq("status","failed");
