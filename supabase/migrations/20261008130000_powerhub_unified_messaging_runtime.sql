@@ -885,6 +885,8 @@ begin
 end;
 $function$;
 
+revoke execute on function public.powerhub_sync_invoice_sms_template(bigint,text,boolean,bigint,text) from public,anon,authenticated;
+revoke execute on function public.powerhub_touch_unified_automation_run(bigint,bigint,text) from public,anon,authenticated;
 revoke execute on function public.powerhub_public_base_url() from public,anon,authenticated;
 revoke execute on function public.powerhub_unified_messaging_upsert_template_v2(bigint,bigint,text,text,text,text,text,jsonb,boolean,bigint,text) from public,anon,authenticated;
 revoke execute on function public.powerhub_unified_messaging_upsert_automation_v2(bigint,bigint,bigint,bigint,text,text,text,text,timestamptz,text,jsonb,jsonb,boolean,bigint) from public,anon,authenticated;
