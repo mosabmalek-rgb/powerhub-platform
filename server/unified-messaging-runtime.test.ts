@@ -61,6 +61,12 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("TEMPLATE_OUT_OF_SCOPE");
   });
 
+  it("uses a conflict-safe automation claim for concurrent occurrences", () => {
+    expect(migration).toContain("on conflict (automation_id, occurrence_key) do nothing");
+    expect(migration).toContain("returning id into v_id");
+    expect(migration).toContain("return v_id is not null;");
+  });
+
   it("locks internal runtime RPCs to service role only", () => {
     expect(migration).toContain("revoke execute on function public.powerhub_sync_invoice_sms_template");
     expect(migration).toContain("revoke execute on function public.powerhub_touch_unified_automation_run");
