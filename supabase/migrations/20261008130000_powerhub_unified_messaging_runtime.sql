@@ -1,3 +1,36 @@
+alter table public.powerhub_message_campaigns enable row level security;
+alter table public.powerhub_message_campaign_recipients enable row level security;
+alter table public.powerhub_message_automation_runs enable row level security;
+revoke all on public.powerhub_message_campaigns from anon, authenticated;
+revoke all on public.powerhub_message_campaign_recipients from anon, authenticated;
+revoke all on public.powerhub_message_automation_runs from anon, authenticated;
+
+create or replace function public.powerhub_unified_messaging_automations(
+  p_tenant_id bigint,
+  p_site_id bigint default null
+)
+returns table(
+  id bigint, tenant_id bigint, site_id bigint, template_id bigint, template_name text, name text,
+  event_type text, send_type text, schedule_type text, schedule_anchor_at timestamptz, timezone text,
+  audience jsonb, trigger_config jsonb, enabled boolean, created_at timestamptz, updated_at timestamptz
+)
+language sql
+security definer
+set search_path = public, pg_temp
+as $function$
+  select a.id,a.tenant_id,a.site_id,a.template_id,t.name,a.name,a.event_type,a.send_type,a.schedule_type,
+         a.schedule_anchor_at,a.timezone,a.audience,a.trigger_config,a.enabled,a.created_at,a.updated_at
+  from public.powerhub_message_automations a
+  join public.powerhub_message_templates t on t.id=a.template_id
+  where a.tenant_id=p_tenant_id
+    and (p_site_id is null or a.site_id=p_site_id)
+    and a.archived_at is null
+  order by a.enabled desc,a.updated_at desc,a.id desc;
+$function$;
+
+revoke execute on function public.powerhub_unified_messaging_automations(bigint,bigint) from public,anon,authenticated;
+grant execute on function public.powerhub_unified_messaging_automations(bigint,bigint) to service_role;
+
 -- PowerHub: unified messaging runtime, campaigns, deterministic execution and lifecycle hardening.
 -- This migration completes PR 189's operational domain without changing existing reading-cycle rules.
 
