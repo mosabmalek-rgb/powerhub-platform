@@ -678,6 +678,18 @@ declare
   v_status text;
   v_lease_until timestamptz;
 begin
+  if not exists (
+    select 1
+    from public.powerhub_message_automations a
+    where a.id=p_automation_id
+      and a.tenant_id=p_tenant_id
+      and a.site_id=p_site_id
+      and a.enabled=true
+      and a.archived_at is null
+  ) then
+    raise exception 'AUTOMATION_NOT_ACTIVE' using errcode='P0001';
+  end if;
+
   select id,status,lease_until
   into v_id,v_status,v_lease_until
   from public.powerhub_message_automation_runs
@@ -693,7 +705,8 @@ begin
           started_at=now(),
           finished_at=null,
           lease_until=now() + interval '15 minutes',
-          error=null
+          error=null,
+          site_id=p_site_id
       where id=v_id;
       return true;
     end if;
@@ -722,13 +735,22 @@ security invoker
 set search_path=public,pg_temp
 as $function$
 begin
-  update public.powerhub_message_automation_runs
+  update public.powerhub_message_automation_runs runs
   set lease_until=now() + interval '15 minutes'
-  where tenant_id=p_tenant_id
-    and automation_id=p_automation_id
-    and occurrence_key=p_occurrence_key
-    and status='processing'
-    and (lease_until is null or lease_until > now());
+  where runs.tenant_id=p_tenant_id
+    and runs.automation_id=p_automation_id
+    and runs.occurrence_key=p_occurrence_key
+    and runs.status='processing'
+    and (runs.lease_until is null or runs.lease_until > now())
+    and exists (
+      select 1
+      from public.powerhub_message_automations a
+      where a.id=runs.automation_id
+        and a.tenant_id=runs.tenant_id
+        and a.site_id=runs.site_id
+        and a.enabled=true
+        and a.archived_at is null
+    );
   return found;
 end;
 $function$;
