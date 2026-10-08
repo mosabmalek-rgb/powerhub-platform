@@ -28,6 +28,13 @@ grant execute on function public.powerhub_unified_messaging_automations(bigint,b
 -- This migration completes PR 189's operational domain without changing existing reading-cycle rules.
 
 alter table public.notification_messages
+  add column if not exists automation_id bigint references public.powerhub_message_automations(id) on delete set null;
+
+create index if not exists notification_messages_automation_runtime_idx
+  on public.notification_messages (tenant_id, automation_id, status, scheduled_at, id)
+  where automation_id is not null;
+
+alter table public.notification_messages
   add column if not exists operation_key text;
 
 with ranked as (
