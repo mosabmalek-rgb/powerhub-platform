@@ -49,6 +49,15 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("TEMPLATE_OUT_OF_SCOPE");
   });
 
+  it("locks internal runtime RPCs to service role only", () => {
+    expect(migration).toContain("revoke execute on function public.powerhub_sync_invoice_sms_template");
+    expect(migration).toContain("revoke execute on function public.powerhub_touch_unified_automation_run");
+    expect(migration).toContain("grant execute on function public.powerhub_sync_invoice_sms_template");
+    expect(migration).toContain("grant execute on function public.powerhub_touch_unified_automation_run");
+    expect(migration).not.toContain("grant execute on function public.powerhub_sync_invoice_sms_template" + " to authenticated");
+    expect(migration).not.toContain("grant execute on function public.powerhub_touch_unified_automation_run" + " to authenticated");
+  });
+
   it("uses the configurable public URL and operation-key index", () => {
     expect(migration).toContain("powerhub_public_base_url");
     expect(migration).toContain("notification_messages_operation_lookup_idx");
