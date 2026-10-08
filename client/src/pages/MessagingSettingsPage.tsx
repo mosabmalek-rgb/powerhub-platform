@@ -154,6 +154,9 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     if (!t) return;
     setTemplateId(t.id); setName(t.name); setBody(t.body);
     setEventType(t.eventType ?? "invoice_issued");
+    if (t.eventType === "invoice_issued" && t.channel === "sms") {
+      setInvoiceStyle(t.invoiceStyle === "portal_link" ? "portal_link" : "details");
+    }
   };
   const loadAutomation = (id: number) => {
     const a: any = (automations.data ?? []).find((row: any) => row.id === id);
