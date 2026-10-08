@@ -96,6 +96,12 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
 
 
 function UnifiedMessagingPanel({ siteId }: { siteId: number }) {
+  const unifiedMessaging = (trpc.powerhub as typeof trpc.powerhub & { unifiedMessaging?: unknown }).unifiedMessaging;
+  if (!unifiedMessaging) return null;
+  return <UnifiedMessagingPanelContent siteId={siteId} />;
+}
+
+function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const utils = trpc.useUtils();
   const templates = trpc.powerhub.unifiedMessaging.templates.useQuery({ siteId });
   const automations = trpc.powerhub.unifiedMessaging.automations.useQuery({ siteId });
