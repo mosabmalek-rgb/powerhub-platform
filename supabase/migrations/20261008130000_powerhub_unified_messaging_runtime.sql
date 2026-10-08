@@ -447,7 +447,8 @@ begin
   for share;
   if not found then raise exception 'TEMPLATE_OUT_OF_SCOPE' using errcode='P0001'; end if;
   if v_template.channel <> 'sms' then raise exception 'MANUAL_SMS_ONLY' using errcode='P0001'; end if;
-  if v_template.event_type not in (null,'subscriber_created','service_alert') then
+  if v_template.event_type is not null
+     and v_template.event_type not in ('subscriber_created','service_alert') then
     raise exception 'MANUAL_TEMPLATE_CONTEXT_REQUIRED' using errcode='P0001';
   end if;
 
