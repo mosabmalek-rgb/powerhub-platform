@@ -2634,7 +2634,7 @@ export const powerhubRouter = router({
         : { data: [], error: null };
       if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق الرسائل المحددة." });
       const scopedSubscribers = new Set((subscribers ?? []).map((row) => Number(row.id)));
-      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; error?: string }> = [];
+      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped" | "needs_review"; error?: string }> = [];
       for (const id of ids) {
         const subscriberId = eligible.get(id);
         if (!subscriberId || !scopedSubscribers.has(subscriberId)) {
@@ -2652,9 +2652,9 @@ export const powerhubRouter = router({
         userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId,
         entityType: "notification_batch", entityId: ids.join(","),
         action: "retry_failed_sms_batch",
-        metadata: { requested: ids.length, eligible: eligible.size, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length },
+        metadata: { requested: ids.length, eligible: eligible.size, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, needsReview: results.filter((r) => r.status === "needs_review").length },
       });
-      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, results };
+      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, needsReview: results.filter((r) => r.status === "needs_review").length, results };
     }),
     listBulkInvoiceSends: protectedProcedure.input(bulkInvoiceSendLogInput).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
