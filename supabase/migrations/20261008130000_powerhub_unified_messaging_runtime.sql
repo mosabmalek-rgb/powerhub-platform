@@ -603,7 +603,7 @@ create or replace function public.powerhub_refresh_message_campaign(
   p_site_id bigint,
   p_campaign_id bigint
 )
-returns table(id bigint,status text,requested integer,queued integer,submitted integer,failed integer,skipped integer,completed_at timestamptz)
+returns table(id bigint,status text,requested integer,queued integer,submitted integer,failed integer,skipped integer,needs_review integer,completed_at timestamptz)
 language plpgsql security invoker set search_path=public,pg_temp
 as $function$
 declare
@@ -632,7 +632,8 @@ begin
          count(*) filter (where n.status='needs_review')::integer
   into v_submitted,v_failed,v_processing,v_pending,v_needs_review
   from public.powerhub_message_campaign_recipients r
-  join public.notification_messages n on n.id=r.notification_id;
+  join public.notification_messages n on n.id=r.notification_id
+  where r.campaign_id=p_campaign_id;
 
   v_skipped:=greatest(v_requested-v_queued,0);
   v_status:=case
@@ -650,8 +651,10 @@ begin
       updated_at=now()
   where id=p_campaign_id;
 
-  return query select id,status,requested,queued,submitted,failed,skipped,completed_at
-  from public.powerhub_message_campaigns where id=p_campaign_id;
+  return query
+  select c.id,c.status,c.requested,c.queued,c.submitted,c.failed,c.skipped,v_needs_review,c.completed_at
+  from public.powerhub_message_campaigns c
+  where c.id=p_campaign_id;
 end;
 $function$;
 

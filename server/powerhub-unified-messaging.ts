@@ -405,7 +405,7 @@ export const powerhubUnifiedMessagingRouter = router({
       });
       if (current.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل نتيجة الحملة السابقة."});
       const replayRow = Array.isArray(current.data) ? current.data[0] : current.data;
-      return {campaignId,operationId:input.operationId,requested:Number(replayRow?.requested ?? 0),submitted:Number(replayRow?.submitted ?? 0),failed:Number(replayRow?.failed ?? 0),skipped:Number(replayRow?.skipped ?? 0),results:[],replayed:true};
+      return {campaignId,operationId:input.operationId,requested:Number(replayRow?.requested ?? 0),submitted:Number(replayRow?.submitted ?? 0),failed:Number(replayRow?.failed ?? 0),skipped:Number(replayRow?.skipped ?? 0),needsReview:Number(replayRow?.needs_review ?? 0),results:[],replayed:true};
     }
     const ids=await supabaseAdmin().from("powerhub_message_campaign_recipients").select("notification_id").eq("campaign_id",campaignId);
     const notificationIds=(ids.data??[]).map((r:any)=>Number(r.notification_id)).filter(Number.isInteger);
@@ -415,8 +415,8 @@ export const powerhubUnifiedMessagingRouter = router({
     });
     if (refreshed.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحديث الحالة النهائية للحملة."});
     const finalRow = Array.isArray(refreshed.data) ? refreshed.data[0] : refreshed.data;
-    await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped}});
-    return {campaignId,operationId:input.operationId,requested:Number(finalRow?.requested ?? input.subscriberIds.length),submitted:Number(finalRow?.submitted ?? result.submitted),failed:Number(finalRow?.failed ?? result.failed),skipped:Number(finalRow?.skipped ?? result.skipped),results:result.results,replayed:false};
+    await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview:result.needsReview??0}});
+    return {campaignId,operationId:input.operationId,requested:Number(finalRow?.requested ?? input.subscriberIds.length),submitted:Number(finalRow?.submitted ?? result.submitted),failed:Number(finalRow?.failed ?? result.failed),skipped:Number(finalRow?.skipped ?? result.skipped),needsReview:Number(finalRow?.needs_review ?? result.needsReview ?? 0),results:result.results,replayed:false};
   }),
 
   campaign: protectedProcedure.input(z.object({siteId:z.number().int().positive(),operationId:z.string().uuid()})).query(async({ctx,input})=>{
@@ -440,7 +440,7 @@ export const powerhubUnifiedMessagingRouter = router({
     });
     if (refreshed.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحديث نتيجة إعادة المحاولة."});
     const finalRow = Array.isArray(refreshed.data) ? refreshed.data[0] : refreshed.data;
-    await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(input.campaignId),action:"retry_failed",metadata:{requested:failed.data?.length??0,submitted:result.submitted,failed:result.failed,skipped:result.skipped}});
-    return {requested:failed.data?.length??0,submitted:result.submitted,failed:result.failed,skipped:result.skipped,results:result.results,campaignStatus:finalRow?.status??null};
+    await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(input.campaignId),action:"retry_failed",metadata:{requested:failed.data?.length??0,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview:Number(finalRow?.needs_review ?? result.needsReview ?? 0)}});
+    return {requested:failed.data?.length??0,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview:Number(finalRow?.needs_review ?? result.needsReview ?? 0),results:result.results,campaignStatus:finalRow?.status??null};
   }),
 });

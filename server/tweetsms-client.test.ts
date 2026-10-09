@@ -34,6 +34,13 @@ describe("TweetSMS API-KEY client", () => {
     expect((fetcher.mock.calls[0][1] as RequestInit).body).toContain("to=970591234567");
   });
 
+  it("marks non-2xx sendsms responses as ambiguous to prevent unsafe retry", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 999, message_id: "provider-ambiguous" }), { status: 502 }));
+    const result = await sendTweetSms({ endpoint: "https://tweetsms.ps", credentials, sender: "MouldNorth", message: "فاتورتك جاهزة", recipient: "970591234567" }, fetcher);
+    expect(result).toMatchObject({ ok: false, ambiguous: true, providerMessageId: "provider-ambiguous" });
+    expect(result.message).toContain("لم تُحسم نتيجة طلب الإرسال");
+  });
+
   it("maps the documented low-credit status to a retryable provider failure", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response("-124", { status: 200 }));
     const result = await sendTweetSms({ endpoint: "https://tweetsms.ps", credentials, sender: "MouldNorth", message: "فاتورتك جاهزة", recipient: "970591234567" }, fetcher);

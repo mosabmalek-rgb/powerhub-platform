@@ -9,6 +9,8 @@ export type TweetSmsResult = {
   message: string;
   providerMessageId?: string;
   balance?: number;
+  /** True when the provider request may have been applied despite a transport-level error response. */
+  ambiguous?: boolean;
 };
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -70,7 +72,16 @@ async function request(endpoint: string | undefined, path: string, credentials: 
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { /* TweetSMS may return plain status text. */ }
   const parsed = extractResult(text, body);
-  if (!response.ok) return { ok: false, code: parsed.code, message: parsed.detail || `رفض TweetSMS الطلب (${response.status}).`, providerMessageId: parsed.providerMessageId, balance: parsed.balance };
+  if (!response.ok) return {
+    ok: false,
+    code: parsed.code,
+    message: path === "sendsms"
+      ? `لم تُحسم نتيجة طلب الإرسال لدى TweetSMS (HTTP ${response.status}).`
+      : parsed.detail || `رفض TweetSMS الطلب (${response.status}).`,
+    providerMessageId: parsed.providerMessageId,
+    balance: parsed.balance,
+    ambiguous: path === "sendsms",
+  };
   const ok = parsed.code === 999;
   return {
     ok,

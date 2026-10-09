@@ -112,6 +112,21 @@ describe("عامل TweetSMS عبر Supabase", () => {
     expect(state.rpc).not.toHaveBeenCalledWith("powerhub_finish_sms_notification", expect.anything());
   });
 
+  it("يعزل استجابة HTTP ملتبسة من مزود SMS للمراجعة بدل تصنيفها فشلاً قابلاً للإعادة", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 17, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: [{ notification_id: 17, status: "needs_review", attempt_number: 1 }], error: null });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 });
+    provider.send.mockResolvedValueOnce({ ok: false, ambiguous: true, code: null, message: "HTTP 502" });
+
+    await expect(processNotificationById(17, 7)).resolves.toMatchObject({ status: "needs_review" });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_mark_sms_needs_review", expect.objectContaining({ p_notification_id: 17 }));
+    expect(state.rpc).not.toHaveBeenCalledWith("powerhub_finish_sms_notification", expect.anything());
+    expect(provider.balance).toHaveBeenCalledTimes(1);
+  });
+
   it("يعالج الرسائل الموحدة المستحقة ويستثني invoice_issued والمجدولة مستقبلاً", async () => {
     const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
     const now = new Date("2026-10-08T10:00:00.000Z");

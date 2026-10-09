@@ -69,6 +69,12 @@ describe("unified messaging runtime contract", () => {
     expect(paymentReminderMigration).toContain("v_existing.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review')");
   });
 
+  it("scopes campaign counters to the campaign and returns its needs-review count", () => {
+    expect(migration).toContain("where r.campaign_id=p_campaign_id");
+    expect(migration).toContain("needs_review integer,completed_at timestamptz");
+    expect(migration).toContain("v_needs_review,c.completed_at");
+  });
+
   it("does not report a campaign as completed while delivery outcomes need review", () => {
     expect(migration).toContain("count(*) filter (where n.status='needs_review')::integer");
     expect(migration).toContain("when v_needs_review>0 then 'partial'");

@@ -106,7 +106,9 @@ export async function processNotificationById(notificationId: number, actorUserI
       providerResult = { ok: false, code: null, message: uncertaintyError };
     }
 
-    if (!uncertaintyError && !providerResult.ok) {
+    if (!uncertaintyError && providerResult.ambiguous) {
+      uncertaintyError = providerResult.message || "أعاد مزود TweetSMS استجابة HTTP غير حاسمة بعد بدء طلب الإرسال.";
+    } else if (!uncertaintyError && !providerResult.ok) {
       sendError = providerResult.message || "رفض مزود TweetSMS الإرسال.";
     } else if (!uncertaintyError && providerResult.ok) {
       providerAccepted = true;

@@ -128,7 +128,9 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const sendManual = trpc.powerhub.unifiedMessaging.sendManual.useMutation({
     onSuccess: async (result) => {
       await utils.powerhub.unifiedMessaging.campaign.invalidate();
-      toast.success(result.replayed ? "تم استرجاع نتيجة الحملة السابقة بأمان." : `تمت معالجة الحملة: ${result.submitted} ناجحة، ${result.failed} فاشلة.`);
+      toast.success(result.replayed
+        ? `استُرجعت نتيجة الحملة السابقة: ${result.submitted} ناجحة، ${result.failed} فاشلة${result.needsReview ? `، ${result.needsReview} تحتاج مراجعة` : ""}.`
+        : `تمت معالجة الحملة: ${result.submitted} ناجحة، ${result.failed} فاشلة${result.needsReview ? `، ${result.needsReview} تحتاج مراجعة` : ""}.`);
       if (!result.replayed) setManualOperationId(crypto.randomUUID());
     },
     onError: (e) => toast.error(e.message),
