@@ -10,6 +10,7 @@ const api = fs.readFileSync(path.join(root, "server/powerhub.ts"), "utf8");
 const migration = fs.readFileSync(path.join(root, "supabase/migrations/20261008130000_powerhub_unified_messaging_runtime.sql"), "utf8");
 const reminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008110000_powerhub_payment_reminder_links.sql"), "utf8");
 const deliveryUncertaintyMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008143000_powerhub_sms_delivery_uncertainty.sql"), "utf8");
+const automationPolicy = fs.readFileSync(path.join(root, "server/unified-messaging-automation-policy.ts"), "utf8");
 
 describe("unified messaging runtime contract", () => {
   it("has one protected scheduler for legacy invoice and unified automations", () => {
@@ -45,6 +46,25 @@ describe("unified messaging runtime contract", () => {
   it("site-scopes failed SMS rows before applying the result limit", () => {
     expect(api).toContain("subscribers!inner(site_id)");
     expect(api).toContain('.eq("subscribers.site_id", input.siteId)');
+  });
+
+  it("processes subscriber-created and payment-received automations in minute windows", () => {
+    expect(automationPolicy).toContain('new Set(["subscriber_created", "payment_received"])');
+    expect(runtime).toContain("buildAutomaticOccurrenceKey(eventType, now)");
+    expect(runtime).toContain('.like("occurrence_key", `event:${eventType}:%`)');
+    expect(runtime).toContain('query = query.gte("created_at", eventScanSince)');
+  });
+
+  it("deduplicates persisted operation keys before rendering links again", () => {
+    expect(runtime).toContain("getPersistedOperationMap(paymentOperationKeys)");
+    expect(runtime).toContain("getPersistedOperationMap(candidates.map((candidate) => candidate.operationKey))");
+    expect(runtime).toContain("accountForExistingOperation(candidate.operationKey");
+  });
+
+  it("serializes active run claims across different occurrence keys", () => {
+    expect(migration).toContain("pg_advisory_xact_lock(hashtextextended");
+    expect(migration).toContain("occurrence_key<>p_occurrence_key");
+    expect(migration).toContain("and lease_until>now()");
   });
 
   it("paginates overdue invoices and chooses the oldest outstanding invoice per subscriber", () => {

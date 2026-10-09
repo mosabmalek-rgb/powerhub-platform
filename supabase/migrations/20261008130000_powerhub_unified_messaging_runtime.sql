@@ -814,6 +814,19 @@ begin
     raise exception 'AUTOMATION_NOT_ACTIVE' using errcode='P0001';
   end if;
 
+  perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text || ':' || p_automation_id::text, 0));
+
+  if exists (
+    select 1 from public.powerhub_message_automation_runs
+    where tenant_id=p_tenant_id
+      and automation_id=p_automation_id
+      and occurrence_key<>p_occurrence_key
+      and status='processing'
+      and lease_until>now()
+  ) then
+    return false;
+  end if;
+
   select id,status,lease_until
   into v_id,v_status,v_lease_until
   from public.powerhub_message_automation_runs

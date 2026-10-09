@@ -6,6 +6,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 import { processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
+import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
 const sendTypeSchema = z.enum(["manual", "automatic", "scheduled"]);
@@ -93,12 +94,29 @@ async function getPlatformActorId() {
 
 async function executeAutomation(automation: any, now: Date, actorUserId: number) {
   const admin = supabaseAdmin();
+  const eventType = String(automation.event_type);
+  const incrementalAutomaticEvent = automation.send_type === "automatic" && isIncrementalAutomaticEvent(eventType);
+  let eventScanSince = String(automation.created_at);
+  if (incrementalAutomaticEvent) {
+    const previousRun = await admin.from("powerhub_message_automation_runs")
+      .select("started_at")
+      .eq("tenant_id", Number(automation.tenant_id))
+      .eq("site_id", Number(automation.site_id))
+      .eq("automation_id", Number(automation.id))
+      .eq("status", "completed")
+      .not("finished_at", "is", null)
+      .like("occurrence_key", `event:${eventType}:%`)
+      .order("started_at", { ascending: false }).limit(1).maybeSingle();
+    if (previousRun.error) throw new Error("تعذر تحديد نقطة استئناف أتمتة الحدث.");
+    if (previousRun.data?.started_at) eventScanSince = String(previousRun.data.started_at);
+  }
+
   let occ: { due: boolean; occurrence_at: string; occurrence_key: string };
   if (automation.send_type === "automatic") {
     occ = {
       due: true,
       occurrence_at: now.toISOString(),
-      occurrence_key: `event:${automation.event_type}:${now.toISOString().slice(0, 10)}`,
+      occurrence_key: buildAutomaticOccurrenceKey(eventType, now),
     };
   } else {
     const occurrence = await admin.rpc("powerhub_unified_messaging_next_occurrence", {
@@ -142,12 +160,29 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
 
   const tenantId = Number(automation.tenant_id);
   const siteId = Number(automation.site_id);
-  const eventType = String(automation.event_type);
   const audience = automation.audience ?? {};
   const trigger = automation.trigger_config ?? {};
   let skipped = 0;
   let requestedCount = 0;
   let queuedCount = 0;
+
+  async function getPersistedOperationMap(operationKeys: string[]) {
+    const keys = Array.from(new Set(operationKeys.filter(Boolean)));
+    if (!keys.length) return new Map<string, any>();
+    const { data, error } = await admin.from("notification_messages")
+      .select("id,operation_key,payload")
+      .eq("tenant_id", tenantId)
+      .in("operation_key", keys);
+    if (error) throw new Error("تعذر التحقق من مفاتيح عمليات الأتمتة السابقة.");
+    return new Map((data ?? []).map((row: any) => [String(row.operation_key), row]));
+  }
+
+  function accountForExistingOperation(operationKey: string, persisted: any): boolean {
+    if (!persisted) return false;
+    if (String(persisted.payload?.occurrenceKey ?? "") === String(occ.occurrence_key)) queuedCount++;
+    else skipped++;
+    return true;
+  }
 
   async function queueRows(rows: any[]) {
     if (!rows.length) return;
@@ -203,14 +238,25 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       requestedCount += payments.length;
       lastPaymentId = Number(payments[payments.length - 1].id);
 
-      const subscriberIds = Array.from(new Set(payments.map((p: any) => Number(p.subscriber_id))));
+      const paymentOperationKeys = payments.map((payment: any) => `automation:${automation.id}:payment:${payment.id}`);
+      const persistedPayments = await getPersistedOperationMap(paymentOperationKeys);
+      const freshPayments = payments.filter((payment: any) => {
+        const key = `automation:${automation.id}:payment:${payment.id}`;
+        return !accountForExistingOperation(key, persistedPayments.get(key));
+      });
+      if (!freshPayments.length) {
+        if (payments.length === 500) { await heartbeat(); continue; }
+        break;
+      }
+
+      const subscriberIds = Array.from(new Set(freshPayments.map((p: any) => Number(p.subscriber_id))));
       const { data: subscribers, error: subscribersError } = await admin.from("subscribers")
         .select("id,full_name,subscriber_no,phone")
         .eq("tenant_id", tenantId).eq("site_id", siteId).in("id", subscriberIds);
       if (subscribersError) throw new Error("تعذر تحميل مشتركي الأتمتة.");
       const subscriberMap = new Map((subscribers ?? []).map((s: any) => [Number(s.id), s]));
 
-      const invoiceIds = payments.map((p: any) => p.invoice_id).filter(Boolean).map(Number);
+      const invoiceIds = freshPayments.map((p: any) => p.invoice_id).filter(Boolean).map(Number);
       const { data: invoices, error: invoicesError } = invoiceIds.length
         ? await admin.from("invoices").select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date").eq("tenant_id",tenantId).eq("site_id",siteId).in("id",invoiceIds)
         : { data: [], error: null };
@@ -218,7 +264,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       const invoiceMap = new Map((invoices ?? []).map((i: any) => [Number(i.id), i]));
 
       const rows = [];
-      for (const payment of payments) {
+      for (const payment of freshPayments) {
         const subscriber = subscriberMap.get(Number(payment.subscriber_id));
         if (!subscriber) { skipped++; continue; }
         const invoice = payment.invoice_id ? invoiceMap.get(Number(payment.invoice_id)) : null;
@@ -249,6 +295,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
     let lastSubscriberId = 0;
     for (;;) {
       let query = buildBaseQuery().gt("id", lastSubscriberId).order("id", { ascending: true }).limit(500);
+      if (incrementalAutomaticEvent && eventType === "subscriber_created") query = query.gte("created_at", eventScanSince);
       if (Array.isArray(audience.subscriberIds) && audience.subscriberIds.length) query = query.in("id", audience.subscriberIds.map(Number));
       if (audience.serviceStatus) query = query.eq("service_status", audience.serviceStatus);
       const { data: rawSubscribers, error: subscribersError } = await query;
@@ -257,7 +304,8 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       lastSubscriberId = Number(rawSubscribers[rawSubscribers.length - 1].id);
       let subscribers = rawSubscribers;
       if (eventType === "subscriber_created") {
-        subscribers = subscribers.filter((s: any) => new Date(s.created_at) >= new Date(automation.created_at));
+        const createdSince = incrementalAutomaticEvent ? eventScanSince : String(automation.created_at);
+        subscribers = subscribers.filter((s: any) => new Date(s.created_at) >= new Date(createdSince));
       }
       requestedCount += subscribers.length;
 
@@ -290,6 +338,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           }
         }
 
+        const candidates: Array<{ subscriber: any; invoice: any | null; operationKey: string; values: Record<string, string> }> = [];
         for (const subscriber of subscribers) {
           const invoice = eventType === "invoice_overdue" ? invoiceMap.get(Number(subscriber.id)) : null;
           if (eventType === "invoice_overdue") {
@@ -299,10 +348,10 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           }
 
           const operationKey = eventType === "invoice_overdue"
-            ? `automation:${automation.id}:invoice:${invoice.id}:${occ.occurrence_key}`
+            ? \`automation:\${automation.id}:invoice:\${invoice.id}:\${occ.occurrence_key}\`
             : eventType === "service_alert"
-              ? `automation:${automation.id}:subscriber:${subscriber.id}:occurrence:${occ.occurrence_key}`
-              : `automation:${automation.id}:subscriber:${subscriber.id}`;
+              ? \`automation:\${automation.id}:subscriber:\${subscriber.id}:occurrence:\${occ.occurrence_key}\`
+              : \`automation:\${automation.id}:subscriber:\${subscriber.id}\`;
           const values = {
             subscriber_name: subscriber.full_name ?? "", subscriber_no: subscriber.subscriber_no ?? "",
             invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
@@ -310,6 +359,13 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
             balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
             due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
           };
+          candidates.push({ subscriber, invoice, operationKey, values });
+        }
+
+        const persistedCandidates = await getPersistedOperationMap(candidates.map((candidate) => candidate.operationKey));
+        for (const candidate of candidates) {
+          if (accountForExistingOperation(candidate.operationKey, persistedCandidates.get(candidate.operationKey))) continue;
+          const { subscriber, invoice, operationKey, values } = candidate;
           const textBody = await renderAutomationMessage(template.body, values, {
             tenantId, siteId, actorUserId, invoiceId: invoice?.id == null ? null : Number(invoice.id),
           });
