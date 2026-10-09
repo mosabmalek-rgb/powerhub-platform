@@ -3,11 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 const migration = fs.readFileSync(
-  path.resolve(process.cwd(), "supabase/migrations/20261008100000_powerhub_reading_cycle_authority.sql"),
+  path.resolve(process.cwd(), "supabase/migrations/20261009223211_powerhub_reading_cycle_authority.sql"),
   "utf8",
 );
 const invoiceMigration = fs.readFileSync(
-  path.resolve(process.cwd(), "supabase/migrations/20261008103000_powerhub_invoice_cycle_assignment.sql"),
+  path.resolve(process.cwd(), "supabase/migrations/20261009223218_powerhub_invoice_cycle_assignment.sql"),
   "utf8",
 );
 
