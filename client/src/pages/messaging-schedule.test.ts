@@ -9,6 +9,10 @@ describe("zoned schedule datetime input", () => {
     expect(parseDateTimeLocalInTimeZone(wallTime, "Asia/Gaza").toISOString()).toBe(original.toISOString());
   });
 
+  it("parses valid datetime-local values in the configured timezone", () => {
+    expect(() => parseDateTimeLocalInTimeZone("2026-10-15T12:30", "Asia/Gaza")).not.toThrow();
+  });
+
   it("rejects invalid wall dates instead of silently normalizing them", () => {
     expect(() => parseDateTimeLocalInTimeZone("2026-02-30T10:00", "Asia/Gaza")).toThrow();
   });

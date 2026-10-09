@@ -898,7 +898,17 @@ language plpgsql
 security invoker
 set search_path=public,pg_temp
 as $function$
+declare
+  v_updated integer;
 begin
+  if p_status not in ('completed','skipped','failed')
+     or coalesce(p_requested,-1)<0
+     or coalesce(p_queued,-1)<0
+     or coalesce(p_skipped,-1)<0
+     or coalesce(p_failed,-1)<0 then
+    raise exception 'INVALID_AUTOMATION_RUN_RESULT' using errcode='22023';
+  end if;
+
   update public.powerhub_message_automation_runs
   set status=p_status,
       requested=p_requested,
@@ -910,7 +920,14 @@ begin
       lease_until=null
   where tenant_id=p_tenant_id
     and automation_id=p_automation_id
-    and occurrence_key=p_occurrence_key;
+    and occurrence_key=p_occurrence_key
+    and status='processing'
+    and lease_until>now();
+
+  get diagnostics v_updated = row_count;
+  if v_updated <> 1 then
+    raise exception 'AUTOMATION_RUN_LEASE_LOST' using errcode='P0001';
+  end if;
 end;
 $function$;
 

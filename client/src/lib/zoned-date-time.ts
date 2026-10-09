@@ -24,7 +24,7 @@ export function formatDateTimeLocalInTimeZone(value: Date | string, timeZone: st
 }
 
 export function parseDateTimeLocalInTimeZone(value: string, timeZone: string): Date {
-  const match = /^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2})$/.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
   if (!match) throw new RangeError("Invalid local schedule time.");
   const target: ZonedParts = {
     year: Number(match[1]), month: Number(match[2]), day: Number(match[3]),

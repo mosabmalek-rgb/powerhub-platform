@@ -150,7 +150,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
     }
   }
 
-  const baseQuery = admin.from("subscribers")
+  const buildBaseQuery = () => admin.from("subscribers")
     .select("id,full_name,subscriber_no,phone,service_status,created_at")
     .eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null);
 
@@ -209,7 +209,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
   } else {
     let lastSubscriberId = 0;
     for (;;) {
-      let query = baseQuery.gt("id", lastSubscriberId).order("id", { ascending: true }).limit(500);
+      let query = buildBaseQuery().gt("id", lastSubscriberId).order("id", { ascending: true }).limit(500);
       if (Array.isArray(audience.subscriberIds) && audience.subscriberIds.length) query = query.in("id", audience.subscriberIds.map(Number));
       if (audience.serviceStatus) query = query.eq("service_status", audience.serviceStatus);
       const { data: rawSubscribers, error: subscribersError } = await query;

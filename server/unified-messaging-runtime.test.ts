@@ -44,6 +44,18 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain('skipped += operationKeys.filter((key)');
   });
 
+  it("fences automation finalization by the active run lease and checks affected rows", () => {
+    expect(migration).toContain("and status='processing'");
+    expect(migration).toContain("and lease_until>now()");
+    expect(migration).toContain("get diagnostics v_updated = row_count");
+    expect(migration).toContain("AUTOMATION_RUN_LEASE_LOST");
+  });
+
+  it("creates a fresh subscriber query for each automation pagination page", () => {
+    expect(runtime).toContain("const buildBaseQuery = () => admin.from(\"subscribers\")");
+    expect(runtime).toContain('let query = buildBaseQuery().gt("id", lastSubscriberId)');
+  });
+
   it("reconciles queued counts from persisted operation keys after replay", () => {
     expect(runtime).toContain('from("notification_messages")');
     expect(runtime).toContain('.in("operation_key", operationKeys)');
