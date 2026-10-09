@@ -403,6 +403,34 @@ async function sendPendingInvoiceSmsRuntime(
 }
 
 export const powerhubRouter = router({
+  readingCycle: router({
+    get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "technician", "viewer"], "recordReadings");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_reading_cycle", { p_tenant_id: scope.tenantId, p_site_id: input.siteId });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دورة القراءات." });
+      const row = Array.isArray(data) ? data[0] : data;
+      return { cycleType: row?.cycle_type ?? "MONTHLY", weeklyStartDay: Number(row?.weekly_start_day ?? 7), monthlyStartDay: Number(row?.monthly_start_day ?? 1), timezone: row?.timezone ?? "Asia/Gaza" };
+    }),
+    save: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      cycleType: z.enum(["WEEKLY", "EVERY_10_DAYS", "EVERY_15_DAYS", "MONTHLY"]),
+      weeklyStartDay: z.number().int().min(1).max(7).default(7),
+      monthlyStartDay: z.union([z.literal(1), z.literal(30)]).default(1),
+    })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_upsert_reading_cycle", {
+        p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId,
+        p_cycle_type: input.cycleType, p_weekly_start_day: input.weeklyStartDay, p_monthly_start_day: input.monthlyStartDay,
+      });
+      if (error) {
+        if ((error.message ?? "").includes("READING_CYCLE_PERMISSION_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل دورة القراءات." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر حفظ دورة القراءات." });
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return { cycleType: row?.cycle_type ?? input.cycleType, weeklyStartDay: Number(row?.weekly_start_day ?? input.weeklyStartDay), monthlyStartDay: Number(row?.monthly_start_day ?? input.monthlyStartDay), timezone: row?.timezone ?? "Asia/Gaza" };
+    }),
+  }),
+
   publicPackageCatalog: publicProcedure.query(async () => {
     const fallback = {
       currency: "ILS",
