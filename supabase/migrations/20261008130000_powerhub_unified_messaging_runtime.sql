@@ -1116,7 +1116,7 @@ begin
     where tenant_id=p_tenant_id and invoice_id=v_invoice.id and channel='sms' and event_type='invoice_issued'
     order by id desc limit 1 for update;
 
-    if found and v_existing.status in ('processing','submitted','delivered','read') then
+    if found and v_existing.status in ('processing','submitted','delivered','read','needs_review') then
       notification_id:=v_existing.id; invoice_id:=v_invoice.id; queued:=false; return next; continue;
     end if;
 
