@@ -53,6 +53,7 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain("buildAutomaticOccurrenceKey(eventType, now)");
     expect(runtime).toContain('.like("occurrence_key", `event:${eventType}:%`)');
     expect(runtime).toContain('query = query.gte("created_at", eventScanSince)');
+    expect(runtime).toContain('.gte("created_at", incrementalAutomaticEvent ? eventScanSince : new Date(automation.created_at).toISOString())');
   });
 
   it("deduplicates persisted operation keys before rendering links again", () => {

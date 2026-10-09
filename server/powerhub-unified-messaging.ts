@@ -231,7 +231,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       const { data: payments, error: paymentsError } = await admin.from("payments")
         .select("id,subscriber_id,invoice_id,amount,paid_at")
         .eq("tenant_id", tenantId).eq("site_id", siteId).eq("status", "completed")
-        .gte("created_at", new Date(automation.created_at).toISOString())
+        .gte("created_at", incrementalAutomaticEvent ? eventScanSince : new Date(automation.created_at).toISOString())
         .gt("id", lastPaymentId).order("id", { ascending: true }).limit(500);
       if (paymentsError) throw new Error("تعذر تحميل دفعات الأتمتة.");
       if (!payments?.length) break;
@@ -348,10 +348,10 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           }
 
           const operationKey = eventType === "invoice_overdue"
-            ? \`automation:\${automation.id}:invoice:\${invoice.id}:\${occ.occurrence_key}\`
+            ? `automation:${automation.id}:invoice:${invoice.id}:${occ.occurrence_key}`
             : eventType === "service_alert"
-              ? \`automation:\${automation.id}:subscriber:\${subscriber.id}:occurrence:\${occ.occurrence_key}\`
-              : \`automation:\${automation.id}:subscriber:\${subscriber.id}\`;
+              ? `automation:${automation.id}:subscriber:${subscriber.id}:occurrence:${occ.occurrence_key}`
+              : `automation:${automation.id}:subscriber:${subscriber.id}`;
           const values = {
             subscriber_name: subscriber.full_name ?? "", subscriber_no: subscriber.subscriber_no ?? "",
             invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
