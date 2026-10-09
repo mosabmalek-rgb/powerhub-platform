@@ -182,4 +182,21 @@ describe("عامل TweetSMS عبر Supabase", () => {
     expect(worker).not.toContain("Promise.all(Array.from(byScope");
   });
 
+
+  it("passes the provider message ID when quarantining an uncertain SMS outcome", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 18, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: [{ notification_id: 18, status: "needs_review", attempt_number: 1 }], error: null });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 });
+    provider.send.mockResolvedValueOnce({ ok: false, ambiguous: true, code: 123, message: "ambiguous", providerMessageId: "provider-18" });
+
+    await expect(processNotificationById(18, 7)).resolves.toMatchObject({ status: "needs_review" });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_mark_sms_needs_review", expect.objectContaining({
+      p_notification_id: 18,
+      p_provider_message_id: "provider-18",
+    }));
+  });
+
 });
