@@ -62,6 +62,13 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("TEMPLATE_OUT_OF_SCOPE");
   });
 
+  it("blocks invoice and payment SMS requeue when delivery is uncertain", () => {
+    const invoiceRuntimeMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008130000_powerhub_unified_messaging_runtime.sql"), "utf8");
+    const paymentReminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008110000_powerhub_payment_reminder_links.sql"), "utf8");
+    expect(invoiceRuntimeMigration).toContain("v_existing.status in ('processing','submitted','delivered','read','needs_review')");
+    expect(paymentReminderMigration).toContain("v_existing.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review')");
+  });
+
   it("counts needs_review in the authoritative SMS claim quota gate", () => {
     expect(deliveryUncertaintyMigration).toContain("and messages.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review')");
     expect(deliveryUncertaintyMigration).toContain("revoke all on function public.powerhub_claim_sms_notification(bigint,bigint) from public, anon, authenticated");
