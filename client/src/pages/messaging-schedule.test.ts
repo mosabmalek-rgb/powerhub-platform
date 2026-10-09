@@ -29,6 +29,12 @@ describe("weekly messaging schedule anchor", () => {
     const anchor = buildWeeklyScheduleAnchor(4, "20:00", new Date("2026-10-09T16:00:00.000Z"));
     expect(formatDateTimeLocalInTimeZone(anchor, MESSAGE_SCHEDULE_TIME_ZONE)).toBe("2026-10-15T20:00");
   });
+
+  it("advances a weekday occurrence when today's selected time has already passed", () => {
+    const now = parseDateTimeLocalInTimeZone("2026-10-15T21:00", MESSAGE_SCHEDULE_TIME_ZONE);
+    const anchor = buildWeeklyScheduleAnchor(4, "20:00", now);
+    expect(formatDateTimeLocalInTimeZone(anchor, MESSAGE_SCHEDULE_TIME_ZONE)).toBe("2026-10-22T20:00");
+  });
 });
 describe("monthly messaging schedule anchor", () => {
   it("preserves day 31 when the current month has fewer than 31 days", () => {
@@ -44,5 +50,17 @@ describe("monthly messaging schedule anchor", () => {
   it("keeps valid day 29 in a month that already contains it", () => {
     const anchor = buildMonthlyScheduleAnchor(29, "07:05", new Date("2028-02-05T08:00:00.000Z"));
     expect(formatDateTimeLocalInTimeZone(anchor, MESSAGE_SCHEDULE_TIME_ZONE)).toBe("2028-02-29T07:05");
+  });
+
+  it("advances to the next month when this month's scheduled time has passed", () => {
+    const now = parseDateTimeLocalInTimeZone("2026-10-09T21:00", MESSAGE_SCHEDULE_TIME_ZONE);
+    const anchor = buildMonthlyScheduleAnchor(9, "20:00", now);
+    expect(formatDateTimeLocalInTimeZone(anchor, MESSAGE_SCHEDULE_TIME_ZONE)).toBe("2026-11-09T20:00");
+  });
+
+  it("skips a short month when the selected day does not exist in the following month", () => {
+    const now = parseDateTimeLocalInTimeZone("2026-03-31T21:00", MESSAGE_SCHEDULE_TIME_ZONE);
+    const anchor = buildMonthlyScheduleAnchor(31, "20:00", now);
+    expect(formatDateTimeLocalInTimeZone(anchor, MESSAGE_SCHEDULE_TIME_ZONE)).toBe("2026-05-31T20:00");
   });
 });
