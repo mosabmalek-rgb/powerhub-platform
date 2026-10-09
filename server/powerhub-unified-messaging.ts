@@ -152,19 +152,20 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
     if (result.error) throw new Error("تعذر تثبيت نتيجة دورة الأتمتة.");
   }
 
+  let skipped = 0;
+  let requestedCount = 0;
+  let queuedCount = 0;
+  const tenantId = Number(automation.tenant_id);
+  const siteId = Number(automation.site_id);
+  const audience = automation.audience ?? {};
+  const trigger = automation.trigger_config ?? {};
+
+  try {
   const template = automation.template;
   if (!template?.is_active || template.channel !== "sms") {
     await finishRun("skipped", 0, 0, 0, 0, "TEMPLATE_DISABLED");
     return { status: "skipped", requested: 0, queued: 0, failed: 0, skipped: 0 };
   }
-
-  const tenantId = Number(automation.tenant_id);
-  const siteId = Number(automation.site_id);
-  const audience = automation.audience ?? {};
-  const trigger = automation.trigger_config ?? {};
-  let skipped = 0;
-  let requestedCount = 0;
-  let queuedCount = 0;
 
   async function getPersistedOperationMap(operationKeys: string[]) {
     const keys = Array.from(new Set(operationKeys.filter(Boolean)));
@@ -382,6 +383,14 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       if (rawSubscribers.length === 500) await heartbeat();
       else break;
     }
+  }
+
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "فشل تنفيذ أتمتة المراسلة.";
+    // Release the active lease with a durable failure outcome instead of
+    // leaving the occurrence in processing until the stale-lease timeout.
+    await finishRun("failed", requestedCount, queuedCount, skipped, 1, message);
+    throw error;
   }
 
   await finishRun("completed", requestedCount, queuedCount, skipped, 0, null);

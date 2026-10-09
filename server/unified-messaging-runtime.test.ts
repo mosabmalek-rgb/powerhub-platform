@@ -101,6 +101,12 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain("تعذر التحقق من رسائل الأتمتة المثبتة في الطابور.");
   });
 
+  it("records a durable failed run when processing throws after claiming the occurrence", () => {
+    expect(runtime).toContain('await finishRun("failed", requestedCount, queuedCount, skipped, 1, message);');
+    expect(runtime).toContain("Release the active lease with a durable failure outcome");
+    expect(runtime).toContain("throw error;");
+  });
+
   it("does not allow an automation run to report completion when finalization fails", () => {
     expect(runtime).toContain('async function finishRun(status: "completed" | "skipped" | "failed"');
     expect(runtime).toContain('if (result.error) throw new Error("تعذر تثبيت نتيجة دورة الأتمتة.");');
