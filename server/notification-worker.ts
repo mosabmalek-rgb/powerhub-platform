@@ -106,13 +106,16 @@ export async function processNotificationById(notificationId: number, actorUserI
       providerResult = { ok: false, code: null, message: uncertaintyError };
     }
 
+    // Preserve provider identifiers even for ambiguous responses; they are crucial
+    // for manual reconciliation and must not be discarded just because status is unclear.
+    providerMessageId = providerResult.providerMessageId ?? null;
+
     if (!uncertaintyError && providerResult.ambiguous) {
       uncertaintyError = providerResult.message || "أعاد مزود TweetSMS استجابة HTTP غير حاسمة بعد بدء طلب الإرسال.";
     } else if (!uncertaintyError && !providerResult.ok) {
       sendError = providerResult.message || "رفض مزود TweetSMS الإرسال.";
     } else if (!uncertaintyError && providerResult.ok) {
       providerAccepted = true;
-      providerMessageId = providerResult.providerMessageId ?? null;
       let balanceAfter: Awaited<ReturnType<typeof checkTweetSmsBalance>> | null = null;
       try {
         balanceAfter = await checkTweetSmsBalance({ endpoint: claim.api_endpoint, credentials });
