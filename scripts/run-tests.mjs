@@ -49,7 +49,7 @@ if (existsSync(pagesDir)) {
       run(pageVitestArgs.concat([roleGuardsPath, "-t", name]), 120_000);
     }
   }
-  for (const entry of ["client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx"]) {
+  for (const entry of ["client/src/pages/messaging-schedule.test.ts", "client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx"]) {
     if (existsSync(entry)) run(pageVitestArgs.concat([entry]));
   }
 }

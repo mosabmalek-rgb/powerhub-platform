@@ -72,24 +72,27 @@ async function request(endpoint: string | undefined, path: string, credentials: 
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { /* TweetSMS may return plain status text. */ }
   const parsed = extractResult(text, body);
-  if (!response.ok) return {
-    ok: false,
-    code: parsed.code,
-    message: path === "sendsms"
-      ? `لم تُحسم نتيجة طلب الإرسال لدى TweetSMS (HTTP ${response.status}).`
-      : parsed.detail || `رفض TweetSMS الطلب (${response.status}).`,
-    providerMessageId: parsed.providerMessageId,
-    balance: parsed.balance,
-    ambiguous: path === "sendsms",
-  };
+  const hasExplicitRejection = parsed.code !== null && parsed.code !== 999 && Object.prototype.hasOwnProperty.call(statusMessages, parsed.code);
+  if (!response.ok) {
+    const ambiguous = path === "sendsms" && !hasExplicitRejection;
+    return { ok: false, code: parsed.code,
+      message: ambiguous ? `لم تُحسم نتيجة طلب الإرسال لدى TweetSMS (HTTP ${response.status}).`
+        : parsed.detail && parsed.code !== null && parsed.detail !== String(parsed.code) ? parsed.detail
+        : parsed.code === null ? `رفض TweetSMS الطلب (${response.status}).`
+        : statusMessages[parsed.code] ?? `رفض TweetSMS الطلب (${response.status}).`,
+      providerMessageId: parsed.providerMessageId, balance: parsed.balance,
+      ambiguous: path === "sendsms" ? ambiguous : undefined };
+  }
   const ok = parsed.code === 999;
-  return {
-    ok,
-    code: parsed.code,
-    message: parsed.detail && parsed.detail !== String(parsed.code) ? parsed.detail : parsed.code === null ? "لم يُرجع TweetSMS رمز حالة مفهومًا." : statusMessages[parsed.code] ?? `أعاد TweetSMS الرمز ${parsed.code}.`,
-    providerMessageId: parsed.providerMessageId,
-    balance: parsed.balance,
-  };
+  const ambiguous = path === "sendsms" && !ok && !hasExplicitRejection;
+  return { ok, code: parsed.code,
+    message: ambiguous ? "أعاد TweetSMS رمز حالة غير معروف أو استجابة ناقصة؛ لا يمكن الجزم بنتيجة الإرسال."
+      : parsed.detail && parsed.code !== null && parsed.detail !== String(parsed.code) ? parsed.detail
+      : parsed.code === null ? "لم يُرجع TweetSMS رمز حالة مفهومًا."
+      : statusMessages[parsed.code] ?? `أعاد TweetSMS الرمز ${parsed.code}.`,
+    providerMessageId: parsed.providerMessageId, balance: parsed.balance,
+    ambiguous: path === "sendsms" ? ambiguous : undefined };
+
 }
 
 export async function checkTweetSmsAccount(input: { endpoint?: string; credentials: TweetSmsCredentials }, fetcher?: FetchLike) {

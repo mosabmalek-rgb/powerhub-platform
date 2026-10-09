@@ -315,22 +315,30 @@ export async function processUnifiedMessagingAutomations(now = new Date()) {
   const admin = supabaseAdmin();
   const { error: reclaimError } = await admin.rpc("powerhub_reclaim_stale_sms_notifications", { p_limit: 200 });
   if (reclaimError) throw new Error("تعذر استرداد رسائل المراسلة الموحدة العالقة قبل بدء دورة الأتمتة.");
-  const { data: rows, error } = await admin.from("powerhub_message_automations")
-    .select("id,tenant_id,site_id,template_id,name,event_type,send_type,schedule_type,schedule_anchor_at,timezone,audience,trigger_config,created_at")
-    .eq("enabled", true).is("archived_at", null);
-  if (error) throw new Error("تعذر تحميل أتمتة المراسلة المفعلة.");
-  const actor = await getPlatformActorId();
-  const ids = (rows ?? []).filter((r: any) => r.site_id != null);
-  const results = [];
-  for (const row of ids) {
-    try {
-      const { data: template, error: templateError } = await admin.from("powerhub_message_templates")
-        .select("id,body,channel,is_active").eq("id", Number(row.template_id)).maybeSingle();
-      if (templateError) throw new Error("تعذر تحميل قالب أتمتة المراسلة.");
-      results.push({ automationId: Number(row.id), ...(await executeAutomation({ ...row, template }, now, actor)) });
-    } catch (error) {
-      results.push({ automationId: Number(row.id), status: "failed", error: error instanceof Error ? error.message : "فشل تنفيذ الأتمتة." });
+  const results: Array<Record<string, unknown>> = [];
+  let lastAutomationId = 0;
+  let actorUserId: number | null = null;
+  for (;;) {
+    const { data: rows, error } = await admin.from("powerhub_message_automations")
+      .select("id,tenant_id,site_id,template_id,name,event_type,send_type,schedule_type,schedule_anchor_at,timezone,audience,trigger_config,created_at")
+      .eq("enabled", true).is("archived_at", null)
+      .gt("id", lastAutomationId).order("id", { ascending: true }).limit(500);
+    if (error) throw new Error("تعذر تحميل أتمتة المراسلة المفعلة.");
+    if (!rows?.length) break;
+    const scopedRows = rows.filter((row: any) => row.site_id != null);
+    if (scopedRows.length && actorUserId === null) actorUserId = await getPlatformActorId();
+    for (const row of scopedRows) {
+      try {
+        const { data: template, error: templateError } = await admin.from("powerhub_message_templates")
+          .select("id,body,channel,is_active").eq("id", Number(row.template_id)).maybeSingle();
+        if (templateError) throw new Error("تعذر تحميل قالب أتمتة المراسلة.");
+        results.push({ automationId: Number(row.id), ...(await executeAutomation({ ...row, template }, now, actorUserId!)) });
+      } catch (error) {
+        results.push({ automationId: Number(row.id), status: "failed", error: error instanceof Error ? error.message : "فشل تنفيذ الأتمتة." });
+      }
     }
+    lastAutomationId = Number(rows[rows.length - 1].id);
+    if (rows.length < 500) break;
   }
   return { automations: results.length, results };
 }

@@ -8,6 +8,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { can } from "@shared/powerhub-rbac";
 import { segmentArabicSms } from "@shared/sms-segmentation";
+import { MESSAGE_SCHEDULE_TIME_ZONE, buildMonthlyScheduleAnchor, buildWeeklyScheduleAnchor } from "@/lib/messaging-schedule";
 import { formatDateTimeLocalInTimeZone, parseDateTimeLocalInTimeZone } from "@/lib/zoned-date-time";
 import { BellRing, CircleAlert, Eye, FileText, KeyRound, Loader2, LockKeyhole, MessageSquareText, RotateCcw, ShieldCheck, WalletCards } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
@@ -129,9 +130,11 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const sendManual = trpc.powerhub.unifiedMessaging.sendManual.useMutation({
     onSuccess: async (result) => {
       await utils.powerhub.unifiedMessaging.campaign.invalidate();
-      toast.success(result.replayed
-        ? `استُرجعت نتيجة الحملة السابقة: ${result.submitted} ناجحة، ${result.failed} فاشلة${result.needsReview ? `، ${result.needsReview} تحتاج مراجعة` : ""}.`
-        : `تمت معالجة الحملة: ${result.submitted} ناجحة، ${result.failed} فاشلة${result.needsReview ? `، ${result.needsReview} تحتاج مراجعة` : ""}.`);
+      setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, needsReview: result.needsReview });
+      const message = `${result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${result.needsReview} تحتاج مراجعة.`;
+      if (result.failed > 0 || result.needsReview > 0) toast.warning(message);
+      else if (result.submitted > 0) toast.success(message);
+      else toast.info(message);
       if (!result.replayed) setManualOperationId(crypto.randomUUID());
     },
     onError: (e) => toast.error(e.message),
@@ -153,6 +156,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const [manualSearch, setManualSearch] = useState("");
   const [selectedSubscribers, setSelectedSubscribers] = useState<number[]>([]);
   const [manualOperationId, setManualOperationId] = useState(() => crypto.randomUUID());
+  const [lastManualResult, setLastManualResult] = useState<null | { campaignId: number; operationId: string; replayed: boolean; requested: number; submitted: number; failed: number; skipped: number; needsReview: number }>(null);
 
   const activeSmsTemplates = (templates.data ?? []).filter((t: any) => t.channel === "sms" && t.isActive);
   const manualSmsTemplates = activeSmsTemplates.filter((t: any) => !t.eventType || ["subscriber_created","service_alert"].includes(t.eventType));
@@ -225,6 +229,11 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
       <div>
         <div className="flex items-center gap-2"><MessageSquareText className="h-5 w-5 text-[#F5B800]" /><h2 className="font-bold text-white">مركز المراسلة الموحد</h2></div>
         <p className="mt-1 text-sm leading-6 text-slate-400">القالب والحدث والأتمتة والحملة اليدوية تمر الآن عبر مسار موحد: صلاحية → قاعدة بيانات → طابور → عامل SMS → نتيجة مدققة.</p>
+      {lastManualResult ? <div role="status" aria-live="polite" className="mt-4 rounded-xl border border-white/10 bg-white/[.025] p-4">
+        <div className="font-bold text-white">{lastManualResult.replayed ? "نتيجة الحملة المسترجعة" : "نتيجة آخر حملة"} #{lastManualResult.campaignId}</div>
+        <div className="mt-2 flex flex-wrap gap-3 text-sm"><span>{lastManualResult.requested} مستهدف</span><span className="text-emerald-300">{lastManualResult.submitted} مرسلة</span><span className="text-rose-300">{lastManualResult.failed} فاشلة</span><span>{lastManualResult.skipped} متجاوزة</span><span className="font-semibold text-amber-200">{lastManualResult.needsReview} تحتاج مراجعة</span></div>
+        {lastManualResult.needsReview > 0 ? <p className="mt-2 text-xs text-amber-100">لا تُعِد إرسال الرسائل التي تحتاج مراجعة قبل حسم نتيجتها.</p> : null}
+      </div> : null}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
@@ -334,41 +343,33 @@ export default function MessagingSettingsPage() {
   </div></DashboardLayout>;
 }
 
-export function buildMonthlyScheduleAnchor(cycleMonthDay: number, cycleTime: string, now = new Date()) {
-  const [hours, minutes] = cycleTime.split(":").map(Number);
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const lastDayOfCurrentMonth = new Date(year, month + 1, 0).getDate();
-  const target = cycleMonthDay > lastDayOfCurrentMonth
-    ? new Date(year, month + 1, cycleMonthDay, hours, minutes, 0, 0)
-    : new Date(year, month, cycleMonthDay, hours, minutes, 0, 0);
-  return target.toISOString();
-}
-
 function AutoSendPolicyCard({ config, siteId }: { config: any; siteId: number }) {
+  const local = config?.scheduleAnchorAt ? formatDateTimeLocalInTimeZone(config.scheduleAnchorAt, MESSAGE_SCHEDULE_TIME_ZONE) : "";
+  const wallDate = local ? new Date(`${local.slice(0,10)}T00:00:00.000Z`) : null;
   const [enabled, setEnabled] = useState(Boolean(config?.autoSendAfterApproval));
   const [mode, setMode] = useState(config?.scheduleMode ?? "immediate");
-  const [anchor, setAnchor] = useState(config?.scheduleAnchorAt ? new Date(config.scheduleAnchorAt).toISOString().slice(0,16) : "");
-  const [cycleDay, setCycleDay] = useState(config?.scheduleAnchorAt ? new Date(config.scheduleAnchorAt).getDay() : 4);
-  const [cycleMonthDay, setCycleMonthDay] = useState(config?.scheduleAnchorAt ? new Date(config.scheduleAnchorAt).getDate() : 2);
-  const [cycleTime, setCycleTime] = useState(config?.scheduleAnchorAt ? new Date(config.scheduleAnchorAt).toTimeString().slice(0,5) : "20:00");
+  const [anchor, setAnchor] = useState(local);
+  const [cycleDay, setCycleDay] = useState(wallDate ? wallDate.getUTCDay() : 4);
+  const [cycleMonthDay, setCycleMonthDay] = useState(wallDate ? wallDate.getUTCDate() : 2);
+  const [cycleTime, setCycleTime] = useState(local ? local.slice(11,16) : "20:00");
   useEffect(() => {
     setEnabled(Boolean(config?.autoSendAfterApproval)); setMode(config?.scheduleMode ?? "immediate");
-    if (config?.scheduleAnchorAt) { const d = new Date(config.scheduleAnchorAt); setAnchor(d.toISOString().slice(0,16)); setCycleDay(d.getDay()); setCycleMonthDay(d.getDate()); setCycleTime(d.toTimeString().slice(0,5)); }
+    if (config?.scheduleAnchorAt) {
+      const v = formatDateTimeLocalInTimeZone(config.scheduleAnchorAt, MESSAGE_SCHEDULE_TIME_ZONE);
+      const d = new Date(`${v.slice(0,10)}T00:00:00.000Z`);
+      setAnchor(v); setCycleDay(d.getUTCDay()); setCycleMonthDay(d.getUTCDate()); setCycleTime(v.slice(11,16));
+    }
   }, [config?.autoSendAfterApproval, config?.scheduleMode, config?.scheduleAnchorAt]);
   const buildAnchor = () => {
     if (mode === "immediate") return undefined;
-    const now = new Date();
-    if (mode === "weekly") {
-      const d = new Date(now); const delta = (cycleDay - d.getDay() + 7) % 7; d.setDate(d.getDate() + delta);
-      const [h,m] = cycleTime.split(":").map(Number); d.setHours(h,m,0,0); return d.toISOString();
-    }
-    if (mode === "monthly") return buildMonthlyScheduleAnchor(cycleMonthDay, cycleTime, now);
-    return anchor ? new Date(anchor).toISOString() : undefined;
+    if (mode === "weekly") return buildWeeklyScheduleAnchor(cycleDay, cycleTime, new Date(), MESSAGE_SCHEDULE_TIME_ZONE);
+    if (mode === "monthly") return buildMonthlyScheduleAnchor(cycleMonthDay, cycleTime, new Date(), MESSAGE_SCHEDULE_TIME_ZONE);
+    return anchor ? parseDateTimeLocalInTimeZone(anchor, MESSAGE_SCHEDULE_TIME_ZONE).toISOString() : undefined;
   };
   const save = trpc.powerhub.messaging.configureInvoiceAutoSend.useMutation({ onSuccess: () => toast.success("تم حفظ دورة إرسال رسائل الفواتير."), onError: (e) => toast.error(e.message) });
   const submit = () => {
-    const computedAnchor = buildAnchor();
+    let computedAnchor: string | undefined;
+    try { computedAnchor = buildAnchor(); } catch (error) { return toast.error(error instanceof Error ? error.message : "تعذر حساب بداية دورة الإرسال."); }
     if (mode !== "immediate" && !computedAnchor) return toast.error("تعذر حساب بداية دورة الإرسال.");
     save.mutate({ siteId, enabled, scheduleMode: mode, scheduleAnchorAt: computedAnchor });
   };

@@ -39,6 +39,11 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain('new Date(invoice.due_date).getTime() < new Date(previous.due_date).getTime()');
   });
 
+  it("paginates enabled automations with a stable keyset cursor", () => {
+    expect(runtime).toContain('.gt("id", lastAutomationId).order("id", { ascending: true }).limit(500)');
+    expect(runtime).toContain("lastAutomationId = Number(rows[rows.length - 1].id)");
+  });
+
   it("counts only rows for the current automation occurrence and counts previous rows as skipped", () => {
     expect(runtime).toContain('String(row.payload?.occurrenceKey ?? "") === String(occ.occurrence_key)');
     expect(runtime).toContain('skipped += operationKeys.filter((key)');
