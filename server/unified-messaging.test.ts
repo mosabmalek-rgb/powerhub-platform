@@ -1,11 +1,20 @@
+import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { renderInvoiceMessageTemplate } from "./invoice-message-template";
+
+const messagingRouterSource = fs.readFileSync(new URL("./powerhub-unified-messaging.ts", import.meta.url), "utf8");
 
 const sendType = z.enum(["manual","automatic","scheduled"]);
 const scheduleType = z.enum(["none","one_time","weekly","every_10_days","every_15_days","monthly","custom"]);
 
 describe("unified messaging contract", () => {
+  it("fails closed when campaign recipient queries fail", () => {
+    expect(messagingRouterSource).toContain('if(ids.error) throw new TRPCError');
+    expect(messagingRouterSource).toContain('if(rows.error) throw new TRPCError');
+    expect(messagingRouterSource).toContain('if(failed.error) throw new TRPCError');
+    expect(messagingRouterSource).toContain('if(!finalRow) throw new TRPCError');
+  });
   it("renders subscriber and portal tokens independently", () => {
     const message = renderInvoiceMessageTemplate("{{subscriber_no}} {{portal_link}}", {
       subscriber_name: "أحمد", subscriber_no: "SUB-1", invoice_no: "INV-1", billing_period: "سبتمبر",
