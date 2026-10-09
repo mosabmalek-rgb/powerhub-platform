@@ -409,7 +409,7 @@ export const powerhubUnifiedMessagingRouter = router({
     }
     const ids=await supabaseAdmin().from("powerhub_message_campaign_recipients").select("notification_id").eq("campaign_id",campaignId);
     const notificationIds=(ids.data??[]).map((r:any)=>Number(r.notification_id)).filter(Number.isInteger);
-    const result=notificationIds.length?await processNotificationIdsInBatches(access.tenantId,ctx.user.id,notificationIds):{submitted:0,failed:0,skipped:0,results:[]};
+    const result=notificationIds.length?await processNotificationIdsInBatches(access.tenantId,ctx.user.id,notificationIds):{requested:0,submitted:0,failed:0,skipped:0,needsReview:0,results:[]};
     const refreshed = await supabaseAdmin().rpc("powerhub_refresh_message_campaign", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_campaign_id: campaignId,
     });
@@ -434,7 +434,7 @@ export const powerhubUnifiedMessagingRouter = router({
     const rows=await supabaseAdmin().from("powerhub_message_campaign_recipients").select("notification_id").eq("campaign_id",input.campaignId);
     const ids=(rows.data??[]).map((r:any)=>Number(r.notification_id)).filter(Number.isInteger);
     const failed=await supabaseAdmin().from("notification_messages").select("id").eq("tenant_id",access.tenantId).in("id",ids).eq("status","failed");
-    const result=failed.data?.length?await processNotificationIdsInBatches(access.tenantId,ctx.user.id,failed.data.map((r:any)=>Number(r.id))):{submitted:0,failed:0,skipped:0,results:[]};
+    const result=failed.data?.length?await processNotificationIdsInBatches(access.tenantId,ctx.user.id,failed.data.map((r:any)=>Number(r.id))):{requested:0,submitted:0,failed:0,skipped:0,needsReview:0,results:[]};
     const refreshed = await supabaseAdmin().rpc("powerhub_refresh_message_campaign", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_campaign_id: input.campaignId,
     });
