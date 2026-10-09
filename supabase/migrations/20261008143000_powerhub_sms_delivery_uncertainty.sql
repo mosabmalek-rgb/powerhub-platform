@@ -129,7 +129,7 @@ returns table (
 language plpgsql
 security invoker
 set search_path = public, pg_temp
-as $
+as $function$
 declare
   v_message public.notification_messages%rowtype;
   v_account public.tenant_tweetsms_accounts%rowtype;
@@ -331,7 +331,7 @@ begin
 
   return next;
 end;
-$;
+$function$;
 
 
 revoke all on function public.powerhub_claim_sms_notification(bigint,bigint) from public, anon, authenticated;
