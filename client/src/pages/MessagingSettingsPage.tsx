@@ -61,7 +61,10 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
   const retry = trpc.powerhub.notifications.retryFailedSmsBatch.useMutation({
     onSuccess: async (result) => {
       await utils.powerhub.notifications.listFailedSms.invalidate();
-      toast.success(`تمت معالجة إعادة الإرسال: ${result.submitted} ناجحة، ${result.failed} فاشلة، ${result.skipped} متجاوزة${result.needsReview ? `، ${result.needsReview} تحتاج مراجعة` : ""}.`);
+      const message = "نتيجة إعادة الإرسال: " + result.submitted + " ناجحة، " + result.failed + " فاشلة، " + result.skipped + " متجاوزة" + (result.needsReview ? "، " + result.needsReview + " تحتاج مراجعة" : "") + ".";
+      if (result.failed > 0 || result.needsReview > 0) toast.warning(message);
+      else if (result.submitted > 0) toast.success(message);
+      else toast.info(message);
     },
     onError: (error) => toast.error(error.message),
   });

@@ -2588,8 +2588,9 @@ export const powerhubRouter = router({
     listFailedSms: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       let query = supabaseAdmin().from("notification_messages")
-        .select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, created_at, updated_at")
+        .select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, created_at, updated_at, subscribers!inner(site_id)")
         .eq("tenant_id", scope.tenantId)
+        .eq("subscribers.site_id", input.siteId)
         .eq("channel", "sms")
         .in("status", ["failed", "needs_review"])
         .order("created_at", { ascending: false })

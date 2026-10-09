@@ -6,6 +6,7 @@ const root = process.cwd();
 const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messaging.ts"), "utf8");
 const scheduler = fs.readFileSync(path.join(root, "server/_core/index.ts"), "utf8");
 const ui = fs.readFileSync(path.join(root, "client/src/pages/MessagingSettingsPage.tsx"), "utf8");
+const api = fs.readFileSync(path.join(root, "server/powerhub.ts"), "utf8");
 const migration = fs.readFileSync(path.join(root, "supabase/migrations/20261008130000_powerhub_unified_messaging_runtime.sql"), "utf8");
 const reminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008110000_powerhub_payment_reminder_links.sql"), "utf8");
 const deliveryUncertaintyMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008143000_powerhub_sms_delivery_uncertainty.sql"), "utf8");
@@ -32,6 +33,18 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain('if (occurrence.error) throw new Error("تعذر حساب موعد أتمتة المراسلة.")');
     expect(runtime).toContain('if (templateError) throw new Error("تعذر تحميل قالب أتمتة المراسلة.")');
     expect(runtime).toContain('if (portal.error) throw new Error("تعذر تحميل إعدادات بوابة المشترك.")');
+  });
+
+  it("resolves generated links before rendering template tokens in both automation paths", () => {
+    expect(runtime).toContain("return renderAutomationTemplate(body, values, async");
+    expect(runtime).toContain("const renderedText = await renderAutomationMessage(template.body, values");
+    expect(runtime).toContain("const textBody = await renderAutomationMessage(template.body, values");
+    expect(runtime).not.toContain('textBody.includes("{{invoice_link}}")');
+  });
+
+  it("site-scopes failed SMS rows before applying the result limit", () => {
+    expect(api).toContain("subscribers!inner(site_id)");
+    expect(api).toContain('.eq("subscribers.site_id", input.siteId)');
   });
 
   it("paginates overdue invoices and chooses the oldest outstanding invoice per subscriber", () => {

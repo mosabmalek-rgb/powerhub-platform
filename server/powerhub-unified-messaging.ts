@@ -5,6 +5,7 @@ import { protectedProcedure, router } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 import { processNotificationQueueForTenant } from "./notification-worker";
+import { renderAutomationTemplate } from "./unified-messaging-template";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
 const sendTypeSchema = z.enum(["manual", "automatic", "scheduled"]);
@@ -20,8 +21,43 @@ function asTemplate(row: any) {
   };
 }
 
-function render(body: string, values: Record<string, string | null | undefined>) {
-  return body.replace(/{{\s*([a-z_]+)\s*}}/g, (_, key) => values[key] ?? "");
+async function renderAutomationMessage(
+  body: string,
+  values: Record<string, string | null | undefined>,
+  context: { tenantId: number; siteId: number; actorUserId: number; invoiceId: number | null },
+) {
+  const admin = supabaseAdmin();
+  return renderAutomationTemplate(body, values, async ({ invoiceLink: needsInvoiceLink, portalLink: needsPortalLink }) => {
+    let baseUrl = "";
+    if ((needsInvoiceLink && context.invoiceId !== null) || needsPortalLink) {
+      const base = await admin.rpc("powerhub_public_base_url");
+      if (base.error || !base.data) throw new Error("PUBLIC_BASE_URL_NOT_CONFIGURED");
+      baseUrl = String(base.data);
+    }
+
+    let invoiceLink = "";
+    if (needsInvoiceLink && context.invoiceId !== null) {
+      const token = crypto.randomBytes(24).toString("base64url");
+      const link = await admin.rpc("powerhub_create_invoice_share_link", {
+        p_tenant_id: context.tenantId, p_site_id: context.siteId, p_user_id: context.actorUserId,
+        p_invoice_id: context.invoiceId,
+        p_token_hash: crypto.createHash("sha256").update(token).digest("hex"),
+        p_token_preview: token.slice(0, 8), p_expires_at: null,
+      });
+      if (link.error) throw new Error("تعذر إنشاء رابط الفاتورة.");
+      invoiceLink = baseUrl + "/invoice/" + token;
+    }
+
+    let portalLink = "";
+    if (needsPortalLink) {
+      const portal = await admin.from("site_portal_settings").select("portal_code")
+        .eq("tenant_id", context.tenantId).eq("site_id", context.siteId).maybeSingle();
+      if (portal.error) throw new Error("تعذر تحميل إعدادات بوابة المشترك.");
+      portalLink = portal.data?.portal_code ? baseUrl + "/portal?g=" + portal.data.portal_code : "";
+    }
+
+    return { invoiceLink, portalLink };
+  });
 }
 
 async function processNotificationIdsInBatches(
@@ -194,12 +230,15 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
           due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
         };
+        const renderedText = await renderAutomationMessage(template.body, values, {
+          tenantId, siteId, actorUserId, invoiceId: invoice?.id == null ? null : Number(invoice.id),
+        });
         rows.push({
           tenant_id: tenantId, subscriber_id: Number(subscriber.id), invoice_id: invoice?.id ?? null,
           channel: "sms", event_type: "payment_received", recipient: subscriber.phone ?? "", status: "pending", scheduled_at: occ.occurrence_at,
           send_type: automation.send_type, schedule_type: automation.schedule_type, template_id: Number(template.id),
           automation_id: Number(automation.id), operation_key: `automation:${automation.id}:payment:${payment.id}`,
-          payload: { renderedText: render(template.body, values), operationKey: `automation:${automation.id}:payment:${payment.id}`, automationId: Number(automation.id), occurrenceKey: occ.occurrence_key },
+          payload: { renderedText, operationKey: `automation:${automation.id}:payment:${payment.id}`, automationId: Number(automation.id), occurrenceKey: occ.occurrence_key },
         });
       }
       await queueRows(rows);
@@ -271,23 +310,9 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
             balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
             due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
           };
-          let textBody = render(template.body, values);
-          if (textBody.includes("{{invoice_link}}") || textBody.includes("{{portal_link}}")) {
-            const base = await admin.rpc("powerhub_public_base_url");
-            if (base.error || !base.data) throw new Error("PUBLIC_BASE_URL_NOT_CONFIGURED");
-            if (invoice?.id) {
-              const token = crypto.randomBytes(24).toString("base64url");
-              const link = await admin.rpc("powerhub_create_invoice_share_link", {
-                p_tenant_id: tenantId, p_site_id: siteId, p_user_id: actorUserId, p_invoice_id: Number(invoice.id),
-                p_token_hash: crypto.createHash("sha256").update(token).digest("hex"), p_token_preview: token.slice(0,8), p_expires_at: null,
-              });
-              if (link.error) throw new Error("تعذر إنشاء رابط الفاتورة.");
-              textBody = textBody.replace(/{{\s*invoice_link\s*}}/g, `${base.data}/invoice/${token}`);
-            }
-            const portal = await admin.from("site_portal_settings").select("portal_code").eq("tenant_id",tenantId).eq("site_id",siteId).maybeSingle();
-            if (portal.error) throw new Error("تعذر تحميل إعدادات بوابة المشترك.");
-            textBody = textBody.replace(/{{\s*portal_link\s*}}/g, portal.data?.portal_code ? `${base.data}/portal?g=${portal.data.portal_code}` : "");
-          }
+          const textBody = await renderAutomationMessage(template.body, values, {
+            tenantId, siteId, actorUserId, invoiceId: invoice?.id == null ? null : Number(invoice.id),
+          });
           rows.push({
             tenant_id: tenantId, subscriber_id: Number(subscriber.id), invoice_id: invoice?.id ?? null,
             channel: "sms", event_type: eventType === "subscriber_created" ? "subscriber_reference" : eventType,
