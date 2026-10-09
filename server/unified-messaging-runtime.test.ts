@@ -7,9 +7,9 @@ const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messagi
 const scheduler = fs.readFileSync(path.join(root, "server/_core/index.ts"), "utf8");
 const ui = fs.readFileSync(path.join(root, "client/src/pages/MessagingSettingsPage.tsx"), "utf8");
 const api = fs.readFileSync(path.join(root, "server/powerhub.ts"), "utf8");
-const migration = fs.readFileSync(path.join(root, "supabase/migrations/20261008130000_powerhub_unified_messaging_runtime.sql"), "utf8");
-const reminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008110000_powerhub_payment_reminder_links.sql"), "utf8");
-const deliveryUncertaintyMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008143000_powerhub_sms_delivery_uncertainty.sql"), "utf8");
+const migration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223234_powerhub_unified_messaging_runtime.sql"), "utf8");
+const reminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223225_powerhub_payment_reminder_links.sql"), "utf8");
+const deliveryUncertaintyMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223322_powerhub_sms_delivery_uncertainty.sql"), "utf8");
 const automationPolicy = fs.readFileSync(path.join(root, "server/unified-messaging-automation-policy.ts"), "utf8");
 
 describe("unified messaging runtime contract", () => {
@@ -138,8 +138,8 @@ describe("unified messaging runtime contract", () => {
   });
 
   it("blocks invoice and payment SMS requeue when delivery is uncertain", () => {
-    const invoiceRuntimeMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008130000_powerhub_unified_messaging_runtime.sql"), "utf8");
-    const paymentReminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261008110000_powerhub_payment_reminder_links.sql"), "utf8");
+    const invoiceRuntimeMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223234_powerhub_unified_messaging_runtime.sql"), "utf8");
+    const paymentReminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223225_powerhub_payment_reminder_links.sql"), "utf8");
     expect(invoiceRuntimeMigration).toContain("v_existing.status in ('processing','submitted','delivered','read','needs_review')");
     expect(paymentReminderMigration).toContain("v_existing.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review')");
   });
