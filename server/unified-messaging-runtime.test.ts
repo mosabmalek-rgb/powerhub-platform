@@ -69,6 +69,11 @@ describe("unified messaging runtime contract", () => {
     expect(paymentReminderMigration).toContain("v_existing.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review')");
   });
 
+  it("does not report a campaign as completed while delivery outcomes need review", () => {
+    expect(migration).toContain("count(*) filter (where n.status='needs_review')::integer");
+    expect(migration).toContain("when v_needs_review>0 then 'partial'");
+  });
+
   it("counts needs_review in the authoritative SMS claim quota gate", () => {
     expect(deliveryUncertaintyMigration).toContain("and messages.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review')");
     expect(deliveryUncertaintyMigration).toContain("revoke all on function public.powerhub_claim_sms_notification(bigint,bigint) from public, anon, authenticated");

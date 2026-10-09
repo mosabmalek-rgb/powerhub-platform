@@ -607,28 +607,51 @@ returns table(id bigint,status text,requested integer,queued integer,submitted i
 language plpgsql security invoker set search_path=public,pg_temp
 as $function$
 declare
-  v_requested integer; v_queued integer; v_submitted integer; v_failed integer; v_processing integer; v_pending integer; v_skipped integer; v_status text;
+  v_requested integer;
+  v_queued integer;
+  v_submitted integer;
+  v_failed integer;
+  v_processing integer;
+  v_pending integer;
+  v_needs_review integer;
+  v_skipped integer;
+  v_status text;
 begin
-  select requested into v_requested from public.powerhub_message_campaigns
+  select requested into v_requested
+  from public.powerhub_message_campaigns
   where id=p_campaign_id and tenant_id=p_tenant_id and site_id=p_site_id for update;
   if not found then raise exception 'CAMPAIGN_OUT_OF_SCOPE' using errcode='P0001'; end if;
-  select count(*)::integer into v_queued from public.powerhub_message_campaign_recipients where campaign_id=p_campaign_id;
+
+  select count(*)::integer into v_queued
+  from public.powerhub_message_campaign_recipients where campaign_id=p_campaign_id;
+
   select count(*) filter (where n.status in ('submitted','delivered','read'))::integer,
          count(*) filter (where n.status='failed')::integer,
          count(*) filter (where n.status='processing')::integer,
-         count(*) filter (where n.status='pending')::integer
-  into v_submitted,v_failed,v_processing,v_pending
-  from public.powerhub_message_campaign_recipients r join public.notification_messages n on n.id=r.notification_id;
+         count(*) filter (where n.status='pending')::integer,
+         count(*) filter (where n.status='needs_review')::integer
+  into v_submitted,v_failed,v_processing,v_pending,v_needs_review
+  from public.powerhub_message_campaign_recipients r
+  join public.notification_messages n on n.id=r.notification_id;
+
   v_skipped:=greatest(v_requested-v_queued,0);
-  v_status:=case when v_processing>0 or v_pending>0 then 'processing'
+  v_status:=case
+    when v_processing>0 or v_pending>0 then 'processing'
+    when v_needs_review>0 then 'partial'
     when v_failed>0 and v_submitted>0 then 'partial'
     when v_failed>0 then 'failed'
     when v_queued=0 and v_requested>0 then 'failed'
-    else 'completed' end;
-  update public.powerhub_message_campaigns set queued=v_queued,submitted=v_submitted,failed=v_failed,skipped=v_skipped,status=v_status,
-    completed_at=case when v_status in ('completed','partial','failed') then coalesce(completed_at,now()) else null end,updated_at=now()
+    else 'completed'
+  end;
+
+  update public.powerhub_message_campaigns
+  set queued=v_queued,submitted=v_submitted,failed=v_failed,skipped=v_skipped,status=v_status,
+      completed_at=case when v_status in ('completed','partial','failed') then coalesce(completed_at,now()) else null end,
+      updated_at=now()
   where id=p_campaign_id;
-  return query select id,status,requested,queued,submitted,failed,skipped,completed_at from public.powerhub_message_campaigns where id=p_campaign_id;
+
+  return query select id,status,requested,queued,submitted,failed,skipped,completed_at
+  from public.powerhub_message_campaigns where id=p_campaign_id;
 end;
 $function$;
 

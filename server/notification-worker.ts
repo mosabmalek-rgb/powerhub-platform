@@ -72,64 +72,96 @@ export async function processNotificationById(notificationId: number, actorUserI
   if (claimError || !claim) return { status: "skipped", error: rpcErrorMessage(claimError, "تعذر حجز رسالة SMS للإرسال.") };
 
   let sent = false;
+  let providerAccepted = false;
+  let providerRequestStarted = false;
+  let providerResponseReceived = false;
   let providerMessageId: string | null = null;
   let sendError: string | null = null;
+  let uncertaintyError: string | null = null;
 
   try {
     const credentials = decryptTweetSmsCredentials(claim.credential_ciphertext, claim.credential_iv);
     const balanceBefore = await checkTweetSmsBalance({ endpoint: claim.api_endpoint, credentials });
     if (!balanceBefore.ok || balanceBefore.balance === undefined) {
-      throw new Error("تعذر قراءة رصيد TweetSMS قبل الإرسال؛ لم تثبت نتيجة الإرسال.");
+      throw new Error("تعذر قراءة رصيد TweetSMS قبل الإرسال؛ لم يبدأ طلب المزود.");
     }
 
-    const providerResult = await sendTweetSms({
-      endpoint: claim.api_endpoint,
-      credentials,
-      sender: claim.sender_name,
-      message: claim.rendered_text,
-      recipient: normalizeInternationalPhone(claim.recipient),
+    const started = await admin.rpc("powerhub_mark_sms_provider_request_started", {
+      p_user_id: actorUserId, p_notification_id: claim.notification_id, p_attempt_number: claim.attempt_number,
     });
-    if (!providerResult.ok) throw new Error(providerResult.message || "رفض مزود TweetSMS الإرسال.");
-
-    const balanceAfter = await checkTweetSmsBalance({ endpoint: claim.api_endpoint, credentials });
-    if (!balanceAfter.ok || balanceAfter.balance === undefined) {
-      throw new Error("تعذر التحقق من خصم رصيد TweetSMS؛ اعتُبرت الرسالة غير مرسلة.");
+    if (started.error || started.data !== true) {
+      throw new Error("تعذر تثبيت بدء طلب TweetSMS؛ لم يبدأ الإرسال حمايةً من التكرار.");
     }
-    if (balanceAfter.balance >= balanceBefore.balance) {
-      throw new Error("لم يثبت خصم رصيد TweetSMS؛ اعتُبرت الرسالة غير مرسلة.");
+    providerRequestStarted = true;
+
+    let providerResult: Awaited<ReturnType<typeof sendTweetSms>>;
+    try {
+      providerResult = await sendTweetSms({
+        endpoint: claim.api_endpoint, credentials, sender: claim.sender_name,
+        message: claim.rendered_text, recipient: normalizeInternationalPhone(claim.recipient),
+      });
+      providerResponseReceived = true;
+    } catch (cause) {
+      uncertaintyError = cause instanceof Error ? cause.message.slice(0, 2000) : "انقطع الاتصال أثناء طلب TweetSMS؛ قد يكون المزود قد قبل الرسالة.";
+      providerResult = { ok: false, code: null, message: uncertaintyError };
     }
 
-    sent = true;
-    providerMessageId = providerResult.providerMessageId ?? null;
+    if (!uncertaintyError && !providerResult.ok) {
+      sendError = providerResult.message || "رفض مزود TweetSMS الإرسال.";
+    } else if (!uncertaintyError && providerResult.ok) {
+      providerAccepted = true;
+      providerMessageId = providerResult.providerMessageId ?? null;
+      let balanceAfter: Awaited<ReturnType<typeof checkTweetSmsBalance>> | null = null;
+      try {
+        balanceAfter = await checkTweetSmsBalance({ endpoint: claim.api_endpoint, credentials });
+      } catch (cause) {
+        uncertaintyError = cause instanceof Error ? cause.message.slice(0, 2000) : "تعذر التحقق من خصم رصيد TweetSMS بعد قبول الرسالة.";
+      }
+
+      if (!uncertaintyError && (!balanceAfter?.ok || balanceAfter.balance === undefined)) {
+        uncertaintyError = "قبل TweetSMS الرسالة لكن تعذر التحقق من خصم الرصيد؛ يلزم مراجعة النتيجة.";
+      } else if (!uncertaintyError && balanceAfter && balanceAfter.balance! >= balanceBefore.balance!) {
+        uncertaintyError = "قبل TweetSMS الرسالة لكن لم يثبت خصم الرصيد؛ يلزم مراجعة النتيجة قبل أي إعادة محاولة.";
+      } else if (!uncertaintyError) {
+        sent = true;
+      }
+    }
   } catch (cause) {
-    sendError = cause instanceof Error ? cause.message.slice(0, 2000) : "فشل غير معروف عند إرسال الرسالة.";
+    const message = cause instanceof Error ? cause.message.slice(0, 2000) : "فشل غير معروف عند معالجة رسالة SMS.";
+    if (providerRequestStarted && !providerResponseReceived) uncertaintyError = message;
+    else if (providerAccepted) uncertaintyError = message;
+    else sendError = message;
+  }
+
+  if (uncertaintyError || (providerAccepted && !sent)) {
+    const { error: reviewError } = await admin.rpc("powerhub_mark_sms_needs_review", {
+      p_user_id: actorUserId, p_notification_id: claim.notification_id, p_attempt_number: claim.attempt_number,
+      p_error: uncertaintyError ?? "قبل TweetSMS الرسالة ولم تكتمل مصالحة التسليم؛ يلزم مراجعة النتيجة.",
+      p_provider_message_id: providerMessageId,
+    });
+    if (reviewError) return { status: "failed", error: "نتيجة الإرسال غير مؤكدة وتعذر عزلها للمراجعة؛ لا تعاود الإرسال قبل مراجعة سجل التدقيق." };
+    return { status: "needs_review", error: "قد يكون مزود الرسائل قد قبل الطلب؛ أوقفت إعادة المحاولة التلقائية وتحتاج الرسالة إلى مراجعة." };
   }
 
   const { data: rawFinish, error: finishError } = await admin.rpc("powerhub_finish_sms_notification", {
-    p_user_id: actorUserId,
-    p_notification_id: claim.notification_id,
-    p_attempt_number: claim.attempt_number,
-    p_success: sent,
-    p_provider_message_id: providerMessageId,
-    p_error: sendError,
+    p_user_id: actorUserId, p_notification_id: claim.notification_id, p_attempt_number: claim.attempt_number,
+    p_success: sent, p_provider_message_id: providerMessageId, p_error: sendError,
   });
   if (finishError || !(rawFinish as unknown[] | null)?.[0]) {
-    if (sent) {
+    if (providerRequestStarted) {
       const { error: reviewError } = await admin.rpc("powerhub_mark_sms_needs_review", {
-        p_user_id: actorUserId,
-        p_notification_id: claim.notification_id,
-        p_attempt_number: claim.attempt_number,
-        p_error: "تم قبول الرسالة والتحقق من خصم الرصيد، لكن تعذر تثبيت حالة الإرسال؛ أوقفت إعادة المحاولة التلقائية لحماية عدم التكرار.",
+        p_user_id: actorUserId, p_notification_id: claim.notification_id, p_attempt_number: claim.attempt_number,
+        p_error: "تعذر تثبيت نهاية محاولة بدأت لدى مزود SMS؛ أوقفت إعادة المحاولة التلقائية حمايةً من الإرسال المكرر.",
+        p_provider_message_id: providerMessageId,
       });
-      if (reviewError) return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال أو عزلها للمراجعة؛ راجع سجل التدقيق قبل أي إعادة محاولة." };
-      return { status: "needs_review", error: "تم قبول الإرسال لكن حالة النظام غير مؤكدة؛ أوقفت إعادة المحاولة التلقائية." };
+      if (reviewError) return { status: "failed", error: "تعذر تثبيت نهاية محاولة SMS؛ لا تعاود الإرسال قبل مراجعة سجل التدقيق." };
+      return { status: "needs_review", error: "تعذر تثبيت نتيجة محاولة SMS؛ تم عزلها للمراجعة دون إعادة إرسال تلقائية." };
     }
     return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال؛ راجع سجل التدقيق قبل إعادة المحاولة." };
   }
   if (!sent) return { status: "failed", error: sendError ?? "رفض مزود TweetSMS الإرسال." };
   return { status: "submitted", providerMessageId };
 }
-
 export async function processNotificationQueueForTenant(tenantId: number, actorUserId: number, notificationIds: number[]) {
   if (!Number.isInteger(tenantId) || tenantId < 1) throw new TRPCError({ code: "BAD_REQUEST", message: "المولد غير صالح." });
   const uniqueIds = Array.from(new Set(notificationIds)).slice(0, 50);
@@ -334,12 +366,12 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
       await admin.from("messaging_schedule_runs").insert({
         tenant_id: tenantId,
         configuration_id: Number(configuration.data.id),
-        status: result.failed ? "failed" : "success",
+        status: result.failed || result.needsReview ? "failed" : "success",
         scanned: result.requested,
         submitted: result.submitted,
         failed: result.failed,
         skipped: result.skipped,
-        error: null,
+        error: result.needsReview ? "رسائل تحتاج مراجعة بسبب نتيجة تسليم غير مؤكدة: " + result.needsReview : null,
         task_uid: "supabase:invoice-sms-dispatch:v2",
         started_at: now.toISOString(),
         finished_at: new Date().toISOString(),

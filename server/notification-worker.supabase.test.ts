@@ -29,6 +29,7 @@ describe("عامل TweetSMS عبر Supabase", () => {
     const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
     state.rpc
       .mockResolvedValueOnce({ data: [{ notification_id: 11, tenant_id: 20, recipient: "+970599000000", rendered_text: "فاتورتك جاهزة", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHup", attempt_number: 1, character_count: 13, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: [{ notification_id: 11, status: "submitted", provider_message_id: "provider-id", segment_count: 1 }], error: null });
     provider.balance.mockResolvedValueOnce({ ok: true, balance: 100 }).mockResolvedValueOnce({ ok: true, balance: 99 });
     provider.send.mockResolvedValueOnce({ ok: true, message: "تم", providerMessageId: "provider-id" });
@@ -36,25 +37,27 @@ describe("عامل TweetSMS عبر Supabase", () => {
     await expect(processNotificationById(11, 7)).resolves.toEqual({ status: "submitted", providerMessageId: "provider-id" });
     expect(state.rpc).toHaveBeenNthCalledWith(1, "powerhub_claim_sms_notification", { p_user_id: 7, p_notification_id: 11 });
     expect(provider.send).toHaveBeenCalledTimes(1);
-    expect(state.rpc).toHaveBeenNthCalledWith(2, "powerhub_finish_sms_notification", expect.objectContaining({ p_success: true, p_attempt_number: 1 }));
+    expect(state.rpc).toHaveBeenNthCalledWith(3, "powerhub_finish_sms_notification", expect.objectContaining({ p_success: true, p_attempt_number: 1 }));
   });
 
   it("يثبت الفشل بعد رفض المزود ولا يعاود محاولة الإرسال تلقائياً", async () => {
     const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
     state.rpc
       .mockResolvedValueOnce({ data: [{ notification_id: 12, tenant_id: 20, recipient: "+970599000000", rendered_text: "فاتورتك جاهزة", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHup", attempt_number: 3, character_count: 13, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: [{ notification_id: 12, status: "failed", provider_message_id: null, segment_count: 1 }], error: null });
     provider.balance.mockResolvedValueOnce({ ok: true, balance: 100 });
     provider.send.mockResolvedValueOnce({ ok: false, message: "رفض المزود" });
 
     await expect(processNotificationById(12, 7)).resolves.toMatchObject({ status: "failed", error: "رفض المزود" });
-    expect(state.rpc).toHaveBeenNthCalledWith(2, "powerhub_finish_sms_notification", expect.objectContaining({ p_success: false, p_attempt_number: 3 }));
+    expect(state.rpc).toHaveBeenNthCalledWith(3, "powerhub_finish_sms_notification", expect.objectContaining({ p_success: false, p_attempt_number: 3 }));
   });
 
   it("يحمي replay من إرسال المزود مرتين لنفس الإشعار", async () => {
     const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
     state.rpc
       .mockResolvedValueOnce({ data: [{ notification_id: 13, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: [{ notification_id: 13, status: "submitted" }], error: null })
       .mockResolvedValueOnce({ data: [], error: null });
     provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 }).mockResolvedValueOnce({ ok: true, balance: 9 });
@@ -69,14 +72,44 @@ describe("عامل TweetSMS عبر Supabase", () => {
     const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
     state.rpc
       .mockResolvedValueOnce({ data: [{ notification_id: 14, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: [], error: new Error("finish failed") })
       .mockResolvedValueOnce({ data: [{ notification_id: 14, status: "needs_review", attempt_number: 1 }], error: null });
     provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 }).mockResolvedValueOnce({ ok: true, balance: 9 });
     provider.send.mockResolvedValueOnce({ ok: true, providerMessageId: "provider-14" });
 
     await expect(processNotificationById(14, 7)).resolves.toMatchObject({ status: "needs_review" });
-    expect(state.rpc).toHaveBeenNthCalledWith(3, "powerhub_mark_sms_needs_review", expect.objectContaining({ p_notification_id: 14, p_attempt_number: 1 }));
+    expect(state.rpc).toHaveBeenNthCalledWith(4, "powerhub_mark_sms_needs_review", expect.objectContaining({ p_notification_id: 14, p_attempt_number: 1 }));
     expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("يعزل رسالة قبلها المزود عندما يفشل فحص الرصيد اللاحق ولا يصنفها فاشلة قابلة لإعادة الإرسال", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 15, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: [{ notification_id: 15, status: "needs_review", attempt_number: 1 }], error: null });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 }).mockResolvedValueOnce({ ok: false, balance: undefined });
+    provider.send.mockResolvedValueOnce({ ok: true, providerMessageId: "provider-15" });
+
+    await expect(processNotificationById(15, 7)).resolves.toMatchObject({ status: "needs_review" });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_mark_sms_needs_review", expect.objectContaining({ p_notification_id: 15, p_provider_message_id: "provider-15" }));
+    expect(state.rpc).not.toHaveBeenCalledWith("powerhub_finish_sms_notification", expect.anything());
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("يعزل نتيجة timeout بعد بدء طلب المزود ولا يحولها إلى فشل قابل للتكرار", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 16, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: [{ notification_id: 16, status: "needs_review", attempt_number: 1 }], error: null });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 });
+    provider.send.mockRejectedValueOnce(new Error("network timeout"));
+
+    await expect(processNotificationById(16, 7)).resolves.toMatchObject({ status: "needs_review" });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_mark_sms_needs_review", expect.objectContaining({ p_notification_id: 16 }));
+    expect(state.rpc).not.toHaveBeenCalledWith("powerhub_finish_sms_notification", expect.anything());
   });
 
   it("يعالج الرسائل الموحدة المستحقة ويستثني invoice_issued والمجدولة مستقبلاً", async () => {
@@ -89,6 +122,7 @@ describe("عامل TweetSMS عبر Supabase", () => {
     state.rpc.mockImplementation(async (name: string) => {
       if (name === "powerhub_reclaim_stale_sms_notifications") return { data: 0, error: null };
       if (name === "powerhub_claim_sms_notification") return { data: [{ notification_id: 21, tenant_id: 20, recipient: "+970599000000", rendered_text: "تم استلام الدفعة", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 15, segment_count: 1 }], error: null };
+      if (name === "powerhub_mark_sms_provider_request_started") return { data: true, error: null };
       if (name === "powerhub_finish_sms_notification") return { data: [{ notification_id: 21, status: "submitted" }], error: null };
       throw new Error(`unexpected rpc ${name}`);
     });
