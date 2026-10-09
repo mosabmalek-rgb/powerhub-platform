@@ -103,6 +103,8 @@ describe("unified messaging runtime contract", () => {
 
   it("records a durable failed run when processing throws after claiming the occurrence", () => {
     expect(runtime).toContain('await finishRun("failed", requestedCount, queuedCount, skipped, 1, message);');
+    expect(runtime.indexOf('await finishRun("completed", requestedCount, queuedCount, skipped, 0, null);'))
+      .toBeLessThan(runtime.indexOf('} catch (error) {', runtime.indexOf("async function executeAutomation")));
     expect(runtime).toContain("Release the active lease with a durable failure outcome");
     expect(runtime).toContain("throw error;");
   });

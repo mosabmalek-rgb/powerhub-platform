@@ -384,7 +384,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       else break;
     }
   }
-
+  await finishRun("completed", requestedCount, queuedCount, skipped, 0, null);
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل تنفيذ أتمتة المراسلة.";
     // Release the active lease with a durable failure outcome instead of
@@ -392,8 +392,6 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
     await finishRun("failed", requestedCount, queuedCount, skipped, 1, message);
     throw error;
   }
-
-  await finishRun("completed", requestedCount, queuedCount, skipped, 0, null);
   await writeSupabaseAudit({
     userId: actorUserId, tenantId, siteId, entityType: "message_automation", entityId: String(automation.id),
     action: "execute", metadata: { occurrenceKey: occ.occurrence_key, requested: requestedCount, queued: queuedCount, submitted: 0, failed: 0, skipped },
