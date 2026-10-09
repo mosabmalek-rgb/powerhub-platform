@@ -34,6 +34,9 @@ runVitest(["server"]);
 runVitest(["client/src/components"]);
 runVitest(["client/src/lib", "client/src/contexts", "client/src/hooks"]);
 
+// This pure scheduling test uses the default Vitest configuration, not vitest.pages.config.ts.
+runVitest(["client/src/pages/messaging-schedule.test.ts"]);
+
 const pagesDir = "client/src/pages";
 if (existsSync(pagesDir)) {
   const roleGuardsPath = "client/src/pages/role-guards.ui.test.tsx";
@@ -49,7 +52,7 @@ if (existsSync(pagesDir)) {
       run(pageVitestArgs.concat([roleGuardsPath, "-t", name]), 120_000);
     }
   }
-  for (const entry of ["client/src/pages/messaging-schedule.test.ts", "client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx"]) {
+  for (const entry of ["client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx"]) {
     if (existsSync(entry)) run(pageVitestArgs.concat([entry]));
   }
 }
