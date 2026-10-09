@@ -71,7 +71,9 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       p_timezone: automation.timezone,
       p_now: now.toISOString(),
     });
-    if (occurrence.error || !occurrence.data?.[0]?.due) return { status: "skipped", requested: 0, queued: 0, failed: 0, skipped: 0 };
+    if (occurrence.error) throw new Error("تعذر حساب موعد أتمتة المراسلة.");
+    if (!occurrence.data?.[0]) throw new Error("لم تُعد قاعدة البيانات موعد أتمتة المراسلة.");
+    if (!occurrence.data[0].due) return { status: "skipped", requested: 0, queued: 0, failed: 0, skipped: 0 };
     occ = occurrence.data[0];
   }
   const claim = await admin.rpc("powerhub_claim_unified_automation_run", {
@@ -122,11 +124,19 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
     if (!operationKeys.length) return;
     const { data: persistedRows, error: persistedError } = await admin
       .from("notification_messages")
-      .select("id")
+      .select("id,operation_key,payload")
       .eq("tenant_id", tenantId)
       .in("operation_key", operationKeys);
     if (persistedError) throw new Error("تعذر التحقق من رسائل الأتمتة المثبتة في الطابور.");
-    queuedCount += new Set((persistedRows ?? []).map((row: any) => Number(row.id)).filter(Number.isInteger)).size;
+    const persistedByKey = new Map((persistedRows ?? []).map((row: any) => [String(row.operation_key), row]));
+    const currentOccurrenceRows = (persistedRows ?? []).filter((row: any) =>
+      String(row.payload?.occurrenceKey ?? "") === String(occ.occurrence_key)
+    );
+    queuedCount += new Set(currentOccurrenceRows.map((row: any) => Number(row.id)).filter(Number.isInteger)).size;
+    skipped += operationKeys.filter((key) => {
+      const persisted = persistedByKey.get(key);
+      return Boolean(persisted) && String((persisted as any).payload?.occurrenceKey ?? "") !== String(occ.occurrence_key);
+    }).length;
   }
 
   async function heartbeat() {
@@ -166,7 +176,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
 
       const invoiceIds = payments.map((p: any) => p.invoice_id).filter(Boolean).map(Number);
       const { data: invoices, error: invoicesError } = invoiceIds.length
-        ? await admin.from("invoices").select("id,invoice_no,billing_period,total_amount,balance_due,due_date").eq("tenant_id",tenantId).eq("site_id",siteId).in("id",invoiceIds)
+        ? await admin.from("invoices").select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date").eq("tenant_id",tenantId).eq("site_id",siteId).in("id",invoiceIds)
         : { data: [], error: null };
       if (invoicesError) throw new Error("تعذر تحميل فواتير الأتمتة.");
       const invoiceMap = new Map((invoices ?? []).map((i: any) => [Number(i.id), i]));
@@ -176,6 +186,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
         const subscriber = subscriberMap.get(Number(payment.subscriber_id));
         if (!subscriber) { skipped++; continue; }
         const invoice = payment.invoice_id ? invoiceMap.get(Number(payment.invoice_id)) : null;
+        if (invoice && Number(invoice.subscriber_id) !== Number(payment.subscriber_id)) { skipped++; continue; }
         const values = {
           subscriber_name: subscriber.full_name ?? "", subscriber_no: subscriber.subscriber_no ?? "",
           invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
@@ -218,15 +229,25 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
         let invoiceMap = new Map<number, any>();
         if (eventType === "invoice_overdue") {
           const ids = subscribers.map((s: any) => Number(s.id));
-          const { data: invoices, error: invoicesError } = await admin.from("invoices")
-            .select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,status")
-            .eq("tenant_id", tenantId).eq("site_id", siteId).in("subscriber_id", ids)
-            .in("status", ["issued","partially_paid","overdue"]).gt("balance_due", 0).lte("due_date", now.toISOString())
-            .order("due_date", { ascending: false }).limit(2000);
-          if (invoicesError) throw new Error("تعذر تحميل فواتير الأتمتة.");
-          for (const invoice of invoices ?? []) {
-            const key = Number(invoice.subscriber_id);
-            if (!invoiceMap.has(key)) invoiceMap.set(key, invoice);
+          let lastInvoiceId = 0;
+          for (;;) {
+            const { data: invoices, error: invoicesError } = await admin.from("invoices")
+              .select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,status")
+              .eq("tenant_id", tenantId).eq("site_id", siteId).in("subscriber_id", ids)
+              .in("status", ["issued","partially_paid","overdue"]).gt("balance_due", 0).lte("due_date", now.toISOString())
+              .gt("id", lastInvoiceId).order("id", { ascending: true }).limit(500);
+            if (invoicesError) throw new Error("تعذر تحميل فواتير الأتمتة.");
+            if (!invoices?.length) break;
+            for (const invoice of invoices) {
+              const key = Number(invoice.subscriber_id);
+              const previous = invoiceMap.get(key);
+              if (!previous || new Date(invoice.due_date).getTime() < new Date(previous.due_date).getTime()) {
+                invoiceMap.set(key, invoice);
+              }
+            }
+            lastInvoiceId = Number(invoices[invoices.length - 1].id);
+            if (invoices.length < 500) break;
+            await heartbeat();
           }
         }
 
@@ -264,6 +285,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
               textBody = textBody.replace(/{{\s*invoice_link\s*}}/g, `${base.data}/invoice/${token}`);
             }
             const portal = await admin.from("site_portal_settings").select("portal_code").eq("tenant_id",tenantId).eq("site_id",siteId).maybeSingle();
+            if (portal.error) throw new Error("تعذر تحميل إعدادات بوابة المشترك.");
             textBody = textBody.replace(/{{\s*portal_link\s*}}/g, portal.data?.portal_code ? `${base.data}/portal?g=${portal.data.portal_code}` : "");
           }
           rows.push({
@@ -301,8 +323,10 @@ export async function processUnifiedMessagingAutomations(now = new Date()) {
   const ids = (rows ?? []).filter((r: any) => r.site_id != null);
   const results = [];
   for (const row of ids) {
-    const { data: template } = await admin.from("powerhub_message_templates").select("id,body,channel,is_active").eq("id", Number(row.template_id)).maybeSingle();
     try {
+      const { data: template, error: templateError } = await admin.from("powerhub_message_templates")
+        .select("id,body,channel,is_active").eq("id", Number(row.template_id)).maybeSingle();
+      if (templateError) throw new Error("تعذر تحميل قالب أتمتة المراسلة.");
       results.push({ automationId: Number(row.id), ...(await executeAutomation({ ...row, template }, now, actor)) });
     } catch (error) {
       results.push({ automationId: Number(row.id), status: "failed", error: error instanceof Error ? error.message : "فشل تنفيذ الأتمتة." });

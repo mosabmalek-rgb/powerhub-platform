@@ -28,6 +28,22 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("notification_messages_automation_runtime_idx");
   });
 
+  it("does not turn scheduler/template/portal query errors into benign skips", () => {
+    expect(runtime).toContain('if (occurrence.error) throw new Error("تعذر حساب موعد أتمتة المراسلة.")');
+    expect(runtime).toContain('if (templateError) throw new Error("تعذر تحميل قالب أتمتة المراسلة.")');
+    expect(runtime).toContain('if (portal.error) throw new Error("تعذر تحميل إعدادات بوابة المشترك.")');
+  });
+
+  it("paginates overdue invoices and chooses the oldest outstanding invoice per subscriber", () => {
+    expect(runtime).toContain('.gt("id", lastInvoiceId).order("id", { ascending: true }).limit(500)');
+    expect(runtime).toContain('new Date(invoice.due_date).getTime() < new Date(previous.due_date).getTime()');
+  });
+
+  it("counts only rows for the current automation occurrence and counts previous rows as skipped", () => {
+    expect(runtime).toContain('String(row.payload?.occurrenceKey ?? "") === String(occ.occurrence_key)');
+    expect(runtime).toContain('skipped += operationKeys.filter((key)');
+  });
+
   it("reconciles queued counts from persisted operation keys after replay", () => {
     expect(runtime).toContain('from("notification_messages")');
     expect(runtime).toContain('.in("operation_key", operationKeys)');

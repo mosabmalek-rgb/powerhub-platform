@@ -8,6 +8,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { can } from "@shared/powerhub-rbac";
 import { segmentArabicSms } from "@shared/sms-segmentation";
+import { formatDateTimeLocalInTimeZone, parseDateTimeLocalInTimeZone } from "@/lib/zoned-date-time";
 import { BellRing, CircleAlert, Eye, FileText, KeyRound, Loader2, LockKeyhole, MessageSquareText, RotateCcw, ShieldCheck, WalletCards } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -145,6 +146,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const [automationName, setAutomationName] = useState("");
   const [scheduleType, setScheduleType] = useState<"none"|"weekly"|"every_10_days"|"every_15_days"|"monthly">("none");
   const [anchor, setAnchor] = useState("");
+  const [automationTimezone, setAutomationTimezone] = useState("Asia/Gaza");
   const [afterDueDays, setAfterDueDays] = useState(1);
   const [minBalance, setMinBalance] = useState("");
   const [manualTemplateId, setManualTemplateId] = useState<number | null>(null);
@@ -172,7 +174,9 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     if (!a) return;
     setAutomationId(a.id); setAutomationName(a.name); setEventType(a.eventType);
     setScheduleType(a.scheduleType === "none" ? "none" : a.scheduleType);
-    setAnchor(a.scheduleAnchorAt ? new Date(a.scheduleAnchorAt).toISOString().slice(0,16) : "");
+    const timezone = a.timezone || "Asia/Gaza";
+    setAutomationTimezone(timezone);
+    setAnchor(a.scheduleAnchorAt ? formatDateTimeLocalInTimeZone(a.scheduleAnchorAt, timezone) : "");
     setAfterDueDays(Number(a.triggerConfig?.afterDueDays ?? 1));
     setMinBalance(a.triggerConfig?.minBalance == null ? "" : String(a.triggerConfig.minBalance));
   };
@@ -184,13 +188,20 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   });
 
   const submitAutomation = () => {
-    const derivedAnchor = scheduleType === "none" ? undefined : (anchor ? new Date(anchor) : undefined);
-    if (scheduleType !== "none" && !derivedAnchor) return toast.error("حدد موعد بداية الجدولة.");
+    let derivedAnchor: Date | undefined;
+    if (scheduleType !== "none") {
+      if (!anchor) return toast.error("حدد موعد بداية الجدولة.");
+      try {
+        derivedAnchor = parseDateTimeLocalInTimeZone(anchor, automationTimezone);
+      } catch {
+        return toast.error("وقت الجدولة المختار غير صالح أو غير موجود في المنطقة الزمنية المحددة.");
+      }
+    }
     saveAutomation.mutate({
       siteId, id: automationId ?? undefined, templateId: templateId ?? activeSmsTemplates[0]?.id,
       name: automationName, eventType,
       sendType: scheduleType === "none" ? "automatic" : "scheduled",
-      scheduleType, scheduleAnchorAt: derivedAnchor, audience: {},
+      scheduleType, scheduleAnchorAt: derivedAnchor, timezone: automationTimezone, audience: {},
       triggerConfig: eventType === "invoice_overdue"
         ? { afterDueDays, ...(minBalance ? { minBalance: Number(minBalance) } : {}) }
         : {},

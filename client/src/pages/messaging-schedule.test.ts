@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { buildMonthlyScheduleAnchor } from "./MessagingSettingsPage";
+import { formatDateTimeLocalInTimeZone, parseDateTimeLocalInTimeZone } from "@/lib/zoned-date-time";
+
+describe("zoned schedule datetime input", () => {
+  it("round-trips an absolute timestamp through Asia/Gaza wall time without shifting it", () => {
+    const original = new Date("2026-01-15T09:30:00.000Z");
+    const wallTime = formatDateTimeLocalInTimeZone(original, "Asia/Gaza");
+    expect(parseDateTimeLocalInTimeZone(wallTime, "Asia/Gaza").toISOString()).toBe(original.toISOString());
+  });
+
+  it("rejects invalid wall dates instead of silently normalizing them", () => {
+    expect(() => parseDateTimeLocalInTimeZone("2026-02-30T10:00", "Asia/Gaza")).toThrow();
+  });
+});
 
 describe("monthly messaging schedule anchor", () => {
   it("preserves day 31 when the current month has fewer than 31 days", () => {
