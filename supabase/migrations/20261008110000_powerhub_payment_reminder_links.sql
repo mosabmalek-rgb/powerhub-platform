@@ -170,7 +170,7 @@ begin
   limit 1
   for update;
 
-  if found and v_existing.status in ('processing', 'submitted', 'delivered', 'read') then
+  if found and v_existing.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review') then
     notification_id := v_existing.id;
     queued := false;
     return next;
