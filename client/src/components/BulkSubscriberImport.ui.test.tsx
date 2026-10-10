@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({ mutate: vi.fn(), onSaved: vi.fn().mockResolved
 const workbook = vi.hoisted(() => ({
   worksheets: [{ eachRow: (callback: (row: { values: unknown[] }, index: number) => void) => {
     callback({ values: [undefined, "الاسم الكامل", "رقم الجوال الدولي", "العنوان", "نوع الاشتراك", "الرقم المرجعي"] }, 1);
-    callback({ values: [undefined, "أحمد العلي", "+970599000001", "غزة", "سكني", "SUB-NORTH-001"] }, 2);
+    callback({ values: [undefined, "أحمد العلي", "+970599000001", "غزة", "سكني", "SUB-NORTH-001", 12.52, "2026-10-10"] }, 2);
   } }],
   xlsx: { load: vi.fn().mockResolvedValue(undefined), writeBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)) },
 }));
@@ -40,7 +40,7 @@ describe("استيراد المشتركين من Excel", () => {
       updateExisting: false,
       clientOperationId: expect.any(String),
       approveOpeningReadings: false,
-      rows: [{ sourceRow: 2, subscriberNo: undefined, fullName: "أحمد العلي", phone: "+970599000001", whatsappNumber: undefined, address: "غزة", subscriptionType: "residential" }],
+      rows: [{ sourceRow: 2, subscriberNo: undefined, fullName: "أحمد العلي", phone: "+970599000001", whatsappNumber: undefined, address: "غزة", subscriptionType: "residential", openingReading: "12.52", openingReadingAt: expect.any(String) }],
     }));
   });
 });
