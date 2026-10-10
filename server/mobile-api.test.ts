@@ -7,12 +7,15 @@ describe("Mobile API v1 contract", () => {
       clientOperationId: "550e8400-e29b-41d4-a716-446655440000",
       branchId: 12,
       subscriberId: 456,
-      readingValue: "1250.500",
+      readingValue: "1250.50",
       readingAt: "2026-08-22T14:30:00.000Z",
     };
     expect(mobileApiSchemas.reading.safeParse(base).success).toBe(true);
     expect(mobileApiSchemas.reading.safeParse({ ...base, clientOperationId: "not-a-uuid" }).success).toBe(false);
-    expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "1250.1234" }).success).toBe(false);
+    expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "1250.123" }).success).toBe(false);
+    expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "12" }).success).toBe(true);
+    expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "12.5" }).success).toBe(true);
+    expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "12.52" }).success).toBe(true);
     expect(mobileApiSchemas.reading.safeParse({ ...base, meterId: 789 }).success).toBe(false);
     expect(mobileApiSchemas.reading.safeParse({ ...base, subscriberId: 0 }).success).toBe(false);
   });

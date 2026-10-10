@@ -1467,7 +1467,7 @@ export const powerhubRouter = router({
       address: z.string().max(1000).optional(),
       subscriptionType: z.enum(["residential", "commercial"]).default("residential"),
       clientOperationId: z.string().uuid().optional(),
-      openingReading: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
+      openingReading: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
       openingReadingAt: z.string().trim().optional().refine((value) => !value || !Number.isNaN(Date.parse(value)), "تاريخ القراءة الافتتاحية غير صالح."),
       openingReadingApproved: z.boolean().default(false),
       openingReadingImageData: z.string().optional(),
@@ -1565,7 +1565,7 @@ export const powerhubRouter = router({
         whatsappNumber: z.string().trim().max(60).optional(),
         address: z.string().trim().max(1500).optional(),
         subscriptionType: z.enum(["residential", "commercial"]),
-        openingReading: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
+        openingReading: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
         openingReadingAt: z.string().datetime().optional(),
       })).min(1).max(300),
       approveOpeningReadings: z.boolean().default(false),
@@ -1774,7 +1774,7 @@ export const powerhubRouter = router({
       return listSupabaseReadingPage(input.siteId, input);
     }),
     create: protectedProcedure.input(z.object({
-      siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date().optional(),
+      siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/), readingAt: z.date().optional(),
       captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
@@ -1808,7 +1808,7 @@ export const powerhubRouter = router({
       if (errorText.includes("READING_RESET_NOTES_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة قبل حفظها." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل القراءة في Supabase." });
     }),
-    updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+    updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       const { data, error } = await supabaseAdmin().rpc("powerhub_update_pending_reading", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId,

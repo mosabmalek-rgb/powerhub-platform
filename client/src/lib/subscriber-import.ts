@@ -70,7 +70,7 @@ export function prepareSubscriberImport(rows: SubscriberImportDraft[]): Prepared
     if (row.openingReadingAt && !row.openingReading?.trim()) errors.push("أدخل قيمة القراءة الافتتاحية قبل تحديد تاريخها.");
     if (row.openingReading?.trim()) {
       const reading = Number(row.openingReading.trim());
-      if (!Number.isFinite(reading) || reading < 0 || !/^\\d+(\\.\\d{1,3})?$/.test(row.openingReading.trim())) errors.push("القراءة الافتتاحية يجب أن تكون صفراً أو رقماً موجباً حتى 3 منازل عشرية.");
+      if (!Number.isFinite(reading) || reading < 0 || !/^\d+(\.\d{1,2})?$/.test(row.openingReading.trim())) errors.push("القراءة الافتتاحية يجب أن تكون صفراً أو رقماً موجباً حتى منزلتين عشريتين.");
       if (row.openingReadingAt && Number.isNaN(Date.parse(row.openingReadingAt))) errors.push("تاريخ القراءة الافتتاحية غير صالح.");
     }
     return { ...row, subscriberNo: subscriberNo || undefined, rowNumber: row.sourceRow ?? index + 2, normalizedSubscriptionType, status: errors.length ? "error" : "ready", errors };
