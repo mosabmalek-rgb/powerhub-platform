@@ -32,6 +32,27 @@ describe("عامل TweetSMS عبر Supabase", () => {
     expect(effectiveNeedsReviewCount("invalid", results)).toBe(1);
   });
 
+  it("blocks real SMS dispatch in Vercel Preview before claiming a database row", async () => {
+    const oldVercelEnv = process.env.VERCEL_ENV;
+    const oldAllowPreviewSms = process.env.POWERHUB_ALLOW_PREVIEW_SMS;
+    process.env.VERCEL_ENV = "preview";
+    delete process.env.POWERHUB_ALLOW_PREVIEW_SMS;
+    try {
+      await expect(processNotificationById(12, 7)).resolves.toMatchObject({
+        status: "skipped",
+        error: expect.stringContaining("معطل في بيئة المعاينة"),
+      });
+      expect(state.rpc).not.toHaveBeenCalled();
+      expect(provider.send).not.toHaveBeenCalled();
+      expect(provider.balance).not.toHaveBeenCalled();
+    } finally {
+      if (oldVercelEnv === undefined) delete process.env.VERCEL_ENV;
+      else process.env.VERCEL_ENV = oldVercelEnv;
+      if (oldAllowPreviewSms === undefined) delete process.env.POWERHUB_ALLOW_PREVIEW_SMS;
+      else process.env.POWERHUB_ALLOW_PREVIEW_SMS = oldAllowPreviewSms;
+    }
+  });
+
   it("يرفض المعالجة من دون منفذ مصادق عليه ولا يستدعي قاعدة البيانات أو المزود", async () => {
     await expect(processNotificationById(11)).resolves.toMatchObject({ status: "skipped" });
     expect(state.rpc).not.toHaveBeenCalled();
