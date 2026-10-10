@@ -327,6 +327,31 @@ export function registerMobileApi(app: Express) {
     return res.json({ user: mobileUserPayload(context.scope) });
   });
 
+  app.get("/api/mobile/v1/reading-cycle", async (req, res) => {
+    const context = await authenticateMobile(req);
+    if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+
+    const branchId = Number(req.query.branchId);
+    if (!Number.isInteger(branchId) || branchId <= 0) return sendError(res, 400, "INVALID_BRANCH", "الفرع المحدد غير صالح.");
+    if (!context.scope.branchIds.includes(branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
+
+    const { data, error } = await supabaseAdmin().rpc("powerhub_get_reading_cycle", {
+      p_tenant_id: context.scope.tenantId,
+      p_site_id: branchId,
+    });
+    if (error) return sendSupabaseError(res, error, "تعذر تحميل دورة القراءات من PowerHub.");
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return res.json({
+      cycle: {
+        cycleType: row?.cycle_type ?? "MONTHLY",
+        weeklyStartDay: Number(row?.weekly_start_day ?? 7),
+        monthlyStartDay: Number(row?.monthly_start_day ?? 1),
+        timezone: row?.timezone ?? "Asia/Gaza",
+      },
+    });
+  });
+
   app.get("/api/mobile/v1/subscribers", async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");

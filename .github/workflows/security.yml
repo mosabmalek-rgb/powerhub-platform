@@ -44,7 +44,7 @@ jobs:
 
   dependency-audit:
     name: Dependency audit
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -56,7 +56,6 @@ jobs:
           node-version: 24
 
       - name: Static dependency security guard
-        shell: cmd
         run: node scripts/check-dependency-security.mjs
 
   dependency-review:

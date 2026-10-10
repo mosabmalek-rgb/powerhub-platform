@@ -34,6 +34,9 @@ runVitest(["server"]);
 runVitest(["client/src/components"]);
 runVitest(["client/src/lib", "client/src/contexts", "client/src/hooks"]);
 
+// This pure scheduling test uses the default Vitest configuration, not vitest.pages.config.ts.
+runVitest(["client/src/pages/messaging-schedule.test.ts"]);
+
 const pagesDir = "client/src/pages";
 if (existsSync(pagesDir)) {
   const roleGuardsPath = "client/src/pages/role-guards.ui.test.tsx";

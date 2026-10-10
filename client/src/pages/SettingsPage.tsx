@@ -16,6 +16,34 @@ import { toast } from "sonner";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 
+function ReadingCycleSettingsSection({ siteId }: { siteId: number }) {
+  const utils = trpc.useUtils();
+  const query = trpc.powerhub.readingCycle.get.useQuery({ siteId });
+  const [cycleType, setCycleType] = useState<"WEEKLY" | "EVERY_10_DAYS" | "EVERY_15_DAYS" | "MONTHLY">("MONTHLY");
+  const [weeklyStartDay, setWeeklyStartDay] = useState(7);
+  const [monthlyStartDay, setMonthlyStartDay] = useState<1 | 30>(1);
+  useEffect(() => {
+    if (!query.data) return;
+    setCycleType(query.data.cycleType);
+    setWeeklyStartDay(query.data.weeklyStartDay);
+    setMonthlyStartDay(query.data.monthlyStartDay === 30 ? 30 : 1);
+  }, [query.data]);
+  const save = trpc.powerhub.readingCycle.save.useMutation({
+    onSuccess: async () => { await utils.powerhub.readingCycle.get.invalidate(); toast.success("تم حفظ دورة القراءات والفوترة."); },
+    onError: (error) => toast.error(error.message),
+  });
+  return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex items-center gap-2"><CalendarClock className="h-5 w-5 text-[#F5B800]" /><h2 className="font-bold text-white">إعدادات التشغيل والفوترة</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">دورة القراءات والفوترة المرجعية المشتركة بين منصة PowerHub والتطبيق الميداني.</p></div><Badge className="bg-sky-400/10 text-sky-200">Asia/Gaza</Badge></div>
+    <div className="mt-4 grid gap-3 md:grid-cols-2">
+      <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">دورة القراءات والفوترة</span><select value={cycleType} onChange={(e)=>setCycleType(e.target.value as typeof cycleType)} className={inputClass}><option value="WEEKLY">كل أسبوع</option><option value="EVERY_10_DAYS">كل 10 أيام (1، 11، 21)</option><option value="EVERY_15_DAYS">كل 15 يوم (1، 16)</option><option value="MONTHLY">كل شهر</option></select></label>
+      {cycleType === "WEEKLY" ? <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">يوم بدء الدورة</span><select value={weeklyStartDay} onChange={(e)=>setWeeklyStartDay(Number(e.target.value))} className={inputClass}>{[[1,"الأحد"],[2,"الإثنين"],[3,"الثلاثاء"],[4,"الأربعاء"],[5,"الخميس"],[6,"الجمعة"],[7,"السبت"]].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label> : null}
+      {cycleType === "MONTHLY" ? <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">يوم بدء الدورة الشهرية</span><select value={monthlyStartDay} onChange={(e)=>setMonthlyStartDay(Number(e.target.value)===30?30:1)} className={inputClass}><option value={1}>1 من كل شهر</option><option value={30}>30 من كل شهر — فبراير 28</option></select></label> : null}
+    </div>
+    <div className="mt-4 rounded-xl border border-white/8 bg-white/[.02] p-3 text-xs leading-6 text-slate-400">{cycleType === "WEEKLY" ? "كل قراءة تقع ضمن أسبوع يبدأ في اليوم المحدد." : cycleType === "EVERY_10_DAYS" ? "الدورات: 1–10، 11–20، 21–نهاية الشهر." : cycleType === "EVERY_15_DAYS" ? "الدورات: 1–15، 16–نهاية الشهر." : "الدورة تبدأ يوم 1 أو 30. عند اختيار 30 يبدأ فبراير في 28 فبراير."}</div>
+    <div className="mt-4 flex justify-end"><Button onClick={()=>save.mutate({siteId,cycleType,weeklyStartDay,monthlyStartDay})} disabled={save.isPending||query.isLoading} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{save.isPending?"جارٍ الحفظ…":"حفظ دورة القراءات والفوترة"}</Button></div>
+  </CardContent></Card>;
+}
+
 function SubaccountListSkeleton() {
   return <div role="status" aria-label="جارٍ تحميل الحسابات الفرعية" className="space-y-3"><span className="sr-only">جارٍ تحميل الحسابات الفرعية...</span>{Array.from({ length: 4 }, (_, index) => <div key={index} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3"><div className="space-y-2"><Skeleton className="h-4 w-36" /><Skeleton className="h-3 w-48" /></div><div className="flex items-center gap-2"><Skeleton className="h-6 w-16 rounded-full" /><Skeleton className="h-6 w-20 rounded-full" /><Skeleton className="h-8 w-24 rounded-lg" /></div></div>)}</div>;
 }
@@ -83,6 +111,7 @@ export default function SettingsPage() {
   <Button disabled={paymentDocumentationAccess.isLoading || setPaymentDocumentation.isPending || paymentDocumentationAccess.data?.policy === "not_included" || paymentDocumentationAccess.data?.allowed === true} onClick={() => setPaymentDocumentation.mutate({ siteId: siteId!, isEnabled: true })} className="bg-emerald-500 font-bold text-white hover:bg-emerald-400">{setPaymentDocumentation.isPending ? "جارٍ الحفظ…" : "تفعيل التوثيق"}</Button>
   <Button variant="outline" disabled={paymentDocumentationAccess.isLoading || setPaymentDocumentation.isPending || paymentDocumentationAccess.data?.policy === "not_included" || paymentDocumentationAccess.data?.allowed !== true} onClick={() => setPaymentDocumentation.mutate({ siteId: siteId!, isEnabled: false })} className="border-rose-400/40 text-rose-300 hover:bg-rose-400/10 hover:text-rose-200">{setPaymentDocumentation.isPending ? "جارٍ الحفظ…" : "إلغاء تفعيل التوثيق"}</Button>
 </div></div></CardContent></Card>}
+    {!isSubaccountsRoute && accessQuery.data?.role === "owner" && siteId ? <ReadingCycleSettingsSection siteId={siteId} /> : null}
     {!isSubaccountsRoute && canManageTeam && <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-bold text-white">هوية الشركة في التقارير</h2><p className="mt-2 text-sm leading-6 text-slate-400">أضف اسم الشركة وشعارها ليظهرا في التقارير الإدارية وملفات PDF.</p></div>{brandingQuery.data?.logoUrl && <img src={brandingQuery.data.logoUrl} alt="شعار الشركة" className="h-16 max-w-40 rounded-lg border border-white/10 bg-white object-contain p-2" />}</div><div className="mt-4 grid gap-4 md:grid-cols-2"><input value={companyName} onChange={e=>setCompanyName(e.target.value)} className={inputClass} placeholder="اسم الشركة / المولدات..." /><label className="flex h-10 cursor-pointer items-center rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-slate-300"><span className="truncate">{logoData ? "تم اختيار شعار جديد" : "اختر شعار الشركة"}</span><input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={e=>{const file=e.target.files?.[0]; if(!file)return; if(file.size>3*1024*1024)return toast.error("يجب ألا يتجاوز الشعار 3 ميغابايت."); const reader=new FileReader(); reader.onload=()=>{const value=String(reader.result); setLogoData(value.split(",")[1] ?? null); setLogoMime(file.type as typeof logoMime);}; reader.readAsDataURL(file);}} /></label></div><Button onClick={saveBranding} disabled={updateBranding.isPending} className="mt-4 bg-[#F5B800] font-bold text-[#0D1117]">{updateBranding.isPending ? "جارٍ الحفظ…" : "حفظ بيانات الشركة"}</Button></CardContent></Card>}
     {isSubaccountsRoute && <FlexiblePermissionsPanel siteId={siteId ?? 0} staff={(staffQuery.data ?? []) as never} canManageTeam={canManageTeam} />}
     {isSubaccountsRoute && <div className="space-y-6">{canManageTeam && allowedRolesQuery.data && <Card className="border-sky-400/20 bg-sky-400/[.035] shadow-panel"><CardContent className="p-5">

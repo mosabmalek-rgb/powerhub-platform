@@ -34,10 +34,32 @@ describe("TweetSMS API-KEY client", () => {
     expect((fetcher.mock.calls[0][1] as RequestInit).body).toContain("to=970591234567");
   });
 
+  it("marks non-2xx sendsms responses as ambiguous to prevent unsafe retry", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 999, message_id: "provider-ambiguous" }), { status: 502 }));
+    const result = await sendTweetSms({ endpoint: "https://tweetsms.ps", credentials, sender: "MouldNorth", message: "فاتورتك جاهزة", recipient: "970591234567" }, fetcher);
+    expect(result).toMatchObject({ ok: false, ambiguous: true, providerMessageId: "provider-ambiguous" });
+    expect(result.message).toContain("لم تُحسم نتيجة طلب الإرسال");
+  });
+
   it("maps the documented low-credit status to a retryable provider failure", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response("-124", { status: 200 }));
     const result = await sendTweetSms({ endpoint: "https://tweetsms.ps", credentials, sender: "MouldNorth", message: "فاتورتك جاهزة", recipient: "970591234567" }, fetcher);
-    expect(result).toMatchObject({ ok: false, code: -124 });
+    expect(result).toMatchObject({ ok: false, code: -124, ambiguous: false });
     expect(result.message).toContain("رصيد");
+  });
+  it("marks unknown HTTP 200 sendsms codes as ambiguous", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 123 }), { status: 200 }));
+    const result = await sendTweetSms({ endpoint: "https://tweetsms.ps", credentials, sender: "MouldNorth", message: "تنبيه", recipient: "970591234567" }, fetcher);
+    expect(result).toMatchObject({ ok: false, code: 123, ambiguous: true });
+  });
+  it("marks unparseable HTTP 200 sendsms responses as ambiguous", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("OK", { status: 200 }));
+    const result = await sendTweetSms({ endpoint: "https://tweetsms.ps", credentials, sender: "MouldNorth", message: "تنبيه", recipient: "970591234567" }, fetcher);
+    expect(result).toMatchObject({ ok: false, code: null, ambiguous: true });
+  });
+  it("keeps documented rejections definite for non-2xx sendsms responses", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("-124", { status: 502 }));
+    const result = await sendTweetSms({ endpoint: "https://tweetsms.ps", credentials, sender: "MouldNorth", message: "تنبيه", recipient: "970591234567" }, fetcher);
+    expect(result).toMatchObject({ ok: false, code: -124, ambiguous: false });
   });
 });

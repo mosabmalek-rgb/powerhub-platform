@@ -8,17 +8,18 @@ import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
-import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
+import { defaultInvoiceMessageTemplates, defaultPaymentReminderSmsTemplate, renderInvoiceMessageTemplate } from "./invoice-message-template";
 import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
 import { normalizeInternationalPhone, phoneSearchVariants } from "../shared/phone";
-import { processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
+import { countUnconfirmedNeedsReviewPersistence, processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
 import { storageGet, storageGetSignedUrl, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { isActivePlatformAdmin } from "./platform-admin";
 import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReading } from "./powerhub-mobile-approve-runtime";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
+import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
@@ -336,7 +337,7 @@ async function sendPendingInvoiceSmsRuntime(
       action: "send_invoice_sms_batch",
       metadata: { notificationIds: [], requested: 0, submitted: 0, failed: 0, skipped: 0, internalBatchSize: 50, includeFailed: input.includeFailed, dueOnly: Boolean(input.dueOnly) },
     });
-    return { requested: 0, submitted: 0, failed: 0, skipped: 0, results: [] as Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; error?: string }> };
+    return { requested: 0, submitted: 0, failed: 0, skipped: 0, needsReview: 0, results: [] as Array<{ notificationId: number; status: "submitted" | "failed" | "skipped" | "needs_review"; error?: string }> };
   }
 
   const { data: notificationRows, error: notificationLookupError } = await admin
@@ -378,6 +379,7 @@ async function sendPendingInvoiceSmsRuntime(
     submitted: results.reduce((sum, item) => sum + item.submitted, 0),
     failed: results.reduce((sum, item) => sum + item.failed, 0),
     skipped: results.reduce((sum, item) => sum + item.skipped, 0) + skippedIds.length,
+    needsReview: results.reduce((sum, item) => sum + (item.needsReview ?? 0), 0),
     results: results.flatMap((item) => item.results ?? []).concat(skippedIds.map((notificationId) => ({ notificationId, status: "skipped" as const, error: "رقم الهاتف غير صالح أو المشترك خارج نطاق الفرع." }))),
   };
 
@@ -394,6 +396,7 @@ async function sendPendingInvoiceSmsRuntime(
       submitted: result.submitted,
       failed: result.failed,
       skipped: result.skipped,
+      needsReview: result.needsReview,
       internalBatchSize: 50,
       includeFailed: input.includeFailed,
       dueOnly: Boolean(input.dueOnly),
@@ -403,6 +406,37 @@ async function sendPendingInvoiceSmsRuntime(
 }
 
 export const powerhubRouter = router({
+  unifiedMessaging: powerhubUnifiedMessagingRouter,
+  readingCycle: router({
+    get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "technician", "viewer"], "recordReadings");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_reading_cycle", {
+        p_tenant_id: scope.tenantId,
+        p_site_id: input.siteId,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دورة القراءات." });
+      const row = Array.isArray(data) ? data[0] : data;
+      return { cycleType: row?.cycle_type ?? "MONTHLY", weeklyStartDay: Number(row?.weekly_start_day ?? 7), monthlyStartDay: Number(row?.monthly_start_day ?? 1), timezone: row?.timezone ?? "Asia/Gaza" };
+    }),
+    save: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      cycleType: z.enum(["WEEKLY", "EVERY_10_DAYS", "EVERY_15_DAYS", "MONTHLY"]),
+      weeklyStartDay: z.number().int().min(1).max(7).default(7),
+      monthlyStartDay: z.union([z.literal(1), z.literal(30)]).default(1),
+    })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_upsert_reading_cycle", {
+        p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId,
+        p_cycle_type: input.cycleType, p_weekly_start_day: input.weeklyStartDay, p_monthly_start_day: input.monthlyStartDay,
+      });
+      if (error) {
+        if ((error.message ?? "").includes("READING_CYCLE_PERMISSION_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل دورة القراءات." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر حفظ دورة القراءات." });
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return { cycleType: row?.cycle_type ?? input.cycleType, weeklyStartDay: Number(row?.weekly_start_day ?? input.weeklyStartDay), monthlyStartDay: Number(row?.monthly_start_day ?? input.monthlyStartDay), timezone: row?.timezone ?? "Asia/Gaza" };
+    }),
+  }),
   publicPackageCatalog: publicProcedure.query(async () => {
     const fallback = {
       currency: "ILS",
@@ -432,7 +466,7 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       const [accountResult, usageResult, quotaResult] = await Promise.all([
         admin.from("tenant_tweetsms_accounts").select("sender_name, monthly_limit, is_active, credential_ciphertext, last_error").eq("tenant_id", scope.tenantId).maybeSingle(),
-        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read"]),
+        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
         admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: scope.tenantId, p_resource: "sms" }),
       ]);
       if (accountResult.error || usageResult.error || quotaResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة الرسائل من Supabase." });
@@ -451,11 +485,11 @@ export const powerhubRouter = router({
       const [accountResult, messagesResult, monthUsageResult] = await Promise.all([
         admin.from("tenant_tweetsms_accounts").select("monthly_limit").eq("tenant_id", scope.tenantId).maybeSingle(),
         admin.from("notification_messages").select("created_at, status, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", fourteenDaysAgo.toISOString()),
-        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read"]),
+        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
       ]);
       if (accountResult.error || messagesResult.error || monthUsageResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استخدام الرسائل من Supabase." });
       const messages = messagesResult.data ?? [];
-      const daily = new Map<string, number>(); for (const message of messages) { if (!["processing", "submitted", "delivered", "read"].includes(message.status)) continue; const key = new Date(message.created_at).toISOString().slice(0, 10); daily.set(key, (daily.get(key) ?? 0) + Math.max(1, Number(message.segment_count ?? 1))); }
+      const daily = new Map<string, number>(); for (const message of messages) { if (!["processing", "submitted", "delivered", "read", "needs_review"].includes(message.status)) continue; const key = new Date(message.created_at).toISOString().slice(0, 10); daily.set(key, (daily.get(key) ?? 0) + Math.max(1, Number(message.segment_count ?? 1))); }
       const today = new Date(); const points = Array.from({ length: 14 }, (_, index) => { const date = new Date(today); date.setDate(today.getDate() - (13 - index)); const key = date.toISOString().slice(0, 10); return { date: key, count: daily.get(key) ?? 0 }; });
       const included = Number(accountResult.data?.monthly_limit ?? 0); const additional = 0; const total = included; const used = (monthUsageResult.data ?? []).reduce((sum, message) => sum + Math.max(1, Number(message.segment_count ?? 1)), 0);
       return { points, included, additional, total, used, remaining: Math.max(0, total - used) };
@@ -617,8 +651,20 @@ export const powerhubRouter = router({
         .eq("setting_key", "invoice_delivery_channels").maybeSingle();
       if (settingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة قنوات الفواتير في Supabase." });
       if (!setting || !isInvoiceDeliveryChannelEnabled(input.channel, invoiceDeliveryPolicyFromSetting({ isEnabled: setting.is_enabled, value: setting.value }))) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حفظ قالب لقناة معطلة من آدمن المنصة." });
-      const { error } = await admin.from("tenant_invoice_message_templates").upsert({ tenant_id: scope.tenantId, channel: input.channel, event_type: "invoice_issued", body: input.body, is_active: input.isActive }, { onConflict: "tenant_id,channel,event_type" });
-      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ قالب رسالة الفاتورة في Supabase." });
+      if (input.channel === "sms") {
+        const { data: config, error: configError } = await admin.from("tenant_messaging_configurations")
+          .select("invoice_message_style").eq("tenant_id", scope.tenantId).eq("channel", "sms").maybeSingle();
+        if (configError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طريقة رسالة الفاتورة." });
+        const { error } = await admin.rpc("powerhub_sync_invoice_sms_template", {
+          p_tenant_id: scope.tenantId, p_body: input.body, p_is_active: input.isActive,
+          p_actor_user_id: ctx.user.id, p_invoice_style: config?.invoice_message_style ?? "details",
+        });
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ قالب الفاتورة الموحد بشكل ذري." });
+      } else {
+        const { error } = await admin.from("tenant_invoice_message_templates").upsert({ tenant_id: scope.tenantId, channel: input.channel, event_type: "invoice_issued", body: input.body, is_active: input.isActive }, { onConflict: "tenant_id,channel,event_type" });
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ قالب رسالة الفاتورة في Supabase." });
+      }
+
       await writeSupabaseAudit({ userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId, entityType: "tenant_invoice_message_template", entityId: `${scope.tenantId}:${input.channel}`, action: "upsert", afterData: { channel: input.channel, isActive: input.isActive }, metadata: { bodyLength: input.body.length } });
       return { success: true };
     }),
@@ -2542,10 +2588,11 @@ export const powerhubRouter = router({
     listFailedSms: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       let query = supabaseAdmin().from("notification_messages")
-        .select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, created_at, updated_at")
+        .select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, created_at, updated_at, subscribers!inner(site_id)")
         .eq("tenant_id", scope.tenantId)
+        .eq("subscribers.site_id", input.siteId)
         .eq("channel", "sms")
-        .eq("status", "failed")
+        .in("status", ["failed", "needs_review"])
         .order("created_at", { ascending: false })
         .limit(500);
       const { data, error } = await query;
@@ -2590,7 +2637,7 @@ export const powerhubRouter = router({
         : { data: [], error: null };
       if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق الرسائل المحددة." });
       const scopedSubscribers = new Set((subscribers ?? []).map((row) => Number(row.id)));
-      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped"; error?: string }> = [];
+      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped" | "needs_review"; error?: string; reviewPersistenceState?: "persisted" | "not_persisted" | "unknown" }> = [];
       for (const id of ids) {
         const subscriberId = eligible.get(id);
         if (!subscriberId || !scopedSubscribers.has(subscriberId)) {
@@ -2599,7 +2646,7 @@ export const powerhubRouter = router({
         }
         try {
           const result = await processNotificationById(id, ctx.user.id);
-          results.push({ notificationId: id, status: result.status, error: result.error });
+          results.push({ notificationId: id, status: result.status, error: result.error, reviewPersistenceState: result.reviewPersistenceState });
         } catch (error) {
           results.push({ notificationId: id, status: "failed", error: error instanceof Error ? error.message : "تعذر إعادة الإرسال." });
         }
@@ -2608,9 +2655,32 @@ export const powerhubRouter = router({
         userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId,
         entityType: "notification_batch", entityId: ids.join(","),
         action: "retry_failed_sms_batch",
-        metadata: { requested: ids.length, eligible: eligible.size, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length },
+        metadata: { requested: ids.length, eligible: eligible.size, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, needsReview: results.filter((r) => r.status === "needs_review").length, reviewPersistenceFailed: countUnconfirmedNeedsReviewPersistence(results) },
       });
-      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, results };
+      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, needsReview: results.filter((r) => r.status === "needs_review").length, reviewPersistenceFailed: countUnconfirmedNeedsReviewPersistence(results), results };
+    }),
+    resolveSmsNeedsReview: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive(), resolution: z.enum(["submitted","failed"]), reason: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const { data: rows, error } = await supabaseAdmin().from("notification_messages")
+        .select("id, subscriber_id, status, channel")
+        .eq("tenant_id", scope.tenantId).eq("id", input.notificationId).limit(1);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الرسالة للمراجعة." });
+      const row = rows?.[0];
+      if (!row || row.channel !== "sms" || row.status !== "needs_review") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الرسالة ليست بانتظار المراجعة." });
+      }
+      const { data: subscribers, error: subscriberError } = await supabaseAdmin().from("subscribers")
+        .select("id").eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).eq("id", Number(row.subscriber_id)).limit(1);
+      if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق الرسالة." });
+      if (!subscribers?.length) throw new TRPCError({ code: "NOT_FOUND", message: "الرسالة خارج نطاق الفرع." });
+      const { data, error: rpcError } = await supabaseAdmin().rpc("powerhub_resolve_sms_needs_review", {
+        p_user_id: ctx.user.id,
+        p_notification_id: input.notificationId,
+        p_resolution: input.resolution,
+        p_reason: input.reason ?? null,
+      });
+      if (rpcError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: rpcError.message.includes("MESSAGING_PERMISSION_REQUIRED") ? "لا تملك صلاحية مراجعة رسائل SMS." : "تعذر تثبيت نتيجة مراجعة الرسالة." });
+      return data?.[0] ?? { notification_id: input.notificationId, status: input.resolution };
     }),
     listBulkInvoiceSends: protectedProcedure.input(bulkInvoiceSendLogInput).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
@@ -2734,16 +2804,24 @@ export const powerhubRouter = router({
     sendPaymentReminderSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const admin = supabaseAdmin();
-      const { data: invoice, error: invoiceError } = await admin.from("invoices").select("id, subscriber_id, invoice_no, billing_period, balance_due, due_date, status").eq("id", input.invoiceId).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      const { data: invoice, error: invoiceError } = await admin.from("invoices").select("id, subscriber_id, invoice_no, billing_period, total_amount, balance_due, due_date, status").eq("id", input.invoiceId).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
       if (invoiceError || !invoice) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للفرع المحدد." });
-      const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id, full_name, phone").eq("id", Number(invoice.subscriber_id)).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id, full_name, subscriber_no, phone").eq("id", Number(invoice.subscriber_id)).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
       if (subscriberError || !subscriber?.phone) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يوجد رقم هاتف صالح للمشترك ضمن الفرع المحدد." });
       let recipient: string;
       try { recipient = normalizeInternationalPhone(subscriber.phone); } catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." }); }
-      const { data: template } = await admin.from("tenant_invoice_message_templates").select("body").eq("tenant_id", scope.tenantId).eq("channel", "sms").eq("event_type", "invoice_issued").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle();
-      const values = { subscriber_name: subscriber.full_name, invoice_no: String(invoice.invoice_no), billing_period: String(invoice.billing_period), total_amount: String(invoice.balance_due), due_date: String(invoice.due_date ?? "") };
-      const renderedText = `تذكير بالسداد: ${renderInvoiceMessageTemplate(template?.body ?? defaultInvoiceMessageTemplates.sms, values)}`;
-      const { data: queueRows, error: queueError } = await admin.rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_event_type: "payment_reminder", p_invoice_id: Number(invoice.id), p_payment_id: null, p_operation_key: `payment_reminder:${invoice.id}:${new Date().toISOString().slice(0, 10)}`, p_rendered_text: renderedText });
+      const { data: template } = await admin.from("powerhub_message_templates").select("body").eq("tenant_id", scope.tenantId).eq("channel", "sms").eq("event_type", "invoice_overdue").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      const reminderTemplate = template?.body ?? defaultPaymentReminderSmsTemplate;
+      const values = {
+        subscriber_name: subscriber.full_name ?? "", subscriber_no: String(subscriber.subscriber_no ?? ""),
+        invoice_no: String(invoice.invoice_no), billing_period: String(invoice.billing_period),
+        total_amount: String(invoice.total_amount), balance_due: String(invoice.balance_due),
+        due_date: String(invoice.due_date ?? ""), invoice_link: reminderTemplate.includes("{{invoice_link}}") ? "{{invoice_link}}" : "",
+        portal_link: reminderTemplate.includes("{{portal_link}}") ? "{{portal_link}}" : "",
+      };
+      const renderedText = renderInvoiceMessageTemplate(reminderTemplate, values);
+      const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      const { data: queueRows, error: queueError } = await admin.rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_event_type: "payment_reminder", p_invoice_id: Number(invoice.id), p_payment_id: null, p_operation_key: `payment_reminder:${invoice.id}:${localDate}`, p_rendered_text: renderedText });
       if (queueError || !(queueRows as Array<{ notification_id: number }> | null)?.[0]) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تجهيز تذكير SMS للفواتير المستحقة." });
       const notificationId = Number((queueRows as Array<{ notification_id: number }>)[0].notification_id);
       const dispatch = await processNotificationById(notificationId, ctx.user.id);
