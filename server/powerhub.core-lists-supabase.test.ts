@@ -132,6 +132,11 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_bulk_upsert_subscribers") return resolved([{ created: [{ id: 31, sourceRow: 2, fullName: "مشترك اختبار", subscriberNo: "MAIN-NEW" }], updated: [], failed: [] }]);
       if (name === "powerhub_create_reading") return resolved([{ reading_id: 61, consumption_kwh: 15, status: "pending_review", replayed: false }]);
+      if (name === "powerhub_create_reading_and_issue_invoice") return resolved([{
+        reading_id: 61, consumption_kwh: 15, reading_status: "approved", replayed: false,
+        invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150,
+        notification_ids: [], already_processed: false,
+      }]);
       if (name === "powerhub_update_pending_reading") return resolved([{ consumption_kwh: 20, updated_at: "2026-08-04T00:00:00.000Z" }]);
       if (name === "powerhub_delete_pending_reading") return resolved(null);
       if (name === "powerhub_approve_reading") return resolved([{ reading_id: 60, version_no: 2 }]);
@@ -732,23 +737,18 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_service_status: "active" }) })]);
   });
 
-  it("يسجل قراءة يدوية بالدالة الذرية في Supabase من دون MySQL", async () => {
-    // powerhub_create_reading creates this row in PostgreSQL before the follow-up atomic approve-and-issue RPC.
-    // Mirror that database side-effect in this Supabase query mock so runtime scope checks see the new reading.
-    state.tables.meter_readings.push({
-      id: 61, tenant_id: 20, subscriber_id: 30, client_operation_id: "33333333-3333-4333-8333-333333333333",
-      reading_at: "2026-08-15T10:00:00.000Z", reading_value: 115, previous_reading_value: 100, consumption_kwh: 15,
-      capture_method: "manual", image_key: null, image_hash: null, status: "pending_review", entered_by_user_id: 1,
-      reviewed_by_user_id: null, reviewed_at: null, notes: "قراءة دورية", version_no: 1,
-      created_at: "2026-08-15T10:00:00.000Z", updated_at: "2026-08-15T10:00:00.000Z",
-    });
+  it("يسجل القراءة ويعتمدها ويصدر فاتورتها بمكالمة ذرية واحدة من دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.create({ siteId: 10, subscriberId: 30, readingValue: "115", captureMethod: "manual", clientOperationId: "33333333-3333-4333-8333-333333333333", notes: "قراءة دورية" }))
-      .resolves.toEqual({ id: 61, consumptionKwh: 15, status: "approved", replayed: false, invoiceId: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150, alreadyProcessed: false });
-    expect(state.rpcCalls).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "powerhub_create_reading", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_reading_value: "115", p_can_override_same_day: false }) }),
-      expect.objectContaining({ name: "powerhub_approve_and_issue_mobile_reading", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_reading_id: 61, p_user_id: 1 }) }),
-    ]));
+      .resolves.toMatchObject({ id: 61, consumptionKwh: 15, status: "approved", replayed: false, invoiceId: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150, alreadyProcessed: false });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({
+      name: "powerhub_create_reading_and_issue_invoice",
+      args: expect.objectContaining({
+        p_tenant_id: 20, p_site_id: 10, p_subscriber_id: 30, p_reading_value: "115",
+        p_can_override_same_day: false, p_billing_period: expect.stringMatching(/^\\d{4}-\\d{2}$/),
+        p_due_date: expect.any(String),
+      }),
+    })]);
   });
 
   it("يعدّل ويحذف القراءة المعلقة بدوال Supabase الذرية من دون MySQL", async () => {
