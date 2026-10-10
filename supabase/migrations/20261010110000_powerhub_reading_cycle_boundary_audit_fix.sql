@@ -55,18 +55,20 @@ begin
       else 21
     end;
     start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
-    end_local := least(
-      start_local + interval '10 days' - interval '1 millisecond',
-      date_trunc('month', local_at) + interval '1 month' - interval '1 millisecond'
-    );
+    end_local := case
+      when start_day = 21 then
+        date_trunc('month', local_at) + interval '1 month' - interval '1 millisecond'
+      else start_local + interval '10 days' - interval '1 millisecond'
+    end;
 
   elsif c.cycle_type = 'EVERY_15_DAYS' then
     start_day := case when extract(day from local_at)::integer <= 15 then 1 else 16 end;
     start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
-    end_local := least(
-      start_local + interval '15 days' - interval '1 millisecond',
-      date_trunc('month', local_at) + interval '1 month' - interval '1 millisecond'
-    );
+    end_local := case
+      when start_day = 16 then
+        date_trunc('month', local_at) + interval '1 month' - interval '1 millisecond'
+      else start_local + interval '15 days' - interval '1 millisecond'
+    end;
 
   else
     -- A configured day 30 is clamped to day 28 in February (including leap years),
