@@ -6,6 +6,7 @@ const root = process.cwd();
 const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messaging.ts"), "utf8");
 const invoiceLinksMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223156_powerhub_invoice_message_links.sql"), "utf8");
 const tokenFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261010100000_powerhub_fix_postgres_urlsafe_tokens.sql"), "utf8");
+const monthlyScheduleFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261010101500_powerhub_fix_monthly_schedule_day.sql"), "utf8");
 const scheduler = fs.readFileSync(path.join(root, "server/_core/index.ts"), "utf8");
 const ui = fs.readFileSync(path.join(root, "client/src/pages/MessagingSettingsPage.tsx"), "utf8");
 const api = fs.readFileSync(path.join(root, "server/powerhub.ts"), "utf8");
@@ -178,6 +179,13 @@ describe("unified messaging runtime contract", () => {
     expect(migration).not.toContain("grant execute on function public.powerhub_touch_unified_automation_run" + " to authenticated");
   });
 
+
+  it("matches SQL monthly occurrences to the UI by skipping nonexistent calendar days", () => {
+    expect(monthlyScheduleFixMigration).toContain("if v_day <= v_last_day then");
+    expect(monthlyScheduleFixMigration).toContain("v_candidate_local := null;");
+    expect(monthlyScheduleFixMigration).not.toContain("make_interval(days => least(v_day,v_last_day)-1)");
+    expect(monthlyScheduleFixMigration).toContain("'monthly:' || to_char(v_candidate_local,'YYYY-MM-DD')");
+  });
 
   it("uses PostgreSQL-supported URL-safe tokens for invoice and payment links", () => {
     const sources = [invoiceLinksMigration, reminderMigration, migration, tokenFixMigration];
