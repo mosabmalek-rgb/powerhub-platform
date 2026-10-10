@@ -35,6 +35,7 @@ describe("reading-cycle boundary and audit hardening migration", () => {
   it("validates membership expiry, owner access, active manager assignment, and tenant/site scope", () => {
     expect(migration).toContain("site.tenant_id = m.tenant_id");
     expect(migration).toContain("m.expires_at is null or m.expires_at > now()");
+    expect(migration).toContain("s.archived_at is null");
     expect(migration).toContain("m.role = 'owner'");
     expect(migration).toContain("now() >= s.suspension_started_at");
     expect(migration).toContain("now() < s.suspension_ends_at");
