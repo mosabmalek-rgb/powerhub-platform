@@ -30,7 +30,7 @@ const readingSchema = z.object({
   clientOperationId: z.string().uuid(),
   branchId: z.number().int().positive(),
   subscriberId: z.number().int().positive(),
-  readingValue: z.string().regex(/^\d+(\.\d{1,3})?$/),
+  readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/),
   readingAt: z.string().datetime(),
   captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"),
   isReadingReset: z.boolean().default(false),
