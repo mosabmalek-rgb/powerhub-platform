@@ -23,8 +23,12 @@ describe("SMS lease recovery contract", () => {
   });
 
   it("runs reclaim before the automatic due-message scan", () => {
-    expect(worker).toContain('rpc("powerhub_reclaim_stale_sms_notifications"');
-    expect(worker.indexOf("powerhub_reclaim_stale_sms_notifications")).toBeLessThan(worker.indexOf(".from(\"notification_messages\")"));
+    const automaticStart = worker.indexOf("export async function processAutomaticUnifiedNotifications");
+    const invoiceWorkerStart = worker.indexOf("export async function processAutomaticInvoiceNotifications", automaticStart);
+    expect(automaticStart).toBeGreaterThanOrEqual(0);
+    const automaticWorker = worker.slice(automaticStart, invoiceWorkerStart < 0 ? undefined : invoiceWorkerStart);
+    expect(automaticWorker).toContain('rpc("powerhub_reclaim_stale_sms_notifications"');
+    expect(automaticWorker.indexOf("powerhub_reclaim_stale_sms_notifications")).toBeLessThan(automaticWorker.indexOf(".from(\"notification_messages\")"));
   });
 
   it("keeps the reclaim RPC internal", () => {
