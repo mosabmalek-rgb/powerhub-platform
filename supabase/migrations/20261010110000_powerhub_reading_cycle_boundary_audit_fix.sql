@@ -154,6 +154,7 @@ begin
    and s.tenant_id = m.tenant_id
    and s.site_id = p_site_id
    and s.is_active
+   and s.archived_at is null
   join public.sites site
     on site.id = s.site_id
    and site.tenant_id = m.tenant_id
@@ -161,6 +162,7 @@ begin
     and m.user_id = p_user_id
     and m.is_active
     and m.membership_status = 'active'
+    and (m.expires_at is null or m.expires_at > now())
     and s.role in ('owner', 'manager')
     -- Match the application's active-suspension semantics: an open-ended suspension
     -- must not be bypassed just because suspension_ends_at is NULL.
