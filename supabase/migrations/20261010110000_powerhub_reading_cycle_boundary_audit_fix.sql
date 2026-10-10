@@ -149,29 +149,35 @@ begin
   end if;
 
   -- Bind the site to the same tenant and derive the real role used for auditing.
-  select s.role into v_actor_role
+  select case when m.role = 'owner' then 'owner' else s.role end into v_actor_role
   from public.tenant_members m
-  join public.staff_profiles s
+  join public.sites site
+    on site.id = p_site_id
+   and site.tenant_id = m.tenant_id
+  left join public.staff_profiles s
     on s.user_id = m.user_id
    and s.tenant_id = m.tenant_id
    and s.site_id = p_site_id
    and s.is_active
    and s.archived_at is null
-  join public.sites site
-    on site.id = s.site_id
-   and site.tenant_id = m.tenant_id
   where m.tenant_id = p_tenant_id
     and m.user_id = p_user_id
     and m.is_active
     and m.membership_status = 'active'
     and (m.expires_at is null or m.expires_at > now())
-    and s.role in ('owner', 'manager')
-    -- Match the application's active-suspension semantics: an open-ended suspension
-    -- must not be bypassed just because suspension_ends_at is NULL.
     and (
-      s.suspension_started_at is null
-      or s.suspension_started_at > now()
-      or (s.suspension_ends_at is not null and s.suspension_ends_at < now())
+      m.role = 'owner'
+      or (
+        s.role = 'manager'
+        -- Match the runtime's actual suspension rule: a suspension applies only
+        -- while both timestamps exist and now is inside [start, end).
+        and not (
+          s.suspension_started_at is not null
+          and s.suspension_ends_at is not null
+          and now() >= s.suspension_started_at
+          and now() < s.suspension_ends_at
+        )
+      )
     )
   limit 1;
 
