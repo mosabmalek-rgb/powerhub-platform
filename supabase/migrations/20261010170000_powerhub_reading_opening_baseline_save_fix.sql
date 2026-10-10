@@ -49,8 +49,10 @@ begin
 
   if p_client_operation_id is not null then
     select * into v_existing
-    from public.meter_readings
-    where client_operation_id=p_client_operation_id::text
+    from public.meter_readings mr
+    where mr.client_operation_id=p_client_operation_id::text
+      and mr.tenant_id=p_tenant_id
+      and mr.subscriber_id=p_subscriber_id
     limit 1;
     if found then
       return query select v_existing.id,coalesce(v_existing.consumption_kwh,0),v_existing.status,true;
