@@ -33,6 +33,7 @@ describe("استيراد المشتركين من Excel", () => {
     render(<BulkSubscriberImport siteId={7} onSaved={state.onSaved} />);
     fireEvent.change(screen.getByLabelText("رفع ملف Excel", { selector: "input" }), { target: { files: [new File(["xlsx"], "subscribers.xlsx")] } });
     await screen.findByText("أحمد العلي");
+    expect(screen.getByText("12.52")).toBeInTheDocument();
     expect(screen.getByText(/سيُحفظ الملف كاملاً داخل معاملة ذرية/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /حفظ 1 مشتركاً سليماً/ }));
     expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({
