@@ -10,6 +10,7 @@ const workbook = vi.hoisted(() => ({
   worksheets: [{ eachRow: (callback: (row: { values: unknown[] }, index: number) => void) => {
     callback({ values: [undefined, "الاسم الكامل", "رقم الجوال الدولي", "العنوان", "نوع الاشتراك", "الرقم المرجعي"] }, 1);
     callback({ values: [undefined, "أحمد العلي", "+970599000001", "غزة", "سكني", "SUB-NORTH-001", 12.52, "2026-10-10"] }, 2);
+    callback({ values: [undefined, "", "", "", "", "", 99.25] }, 3);
   } }],
   xlsx: { load: vi.fn().mockResolvedValue(undefined), writeBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)) },
 }));
@@ -34,6 +35,8 @@ describe("استيراد المشتركين من Excel", () => {
     fireEvent.change(screen.getByLabelText("رفع ملف Excel", { selector: "input" }), { target: { files: [new File(["xlsx"], "subscribers.xlsx")] } });
     await screen.findByText("أحمد العلي");
     expect(screen.getByText("12.52")).toBeInTheDocument();
+    expect(screen.getByText("99.25")).toBeInTheDocument();
+    expect(screen.getByText(/أدخل الاسم الكامل/)).toBeInTheDocument();
     expect(screen.getByText(/سيُحفظ الملف كاملاً داخل معاملة ذرية/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /حفظ 1 مشتركاً سليماً/ }));
     expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({

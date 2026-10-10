@@ -53,7 +53,8 @@ export function BulkSubscriberImport({ siteId, onSaved, canApproveOpeningReading
         const entry = includesWhatsappColumn
           ? { sourceRow: index, fullName: cellText(cells[1]), phone: cellText(cells[2]), whatsappNumber: cellText(cells[3]) || undefined, address: cellText(cells[4]), subscriptionType: cellText(cells[5]), subscriberNo: cellText(cells[6]) || undefined, openingReading: cellText(cells[7]) || undefined, openingReadingAt: cellText(cells[8]) || undefined }
           : { sourceRow: index, fullName: cellText(cells[1]), phone: cellText(cells[2]), whatsappNumber: undefined, address: cellText(cells[3]), subscriptionType: cellText(cells[4]), subscriberNo: cellText(cells[5]) || undefined, openingReading: cellText(cells[6]) || undefined, openingReadingAt: cellText(cells[7]) || undefined };
-        if (entry.fullName || entry.phone || entry.whatsappNumber || entry.address || entry.subscriptionType || entry.subscriberNo) parsed.push(entry);
+        // Keep rows containing only an opening reading/date so validation surfaces missing subscriber fields.
+        if (entry.fullName || entry.phone || entry.whatsappNumber || entry.address || entry.subscriptionType || entry.subscriberNo || entry.openingReading || entry.openingReadingAt) parsed.push(entry);
       });
       if (!parsed.length) throw new Error("لم نعثر على صفوف مشتركين. استخدم الأعمدة: الاسم الكامل، رقم الجوال، رقم واتساب الاختياري، العنوان، نوع الاشتراك، والرقم المرجعي الاختياري.");
       setProgress(85); setProgressLabel("جارٍ تجهيز المعاينة…");
