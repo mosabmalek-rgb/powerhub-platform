@@ -15,7 +15,7 @@ function cellText(value: unknown) {
   return String(value ?? "").trim();
 }
 
-export function BulkSubscriberImport({ siteId, onSaved, canApproveOpeningReadings = false }: { siteId: number; onSaved: () => Promise<void>; canApproveOpeningReadings?: boolean }) {
+export function BulkSubscriberImport({ siteId, onSaved }: { siteId: number; onSaved: () => Promise<void> }) {
   const [rows, setRows] = useState<SubscriberImportDraft[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [progress, setProgress] = useState(0);
