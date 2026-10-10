@@ -21,7 +21,6 @@ export function BulkSubscriberImport({ siteId, onSaved, canApproveOpeningReading
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
   const [updateExisting, setUpdateExisting] = useState(false);
-  const [approveOpeningReadings, setApproveOpeningReadings] = useState(false);
   const [clientOperationId, setClientOperationId] = useState<string>();
   const [result, setResult] = useState<ImportResult | null>(null);
   const importSubscribers = trpc.powerhub.subscribers.bulkImport.useMutation({
@@ -89,7 +88,7 @@ export function BulkSubscriberImport({ siteId, onSaved, canApproveOpeningReading
       siteId,
       updateExisting,
       clientOperationId: nextOperationId,
-      approveOpeningReadings,
+      approveOpeningReadings: true,
       rows: validRows.map((row) => ({
         sourceRow: row.rowNumber,
         subscriberNo: updateExisting ? row.subscriberNo || undefined : undefined,
