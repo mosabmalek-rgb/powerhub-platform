@@ -745,7 +745,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       name: "powerhub_create_reading_and_issue_invoice",
       args: expect.objectContaining({
         p_tenant_id: 20, p_site_id: 10, p_subscriber_id: 30, p_reading_value: "115",
-        p_can_override_same_day: false, p_billing_period: expect.stringMatching(/^\\d{4}-\\d{2}$/),
+        p_can_override_same_day: false, p_billing_period: expect.stringMatching(/^\d{4}-\d{2}$/),
         p_due_date: expect.any(String),
       }),
     })]);
