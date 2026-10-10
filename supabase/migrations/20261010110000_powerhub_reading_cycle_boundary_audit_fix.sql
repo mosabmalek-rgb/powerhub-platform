@@ -162,7 +162,13 @@ begin
     and m.is_active
     and m.membership_status = 'active'
     and s.role in ('owner', 'manager')
-    and (s.suspension_ends_at is null or s.suspension_ends_at <= now())
+    -- Match the application's active-suspension semantics: an open-ended suspension
+    -- must not be bypassed just because suspension_ends_at is NULL.
+    and (
+      s.suspension_started_at is null
+      or s.suspension_started_at > now()
+      or (s.suspension_ends_at is not null and s.suspension_ends_at < now())
+    )
   limit 1;
 
   if v_actor_role is null then
