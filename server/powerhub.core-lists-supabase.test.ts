@@ -735,7 +735,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يسجل قراءة يدوية بالدالة الذرية في Supabase من دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.create({ siteId: 10, subscriberId: 30, readingValue: "115", captureMethod: "manual", clientOperationId: "33333333-3333-4333-8333-333333333333", notes: "قراءة دورية" }))
-      .resolves.toEqual({ id: 61, consumptionKwh: 15, status: "pending_review", replayed: false });
+      .resolves.toEqual({ id: 61, consumptionKwh: 15, status: "approved", replayed: false, invoiceId: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150, alreadyProcessed: false });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_reading", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_reading_value: "115", p_can_override_same_day: false }) })]);
   });
 
