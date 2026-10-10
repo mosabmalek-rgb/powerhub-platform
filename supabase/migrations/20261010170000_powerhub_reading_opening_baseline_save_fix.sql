@@ -77,7 +77,7 @@ begin
     select mr.reading_value
     from public.meter_readings mr
     where mr.subscriber_id=p_subscriber_id
-      and mr.status='approved'
+      and (mr.status='approved' or coalesce(mr.is_opening_baseline,false)=true)
     order by mr.reading_at desc
     limit 1
   ),0) into v_previous_value;
