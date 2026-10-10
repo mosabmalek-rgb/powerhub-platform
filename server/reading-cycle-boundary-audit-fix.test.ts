@@ -27,12 +27,12 @@ describe("reading-cycle boundary and audit hardening migration", () => {
   });
 
   it("records the actual owner or manager role rather than hard-coding owner", () => {
-    expect(migration).toContain("select s.role into v_actor_role");
+    expect(migration).toContain("select case when m.role = 'owner' then 'owner' else s.role end into v_actor_role");
     expect(migration).toContain("p_user_id, v_actor_role, 'reading_cycle'");
     expect(migration).not.toContain("p_user_id, 'owner', 'reading_cycle'");
   });
 
-  it("rejects open-ended active suspensions and verifies site-to-tenant ownership", () => {
+  it("validates membership expiry, owner access, active manager assignment, and tenant/site scope", () => {
     expect(migration).toContain("site.tenant_id = m.tenant_id");
     expect(migration).toContain("m.expires_at is null or m.expires_at > now()");
     expect(migration).toContain("s.archived_at is null");
