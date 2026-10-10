@@ -26,4 +26,11 @@ describe("تحضير استيراد المشتركين", () => {
     expect(rows[1].errors.join(" ")).toContain("الرقم المرجعي مكرر");
     expect(rows[2].errors.join(" ")).toContain("الرقم المرجعي يجب");
   });
+  it("يقبل القراءة الافتتاحية الصحيحة حتى منزلتين عشريتين ويرفض أكثر من منزلتين", () => {
+    const make = (openingReading: string) => prepareSubscriberImport([{ fullName: "أحمد العلي", phone: "+970599000001", address: "", subscriptionType: "سكني", openingReading }])[0];
+    expect(make("12")).toMatchObject({ status: "ready", openingReading: "12" });
+    expect(make("12.5")).toMatchObject({ status: "ready", openingReading: "12.5" });
+    expect(make("12.52")).toMatchObject({ status: "ready", openingReading: "12.52" });
+    expect(make("12.523").errors.join(" ")).toContain("منزلتين عشريتين");
+  });
 });
