@@ -1791,38 +1791,49 @@ export const powerhubRouter = router({
         const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${input.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
         imageKey = stored.key;
       }
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading", {
+      const site = await getSupabaseSite(input.siteId);
+      const dueDate = new Date(readingAt);
+      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
+      const billingPeriod = readingAt.toISOString().slice(0, 7);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading_and_issue_invoice", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
         p_client_operation_id: input.clientOperationId ?? null, p_reading_at: readingAt.toISOString(), p_reading_value: input.readingValue,
         p_capture_method: input.captureMethod, p_image_key: imageKey ?? "", p_image_hash: imageHash ?? "", p_notes: input.notes?.trim() ?? "",
         p_is_reading_reset: input.isReadingReset, p_field_verified: input.fieldVerified,
         p_can_override_same_day: input.overrideSameDay && ["owner", "manager", "accountant"].includes(access.role),
+        p_due_date: dueDate.toISOString(), p_billing_period: billingPeriod,
       });
       if (!error && data?.[0]) {
-        const row = data[0] as { reading_id: number | string; consumption_kwh: number | string; status: "pending_review" | "approved"; replayed: boolean };
-        const readingId = Number(row.reading_id);
-        // A retry may replay an already-approved reading. Return its existing invoice rather than issuing a duplicate.
-        if (row.replayed && row.status === "approved") {
-          const { data: existingInvoice, error: invoiceLookupError } = await supabaseAdmin().from("invoices")
-            .select("id, invoice_no, total_amount")
-            .eq("tenant_id", access.tenantId)
-            .eq("reading_id", readingId)
-            .maybeSingle();
-          if (invoiceLookupError || !existingInvoice) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "القراءة معتمدة مسبقًا لكن تعذر التحقق من فاتورتها؛ حدّث البيانات قبل إعادة المحاولة." });
-          return { id: readingId, consumptionKwh: Number(row.consumption_kwh), status: "approved" as const, replayed: true, invoiceId: Number(existingInvoice.id), invoiceNo: String(existingInvoice.invoice_no), totalAmount: Number(existingInvoice.total_amount), alreadyProcessed: true };
-        }
-        const issued = await executeApproveAndIssueMobileReading({
-          tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, readingId,
-          baseVersion: 1, sendNow: true,
-        });
-        return { id: readingId, consumptionKwh: Number(row.consumption_kwh), status: "approved" as const, replayed: row.replayed, invoiceId: issued.id, invoiceNo: issued.invoiceNo, totalAmount: issued.totalAmount, alreadyProcessed: issued.alreadyProcessed };
+        const row = data[0] as {
+          reading_id: number | string; consumption_kwh: number | string; reading_status: "approved";
+          replayed: boolean; invoice_id: number | string; invoice_no: string; total_amount: number | string;
+          notification_ids: Array<number | string> | null; already_processed: boolean;
+        };
+        const notificationIds = (row.notification_ids ?? []).map(Number);
+        // The database commits reading + approval + invoice in one transaction. Notify only after commit.
+        const deliveries = await Promise.all(notificationIds.map(async (notificationId) => {
+          try {
+            return { notificationId, ...await processNotificationById(notificationId, ctx.user.id) };
+          } catch (deliveryError) {
+            return { notificationId, status: "failed" as const, error: deliveryError instanceof Error ? deliveryError.message : "تعذر إرسال إشعار الفاتورة." };
+          }
+        }));
+        return {
+          id: Number(row.reading_id), consumptionKwh: Number(row.consumption_kwh), status: row.reading_status,
+          replayed: Boolean(row.replayed), invoiceId: Number(row.invoice_id), invoiceNo: row.invoice_no,
+          totalAmount: Number(row.total_amount), alreadyProcessed: Boolean(row.already_processed), deliveries,
+        };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
       if (errorText.includes("SAME_DAY_READING_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا المشترك في اليوم نفسه. يقتصر تجاوز ذلك على المالك أو المدير أو المحاسب مع تأكيد صريح." });
       if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة. فعّل خيار إعادة ضبط سجل القراءة وسجل ملاحظة للتأكيد." });
       if (errorText.includes("READING_RESET_NOTES_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة قبل حفظها." });
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل القراءة في Supabase." });
+      if (errorText.includes("TARIFF_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة في هذا الفرع؛ أضف التعرفة قبل تسجيل قراءة قابلة للفوترة." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الفترة المالية مقفلة ولا يمكن إصدار فاتورة داخلها؛ لم يتم حفظ القراءة." });
+      if (errorText.includes("OPENING_BASELINE_NOT_BILLABLE")) throw new TRPCError({ code: "BAD_REQUEST", message: "القراءة الافتتاحية خط أساس ولا تصدر عنها فاتورة استهلاك." });
+      if (errorText.includes("READING_NOT_PENDING") || errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تعذر اعتماد القراءة بسبب تغير حالتها؛ حدّث البيانات ثم أعد المحاولة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ القراءة واعتمادها وإصدار فاتورتها؛ لم يتم تثبيت معاملة جزئية." });
     }),
     updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
