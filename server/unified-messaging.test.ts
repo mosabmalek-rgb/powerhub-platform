@@ -15,6 +15,11 @@ describe("unified messaging contract", () => {
     expect(messagingRouterSource).toContain('if(failed.error) throw new TRPCError');
     expect(messagingRouterSource).toContain('if(!finalRow) throw new TRPCError');
   });
+  it("accounts for persisted review states and adds only outcomes whose review state failed to persist", () => {
+    expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow?.needs_review, result.results)");
+    expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow.needs_review, result.results)");
+    expect(messagingRouterSource).toContain("reviewPersistenceFailed");
+  });
   it("renders subscriber and portal tokens independently", () => {
     const message = renderInvoiceMessageTemplate("{{subscriber_no}} {{portal_link}}", {
       subscriber_name: "أحمد", subscriber_no: "SUB-1", invoice_no: "INV-1", billing_period: "سبتمبر",

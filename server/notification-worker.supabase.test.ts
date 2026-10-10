@@ -9,7 +9,7 @@ vi.mock("./powerhub-supabase", () => ({ writeSupabaseAudit: vi.fn() }));
 vi.mock("./tweetsms-client", () => ({ sendTweetSms: provider.send, checkTweetSmsBalance: provider.balance }));
 
 import { encryptTenantCredential } from "./tenant-crypto";
-import { processAutomaticUnifiedNotifications, processNotificationById } from "./notification-worker";
+import { countUnpersistedNeedsReview, effectiveNeedsReviewCount, processAutomaticUnifiedNotifications, processNotificationById } from "./notification-worker";
 
 describe("عامل TweetSMS عبر Supabase", () => {
   beforeEach(() => {
@@ -17,6 +17,18 @@ describe("عامل TweetSMS عبر Supabase", () => {
     state.from.mockReset();
     provider.send.mockReset();
     provider.balance.mockReset();
+  });
+
+  it("counts only uncertain outcomes whose needs_review state was not persisted", () => {
+    const results = [
+      { status: "needs_review", reviewPersistenceSucceeded: true },
+      { status: "needs_review", reviewPersistenceSucceeded: false },
+      { status: "failed" },
+      { status: "needs_review" },
+    ];
+    expect(countUnpersistedNeedsReview(results)).toBe(1);
+    expect(effectiveNeedsReviewCount(3, results)).toBe(4);
+    expect(effectiveNeedsReviewCount("invalid", results)).toBe(1);
   });
 
   it("يرفض المعالجة من دون منفذ مصادق عليه ولا يستدعي قاعدة البيانات أو المزود", async () => {
@@ -205,12 +217,13 @@ describe("عامل TweetSMS عبر Supabase", () => {
     state.rpc
       .mockResolvedValueOnce({ data: [{ notification_id: 19, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
       .mockResolvedValueOnce({ data: true, error: null })
-      .mockResolvedValueOnce({ data: null, error: new Error("quarantine failed") });
+      .mockResolvedValueOnce({ data: null, error: null });
     provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 });
     provider.send.mockRejectedValueOnce(new Error("network timeout"));
 
     await expect(processNotificationById(19, 7)).resolves.toMatchObject({
       status: "needs_review",
+      reviewPersistenceSucceeded: false,
       error: expect.stringContaining("نتيجة الإرسال غير مؤكدة"),
     });
     expect(state.rpc).toHaveBeenNthCalledWith(3, "powerhub_mark_sms_needs_review", expect.objectContaining({ p_notification_id: 19 }));
@@ -230,6 +243,7 @@ describe("عامل TweetSMS عبر Supabase", () => {
 
     await expect(processNotificationById(20, 7)).resolves.toMatchObject({
       status: "needs_review",
+      reviewPersistenceSucceeded: false,
       error: expect.stringContaining("نتيجة التسليم غير مؤكدة"),
     });
     expect(state.rpc).toHaveBeenNthCalledWith(4, "powerhub_mark_sms_needs_review", expect.objectContaining({

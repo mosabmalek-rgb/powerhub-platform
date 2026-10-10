@@ -5,7 +5,7 @@ import { checkTweetSmsBalance, sendTweetSms, type TweetSmsCredentials } from "./
 import { normalizeInternationalPhone } from "../shared/phone";
 import { writeSupabaseAudit } from "./powerhub-supabase";
 
-type DispatchResult = { status: "submitted" | "failed" | "skipped" | "needs_review"; providerMessageId?: string | null; error?: string };
+type DispatchResult = { status: "submitted" | "failed" | "skipped" | "needs_review"; providerMessageId?: string | null; error?: string; reviewPersistenceSucceeded?: boolean };
 type SmsClaim = {
   notification_id: number;
   tenant_id: number;
@@ -19,6 +19,21 @@ type SmsClaim = {
   character_count: number;
   segment_count: number;
 };
+
+function smsNeedsReviewWasPersisted(data: unknown): boolean {
+  const row = Array.isArray(data) ? data[0] : data;
+  return Boolean(row && typeof row === "object" && "status" in row && (row as { status?: unknown }).status === "needs_review");
+}
+
+export function countUnpersistedNeedsReview(results: ReadonlyArray<{ status: string; reviewPersistenceSucceeded?: boolean }>): number {
+  return results.filter((result) => result.status === "needs_review" && result.reviewPersistenceSucceeded === false).length;
+}
+
+export function effectiveNeedsReviewCount(persistedCount: unknown, results: ReadonlyArray<{ status: string; reviewPersistenceSucceeded?: boolean }>): number {
+  const parsedPersistedCount = Number(persistedCount ?? 0);
+  const persisted = Number.isFinite(parsedPersistedCount) ? Math.max(0, Math.trunc(parsedPersistedCount)) : 0;
+  return persisted + countUnpersistedNeedsReview(results);
+}
 
 export function tweetSmsProviderStatus(ok: boolean): "submitted" | "failed" {
   return ok ? "submitted" : "failed";
@@ -139,13 +154,14 @@ export async function processNotificationById(notificationId: number, actorUserI
   }
 
   if (uncertaintyError || (providerAccepted && !sent)) {
-    const { error: reviewError } = await admin.rpc("powerhub_mark_sms_needs_review", {
+    const { data: reviewData, error: reviewError } = await admin.rpc("powerhub_mark_sms_needs_review", {
       p_user_id: actorUserId, p_notification_id: claim.notification_id, p_attempt_number: claim.attempt_number,
       p_error: uncertaintyError ?? "قبل TweetSMS الرسالة ولم تكتمل مصالحة التسليم؛ يلزم مراجعة النتيجة.",
       p_provider_message_id: providerMessageId,
     });
-    if (reviewError) return { status: "needs_review", error: "نتيجة الإرسال غير مؤكدة وتعذر تثبيت حالة المراجعة في قاعدة البيانات؛ لا تعاود الإرسال، وتحقق من سجل التدقيق والحالة قبل أي إجراء." };
-    return { status: "needs_review", error: "قد يكون مزود الرسائل قد قبل الطلب؛ أوقفت إعادة المحاولة التلقائية وتحتاج الرسالة إلى مراجعة." };
+    const reviewPersistenceSucceeded = !reviewError && smsNeedsReviewWasPersisted(reviewData);
+    if (!reviewPersistenceSucceeded) return { status: "needs_review", reviewPersistenceSucceeded: false, error: "نتيجة الإرسال غير مؤكدة وتعذر تأكيد حفظ حالة المراجعة في قاعدة البيانات؛ لا تعاود الإرسال، وتحقق من سجل التدقيق والحالة قبل أي إجراء." };
+    return { status: "needs_review", reviewPersistenceSucceeded: true, error: "قد يكون مزود الرسائل قد قبل الطلب؛ أوقفت إعادة المحاولة التلقائية وتحتاج الرسالة إلى مراجعة." };
   }
 
   const { data: rawFinish, error: finishError } = await admin.rpc("powerhub_finish_sms_notification", {
@@ -154,13 +170,14 @@ export async function processNotificationById(notificationId: number, actorUserI
   });
   if (finishError || !(rawFinish as unknown[] | null)?.[0]) {
     if (providerRequestStarted) {
-      const { error: reviewError } = await admin.rpc("powerhub_mark_sms_needs_review", {
+      const { data: reviewData, error: reviewError } = await admin.rpc("powerhub_mark_sms_needs_review", {
         p_user_id: actorUserId, p_notification_id: claim.notification_id, p_attempt_number: claim.attempt_number,
         p_error: "تعذر تثبيت نهاية محاولة بدأت لدى مزود SMS؛ أوقفت إعادة المحاولة التلقائية حمايةً من الإرسال المكرر.",
         p_provider_message_id: providerMessageId,
       });
-      if (reviewError) return { status: "needs_review", error: "تعذر تثبيت حالة المراجعة بعد فشل حفظ نهاية محاولة SMS؛ نتيجة التسليم غير مؤكدة. لا تعاود الإرسال، وتحقق من سجل التدقيق والحالة قبل أي إجراء." };
-      return { status: "needs_review", error: "تعذر تثبيت نتيجة محاولة SMS؛ تم عزلها للمراجعة دون إعادة إرسال تلقائية." };
+      const reviewPersistenceSucceeded = !reviewError && smsNeedsReviewWasPersisted(reviewData);
+      if (!reviewPersistenceSucceeded) return { status: "needs_review", reviewPersistenceSucceeded: false, error: "تعذر تأكيد حفظ حالة المراجعة بعد فشل حفظ نهاية محاولة SMS؛ نتيجة التسليم غير مؤكدة. لا تعاود الإرسال، وتحقق من سجل التدقيق والحالة قبل أي إجراء." };
+      return { status: "needs_review", reviewPersistenceSucceeded: true, error: "تعذر تثبيت نتيجة محاولة SMS؛ تم عزلها للمراجعة دون إعادة إرسال تلقائية." };
     }
     return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال؛ راجع سجل التدقيق قبل إعادة المحاولة." };
   }
