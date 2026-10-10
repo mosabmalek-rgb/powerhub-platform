@@ -159,7 +159,6 @@ begin
    and s.tenant_id = m.tenant_id
    and s.site_id = p_site_id
    and s.is_active
-   and s.archived_at is null
   where m.tenant_id = p_tenant_id
     and m.user_id = p_user_id
     and m.is_active
