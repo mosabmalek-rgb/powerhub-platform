@@ -40,7 +40,7 @@ describe("opening subscriber readings contract", () => {
 
   it("uses one atomic database operation for platform reading, approval and invoice issuance", () => {
     const migration = readFileSync(
-      resolve(process.cwd(), "supabase/migrations/20261010190000_powerhub_platform_reading_auto_invoice.sql"),
+      resolve(process.cwd(), "supabase/migrations/20261010190809_powerhub_platform_reading_auto_invoice_20261010.sql"),
       "utf8",
     );
     expect(migration).toContain("create or replace function public.powerhub_create_reading_and_issue_invoice");
@@ -49,6 +49,23 @@ describe("opening subscriber readings contract", () => {
     expect(migration).toContain("revoke execute on function public.powerhub_create_reading_and_issue_invoice");
     expect(migration).toContain("grant execute on function public.powerhub_create_reading_and_issue_invoice");
     expect(migration).not.toContain("OPENING_READING_OWNER_REQUIRED");
+  });
+
+  it("uses the bigint-safe invoice SMS lock and prevents duplicate SMS from the approval RPC", () => {
+    const lockFix = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261010192201_powerhub_invoice_sms_advisory_lock_fix_20261010.sql"),
+      "utf8",
+    );
+    expect(lockFix).toContain("hashtextextended(format('powerhub:invoice-sms:%s:%s'");
+    expect(lockFix).not.toContain("pg_advisory_xact_lock(new.tenant_id,new.id)");
+
+    const dedupeFix = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261010192857_powerhub_invoice_sms_rpc_dedup_20261010.sql"),
+      "utf8",
+    );
+    expect(dedupeFix).toContain("current_setting('powerhub.invoice_notification_handled_by_rpc', true)");
+    expect(dedupeFix).toContain("set_config(''powerhub.invoice_notification_handled_by_rpc'', ''true'', true)");
+    expect(dedupeFix).toContain("POWERHUB_MOBILE_APPROVAL_INSERT_ANCHOR_NOT_FOUND");
   });
 
   it("rejects invalid opening readings and accepts a valid baseline", () => {
