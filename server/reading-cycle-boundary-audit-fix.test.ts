@@ -15,6 +15,12 @@ describe("reading-cycle boundary and audit hardening migration", () => {
     expect(migration).toContain("make_interval(days => next_start_day - 1)");
   });
 
+  it("includes the final calendar day in 10-day and 15-day monthly segments", () => {
+    expect(migration).toContain("when start_day = 21 then");
+    expect(migration).toContain("when start_day = 16 then");
+    expect(migration).toContain("date_trunc('month', local_at) + interval '1 month' - interval '1 millisecond'");
+  });
+
   it("keeps February day-30 clamping consistent with the configured product rule", () => {
     expect(migration).toContain("when c.monthly_start_day = 30 and extract(month from local_at)::integer = 2 then 28");
     expect(migration).toContain("when c.monthly_start_day = 30 and extract(month from next_month_local)::integer = 2 then 28");
