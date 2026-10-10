@@ -51,7 +51,7 @@ create table public.tenant_reading_cycle_configurations (
   cycle_type text not null,
   weekly_start_day integer not null,
   monthly_start_day integer not null,
-  timezone text not null,
+  timezone text not null default 'Asia/Gaza',
   updated_by bigint,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
