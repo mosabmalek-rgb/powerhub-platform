@@ -147,7 +147,7 @@ begin
     (103, 1, null, 'manager', true, null, null, null),
     (104, 1, 1, 'manager', true, now(), null, null),
     (105, 1, 1, 'manager', true, null, null, null),
-    (106, 1, 1, 'manager', true, now() - interval '1 minute', now() + interval '1 minute');
+    (106, 1, 1, 'manager', true, null, now() - interval '1 minute', now() + interval '1 minute');
 
   perform * from public.powerhub_upsert_reading_cycle(101, 1, 1, 'MONTHLY', 7, 30);
   perform * from public.powerhub_upsert_reading_cycle(102, 1, 1, 'WEEKLY', 7, 1);
