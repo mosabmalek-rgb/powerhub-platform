@@ -115,6 +115,11 @@ export async function processNotificationById(notificationId: number, actorUserI
   if (!Number.isInteger(actorUserId) || !actorUserId || actorUserId < 1) {
     return { status: "skipped", error: "يلزم منفذ مصادق عليه لمعالجة رسالة SMS." };
   }
+  // Never reach the database claim or external provider from a Preview deployment
+  // unless a dedicated, explicitly opted-in test is intended.
+  if (process.env.VERCEL_ENV === "preview" && process.env.POWERHUB_ALLOW_PREVIEW_SMS !== "true") {
+    return { status: "skipped", error: "إرسال SMS الحقيقي معطل في بيئة المعاينة؛ لم يُحجز سجل الرسالة ولم يُتصل بمزود الرسائل." };
+  }
   const admin = supabaseAdmin();
   const { data: rawClaim, error: claimError } = await admin.rpc("powerhub_claim_sms_notification", {
     p_user_id: actorUserId, p_notification_id: notificationId,
