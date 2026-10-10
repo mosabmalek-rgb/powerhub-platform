@@ -733,6 +733,15 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يسجل قراءة يدوية بالدالة الذرية في Supabase من دون MySQL", async () => {
+    // powerhub_create_reading creates this row in PostgreSQL before the follow-up atomic approve-and-issue RPC.
+    // Mirror that database side-effect in this Supabase query mock so runtime scope checks see the new reading.
+    state.tables.meter_readings.push({
+      id: 61, tenant_id: 20, subscriber_id: 30, client_operation_id: "33333333-3333-4333-8333-333333333333",
+      reading_at: "2026-08-15T10:00:00.000Z", reading_value: 115, previous_reading_value: 100, consumption_kwh: 15,
+      capture_method: "manual", image_key: null, image_hash: null, status: "pending_review", entered_by_user_id: 1,
+      reviewed_by_user_id: null, reviewed_at: null, notes: "قراءة دورية", version_no: 1,
+      created_at: "2026-08-15T10:00:00.000Z", updated_at: "2026-08-15T10:00:00.000Z",
+    });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.create({ siteId: 10, subscriberId: 30, readingValue: "115", captureMethod: "manual", clientOperationId: "33333333-3333-4333-8333-333333333333", notes: "قراءة دورية" }))
       .resolves.toEqual({ id: 61, consumptionKwh: 15, status: "approved", replayed: false, invoiceId: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150, alreadyProcessed: false });
