@@ -133,9 +133,10 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const sendManual = trpc.powerhub.unifiedMessaging.sendManual.useMutation({
     onSuccess: async (result) => {
       await utils.powerhub.unifiedMessaging.campaign.invalidate();
-      setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, needsReview: result.needsReview, reviewPersistenceFailed: result.reviewPersistenceFailed });
-      const message = `${result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${result.needsReview} تحتاج مراجعة` + (result.reviewPersistenceFailed ? `، وتعذر تأكيد حفظ حالة المراجعة لعدد ${result.reviewPersistenceFailed} رسالة` : "") + ".";
-      if (result.failed > 0 || result.needsReview > 0 || result.reviewPersistenceFailed > 0) toast.warning(message);
+      const reviewPersistenceFailed = Number(result.reviewPersistenceFailed ?? 0);
+      setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, needsReview: result.needsReview, reviewPersistenceFailed });
+      const message = `${result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${result.needsReview} تحتاج مراجعة` + (reviewPersistenceFailed > 0 ? `، وتعذر تأكيد حفظ حالة المراجعة لعدد ${reviewPersistenceFailed} رسالة` : "") + ".";
+      if (result.failed > 0 || result.needsReview > 0 || reviewPersistenceFailed > 0) toast.warning(message);
       else if (result.submitted > 0) toast.success(message);
       else toast.info(message);
       if (!result.replayed) setManualOperationId(crypto.randomUUID());

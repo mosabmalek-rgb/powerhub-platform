@@ -527,7 +527,14 @@ export const powerhubUnifiedMessagingRouter = router({
       if (current.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل نتيجة الحملة السابقة."});
       const replayRow = Array.isArray(current.data) ? current.data[0] : current.data;
       if (!replayRow) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات نتيجة الحملة السابقة."});
-      return {campaignId,operationId:input.operationId,requested:Number(replayRow.requested ?? 0),submitted:Number(replayRow.submitted ?? 0),failed:Number(replayRow.failed ?? 0),skipped:Number(replayRow.skipped ?? 0),needsReview:Number(replayRow.needs_review ?? 0),results:[],replayed:true};
+      const previousAudit = await supabaseAdmin().from("audit_logs").select("metadata")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .eq("entity_type", "message_campaign").eq("entity_id", String(campaignId))
+        .eq("action", "send_manual").order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (previousAudit.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر استرجاع تدقيق نتيجة الحملة السابقة."});
+      const rawReviewPersistenceFailed = Number((previousAudit.data?.metadata as any)?.reviewPersistenceFailed ?? 0);
+      const reviewPersistenceFailed = Number.isFinite(rawReviewPersistenceFailed) ? Math.max(0, Math.trunc(rawReviewPersistenceFailed)) : 0;
+      return {campaignId,operationId:input.operationId,requested:Number(replayRow.requested ?? 0),submitted:Number(replayRow.submitted ?? 0),failed:Number(replayRow.failed ?? 0),skipped:Number(replayRow.skipped ?? 0),needsReview:Number(replayRow.needs_review ?? 0),reviewPersistenceFailed,results:[],replayed:true};
     }
     const ids=await supabaseAdmin().from("powerhub_message_campaign_recipients").select("notification_id").eq("campaign_id",campaignId);
     if(ids.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل مستلمي الحملة اليدوية؛ لم يبدأ الإرسال."});
