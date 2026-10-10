@@ -12,7 +12,7 @@ import { defaultInvoiceMessageTemplates, defaultPaymentReminderSmsTemplate, rend
 import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
 import { normalizeInternationalPhone, phoneSearchVariants } from "../shared/phone";
-import { processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
+import { countUnconfirmedNeedsReviewPersistence, processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
 import { storageGet, storageGetSignedUrl, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { isActivePlatformAdmin } from "./platform-admin";
@@ -2637,7 +2637,7 @@ export const powerhubRouter = router({
         : { data: [], error: null };
       if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق الرسائل المحددة." });
       const scopedSubscribers = new Set((subscribers ?? []).map((row) => Number(row.id)));
-      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped" | "needs_review"; error?: string }> = [];
+      const results: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped" | "needs_review"; error?: string; reviewPersistenceState?: "persisted" | "not_persisted" | "unknown" }> = [];
       for (const id of ids) {
         const subscriberId = eligible.get(id);
         if (!subscriberId || !scopedSubscribers.has(subscriberId)) {
@@ -2646,7 +2646,7 @@ export const powerhubRouter = router({
         }
         try {
           const result = await processNotificationById(id, ctx.user.id);
-          results.push({ notificationId: id, status: result.status, error: result.error });
+          results.push({ notificationId: id, status: result.status, error: result.error, reviewPersistenceState: result.reviewPersistenceState });
         } catch (error) {
           results.push({ notificationId: id, status: "failed", error: error instanceof Error ? error.message : "تعذر إعادة الإرسال." });
         }
@@ -2655,9 +2655,9 @@ export const powerhubRouter = router({
         userId: ctx.user.id, tenantId: scope.tenantId, siteId: input.siteId,
         entityType: "notification_batch", entityId: ids.join(","),
         action: "retry_failed_sms_batch",
-        metadata: { requested: ids.length, eligible: eligible.size, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, needsReview: results.filter((r) => r.status === "needs_review").length },
+        metadata: { requested: ids.length, eligible: eligible.size, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, needsReview: results.filter((r) => r.status === "needs_review").length, reviewPersistenceFailed: countUnconfirmedNeedsReviewPersistence(results) },
       });
-      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, needsReview: results.filter((r) => r.status === "needs_review").length, results };
+      return { requested: ids.length, submitted: results.filter((r) => r.status === "submitted").length, failed: results.filter((r) => r.status === "failed").length, skipped: results.filter((r) => r.status === "skipped").length, needsReview: results.filter((r) => r.status === "needs_review").length, reviewPersistenceFailed: countUnconfirmedNeedsReviewPersistence(results), results };
     }),
     resolveSmsNeedsReview: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), notificationId: z.number().int().positive(), resolution: z.enum(["submitted","failed"]), reason: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");

@@ -9,7 +9,7 @@ vi.mock("./powerhub-supabase", () => ({ writeSupabaseAudit: vi.fn() }));
 vi.mock("./tweetsms-client", () => ({ sendTweetSms: provider.send, checkTweetSmsBalance: provider.balance }));
 
 import { encryptTenantCredential } from "./tenant-crypto";
-import { countUnpersistedNeedsReview, effectiveNeedsReviewCount, processAutomaticUnifiedNotifications, processNotificationById } from "./notification-worker";
+import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processAutomaticUnifiedNotifications, processNotificationById } from "./notification-worker";
 
 describe("عامل TweetSMS عبر Supabase", () => {
   beforeEach(() => {
@@ -21,12 +21,13 @@ describe("عامل TweetSMS عبر Supabase", () => {
 
   it("counts only uncertain outcomes whose needs_review state was not persisted", () => {
     const results = [
-      { status: "needs_review", reviewPersistenceSucceeded: true },
-      { status: "needs_review", reviewPersistenceSucceeded: false },
+      { status: "needs_review", reviewPersistenceState: "persisted" as const },
+      { status: "needs_review", reviewPersistenceState: "not_persisted" as const },
+      { status: "needs_review", reviewPersistenceState: "unknown" as const },
       { status: "failed" },
-      { status: "needs_review" },
     ];
     expect(countUnpersistedNeedsReview(results)).toBe(1);
+    expect(countUnconfirmedNeedsReviewPersistence(results)).toBe(2);
     expect(effectiveNeedsReviewCount(3, results)).toBe(4);
     expect(effectiveNeedsReviewCount("invalid", results)).toBe(1);
   });
@@ -217,13 +218,20 @@ describe("عامل TweetSMS عبر Supabase", () => {
     state.rpc
       .mockResolvedValueOnce({ data: [{ notification_id: 19, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
       .mockResolvedValueOnce({ data: true, error: null })
-      .mockResolvedValueOnce({ data: null, error: null });
+      .mockResolvedValueOnce({ data: null, error: new Error("quarantine response lost") });
+    state.from.mockImplementation(() => {
+      const query: any = {};
+      query.select = vi.fn(() => query);
+      query.eq = vi.fn(() => query);
+      query.maybeSingle = vi.fn().mockResolvedValue({ data: { status: "processing", provider_message_id: null }, error: null });
+      return query;
+    });
     provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 });
     provider.send.mockRejectedValueOnce(new Error("network timeout"));
 
     await expect(processNotificationById(19, 7)).resolves.toMatchObject({
       status: "needs_review",
-      reviewPersistenceSucceeded: false,
+      reviewPersistenceState: "not_persisted",
       error: expect.stringContaining("نتيجة الإرسال غير مؤكدة"),
     });
     expect(state.rpc).toHaveBeenNthCalledWith(3, "powerhub_mark_sms_needs_review", expect.objectContaining({ p_notification_id: 19 }));
@@ -238,18 +246,68 @@ describe("عامل TweetSMS عبر Supabase", () => {
       .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: [], error: new Error("finish failed") })
       .mockResolvedValueOnce({ data: null, error: new Error("quarantine failed") });
+    state.from.mockImplementation(() => {
+      const query: any = {};
+      query.select = vi.fn(() => query);
+      query.eq = vi.fn(() => query);
+      query.maybeSingle = vi.fn().mockResolvedValue({ data: { status: "processing", provider_message_id: null }, error: null });
+      return query;
+    });
     provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 }).mockResolvedValueOnce({ ok: true, balance: 9 });
     provider.send.mockResolvedValueOnce({ ok: true, providerMessageId: "provider-20" });
 
     await expect(processNotificationById(20, 7)).resolves.toMatchObject({
       status: "needs_review",
-      reviewPersistenceSucceeded: false,
+      reviewPersistenceState: "not_persisted",
       error: expect.stringContaining("نتيجة التسليم غير مؤكدة"),
     });
     expect(state.rpc).toHaveBeenNthCalledWith(4, "powerhub_mark_sms_needs_review", expect.objectContaining({
       p_notification_id: 20,
       p_provider_message_id: "provider-20",
     }));
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+
+  it("recognizes a committed review state when the RPC response is lost", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 21, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: null, error: new Error("response lost after commit") });
+    state.from.mockImplementation(() => {
+      const query: any = {};
+      query.select = vi.fn(() => query);
+      query.eq = vi.fn(() => query);
+      query.maybeSingle = vi.fn().mockResolvedValue({ data: { status: "needs_review", provider_message_id: "provider-21" }, error: null });
+      return query;
+    });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 });
+    provider.send.mockRejectedValueOnce(new Error("network timeout"));
+
+    await expect(processNotificationById(21, 7)).resolves.toMatchObject({ status: "needs_review", reviewPersistenceState: "persisted" });
+    expect(state.from).toHaveBeenCalledWith("notification_messages");
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles a lost finish response from the committed submitted row", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 22, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: null, error: new Error("finish response lost after commit") })
+      .mockResolvedValueOnce({ data: null, error: new Error("claim already finalized") });
+    state.from.mockImplementation(() => {
+      const query: any = {};
+      query.select = vi.fn(() => query);
+      query.eq = vi.fn(() => query);
+      query.maybeSingle = vi.fn().mockResolvedValue({ data: { status: "submitted", provider_message_id: "provider-22" }, error: null });
+      return query;
+    });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 }).mockResolvedValueOnce({ ok: true, balance: 9 });
+    provider.send.mockResolvedValueOnce({ ok: true, providerMessageId: "provider-22" });
+
+    await expect(processNotificationById(22, 7)).resolves.toMatchObject({ status: "submitted", providerMessageId: "provider-22" });
     expect(provider.send).toHaveBeenCalledTimes(1);
   });
 

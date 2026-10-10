@@ -4,7 +4,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
-import { countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
+import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
 import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
 
@@ -67,7 +67,7 @@ async function processNotificationIdsInBatches(
   notificationIds: number[],
   heartbeat?: () => Promise<void>,
 ) {
-  const all: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped" | "needs_review"; providerMessageId?: string | null; error?: string; reviewPersistenceSucceeded?: boolean }> = [];
+  const all: Array<{ notificationId: number; status: "submitted" | "failed" | "skipped" | "needs_review"; providerMessageId?: string | null; error?: string; reviewPersistenceState?: "persisted" | "not_persisted" | "unknown" }> = [];
   for (let offset = 0; offset < notificationIds.length; offset += 50) {
     const batch = notificationIds.slice(offset, offset + 50);
     const result = await processNotificationQueueForTenant(tenantId, actorUserId, batch);
@@ -80,7 +80,7 @@ async function processNotificationIdsInBatches(
     failed: all.filter((row) => row.status === "failed").length,
     skipped: all.filter((row) => row.status === "skipped").length,
     needsReview: all.filter((row) => row.status === "needs_review").length,
-    reviewPersistenceFailed: countUnpersistedNeedsReview(all),
+    reviewPersistenceFailed: countUnconfirmedNeedsReviewPersistence(all),
     results: all,
   };
 }
@@ -540,7 +540,7 @@ export const powerhubUnifiedMessagingRouter = router({
     const finalRow = Array.isArray(refreshed.data) ? refreshed.data[0] : refreshed.data;
     if(!finalRow) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات الحالة النهائية للحملة."});
     const needsReview = effectiveNeedsReviewCount(finalRow?.needs_review, result.results);
-    const reviewPersistenceFailed = countUnpersistedNeedsReview(result.results);
+    const reviewPersistenceFailed = countUnconfirmedNeedsReviewPersistence(result.results);
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview,reviewPersistenceFailed}});
     return {campaignId,operationId:input.operationId,requested:Number(finalRow?.requested ?? input.subscriberIds.length),submitted:Number(finalRow?.submitted ?? result.submitted),failed:Number(finalRow?.failed ?? result.failed),skipped:Number(finalRow?.skipped ?? result.skipped),needsReview,reviewPersistenceFailed,results:result.results,replayed:false};
   }),
@@ -575,7 +575,7 @@ export const powerhubUnifiedMessagingRouter = router({
     if(!finalRow) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات نتيجة إعادة المحاولة."});
     const requested=failedIds.length;
     const needsReview = effectiveNeedsReviewCount(finalRow.needs_review, result.results);
-    const reviewPersistenceFailed = countUnpersistedNeedsReview(result.results);
+    const reviewPersistenceFailed = countUnconfirmedNeedsReviewPersistence(result.results);
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(input.campaignId),action:"retry_failed",metadata:{requested,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview,reviewPersistenceFailed}});
     return {requested,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview,reviewPersistenceFailed,results:result.results,campaignStatus:finalRow.status};
   }),

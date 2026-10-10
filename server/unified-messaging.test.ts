@@ -20,6 +20,11 @@ describe("unified messaging contract", () => {
     expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow.needs_review, result.results)");
     expect(messagingRouterSource).toContain("reviewPersistenceFailed");
   });
+  it("distinguishes unknown review persistence from confirmed unpersisted states", () => {
+    expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow?.needs_review, result.results)");
+    expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow.needs_review, result.results)");
+    expect(messagingRouterSource).toContain("countUnconfirmedNeedsReviewPersistence(result.results)");
+  });
   it("renders subscriber and portal tokens independently", () => {
     const message = renderInvoiceMessageTemplate("{{subscriber_no}} {{portal_link}}", {
       subscriber_name: "أحمد", subscriber_no: "SUB-1", invoice_no: "INV-1", billing_period: "سبتمبر",

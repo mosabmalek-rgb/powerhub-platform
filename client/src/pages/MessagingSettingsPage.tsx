@@ -61,8 +61,8 @@ function FailedSmsPanel({ siteId }: { siteId: number }) {
   const retry = trpc.powerhub.notifications.retryFailedSmsBatch.useMutation({
     onSuccess: async (result) => {
       await utils.powerhub.notifications.listFailedSms.invalidate();
-      const message = "نتيجة إعادة الإرسال: " + result.submitted + " ناجحة، " + result.failed + " فاشلة، " + result.skipped + " متجاوزة" + (result.needsReview ? "، " + result.needsReview + " تحتاج مراجعة" : "") + ".";
-      if (result.failed > 0 || result.needsReview > 0) toast.warning(message);
+      const message = "نتيجة إعادة الإرسال: " + result.submitted + " ناجحة، " + result.failed + " فاشلة، " + result.skipped + " متجاوزة" + (result.needsReview ? "، " + result.needsReview + " تحتاج مراجعة" : "") + (result.reviewPersistenceFailed ? "، تعذر تأكيد حفظ حالة المراجعة لعدد " + result.reviewPersistenceFailed + " رسالة" : "") + ".";
+      if (result.failed > 0 || result.needsReview > 0 || result.reviewPersistenceFailed > 0) toast.warning(message);
       else if (result.submitted > 0) toast.success(message);
       else toast.info(message);
     },
@@ -133,9 +133,9 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const sendManual = trpc.powerhub.unifiedMessaging.sendManual.useMutation({
     onSuccess: async (result) => {
       await utils.powerhub.unifiedMessaging.campaign.invalidate();
-      setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, needsReview: result.needsReview });
-      const message = `${result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${result.needsReview} تحتاج مراجعة.`;
-      if (result.failed > 0 || result.needsReview > 0) toast.warning(message);
+      setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, needsReview: result.needsReview, reviewPersistenceFailed: result.reviewPersistenceFailed });
+      const message = `${result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${result.needsReview} تحتاج مراجعة` + (result.reviewPersistenceFailed ? `، وتعذر تأكيد حفظ حالة المراجعة لعدد ${result.reviewPersistenceFailed} رسالة` : "") + ".";
+      if (result.failed > 0 || result.needsReview > 0 || result.reviewPersistenceFailed > 0) toast.warning(message);
       else if (result.submitted > 0) toast.success(message);
       else toast.info(message);
       if (!result.replayed) setManualOperationId(crypto.randomUUID());
@@ -159,7 +159,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const [manualSearch, setManualSearch] = useState("");
   const [selectedSubscribers, setSelectedSubscribers] = useState<number[]>([]);
   const [manualOperationId, setManualOperationId] = useState(() => crypto.randomUUID());
-  const [lastManualResult, setLastManualResult] = useState<null | { campaignId: number; operationId: string; replayed: boolean; requested: number; submitted: number; failed: number; skipped: number; needsReview: number }>(null);
+  const [lastManualResult, setLastManualResult] = useState<null | { campaignId: number; operationId: string; replayed: boolean; requested: number; submitted: number; failed: number; skipped: number; needsReview: number; reviewPersistenceFailed: number }>(null);
 
   const activeSmsTemplates = (templates.data ?? []).filter((t: any) => t.channel === "sms" && t.isActive);
   const manualSmsTemplates = activeSmsTemplates.filter((t: any) => !t.eventType || ["subscriber_created","service_alert"].includes(t.eventType));
