@@ -186,7 +186,7 @@ begin
     v_portal_link := nullif(v_existing.payload->>'portalLink', '');
 
     if position('{{invoice_link}}' in v_rendered_text) > 0 and v_invoice_link is null then
-      v_share_token := encode(gen_random_bytes(24), 'base64url');
+      v_share_token := translate(encode(gen_random_bytes(24), 'base64'), '+/', '-_');
       perform public.powerhub_create_invoice_share_link(
         p_tenant_id,
         p_site_id,

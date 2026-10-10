@@ -114,7 +114,7 @@ begin
 
   if v_invoice_style = 'portal_link'
      or position('{{invoice_link}}' in v_rendered_text) > 0 then
-    v_share_token := encode(gen_random_bytes(24), 'base64url');
+    v_share_token := translate(encode(gen_random_bytes(24), 'base64'), '+/', '-_');
 
     insert into public.invoice_share_links(
       tenant_id,
@@ -351,7 +351,7 @@ begin
     v_portal_link := nullif(v_payload->>'portalLink', '');
 
     if v_invoice_link is null then
-      v_share_token := encode(gen_random_bytes(24), 'base64url');
+      v_share_token := translate(encode(gen_random_bytes(24), 'base64'), '+/', '-_');
       insert into public.invoice_share_links(
         tenant_id,
         invoice_id,

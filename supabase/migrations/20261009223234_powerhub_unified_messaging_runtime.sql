@@ -1054,7 +1054,7 @@ begin
     limit 1;
     if v_actor_user_id is null then raise exception 'NO_PLATFORM_AUTOMATION_ACTOR' using errcode='P0001'; end if;
 
-    v_share_token := encode(gen_random_bytes(24),'base64url');
+    v_share_token := translate(encode(gen_random_bytes(24), 'base64'), '+/', '-_');
     perform 1 from public.powerhub_create_invoice_share_link(
       new.tenant_id,new.site_id,v_actor_user_id,new.id,
       encode(digest(v_share_token,'sha256'),'hex'),left(v_share_token,8),null
@@ -1192,7 +1192,7 @@ begin
       where account_status='active' and platform_role in ('platform_owner','platform_admin')
       order by id limit 1;
       if v_actor_user_id is null then raise exception 'NO_PLATFORM_AUTOMATION_ACTOR' using errcode='P0001'; end if;
-      v_share_token:=encode(gen_random_bytes(24),'base64url');
+      v_share_token:=translate(encode(gen_random_bytes(24), 'base64'), '+/', '-_');
       perform 1 from public.powerhub_create_invoice_share_link(
         p_tenant_id,p_site_id,v_actor_user_id,v_invoice.id,encode(digest(v_share_token,'sha256'),'hex'),left(v_share_token,8),null
       );

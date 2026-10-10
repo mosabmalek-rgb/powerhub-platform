@@ -4,6 +4,8 @@ import path from "node:path";
 
 const root = process.cwd();
 const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messaging.ts"), "utf8");
+const invoiceLinksMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223156_powerhub_invoice_message_links.sql"), "utf8");
+const tokenFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261010100000_powerhub_fix_postgres_urlsafe_tokens.sql"), "utf8");
 const scheduler = fs.readFileSync(path.join(root, "server/_core/index.ts"), "utf8");
 const ui = fs.readFileSync(path.join(root, "client/src/pages/MessagingSettingsPage.tsx"), "utf8");
 const api = fs.readFileSync(path.join(root, "server/powerhub.ts"), "utf8");
@@ -174,6 +176,17 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("grant execute on function public.powerhub_touch_unified_automation_run");
     expect(migration).not.toContain("grant execute on function public.powerhub_sync_invoice_sms_template" + " to authenticated");
     expect(migration).not.toContain("grant execute on function public.powerhub_touch_unified_automation_run" + " to authenticated");
+  });
+
+
+  it("uses PostgreSQL-supported URL-safe tokens for invoice and payment links", () => {
+    const sources = [invoiceLinksMigration, reminderMigration, migration, tokenFixMigration];
+    for (const source of sources) expect(source).not.toContain("'base64url'");
+    const tokenExpression = "translate(encode(gen_random_bytes(24), 'base64'), '+/', '-_')";
+    expect(invoiceLinksMigration).toContain(tokenExpression);
+    expect(reminderMigration).toContain(tokenExpression);
+    expect(migration).toContain(tokenExpression);
+    expect(tokenFixMigration.split(tokenExpression).length - 1).toBeGreaterThanOrEqual(3);
   });
 
   it("uses the configurable public URL and operation-key index", () => {
