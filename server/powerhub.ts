@@ -1475,9 +1475,7 @@ export const powerhubRouter = router({
     }).omit({ code: true })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const admin = supabaseAdmin();
-      if (input.openingReadingApproved && access.role !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "اعتماد القراءة الافتتاحية مباشرة متاح لمالك مساحة المولد فقط." });
-      }
+      // Opening readings establish a baseline and are approved immediately; they do not issue consumption invoices.
       if (input.clientOperationId) {
         const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
@@ -1509,7 +1507,7 @@ export const powerhubRouter = router({
         p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
         p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
         p_opening_reading: input.openingReading ? Number(input.openingReading) : null, p_opening_reading_at: input.openingReadingAt ? new Date(input.openingReadingAt).toISOString() : null,
-        p_opening_image_key: openingImageKey ?? null, p_opening_image_hash: openingImageHash ?? null, p_opening_reading_approved: input.openingReadingApproved,
+        p_opening_image_key: openingImageKey ?? null, p_opening_image_hash: openingImageHash ?? null, p_opening_reading_approved: Boolean(input.openingReading),
       } : {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
@@ -1572,7 +1570,7 @@ export const powerhubRouter = router({
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
-      if (input.approveOpeningReadings && access.role !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "اعتماد القراءات الافتتاحية مباشرة متاح لمالك مساحة المولد فقط." });
+      // Opening readings are baseline values, so approve them for every authorized subscriber import.
       const failureRows: Array<{ sourceRow: number; fullName: string; reason: string }> = [];
       const seenPhones = new Set<string>();
       const seenReferences = new Set<string>();
@@ -1592,11 +1590,11 @@ export const powerhubRouter = router({
           if (seenReferences.has(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي مكرر داخل ملف الاستيراد." }); continue; }
           seenReferences.add(subscriberNo);
         }
-        accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, whatsappNumber, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType, openingReading: row.openingReading, openingReadingAt: row.openingReadingAt, openingReadingApproved: input.approveOpeningReadings });
+        accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, whatsappNumber, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType, openingReading: row.openingReading, openingReadingAt: row.openingReadingAt, openingReadingApproved: Boolean(row.openingReading) });
       }
       if (!accepted.length) return { created: [], updated: [], failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لا توجد صفوف صالحة للحفظ." };
       const clientOperationId = input.clientOperationId ?? randomUUID();
-      const requestFingerprint = createHash("sha256").update(JSON.stringify({ siteId: input.siteId, updateExisting: input.updateExisting, approveOpeningReadings: input.approveOpeningReadings, rows: input.rows })).digest("hex");
+      const requestFingerprint = createHash("sha256").update(JSON.stringify({ siteId: input.siteId, updateExisting: input.updateExisting, openingReadingsAutoApproved: true, rows: input.rows })).digest("hex");
       const { data, error } = await supabaseAdmin().rpc("powerhub_bulk_upsert_subscribers", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
@@ -1778,6 +1776,9 @@ export const powerhubRouter = router({
       captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
+      // Platform-entered readings now follow the automatic approve-and-invoice path.
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "issueInvoices");
       const readingAt = input.readingAt ?? new Date();
       let imageKey: string | undefined;
       let imageHash: string | undefined;
@@ -1798,8 +1799,23 @@ export const powerhubRouter = router({
         p_can_override_same_day: input.overrideSameDay && ["owner", "manager", "accountant"].includes(access.role),
       });
       if (!error && data?.[0]) {
-        const row = data[0] as { reading_id: number | string; consumption_kwh: number | string; status: "pending_review"; replayed: boolean };
-        return { id: Number(row.reading_id), consumptionKwh: Number(row.consumption_kwh), status: row.status, replayed: row.replayed };
+        const row = data[0] as { reading_id: number | string; consumption_kwh: number | string; status: "pending_review" | "approved"; replayed: boolean };
+        const readingId = Number(row.reading_id);
+        // A retry may replay an already-approved reading. Return its existing invoice rather than issuing a duplicate.
+        if (row.replayed && row.status === "approved") {
+          const { data: existingInvoice, error: invoiceLookupError } = await supabaseAdmin().from("invoices")
+            .select("id, invoice_no, total_amount")
+            .eq("tenant_id", access.tenantId)
+            .eq("reading_id", readingId)
+            .maybeSingle();
+          if (invoiceLookupError || !existingInvoice) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "القراءة معتمدة مسبقًا لكن تعذر التحقق من فاتورتها؛ حدّث البيانات قبل إعادة المحاولة." });
+          return { id: readingId, consumptionKwh: Number(row.consumption_kwh), status: "approved" as const, replayed: true, invoiceId: Number(existingInvoice.id), invoiceNo: String(existingInvoice.invoice_no), totalAmount: Number(existingInvoice.total_amount), alreadyProcessed: true };
+        }
+        const issued = await executeApproveAndIssueMobileReading({
+          tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, readingId,
+          baseVersion: 1, sendNow: true,
+        });
+        return { id: readingId, consumptionKwh: Number(row.consumption_kwh), status: "approved" as const, replayed: row.replayed, invoiceId: issued.id, invoiceNo: issued.invoiceNo, totalAmount: issued.totalAmount, alreadyProcessed: issued.alreadyProcessed };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
