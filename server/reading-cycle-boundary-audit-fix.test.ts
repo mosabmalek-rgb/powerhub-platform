@@ -36,6 +36,8 @@ describe("reading-cycle boundary and audit hardening migration", () => {
     expect(migration).toContain("site.tenant_id = m.tenant_id");
     expect(migration).toContain("m.expires_at is null or m.expires_at > now()");
     expect(migration).toContain("s.archived_at is null");
+    expect(migration).toContain("s.site_id = p_site_id or s.site_id is null");
+    expect(migration).toContain("order by case when s.site_id = p_site_id then 0 else 1 end nulls last");
     expect(migration).toContain("m.role = 'owner'");
     expect(migration).toContain("now() >= s.suspension_started_at");
     expect(migration).toContain("now() < s.suspension_ends_at");
