@@ -38,6 +38,19 @@ describe("opening subscriber readings contract", () => {
     expect(bulkOperationTypeFix).toContain("'subscriber_bulk_import'");
   });
 
+  it("uses one atomic database operation for platform reading, approval and invoice issuance", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261010190000_powerhub_platform_reading_auto_invoice.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("create or replace function public.powerhub_create_reading_and_issue_invoice");
+    expect(migration).toContain("powerhub_approve_and_issue_mobile_reading");
+    expect(migration).toContain("OPENING_BASELINE_NOT_BILLABLE");
+    expect(migration).toContain("revoke execute on function public.powerhub_create_reading_and_issue_invoice");
+    expect(migration).toContain("grant execute on function public.powerhub_create_reading_and_issue_invoice");
+    expect(migration).not.toContain("OPENING_READING_OWNER_REQUIRED");
+  });
+
   it("rejects invalid opening readings and accepts a valid baseline", () => {
     expect(prepareSubscriberImport([{
       sourceRow: 2,
