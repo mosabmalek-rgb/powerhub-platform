@@ -81,7 +81,7 @@ export default function ReadingWorkflowPanel({ siteId, role, anomalyAlertPercent
   const validate = () => {
     const nextErrors: FormErrors = {};
     if (!subscriberId) nextErrors.subscriber = "اختر المشترك قبل حفظ القراءة.";
-    if (!/^\d+(\.\d{1,2})?$/.test(readingValue)) nextErrors.reading = "أدخل قراءة رقمية صحيحة بحد أقصى ثلاث منازل عشرية.";
+    if (!/^\d+(\.\d{1,2})?$/.test(readingValue)) nextErrors.reading = "أدخل قراءة رقمية صحيحة بحد أقصى منزلتين عشريتين.";
     if (!readingDate || Number.isNaN(new Date(`${readingDate}T12:00:00`).getTime())) nextErrors.date = "اختر تاريخاً صحيحاً للقراءة.";
     setErrors(nextErrors);
     return nextErrors;
