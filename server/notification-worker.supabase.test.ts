@@ -199,4 +199,44 @@ describe("عامل TweetSMS عبر Supabase", () => {
     }));
   });
 
+
+  it("keeps an uncertain provider result out of the failed state when quarantine persistence fails", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 19, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: null, error: new Error("quarantine failed") });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 });
+    provider.send.mockRejectedValueOnce(new Error("network timeout"));
+
+    await expect(processNotificationById(19, 7)).resolves.toMatchObject({
+      status: "needs_review",
+      error: expect.stringContaining("نتيجة الإرسال غير مؤكدة"),
+    });
+    expect(state.rpc).toHaveBeenNthCalledWith(3, "powerhub_mark_sms_needs_review", expect.objectContaining({ p_notification_id: 19 }));
+    expect(state.rpc).not.toHaveBeenCalledWith("powerhub_finish_sms_notification", expect.anything());
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report a confirmed failure when both finish and quarantine RPCs fail after provider acceptance", async () => {
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rpc
+      .mockResolvedValueOnce({ data: [{ notification_id: 20, tenant_id: 20, recipient: "+970599000000", rendered_text: "تنبيه", api_endpoint: "https://tweetsms.ps", credential_ciphertext: encrypted.ciphertext, credential_iv: encrypted.iv, sender_name: "PowerHub", attempt_number: 1, character_count: 6, segment_count: 1 }], error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: [], error: new Error("finish failed") })
+      .mockResolvedValueOnce({ data: null, error: new Error("quarantine failed") });
+    provider.balance.mockResolvedValueOnce({ ok: true, balance: 10 }).mockResolvedValueOnce({ ok: true, balance: 9 });
+    provider.send.mockResolvedValueOnce({ ok: true, providerMessageId: "provider-20" });
+
+    await expect(processNotificationById(20, 7)).resolves.toMatchObject({
+      status: "needs_review",
+      error: expect.stringContaining("نتيجة التسليم غير مؤكدة"),
+    });
+    expect(state.rpc).toHaveBeenNthCalledWith(4, "powerhub_mark_sms_needs_review", expect.objectContaining({
+      p_notification_id: 20,
+      p_provider_message_id: "provider-20",
+    }));
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
 });

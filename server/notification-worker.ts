@@ -144,7 +144,7 @@ export async function processNotificationById(notificationId: number, actorUserI
       p_error: uncertaintyError ?? "قبل TweetSMS الرسالة ولم تكتمل مصالحة التسليم؛ يلزم مراجعة النتيجة.",
       p_provider_message_id: providerMessageId,
     });
-    if (reviewError) return { status: "failed", error: "نتيجة الإرسال غير مؤكدة وتعذر عزلها للمراجعة؛ لا تعاود الإرسال قبل مراجعة سجل التدقيق." };
+    if (reviewError) return { status: "needs_review", error: "نتيجة الإرسال غير مؤكدة وتعذر تثبيت حالة المراجعة في قاعدة البيانات؛ لا تعاود الإرسال، وتحقق من سجل التدقيق والحالة قبل أي إجراء." };
     return { status: "needs_review", error: "قد يكون مزود الرسائل قد قبل الطلب؛ أوقفت إعادة المحاولة التلقائية وتحتاج الرسالة إلى مراجعة." };
   }
 
@@ -159,7 +159,7 @@ export async function processNotificationById(notificationId: number, actorUserI
         p_error: "تعذر تثبيت نهاية محاولة بدأت لدى مزود SMS؛ أوقفت إعادة المحاولة التلقائية حمايةً من الإرسال المكرر.",
         p_provider_message_id: providerMessageId,
       });
-      if (reviewError) return { status: "failed", error: "تعذر تثبيت نهاية محاولة SMS؛ لا تعاود الإرسال قبل مراجعة سجل التدقيق." };
+      if (reviewError) return { status: "needs_review", error: "تعذر تثبيت حالة المراجعة بعد فشل حفظ نهاية محاولة SMS؛ نتيجة التسليم غير مؤكدة. لا تعاود الإرسال، وتحقق من سجل التدقيق والحالة قبل أي إجراء." };
       return { status: "needs_review", error: "تعذر تثبيت نتيجة محاولة SMS؛ تم عزلها للمراجعة دون إعادة إرسال تلقائية." };
     }
     return { status: "failed", error: "تعذر تثبيت نتيجة الإرسال؛ راجع سجل التدقيق قبل إعادة المحاولة." };
