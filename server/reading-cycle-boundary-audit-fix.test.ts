@@ -30,6 +30,8 @@ describe("reading-cycle boundary and audit hardening migration", () => {
     expect(migration).toContain("s.suspension_started_at is null");
     expect(migration).toContain("s.suspension_ends_at is not null and s.suspension_ends_at < now()");
     expect(migration).toContain("site.tenant_id = m.tenant_id");
+    expect(migration).toContain("m.expires_at is null or m.expires_at > now()");
+    expect(migration).toContain("s.archived_at is null");
   });
 
   it("keeps the RPC inaccessible to public client roles", () => {
