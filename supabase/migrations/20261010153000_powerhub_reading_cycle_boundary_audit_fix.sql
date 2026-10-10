@@ -157,7 +157,7 @@ begin
   left join public.staff_profiles s
     on s.user_id = m.user_id
    and s.tenant_id = m.tenant_id
-   and s.site_id = p_site_id
+   and (s.site_id = p_site_id or s.site_id is null)
    and s.is_active
    and s.archived_at is null
   where m.tenant_id = p_tenant_id
@@ -179,6 +179,7 @@ begin
         )
       )
     )
+  order by case when s.site_id = p_site_id then 0 else 1 end nulls last
   limit 1;
 
   if v_actor_role is null then
