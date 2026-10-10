@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const migration = fs.readFileSync(
-  path.resolve(process.cwd(), "supabase/migrations/20261010110000_powerhub_reading_cycle_boundary_audit_fix.sql"),
+  path.resolve(process.cwd(), "supabase/migrations/20261010153000_powerhub_reading_cycle_boundary_audit_fix.sql"),
   "utf8",
 );
 
