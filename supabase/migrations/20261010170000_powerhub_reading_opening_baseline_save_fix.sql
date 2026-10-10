@@ -73,11 +73,11 @@ begin
     raise exception 'SAME_DAY_READING_EXISTS' using errcode='P0001';
   end if;
 
-  select coalesce(reading_value,0) into v_previous_value
-  from public.meter_readings
-  where subscriber_id=p_subscriber_id
-    and status='approved'
-  order by reading_at desc
+  select coalesce(mr.reading_value,0) into v_previous_value
+  from public.meter_readings mr
+  where mr.subscriber_id=p_subscriber_id
+    and mr.status='approved'
+  order by mr.reading_at desc
   limit 1;
 
   if p_reading_value<v_previous_value and not p_is_reading_reset then
