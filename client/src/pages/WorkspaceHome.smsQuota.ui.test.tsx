@@ -42,6 +42,15 @@ describe("بطاقة رصيد SMS في لوحة المالك", () => {
     expect(screen.getByText(/الحصة الشهرية للفرع المحدد/)).toBeInTheDocument();
   });
 
+  it("يبقي لوحة التحكم مخصصة للمؤشرات ولا يكرر لوحة اختصارات مالية منفصلة", () => {
+    render(<WorkspaceHome />);
+    expect(screen.getByRole("button", { name: /الإجراءات السريعة/ })).toBeInTheDocument();
+    expect(screen.queryByText("إجراءات مالية سريعة", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("إضافة مشترك", { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByText("حدود حسابات الفريق والميدان")).toBeInTheDocument();
+    expect(screen.queryByText("حدود الاشتراك واستهلاكها", { exact: true })).not.toBeInTheDocument();
+  });
+
   it("يوضح أن الإرسال غير مهيأ دون إظهار أي بيانات اعتماد", () => {
     state.configured = false;
     render(<WorkspaceHome />);

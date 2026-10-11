@@ -11,6 +11,11 @@ const state = vi.hoisted(() => ({
   setLocation: vi.fn(),
   savePreferences: vi.fn(),
   refetchPreferences: vi.fn(),
+  refetchSites: vi.fn(),
+  refetchAccess: vi.fn(),
+  sitesError: false,
+  accessError: false,
+  preferencesError: false,
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 9, role: "user" } }) }));
@@ -21,14 +26,14 @@ vi.mock("sonner", () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.f
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
-      sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }], isLoading: false }) } },
-      staff: { myAccess: { useQuery: () => ({ data: state.access, isLoading: false }) } },
-      quickActions: { preferences: { useQuery: () => ({ data: { actionIds: state.preferences }, isLoading: false, refetch: state.refetchPreferences }) }, savePreferences: { useMutation: () => ({ mutate: state.savePreferences, isPending: false }) } },
+      sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: state.sitesError, refetch: state.refetchSites }) } },
+      staff: { myAccess: { useQuery: () => ({ data: state.access, isLoading: false, isError: state.accessError, refetch: state.refetchAccess }) } },
+      quickActions: { preferences: { useQuery: () => ({ data: { actionIds: state.preferences }, isLoading: false, isError: state.preferencesError, refetch: state.refetchPreferences }) }, savePreferences: { useMutation: () => ({ mutate: state.savePreferences, isPending: false }) } },
     },
   },
 }));
 
-afterEach(() => { state.access = { role: "owner", permissions: [] }; state.preferences = []; state.setLocation.mockReset(); state.savePreferences.mockReset(); state.refetchPreferences.mockReset(); document.body.innerHTML = ""; });
+afterEach(() => { state.access = { role: "owner", permissions: [] }; state.preferences = []; state.sitesError = false; state.accessError = false; state.preferencesError = false; state.setLocation.mockReset(); state.savePreferences.mockReset(); state.refetchPreferences.mockReset(); state.refetchSites.mockReset(); state.refetchAccess.mockReset(); document.body.innerHTML = ""; });
 
 describe("شاشة الإجراءات السريعة", () => {
   it("تجمع الإجراءات التشغيلية الرئيسية وتفتح التحصيل ضمن المسار الصحيح", () => {
@@ -52,6 +57,32 @@ describe("شاشة الإجراءات السريعة", () => {
     expect(screen.queryByText("إنشاء فاتورة")).not.toBeInTheDocument();
   });
 
+
+  it("لا يكرر رابط الفواتير في اختصارات المتابعة إذا كان إجراء الفاتورة ظاهرًا", () => {
+    state.preferences = ["create_invoice", "collect_payment"];
+    render(<QuickActionsPage />);
+    expect(screen.getByRole("button", { name: /إنشاء فاتورة/ })).toBeInTheDocument();
+    expect(screen.queryByText("الفواتير", { exact: true })).not.toBeInTheDocument();
+  });
+
+  it("يبقي اختصار مراجعة الفواتير عندما لا يختار المستخدم إجراء إنشاء الفاتورة", () => {
+    state.preferences = ["collect_payment"];
+    render(<QuickActionsPage />);
+    expect(screen.getByRole("button", { name: /تحصيل دين/ })).toBeInTheDocument();
+    expect(screen.getByText("الفواتير", { exact: true })).toBeInTheDocument();
+  });
+
+  it("لا يعرض إجراءات بديلة عند فشل تحميل التفضيلات ويوفر إعادة المحاولة", () => {
+    state.preferencesError = true;
+    render(<QuickActionsPage />);
+    expect(screen.getByRole("alert")).toHaveTextContent("لم نعرض اختصارات افتراضية");
+    expect(screen.getByRole("button", { name: "تخصيص اختصاراتي" })).toBeDisabled();
+    expect(screen.queryByText("إضافة مشترك", { exact: true })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(state.refetchSites).toHaveBeenCalled();
+    expect(state.refetchAccess).toHaveBeenCalled();
+    expect(state.refetchPreferences).toHaveBeenCalled();
+  });
 
   it("يخفي اختصارات المتابعة التي لا يملك الحساب صلاحيتها", () => {
     state.access = { role: "collector", permissions: ["collectPayments"] };

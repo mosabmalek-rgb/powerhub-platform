@@ -21,13 +21,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import MarketingLandingPage from "./MarketingLandingPage";
 
-const quickActions = [
-  { label: "إضافة مشترك", detail: "أنشئ ملف عميل جديد للخدمة", icon: UsersRound, path: "/subscribers" },
-  { label: "إنشاء فاتورة", detail: "حوّل القراءة المعتمدة إلى فاتورة", icon: ReceiptText, path: "/invoices" },
-  { label: "تسجيل تحصيل", detail: "سجل دفعة واطبع أو شارك الإيصال", icon: WalletCards, path: "/collections" },
-  { label: "التقرير المالي", detail: "راجع تقرير اليوم أو الشهر وصدّره", icon: FileText, path: "/reports" },
-];
-
 const number = (value: unknown, fractionDigits = 0) => new Intl.NumberFormat("ar", { maximumFractionDigits: fractionDigits }).format(Number(value ?? 0));
 const ratio = (value: unknown) => `${number(value, 1)}%`;
 
@@ -47,17 +40,15 @@ function SmsQuotaDashboardCard({ quota, loading, onOpen, addonRequests = [], can
 
 function BranchQuotaDashboardCard({ policy, loading, onOpen }: { policy: any; loading: boolean; onOpen: () => void }) { if (loading) return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="h-32 animate-pulse p-5" /></Card>; const limit = Number(policy?.maxBranches ?? 1); const current = Number(policy?.currentCount ?? 0); const remaining = Number(policy?.remaining ?? 0); const percent = limit ? Math.min(100, Math.round(current / limit * 100)) : 100; const exhausted = remaining <= 0; const warning = exhausted || percent >= 80; const tone = exhausted ? "rose" : warning ? "amber" : "sky"; return <Card className={`${warning ? "border-amber-400/25" : "border-sky-400/20"} bg-[#111823] shadow-panel`}><CardContent className="p-5"><div className="flex items-start justify-between gap-4"><div><p className="font-bold text-white">استهلاك حصة الأفرع</p><p className="mt-1 text-sm text-slate-400">{policy?.isEnabled ? exhausted ? "بلغت الحد الأقصى للأفرع المتاحة." : `يمكنك إنشاء ${number(remaining)} فرع إضافي.` : "ميزة الأفرع الإضافية غير مفعلة في باقتك."}</p></div><Badge className={tone === "rose" ? "bg-rose-400/10 text-rose-300" : tone === "amber" ? "bg-amber-400/10 text-amber-200" : "bg-sky-400/10 text-sky-300"}>{percent}%</Badge></div><div className="mt-4"><div className="flex justify-between text-xs text-slate-500"><span>{number(current)} من {number(limit)} فرع</span><button type="button" onClick={onOpen} className="font-bold text-[#F5B800] hover:underline">إدارة الأفرع</button></div><div role="progressbar" aria-label="استهلاك حصة الأفرع" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} className="mt-2 h-2 overflow-hidden rounded-full bg-black/30"><div className={`${tone === "rose" ? "bg-rose-400" : tone === "amber" ? "bg-amber-300" : "bg-sky-400"} h-full rounded-full transition-[width] duration-300`} style={{ width: `${percent}%` }} /></div></div></CardContent></Card>; }
 
-function OwnerLimitsDashboardCard({ subscriberQuota, branchPolicy, subaccountQuota, smsQuota }: { subscriberQuota: any; branchPolicy: any; subaccountQuota: any; smsQuota: any }) {
+function TeamQuotaDashboardCard({ subaccountQuota, loading }: { subaccountQuota: any; loading: boolean }) {
+  if (loading) return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="h-32 animate-pulse p-5" /></Card>;
   const items = [
-    { label: "المشتركون", limit: Number(subscriberQuota?.limit ?? 0), used: Number(subscriberQuota?.currentCount ?? 0) },
-    { label: "الأفرع", limit: Number(branchPolicy?.maxBranches ?? 0), used: Number(branchPolicy?.currentCount ?? 0) },
-    { label: "رسائل", limit: Number(smsQuota?.total ?? 0), used: Number(smsQuota?.used ?? 0) },
-    { label: "مستخدمو المنصة", limit: Number(subaccountQuota?.limit ?? 0), used: Number(subaccountQuota?.currentCount ?? 0) },
-    { label: "تطبيق ميداني", limit: Number(subaccountQuota?.fieldUserLimit ?? 0), used: Number(subaccountQuota?.fieldUserCount ?? 0) },
+    { label: "الحسابات الفرعية", limit: Number(subaccountQuota?.limit ?? 0), used: Number(subaccountQuota?.currentCount ?? 0) },
+    { label: "مستخدمو التطبيق الميداني", limit: Number(subaccountQuota?.fieldUserLimit ?? 0), used: Number(subaccountQuota?.fieldUserCount ?? 0) },
   ];
   return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5 sm:p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-white">حدود الاشتراك واستهلاكها</h2><p className="mt-1 text-sm text-slate-400">المتاح = حد الباقة + الإضافات الفعالة، ثم الاستخدام والنسبة الحالية.</p></div><Badge className="bg-[#F5B800]/10 text-[#F5B800]">5 حدود رئيسية</Badge></div>
-    <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{items.map((item) => { const pct=item.limit>0?Math.min(100,Math.round(item.used/item.limit*100)):0; return <div key={item.label} className="rounded-2xl border border-white/8 bg-white/[.018] p-4"><p className="text-xs text-slate-500">{item.label}</p><p className="mt-2 text-lg font-extrabold text-white">{number(item.limit)}</p><p className="mt-1 text-xs text-slate-400">المستخدم: <span className="font-bold text-slate-200">{number(item.used)}</span></p><div className="mt-3 h-2 overflow-hidden rounded-full bg-black/30"><div className={pct>=100?"h-full rounded-full bg-rose-400":pct>=80?"h-full rounded-full bg-amber-300":"h-full rounded-full bg-emerald-400"} style={{width:`${pct}%`}} /></div><p className="mt-2 text-xs font-bold text-slate-300">{pct}% مستخدم · المتبقي {number(Math.max(0,item.limit-item.used))}</p></div>; })}</div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-white">حدود حسابات الفريق والميدان</h2><p className="mt-1 text-sm text-slate-400">يعرض هذا الملخص حدود الحسابات الفرعية والمستخدمين الميدانيين فقط؛ تفاصيل المشتركين والأفرع وSMS موجودة في بطاقاتها المخصصة.</p></div><Badge className="bg-[#F5B800]/10 text-[#F5B800]">حدّان</Badge></div>
+    <div className="mt-5 grid gap-3 sm:grid-cols-2">{items.map((item) => { const pct = item.limit > 0 ? Math.min(100, Math.round(item.used / item.limit * 100)) : 0; return <div key={item.label} className="rounded-2xl border border-white/8 bg-white/[.018] p-4"><p className="text-xs text-slate-500">{item.label}</p><p className="mt-2 text-lg font-extrabold text-white">{number(item.limit)}</p><p className="mt-1 text-xs text-slate-400">المستخدم: <span className="font-bold text-slate-200">{number(item.used)}</span></p><div className="mt-3 h-2 overflow-hidden rounded-full bg-black/30"><div className={pct >= 100 ? "h-full rounded-full bg-rose-400" : pct >= 80 ? "h-full rounded-full bg-amber-300" : "h-full rounded-full bg-emerald-400"} style={{ width: `${pct}%` }} /></div><p className="mt-2 text-xs font-bold text-slate-300">{pct}% مستخدم · المتبقي {number(Math.max(0, item.limit - item.used))}</p></div>; })}</div>
   </CardContent></Card>;
 }
 
@@ -102,6 +93,21 @@ export function WorkspaceHome() {
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
   const requestAddon = trpc.powerhub.subscription.requestAddon.useMutation({ onSuccess: async (result) => { await addonRequestsQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب إضافة قيد المتابعة بالفعل." : "تم إرسال طلب الإضافة إلى إدارة PowerHub."); }, onError: (error) => toast.error(error.message) });
   const overview = financialOverviewQuery.data;
+  const dashboardDataError = sitesQuery.isError || accessQuery.isError || financialOverviewQuery.isError ||
+    (selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError);
+  const retryDashboardData = () => {
+    void sitesQuery.refetch();
+    void accessQuery.refetch();
+    void financialOverviewQuery.refetch();
+    if (selectedScope === "all") void allBranchesSummaryQuery.refetch();
+    else void summaryQuery.refetch();
+  };
+  const metricNumber = (value: unknown, fractionDigits = 0) => financialOverviewQuery.isError
+    ? "—"
+    : financialOverviewQuery.isLoading ? "…" : number(value, fractionDigits);
+  const metricRatio = (value: unknown) => financialOverviewQuery.isError
+    ? "—"
+    : financialOverviewQuery.isLoading ? "…" : ratio(value);
   const activeSubscribers = overview?.branchSummaries.reduce((sum, branch) => sum + branch.activeSubscribers, 0) ?? 0;
   const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
   const smsAlertKey = smsDailyUsageQuery.data ? `${smsDailyUsageQuery.data.total}:${smsDailyUsageQuery.data.used}:${smsDailyUsageQuery.data.remaining}` : null;
@@ -125,12 +131,14 @@ export function WorkspaceHome() {
       <div className="flex flex-wrap items-center gap-2">{isAuthenticated && sitesQuery.data?.length ? <select aria-label="اختيار الفرع أو الملخص المجمع" value={selectedScope === "all" ? "all" : String(siteId ?? "")} onChange={(event) => { const value = event.target.value; if (value === "all") setScope("all"); else { setScope("branch"); setSiteId(Number(value)); } }} className="h-10 max-w-56 rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300 outline-none">{canUseAllBranches && <option className="bg-[#111823]" value="all">جميع الأفرع (ملخص مجمّع)</option>}{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select> : <span className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300"><CalendarDays className="ml-2 h-4 w-4" />اليوم</span>}<Button variant="outline" className="border-white/10 bg-white/[0.02] text-slate-200 hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={() => setLocation("/quick-actions")}><Zap className="ml-2 h-4 w-4" />الإجراءات السريعة</Button><Button className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]" onClick={() => setLocation("/collections")}><WalletCards className="ml-2 h-4 w-4" />تسجيل تحصيل</Button></div>
     </header>
 
+    {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
+
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-      <MetricCard label="فوترة الشهر" value={number(overview?.month.invoiced, 2)} unit="—" description={`الفواتير الصادرة خلال ${overview?.period.month ?? "هذا الشهر"}.`} icon={ReceiptText} accent="gold" />
-      <MetricCard label="تحصيل الشهر" value={number(overview?.month.collected, 2)} unit="—" description="الدفعات المكتملة خلال الشهر الحالي." icon={CircleDollarSign} accent="emerald" />
-      <MetricCard label="نسبة التحصيل" value={ratio(overview?.month.collectionRate)} unit="" description="التحصيل مقارنة بفوترة الشهر." icon={ArrowUpLeft} accent="blue" />
-      <MetricCard label="المتأخرات" value={number(overview?.outstanding.total, 2)} unit="—" description={`${number(overview?.outstanding.accountCount)} حساباً برصيد مفتوح.`} icon={CircleAlert} accent="rose" />
-      <MetricCard label="المشتركون النشطون" value={number(activeSubscribers)} unit="مشترك" description={selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
+      <MetricCard label="فوترة الشهر" value={metricNumber(overview?.month.invoiced, 2)} unit="—" description={financialOverviewQuery.isError ? "تعذر تحميل بيانات الفوترة." : `الفواتير الصادرة خلال ${overview?.period.month ?? "هذا الشهر"}.`} icon={ReceiptText} accent="gold" />
+      <MetricCard label="تحصيل الشهر" value={metricNumber(overview?.month.collected, 2)} unit="—" description={financialOverviewQuery.isError ? "تعذر تحميل بيانات التحصيل." : "الدفعات المكتملة خلال الشهر الحالي."} icon={CircleDollarSign} accent="emerald" />
+      <MetricCard label="نسبة التحصيل" value={metricRatio(overview?.month.collectionRate)} unit="" description="التحصيل مقارنة بفوترة الشهر." icon={ArrowUpLeft} accent="blue" />
+      <MetricCard label="المتأخرات" value={metricNumber(overview?.outstanding.total, 2)} unit="—" description={financialOverviewQuery.isError ? "تعذر تحميل بيانات الذمم." : `${number(overview?.outstanding.accountCount)} حساباً برصيد مفتوح.`} icon={CircleAlert} accent="rose" />
+      <MetricCard label="المشتركون النشطون" value={metricNumber(activeSubscribers)} unit="مشترك" description={financialOverviewQuery.isError ? "تعذر تحميل عدد المشتركين." : selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
     </section>
 
     <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
@@ -140,7 +148,7 @@ export function WorkspaceHome() {
     {accessQuery.data?.role === "owner" ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} addonRequests={addonRequestsQuery.data ?? []} canRequestAddon onRequestAddon={(messages) => requestAddon.mutate({ siteId: siteId!, addonCode: "sms", quantity: messages })} requestingAddon={requestAddon.isPending} onOpen={() => setLocation("/notifications")} /> : null}
     <SubscriberQuotaDashboardCard packageCodes={packageCodes} quota={subscriberQuotaQuery.data} upgradeRequest={upgradeRequestQuery.data ? { ...upgradeRequestQuery.data, requestedPackageCode: upgradeRequestQuery.data.requestedPackageCode } : null} addonRequests={addonRequestsQuery.data ?? []} canRequestUpgrade={accessQuery.data?.role === "owner"} requesting={requestUpgrade.isPending} requestingAddon={requestAddon.isPending} onRequestUpgrade={(requestedPackageCode) => requestUpgrade.mutate({ siteId: siteId!, requestedPackageCode })} onRequestAddon={() => requestAddon.mutate({ siteId: siteId!, addonCode: "subscribers50", quantity: 1 })} />
     {accessQuery.data?.role === "owner" ? <BranchQuotaDashboardCard policy={branchPolicyQuery.data} loading={branchPolicyQuery.isLoading} onOpen={() => setLocation("/branches")} /> : null}
-    {accessQuery.data?.role === "owner" ? <OwnerLimitsDashboardCard subscriberQuota={subscriberQuotaQuery.data} branchPolicy={branchPolicyQuery.data} subaccountQuota={subaccountQuotaQuery.data} smsQuota={smsQuotaQuery.data} /> : null}
+    {accessQuery.data?.role === "owner" ? <TeamQuotaDashboardCard subaccountQuota={subaccountQuotaQuery.data} loading={subaccountQuotaQuery.isLoading} /> : null}
     <CompanyBalancesDashboardCard accounts={companyAccountsQuery.data ?? []} loading={companyAccountsQuery.isLoading} onOpen={() => setLocation("/company-accounts")} />
     {accessQuery.data?.role === "owner" ? <SmsQuotaHomeAlert quota={smsDailyUsageQuery.data} request={smsPackageRequestQuery.data} loading={smsDailyUsageQuery.isLoading} hidden={Boolean(smsAlertKey && hiddenSmsAlertKey === smsAlertKey)} onDismiss={() => { if (smsAlertKey) { setHiddenSmsAlertKey(smsAlertKey); window.localStorage.setItem("powerhub.sms-alert-hidden", smsAlertKey); } }} onRequest={(messages, note) => requestSmsPackage.mutate({ siteId: siteId!, requestedMessages: messages, note })} pending={requestSmsPackage.isPending} onOpen={() => setLocation("/notifications")} /> : null}
 
@@ -156,7 +164,7 @@ export function WorkspaceHome() {
 
     {selectedScope === "all" && <BranchPerformanceCard rows={overview?.branchSummaries ?? []} onOpenReports={() => setLocation("/reports")} />}
 
-    <section className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]"><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5 sm:p-6"><div className="flex items-center justify-between"><div><h2 className="font-bold text-white">إجراءات مالية سريعة</h2><p className="mt-1 text-sm text-slate-400">اختصارات لدورة الفوترة والتحصيل اليومية.</p></div><Zap className="h-5 w-5 text-[#F5B800]" /></div><div className="mt-5 grid gap-3 sm:grid-cols-2">{quickActions.map((action) => { const Icon = action.icon; return <button key={action.label} onClick={() => setLocation(action.path)} className="group flex items-start gap-3 rounded-xl border border-white/8 bg-white/[0.018] p-4 text-right transition hover:border-[#F5B800]/35 hover:bg-[#F5B800]/[0.045]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#F5B800]/10 text-[#F5B800]"><Icon className="h-4 w-4" /></span><span><span className="block font-bold text-white">{action.label}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{action.detail}</span></span></button>; })}</div></CardContent></Card><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-6"><h2 className="font-bold text-white">نطاق العمل المالي</h2><p className="mt-3 text-sm leading-7 text-slate-400">المشتركون والفواتير والتحصيلات تتبع الفرع أو الخدمة. تظهر المولدات فقط في قسم التشغيل عند الحاجة إلى متابعة الوقود أو الصيانة، ولا تؤثر في مؤشرات التحصيل الأساسية.</p><button onClick={() => setLocation("/reports")} className="mt-6 flex items-center gap-1 text-sm font-bold text-[#F5B800] hover:text-[#ffd23f]">التقرير اليومي والشهري <ChevronLeft className="h-4 w-4" /></button></CardContent></Card></section>
+
   </div></DashboardLayout>;
 }
 
