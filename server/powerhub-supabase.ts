@@ -651,20 +651,8 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
     .select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
     .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
   if (accountsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة من Supabase." });
-  if (!(accountRows ?? []).length) {
-    const defaults = [
-      { tenant_id: input.tenantId, name: "كاش", account_type: "cash", color: "#64748b" },
-      { tenant_id: input.tenantId, name: "جوال بي", account_type: "jawwal_pay", color: "#16a34a" },
-      { tenant_id: input.tenantId, name: "بال بي", account_type: "palpay", color: "#9333ea" },
-      { tenant_id: input.tenantId, name: "بنك فلسطين", account_type: "bank_of_palestine", color: "#0891b2" },
-    ];
-    const { error: defaultsError } = await admin.from("company_accounts").insert(defaults);
-    if (defaultsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تهيئة حسابات الشركة الافتراضية في Supabase." });
-    const retry = await admin.from("company_accounts").select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
-      .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
-    if (retry.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة بعد التهيئة." });
-    accountRows = retry.data;
-  }
+  // Dashboard reads must remain read-only: do not create default financial accounts as a side effect.
+  // An empty result means the tenant has not configured any company accounts yet.
   const accountIds = (accountRows ?? []).map((row) => Number(row.id));
   const [siteLinksResult, sitesResult, transactionsResult, balancesResult] = await Promise.all([
     accountIds.length ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds) : Promise.resolve({ data: [], error: null }),
