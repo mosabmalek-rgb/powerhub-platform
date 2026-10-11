@@ -942,11 +942,7 @@ export const powerhubRouter = router({
           p_all_branches: input.allBranches,
         });
         if (error || !data?.[0]) {
-          if (imageKey) {
-        try { await storageRemove(imageKey); }
-        catch (cleanupError) { console.error("[PowerHub] orphaned reading image cleanup failed after transaction rollback", cleanupError); }
-      }
-      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+          const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
           if (errorText.includes("SUBACCOUNT_ROLE_NOT_ALLOWED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة آدمن المنصة." });
           if (errorText.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك." });
           if (errorText.includes("FIELD_USER_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى لمستخدمي تطبيق إدخال قراءة العداد في باقتك." });
@@ -1842,6 +1838,10 @@ export const powerhubRouter = router({
           replayed: Boolean(row.replayed), invoiceId: Number(row.invoice_id), invoiceNo: row.invoice_no,
           totalAmount: Number(row.total_amount), alreadyProcessed: Boolean(row.already_processed), deliveries,
         };
+      }
+      if (imageKey) {
+        try { await storageRemove(imageKey); }
+        catch (cleanupError) { console.error("[PowerHub] orphaned reading image cleanup failed after transaction rollback", cleanupError); }
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
