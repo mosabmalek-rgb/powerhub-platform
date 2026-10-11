@@ -41,7 +41,7 @@ vi.mock("@/lib/trpc", () => ({
 
 describe("CollectorPerformanceSection", () => {
   it("يعرض الجلسات والتنبيهات وأداء المحصلين", () => {
-    render(<CollectorPerformanceSection from="2026-09-01" to="2026-09-06" />);
+    render(<CollectorPerformanceSection siteId={1} scope="branch" from="2026-09-01" to="2026-09-06" />);
     expect(screen.getByText("الجلسات المفتوحة")).toBeInTheDocument();
     expect(screen.getByText("تنبيهات فروقات النقد")).toBeInTheDocument();
     expect(screen.getByText("أحمد")).toBeInTheDocument();
