@@ -737,6 +737,22 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_service_status: "active" }) })]);
   });
 
+  it("يرفض تسجيل القراءة قبل رفع الصورة إذا لم توجد تعرفة فعالة", async () => {
+    const originalTariffs = state.tables.tariffs;
+    state.tables.tariffs = [];
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.readings.create({
+        siteId: 10, subscriberId: 30, readingValue: "115", captureMethod: "manual",
+        imageData: "aW1hZ2UtZGF0YQ==", imageMime: "image/jpeg",
+        clientOperationId: "44444444-4444-4444-8444-444444444444",
+      })).rejects.toThrow("لا توجد تعرفة فعالة");
+      expect(state.rpcCalls.some((call) => call.name === "powerhub_create_reading_and_issue_invoice")).toBe(false);
+    } finally {
+      state.tables.tariffs = originalTariffs;
+    }
+  });
+
   it("يسجل القراءة ويعتمدها ويصدر فاتورتها بمكالمة ذرية واحدة من دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.create({ siteId: 10, subscriberId: 30, readingValue: "115", captureMethod: "manual", clientOperationId: "33333333-3333-4333-8333-333333333333", notes: "قراءة دورية" }))
