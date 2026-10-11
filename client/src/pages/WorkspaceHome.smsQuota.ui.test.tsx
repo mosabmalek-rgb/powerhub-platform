@@ -25,7 +25,6 @@ const state = vi.hoisted(() => ({
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false, user: { id: 4, role: "user", mustChangePassword: false } }) }));
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/MetricCard", () => ({ MetricCard: ({ label, value }: { label: string; value: string }) => <div>{label}: {value}</div> }));
-vi.mock("@/components/SubscriberQuotaDashboardCard", () => ({ SubscriberQuotaDashboardCard: () => <div>حصة المشتركين</div> }));
 vi.mock("@/hooks/useBranchFilter", () => ({ useBranchFilter: () => ({ branchId: 1, setBranchId: vi.fn() }) }));
 vi.mock("wouter", () => ({ useLocation: () => ["/workspace", vi.fn()] }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
@@ -33,11 +32,12 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: false }) }, branchPolicy: { useQuery: () => ({ data: state.branchPolicy, isLoading: false, isError: state.branchPolicyError, refetch: state.refetchBranchPolicy }) } },
-      dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 } }) }, financialOverview: { useQuery: () => ({ data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] } }) } },
+      dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 }, isLoading: false, isError: false, refetch: vi.fn() }) }, allBranchesSummary: { useQuery: () => ({ data: { branchSummaries: [] }, isLoading: false, isError: false, refetch: vi.fn() }) }, financialOverview: { useQuery: () => ({ data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] }, isLoading: false, isError: false, refetch: vi.fn() }) } },
       performance: {
         readingKpis: { useQuery: () => ({ data: { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null }, isLoading: false, isError: false }) },
         collectorPerformance: { useQuery: () => ({ data: { openCount: 0, closedCount: 0, varianceCount: 0, netVariance: 0, collectors: [] }, isLoading: false, isError: false }) },
       },
+      publicPackageCatalog: { useQuery: () => ({ data: { packages: [{ code: "basic", active: true }, { code: "advanced", active: true }, { code: "professional", active: true }, { code: "business", active: true }, { code: "vip", active: true }] }, isLoading: false, isError: false }) },
       companyAccounts: { list: { useQuery: () => ({ data: [] }) } },
       subscribers: { quota: { useQuery: () => ({ data: state.subscriberQuota, isLoading: false, isError: false, refetch: vi.fn() }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) }, allowedSubaccountRoles: { useQuery: () => ({ data: { limit: 5, currentCount: 2, fieldUserLimit: 2, fieldUserCount: 1 }, isLoading: false, isError: state.subaccountQuotaError, refetch: state.refetchSubaccountQuota }) } },
@@ -81,7 +81,7 @@ describe("إشعارات حدود الاشتراك في لوحة المالك", 
     state.subscriberQuota = { limit: 100, currentCount: 85, remaining: 15, plan: "basic" };
     state.smsUsed = 450;
     render(<WorkspaceHome />);
-    expect(screen.getByText("حصة المشتركين")).toBeInTheDocument();
+    expect(screen.getByText("استهلكت 85% من الحد المسموح. اقتربت من الحد الأقصى.")).toBeInTheDocument();
     expect(screen.getByText("بلغت الحد الأقصى للأفرع المتاحة.")).toBeInTheDocument();
     expect(screen.getByText(/رصيد رسائل SMS يقترب من النفاد/)).toBeInTheDocument();
     expect(toast.warning).not.toHaveBeenCalled();

@@ -20,6 +20,8 @@ export default defineConfig({
       "client/src/pages/BillingPage.test.tsx",
       "client/src/pages/OperationsPage.test.tsx",
       "client/src/pages/SettingsPage.test.tsx",
+      "client/src/pages/QuickActionsPage.ui.test.tsx",
+      "client/src/pages/WorkspaceHome.smsQuota.ui.test.tsx",
     ],
   },
 });
