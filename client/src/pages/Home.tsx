@@ -26,14 +26,14 @@ const ratio = (value: unknown) => `${number(value, 1)}%`;
 
 
 function QuotaLoadErrorCard({ labels, onRetry }: { labels: string[]; onRetry: () => unknown }) {
-  return <Card role="alert" className="border-rose-400/25 bg-[#111823] shadow-panel"><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-rose-200">تعذر تحميل بيانات الحصص أو الطلبات المرتبطة بها</h2><p className="mt-1 text-sm leading-6 text-slate-300">تعذر تحميل: {labels.join("، ")}. لم نفترض أن أي حصة صفر أو أنها مستنفدة.</p></div><Button type="button" variant="outline" onClick={() => { void onRetry(); }} className="border-white/15 text-white hover:bg-white/5 hover:text-white">إعادة المحاولة</Button></CardContent></Card>;
+  return <Card role="alert" className="border-rose-400/25 bg-[#111823] shadow-panel"><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-rose-200">تعذر تحميل بيانات بعض الحصص</h2><p className="mt-1 text-sm leading-6 text-slate-300">تعذر تحميل: {labels.join("، ")}. لم نفترض أن أي حصة صفر أو أنها مستنفدة.</p></div><Button type="button" variant="outline" onClick={() => { void onRetry(); }} className="border-white/15 text-white hover:bg-white/5 hover:text-white">إعادة المحاولة</Button></CardContent></Card>;
 }
 
 function SmsQuotaDashboardCard({
   quota, loading, onOpen, addonRequests = [], canRequestAddon = false, requestingAddon = false,
   onRequestAddon, packageRequest, packageRequestLoading = false, packageRequestError = false,
   requestingPackage = false, hiddenPackageRequest = false, onDismissPackageRequest = () => {},
-  onRequestPackage,
+  onRetryPackageRequest, onRequestPackage,
 }: {
   quota: any;
   loading: boolean;
@@ -48,6 +48,7 @@ function SmsQuotaDashboardCard({
   requestingPackage?: boolean;
   hiddenPackageRequest?: boolean;
   onDismissPackageRequest?: () => void;
+  onRetryPackageRequest?: () => unknown;
   onRequestPackage?: (messages: number, note?: string) => void;
 }) {
   if (loading) return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="h-40 animate-pulse p-5"><div className="h-4 w-48 rounded bg-white/10" /><div className="mt-6 h-9 w-28 rounded bg-white/10" /><div className="mt-5 h-2 w-full rounded bg-white/5" /></CardContent></Card>;
@@ -105,7 +106,7 @@ function SmsQuotaDashboardCard({
           <div><p className="font-bold text-white">تحتاج إلى رصيد رسائل إضافي؟</p><p className="mt-1 text-xs leading-5 text-slate-400">يمكنك طلب حزمة مؤقتة للمراجعة. هذا الطلب منفصل عن إضافة SMS التي تتجدد مع الاشتراك.</p></div>
           <button type="button" onClick={onDismissPackageRequest} className="text-xs text-slate-400 underline-offset-4 hover:text-white hover:underline">إخفاء مؤقت</button>
         </div>
-        {packageRequestError ? <p className="mt-3 text-sm text-rose-200">تعذر التحقق من حالة طلب الحزمة الحالي. أعد المحاولة قبل إرسال طلب جديد.</p> : packageRequestLoading ? <p className="mt-3 text-sm text-slate-400">جارٍ التحقق من الطلب السابق...</p> : packageRequestPending ? <p className="mt-3 text-sm font-bold text-amber-200">لديك طلب حزمة قيد المراجعة: {number(packageRequest.requestedMessages)} رسالة. لن نرسل طلبًا آخر قبل انتهاء المراجعة.</p> : packageRequest?.status === "approved" ? <p className="mt-3 text-sm font-bold text-emerald-300">تم اعتماد آخر طلب وإضافة {number(packageRequest.approvedMessages)} رسالة إلى الرصيد.</p> : packageRequest?.status === "rejected" ? <p className="mt-3 text-sm font-bold text-rose-300">رُفض آخر طلب. يمكنك إرسال طلب جديد.</p> : null}
+        {packageRequestError ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-rose-200">تعذر التحقق من حالة طلب الحزمة الحالي. أعد المحاولة قبل إرسال طلب جديد.</p><Button type="button" variant="outline" onClick={() => { void onRetryPackageRequest?.(); }} className="border-rose-300/30 text-rose-100 hover:bg-rose-300/10">إعادة التحقق من الطلب</Button></div> : packageRequestLoading ? <p className="mt-3 text-sm text-slate-400">جارٍ التحقق من الطلب السابق...</p> : packageRequestPending ? <p className="mt-3 text-sm font-bold text-amber-200">لديك طلب حزمة قيد المراجعة: {number(packageRequest.requestedMessages)} رسالة. لن نرسل طلبًا آخر قبل انتهاء المراجعة.</p> : packageRequest?.status === "approved" ? <p className="mt-3 text-sm font-bold text-emerald-300">تم اعتماد آخر طلب وإضافة {number(packageRequest.approvedMessages)} رسالة إلى الرصيد.</p> : packageRequest?.status === "rejected" ? <p className="mt-3 text-sm font-bold text-rose-300">رُفض آخر طلب. يمكنك إرسال طلب جديد.</p> : null}
         <div className="mt-3 flex flex-wrap gap-2">
           {[1000, 5000, 10000].map((amount) => <Button key={amount} type="button" variant="outline" aria-label={`طلب حزمة ${amount} رسالة`} disabled={packageRequestLoading || packageRequestError || requestingPackage || packageRequestPending} onClick={() => onRequestPackage?.(amount)} className="border-white/15 text-white hover:bg-white/5 hover:text-[#F5B800]">{number(amount)} رسالة</Button>)}
         </div>
@@ -175,7 +176,6 @@ export function WorkspaceHome() {
     { label: "رصيد SMS", query: smsQuotaQuery },
     { label: "الأفرع", query: branchPolicyQuery },
     { label: "الحسابات الفرعية والميدانية", query: subaccountQuotaQuery },
-    { label: "حالة طلب حزمة SMS", query: smsPackageRequestQuery },
   ] as const;
   const failedQuotaLabels = quotaQueries.filter(({ query }) => query.isError).map(({ label }) => label);
   const retryFailedQuotaQueries = async () => {
@@ -243,7 +243,7 @@ export function WorkspaceHome() {
     <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} loading={selectedScope === "all" ? allBranchesSummaryQuery.isLoading : summaryQuery.isLoading} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
     {failedQuotaLabels.length > 0 ? <QuotaLoadErrorCard labels={failedQuotaLabels} onRetry={retryFailedQuotaQueries} /> : null}
-    {accessQuery.data?.role === "owner" && !smsQuotaQuery.isError ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} addonRequests={addonRequestsQuery.data ?? []} canRequestAddon onRequestAddon={(messages) => requestAddon.mutate({ siteId: siteId!, addonCode: "sms", quantity: messages })} requestingAddon={requestAddon.isPending} packageRequest={smsPackageRequestQuery.data} packageRequestLoading={smsPackageRequestQuery.isLoading} packageRequestError={smsPackageRequestQuery.isError} requestingPackage={requestSmsPackage.isPending} hiddenPackageRequest={Boolean(smsAlertKey && hiddenSmsAlertKey === smsAlertKey)} onDismissPackageRequest={() => { if (smsAlertKey) { setHiddenSmsAlertKey(smsAlertKey); window.localStorage.setItem("powerhub.sms-alert-hidden", smsAlertKey); } }} onRequestPackage={(messages, note) => requestSmsPackage.mutate({ siteId: siteId!, requestedMessages: messages, note })} onOpen={() => setLocation("/notifications")} /> : null}
+    {accessQuery.data?.role === "owner" && !smsQuotaQuery.isError ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} addonRequests={addonRequestsQuery.data ?? []} canRequestAddon onRequestAddon={(messages) => requestAddon.mutate({ siteId: siteId!, addonCode: "sms", quantity: messages })} requestingAddon={requestAddon.isPending} packageRequest={smsPackageRequestQuery.data} packageRequestLoading={smsPackageRequestQuery.isLoading} packageRequestError={smsPackageRequestQuery.isError} requestingPackage={requestSmsPackage.isPending} hiddenPackageRequest={Boolean(smsAlertKey && hiddenSmsAlertKey === smsAlertKey)} onDismissPackageRequest={() => { if (smsAlertKey) { setHiddenSmsAlertKey(smsAlertKey); window.localStorage.setItem("powerhub.sms-alert-hidden", smsAlertKey); } }} onRetryPackageRequest={() => smsPackageRequestQuery.refetch()} onRequestPackage={(messages, note) => requestSmsPackage.mutate({ siteId: siteId!, requestedMessages: messages, note })} onOpen={() => setLocation("/notifications")} /> : null}
     {!subscriberQuotaQuery.isError ? <SubscriberQuotaDashboardCard packageCodes={packageCodes} quota={subscriberQuotaQuery.data} upgradeRequest={upgradeRequestQuery.data ? { ...upgradeRequestQuery.data, requestedPackageCode: upgradeRequestQuery.data.requestedPackageCode } : null} addonRequests={addonRequestsQuery.data ?? []} canRequestUpgrade={accessQuery.data?.role === "owner"} requesting={requestUpgrade.isPending} requestingAddon={requestAddon.isPending} onRequestUpgrade={(requestedPackageCode) => requestUpgrade.mutate({ siteId: siteId!, requestedPackageCode })} onRequestAddon={() => requestAddon.mutate({ siteId: siteId!, addonCode: "subscribers50", quantity: 1 })} /> : null}
     {accessQuery.data?.role === "owner" && !branchPolicyQuery.isError ? <BranchQuotaDashboardCard policy={branchPolicyQuery.data} loading={branchPolicyQuery.isLoading} onOpen={() => setLocation("/branches")} /> : null}
     {accessQuery.data?.role === "owner" && !subaccountQuotaQuery.isError ? <TeamQuotaDashboardCard subaccountQuota={subaccountQuotaQuery.data} loading={subaccountQuotaQuery.isLoading} /> : null}

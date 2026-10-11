@@ -18,6 +18,8 @@ const state = vi.hoisted(() => ({
   refetchBranchPolicy: vi.fn(),
   refetchSmsQuota: vi.fn(),
   requestSmsPackage: vi.fn(),
+  smsPackageRequestError: false,
+  refetchSmsPackageRequest: vi.fn(),
   refetchSubaccountQuota: vi.fn(),
 }));
 
@@ -40,7 +42,7 @@ vi.mock("@/lib/trpc", () => ({
       companyAccounts: { list: { useQuery: () => ({ data: [] }) } },
       subscribers: { quota: { useQuery: () => ({ data: state.subscriberQuota, isLoading: false, isError: false, refetch: vi.fn() }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) }, allowedSubaccountRoles: { useQuery: () => ({ data: { limit: 5, currentCount: 2, fieldUserLimit: 2, fieldUserCount: 1 }, isLoading: false, isError: state.subaccountQuotaError, refetch: state.refetchSubaccountQuota }) } },
-      messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed), senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null }, isLoading: false, isError: state.smsQuotaError, refetch: state.refetchSmsQuota }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false, isError: false, refetch: vi.fn() }) }, requestSmsPackage: { useMutation: () => ({ mutate: state.requestSmsPackage, isPending: false }) } },
+      messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed), senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null }, isLoading: false, isError: state.smsQuotaError, refetch: state.refetchSmsQuota }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false, isError: state.smsPackageRequestError, refetch: state.refetchSmsPackageRequest }) }, requestSmsPackage: { useMutation: () => ({ mutate: state.requestSmsPackage, isPending: false }) } },
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, currentAddonRequests: { useQuery: () => ({ data: [] }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) }, requestAddon: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
     },
   },
@@ -55,6 +57,8 @@ afterEach(() => {
   state.smsUsed = 42;
   state.branchPolicyError = false;
   state.smsQuotaError = false;
+  state.smsPackageRequestError = false;
+  state.refetchSmsPackageRequest.mockReset();
   state.subaccountQuotaError = false;
   state.refetchBranchPolicy.mockReset();
   state.refetchSmsQuota.mockReset();
@@ -94,11 +98,22 @@ describe("إشعارات حدود الاشتراك في لوحة المالك", 
     expect(state.requestSmsPackage).toHaveBeenCalledWith({ siteId: 1, requestedMessages: 1000, note: undefined });
   });
 
+  it("يعرض إعادة محاولة لطلب SMS إذا تعذر تحميل حالة الحزمة ويمنع الطلب قبل التحقق", () => {
+    state.smsUsed = 450;
+    state.smsPackageRequestError = true;
+    render(<WorkspaceHome />);
+    expect(screen.getByText("تعذر التحقق من حالة طلب الحزمة الحالي. أعد المحاولة قبل إرسال طلب جديد.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "عدد الرسائل المطلوبة" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "إعادة التحقق من الطلب" }));
+    expect(state.refetchSmsPackageRequest).toHaveBeenCalledTimes(1);
+    expect(state.requestSmsPackage).not.toHaveBeenCalled();
+  });
+
   it("لا يعتبر فشل تحميل سياسة الأفرع نفاداً للحصة ويوفر إعادة المحاولة", async () => {
     const { toast } = await import("sonner");
     state.branchPolicyError = true;
     render(<WorkspaceHome />);
-    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل بيانات الحصص أو الطلبات المرتبطة بها");
+    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل بيانات بعض الحصص");
     expect(screen.getByRole("alert")).toHaveTextContent("الأفرع");
     expect(screen.queryByText("بلغت الحد الأقصى للأفرع المتاحة.")).not.toBeInTheDocument();
     expect(toast.warning).not.toHaveBeenCalled();
