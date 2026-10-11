@@ -2,21 +2,23 @@ import { AlertTriangle, CheckCircle2, UserRound, WalletCards } from "lucide-reac
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { useBranchFilter } from "@/hooks/useBranchFilter";
 
 const number = (value: number, fractionDigits = 0) => new Intl.NumberFormat("ar", { maximumFractionDigits: fractionDigits }).format(value);
 
-type Props = { siteId?: number | null; enabled?: boolean; from?: string; to?: string };
+type Props = { siteId?: number | null; scope?: "branch" | "all"; enabled?: boolean; from?: string; to?: string };
 
-export default function CollectorPerformanceSection({ siteId, enabled = true, from, to }: Props) {
-  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: enabled && !siteId });
-  const { branchId } = useBranchFilter(sitesQuery.data ?? []);
-  const resolvedSiteId = siteId ?? branchId ?? 0;
+export default function CollectorPerformanceSection({ siteId, scope = "branch", enabled = true, from, to }: Props) {
   const today = new Date().toISOString().slice(0, 10);
-  const sessionsQuery = trpc.powerhub.performance.collectorPerformance.useQuery(
-    { siteId: resolvedSiteId, from: from ?? today, to: to ?? today },
-    { enabled: enabled && Boolean(resolvedSiteId), staleTime: 30_000, refetchOnWindowFocus: false },
+  const periodInput = { siteId: siteId ?? 0, from: from ?? today, to: to ?? today };
+  const branchSessionsQuery = trpc.powerhub.performance.collectorPerformance.useQuery(
+    periodInput,
+    { enabled: enabled && scope === "branch" && Boolean(siteId), staleTime: 30_000, refetchOnWindowFocus: false },
   );
+  const allBranchesSessionsQuery = trpc.powerhub.performance.allBranchesCollectorPerformance.useQuery(
+    periodInput,
+    { enabled: enabled && scope === "all" && Boolean(siteId), staleTime: 30_000, refetchOnWindowFocus: false },
+  );
+  const sessionsQuery = scope === "all" ? allBranchesSessionsQuery : branchSessionsQuery;
 
   const metrics = sessionsQuery.data
     ? {
@@ -32,7 +34,7 @@ export default function CollectorPerformanceSection({ siteId, enabled = true, fr
       }
     : { openCount: 0, closedCount: 0, varianceCount: 0, netVariance: 0, collectors: [] };
 
-  if (!enabled || !resolvedSiteId) return null;
+  if (!enabled || !siteId) return null;
   if (sessionsQuery.isLoading) {
     return (
       <Card className="border-white/8 bg-[#111823] shadow-panel">
@@ -54,6 +56,8 @@ export default function CollectorPerformanceSection({ siteId, enabled = true, fr
     );
   }
 
+  const scopeLabel = scope === "all" ? "جميع الأفرع غير المؤرشفة" : "الفرع المحدد";
+
   return (
     <section aria-label="أداء المحصلين والتنبيهات التشغيلية" className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -65,9 +69,9 @@ export default function CollectorPerformanceSection({ siteId, enabled = true, fr
 
       <Card className="border-white/8 bg-[#111823] shadow-panel">
         <CardContent className="p-0">
-          <div className="flex items-center justify-between border-b border-white/8 px-5 py-4"><div><h2 className="font-bold text-white">أداء المحصلين</h2><p className="mt-1 text-xs text-slate-500">ملخص الجلسات والفروقات من الفترة المحددة — محسوب داخل قاعدة البيانات.</p></div><Badge className="bg-white/5 text-slate-300">أعلى 5 محصلين</Badge></div>
+          <div className="flex items-center justify-between border-b border-white/8 px-5 py-4"><div><h2 className="font-bold text-white">أداء المحصلين</h2><p className="mt-1 text-xs text-slate-500">ملخص الجلسات والفروقات في {scopeLabel} للفترة المحددة — محسوب داخل قاعدة البيانات.</p></div><Badge className="bg-white/5 text-slate-300">أعلى 5 محصلين</Badge></div>
           <div className="overflow-x-auto p-5">
-            {metrics.collectors.length ? <table className="w-full min-w-[520px] text-sm"><thead className="text-right text-xs text-slate-500"><tr><th className="pb-3">المحصل</th><th className="pb-3">الجلسات</th><th className="pb-3">فرق النقد</th><th className="pb-3">الحالة</th></tr></thead><tbody>{metrics.collectors.map((collector) => { const variance = collector.variance; return <tr key={collector.name} className="border-t border-white/7"><td className="py-3 font-bold text-white">{collector.name}</td><td className="py-3 text-slate-300">{number(collector.sessions)}</td><td className={`py-3 font-bold ${Math.abs(variance) > 0.01 ? "text-amber-200" : "text-emerald-300"}`}>{number(variance, 2)}</td><td className="py-3"><Badge className={Math.abs(variance) > 0.01 ? "bg-amber-400/10 text-amber-200" : "bg-emerald-400/10 text-emerald-300"}>{Math.abs(variance) > 0.01 ? "تحتاج مراجعة" : "مطابق"}</Badge></td></tr>; })}</tbody></table> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">لا توجد جلسات تحصيل مسجلة ضمن الفترة المحددة والفرع الحالي.</div>}
+            {metrics.collectors.length ? <table className="w-full min-w-[520px] text-sm"><thead className="text-right text-xs text-slate-500"><tr><th className="pb-3">المحصل</th><th className="pb-3">الجلسات</th><th className="pb-3">فرق النقد</th><th className="pb-3">الحالة</th></tr></thead><tbody>{metrics.collectors.map((collector) => { const variance = collector.variance; return <tr key={collector.name} className="border-t border-white/7"><td className="py-3 font-bold text-white">{collector.name}</td><td className="py-3 text-slate-300">{number(collector.sessions)}</td><td className={`py-3 font-bold ${Math.abs(variance) > 0.01 ? "text-amber-200" : "text-emerald-300"}`}>{number(variance, 2)}</td><td className="py-3"><Badge className={Math.abs(variance) > 0.01 ? "bg-amber-400/10 text-amber-200" : "bg-emerald-400/10 text-emerald-300"}>{Math.abs(variance) > 0.01 ? "تحتاج مراجعة" : "مطابق"}</Badge></td></tr>; })}</tbody></table> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">لا توجد جلسات تحصيل مسجلة ضمن الفترة المحددة ونطاق {scopeLabel}.</div>}
           </div>
         </CardContent>
       </Card>
