@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
-import { requireSupabaseSiteRole } from "./powerhub-supabase";
+import { requireSupabaseAllBranchesRole, requireSupabaseSiteRole } from "./powerhub-supabase";
 
 const dashboardRoles = ["owner", "manager", "accountant", "collector", "technician", "viewer"] as const;
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ يجب أن يكون بصيغة YYYY-MM-DD.");
@@ -50,6 +50,40 @@ export const powerhubDashboardRouter = router({
       p_to: endExclusive,
     });
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أداء المحصلين من قاعدة البيانات." });
+    return data as {
+      openCount: number;
+      closedCount: number;
+      varianceCount: number;
+      netVariance: number | string;
+      collectors: Array<{ name: string; sessions: number; variance: number | string }>;
+    };
+  }),
+  allBranchesReadingKpis: protectedProcedure.input(periodInput).query(async ({ ctx, input }) => {
+    const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+    const { start, endExclusive } = periodBounds(input.from, input.to);
+    const { data, error } = await supabaseAdmin().rpc("powerhub_dashboard_reading_kpis_all_branches", {
+      p_tenant_id: access.tenantId,
+      p_from: start,
+      p_to: endExclusive,
+    });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مؤشرات القراءات لجميع الأفرع." });
+    return data as {
+      consumption: number | string;
+      average: number | string;
+      approvedCount: number;
+      pendingCount: number;
+      latestReadingAt: string | null;
+    };
+  }),
+  allBranchesCollectorPerformance: protectedProcedure.input(periodInput).query(async ({ ctx, input }) => {
+    const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+    const { start, endExclusive } = periodBounds(input.from, input.to);
+    const { data, error } = await supabaseAdmin().rpc("powerhub_dashboard_collector_performance_all_branches", {
+      p_tenant_id: access.tenantId,
+      p_from: start,
+      p_to: endExclusive,
+    });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أداء المحصلين لجميع الأفرع." });
     return data as {
       openCount: number;
       closedCount: number;
