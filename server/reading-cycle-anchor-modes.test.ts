@@ -30,3 +30,61 @@ describe("reading cycle anchor modes", () => {
     expect(migration).toContain("grant execute on function public.powerhub_cycle_for_reading(bigint,bigint,timestamptz) to service_role");
   });
 });
+
+describe("operations UI contracts", () => {
+  const read = (file: string) => fs.readFileSync(path.resolve(process.cwd(), file), "utf8");
+
+  it("exposes tariff management in settings and both anchor patterns for non-weekly cycles", () => {
+    const settings = read("client/src/pages/SettingsPage.tsx");
+    expect(settings).toContain("تعرفة الكيلوواط");
+    expect(settings).toContain("10 / 20 / 30 (فبراير: 28)");
+    expect(settings).toContain("15 / 30 (فبراير: 28)");
+    expect(settings).toContain("1 / 11 / 21");
+    expect(settings).toContain("1 / 16");
+  });
+
+  it("keeps the operations invoice tab as a concise overview without duplicate tariff management", () => {
+    const operations = read("client/src/pages/OperationsPage.tsx");
+    expect(operations).toContain("function InvoicesOverview");
+    expect(operations).toContain("فتح مركز الفواتير والفلاتر");
+    expect(operations).not.toContain("function InvoicesModule");
+    expect(operations).not.toContain("SectionCard title=\"إضافة تعرفة\"");
+  });
+
+  it("provides predictive subscriber search and a collapsible standalone add-subscriber card", () => {
+    const operations = read("client/src/pages/OperationsPage.tsx");
+    expect(operations).toContain("بحث ذكي وسريع");
+    expect(operations).toContain("subscriber-suggestions-");
+    expect(operations).toContain("طي البطاقة");
+    expect(operations).toContain("سجل المشتركين");
+  });
+
+  it("lets authorized users view saved reading photos through a scoped signed-url route", () => {
+    const page = read("client/src/pages/MeterReadingsPage.tsx");
+    const server = read("server/powerhub.ts");
+    expect(page).toContain("عرض الصورة");
+    expect(page).toContain("readings.getImage");
+    expect(page).toContain("صورة القراءة المرفقة");
+    expect(server).toContain("getImage: protectedProcedure");
+    expect(server).toContain("storageGet(reading.image_key)");
+  });
+
+  it("translates operational audit actions into Arabic", () => {
+    const audit = read("client/src/pages/AuditLogPage.tsx");
+    const operations = read("client/src/pages/OperationsPage.tsx");
+    expect(audit).toContain("automatic_opening_baseline_approval: \"اعتماد القراءة الافتتاحية تلقائياً\"");
+    expect(operations).toContain("auditActionLabels[x.action]");
+    expect(operations).toContain("auditEntityLabels[x.entityType]");
+  });
+
+  it("uses a plain invoices title and supports the requested date filters", () => {
+    const billing = read("client/src/pages/BillingPage.tsx");
+    expect(billing).toContain("فلتر فترة الفواتير");
+    expect(billing).toContain("الدورة الحالية");
+    expect(billing).toContain("آخر 7 أيام");
+    expect(billing).toContain("آخر شهر");
+    expect(billing).toContain("بداية فترة الفواتير");
+    expect(billing).not.toContain("الفواتير والتعرفات");
+    expect(billing).not.toContain('Panel title="إصدار فاتورة"');
+  });
+});
