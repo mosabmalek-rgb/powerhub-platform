@@ -71,7 +71,18 @@ describe("opening subscriber readings contract", () => {
     expect(migration).not.toContain("create or replace function public.powerhub_bulk_upsert_subscribers");
   });
 
-  it("uses the bigint-safe invoice SMS lock and prevents duplicate SMS from the approval RPC", () => {
+  it("returns queued SMS ids when recovering an invoice for an already-approved reading", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261011084000_powerhub_auto_invoice_replay_notification_recovery.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("powerhub_create_reading_and_issue_invoice");
+    expect(migration).toContain("array[]::bigint[],coalesce(v_issued.replayed,false);");
+    expect(migration).toContain("from public.notification_messages nm");
+    expect(migration).toContain("POWERHUB_INVOICE_RECOVERY_NOTIFICATION_PATTERN_NOT_FOUND");
+  });
+
+    it("uses the bigint-safe invoice SMS lock and prevents duplicate SMS from the approval RPC", () => {
     const lockFix = readFileSync(
       resolve(process.cwd(), "supabase/migrations/20261010192201_powerhub_invoice_sms_advisory_lock_fix_20261010.sql"),
       "utf8",
