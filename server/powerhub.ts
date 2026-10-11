@@ -409,7 +409,7 @@ export const powerhubRouter = router({
   unifiedMessaging: powerhubUnifiedMessagingRouter,
   readingCycle: router({
     get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "technician", "viewer"], "recordReadings");
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_reading_cycle", {
         p_tenant_id: scope.tenantId,
         p_site_id: input.siteId,
