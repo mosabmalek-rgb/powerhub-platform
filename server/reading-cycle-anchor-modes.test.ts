@@ -52,11 +52,16 @@ describe("operations UI contracts", () => {
   });
 
   it("provides predictive subscriber search and a collapsible standalone add-subscriber card", () => {
+    const directory = read("client/src/pages/NetworkDirectoryPage.tsx");
+    expect(directory).toContain("بحث ذكي وسريع");
+    expect(directory).toContain("subscriber-autocomplete-");
+    expect(directory).toContain("طي البطاقة");
+    expect(directory).toContain("سجل {title}");
+    expect(directory).toContain(">ملف المشترك</Button>");
+    expect(directory).toContain('kind === "subscribers" ? "space-y-6"');
     const operations = read("client/src/pages/OperationsPage.tsx");
-    expect(operations).toContain("بحث ذكي وسريع");
-    expect(operations).toContain("subscriber-suggestions-");
-    expect(operations).toContain("طي البطاقة");
-    expect(operations).toContain("سجل المشتركين");
+    expect(operations).toContain("function SubscribersOverview");
+    expect(operations).not.toContain("function SubscribersModule");
   });
 
   it("lets authorized users view saved reading photos through a scoped signed-url route", () => {
