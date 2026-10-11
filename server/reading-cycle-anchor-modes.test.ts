@@ -12,13 +12,15 @@ describe("reading cycle anchor modes", () => {
     expect(migration).toContain("if c.monthly_start_day = 1 then");
     expect(migration).toContain("Alternate 10/20/30 anchor");
     expect(migration).toContain("least(30, last_day)");
+    expect(migration).toContain("extract(month from local_at)::integer = 2 and extract(day from local_at)::integer >= 28");
+    expect(migration).toContain("start_day := null;");
     expect(migration).toContain("start_day = 10");
     expect(migration).toContain("start_day = 20");
   });
 
   it("supports both 15-day patterns and keeps the next cycle boundary contiguous", () => {
     expect(migration).toContain("Alternate 15/30 anchor");
-    expect(migration).toContain("start_day = null or start_day = 30");
+    expect(migration).toContain("start_day is null or start_day = case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end");
     expect(migration).toContain("start_day = 16");
     expect(migration).toContain("start_day = 21");
   });
