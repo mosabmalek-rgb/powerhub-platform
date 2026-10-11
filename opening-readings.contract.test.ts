@@ -65,6 +65,8 @@ describe("opening subscriber readings contract", () => {
     expect(migration).toContain("automatic_opening_baseline_approval");
     expect(migration).toContain("u.tenant_id, p.site_id, NULL, NULL, NULL,");
     expect(migration).not.toContain("system_migration");
+    expect(migration).toContain("u.tenant_id, p.site_id, NULL, NULL, NULL,");
+    expect(migration).not.toContain("system_migration");
     expect(migration).toContain("'invoiceIssued', false");
     expect(migration).toContain("Automatically approved % pending opening-baseline readings; no invoices were issued.");
     expect(migration).not.toContain("powerhub_issue_invoice_from_reading");
