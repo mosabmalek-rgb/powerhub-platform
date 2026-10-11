@@ -43,7 +43,7 @@ describe("operations UI contracts", () => {
 
   it("exposes tariff management in settings and both anchor patterns for non-weekly cycles", () => {
     const settings = read("client/src/pages/SettingsPage.tsx");
-    expect(settings).toContain("تعرفة الكيلوواط");
+    expect(settings).toContain("سعر الكيلوواط");
     expect(settings).toContain("10 / 20 / 30 (فبراير: 28)");
     expect(settings).toContain("15 / 30 (فبراير: 28)");
     expect(settings).toContain("1 / 11 / 21");

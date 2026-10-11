@@ -377,6 +377,58 @@ export async function listSupabaseTariffs(siteId: number) {
   }));
 }
 
+function gazaDateBoundary(dateKey: string): Date {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const wallClock = Date.UTC(year, month - 1, day);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+  let candidate = wallClock;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = formatter.formatToParts(new Date(candidate));
+    const get = (kind: string) => Number(parts.find((part) => part.type === kind)?.value ?? 0);
+    const represented = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    const delta = represented - candidate;
+    if (delta === 0) break;
+    candidate = wallClock - delta;
+  }
+  return new Date(candidate);
+}
+
+function nextDateKey(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+}
+
+export async function listSupabaseTariffPriceHistory(
+  siteId: number,
+  options: { from?: string; to?: string; limit?: number; offset?: number } = {},
+) {
+  const admin = supabaseAdmin();
+  const limit = Math.min(100, Math.max(1, Math.trunc(options.limit ?? 50)));
+  const offset = Math.min(50_000, Math.max(0, Math.trunc(options.offset ?? 0)));
+  let query = admin.from("tariff_price_history")
+    .select("id, tenant_id, site_id, tariff_id, price_per_kwh, fixed_fee, tax_rate, is_active, valid_from, valid_to, change_kind", { count: "exact" })
+    .eq("site_id", siteId);
+  if (options.from) query = query.or("valid_to.is.null,valid_to.gt." + gazaDateBoundary(options.from).toISOString());
+  if (options.to) query = query.lt("valid_from", gazaDateBoundary(nextDateKey(options.to)).toISOString());
+  const { data, error, count } = await query
+    .order("valid_from", { ascending: false })
+    .order("id", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل أسعار الكيلوواط." });
+  const items = (data ?? []).map((row) => ({
+    id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), tariffId: Number(row.tariff_id),
+    pricePerKwh: String(row.price_per_kwh), fixedFee: String(row.fixed_fee), taxRate: String(row.tax_rate),
+    isActive: Boolean(row.is_active), validFrom: new Date(row.valid_from), validTo: row.valid_to ? new Date(row.valid_to) : null,
+    changeKind: row.change_kind,
+  }));
+  const total = count ?? items.length;
+  return { items, total, hasNext: offset + items.length < total };
+}
+
 export async function listSupabaseGenerators(siteId: number) {
   const { data, error } = await supabaseAdmin().from("generators")
     .select("id, tenant_id, site_id, code, name, serial_number, rated_capacity_kw, fuel_type, fuel_level_liters, operating_hours, status, last_maintenance_at, created_at, updated_at")

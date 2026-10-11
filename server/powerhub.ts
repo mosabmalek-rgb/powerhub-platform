@@ -20,7 +20,7 @@ import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReadin
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 async function requirePaymentDocumentationFeature(tenantId: number) {
@@ -1710,38 +1710,62 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       return listSupabaseTariffs(input.siteId);
     }),
+    history: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      limit: z.number().int().min(1).max(100).default(50),
+      offset: z.number().int().min(0).max(50000).default(0),
+    }).refine((value) => !value.from || !value.to || value.from <= value.to, {
+      message: "تاريخ بداية الفترة يجب ألا يأتي بعد تاريخ نهايتها.",
+    })).query(async ({ ctx, input }) => {
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      return listSupabaseTariffPriceHistory(input.siteId, input);
+    }),
     create: protectedProcedure.input(z.object({
-      siteId: z.number().int().positive(), name: z.string().min(2).max(160), code: z.string().min(2).max(50),
-      pricePerKwh: z.number().min(0), fixedFee: z.number().min(0).default(0), taxRate: z.number().min(0).max(100).default(0),
+      siteId: z.number().int().positive(),
+      pricePerKwh: z.number().min(0),
+      fixedFee: z.number().min(0).default(0),
+      taxRate: z.number().min(0).max(100).default(0),
+      clientOperationId: z.string().uuid(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageTariffs");
-      const { data, error } = await supabaseAdmin().from("tariffs").insert({
-        tenant_id: access.tenantId, site_id: input.siteId, name: input.name.trim(), code: input.code.trim().toUpperCase(),
-        price_per_kwh: input.pricePerKwh, fixed_fee: input.fixedFee, tax_rate: input.taxRate,
-      }).select("id").single();
-      if (error || !data) throw new TRPCError({ code: error?.code === "23505" ? "CONFLICT" : "INTERNAL_SERVER_ERROR", message: error?.code === "23505" ? "رمز التعرفة مستخدم بالفعل في هذا الفرع." : "تعذر إنشاء التعرفة في Supabase." });
-      const id = Number(data.id);
-      await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "tariff", entityId: String(id), action: "create", afterData: input });
-      return { id };
+      const internalCode = "KWH-" + input.clientOperationId.replace(/-/g, "").slice(0, 12).toUpperCase();
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_tariff_idempotent", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_name: "سعر الكيلوواط", p_code: internalCode,
+        p_price_per_kwh: input.pricePerKwh, p_fixed_fee: input.fixedFee, p_tax_rate: input.taxRate,
+        p_client_operation_id: input.clientOperationId,
+      });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row?.tariff_id) {
+        const message = String(error?.message ?? "");
+        if (message.includes("TARIFF_CODE_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "تعارض في تسجيل سعر الكيلوواط؛ أعد تحميل الصفحة ثم حاول مجددًا." });
+        if (message.includes("TARIFF_OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "بيانات محاولة الحفظ السابقة مختلفة؛ أعد تحميل الصفحة ثم أعد المحاولة." });
+        if (message.includes("TARIFF_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إدارة سعر الكيلوواط." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ سعر الكيلوواط في قاعدة البيانات." });
+      }
+      return { id: Number(row.tariff_id), replayed: Boolean(row.replayed) };
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), tariffId: z.number().int().positive(),
-      name: z.string().min(2).max(160), pricePerKwh: z.number().min(0),
+      pricePerKwh: z.number().min(0),
       fixedFee: z.number().min(0).default(0), taxRate: z.number().min(0).max(100).default(0),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageTariffs");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_update_tariff", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_tariff_price", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
-        p_tariff_id: input.tariffId, p_name: input.name.trim(), p_price_per_kwh: input.pricePerKwh,
+        p_tariff_id: input.tariffId, p_price_per_kwh: input.pricePerKwh,
         p_fixed_fee: input.fixedFee, p_tax_rate: input.taxRate,
       });
-      if (error || !data?.[0]?.tariff_id) {
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row?.tariff_id) {
         const message = String(error?.message ?? "");
-        if (message.includes("TARIFF_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "التعرفة غير موجودة ضمن المحطة المحددة." });
-        if (message.includes("TARIFF_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل التعرفة." });
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث التعرفة في Supabase." });
+        if (message.includes("TARIFF_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "سعر الكيلوواط غير موجود ضمن الفرع المحدد." });
+        if (message.includes("TARIFF_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل سعر الكيلوواط." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث سعر الكيلوواط في قاعدة البيانات." });
       }
-      return { id: Number(data[0].tariff_id) };
+      return { id: Number(row.tariff_id), changed: Boolean(row.changed) };
     }),
   }),
 

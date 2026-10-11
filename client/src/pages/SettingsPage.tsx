@@ -10,7 +10,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { can, powerRoleLabels, type PowerRole } from "@shared/powerhub-rbac";
 import { Activity, CalendarClock, KeyRound, Loader2, Power, PowerOff, ShieldCheck, UserRoundPlus } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -44,36 +44,174 @@ function ReadingCycleSettingsSection({ siteId }: { siteId: number }) {
   </CardContent></Card>;
 }
 
+function tariffHistoryDay(value: Date | string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+const tariffChangeLabels: Record<string, string> = {
+  created: "إضافة السعر",
+  price_changed: "تعديل السعر",
+  activated: "تفعيل السعر",
+  deactivated: "إيقاف السعر",
+  legacy_snapshot: "سعر سابق عند تفعيل السجل",
+};
+
 function TariffSettingsSection({ siteId }: { siteId: number }) {
   const utils = trpc.useUtils();
   const tariffsQuery = trpc.powerhub.tariffs.list.useQuery({ siteId });
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const historyQuery = trpc.powerhub.tariffs.history.useQuery({
+    siteId,
+    from: historyFrom || undefined,
+    to: historyTo || undefined,
+    limit: 50,
+    offset: historyOffset,
+  });
+  const createOperationId = useRef<string | null>(null);
   const create = trpc.powerhub.tariffs.create.useMutation({
-    onSuccess: async () => { await Promise.all([utils.powerhub.tariffs.list.invalidate(), utils.powerhub.audit.list.invalidate()]); toast.success("تم حفظ تعرفة الكيلوواط."); },
+    onSuccess: async () => {
+      createOperationId.current = null;
+      setHistoryOffset(0);
+      await Promise.all([
+        utils.powerhub.tariffs.list.invalidate(),
+        utils.powerhub.tariffs.history.invalidate(),
+        utils.powerhub.audit.list.invalidate(),
+      ]);
+      toast.success("تم حفظ سعر الكيلوواط.");
+    },
     onError: (error) => toast.error(error.message),
   });
   const update = trpc.powerhub.tariffs.update.useMutation({
-    onSuccess: async () => { await Promise.all([utils.powerhub.tariffs.list.invalidate(), utils.powerhub.audit.list.invalidate()]); toast.success("تم تحديث التعرفة. السعر الجديد يطبق على الفواتير الجديدة فقط."); },
+    onSuccess: async () => {
+      setHistoryOffset(0);
+      await Promise.all([
+        utils.powerhub.tariffs.list.invalidate(),
+        utils.powerhub.tariffs.history.invalidate(),
+        utils.powerhub.audit.list.invalidate(),
+      ]);
+      toast.success("تم تحديث سعر الكيلوواط. الفواتير السابقة تحتفظ بسعر الإصدار.");
+    },
     onError: (error) => toast.error(error.message),
   });
-  return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
-    <div className="mb-4"><h2 className="font-bold text-white">تعرفة الكيلوواط</h2><p className="mt-1 text-sm leading-6 text-slate-400">حدد سعر الكيلوواط والرسوم. لا يُنشأ سعر افتراضي، وتبقى أسعار الفواتير السابقة كما صدرت.</p></div>
-    <form className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); create.mutate({ siteId, name: String(data.get("name")).trim(), code: String(data.get("code")).trim(), pricePerKwh: Number(data.get("price")), fixedFee: Number(data.get("fixedFee") || 0), taxRate: Number(data.get("tax") || 0) }, { onSuccess: () => form.reset() }); }}>
-      <label className="text-xs text-slate-400">اسم التعرفة<input required minLength={2} name="name" className={inputClass + " mt-1"} placeholder="تعرفة سكنية" /></label>
-      <label className="text-xs text-slate-400">رمز التعرفة<input required minLength={2} name="code" className={inputClass + " mt-1"} placeholder="RES-01" dir="ltr" /></label>
-      <label className="text-xs text-slate-400">سعر الكيلوواط<input required type="number" min="0" step="0.0001" name="price" className={inputClass + " mt-1"} placeholder="0.00" dir="ltr" /></label>
-      <label className="text-xs text-slate-400">الرسم الثابت<input type="number" min="0" step="0.01" name="fixedFee" defaultValue="0" className={inputClass + " mt-1"} dir="ltr" /></label>
-      <label className="text-xs text-slate-400">الضريبة %<input type="number" min="0" max="100" step="0.01" name="tax" defaultValue="0" className={inputClass + " mt-1"} dir="ltr" /></label>
-      <div className="sm:col-span-2 xl:col-span-5"><Button disabled={create.isPending} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{create.isPending ? "جارٍ الحفظ…" : "إضافة التعرفة"}</Button></div>
-    </form>
-    <div className="mt-5 space-y-3">{tariffsQuery.isLoading ? <p className="text-sm text-slate-500">جارٍ تحميل التعرفات…</p> : (tariffsQuery.data ?? []).length ? (tariffsQuery.data ?? []).map((tariff) => <form key={tariff.id} className="grid gap-3 rounded-xl border border-white/8 bg-white/[.02] p-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_1fr_auto]" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); update.mutate({ siteId, tariffId: tariff.id, name: String(data.get("name")).trim(), pricePerKwh: Number(data.get("price")), fixedFee: Number(data.get("fixedFee") || 0), taxRate: Number(data.get("tax") || 0) }); }}>
-      <label className="text-xs text-slate-400">اسم التعرفة<input required minLength={2} name="name" defaultValue={tariff.name} className={inputClass + " mt-1"} /></label>
-      <label className="text-xs text-slate-400">سعر الكيلوواط<input required type="number" min="0" step="0.0001" name="price" defaultValue={tariff.pricePerKwh} className={inputClass + " mt-1"} dir="ltr" /></label>
-      <label className="text-xs text-slate-400">الرسم الثابت<input type="number" min="0" step="0.01" name="fixedFee" defaultValue={tariff.fixedFee ?? 0} className={inputClass + " mt-1"} dir="ltr" /></label>
-      <label className="text-xs text-slate-400">الضريبة %<input type="number" min="0" max="100" step="0.01" name="tax" defaultValue={tariff.taxRate ?? 0} className={inputClass + " mt-1"} dir="ltr" /></label>
-      <Button type="submit" variant="outline" disabled={update.isPending} className="self-end border-[#F5B800]/30 text-[#F5B800]">حفظ التعديل</Button>
-      <p className="sm:col-span-2 xl:col-span-5 text-xs text-slate-500">الرمز: {tariff.code} · {tariff.isActive ? "فعّالة" : "غير فعّالة"}</p>
-    </form>) : <p className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">لا توجد تعرفة بعد. أضف سعر الكيلوواط المعتمد قبل إصدار فواتير الاستهلاك.</p>}</div>
-  </CardContent></Card>;
+  const tariffs = tariffsQuery.data ?? [];
+  const currentTariff = tariffs.find((tariff) => tariff.isActive) ?? undefined;
+  const priceHistory = historyQuery.data?.items ?? [];
+  const displayedStart = priceHistory.length ? historyOffset + 1 : 0;
+  const displayedEnd = historyOffset + priceHistory.length;
+
+  return <div className="space-y-5">
+    <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel">
+      <CardContent className="p-5">
+        <div className="mb-4">
+          <h2 className="font-bold text-white">سعر الكيلوواط</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-400">
+            أدخل سعر الكيلوواط والرسوم فقط؛ لا حاجة لاسم أو رمز للتعرفة. يسجل النظام تلقائيًا تاريخ كل تغيير، وتبقى الفواتير السابقة بسعر إصدارها.
+          </p>
+        </div>
+        {tariffsQuery.isLoading ? <p className="py-4 text-sm text-slate-500">جارٍ تحميل سعر الكيلوواط…</p> : <form
+          key={currentTariff?.id ?? "new-tariff"}
+          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const data = new FormData(form);
+            const values = {
+              siteId,
+              pricePerKwh: Number(data.get("price")),
+              fixedFee: Number(data.get("fixedFee") || 0),
+              taxRate: Number(data.get("tax") || 0),
+            };
+            if (currentTariff) {
+              const unchanged =
+                Number(currentTariff.pricePerKwh) === values.pricePerKwh &&
+                Number(currentTariff.fixedFee) === values.fixedFee &&
+                Number(currentTariff.taxRate) === values.taxRate;
+              if (unchanged) {
+                toast.info("لم يتغير سعر الكيلوواط؛ لم تُنشأ فترة سعر جديدة.");
+                return;
+              }
+              update.mutate({ ...values, tariffId: currentTariff.id });
+            } else {
+              const clientOperationId = createOperationId.current ?? (createOperationId.current = crypto.randomUUID());
+              create.mutate({ ...values, clientOperationId }, { onSuccess: () => form.reset() });
+            }
+          }}
+        >
+          <label className="text-xs text-slate-400">سعر الكيلوواط
+            <input required type="number" min="0" step="0.0001" name="price" defaultValue={currentTariff?.pricePerKwh ?? ""} className={inputClass + " mt-1"} placeholder="0.0000" dir="ltr" />
+          </label>
+          <label className="text-xs text-slate-400">الرسم الثابت
+            <input type="number" min="0" step="0.01" name="fixedFee" defaultValue={currentTariff?.fixedFee ?? 0} className={inputClass + " mt-1"} dir="ltr" />
+          </label>
+          <label className="text-xs text-slate-400">الضريبة %
+            <input type="number" min="0" max="100" step="0.01" name="tax" defaultValue={currentTariff?.taxRate ?? 0} className={inputClass + " mt-1"} dir="ltr" />
+          </label>
+          <div className="flex items-end">
+            <Button disabled={create.isPending || update.isPending} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">
+              {create.isPending || update.isPending ? "جارٍ الحفظ…" : currentTariff ? "حفظ سعر الكيلوواط" : "إضافة سعر الكيلوواط"}
+            </Button>
+          </div>
+          {currentTariff && <div className="sm:col-span-2 xl:col-span-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <Badge className="bg-emerald-500/15 text-emerald-300">السعر الحالي الفعّال</Badge>
+            <span>ساري منذ {new Intl.DateTimeFormat("ar", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Gaza" }).format(new Date(currentTariff.effectiveFrom))}</span>
+          </div>}
+          {!currentTariff && tariffs.length > 0 && <p className="sm:col-span-2 xl:col-span-4 text-xs text-amber-200">لا يوجد سعر فعّال حاليًا. إضافة سعر جديد ستسجل سعرًا فعالًا جديدًا مع الاحتفاظ بسجل الأسعار السابقة.</p>}
+        </form>}
+        {!tariffsQuery.isLoading && !currentTariff && !tariffs.length && <p className="mt-4 rounded-xl border border-dashed border-white/10 p-4 text-center text-sm text-slate-500">لم يُسجّل سعر بعد. أضف سعر الكيلوواط قبل إصدار فواتير الاستهلاك.</p>}
+      </CardContent>
+    </Card>
+
+    <Card className="border-white/8 bg-[#111823] shadow-panel">
+      <CardContent className="p-5">
+        <div className="mb-4">
+          <h2 className="font-bold text-white">سجل أسعار الكيلوواط وفترات السريان</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-400">يمكنك معرفة السعر الذي كان ساريًا في أي فترة زمنية. كل فترة تنتهي عند لحظة بدء السعر التالي، دون تغيير قيم الفواتير التي صدرت سابقًا.</p>
+        </div>
+        <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+          <label className="text-xs text-slate-400">من تاريخ
+            <input type="date" aria-label="بداية فترة سجل سعر الكيلوواط" value={historyFrom} max={historyTo || undefined} onChange={(event) => { setHistoryFrom(event.target.value); setHistoryOffset(0); }} className={inputClass + " mt-1"} dir="ltr" />
+          </label>
+          <label className="text-xs text-slate-400">إلى تاريخ
+            <input type="date" aria-label="نهاية فترة سجل سعر الكيلوواط" value={historyTo} min={historyFrom || undefined} onChange={(event) => { setHistoryTo(event.target.value); setHistoryOffset(0); }} className={inputClass + " mt-1"} dir="ltr" />
+          </label>
+          <div className="flex items-end">
+            <Button type="button" variant="outline" disabled={!historyFrom && !historyTo} onClick={() => { setHistoryFrom(""); setHistoryTo(""); setHistoryOffset(0); }} className="w-full border-white/10 text-slate-200">مسح الفلتر</Button>
+          </div>
+        </div>
+        {historyQuery.isLoading ? <p className="py-4 text-sm text-slate-500">جارٍ تحميل سجل الأسعار…</p>
+          : historyQuery.isError ? <p className="rounded-xl border border-rose-400/20 p-4 text-sm text-rose-200">تعذر تحميل سجل الأسعار. أعد المحاولة.</p>
+          : priceHistory.length ? <div className="overflow-x-auto">
+            <table className="w-full min-w-[850px] text-sm">
+              <thead className="text-right text-xs text-slate-500"><tr>
+                <th className="pb-3">بدأ السريان</th><th className="pb-3">انتهى السريان</th><th className="pb-3">سعر الكيلوواط</th><th className="pb-3">الرسم الثابت</th><th className="pb-3">الضريبة</th><th className="pb-3">الحالة</th><th className="pb-3">نوع التغيير</th>
+              </tr></thead>
+              <tbody>{priceHistory.map((entry) => <tr key={entry.id} className="border-t border-white/7">
+                <td className="py-3 text-slate-300">{new Intl.DateTimeFormat("ar", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Gaza" }).format(new Date(entry.validFrom))}</td>
+                <td className="py-3 text-slate-300">{entry.validTo ? new Intl.DateTimeFormat("ar", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Gaza" }).format(new Date(entry.validTo)) : "سارٍ حتى الآن"}</td>
+                <td className="py-3 font-bold text-[#F5B800]" dir="ltr">{Number(entry.pricePerKwh).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 4 })}</td>
+                <td className="py-3 text-slate-300" dir="ltr">{Number(entry.fixedFee).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td className="py-3 text-slate-300" dir="ltr">{Number(entry.taxRate).toLocaleString("en-US", { maximumFractionDigits: 2 })}%</td>
+                <td className="py-3"><Badge className={entry.isActive ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-500/15 text-slate-300"}>{entry.isActive ? "فعّال" : "غير فعّال"}</Badge></td>
+                <td className="py-3 text-slate-400">{tariffChangeLabels[entry.changeKind] ?? "تغيير السعر"}</td>
+              </tr>)}</tbody>
+            </table>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-3">
+              <p className="text-xs text-slate-500">عرض {displayedStart}–{displayedEnd} من {historyQuery.data?.total ?? 0} سجل.</p>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="outline" disabled={historyOffset === 0 || historyQuery.isFetching} onClick={() => setHistoryOffset((offset) => Math.max(0, offset - 50))}>السابق</Button>
+                <Button type="button" size="sm" variant="outline" disabled={!historyQuery.data?.hasNext || historyQuery.isFetching} onClick={() => setHistoryOffset((offset) => offset + 50)}>التالي</Button>
+              </div>
+            </div>
+          </div> : <p className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">لا توجد أسعار مسجلة ضمن الفترة المحددة.</p>}
+      </CardContent>
+    </Card>
+  </div>;
 }
 
 function SubaccountListSkeleton() {

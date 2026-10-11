@@ -101,6 +101,7 @@ const state = vi.hoisted(() => {
     },
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
+      if (name === "powerhub_create_tariff_idempotent") return resolved([{ tariff_id: 41, replayed: false }]);
       if (name === "powerhub_subscriber_portal_list") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
       if (name === "powerhub_subscriber_portal_theme") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
       if (name === "powerhub_subscriber_portal_lookup") return resolved({
@@ -370,10 +371,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("ينشئ تعرفة ومولداً ويحدّث المولد عبر Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.tariffs.create({ siteId: 10, name: "تعرفة جديدة", code: "NEW", pricePerKwh: 1.5, fixedFee: 0, taxRate: 0 })).resolves.toEqual({ id: 41 });
+    await expect(caller.tariffs.create({ siteId: 10, pricePerKwh: 1.5, fixedFee: 0, taxRate: 0, clientOperationId: "00000000-0000-4000-8000-000000000041" })).resolves.toEqual({ id: 41, replayed: false });
     await expect(caller.generators.create({ siteId: 10, code: "GEN-2", name: "مولد جديد", ratedCapacityKw: "200", fuelType: "diesel" })).resolves.toEqual({ id: 51 });
     await expect(caller.generators.update({ siteId: 10, id: 50, name: "مولد محدث", ratedCapacityKw: "160", fuelLevelLiters: "20", operatingHours: "10", status: "maintenance" })).resolves.toEqual({ success: true });
-    expect(state.inserts).toEqual(expect.arrayContaining([expect.objectContaining({ table: "tariffs" }), expect.objectContaining({ table: "generators" }), expect.objectContaining({ table: "audit_logs" })]));
+    expect(state.rpcCalls).toContainEqual(expect.objectContaining({ name: "powerhub_create_tariff_idempotent", args: expect.objectContaining({ p_site_id: 10, p_price_per_kwh: 1.5, p_client_operation_id: "00000000-0000-4000-8000-000000000041" }) }));
+    expect(state.inserts).toEqual(expect.arrayContaining([expect.objectContaining({ table: "generators" }), expect.objectContaining({ table: "audit_logs" })]));
     expect(state.updates).toEqual(expect.arrayContaining([expect.objectContaining({ table: "generators", values: expect.objectContaining({ status: "maintenance" }) })]));
   });
 
