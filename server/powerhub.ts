@@ -330,8 +330,9 @@ async function sendPendingInvoiceSmsRuntime(
   let pageOffset = 0;
   for (;;) {
     let pendingQuery = admin.from("notification_messages")
-      .select("id, invoice_id, subscriber_id")
+      .select("id, invoice_id, subscriber_id, subscribers!inner(site_id)")
       .eq("tenant_id", scope.tenantId)
+      .eq("subscribers.site_id", input.siteId)
       .eq("channel", "sms")
       .eq("event_type", "invoice_issued")
       .in("status", input.includeFailed ? ["pending", "failed"] : ["pending"])

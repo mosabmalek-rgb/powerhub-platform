@@ -22,6 +22,11 @@ describe("invoice bulk SMS safety contract", () => {
 
   it("processes due pending SMS only and counts only due pending invoice messages", () => {
     expect(api).toContain('if (input.dueOnly) pendingQuery = pendingQuery.or("scheduled_at.is.null,scheduled_at.lte." + new Date().toISOString())');
+    const runtimeStart = api.indexOf("const notificationIds: number[] = [];");
+    const runtimeEnd = api.indexOf("if (!notificationIds.length)", runtimeStart);
+    const candidateQuery = api.slice(runtimeStart, runtimeEnd);
+    expect(candidateQuery).toContain('subscribers!inner(site_id)');
+    expect(candidateQuery).toContain('.eq("subscribers.site_id", input.siteId)');
     expect(api).toContain('countDueInvoiceNotifications: protectedProcedure.input(siteScoped)');
     expect(api).toContain('.eq("status", "pending")');
     expect(api).toContain('.or(`scheduled_at.is.null,scheduled_at.lte.${now}`)');
