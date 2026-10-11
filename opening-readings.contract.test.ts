@@ -55,7 +55,7 @@ describe("opening subscriber readings contract", () => {
 
   it("auto-approves historic opening baselines without issuing invoices", () => {
     const migration = readFileSync(
-      resolve(process.cwd(), "supabase/migrations/20261010193500_powerhub_opening_baseline_auto_approval_backfill.sql"),
+      resolve(process.cwd(), "supabase/migrations/20261011075630_powerhub_opening_baseline_auto_approval_backfill_20261010.sql"),
       "utf8",
     );
     expect(migration).toContain("pg_get_functiondef(v_function_oid)");
@@ -73,7 +73,7 @@ describe("opening subscriber readings contract", () => {
 
   it("returns queued SMS ids when recovering an invoice for an already-approved reading", () => {
     const migration = readFileSync(
-      resolve(process.cwd(), "supabase/migrations/20261011084000_powerhub_auto_invoice_replay_notification_recovery.sql"),
+      resolve(process.cwd(), "supabase/migrations/20261011084348_powerhub_auto_invoice_replay_notification_recovery.sql"),
       "utf8",
     );
     expect(migration).toContain("powerhub_create_reading_and_issue_invoice");
