@@ -182,6 +182,22 @@ describe("role guards in administration UI", () => {
     expect(mocks.retryFailedInvoiceNotifications).toHaveBeenCalledWith({ siteId: 1, notificationIds: [101] });
   });
 
+  it("counts only failed SMS messages for the bulk SMS retry action", () => {
+    mocks.activeRole = "owner";
+    mocks.bulkInvoiceSends = [{ id: 15, action: "send_invoice_sms_batch", createdAt: new Date("2026-08-24T09:30:00.000Z"), metadata: { requested: 2, submitted: 0, failed: 2 }, executorId: 12, executorName: "محاسب الفرع", executorEmail: "accountant@example.com" }];
+    mocks.bulkInvoiceSendDetails = { items: [
+      { notificationId: 101, invoiceId: 81, invoiceNo: "PH-TEST-0081", totalAmount: "60", subscriberName: "أحمد المشترك", channel: "sms", status: "failed", lastError: "تعذر SMS", recipient: "+970599000000" },
+      { notificationId: 103, invoiceId: 82, invoiceNo: "PH-TEST-0082", totalAmount: "90", subscriberName: "سارة المشترك", channel: "whatsapp", status: "failed", lastError: "تعذر WhatsApp", recipient: "+970599000001" },
+    ] };
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<BillingPage />);
+    fireEvent.click(screen.getByRole("button", { name: "محاسب الفرع" }));
+    const retrySms = screen.getByRole("button", { name: "إعادة إرسال SMS الفاشل (1)" });
+    expect(retrySms).toBeInTheDocument();
+    fireEvent.click(retrySms);
+    expect(mocks.retryFailedInvoiceNotifications).toHaveBeenCalledWith({ siteId: 1, notificationIds: [101] });
+  });
+
   it("renders the subscriber directory in read-only mode for the viewer", () => {
     mocks.subscribers = [{ id: 101, fullName: "مشترك الاختبار", subscriberNo: "PH-TEST-ABC123", phone: "+970700000000", subscriptionType: "residential", serviceStatus: "active" }];
     render(<NetworkDirectoryPage kind="subscribers" />);
