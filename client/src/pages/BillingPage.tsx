@@ -34,7 +34,7 @@ function shiftDateKey(key: string, days: number) {
 function monthAnchor(year: number, monthIndex: number, anchor: number) {
   const first = new Date(Date.UTC(year, monthIndex, 1));
   const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
-  const day = Math.min(anchor, lastDay);
+  const day = anchor === 30 && first.getUTCMonth() === 1 ? 28 : Math.min(anchor, lastDay);
   return `${first.getUTCFullYear()}-${String(first.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 function currentCycleStartKey(config: { cycleType: string; weeklyStartDay: number; monthlyStartDay: number } | undefined, now = new Date()) {
@@ -56,13 +56,13 @@ function currentCycleStartKey(config: { cycleType: string; weeklyStartDay: numbe
   }
   if (config.cycleType === "EVERY_10_DAYS") {
     if (config.monthlyStartDay === 1) return `${today.slice(0, 8)}${String(day <= 10 ? 1 : day <= 20 ? 11 : 21).padStart(2, "0")}`;
-    if (day >= 30 || (lastDay < 30 && day >= lastDay)) return monthAnchor(year, monthIndex, 30);
+    if (day >= 30 || (month === 2 && day >= 28)) return monthAnchor(year, monthIndex, 30);
     if (day >= 20) return `${today.slice(0, 8)}20`;
     if (day >= 10) return `${today.slice(0, 8)}10`;
     return previousAnchor(30);
   }
   if (config.monthlyStartDay === 1) return `${today.slice(0, 8)}${String(day <= 15 ? 1 : 16).padStart(2, "0")}`;
-  if (day >= 30 || (lastDay < 30 && day >= lastDay)) return monthAnchor(year, monthIndex, 30);
+  if (day >= 30 || (month === 2 && day >= 28)) return monthAnchor(year, monthIndex, 30);
   if (day >= 15) return `${today.slice(0, 8)}15`;
   return previousAnchor(30);
 }
