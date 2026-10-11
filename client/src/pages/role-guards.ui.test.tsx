@@ -203,6 +203,51 @@ describe("role guards in administration UI", () => {
     expect(mocks.retryFailedInvoiceNotifications).toHaveBeenCalledWith({ siteId: 1, notificationIds: [101] });
   });
 
+  it("submits a new subscriber with normalized form fields through the real mutation path", async () => {
+    mocks.activeRole = "owner";
+    mocks.createSubscriberMutate.mockImplementation((input: unknown) => {
+      expect(input).toMatchObject({ siteId: 1, fullName: "مشترك تجريبي", phone: "0599000000", subscriptionType: "residential", serviceStatus: "active", openingReadingApproved: false });
+    });
+    render(<NetworkDirectoryPage kind="subscribers" />);
+    fireEvent.click(screen.getByRole("button", { name: "فتح البطاقة" }));
+    fireEvent.change(screen.getByLabelText("الاسم"), { target: { value: "مشترك تجريبي" } });
+    fireEvent.change(screen.getByLabelText("رقم الهاتف الدولي"), { target: { value: "0599000000" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة المشترك" }));
+    await waitFor(() => expect(mocks.createSubscriberMutate).toHaveBeenCalledTimes(1));
+  });
+
+  it("submits a new generator through the real create mutation path", async () => {
+    mocks.activeRole = "technician";
+    mocks.createGeneratorMutate.mockImplementation((input: unknown) => {
+      expect(input).toMatchObject({ siteId: 1, code: "GEN-TEST-01", name: "مولد اختبار", fuelType: "diesel" });
+    });
+    render(<NetworkDirectoryPage kind="generators" />);
+    fireEvent.change(screen.getByLabelText("رمز المولد"), { target: { value: "GEN-TEST-01" } });
+    fireEvent.change(screen.getByLabelText("الاسم"), { target: { value: "مولد اختبار" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة المولد" }));
+    await waitFor(() => expect(mocks.createGeneratorMutate).toHaveBeenCalledTimes(1));
+  });
+
+  it("validates the reading form before calling the create mutation", async () => {
+    mocks.activeRole = "owner";
+    render(<MeterReadingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: /حفظ القراءة واعتمادها/ }));
+    expect(await screen.findByText("اختر المشترك قبل حفظ القراءة.")).toBeInTheDocument();
+    expect(mocks.createReadingMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("previews and submits valid bulk readings through the create mutation", async () => {
+    mocks.activeRole = "owner";
+    mocks.subscribers = [{ id: 77, fullName: "مشترك جماعي", subscriberNo: "PH-BULK-77", phone: "+970599000077", serviceStatus: "active" }];
+    render(<BulkReadingEntry siteId={1} subscribers={mocks.subscribers} readings={[]} onSaved={async () => {}} />);
+    const inputs = screen.getAllByRole("textbox");
+    fireEvent.change(inputs[0], { target: { value: "PH-BULK-77" } });
+    fireEvent.change(inputs[1], { target: { value: "12.52" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ القراءات السليمة" }));
+    await waitFor(() => expect(mocks.createReadingMutateAsync).toHaveBeenCalledTimes(1));
+    expect(mocks.createReadingMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ siteId: 1, subscriberId: 77, readingValue: "12.52" }));
+  });
+
   it("collapses the add-subscriber card by default and opens it on request", () => {
     mocks.activeRole = "owner";
     render(<NetworkDirectoryPage kind="subscribers" />);
