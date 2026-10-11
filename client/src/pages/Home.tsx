@@ -239,7 +239,7 @@ export function WorkspaceHome() {
       <MetricCard label="المشتركون النشطون" value={metricNumber(activeSubscribers)} unit="مشترك" description={financialOverviewQuery.isError ? "تعذر تحميل عدد المشتركين." : selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
     </section>
 
-    <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
+    <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} siteId={siteId} scope={selectedScope} />
 
     <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={financialOverviewQuery.isError} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError} loading={financialOverviewQuery.isLoading || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading : summaryQuery.isLoading)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
