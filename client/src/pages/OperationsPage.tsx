@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
-import { formatReportDate, formatReportPeriod, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS } from "@/lib/report-design-system";
+import { formatReportDate, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS } from "@/lib/report-design-system";
 import { BulkSubscriberImport } from "@/components/BulkSubscriberImport";
 import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
 import { PaymentMethodCollectionSummary } from "@/components/PaymentMethodCollectionSummary";
@@ -12,7 +12,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
-import { copyTextSafely } from "@/lib/clipboard";
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
 import { cn } from "@/lib/utils";
