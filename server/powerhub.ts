@@ -2443,8 +2443,8 @@ export const powerhubRouter = router({
 
   dashboard: router({
     summary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
-      return getSupabaseDashboardSummary(input.siteId);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
+      return getSupabaseDashboardSummary(input.siteId, access.tenantId);
     }),
     allBranchesSummary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
@@ -2453,15 +2453,19 @@ export const powerhubRouter = router({
       if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع المستأجر من Supabase." });
       const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
       if (!branchIds.length) return { branchCount: 0, subscribers: 0, generators: { active: 0, maintenance: 0 }, financial: { invoiced: 0, collected: 0, outstanding: 0, expenses: 0, operatingProfit: 0 }, energyKwh: 0, failedNotifications: 0 };
-      const [subscriberResult, generatorResult, invoiceResult, expenseResult, notificationResult] = await Promise.all([
-        admin.from("subscribers").select("service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+      const [subscriberResult, generatorResult, invoiceResult, expenseResult] = await Promise.all([
+        admin.from("subscribers").select("id, service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds).is("archived_at", null),
         admin.from("generators").select("status").eq("tenant_id", access.tenantId).in("site_id", branchIds),
-        admin.from("invoices").select("status, total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+        admin.from("invoices").select("status, total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", access.tenantId).in("site_id", branchIds).neq("status", "cancelled").neq("status", "draft"),
         admin.from("expenses").select("amount").eq("tenant_id", access.tenantId).in("site_id", branchIds),
-        admin.from("notification_messages").select("status").eq("tenant_id", access.tenantId),
       ]);
-      if (subscriberResult.error || generatorResult.error || invoiceResult.error || expenseResult.error || notificationResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص جميع الأفرع من Supabase." });
-      const invoiceTotals = (invoiceResult.data ?? []).filter((row) => row.status !== "cancelled").reduce((totals, row) => ({
+      if (subscriberResult.error || generatorResult.error || invoiceResult.error || expenseResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص جميع الأفرع من Supabase." });
+      const subscriberIds = (subscriberResult.data ?? []).map((row) => Number(row.id)).filter(Number.isInteger);
+      const notificationResult = subscriberIds.length
+        ? await admin.from("notification_messages").select("status").eq("tenant_id", access.tenantId).in("subscriber_id", subscriberIds)
+        : { data: [], error: null };
+      if (notificationResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حالة الإشعارات لجميع الأفرع من Supabase." });
+      const invoiceTotals = (invoiceResult.data ?? []).filter((row) => row.status !== "cancelled" && row.status !== "draft").reduce((totals, row) => ({
         invoiced: totals.invoiced + Number(row.total_amount ?? 0), paid: totals.paid + Number(row.paid_amount ?? 0),
         outstanding: totals.outstanding + Number(row.balance_due ?? 0), energy: totals.energy + Number(row.consumption_kwh ?? 0),
       }), { invoiced: 0, paid: 0, outstanding: 0, energy: 0 });
