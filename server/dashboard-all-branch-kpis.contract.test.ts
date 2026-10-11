@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261012110000_powerhub_dashboard_all_branch_kpis.sql"), "utf8");
+const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011213932_20261012110000_powerhub_dashboard_all_branch_kpis.sql"), "utf8");
 const router = readFileSync(resolve(process.cwd(), "server/powerhub-dashboard.ts"), "utf8");
 const trendSection = readFileSync(resolve(process.cwd(), "client/src/components/FinancialTrendSection.tsx"), "utf8");
 const home = readFileSync(resolve(process.cwd(), "client/src/pages/Home.tsx"), "utf8");
