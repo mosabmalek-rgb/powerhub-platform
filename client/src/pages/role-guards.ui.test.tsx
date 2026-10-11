@@ -102,16 +102,17 @@ vi.mock("@/lib/trpc", () => ({
 afterEach(() => { cleanup(); vi.restoreAllMocks(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
 
 describe("role guards in administration UI", () => {
-  it("hides invoice issuance and sharing controls from the viewer", () => {
+  it("keeps invoice issuance automatic and hides manual issue controls from the viewer", () => {
     render(<BillingPage />);
-    expect(screen.getByText(/تستطيع مراجعة الفواتير فقط/)).toBeInTheDocument();
+    expect(screen.getByText(/تصدر الفاتورة تلقائياً بعد اعتماد القراءة/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /إصدار الفاتورة/ })).not.toBeInTheDocument();
   });
 
-  it("shows invoice issuance controls to the accountant", () => {
+  it("shows the automatic invoice workflow to the accountant without a duplicate manual issue card", () => {
     mocks.activeRole = "accountant";
     render(<BillingPage />);
-    expect(screen.getByRole("button", { name: /إصدار الفاتورة/ })).toBeInTheDocument();
+    expect(screen.getByText(/تصدر الفاتورة تلقائياً بعد اعتماد القراءة/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /إصدار الفاتورة/ })).not.toBeInTheDocument();
   });
 
   it("lets the owner select an unsent invoice and send only that selection", () => {
