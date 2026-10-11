@@ -99,7 +99,7 @@ describe("opening subscriber readings contract", () => {
       phone: "+970599000000",
       address: "",
       subscriptionType: "سكني",
-      openingReading: "1250.500",
+      openingReading: "1250.52",
       openingReadingAt: "2026-09-29T10:00:00Z",
     }])[0].status).toBe("ready");
   });
