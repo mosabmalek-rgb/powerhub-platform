@@ -27,6 +27,13 @@ vi.mock("@/lib/trpc", () => ({
             isError: false,
           }),
         },
+        allBranchesCollectorPerformance: {
+          useQuery: () => ({
+            data: { openCount: 0, closedCount: 0, varianceCount: 0, netVariance: 0, collectors: [] },
+            isLoading: false,
+            isError: false,
+          }),
+        },
       },
     },
   },
