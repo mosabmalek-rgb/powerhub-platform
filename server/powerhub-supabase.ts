@@ -690,27 +690,48 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
 
 export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {
   const admin = supabaseAdmin();
-  const { data: subscriberRows, error: subscribersError } = await admin.from("subscribers").select("id, service_status").eq("site_id", siteId);
-  if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مؤشرات المشتركين من Supabase." });
-  const subscriberIds = (subscriberRows ?? []).map((row) => Number(row.id));
-  const [generatorResult, invoiceResult, expenseResult, notificationResult] = await Promise.all([
-    admin.from("generators").select("status").eq("site_id", siteId),
-    admin.from("invoices").select("status, total_amount, paid_amount, balance_due, consumption_kwh").eq("site_id", siteId),
-    admin.from("expenses").select("amount").eq("site_id", siteId),
-    subscriberIds.length ? admin.from("notification_messages").select("status").in("subscriber_id", subscriberIds) : Promise.resolve({ data: [], error: null }),
+  const [subscriberResult, generatorResult, invoiceResult, expenseResult] = await Promise.all([
+    admin.from("subscribers").select("id, service_status", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null),
+    admin.from("generators").select("status", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId),
+    admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft"),
+    admin.from("expenses").select("amount", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId),
   ]);
-  if (generatorResult.error || invoiceResult.error || expenseResult.error || notificationResult.error) {
+  if (subscriberResult.error || generatorResult.error || invoiceResult.error || expenseResult.error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مؤشرات لوحة التشغيل من Supabase." });
   }
-  const activeSubscribers = (subscriberRows ?? []).filter((row) => row.service_status === "active").length;
-  const activeGenerators = (generatorResult.data ?? []).filter((row) => row.status === "active").length;
-  const maintenanceGenerators = (generatorResult.data ?? []).filter((row) => row.status === "maintenance").length;
-  const invoiceTotals = (invoiceResult.data ?? []).filter((row) => row.status !== "cancelled").reduce((totals, row) => ({
-    invoiced: totals.invoiced + Number(row.total_amount ?? 0), paid: totals.paid + Number(row.paid_amount ?? 0),
-    outstanding: totals.outstanding + Number(row.balance_due ?? 0), energy: totals.energy + Number(row.consumption_kwh ?? 0),
-  }), { invoiced: 0, paid: 0, outstanding: 0, energy: 0 });
-  const expenses = (expenseResult.data ?? []).reduce((total, row) => total + Number(row.amount ?? 0), 0);
-  const failedNotifications = (notificationResult.data ?? []).filter((row) => row.status === "failed").length;
+  // Supabase returns at most its configured page size for ordinary selects. Read all matching
+  // rows in bounded pages so dashboard totals do not silently truncate at 1,000 records.
+  const readAllPages = async <T,>(readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) => {
+    const result: T[] = [];
+    for (let from = 0; ; from += 1000) {
+      const page = await readPage(from, from + 999);
+      if (page.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جميع سجلات مؤشرات لوحة التشغيل." });
+      const rows = page.data ?? [];
+      result.push(...rows);
+      if (rows.length < 1000) break;
+    }
+    return result;
+  };
+  const subscriberRows = await readAllPages((from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null).order("id", { ascending: true }).range(from, to));
+  const generatorRows = await readAllPages((from, to) => admin.from("generators").select("status").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
+  const invoiceRows = await readAllPages((from, to) => admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to));
+  const expenseRows = await readAllPages((from, to) => admin.from("expenses").select("amount").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
+  const subscriberIds = subscriberRows.map((row) => Number((row as { id: number }).id)).filter(Number.isInteger);
+  const notificationRows = await readAllPages((from, to) => admin.from("notification_messages").select("status").eq("tenant_id", tenantId).in("subscriber_id", subscriberIds.length ? subscriberIds : [-1]).order("id", { ascending: true }).range(from, to));
+  const activeSubscribers = subscriberRows.filter((row) => (row as { service_status: string }).service_status === "active").length;
+  const activeGenerators = generatorRows.filter((row) => (row as { status: string }).status === "active").length;
+  const maintenanceGenerators = generatorRows.filter((row) => (row as { status: string }).status === "maintenance").length;
+  const invoiceTotals = invoiceRows.reduce((totals, raw) => {
+    const row = raw as { total_amount: number | string | null; paid_amount: number | string | null; balance_due: number | string | null; consumption_kwh: number | string | null };
+    return {
+      invoiced: totals.invoiced + Number(row.total_amount ?? 0),
+      paid: totals.paid + Number(row.paid_amount ?? 0),
+      outstanding: totals.outstanding + Number(row.balance_due ?? 0),
+      energy: totals.energy + Number(row.consumption_kwh ?? 0),
+    };
+  }, { invoiced: 0, paid: 0, outstanding: 0, energy: 0 });
+  const expenses = expenseRows.reduce((total, raw) => total + Number((raw as { amount: number | string | null }).amount ?? 0), 0);
+  const failedNotifications = notificationRows.filter((row) => (row as { status: string }).status === "failed").length;
   return {
     subscribers: activeSubscribers, generators: { active: activeGenerators, maintenance: maintenanceGenerators },
     financial: { invoiced: invoiceTotals.invoiced, collected: invoiceTotals.paid, outstanding: invoiceTotals.outstanding, expenses, operatingProfit: invoiceTotals.paid - expenses },
