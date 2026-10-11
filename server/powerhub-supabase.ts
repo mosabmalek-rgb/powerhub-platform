@@ -651,29 +651,19 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
     .select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
     .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
   if (accountsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة من Supabase." });
-  if (!(accountRows ?? []).length) {
-    const defaults = [
-      { tenant_id: input.tenantId, name: "كاش", account_type: "cash", color: "#64748b" },
-      { tenant_id: input.tenantId, name: "جوال بي", account_type: "jawwal_pay", color: "#16a34a" },
-      { tenant_id: input.tenantId, name: "بال بي", account_type: "palpay", color: "#9333ea" },
-      { tenant_id: input.tenantId, name: "بنك فلسطين", account_type: "bank_of_palestine", color: "#0891b2" },
-    ];
-    const { error: defaultsError } = await admin.from("company_accounts").insert(defaults);
-    if (defaultsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تهيئة حسابات الشركة الافتراضية في Supabase." });
-    const retry = await admin.from("company_accounts").select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
-      .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
-    if (retry.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة بعد التهيئة." });
-    accountRows = retry.data;
-  }
+  // Dashboard reads must remain read-only: do not create default financial accounts as a side effect.
+  // An empty result means the tenant has not configured any company accounts yet.
   const accountIds = (accountRows ?? []).map((row) => Number(row.id));
-  const [siteLinksResult, sitesResult, transactionsResult] = await Promise.all([
+  const [siteLinksResult, sitesResult, transactionsResult, balancesResult] = await Promise.all([
     accountIds.length ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds) : Promise.resolve({ data: [], error: null }),
     admin.from("sites").select("id, name").eq("tenant_id", input.tenantId),
     accountIds.length ? admin.from("account_transactions").select("id, tenant_id, account_id, transaction_type, amount, description, reference_no, related_payment_id, related_account_id, created_by_user_id, occurred_at, created_at")
       .eq("tenant_id", input.tenantId).in("account_id", accountIds)
       .gte("occurred_at", input.from?.toISOString() ?? "1970-01-01T00:00:00.000Z").lte("occurred_at", input.to?.toISOString() ?? "9999-12-31T23:59:59.999Z").order("occurred_at", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
+    accountIds.length ? admin.rpc("powerhub_company_account_balance_rollup", { p_tenant_id: input.tenantId, p_account_ids: accountIds }) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (siteLinksResult.error || sitesResult.error || transactionsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حركات أو ربط حسابات الشركة من Supabase." });
+  if (siteLinksResult.error || sitesResult.error || transactionsResult.error || balancesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حركات أو أرصدة حسابات الشركة من Supabase." });
+  const balanceByAccountId = new Map<number, number>((balancesResult.data ?? []).map((row: { account_id: number | string; balance: number | string }) => [Number(row.account_id), Number(row.balance)]));
   const siteNameById = new Map((sitesResult.data ?? []).map((site) => [Number(site.id), site.name]));
   const linksByAccount = new Map<number, Array<{ accountId: number; siteId: number; siteName: string }>>();
   for (const link of siteLinksResult.data ?? []) {
@@ -690,37 +680,58 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
     const id = Number(row.id); const linkedSites = linksByAccount.get(id) ?? [];
     if (input.branchId && !linkedSites.some((link) => link.siteId === input.branchId)) return [];
     const transactions = transactionsByAccount.get(id) ?? [];
-    const balance = transactions.reduce((total, transaction) => {
-      const amount = Number(transaction.amount ?? 0);
-      return ["deposit", "transfer_in", "collection"].includes(String(transaction.transactionType)) ? total + amount : total - amount;
-    }, Number(row.opening_balance));
+    const balance = balanceByAccountId.get(id);
+    if (balance === undefined || !Number.isFinite(balance)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب الرصيد الكامل لحساب الشركة." });
+    }
     return [{ id, tenantId: Number(row.tenant_id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number, color: row.color, openingBalance: String(row.opening_balance), isActive: row.is_active, allowPaymentDocumentation: Boolean(row.allow_payment_documentation), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at), linkedSites, balance, transactions }];
   });
 }
 
-export async function getSupabaseDashboardSummary(siteId: number) {
+export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {
   const admin = supabaseAdmin();
-  const { data: subscriberRows, error: subscribersError } = await admin.from("subscribers").select("id, service_status").eq("site_id", siteId);
-  if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مؤشرات المشتركين من Supabase." });
-  const subscriberIds = (subscriberRows ?? []).map((row) => Number(row.id));
-  const [generatorResult, invoiceResult, expenseResult, notificationResult] = await Promise.all([
-    admin.from("generators").select("status").eq("site_id", siteId),
-    admin.from("invoices").select("status, total_amount, paid_amount, balance_due, consumption_kwh").eq("site_id", siteId),
-    admin.from("expenses").select("amount").eq("site_id", siteId),
-    subscriberIds.length ? admin.from("notification_messages").select("status").in("subscriber_id", subscriberIds) : Promise.resolve({ data: [], error: null }),
+  const [subscriberResult, generatorResult, invoiceResult, expenseResult] = await Promise.all([
+    admin.from("subscribers").select("id, service_status", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null),
+    admin.from("generators").select("status", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId),
+    admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft"),
+    admin.from("expenses").select("amount", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId),
   ]);
-  if (generatorResult.error || invoiceResult.error || expenseResult.error || notificationResult.error) {
+  if (subscriberResult.error || generatorResult.error || invoiceResult.error || expenseResult.error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مؤشرات لوحة التشغيل من Supabase." });
   }
-  const activeSubscribers = (subscriberRows ?? []).filter((row) => row.service_status === "active").length;
-  const activeGenerators = (generatorResult.data ?? []).filter((row) => row.status === "active").length;
-  const maintenanceGenerators = (generatorResult.data ?? []).filter((row) => row.status === "maintenance").length;
-  const invoiceTotals = (invoiceResult.data ?? []).filter((row) => row.status !== "cancelled").reduce((totals, row) => ({
-    invoiced: totals.invoiced + Number(row.total_amount ?? 0), paid: totals.paid + Number(row.paid_amount ?? 0),
-    outstanding: totals.outstanding + Number(row.balance_due ?? 0), energy: totals.energy + Number(row.consumption_kwh ?? 0),
-  }), { invoiced: 0, paid: 0, outstanding: 0, energy: 0 });
-  const expenses = (expenseResult.data ?? []).reduce((total, row) => total + Number(row.amount ?? 0), 0);
-  const failedNotifications = (notificationResult.data ?? []).filter((row) => row.status === "failed").length;
+  // Supabase returns at most its configured page size for ordinary selects. Read all matching
+  // rows in bounded pages so dashboard totals do not silently truncate at 1,000 records.
+  const readAllPages = async <T,>(readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) => {
+    const result: T[] = [];
+    for (let from = 0; ; from += 1000) {
+      const page = await readPage(from, from + 999);
+      if (page.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جميع سجلات مؤشرات لوحة التشغيل." });
+      const rows = page.data ?? [];
+      result.push(...rows);
+      if (rows.length < 1000) break;
+    }
+    return result;
+  };
+  const subscriberRows = await readAllPages((from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null).order("id", { ascending: true }).range(from, to));
+  const generatorRows = await readAllPages((from, to) => admin.from("generators").select("status").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
+  const invoiceRows = await readAllPages((from, to) => admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to));
+  const expenseRows = await readAllPages((from, to) => admin.from("expenses").select("amount").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
+  const subscriberIds = subscriberRows.map((row) => Number((row as { id: number }).id)).filter(Number.isInteger);
+  const notificationRows = await readAllPages((from, to) => admin.from("notification_messages").select("status").eq("tenant_id", tenantId).in("subscriber_id", subscriberIds.length ? subscriberIds : [-1]).order("id", { ascending: true }).range(from, to));
+  const activeSubscribers = subscriberRows.filter((row) => (row as { service_status: string }).service_status === "active").length;
+  const activeGenerators = generatorRows.filter((row) => (row as { status: string }).status === "active").length;
+  const maintenanceGenerators = generatorRows.filter((row) => (row as { status: string }).status === "maintenance").length;
+  const invoiceTotals = invoiceRows.reduce((totals, raw) => {
+    const row = raw as { total_amount: number | string | null; paid_amount: number | string | null; balance_due: number | string | null; consumption_kwh: number | string | null };
+    return {
+      invoiced: totals.invoiced + Number(row.total_amount ?? 0),
+      paid: totals.paid + Number(row.paid_amount ?? 0),
+      outstanding: totals.outstanding + Number(row.balance_due ?? 0),
+      energy: totals.energy + Number(row.consumption_kwh ?? 0),
+    };
+  }, { invoiced: 0, paid: 0, outstanding: 0, energy: 0 });
+  const expenses = expenseRows.reduce((total, raw) => total + Number((raw as { amount: number | string | null }).amount ?? 0), 0);
+  const failedNotifications = notificationRows.filter((row) => (row as { status: string }).status === "failed").length;
   return {
     subscribers: activeSubscribers, generators: { active: activeGenerators, maintenance: maintenanceGenerators },
     financial: { invoiced: invoiceTotals.invoiced, collected: invoiceTotals.paid, outstanding: invoiceTotals.outstanding, expenses, operatingProfit: invoiceTotals.paid - expenses },
