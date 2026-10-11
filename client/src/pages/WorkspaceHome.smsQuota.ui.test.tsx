@@ -90,7 +90,7 @@ describe("إشعارات حدود الاشتراك في لوحة المالك", 
     state.smsUsed = 450;
     render(<WorkspaceHome />);
     expect(screen.getByText("تحتاج إلى رصيد رسائل إضافي؟")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "1000 رسالة" }));
+    fireEvent.click(screen.getByRole("button", { name: "طلب حزمة 1000 رسالة" }));
     expect(state.requestSmsPackage).toHaveBeenCalledWith({ siteId: 1, requestedMessages: 1000, note: undefined });
   });
 

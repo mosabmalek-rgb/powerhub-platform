@@ -14,7 +14,7 @@ import { authenticatedHomePath } from "@/lib/role-routing";
 import { useLocation } from "wouter";
 import {
   ArrowUpLeft, BellRing, CalendarDays, ChevronLeft, CircleAlert,
-  CircleDollarSign, Clock3, FilePlus2, FileText, MessageSquareText, MessageSquareWarning, ReceiptText,
+  CircleDollarSign, Clock3, FilePlus2, FileText, MessageSquareText, ReceiptText,
   UsersRound, WalletCards, Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -26,7 +26,7 @@ const ratio = (value: unknown) => `${number(value, 1)}%`;
 
 
 function QuotaLoadErrorCard({ labels, onRetry }: { labels: string[]; onRetry: () => unknown }) {
-  return <Card role="alert" className="border-rose-400/25 bg-[#111823] shadow-panel"><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-rose-200">تعذر تحميل بيانات بعض الحصص</h2><p className="mt-1 text-sm leading-6 text-slate-300">تعذر تحميل: {labels.join("، ")}. لم نفترض أن الحصة صفر أو أنها مستنفدة.</p></div><Button type="button" variant="outline" onClick={() => { void onRetry(); }} className="border-white/15 text-white hover:bg-white/5 hover:text-white">إعادة المحاولة</Button></CardContent></Card>;
+  return <Card role="alert" className="border-rose-400/25 bg-[#111823] shadow-panel"><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-rose-200">تعذر تحميل بيانات الحصص أو الطلبات المرتبطة بها</h2><p className="mt-1 text-sm leading-6 text-slate-300">تعذر تحميل: {labels.join("، ")}. لم نفترض أن أي حصة صفر أو أنها مستنفدة.</p></div><Button type="button" variant="outline" onClick={() => { void onRetry(); }} className="border-white/15 text-white hover:bg-white/5 hover:text-white">إعادة المحاولة</Button></CardContent></Card>;
 }
 
 function SmsQuotaDashboardCard({
@@ -107,7 +107,7 @@ function SmsQuotaDashboardCard({
         </div>
         {packageRequestError ? <p className="mt-3 text-sm text-rose-200">تعذر التحقق من حالة طلب الحزمة الحالي. أعد المحاولة قبل إرسال طلب جديد.</p> : packageRequestLoading ? <p className="mt-3 text-sm text-slate-400">جارٍ التحقق من الطلب السابق...</p> : packageRequestPending ? <p className="mt-3 text-sm font-bold text-amber-200">لديك طلب حزمة قيد المراجعة: {number(packageRequest.requestedMessages)} رسالة. لن نرسل طلبًا آخر قبل انتهاء المراجعة.</p> : packageRequest?.status === "approved" ? <p className="mt-3 text-sm font-bold text-emerald-300">تم اعتماد آخر طلب وإضافة {number(packageRequest.approvedMessages)} رسالة إلى الرصيد.</p> : packageRequest?.status === "rejected" ? <p className="mt-3 text-sm font-bold text-rose-300">رُفض آخر طلب. يمكنك إرسال طلب جديد.</p> : null}
         <div className="mt-3 flex flex-wrap gap-2">
-          {[1000, 5000, 10000].map((amount) => <Button key={amount} type="button" variant="outline" disabled={packageRequestLoading || packageRequestError || requestingPackage || packageRequestPending} onClick={() => onRequestPackage?.(amount)} className="border-white/15 text-white hover:bg-white/5 hover:text-[#F5B800]">{number(amount)} رسالة</Button>)}
+          {[1000, 5000, 10000].map((amount) => <Button key={amount} type="button" variant="outline" aria-label={`طلب حزمة ${amount} رسالة`} disabled={packageRequestLoading || packageRequestError || requestingPackage || packageRequestPending} onClick={() => onRequestPackage?.(amount)} className="border-white/15 text-white hover:bg-white/5 hover:text-[#F5B800]">{number(amount)} رسالة</Button>)}
         </div>
         <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const messages = Number(form.get("messages")); if (messages > 0) onRequestPackage?.(messages); }}>
           <input required name="messages" type="number" min="1" max="100000000" placeholder="عدد الرسائل" aria-label="عدد الرسائل المطلوبة" disabled={packageRequestLoading || packageRequestError || requestingPackage || packageRequestPending} className="h-10 min-w-0 flex-1 rounded-xl border border-white/15 bg-black/20 px-3 text-sm text-white outline-none focus:border-[#F5B800] disabled:opacity-50" dir="ltr" />
