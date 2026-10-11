@@ -58,12 +58,17 @@ describe("opening subscriber readings contract", () => {
       resolve(process.cwd(), "supabase/migrations/20261010193500_powerhub_opening_baseline_auto_approval_backfill.sql"),
       "utf8",
     );
-    expect(migration).toContain("OPENING_READING_REQUIRED");
+    expect(migration).toContain("pg_get_functiondef(v_function_oid)");
+    expect(migration).toContain("regexp_replace");
+    expect(migration).toContain("POWERHUB_OPENING_READING_SINGLE_GUARD_PATTERN_NOT_FOUND");
+    expect(migration).toContain("POWERHUB_OPENING_READING_BULK_GUARD_PATTERN_NOT_FOUND");
     expect(migration).toContain("automatic_opening_baseline_approval");
     expect(migration).toContain("'invoiceIssued', false");
     expect(migration).toContain("Automatically approved % pending opening-baseline readings; no invoices were issued.");
     expect(migration).not.toContain("powerhub_issue_invoice_from_reading");
     expect(migration).not.toContain("delete from public.meter_readings");
+    expect(migration).not.toContain("create or replace function public.powerhub_create_subscriber_with_opening_reading");
+    expect(migration).not.toContain("create or replace function public.powerhub_bulk_upsert_subscribers");
   });
 
   it("uses the bigint-safe invoice SMS lock and prevents duplicate SMS from the approval RPC", () => {
