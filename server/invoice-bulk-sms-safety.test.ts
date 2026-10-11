@@ -52,6 +52,6 @@ describe("invoice bulk SMS safety contract", () => {
     expect(billingPage).toContain('enabled: enabled && invoicesQuery.isSuccess');
     expect(billingPage).toContain('isInvoiceSmsEligibleForNewQueue(');
     expect(stateHelper).toContain('queryState === "ready" && statuses.length === 0');
-    expect(billingPage).toContain('invoiceIds: input.invoiceIds, includeFailed: false, dueOnly: true');
+    expect(api).toContain('invoiceIds: input.invoiceIds, includeFailed: false, dueOnly: true');
   });
 });
