@@ -688,7 +688,7 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
   });
 }
 
-export async function getSupabaseDashboardSummary(siteId: number) {
+export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {
   const admin = supabaseAdmin();
   const { data: subscriberRows, error: subscribersError } = await admin.from("subscribers").select("id, service_status").eq("site_id", siteId);
   if (subscribersError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مؤشرات المشتركين من Supabase." });
