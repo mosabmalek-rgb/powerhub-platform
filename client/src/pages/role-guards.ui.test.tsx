@@ -198,6 +198,17 @@ describe("role guards in administration UI", () => {
     expect(mocks.retryFailedInvoiceNotifications).toHaveBeenCalledWith({ siteId: 1, notificationIds: [101] });
   });
 
+  it("collapses the add-subscriber card by default and opens it on request", () => {
+    mocks.activeRole = "owner";
+    render(<NetworkDirectoryPage kind="subscribers" />);
+    expect(screen.getByText("إضافة مشترك")).toHaveClass("font-extrabold");
+    expect(screen.getByRole("button", { name: "فتح البطاقة" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إضافة المشترك" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "فتح البطاقة" }));
+    expect(screen.getByRole("button", { name: "طي البطاقة" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إضافة المشترك" })).toBeInTheDocument();
+  });
+
   it("renders the subscriber directory in read-only mode for the viewer", () => {
     mocks.subscribers = [{ id: 101, fullName: "مشترك الاختبار", subscriberNo: "PH-TEST-ABC123", phone: "+970700000000", subscriptionType: "residential", serviceStatus: "active" }];
     render(<NetworkDirectoryPage kind="subscribers" />);
