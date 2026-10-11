@@ -13,6 +13,10 @@ const state = vi.hoisted(() => ({
   subscriberQuota: { limit: 100, currentCount: 25, remaining: 75, plan: "basic" },
   smsUsed: 42,
   branchPolicyError: false,
+  financialOverviewError: false,
+  companyAccountsError: false,
+  refetchFinancialOverview: vi.fn(),
+  refetchCompanyAccounts: vi.fn(),
   smsQuotaError: false,
   subaccountQuotaError: false,
   refetchBranchPolicy: vi.fn(),
@@ -33,13 +37,13 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: false }) }, branchPolicy: { useQuery: () => ({ data: state.branchPolicy, isLoading: false, isError: state.branchPolicyError, refetch: state.refetchBranchPolicy }) } },
-      dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 }, isLoading: false, isError: false, refetch: vi.fn() }) }, allBranchesSummary: { useQuery: () => ({ data: { branchSummaries: [] }, isLoading: false, isError: false, refetch: vi.fn() }) }, financialOverview: { useQuery: () => ({ data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] }, isLoading: false, isError: false, refetch: vi.fn() }) } },
+      dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 }, isLoading: false, isError: false, refetch: vi.fn() }) }, allBranchesSummary: { useQuery: () => ({ data: { branchSummaries: [] }, isLoading: false, isError: false, refetch: vi.fn() }) }, financialOverview: { useQuery: () => ({ data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] }, isLoading: false, isError: state.financialOverviewError, refetch: state.refetchFinancialOverview }) } },
       performance: {
         readingKpis: { useQuery: () => ({ data: { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null }, isLoading: false, isError: false }) },
         collectorPerformance: { useQuery: () => ({ data: { openCount: 0, closedCount: 0, varianceCount: 0, netVariance: 0, collectors: [] }, isLoading: false, isError: false }) },
       },
       publicPackageCatalog: { useQuery: () => ({ data: { packages: [{ code: "basic", active: true }, { code: "advanced", active: true }, { code: "professional", active: true }, { code: "business", active: true }, { code: "vip", active: true }] }, isLoading: false, isError: false }) },
-      companyAccounts: { list: { useQuery: () => ({ data: [] }) } },
+      companyAccounts: { list: { useQuery: () => ({ data: [], isLoading: false, isError: state.companyAccountsError, refetch: state.refetchCompanyAccounts }) } },
       subscribers: { quota: { useQuery: () => ({ data: state.subscriberQuota, isLoading: false, isError: false, refetch: vi.fn() }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) }, allowedSubaccountRoles: { useQuery: () => ({ data: { limit: 5, currentCount: 2, fieldUserLimit: 2, fieldUserCount: 1 }, isLoading: false, isError: state.subaccountQuotaError, refetch: state.refetchSubaccountQuota }) } },
       messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed), senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null }, isLoading: false, isError: state.smsQuotaError, refetch: state.refetchSmsQuota }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false, isError: state.smsPackageRequestError, refetch: state.refetchSmsPackageRequest }) }, requestSmsPackage: { useMutation: () => ({ mutate: state.requestSmsPackage, isPending: false }) } },
@@ -56,6 +60,10 @@ afterEach(() => {
   state.subscriberQuota = { limit: 100, currentCount: 25, remaining: 75, plan: "basic" };
   state.smsUsed = 42;
   state.branchPolicyError = false;
+  state.financialOverviewError = false;
+  state.companyAccountsError = false;
+  state.refetchFinancialOverview.mockReset();
+  state.refetchCompanyAccounts.mockReset();
   state.smsQuotaError = false;
   state.smsPackageRequestError = false;
   state.refetchSmsPackageRequest.mockReset();
@@ -130,6 +138,26 @@ describe("بطاقة رصيد SMS في لوحة المالك", () => {
     expect(screen.getByText("PowerHub")).toBeInTheDocument();
     expect(screen.getByText(/رصيد الرسائل متاح/)).toBeInTheDocument();
     expect(screen.getByText(/الحصة الشهرية للفرع المحدد/)).toBeInTheDocument();
+  });
+
+  it("لا يعرض أرصدة حسابات الشركة كصفر عند فشل التحميل ويوفر إعادة المحاولة", () => {
+    state.companyAccountsError = true;
+    render(<WorkspaceHome />);
+    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل أرصدة حسابات الشركة");
+    expect(screen.queryByText("إجمالي السيولة المتاحة")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(state.refetchCompanyAccounts).toHaveBeenCalledTimes(1);
+  });
+
+  it("لا يحول فشل تحميل الملخص المالي إلى أصفار أو إلى رسالة لا توجد أرصدة", () => {
+    state.financialOverviewError = true;
+    render(<WorkspaceHome />);
+    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل بعض بيانات لوحة التحكم");
+    expect(screen.getByText("تعذر تحميل أولوية المتأخرات. أعد تحميل مؤشرات لوحة التحكم.")).toBeInTheDocument();
+    expect(screen.queryByText("لا توجد أرصدة مفتوحة ضمن النطاق الحالي.")).not.toBeInTheDocument();
+    expect(screen.getByText("فوترة الشهر: —")).toBeInTheDocument();
+    expect(screen.getByText("نتيجة اليوم")).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(2);
   });
 
   it("يبقي لوحة التحكم مخصصة للمؤشرات ولا يكرر لوحة اختصارات مالية منفصلة", () => {
