@@ -80,9 +80,11 @@ begin
       raise exception 'INVOICE_NOT_SENDABLE' using errcode='P0001';
     end if;
 
-    select * into v_existing from public.notification_messages
-    where tenant_id=p_tenant_id and invoice_id=v_invoice.id and channel='sms' and event_type='invoice_issued'
-    order by id desc limit 1 for update;
+    select n.* into v_existing
+    from public.notification_messages as n
+    where n.tenant_id=p_tenant_id and n.invoice_id=v_invoice.id
+      and n.channel='sms' and n.event_type='invoice_issued'
+    order by n.id desc limit 1 for update;
 
     if found and v_existing.status in ('pending','processing','submitted','delivered','read','failed','needs_review') then
       notification_id:=v_existing.id; invoice_id:=v_invoice.id; queued:=false; return next; continue;
