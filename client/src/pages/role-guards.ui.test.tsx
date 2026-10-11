@@ -211,7 +211,7 @@ describe("role guards in administration UI", () => {
     render(<NetworkDirectoryPage kind="subscribers" />);
     fireEvent.click(screen.getByRole("button", { name: "فتح البطاقة" }));
     fireEvent.change(screen.getByLabelText("الاسم"), { target: { value: "مشترك تجريبي" } });
-    fireEvent.change(screen.getByLabelText("رقم الهاتف الدولي"), { target: { value: "0599000000" } });
+    fireEvent.change(screen.getByPlaceholderText(/0599000000/), { target: { value: "0599000000" } });
     fireEvent.click(screen.getByRole("button", { name: "إضافة المشترك" }));
     await waitFor(() => expect(mocks.createSubscriberMutate).toHaveBeenCalledTimes(1));
   });
