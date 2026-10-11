@@ -40,6 +40,8 @@ const moduleMeta: Record<Section, { title: string; subtitle: string; icon: typeo
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const selectClass = `${inputClass} appearance-none`;
 
+function normalizeSubscriberSearch(value: unknown) { return String(value ?? "").normalize("NFKC").toLocaleLowerCase("ar").trim(); }
+
 function formatValue(value: unknown, fractionDigits = 0) {
   const numeric = Number(value ?? 0);
   return new Intl.NumberFormat("ar", { maximumFractionDigits: fractionDigits }).format(Number.isFinite(numeric) ? numeric : 0);
@@ -206,20 +208,19 @@ function SubscribersModule({ siteId, data, pending, onSubmit }: any) {
   const lifecycle=trpc.powerhub.subscribers.lifecycle.useMutation({onSuccess:async()=>{await Promise.all([utils.powerhub.subscribers.list.invalidate(),utils.powerhub.subscribers.archived.invalidate(),utils.powerhub.subscribers.quota.invalidate(),utils.powerhub.dashboard.summary.invalidate()]);toast.success("تم تحديث حالة المشترك.");},onError:e=>toast.error(e.message)});
   const refresh=async()=>{await Promise.all([utils.powerhub.subscribers.list.invalidate(),utils.powerhub.subscribers.quota.invalidate()]);};
   const selected=data.find((x:any)=>x.id===openId);
-  const normalize=(value:unknown)=>String(value??"").normalize("NFKC").toLocaleLowerCase("ar").trim();
-  const term=normalize(search);
-  const filteredData=useMemo(()=>!term?data:data.filter((row:any)=>[row.fullName,row.subscriberNo,row.phone,row.whatsappNumber,row.address].some((value)=>normalize(value).includes(term))),[data,term]);
+  const term=normalizeSubscriberSearch(search);
+  const filteredData=useMemo(()=>!term?data:data.filter((row:any)=>[row.fullName,row.subscriberNo,row.phone,row.whatsappNumber,row.address].some((value)=>normalizeSubscriberSearch(value).includes(term))),[data,term]);
   const statusLabel=(s:string)=>s==="active"?"نشط":s==="suspended"?"موقوف":"غير متاح";
   return <div className="space-y-6">
     <SectionCard title="إضافة مشترك">
       <div className="flex items-center justify-between gap-3"><p className="text-sm text-slate-400">أضف مشتركاً جديداً إلى الفرع المحدد.</p><Button type="button" variant="outline" onClick={()=>setAddCollapsed(v=>!v)} className="border-white/10 text-slate-200">{addCollapsed?"فتح البطاقة":"طي البطاقة"}</Button></div>
-      {!addCollapsed && <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={(event: FormEvent<HTMLFormElement>)=>{event.preventDefault();const form=event.currentTarget;const values=new FormData(form);onSubmit({siteId,fullName:String(values.get("name")),phone:String(values.get("phone")),whatsappNumber:String(values.get("whatsapp")||"")||undefined,address:String(values.get("address")||"")||undefined,subscriptionType:String(values.get("type"))});}}>
+      {!addCollapsed && <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={(event: FormEvent<HTMLFormElement>)=>{event.preventDefault();const form=event.currentTarget;const values=new FormData(form);onSubmit({siteId,fullName:String(values.get("name")),phone:String(values.get("phone")),whatsappNumber:String(values.get("whatsapp")||"")||undefined,address:String(values.get("address")||"")||undefined,subscriptionType:String(values.get("type"))},{onSuccess:()=>form.reset()});}}>
         <Field label="الاسم الكامل"><input required name="name" className={inputClass} /></Field><Field label="رقم الهاتف الدولي"><input required type="tel" name="phone" className={inputClass} dir="ltr" placeholder="+970599000000 أو 00970599000000" /></Field><Field label="رقم واتساب (اختياري)"><input type="tel" name="whatsapp" className={inputClass} dir="ltr" /></Field><Field label="العنوان"><input name="address" className={inputClass}/></Field><Field label="نوع الاشتراك"><select name="type" className={selectClass}><option value="residential">سكني</option><option value="commercial">تجاري</option></select></Field><div className="flex items-end"><Button disabled={pending} className="w-full bg-[#F5B800] font-bold text-[#0D1117]">إضافة المشترك</Button></div>
       </form>}
     </SectionCard>
     <SectionCard title="سجل المشتركين">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <label className="relative block flex-1 text-xs text-slate-400"><span className="mb-1 block">بحث ذكي وسريع</span><span className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-3"><Search className="h-4 w-4 text-slate-500"/><input aria-label="بحث ذكي في سجل المشتركين" list={`subscriber-suggestions-${siteId}`} value={search} onChange={e=>setSearch(e.target.value)} className="h-10 min-w-0 flex-1 bg-transparent text-sm text-white outline-none" placeholder="الاسم أو رقم المشترك أو الهاتف…"/><datalist id={`subscriber-suggestions-${siteId}`}>{data.slice(0,200).map((row:any)=><option key={row.id} value={row.fullName}>{row.subscriberNo} · {row.phone}</option>)}</datalist></span></label>
+        <label className="relative block flex-1 text-xs text-slate-400"><span className="mb-1 block">بحث ذكي وسريع</span><span className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-3"><Search className="h-4 w-4 text-slate-500"/><input aria-label="بحث ذكي في سجل المشتركين" list={`subscriber-suggestions-${siteId}`} value={search} onChange={e=>setSearch(e.target.value)} className="h-10 min-w-0 flex-1 bg-transparent text-sm text-white outline-none" placeholder="الاسم أو رقم المشترك أو الهاتف…"/><datalist id={`subscriber-suggestions-${siteId}`}>{data.slice(0,200).flatMap((row:any)=>[<option key={`name-${row.id}`} value={row.fullName}/>,<option key={`number-${row.id}`} value={row.subscriberNo}/>,<option key={`phone-${row.id}`} value={row.phone}/>])}</datalist></span></label>
         <Button variant="outline" onClick={()=>setShowArchived(v=>!v)} className="border-white/10 text-slate-200">{showArchived?"إخفاء المؤرشفين":"عرض المشتركين المؤرشفين"}</Button>
       </div>
       <p className="mb-3 text-xs text-slate-500">تظهر {filteredData.length} نتيجة من أصل {data.length} مشترك.</p>
