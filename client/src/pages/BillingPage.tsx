@@ -11,13 +11,12 @@ import { trpc } from "@/lib/trpc";
 import { copyTextSafely, openWindowSafely } from "@/lib/clipboard";
 import { filterInvoicesByPaymentStatus, invoiceStatusMeta, type PaymentStatusFilter, summarizeOutstandingInvoices } from "@/lib/invoice-collection-presentation";
 import { can } from "@shared/powerhub-rbac";
-import { BellRing, Copy, ExternalLink, History, Loader2, ReceiptText, RefreshCw, Send, Settings2, ShieldCheck } from "lucide-react";
+import { BellRing, Copy, ExternalLink, History, Loader2, ReceiptText, RefreshCw, Send, Settings2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
-function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
 function Panel({ title, children }: { title: string; children: React.ReactNode }) { return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">{title}</h2></div><div className="p-5">{children}</div></CardContent></Card>; }
 function money(value: unknown) { return new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(Number(value ?? 0)); }
 function dateTime(value: Date | string) { return new Intl.DateTimeFormat("ar", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
@@ -86,7 +85,7 @@ function notifyInvoiceDispatch(result: { requested: number; submitted: number; f
 const statusToneClass = { emerald: "border-emerald-400/25 bg-emerald-400/10 text-emerald-300", amber: "border-amber-400/25 bg-amber-400/10 text-amber-200", rose: "border-rose-400/25 bg-rose-400/10 text-rose-300", slate: "border-white/10 bg-white/5 text-slate-300", sky: "border-sky-400/25 bg-sky-400/10 text-sky-300" } as const;
 
 export default function BillingPage() {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
