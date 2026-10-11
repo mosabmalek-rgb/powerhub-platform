@@ -103,7 +103,7 @@ describe("إشعارات حدود الاشتراك في لوحة المالك", 
     state.smsPackageRequestError = true;
     render(<WorkspaceHome />);
     expect(screen.getByText("تعذر التحقق من حالة طلب الحزمة الحالي. أعد المحاولة قبل إرسال طلب جديد.")).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "عدد الرسائل المطلوبة" })).toBeDisabled();
+    expect(screen.getByRole("spinbutton", { name: "عدد الرسائل المطلوبة" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "إعادة التحقق من الطلب" }));
     expect(state.refetchSmsPackageRequest).toHaveBeenCalledTimes(1);
     expect(state.requestSmsPackage).not.toHaveBeenCalled();
