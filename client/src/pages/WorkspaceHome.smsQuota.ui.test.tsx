@@ -14,11 +14,10 @@ const state = vi.hoisted(() => ({
   smsUsed: 42,
   branchPolicyError: false,
   smsQuotaError: false,
-  smsDailyUsageError: false,
   subaccountQuotaError: false,
   refetchBranchPolicy: vi.fn(),
   refetchSmsQuota: vi.fn(),
-  refetchSmsDailyUsage: vi.fn(),
+  requestSmsPackage: vi.fn(),
   refetchSubaccountQuota: vi.fn(),
 }));
 
@@ -41,7 +40,7 @@ vi.mock("@/lib/trpc", () => ({
       companyAccounts: { list: { useQuery: () => ({ data: [] }) } },
       subscribers: { quota: { useQuery: () => ({ data: state.subscriberQuota, isLoading: false, isError: false, refetch: vi.fn() }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) }, allowedSubaccountRoles: { useQuery: () => ({ data: { limit: 5, currentCount: 2, fieldUserLimit: 2, fieldUserCount: 1 }, isLoading: false, isError: state.subaccountQuotaError, refetch: state.refetchSubaccountQuota }) } },
-      messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed), senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null }, isLoading: false, isError: state.smsQuotaError, refetch: state.refetchSmsQuota }) }, smsDailyUsage: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed) }, isLoading: false, isError: state.smsDailyUsageError, refetch: state.refetchSmsDailyUsage }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, refetch: vi.fn() }) }, requestSmsPackage: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
+      messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed), senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null }, isLoading: false, isError: state.smsQuotaError, refetch: state.refetchSmsQuota }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false, isError: false, refetch: vi.fn() }) }, requestSmsPackage: { useMutation: () => ({ mutate: state.requestSmsPackage, isPending: false }) } },
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, currentAddonRequests: { useQuery: () => ({ data: [] }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) }, requestAddon: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
     },
   },
@@ -56,11 +55,10 @@ afterEach(() => {
   state.smsUsed = 42;
   state.branchPolicyError = false;
   state.smsQuotaError = false;
-  state.smsDailyUsageError = false;
   state.subaccountQuotaError = false;
   state.refetchBranchPolicy.mockReset();
   state.refetchSmsQuota.mockReset();
-  state.refetchSmsDailyUsage.mockReset();
+  state.requestSmsPackage.mockReset();
   state.refetchSubaccountQuota.mockReset();
   vi.clearAllMocks();
   document.body.innerHTML = "";
@@ -83,8 +81,17 @@ describe("إشعارات حدود الاشتراك في لوحة المالك", 
     render(<WorkspaceHome />);
     expect(screen.getByText("استهلكت 85% من الحد المسموح. اقتربت من الحد الأقصى.")).toBeInTheDocument();
     expect(screen.getByText("بلغت الحد الأقصى للأفرع المتاحة.")).toBeInTheDocument();
-    expect(screen.getByText(/رصيد رسائل SMS يقترب من النفاد/)).toBeInTheDocument();
+    expect(screen.getByText("تحتاج إلى رصيد رسائل إضافي؟")).toBeInTheDocument();
+    expect(screen.getAllByText("رصيد رسائل SMS", { exact: true })).toHaveLength(1);
     expect(toast.warning).not.toHaveBeenCalled();
+  });
+
+  it("يتيح طلب حزمة SMS من داخل بطاقة الحصة دون تكرار بطاقة التنبيه", () => {
+    state.smsUsed = 450;
+    render(<WorkspaceHome />);
+    expect(screen.getByText("تحتاج إلى رصيد رسائل إضافي؟")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "1000 رسالة" }));
+    expect(state.requestSmsPackage).toHaveBeenCalledWith({ siteId: 1, requestedMessages: 1000, note: undefined });
   });
 
   it("لا يعتبر فشل تحميل سياسة الأفرع نفاداً للحصة ويوفر إعادة المحاولة", async () => {
