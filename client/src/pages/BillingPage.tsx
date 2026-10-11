@@ -24,18 +24,18 @@ function dateTime(value: Date | string) { return new Intl.DateTimeFormat("ar", {
 function dateKeyInGaza(value: Date | string = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
-  return \`\${get("year")}-\${get("month")}-\${get("day")}\`;
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 function shiftDateKey(key: string, days: number) {
   const [year, month, day] = key.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day + days));
-  return \`\${date.getUTCFullYear()}-\${String(date.getUTCMonth() + 1).padStart(2, "0")}-\${String(date.getUTCDate()).padStart(2, "0")}\`;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 }
 function monthAnchor(year: number, monthIndex: number, anchor: number) {
   const first = new Date(Date.UTC(year, monthIndex, 1));
   const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
   const day = Math.min(anchor, lastDay);
-  return \`\${first.getUTCFullYear()}-\${String(first.getUTCMonth() + 1).padStart(2, "0")}-\${String(day).padStart(2, "0")}\`;
+  return `${first.getUTCFullYear()}-${String(first.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 function currentCycleStartKey(config: { cycleType: string; weeklyStartDay: number; monthlyStartDay: number } | undefined, now = new Date()) {
   const today = dateKeyInGaza(now);
@@ -55,15 +55,15 @@ function currentCycleStartKey(config: { cycleType: string; weeklyStartDay: numbe
     return shiftDateKey(today, -((utcDay - startWeekday + 7) % 7));
   }
   if (config.cycleType === "EVERY_10_DAYS") {
-    if (config.monthlyStartDay === 1) return \`\${today.slice(0, 8)}\${String(day <= 10 ? 1 : day <= 20 ? 11 : 21).padStart(2, "0")}\`;
+    if (config.monthlyStartDay === 1) return `${today.slice(0, 8)}${String(day <= 10 ? 1 : day <= 20 ? 11 : 21).padStart(2, "0")}`;
     if (day >= 30 || (lastDay < 30 && day >= lastDay)) return monthAnchor(year, monthIndex, 30);
-    if (day >= 20) return \`\${today.slice(0, 8)}20\`;
-    if (day >= 10) return \`\${today.slice(0, 8)}10\`;
+    if (day >= 20) return `${today.slice(0, 8)}20`;
+    if (day >= 10) return `${today.slice(0, 8)}10`;
     return previousAnchor(30);
   }
-  if (config.monthlyStartDay === 1) return \`\${today.slice(0, 8)}\${String(day <= 15 ? 1 : 16).padStart(2, "0")}\`;
+  if (config.monthlyStartDay === 1) return `${today.slice(0, 8)}${String(day <= 15 ? 1 : 16).padStart(2, "0")}`;
   if (day >= 30 || (lastDay < 30 && day >= lastDay)) return monthAnchor(year, monthIndex, 30);
-  if (day >= 15) return \`\${today.slice(0, 8)}15\`;
+  if (day >= 15) return `${today.slice(0, 8)}15`;
   return previousAnchor(30);
 }
 
