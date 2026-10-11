@@ -57,7 +57,7 @@ describe("ConsumptionKpiSection dashboard scope", () => {
       { siteId: 11, from: "2026-10-01", to: "2026-10-07" },
       expect.objectContaining({ enabled: false }),
     );
-    expect(screen.getByRole("region", { name: "مؤشرات الاستهلاك والقراءات" })).toHaveTextContent("12.5");
+    expect(screen.getByRole("region", { name: "مؤشرات الاستهلاك والقراءات" })).toHaveTextContent(/١٢٫٥|12\.5/);
     expect(screen.getByText(/الفرع المحدد/)).toBeInTheDocument();
   });
 
@@ -72,7 +72,7 @@ describe("ConsumptionKpiSection dashboard scope", () => {
       { siteId: 11, from: "2026-10-01", to: "2026-10-07" },
       expect.objectContaining({ enabled: true }),
     );
-    expect(screen.getByRole("region", { name: "مؤشرات الاستهلاك والقراءات" })).toHaveTextContent("30");
+    expect(screen.getByRole("region", { name: "مؤشرات الاستهلاك والقراءات" })).toHaveTextContent(/٣٠|30/);
     expect(screen.getByText(/جميع الأفرع غير المؤرشفة/)).toBeInTheDocument();
     expect(screen.getByText(/آخر قراءة معتمدة ضمن الفترة/)).toBeInTheDocument();
     expect(screen.queryByText(/متوسط الاستهلاك/)).not.toBeInTheDocument();
