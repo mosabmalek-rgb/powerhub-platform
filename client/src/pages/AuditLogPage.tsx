@@ -8,6 +8,9 @@ import { trpc } from "@/lib/trpc";
 import { ClipboardCheck, Loader2, ShieldCheck } from "lucide-react";
 
 const actionNames: Record<string, string> = {
+  platform_admin_create_generator_owner_subscription: "إنشاء اشتراك صاحب مولد من إدارة المنصة",
+  platform_admin_update_subscription: "تحديث اشتراك من إدارة المنصة",
+  renew_subscription_with_addons: "تجديد الاشتراك مع الإضافات",
   configure: "تغيير الإعدادات",
   automatic_opening_baseline_approval: "اعتماد القراءة الافتتاحية تلقائياً",
   bulk_import: "استيراد جماعي",
@@ -81,7 +84,7 @@ const entityNames: Record<string, string> = {
   owner_quota_alert: "تنبيه حصة",
 };
 const arabicAuditValue = (value: string | undefined, map: Record<string, string>, label: string) =>
-  value ? (map[value] ?? value.replaceAll("_", " ")) : label;
+  value ? (map[value] ?? (label === "عنصر" ? "عنصر غير مصنف" : "عملية غير مصنفة")) : label;
 
 export default function AuditLogPage() {
   const { isAuthenticated, loading } = useAuth();
