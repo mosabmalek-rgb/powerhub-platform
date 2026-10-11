@@ -74,7 +74,7 @@ begin
     where id=any(p_invoice_ids) and tenant_id=p_tenant_id and site_id=p_site_id
     order by id
   loop
-    perform pg_advisory_xact_lock(v_invoice.tenant_id,v_invoice.id);
+    perform pg_advisory_xact_lock(hashtextextended(format('powerhub:invoice-sms:%s:%s', v_invoice.tenant_id, v_invoice.id), 0));
 
     if v_invoice.status in ('draft','cancelled') then
       raise exception 'INVOICE_NOT_SENDABLE' using errcode='P0001';
