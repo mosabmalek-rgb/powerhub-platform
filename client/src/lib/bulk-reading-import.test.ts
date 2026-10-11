@@ -8,7 +8,8 @@ describe("prepareBulkReadings", () => {
     expect(prepareBulkReadings([{ reference: "PH-01", readingValue: "140", readingDate: "2026-08-05" }], subscribers, readings)[0]).toMatchObject({ status: "ready", subscriberId: 5, consumption: 20 });
   });
   it("يقبل حتى منزلتين عشريتين ويرفض ثلاث منازل قبل إرسال الطلب للخادم", () => {
-    const rows = ["12", "12.5", "12.52", "12.523"].map((readingValue) => ({
+    // The approved previous reading is 120, so keep these precision cases above that baseline.
+    const rows = ["121", "121.5", "121.52", "121.523"].map((readingValue) => ({
       reference: "PH-01", readingValue, readingDate: "2026-08-05",
     }));
     expect(rows.slice(0, 3).map((row) => prepareBulkReadings([row], subscribers, readings)[0].status))
