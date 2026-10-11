@@ -300,15 +300,23 @@ describe("role guards in administration UI", () => {
     expect(screen.queryByText("تسجيل قراءة جديدة")).not.toBeInTheDocument();
   });
 
-  it("shows direct reading registration to the technician", () => {
+  it("keeps platform-reading entry hidden from technicians without invoice permissions and directs them to the field tab", () => {
     mocks.activeRole = "technician";
     render(<MeterReadingsPage />);
     expect(screen.getByRole("heading", { name: "إضافة قراءة" })).toBeInTheDocument();
-    expect(screen.getByText("تسجيل قراءة")).toBeInTheDocument();
-    expect(screen.getByText("آخر القراءات المسجلة")).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "بحث في القراءات" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "فلترة حالة القراءة" })).toBeInTheDocument();
+    expect(screen.getByText(/يتطلب صلاحيات تسجيل القراءة واعتمادها وإصدار الفاتورة/)).toBeInTheDocument();
+    expect(screen.queryByText("تسجيل قراءة")).not.toBeInTheDocument();
+    expect(screen.queryByText("إدخال قراءات جماعي")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /سجل القراءات/ })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "بحث القراءات" })).toBeInTheDocument();
     expect(screen.queryByText("إضافة عداد")).not.toBeInTheDocument();
-    expect(screen.queryByText("تسجيل قراءة جديدة")).not.toBeInTheDocument();
+  });
+
+  it("shows platform-reading entry to an accountant with approval and invoice permissions", () => {
+    mocks.activeRole = "accountant";
+    render(<MeterReadingsPage />);
+    expect(screen.getByText("تسجيل قراءة")).toBeInTheDocument();
+    expect(screen.getByText("إدخال قراءات جماعي")).toBeInTheDocument();
+    expect(screen.queryByText(/يتطلب صلاحيات تسجيل القراءة واعتمادها وإصدار الفاتورة/)).not.toBeInTheDocument();
   });
 });
