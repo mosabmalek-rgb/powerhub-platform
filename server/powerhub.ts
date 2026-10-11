@@ -272,17 +272,17 @@ async function requireCompanyAccountSiteScope(
 
 async function sendPendingInvoiceSmsRuntime(
   actorUserId: number,
-  input: { siteId: number; invoiceIds?: number[]; includeFailed: boolean; dueOnly?: boolean },
+  input: { siteId: number; invoiceIds?: number[]; includeFailed: boolean; dueOnly?: boolean; queueMissing?: boolean },
 ) {
   const scope = await requireSupabaseSiteRole(actorUserId, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
   const admin = supabaseAdmin();
   const selectedInvoiceIds = input.invoiceIds?.length ? Array.from(new Set(input.invoiceIds)) : undefined;
 
-  // The database RPC deliberately remains capped at 50 rows per call because
-  // 50 is the provider-safe internal unit, never a user-facing product limit.
-  if (selectedInvoiceIds?.length) {
-    for (let offset = 0; offset < selectedInvoiceIds.length; offset += 50) {
-      const chunk = selectedInvoiceIds.slice(offset, offset + 50);
+  // Database RPCs remain capped at 50 rows. This is an internal safe batch size,
+  // not a user-facing limit. Existing failed/review/scheduled messages are not reset here.
+  const queueInvoiceIds = async (invoiceIds: number[]) => {
+    for (let offset = 0; offset < invoiceIds.length; offset += 50) {
+      const chunk = invoiceIds.slice(offset, offset + 50);
       const { error: queueError } = await admin.rpc("powerhub_queue_selected_invoice_sms", {
         p_user_id: actorUserId,
         p_tenant_id: scope.tenantId,
@@ -298,6 +298,29 @@ async function sendPendingInvoiceSmsRuntime(
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز إشعارات SMS للفواتير المحددة." });
       }
     }
+  };
+
+  if (selectedInvoiceIds?.length) {
+    await queueInvoiceIds(selectedInvoiceIds);
+  } else if (input.queueMissing) {
+    // Discover candidates from the database, not the current UI page; queue them in bounded pages.
+    let invoiceOffset = 0;
+    for (;;) {
+      const { data: invoiceRows, error: invoiceError } = await admin.from("invoices")
+        .select("id, status")
+        .eq("tenant_id", scope.tenantId)
+        .eq("site_id", input.siteId)
+        .order("id", { ascending: true })
+        .range(invoiceOffset, invoiceOffset + 199);
+      if (invoiceError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اكتشاف فواتير الفرع المؤهلة للإشعار." });
+      const invoiceIds = (invoiceRows ?? [])
+        .filter((row) => !["draft", "cancelled"].includes(String(row.status)))
+        .map((row) => Number(row.id))
+        .filter(Number.isInteger);
+      await queueInvoiceIds(invoiceIds);
+      if ((invoiceRows ?? []).length < 200) break;
+      invoiceOffset += 200;
+    }
   }
 
   // Snapshot eligible notification IDs before processing. Offset paging is used
@@ -307,8 +330,9 @@ async function sendPendingInvoiceSmsRuntime(
   let pageOffset = 0;
   for (;;) {
     let pendingQuery = admin.from("notification_messages")
-      .select("id, invoice_id, subscriber_id")
+      .select("id, invoice_id, subscriber_id, subscribers!inner(site_id)")
       .eq("tenant_id", scope.tenantId)
+      .eq("subscribers.site_id", input.siteId)
       .eq("channel", "sms")
       .eq("event_type", "invoice_issued")
       .in("status", input.includeFailed ? ["pending", "failed"] : ["pending"])
@@ -2622,11 +2646,13 @@ export const powerhubRouter = router({
   }),
 
   notifications: router({
-    list: protectedProcedure.input(siteScoped.extend({ eventType: z.enum(["invoice_issued", "payment_reminder", "payment_received", "service_alert", "subscriber_reference"]).optional(), channel: z.enum(["sms", "whatsapp"]).optional(), statuses: z.array(z.enum(["pending", "processing", "submitted", "delivered", "read", "failed", "needs_review"])).max(7).optional() })).query(async ({ ctx, input }) => {
+    list: protectedProcedure.input(siteScoped.extend({ eventType: z.enum(["invoice_issued", "payment_reminder", "payment_received", "service_alert", "subscriber_reference"]).optional(), channel: z.enum(["sms", "whatsapp"]).optional(), statuses: z.array(z.enum(["pending", "processing", "submitted", "delivered", "read", "failed", "needs_review"])).max(7).optional(), invoiceIds: z.array(z.number().int().positive()).max(200).optional() })).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      if (input.invoiceIds && input.invoiceIds.length === 0) return [];
       let notificationQuery = supabaseAdmin().from("notification_messages").select("id, tenant_id, invoice_id, subscriber_id, channel, event_type, recipient, status, provider_message_id, payload, attempts, last_error, scheduled_at, created_at, updated_at")
         .eq("tenant_id", scope.tenantId).order("created_at", { ascending: false }).limit(500);
       if (input.eventType) notificationQuery = notificationQuery.eq("event_type", input.eventType);
+      if (input.invoiceIds) notificationQuery = notificationQuery.in("invoice_id", input.invoiceIds);
       if (input.channel) notificationQuery = notificationQuery.eq("channel", input.channel);
       if (input.statuses?.length) notificationQuery = notificationQuery.in("status", input.statuses);
       const { data: notificationRows, error: notificationsError } = await notificationQuery;
@@ -2648,6 +2674,20 @@ export const powerhubRouter = router({
         if (!subscriber) return [];
         return [{ notification: { id: Number(row.id), tenantId: Number(row.tenant_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), subscriberId: Number(row.subscriber_id), channel: row.channel, eventType: row.event_type, recipient: row.recipient, status: row.status, providerMessageId: row.provider_message_id, payload: row.payload, attempts: row.attempts, lastError: row.last_error, scheduledAt: row.scheduled_at ? new Date(row.scheduled_at) : null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null }];
       });
+    }),
+    countDueInvoiceNotifications: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
+      const now = new Date().toISOString();
+      const { count, error } = await supabaseAdmin().from("notification_messages")
+        .select("id, subscribers!inner(site_id)", { count: "exact", head: true })
+        .eq("tenant_id", scope.tenantId)
+        .eq("subscribers.site_id", input.siteId)
+        .eq("channel", "sms")
+        .eq("event_type", "invoice_issued")
+        .eq("status", "pending")
+        .or(`scheduled_at.is.null,scheduled_at.lte.${now}`);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حساب رسائل الفواتير المستحقة للإرسال." });
+      return { count: count ?? 0 };
     }),
     listFailedSms: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
@@ -2860,10 +2900,10 @@ export const powerhubRouter = router({
       sendPendingInvoiceSmsRuntime(ctx.user.id, { siteId: input.siteId, invoiceIds: input.invoiceIds, includeFailed: false, dueOnly: true })
     ),
     sendBulkInvoiceSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceIds: z.array(z.number().int().positive()).min(1).max(5000) })).mutation(({ ctx, input }) =>
-      sendPendingInvoiceSmsRuntime(ctx.user.id, { siteId: input.siteId, invoiceIds: input.invoiceIds, includeFailed: false })
+      sendPendingInvoiceSmsRuntime(ctx.user.id, { siteId: input.siteId, invoiceIds: input.invoiceIds, includeFailed: false, dueOnly: true })
     ),
     sendAllEligibleInvoiceSms: protectedProcedure.input(siteScoped).mutation(({ ctx, input }) =>
-      sendPendingInvoiceSmsRuntime(ctx.user.id, { siteId: input.siteId, includeFailed: false })
+      sendPendingInvoiceSmsRuntime(ctx.user.id, { siteId: input.siteId, includeFailed: false, dueOnly: true, queueMissing: true })
     ),
     sendPaymentReminderSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");

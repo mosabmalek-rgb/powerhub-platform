@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => {
     const key = JSON.stringify(data);
     const cached = queryCache.get(key);
     if (cached) return cached;
-    const result = { data, isLoading: false, isFetching: false };
+    const result = { data, isLoading: false, isFetching: false, isSuccess: true, isError: false };
     queryCache.set(key, result);
     return result;
   },
@@ -61,7 +61,7 @@ vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()] }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
     powerhub: {
       sites: { list: { useQuery: () => mocks.query([mocks.site]) }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, anomalyAlert: { useQuery: () => mocks.query({ anomalyAlertPercent: 50 }) }, create: { useMutation: mocks.mutation }, updateAnomalyAlert: { useMutation: mocks.mutation } },
       reportBranding: { get: { useQuery: () => mocks.query({ companyName: "PowerHub", logoUrl: null }) }, update: { useMutation: mocks.mutation } },
@@ -94,7 +94,7 @@ vi.mock("@/lib/trpc", () => ({
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, listScheduleRuns: { useQuery: () => mocks.query([]) }, smsQuota: { useQuery: () => mocks.query({ total: 0, used: 0, remaining: 0 }) }, smsDailyUsage: { useQuery: () => mocks.query({ points: [], total: 0, used: 0, remaining: 0 }) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation }, configureInvoiceAutoSend: { useMutation: mocks.mutation }, requestSmsPackage: { useMutation: mocks.mutation } },
       subscriberPortal: { settings: { useQuery: () => mocks.query(mocks.portalSettings) }, saveSettings: { useMutation: mocks.mutation }, uploadLogo: { useMutation: mocks.mutation }, removeLogo: { useMutation: mocks.mutation } },
-      notifications: { list: { useQuery: () => mocks.query(mocks.notifications) }, listFailedSms: { useQuery: () => mocks.query([]) }, listBulkInvoiceSends: { useQuery: () => mocks.query(mocks.bulkInvoiceSends) }, bulkInvoiceSendDetails: { useQuery: () => mocks.query(mocks.bulkInvoiceSendDetails) }, retry: { useMutation: mocks.mutation }, retryFailedSmsBatch: { useMutation: mocks.mutation }, resolveSmsNeedsReview: { useMutation: mocks.mutation }, retryFailedInvoiceNotification: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotification, isPending: false }) }, retryFailedInvoiceNotifications: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotifications, isPending: false }) }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceiptSms: { useMutation: () => ({ mutate: mocks.sendPaymentReceiptSms, isPending: false }) }, sendPaymentReminderSms: { useMutation: () => ({ mutate: mocks.sendPaymentReminderSms, isPending: false, variables: undefined }) }, sendBulkInvoiceSms: { useMutation: () => ({ mutate: mocks.sendBulkInvoiceSms, isPending: false }) }, sendAllEligibleInvoiceSms: { useMutation: () => ({ mutate: mocks.sendBulkInvoiceSms, isPending: false }) }, sendDeferredInvoices: { useMutation: () => ({ mutate: mocks.sendDeferredInvoices, isPending: false }) }, sendPendingSms: { useMutation: () => ({ mutate: mocks.sendPendingSms, isPending: false }) } },
+      notifications: { list: { useQuery: () => mocks.query(mocks.notifications) }, countDueInvoiceNotifications: { useQuery: () => mocks.query({ count: 0 }) }, listFailedSms: { useQuery: () => mocks.query([]) }, listBulkInvoiceSends: { useQuery: () => mocks.query(mocks.bulkInvoiceSends) }, bulkInvoiceSendDetails: { useQuery: () => mocks.query(mocks.bulkInvoiceSendDetails) }, retry: { useMutation: mocks.mutation }, retryFailedSmsBatch: { useMutation: mocks.mutation }, resolveSmsNeedsReview: { useMutation: mocks.mutation }, retryFailedInvoiceNotification: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotification, isPending: false }) }, retryFailedInvoiceNotifications: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotifications, isPending: false }) }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceiptSms: { useMutation: () => ({ mutate: mocks.sendPaymentReceiptSms, isPending: false }) }, sendPaymentReminderSms: { useMutation: () => ({ mutate: mocks.sendPaymentReminderSms, isPending: false, variables: undefined }) }, sendBulkInvoiceSms: { useMutation: () => ({ mutate: mocks.sendBulkInvoiceSms, isPending: false }) }, sendAllEligibleInvoiceSms: { useMutation: () => ({ mutate: mocks.sendBulkInvoiceSms, isPending: false }) }, sendDeferredInvoices: { useMutation: () => ({ mutate: mocks.sendDeferredInvoices, isPending: false }) }, sendPendingSms: { useMutation: () => ({ mutate: mocks.sendPendingSms, isPending: false }) } },
     },
   },
 }));
@@ -130,6 +130,24 @@ describe("role guards in administration UI", () => {
     expect(mocks.sendBulkInvoiceSms).toHaveBeenCalledWith({ siteId: 1, invoiceIds: [81, 82] });
   });
 
+  it("does not let failed or scheduled SMS invoices enter the ordinary bulk-send selection", () => {
+    mocks.activeRole = "owner";
+    mocks.invoices = [
+      { id: 81, invoiceNo: "PH-TEST-0081", billingPeriod: "2026-08", consumptionKwh: "12", totalAmount: "60", paidAmount: "0", balanceDue: "60", status: "issued" } as any,
+      { id: 82, invoiceNo: "PH-TEST-0082", billingPeriod: "2026-08", consumptionKwh: "18", totalAmount: "90", paidAmount: "0", balanceDue: "90", status: "issued" } as any,
+    ];
+    mocks.notifications = [
+      { notification: { invoiceId: 81, status: "failed", scheduledAt: null } },
+      { notification: { invoiceId: 82, status: "pending", scheduledAt: new Date("2099-01-01T00:00:00.000Z") } },
+    ];
+    render(<BillingPage />);
+    expect(screen.getByLabelText("تحديد الفاتورة PH-TEST-0081")).toBeDisabled();
+    expect(screen.getByLabelText("تحديد الفاتورة PH-TEST-0082")).toBeDisabled();
+    expect(screen.getByLabelText("تحديد كل الفواتير غير المرسلة في الصفحة")).toBeDisabled();
+    expect(screen.getByText("فشل")).toBeInTheDocument();
+    expect(screen.getByText("في قائمة الانتظار")).toBeInTheDocument();
+  });
+
   it("shows the bulk invoice delivery log with the executor and result to messaging users", () => {
     mocks.activeRole = "owner";
     mocks.bulkInvoiceSends = [{ id: 9, action: "send_deferred_invoice_notifications", createdAt: new Date("2026-08-23T09:30:00.000Z"), metadata: { requested: 5, submitted: 4, failed: 1 }, executorId: 12, executorName: "محاسب الفرع", executorEmail: "accountant@example.com" }];
@@ -161,6 +179,22 @@ describe("role guards in administration UI", () => {
     expect(mocks.retryFailedInvoiceNotification).toHaveBeenCalledWith({ siteId: 1, notificationId: 101 });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "إعادة إرسال SMS الفاشل (1)" }));
+    expect(mocks.retryFailedInvoiceNotifications).toHaveBeenCalledWith({ siteId: 1, notificationIds: [101] });
+  });
+
+  it("counts only failed SMS messages for the bulk SMS retry action", () => {
+    mocks.activeRole = "owner";
+    mocks.bulkInvoiceSends = [{ id: 15, action: "send_invoice_sms_batch", createdAt: new Date("2026-08-24T09:30:00.000Z"), metadata: { requested: 2, submitted: 0, failed: 2 }, executorId: 12, executorName: "محاسب الفرع", executorEmail: "accountant@example.com" }];
+    mocks.bulkInvoiceSendDetails = { items: [
+      { notificationId: 101, invoiceId: 81, invoiceNo: "PH-TEST-0081", totalAmount: "60", subscriberName: "أحمد المشترك", channel: "sms", status: "failed", lastError: "تعذر SMS", recipient: "+970599000000" },
+      { notificationId: 103, invoiceId: 82, invoiceNo: "PH-TEST-0082", totalAmount: "90", subscriberName: "سارة المشترك", channel: "whatsapp", status: "failed", lastError: "تعذر WhatsApp", recipient: "+970599000001" },
+    ] };
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<BillingPage />);
+    fireEvent.click(screen.getByRole("button", { name: "محاسب الفرع" }));
+    const retrySms = screen.getByRole("button", { name: "إعادة إرسال SMS الفاشل (1)" });
+    expect(retrySms).toBeInTheDocument();
+    fireEvent.click(retrySms);
     expect(mocks.retryFailedInvoiceNotifications).toHaveBeenCalledWith({ siteId: 1, notificationIds: [101] });
   });
 
