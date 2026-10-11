@@ -192,8 +192,7 @@ exception when unique_violation then
   end if;
   raise;
 end;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_bulk_upsert_subscribers(p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_rows jsonb, p_update_existing boolean, p_quota_limit integer, p_client_operation_id text, p_request_fingerprint text)
  RETURNS TABLE(created jsonb, updated jsonb, failed jsonb, replayed boolean)
@@ -389,8 +388,7 @@ begin
 
   return query select out_created,out_updated,out_failed,false;
 end;
-$function$
-
+$function$;
 
 revoke execute on function public.powerhub_create_subscriber_with_opening_reading(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamptz,text,text,boolean) from public,anon,authenticated;
 grant execute on function public.powerhub_create_subscriber_with_opening_reading(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamptz,text,text,boolean) to service_role;
