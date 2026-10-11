@@ -98,7 +98,7 @@ describe("إشعارات حدود الاشتراك في لوحة المالك", 
     const { toast } = await import("sonner");
     state.branchPolicyError = true;
     render(<WorkspaceHome />);
-    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل بيانات بعض الحصص");
+    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل بيانات الحصص أو الطلبات المرتبطة بها");
     expect(screen.getByRole("alert")).toHaveTextContent("الأفرع");
     expect(screen.queryByText("بلغت الحد الأقصى للأفرع المتاحة.")).not.toBeInTheDocument();
     expect(toast.warning).not.toHaveBeenCalled();
