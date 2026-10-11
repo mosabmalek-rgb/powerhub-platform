@@ -102,7 +102,16 @@ begin
     return query select
       v_reading.id,coalesce(v_reading.consumption_kwh,0),v_reading.status,
       coalesce(v_created.replayed,false),v_issued.invoice_id,v_issued.invoice_no,v_issued.total_amount,
-      array[]::bigint[],coalesce(v_issued.replayed,false);
+      coalesce((
+        select array_agg(nm.id order by nm.id)
+        from public.notification_messages nm
+        where nm.tenant_id = p_tenant_id
+          and nm.invoice_id = v_issued.invoice_id
+          and nm.channel = 'sms'
+          and nm.event_type = 'invoice_issued'
+          and nm.status = 'pending'
+      ), array[]::bigint[]),
+      coalesce(v_issued.replayed,false);
     return;
   end if;
 
