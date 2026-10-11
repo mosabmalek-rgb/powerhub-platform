@@ -8,26 +8,56 @@ import { trpc } from "@/lib/trpc";
 import { ClipboardCheck, Loader2, ShieldCheck } from "lucide-react";
 
 const actionNames: Record<string, string> = {
+  platform_admin_create_generator_owner_subscription: "إنشاء اشتراك صاحب مولد من إدارة المنصة",
+  platform_admin_update_subscription: "تحديث اشتراك من إدارة المنصة",
+  renew_subscription_with_addons: "تجديد الاشتراك مع الإضافات",
+  configure: "تغيير الإعدادات",
+  automatic_opening_baseline_approval: "اعتماد القراءة الافتتاحية تلقائياً",
+  bulk_import: "استيراد جماعي",
+  bulk_import_create: "إنشاء من استيراد جماعي",
+  create_with_opening_reading: "إنشاء مشترك مع قراءة افتتاحية",
+  delete: "حذف",
+  deposit: "إيداع",
+  enable: "تفعيل",
+  grant_addon: "منح إضافة",
+  status_change: "تغيير الحالة",
+  sync_cycle: "مزامنة دورة",
+  sync_error: "خطأ في المزامنة",
+  update_payment_documentation_visibility: "تحديث ظهور توثيق الدفع",
+  update_portal_logo: "تحديث شعار بوابة المشترك",
+  update_report_branding: "تحديث هوية التقارير",
+  create_share_link: "إنشاء رابط مشاركة",
+  update_opening_balance: "تحديث الرصيد الافتتاحي",
+  update_phone: "تحديث رقم الجوال",
+  update_sites: "تحديث الفروع المرتبطة",
+  mobile_create: "إنشاء من التطبيق الميداني",
+  automatic_invoice_issue: "إصدار فاتورة تلقائياً",
+  configure_reading_cycle: "تعديل دورة القراءة والفوترة",
   create: "إنشاء",
   update: "تحديث",
   approve: "اعتماد",
   issue: "إصدار",
-  create_share_link: "إنشاء رابط مشاركة",
   assign_role: "تعيين دور",
   upsert: "حفظ إعداد",
-  mobile_create: "إنشاء من الميدان",
   send: "إرسال",
   resend: "إعادة إرسال",
   retry: "إعادة محاولة",
-  update_sites: "تحديث الفروع المرتبطة",
-  update_phone: "تحديث رقم الجوال",
-  update_opening_balance: "تحديث الرصيد الافتتاحي",
   admin_set_tenant_status: "تحديث حالة مساحة المولد",
   platform_admin_update_generator_status: "تحديث حالة المولد",
   owner_usage_alert_sent: "إرسال تنبيه استخدام",
   company_account_visibility: "تحديث ظهور الحساب في توثيق الدفع",
 };
 const entityNames: Record<string, string> = {
+  chat_conversation: "محادثة دعم",
+  financial_settlement: "تسوية مالية",
+  mobile_sync_event: "حدث مزامنة ميدانية",
+  site_portal_settings: "إعدادات بوابة المشترك",
+  subscriber_import: "استيراد مشتركين",
+  tenant_addon_request: "طلب إضافة للاشتراك",
+  tenant_feature_entitlement: "صلاحية ميزة",
+  tenant_owner_profile: "ملف صاحب المولد",
+  tenant_subscription: "اشتراك صاحب المولد",
+  reading_cycle: "دورة القراءة والفوترة",
   site: "محطة",
   tenant: "مساحة مولد",
   subscriber: "مشترك",
@@ -46,7 +76,7 @@ const entityNames: Record<string, string> = {
   owner_quota_alert: "تنبيه حصة",
 };
 const arabicAuditValue = (value: string | undefined, map: Record<string, string>, label: string) =>
-  value ? (map[value] ?? value.replaceAll("_", " ")) : label;
+  value ? (map[value] ?? (label === "عنصر" ? "عنصر غير مصنف" : "عملية غير مصنفة")) : label;
 
 export default function AuditLogPage() {
   const { isAuthenticated, loading } = useAuth();

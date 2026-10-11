@@ -458,11 +458,11 @@ function mapSupabaseInvoice(row: any) {
     previousReading: row.previous_reading === null ? null : String(row.previous_reading), currentReading: row.current_reading === null ? null : String(row.current_reading),
     consumptionKwh: String(row.consumption_kwh), pricePerKwh: String(row.price_per_kwh), fixedFee: String(row.fixed_fee), taxAmount: String(row.tax_amount),
     discountAmount: String(row.discount_amount), totalAmount: String(row.total_amount), paidAmount: String(row.paid_amount), balanceDue: String(row.balance_due),
-    status: row.status, createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+    status: row.status, cycleKey: row.cycle_key ?? null, cycleStartAt: row.cycle_start_at ? new Date(row.cycle_start_at) : null, cycleEndAt: row.cycle_end_at ? new Date(row.cycle_end_at) : null, createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
   };
 }
 
-const invoiceSelect = "id, tenant_id, site_id, subscriber_id, reading_id, tariff_id, invoice_no, client_operation_id, billing_period, issue_date, due_date, previous_reading, current_reading, consumption_kwh, price_per_kwh, fixed_fee, tax_amount, discount_amount, total_amount, paid_amount, balance_due, status, created_by_user_id, created_at, updated_at";
+const invoiceSelect = "id, tenant_id, site_id, subscriber_id, reading_id, tariff_id, invoice_no, client_operation_id, billing_period, issue_date, due_date, previous_reading, current_reading, consumption_kwh, price_per_kwh, fixed_fee, tax_amount, discount_amount, total_amount, paid_amount, balance_due, status, cycle_key, cycle_start_at, cycle_end_at, created_by_user_id, created_at, updated_at";
 
 export async function listSupabaseInvoices(siteId: number) {
   const { data, error } = await supabaseAdmin().from("invoices")

@@ -409,7 +409,7 @@ export const powerhubRouter = router({
   unifiedMessaging: powerhubUnifiedMessagingRouter,
   readingCycle: router({
     get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "technician", "viewer"], "recordReadings");
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_reading_cycle", {
         p_tenant_id: scope.tenantId,
         p_site_id: input.siteId,
@@ -1766,6 +1766,24 @@ export const powerhubRouter = router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
       return listSupabaseReadings(input.siteId);
+    }),
+    getImage: protectedProcedure.input(siteScoped.extend({ readingId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
+      const admin = supabaseAdmin();
+      const { data: reading, error: readingError } = await admin.from("meter_readings")
+        .select("id, subscriber_id, image_key")
+        .eq("tenant_id", scope.tenantId).eq("id", input.readingId).maybeSingle();
+      if (readingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات صورة القراءة." });
+      if (!reading?.image_key) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد صورة مرفقة بهذه القراءة." });
+      const { data: subscriber, error: subscriberError } = await admin.from("subscribers")
+        .select("id").eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).eq("id", reading.subscriber_id).maybeSingle();
+      if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق صورة القراءة." });
+      if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للفرع المحدد." });
+      try {
+        return { url: (await storageGet(reading.image_key)).url };
+      } catch {
+        throw new TRPCError({ code: "NOT_FOUND", message: "تعذر إنشاء رابط آمن لصورة القراءة." });
+      }
     }),
     page: protectedProcedure.input(siteScoped.extend({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().max(500).optional() })).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
