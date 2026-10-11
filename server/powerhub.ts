@@ -1767,7 +1767,7 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
       return listSupabaseReadings(input.siteId);
     }),
-    getImage: protectedProcedure.input(siteScoped.extend({ readingId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+    getImage: protectedProcedure.input(siteScoped.extend({ readingId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
       const admin = supabaseAdmin();
       const { data: reading, error: readingError } = await admin.from("meter_readings")
