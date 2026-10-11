@@ -1,15 +1,11 @@
 \set ON_ERROR_STOP on
 -- Disposable PostgreSQL integration test for the full kWh price-history migration.
 -- This file is run against its own database by GitHub Actions; all data is synthetic.
-begin;
+select 'create role anon nologin' where not exists (select 1 from pg_roles where rolname='anon') \gexec
+select 'create role authenticated nologin' where not exists (select 1 from pg_roles where rolname='authenticated') \gexec
+select 'create role service_role nologin bypassrls' where not exists (select 1 from pg_roles where rolname='service_role') \gexec
 
-do $roles$
-begin
-  if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
-  if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
-  if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if;
-end;
-$roles$;
+begin;
 
 create table public.tenants (
   id bigint primary key
