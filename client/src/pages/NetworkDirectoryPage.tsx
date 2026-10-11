@@ -236,19 +236,15 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
         <Field label="الاسم">
           <input required name="fullName" defaultValue={editing?.fullName} className={inputClass} />
         </Field>
-        <Field label="رقم الهاتف الدولي">
+        <Field label="رقم الجوال">
           <input
             required
             type="tel"
             name="phone"
             defaultValue={editing?.phone}
-            placeholder="0599000000 أو 0569000000 أو 970599000000 أو +972569000000"
             className={inputClass}
             dir="ltr"
           />
-          <p className="mt-1 text-xs leading-5 text-slate-500">
-            يمكن إدخال رقم الجوال بصيغ 059 أو 056 أو 970 أو 972، مع أو بدون +، وكذلك 00970 أو 00972. عند الحفظ تُوحَّد الصيغة تلقائياً، وعند الإرسال تُستخدم الصيغة الدولية المطلوبة للقناة.
-          </p>
         </Field>
         <Field label="العنوان">
           <input name="address" defaultValue={editing?.address ?? ""} className={inputClass} />
