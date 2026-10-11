@@ -307,7 +307,7 @@ describe("role guards in administration UI", () => {
     expect(screen.getByText(/يتطلب صلاحيات تسجيل القراءة واعتمادها وإصدار الفاتورة/)).toBeInTheDocument();
     expect(screen.queryByText("تسجيل قراءة")).not.toBeInTheDocument();
     expect(screen.queryByText("إدخال قراءات جماعي")).not.toBeInTheDocument();
-    expect(screen.getByText("آخر القراءات المسجلة")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /سجل القراءات/ })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "بحث القراءات" })).toBeInTheDocument();
     expect(screen.queryByText("إضافة عداد")).not.toBeInTheDocument();
   });
