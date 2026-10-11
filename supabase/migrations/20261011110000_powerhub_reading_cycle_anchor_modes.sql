@@ -45,7 +45,7 @@ begin
           + 7,
           7
         ));
-    end_local := start_local + interval '7 days' - interval '1 millisecond';
+    end_local := start_local + interval '7 days' - interval '1 microsecond';
 
   elsif c.cycle_type = 'EVERY_10_DAYS' then
     last_day := extract(day from (date_trunc('month', local_at) + interval '1 month' - interval '1 day'))::integer;
@@ -57,8 +57,8 @@ begin
       end;
       start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
       end_local := case
-        when start_day = 21 then date_trunc('month', local_at) + interval '1 month' - interval '1 millisecond'
-        else start_local + interval '10 days' - interval '1 millisecond'
+        when start_day = 21 then date_trunc('month', local_at) + interval '1 month' - interval '1 microsecond'
+        else start_local + interval '10 days' - interval '1 microsecond'
       end;
     else
       -- Alternate 10/20/30 anchor. Day 30 is clamped to the last day of February.
@@ -90,7 +90,7 @@ begin
       else
         next_month_local := date_trunc('month', local_at) + interval '1 month' + interval '9 days';
       end if;
-      end_local := next_month_local - interval '1 millisecond';
+      end_local := next_month_local - interval '1 microsecond';
     end if;
 
   elsif c.cycle_type = 'EVERY_15_DAYS' then
@@ -99,8 +99,8 @@ begin
       start_day := case when extract(day from local_at)::integer <= 15 then 1 else 16 end;
       start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
       end_local := case
-        when start_day = 16 then date_trunc('month', local_at) + interval '1 month' - interval '1 millisecond'
-        else start_local + interval '15 days' - interval '1 millisecond'
+        when start_day = 16 then date_trunc('month', local_at) + interval '1 month' - interval '1 microsecond'
+        else start_local + interval '15 days' - interval '1 microsecond'
       end;
     else
       -- Alternate 15/30 anchor. Day 30 is clamped to the last day of February.
@@ -126,7 +126,7 @@ begin
         start_day := case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end;
         next_month_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
       end if;
-      end_local := next_month_local - interval '1 millisecond';
+      end_local := next_month_local - interval '1 microsecond';
     end if;
 
   else
@@ -164,7 +164,7 @@ begin
     end;
     end_local := next_month_local
       + make_interval(days => next_start_day - 1)
-      - interval '1 millisecond';
+      - interval '1 microsecond';
   end if;
 
   cycle_start_at := start_local at time zone c.timezone;

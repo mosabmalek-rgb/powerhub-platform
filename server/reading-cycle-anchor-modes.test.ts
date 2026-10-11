@@ -25,6 +25,11 @@ describe("reading cycle anchor modes", () => {
     expect(migration).toContain("start_day = 21");
   });
 
+  it("uses PostgreSQL microsecond precision so inclusive cycle ends touch the next start", () => {
+    expect(migration).toContain("interval '1 microsecond'");
+    expect(migration).not.toContain("interval '1 millisecond'");
+  });
+
   it("preserves timezone-aware cycle keys and restricts execution to service_role", () => {
     expect(migration).toContain("local_at := p_reading_at at time zone c.timezone");
     expect(migration).toContain("cycle_key := c.cycle_type || ':'");

@@ -205,4 +205,86 @@ begin
 end
 $test$;
 
+
+-- Exercise the new canonical cycle function against PostgreSQL itself.
+\ir ../migrations/20261011110000_powerhub_reading_cycle_anchor_modes.sql
+
+do $cycle_matrix$
+declare
+  c record;
+  r record;
+begin
+  for c in
+    select * from (values
+      ('MONTHLY', 7, 1, timestamp '2027-01-31 12:00:00', date '2027-01-01', date '2027-01-31', 'MONTHLY:2027-01-01', '2027-01'),
+      ('MONTHLY', 7, 30, timestamp '2027-01-29 12:00:00', date '2026-12-30', date '2027-01-29', 'MONTHLY:2026-12-30', '2027-01'),
+      ('MONTHLY', 7, 30, timestamp '2027-01-30 12:00:00', date '2027-01-30', date '2027-02-27', 'MONTHLY:2027-01-30', '2027-01'),
+      ('MONTHLY', 7, 30, timestamp '2027-02-28 12:00:00', date '2027-02-28', date '2027-03-29', 'MONTHLY:2027-02-28', '2027-02'),
+      ('MONTHLY', 7, 30, timestamp '2028-02-29 12:00:00', date '2028-02-28', date '2028-03-29', 'MONTHLY:2028-02-28', '2028-02'),
+      ('WEEKLY', 1, 1, timestamp '2027-01-31 12:00:00', date '2027-01-31', date '2027-02-06', 'WEEKLY:2027-01-31', '2027-01'),
+      ('WEEKLY', 7, 1, timestamp '2027-01-31 12:00:00', date '2027-01-30', date '2027-02-05', 'WEEKLY:2027-01-30', '2027-01'),
+      ('EVERY_10_DAYS', 7, 1, timestamp '2027-01-10 12:00:00', date '2027-01-01', date '2027-01-10', 'EVERY_10_DAYS:2027-01-01', '2027-01'),
+      ('EVERY_10_DAYS', 7, 1, timestamp '2027-01-11 12:00:00', date '2027-01-11', date '2027-01-20', 'EVERY_10_DAYS:2027-01-11', '2027-01'),
+      ('EVERY_10_DAYS', 7, 1, timestamp '2027-01-31 12:00:00', date '2027-01-21', date '2027-01-31', 'EVERY_10_DAYS:2027-01-21', '2027-01'),
+      ('EVERY_10_DAYS', 7, 1, timestamp '2028-02-29 12:00:00', date '2028-02-21', date '2028-02-29', 'EVERY_10_DAYS:2028-02-21', '2028-02'),
+      ('EVERY_10_DAYS', 7, 30, timestamp '2027-01-09 12:00:00', date '2026-12-30', date '2027-01-09', 'EVERY_10_DAYS:2026-12-30', '2027-01'),
+      ('EVERY_10_DAYS', 7, 30, timestamp '2027-01-10 12:00:00', date '2027-01-10', date '2027-01-19', 'EVERY_10_DAYS:2027-01-10', '2027-01'),
+      ('EVERY_10_DAYS', 7, 30, timestamp '2027-01-20 12:00:00', date '2027-01-20', date '2027-01-29', 'EVERY_10_DAYS:2027-01-20', '2027-01'),
+      ('EVERY_10_DAYS', 7, 30, timestamp '2027-01-30 12:00:00', date '2027-01-30', date '2027-02-09', 'EVERY_10_DAYS:2027-01-30', '2027-01'),
+      ('EVERY_10_DAYS', 7, 30, timestamp '2027-02-20 12:00:00', date '2027-02-20', date '2027-02-27', 'EVERY_10_DAYS:2027-02-20', '2027-02'),
+      ('EVERY_10_DAYS', 7, 30, timestamp '2027-02-28 12:00:00', date '2027-02-28', date '2027-03-09', 'EVERY_10_DAYS:2027-02-28', '2027-02'),
+      ('EVERY_10_DAYS', 7, 30, timestamp '2028-02-29 12:00:00', date '2028-02-28', date '2028-03-09', 'EVERY_10_DAYS:2028-02-28', '2028-02'),
+      ('EVERY_10_DAYS', 7, 30, timestamp '2027-03-10 12:00:00', date '2027-03-10', date '2027-03-19', 'EVERY_10_DAYS:2027-03-10', '2027-03'),
+      ('EVERY_15_DAYS', 7, 1, timestamp '2027-01-15 12:00:00', date '2027-01-01', date '2027-01-15', 'EVERY_15_DAYS:2027-01-01', '2027-01'),
+      ('EVERY_15_DAYS', 7, 1, timestamp '2027-01-16 12:00:00', date '2027-01-16', date '2027-01-31', 'EVERY_15_DAYS:2027-01-16', '2027-01'),
+      ('EVERY_15_DAYS', 7, 1, timestamp '2028-02-16 12:00:00', date '2028-02-16', date '2028-02-29', 'EVERY_15_DAYS:2028-02-16', '2028-02'),
+      ('EVERY_15_DAYS', 7, 30, timestamp '2027-01-14 12:00:00', date '2026-12-30', date '2027-01-14', 'EVERY_15_DAYS:2026-12-30', '2027-01'),
+      ('EVERY_15_DAYS', 7, 30, timestamp '2027-01-15 12:00:00', date '2027-01-15', date '2027-01-29', 'EVERY_15_DAYS:2027-01-15', '2027-01'),
+      ('EVERY_15_DAYS', 7, 30, timestamp '2027-01-30 12:00:00', date '2027-01-30', date '2027-02-14', 'EVERY_15_DAYS:2027-01-30', '2027-01'),
+      ('EVERY_15_DAYS', 7, 30, timestamp '2027-02-15 12:00:00', date '2027-02-15', date '2027-02-27', 'EVERY_15_DAYS:2027-02-15', '2027-02'),
+      ('EVERY_15_DAYS', 7, 30, timestamp '2027-02-28 12:00:00', date '2027-02-28', date '2027-03-14', 'EVERY_15_DAYS:2027-02-28', '2027-02'),
+      ('EVERY_15_DAYS', 7, 30, timestamp '2028-02-29 12:00:00', date '2028-02-28', date '2028-03-14', 'EVERY_15_DAYS:2028-02-28', '2028-02'),
+      ('EVERY_15_DAYS', 7, 30, timestamp '2027-03-15 12:00:00', date '2027-03-15', date '2027-03-29', 'EVERY_15_DAYS:2027-03-15', '2027-03'),
+      ('EVERY_15_DAYS', 7, 30, timestamp '2027-03-30 12:00:00', date '2027-03-30', date '2027-04-14', 'EVERY_15_DAYS:2027-03-30', '2027-03')
+    ) as expected(cycle_type, weekly_start_day, monthly_start_day, reading_local,
+                  expected_start, expected_end, expected_key, expected_period)
+  loop
+    update public.tenant_reading_cycle_configurations
+       set cycle_type = c.cycle_type,
+           weekly_start_day = c.weekly_start_day,
+           monthly_start_day = c.monthly_start_day
+     where tenant_id = 1 and site_id = 1;
+    select * into r from public.powerhub_cycle_for_reading(1, 1, c.reading_local at time zone 'Asia/Gaza');
+    if (r.cycle_start_at at time zone 'Asia/Gaza')::date <> c.expected_start
+       or (r.cycle_end_at at time zone 'Asia/Gaza')::date <> c.expected_end
+       or r.cycle_key <> c.expected_key
+       or r.billing_period <> c.expected_period then
+      raise exception 'cycle matrix failed: mode %, anchor %, reading %, result %',
+        c.cycle_type, c.monthly_start_day, c.reading_local, row_to_json(r);
+    end if;
+  end loop;
+end
+$cycle_matrix$;
+
+do $cycle_precision$
+declare
+  r_before record;
+  r_after record;
+  expected_end timestamp := timestamp '2027-01-10 23:59:59.999999';
+begin
+  update public.tenant_reading_cycle_configurations
+     set cycle_type = 'EVERY_10_DAYS', weekly_start_day = 7, monthly_start_day = 1
+   where tenant_id = 1 and site_id = 1;
+  select * into r_before from public.powerhub_cycle_for_reading(1, 1, timestamp '2027-01-10 23:59:59.999999' at time zone 'Asia/Gaza');
+  if (r_before.cycle_end_at at time zone 'Asia/Gaza') <> expected_end then
+    raise exception 'cycle end must include the final PostgreSQL microsecond: %', row_to_json(r_before);
+  end if;
+  select * into r_after from public.powerhub_cycle_for_reading(1, 1, timestamp '2027-01-11 00:00:00' at time zone 'Asia/Gaza');
+  if r_before.cycle_end_at + interval '1 microsecond' <> r_after.cycle_start_at then
+    raise exception 'cycle boundaries are not contiguous: previous %, next %', row_to_json(r_before), row_to_json(r_after);
+  end if;
+end
+$cycle_precision$;
+
+
 \echo 'reading-cycle SQL integration assertions passed'
