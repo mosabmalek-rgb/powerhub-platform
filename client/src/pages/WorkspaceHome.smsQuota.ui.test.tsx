@@ -64,6 +64,9 @@ afterEach(() => {
   state.refetchSubaccountQuota.mockReset();
   vi.clearAllMocks();
   document.body.innerHTML = "";
+});
+
+describe("إشعارات حدود الاشتراك في لوحة المالك", () => {
   it("لا يعرض تحذير Toast تلقائياً عند فتح لوحة التحكم والحصة مستنفدة", async () => {
     const { toast } = await import("sonner");
     state.branchPolicy = { isEnabled: true, maxBranches: 1, currentCount: 1, remaining: 0 };
@@ -78,7 +81,7 @@ afterEach(() => {
     state.subscriberQuota = { limit: 100, currentCount: 85, remaining: 15, plan: "basic" };
     state.smsUsed = 450;
     render(<WorkspaceHome />);
-    expect(screen.getByText(/استهلكت 85% من الحد المسموح/)).toBeInTheDocument();
+    expect(screen.getByText("حصة المشتركين")).toBeInTheDocument();
     expect(screen.getByText("بلغت الحد الأقصى للأفرع المتاحة.")).toBeInTheDocument();
     expect(screen.getByText(/رصيد رسائل SMS يقترب من النفاد/)).toBeInTheDocument();
     expect(toast.warning).not.toHaveBeenCalled();
@@ -112,6 +115,10 @@ describe("بطاقة رصيد SMS في لوحة المالك", () => {
     expect(screen.getByRole("button", { name: /الإجراءات السريعة/ })).toBeInTheDocument();
     expect(screen.queryByText("إجراءات مالية سريعة", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("إضافة مشترك", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("تسجيل تحصيل", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("فتح قائمة التحصيل ذات الأولوية", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("مراجعة الفواتير", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("فتح التقرير المالي", { exact: true })).not.toBeInTheDocument();
     expect(screen.getByText("حدود حسابات الفريق والميدان")).toBeInTheDocument();
     expect(screen.queryByText("حدود الاشتراك واستهلاكها", { exact: true })).not.toBeInTheDocument();
   });
