@@ -66,7 +66,7 @@ insert into public.collector_sessions(
   (4, 1, 12, 2, 'closed', 100, 0, -100, '2026-10-07T10:00:00Z', '2026-10-07T11:00:00Z'),
   (5, 2, 20, 1, 'closed', 999, 0, -999, '2026-10-07T10:00:00Z', '2026-10-07T11:00:00Z');
 
-\ir ../migrations/20261012110000_powerhub_dashboard_all_branch_kpis.sql
+\ir ../migrations/20261011213932_20261012110000_powerhub_dashboard_all_branch_kpis.sql
 
 do $test$
 declare
