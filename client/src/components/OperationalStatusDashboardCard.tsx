@@ -10,10 +10,12 @@ type OperationalStatusDashboardCardProps = {
   subscribers: number;
   generators?: { active?: number; maintenance?: number };
   loading?: boolean;
+  subscribersUnavailable?: boolean;
+  generatorsUnavailable?: boolean;
   scopeLabel?: string;
 };
 
-export function OperationalStatusDashboardCard({ subscribers, generators, loading = false, scopeLabel = "الفرع المحدد" }: OperationalStatusDashboardCardProps) {
+export function OperationalStatusDashboardCard({ subscribers, generators, loading = false, subscribersUnavailable = false, generatorsUnavailable = false, scopeLabel = "الفرع المحدد" }: OperationalStatusDashboardCardProps) {
   if (loading) {
     return (
       <Card aria-label="ملخص الحالة التشغيلية" className="border-white/8 bg-[#111823] shadow-panel">
@@ -37,23 +39,23 @@ export function OperationalStatusDashboardCard({ subscribers, generators, loadin
             <h2 className="mt-1 text-lg font-extrabold text-white">المشتركون والمولدات</h2>
             <p className="mt-1 text-sm text-slate-400">مؤشر مختصر لنطاق {scopeLabel} مع فصل واضح بين التشغيل والصيانة.</p>
           </div>
-          <Badge className={maintenance > 0 ? "bg-amber-400/10 text-amber-200" : "bg-emerald-400/10 text-emerald-300"}>{maintenance > 0 ? "توجد صيانة" : "التشغيل مستقر"}</Badge>
+          <Badge className={generatorsUnavailable ? "bg-rose-400/10 text-rose-200" : maintenance > 0 ? "bg-amber-400/10 text-amber-200" : "bg-emerald-400/10 text-emerald-300"}>{generatorsUnavailable ? "تعذر تحميل بيانات التشغيل" : maintenance > 0 ? "توجد صيانة" : "التشغيل مستقر"}</Badge>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-blue-400/15 bg-blue-400/[.05] p-4">
             <div className="flex items-center justify-between gap-3"><span className="text-xs font-bold text-blue-200">مشتركون نشطون</span><UsersRound className="h-4 w-4 text-blue-300" /></div>
-            <p className="mt-3 font-display text-3xl font-extrabold text-white">{formatNumber(Number(subscribers) || 0)}</p>
+            <p className="mt-3 font-display text-3xl font-extrabold text-white">{subscribersUnavailable ? "—" : formatNumber(Number(subscribers) || 0)}</p>
             <p className="mt-1 text-xs text-slate-500">خدمة فعالة ضمن النطاق</p>
           </div>
           <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[.05] p-4">
             <div className="flex items-center justify-between gap-3"><span className="text-xs font-bold text-emerald-200">مولدات نشطة</span><Cog className="h-4 w-4 text-emerald-300" /></div>
-            <p className="mt-3 font-display text-3xl font-extrabold text-white">{formatNumber(active)}</p>
+            <p className="mt-3 font-display text-3xl font-extrabold text-white">{generatorsUnavailable ? "—" : formatNumber(active)}</p>
             <p className="mt-1 text-xs text-slate-500">تعمل حالياً</p>
           </div>
           <div className="rounded-2xl border border-amber-400/15 bg-amber-400/[.05] p-4">
             <div className="flex items-center justify-between gap-3"><span className="text-xs font-bold text-amber-200">قيد الصيانة</span><Wrench className="h-4 w-4 text-amber-300" /></div>
-            <p className="mt-3 font-display text-3xl font-extrabold text-white">{formatNumber(maintenance)}</p>
-            <p className="mt-1 text-xs text-slate-500">من أصل {formatNumber(total)} مولد</p>
+            <p className="mt-3 font-display text-3xl font-extrabold text-white">{generatorsUnavailable ? "—" : formatNumber(maintenance)}</p>
+            <p className="mt-1 text-xs text-slate-500">من أصل {generatorsUnavailable ? "—" : formatNumber(total)} مولد</p>
           </div>
         </div>
       </CardContent>
