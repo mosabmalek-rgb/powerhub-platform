@@ -42,6 +42,18 @@ begin
   ) into v_allowed;
   if not v_allowed then raise exception 'MESSAGING_PERMISSION_REQUIRED' using errcode='P0001'; end if;
 
+  -- Reject mixed or forged invoice selections instead of silently processing only in-scope rows.
+  if exists (
+    select 1
+    from (select distinct unnest(p_invoice_ids) as selected_invoice_id) selected
+    where not exists (
+      select 1 from public.invoices i
+      where i.id=selected.selected_invoice_id and i.tenant_id=p_tenant_id and i.site_id=p_site_id
+    )
+  ) then
+    raise exception 'INVOICE_OUT_OF_SCOPE' using errcode='P0001';
+  end if;
+
   select is_enabled and coalesce((value->>'smsEnabled')::boolean,true)
   into v_sms_enabled from public.platform_settings where setting_key='invoice_delivery_channels';
   if coalesce(v_sms_enabled,false) is not true then raise exception 'SMS_CHANNEL_DISABLED' using errcode='P0001'; end if;
@@ -63,6 +75,10 @@ begin
     order by id
   loop
     perform pg_advisory_xact_lock(v_invoice.tenant_id,v_invoice.id);
+
+    if v_invoice.status in ('draft','cancelled') then
+      raise exception 'INVOICE_NOT_SENDABLE' using errcode='P0001';
+    end if;
 
     select * into v_existing from public.notification_messages
     where tenant_id=p_tenant_id and invoice_id=v_invoice.id and channel='sms' and event_type='invoice_issued'
