@@ -666,14 +666,16 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
     accountRows = retry.data;
   }
   const accountIds = (accountRows ?? []).map((row) => Number(row.id));
-  const [siteLinksResult, sitesResult, transactionsResult] = await Promise.all([
+  const [siteLinksResult, sitesResult, transactionsResult, balancesResult] = await Promise.all([
     accountIds.length ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds) : Promise.resolve({ data: [], error: null }),
     admin.from("sites").select("id, name").eq("tenant_id", input.tenantId),
     accountIds.length ? admin.from("account_transactions").select("id, tenant_id, account_id, transaction_type, amount, description, reference_no, related_payment_id, related_account_id, created_by_user_id, occurred_at, created_at")
       .eq("tenant_id", input.tenantId).in("account_id", accountIds)
       .gte("occurred_at", input.from?.toISOString() ?? "1970-01-01T00:00:00.000Z").lte("occurred_at", input.to?.toISOString() ?? "9999-12-31T23:59:59.999Z").order("occurred_at", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
+    accountIds.length ? admin.rpc("powerhub_company_account_balance_rollup", { p_tenant_id: input.tenantId, p_account_ids: accountIds }) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (siteLinksResult.error || sitesResult.error || transactionsResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حركات أو ربط حسابات الشركة من Supabase." });
+  if (siteLinksResult.error || sitesResult.error || transactionsResult.error || balancesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حركات أو أرصدة حسابات الشركة من Supabase." });
+  const balanceByAccountId = new Map<number, number>((balancesResult.data ?? []).map((row: { account_id: number | string; balance: number | string }) => [Number(row.account_id), Number(row.balance)]));
   const siteNameById = new Map((sitesResult.data ?? []).map((site) => [Number(site.id), site.name]));
   const linksByAccount = new Map<number, Array<{ accountId: number; siteId: number; siteName: string }>>();
   for (const link of siteLinksResult.data ?? []) {
@@ -690,10 +692,10 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
     const id = Number(row.id); const linkedSites = linksByAccount.get(id) ?? [];
     if (input.branchId && !linkedSites.some((link) => link.siteId === input.branchId)) return [];
     const transactions = transactionsByAccount.get(id) ?? [];
-    const balance = transactions.reduce((total, transaction) => {
-      const amount = Number(transaction.amount ?? 0);
-      return ["deposit", "transfer_in", "collection"].includes(String(transaction.transactionType)) ? total + amount : total - amount;
-    }, Number(row.opening_balance));
+    const balance = balanceByAccountId.get(id);
+    if (balance === undefined || !Number.isFinite(balance)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب الرصيد الكامل لحساب الشركة." });
+    }
     return [{ id, tenantId: Number(row.tenant_id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number, color: row.color, openingBalance: String(row.opening_balance), isActive: row.is_active, allowPaymentDocumentation: Boolean(row.allow_payment_documentation), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at), linkedSites, balance, transactions }];
   });
 }
