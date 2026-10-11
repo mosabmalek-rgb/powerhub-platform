@@ -38,6 +38,67 @@ describe("opening subscriber readings contract", () => {
     expect(bulkOperationTypeFix).toContain("'subscriber_bulk_import'");
   });
 
+  it("uses one atomic database operation for platform reading, approval and invoice issuance", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261010190809_powerhub_platform_reading_auto_invoice_20261010.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("create or replace function public.powerhub_create_reading_and_issue_invoice");
+    expect(migration).toContain("powerhub_approve_and_issue_mobile_reading");
+    expect(migration).toContain("OPENING_BASELINE_NOT_BILLABLE");
+    expect(migration).toContain("revoke execute on function public.powerhub_create_reading_and_issue_invoice");
+    expect(migration).toContain("grant execute on function public.powerhub_create_reading_and_issue_invoice");
+    expect(migration).not.toContain("OPENING_READING_OWNER_REQUIRED");
+    expect(migration).not.toContain("create or replace function public.powerhub_create_subscriber_with_opening_reading");
+    expect(migration).not.toContain("create or replace function public.powerhub_bulk_upsert_subscribers");
+  });
+
+  it("auto-approves historic opening baselines without issuing invoices", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261011075630_powerhub_opening_baseline_auto_approval_backfill_20261010.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("pg_get_functiondef(v_function_oid)");
+    expect(migration).toContain("regexp_replace");
+    expect(migration).toContain("POWERHUB_OPENING_READING_SINGLE_GUARD_PATTERN_NOT_FOUND");
+    expect(migration).toContain("POWERHUB_OPENING_READING_BULK_GUARD_PATTERN_NOT_FOUND");
+    expect(migration).toContain("automatic_opening_baseline_approval");
+    expect(migration).toContain("'invoiceIssued', false");
+    expect(migration).toContain("Automatically approved % pending opening-baseline readings; no invoices were issued.");
+    expect(migration).not.toContain("powerhub_issue_invoice_from_reading");
+    expect(migration).not.toContain("delete from public.meter_readings");
+    expect(migration).not.toContain("create or replace function public.powerhub_create_subscriber_with_opening_reading");
+    expect(migration).not.toContain("create or replace function public.powerhub_bulk_upsert_subscribers");
+  });
+
+  it("returns queued SMS ids when recovering an invoice for an already-approved reading", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261011084348_powerhub_auto_invoice_replay_notification_recovery.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("powerhub_create_reading_and_issue_invoice");
+    expect(migration).toContain("array[]::bigint[],coalesce(v_issued.replayed,false);");
+    expect(migration).toContain("from public.notification_messages nm");
+    expect(migration).toContain("POWERHUB_INVOICE_RECOVERY_NOTIFICATION_PATTERN_NOT_FOUND");
+  });
+
+    it("uses the bigint-safe invoice SMS lock and prevents duplicate SMS from the approval RPC", () => {
+    const lockFix = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261010192201_powerhub_invoice_sms_advisory_lock_fix_20261010.sql"),
+      "utf8",
+    );
+    expect(lockFix).toContain("hashtextextended(format('powerhub:invoice-sms:%s:%s'");
+    expect(lockFix).not.toContain("pg_advisory_xact_lock(new.tenant_id,new.id)");
+
+    const dedupeFix = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261010192857_powerhub_invoice_sms_rpc_dedup_20261010.sql"),
+      "utf8",
+    );
+    expect(dedupeFix).toContain("current_setting('powerhub.invoice_notification_handled_by_rpc', true)");
+    expect(dedupeFix).toContain("set_config(''powerhub.invoice_notification_handled_by_rpc'', ''true'', true)");
+    expect(dedupeFix).toContain("POWERHUB_MOBILE_APPROVAL_INSERT_ANCHOR_NOT_FOUND");
+  });
+
   it("rejects invalid opening readings and accepts a valid baseline", () => {
     expect(prepareSubscriberImport([{
       sourceRow: 2,
@@ -54,7 +115,7 @@ describe("opening subscriber readings contract", () => {
       phone: "+970599000000",
       address: "",
       subscriptionType: "سكني",
-      openingReading: "1250.500",
+      openingReading: "1250.52",
       openingReadingAt: "2026-09-29T10:00:00Z",
     }])[0].status).toBe("ready");
   });

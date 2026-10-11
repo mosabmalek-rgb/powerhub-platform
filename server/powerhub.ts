@@ -1475,9 +1475,7 @@ export const powerhubRouter = router({
     }).omit({ code: true })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const admin = supabaseAdmin();
-      if (input.openingReadingApproved && access.role !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "اعتماد القراءة الافتتاحية مباشرة متاح لمالك مساحة المولد فقط." });
-      }
+      // Opening readings establish a baseline and are approved immediately; they do not issue consumption invoices.
       if (input.clientOperationId) {
         const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
@@ -1509,7 +1507,7 @@ export const powerhubRouter = router({
         p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
         p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
         p_opening_reading: input.openingReading ? Number(input.openingReading) : null, p_opening_reading_at: input.openingReadingAt ? new Date(input.openingReadingAt).toISOString() : null,
-        p_opening_image_key: openingImageKey ?? null, p_opening_image_hash: openingImageHash ?? null, p_opening_reading_approved: input.openingReadingApproved,
+        p_opening_image_key: openingImageKey ?? null, p_opening_image_hash: openingImageHash ?? null, p_opening_reading_approved: Boolean(input.openingReading),
       } : {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
@@ -1572,7 +1570,7 @@ export const powerhubRouter = router({
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
-      if (input.approveOpeningReadings && access.role !== "owner") throw new TRPCError({ code: "FORBIDDEN", message: "اعتماد القراءات الافتتاحية مباشرة متاح لمالك مساحة المولد فقط." });
+      // Opening readings are baseline values, so approve them for every authorized subscriber import.
       const failureRows: Array<{ sourceRow: number; fullName: string; reason: string }> = [];
       const seenPhones = new Set<string>();
       const seenReferences = new Set<string>();
@@ -1592,11 +1590,11 @@ export const powerhubRouter = router({
           if (seenReferences.has(subscriberNo)) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الرقم المرجعي مكرر داخل ملف الاستيراد." }); continue; }
           seenReferences.add(subscriberNo);
         }
-        accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, whatsappNumber, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType, openingReading: row.openingReading, openingReadingAt: row.openingReadingAt, openingReadingApproved: input.approveOpeningReadings });
+        accepted.push({ sourceRow: row.sourceRow, subscriberNo, fullName: row.fullName.trim(), phone, whatsappNumber, address: row.address?.trim() || undefined, subscriptionType: row.subscriptionType, openingReading: row.openingReading, openingReadingAt: row.openingReadingAt, openingReadingApproved: Boolean(row.openingReading) });
       }
       if (!accepted.length) return { created: [], updated: [], failed: failureRows.sort((a, b) => a.sourceRow - b.sourceRow), notificationsQueued: 0, message: "لا توجد صفوف صالحة للحفظ." };
       const clientOperationId = input.clientOperationId ?? randomUUID();
-      const requestFingerprint = createHash("sha256").update(JSON.stringify({ siteId: input.siteId, updateExisting: input.updateExisting, approveOpeningReadings: input.approveOpeningReadings, rows: input.rows })).digest("hex");
+      const requestFingerprint = createHash("sha256").update(JSON.stringify({ siteId: input.siteId, updateExisting: input.updateExisting, openingReadingsAutoApproved: true, rows: input.rows })).digest("hex");
       const { data, error } = await supabaseAdmin().rpc("powerhub_bulk_upsert_subscribers", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
@@ -1778,7 +1776,24 @@ export const powerhubRouter = router({
       captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
+      // Platform-entered readings now follow the automatic approve-and-invoice path.
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "issueInvoices");
       const readingAt = input.readingAt ?? new Date();
+      const site = await getSupabaseSite(input.siteId);
+      const { data: activeTariff, error: tariffLookupError } = await supabaseAdmin().from("tariffs")
+        .select("id")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .eq("is_active", true)
+        .order("effective_from", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (tariffLookupError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من التعرفة الفعالة قبل تسجيل القراءة." });
+      if (!activeTariff) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة لهذا الفرع؛ أضف التعرفة قبل تسجيل القراءة حتى لا تُحفظ قراءة دون فاتورة." });
+      const dueDate = new Date(readingAt);
+      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
+      const billingPeriod = readingAt.toISOString().slice(0, 7);
       let imageKey: string | undefined;
       let imageHash: string | undefined;
       if (input.imageData) {
@@ -1790,23 +1805,54 @@ export const powerhubRouter = router({
         const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${input.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
         imageKey = stored.key;
       }
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading_and_issue_invoice", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
         p_client_operation_id: input.clientOperationId ?? null, p_reading_at: readingAt.toISOString(), p_reading_value: input.readingValue,
         p_capture_method: input.captureMethod, p_image_key: imageKey ?? "", p_image_hash: imageHash ?? "", p_notes: input.notes?.trim() ?? "",
         p_is_reading_reset: input.isReadingReset, p_field_verified: input.fieldVerified,
         p_can_override_same_day: input.overrideSameDay && ["owner", "manager", "accountant"].includes(access.role),
+        p_due_date: dueDate.toISOString(), p_billing_period: billingPeriod,
       });
       if (!error && data?.[0]) {
-        const row = data[0] as { reading_id: number | string; consumption_kwh: number | string; status: "pending_review"; replayed: boolean };
-        return { id: Number(row.reading_id), consumptionKwh: Number(row.consumption_kwh), status: row.status, replayed: row.replayed };
+        const row = data[0] as {
+          reading_id: number | string; consumption_kwh: number | string; reading_status: "approved";
+          replayed: boolean; invoice_id: number | string; invoice_no: string; total_amount: number | string;
+          notification_ids: Array<number | string> | null; already_processed: boolean;
+        };
+        const notificationIds = (row.notification_ids ?? []).map(Number);
+        // An idempotent replay reuses the existing reading, so a newly uploaded retry image is not attached.
+        if (row.replayed && imageKey) {
+          try { await storageRemove(imageKey); }
+          catch (cleanupError) { console.error("[PowerHub] orphaned reading retry image cleanup failed", cleanupError); }
+        }
+        // The database commits reading + approval + invoice in one transaction. Notify only after commit.
+        const deliveries = await Promise.all(notificationIds.map(async (notificationId) => {
+          try {
+            return { notificationId, ...await processNotificationById(notificationId, ctx.user.id) };
+          } catch (deliveryError) {
+            return { notificationId, status: "failed" as const, error: deliveryError instanceof Error ? deliveryError.message : "تعذر إرسال إشعار الفاتورة." };
+          }
+        }));
+        return {
+          id: Number(row.reading_id), consumptionKwh: Number(row.consumption_kwh), status: row.reading_status,
+          replayed: Boolean(row.replayed), invoiceId: Number(row.invoice_id), invoiceNo: row.invoice_no,
+          totalAmount: Number(row.total_amount), alreadyProcessed: Boolean(row.already_processed), deliveries,
+        };
+      }
+      if (imageKey) {
+        try { await storageRemove(imageKey); }
+        catch (cleanupError) { console.error("[PowerHub] orphaned reading image cleanup failed after transaction rollback", cleanupError); }
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
       if (errorText.includes("SAME_DAY_READING_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا المشترك في اليوم نفسه. يقتصر تجاوز ذلك على المالك أو المدير أو المحاسب مع تأكيد صريح." });
       if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة. فعّل خيار إعادة ضبط سجل القراءة وسجل ملاحظة للتأكيد." });
       if (errorText.includes("READING_RESET_NOTES_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة قبل حفظها." });
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل القراءة في Supabase." });
+      if (errorText.includes("TARIFF_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة في هذا الفرع؛ أضف التعرفة قبل تسجيل قراءة قابلة للفوترة." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الفترة المالية مقفلة ولا يمكن إصدار فاتورة داخلها؛ لم يتم حفظ القراءة." });
+      if (errorText.includes("OPENING_BASELINE_NOT_BILLABLE")) throw new TRPCError({ code: "BAD_REQUEST", message: "القراءة الافتتاحية خط أساس ولا تصدر عنها فاتورة استهلاك." });
+      if (errorText.includes("READING_NOT_PENDING") || errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تعذر اعتماد القراءة بسبب تغير حالتها؛ حدّث البيانات ثم أعد المحاولة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ القراءة واعتمادها وإصدار فاتورتها؛ لم يتم تثبيت معاملة جزئية." });
     }),
     updatePending: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/), readingAt: z.date(), notes: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");

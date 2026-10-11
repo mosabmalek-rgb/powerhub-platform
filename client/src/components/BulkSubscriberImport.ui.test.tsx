@@ -43,7 +43,7 @@ describe("استيراد المشتركين من Excel", () => {
       siteId: 7,
       updateExisting: false,
       clientOperationId: expect.any(String),
-      approveOpeningReadings: false,
+      approveOpeningReadings: true,
       rows: [{ sourceRow: 2, subscriberNo: undefined, fullName: "أحمد العلي", phone: "+970599000001", whatsappNumber: undefined, address: "غزة", subscriptionType: "residential", openingReading: "12.52", openingReadingAt: expect.any(String) }],
     }));
   });
