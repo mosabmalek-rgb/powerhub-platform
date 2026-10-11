@@ -93,6 +93,41 @@ describe("شاشة الإجراءات السريعة", () => {
     expect(screen.queryByText("الحسابات الفرعية")).not.toBeInTheDocument();
   });
 
+  it("يوصل كل إجراء أساسي إلى التبويب المتخصص الصحيح", () => {
+    const destinations = [
+      ["إضافة مشترك", "/subscribers"],
+      ["تسجيل قراءة", "/readings"],
+      ["إنشاء فاتورة", "/invoices"],
+      ["تحصيل دين", "/collections"],
+      ["تسجيل مصروف", "/expenses"],
+      ["إرسال إشعارات", "/notifications"],
+    ] as const;
+    state.setLocation.mockClear();
+    render(<QuickActionsPage />);
+    for (const [label, path] of destinations) {
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(label) }));
+      expect(state.setLocation).toHaveBeenLastCalledWith(path);
+    }
+    expect(state.setLocation).toHaveBeenCalledTimes(destinations.length);
+  });
+
+  it("يحفظ إعادة ترتيب الاختصارات بالترتيب الجديد", () => {
+    state.preferences = ["collect_payment", "add_subscriber"];
+    render(<QuickActionsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "تخصيص اختصاراتي" }));
+    fireEvent.click(screen.getByRole("button", { name: "رفع إضافة مشترك" }));
+    fireEvent.click(screen.getByRole("button", { name: "حفظ اختصاراتي" }));
+    expect(state.savePreferences).toHaveBeenCalledWith({ siteId: 1, actionIds: ["add_subscriber", "collect_payment"] });
+  });
+
+  it("تطابق اختصارات التقارير وحسابات الشركة الأدوار المسموح بها في القائمة الجانبية", () => {
+    state.access = { role: "manager", permissions: [] };
+    render(<QuickActionsPage />);
+    expect(screen.getByText("حسابات الشركة")).toBeInTheDocument();
+    expect(screen.getByText("التقرير المالي")).toBeInTheDocument();
+    expect(screen.getByText("الفواتير")).toBeInTheDocument();
+  });
+
   it("يعرض التفضيلات المحفوظة ويمكّن المستخدم من تعديلها وحفظها", () => {
     state.preferences = ["collect_payment", "add_subscriber"];
     render(<QuickActionsPage />);

@@ -25,8 +25,8 @@ const primaryActions: PrimaryAction[] = [
 
 const supportActions = [
   { label: "الفواتير", description: "مراجعة الفواتير والذمم وحالة السداد.", path: "/invoices", icon: FileText, roles: ["owner", "manager", "accountant", "collector", "viewer"] },
-  { label: "حسابات الشركة", description: "مراجعة الأرصدة والحركات والتحويلات.", path: "/company-accounts", icon: BookOpenCheck, capability: "manageExpenses" as Capability },
-  { label: "التقرير المالي", description: "تحليل التحصيل والمصروفات والتصدير.", path: "/reports", icon: TrendingUp, capability: "viewAudit" as Capability },
+  { label: "حسابات الشركة", description: "مراجعة الأرصدة والحركات والتحويلات.", path: "/company-accounts", icon: BookOpenCheck, roles: ["owner", "manager", "accountant"] },
+  { label: "التقرير المالي", description: "تحليل التحصيل والمصروفات والتصدير.", path: "/reports", icon: TrendingUp, roles: ["owner", "manager", "accountant", "viewer"] },
   { label: "الحسابات الفرعية", description: "إدارة الموظفين وصلاحياتهم.", path: "/staff", icon: UsersRound, capability: "manageTeam" as Capability },
 ];
 
