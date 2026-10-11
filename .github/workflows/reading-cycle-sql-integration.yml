@@ -60,3 +60,10 @@ jobs:
         run: |
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE invoice_sms_test"
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname invoice_sms_test --set ON_ERROR_STOP=1 --file supabase/tests/invoice_bulk_sms_safety.sql
+
+      - name: Create isolated all-branch dashboard KPI database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE dashboard_kpi_test"
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname dashboard_kpi_test --set ON_ERROR_STOP=1 --file supabase/tests/dashboard_all_branch_kpis.sql
