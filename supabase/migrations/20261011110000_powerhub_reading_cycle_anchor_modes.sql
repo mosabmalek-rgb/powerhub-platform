@@ -74,8 +74,8 @@ begin
       else
         next_month_local := date_trunc('month', local_at) - interval '1 month';
         next_last_day := extract(day from (next_month_local + interval '1 month' - interval '1 day'))::integer;
-        start_day := case when extract(month from next_month_local)::integer = 2 then 28 else least(30, next_last_day) end;
-        start_local := next_month_local + make_interval(days => start_day - 1);
+        start_local := next_month_local + make_interval(days => (case when extract(month from next_month_local)::integer = 2 then 28 else least(30, next_last_day) end) - 1);
+        start_day := null;
       end if;
       if start_local is null then
         start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
@@ -114,7 +114,8 @@ begin
       else
         next_month_local := date_trunc('month', local_at) - interval '1 month';
         next_last_day := extract(day from (next_month_local + interval '1 month' - interval '1 day'))::integer;
-        start_local := next_month_local + make_interval(days => least(30, next_last_day) - 1);
+        start_local := next_month_local + make_interval(days => (case when extract(month from next_month_local)::integer = 2 then 28 else least(30, next_last_day) end) - 1);
+        start_day := null;
       end if;
       if start_local is null then
         start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
