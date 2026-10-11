@@ -13,7 +13,7 @@ export function prepareBulkReadings(rows: BulkReadingDraft[], subscribers: Subsc
     const reference = row.reference.trim();
     const subscriber = subscribers.find((entry) => entry.subscriberNo.toLowerCase() === reference.toLowerCase());
     if (!subscriber) return { ...row, status: "error", error: "الرقم المرجعي غير موجود ضمن الفرع الحالي." };
-    if (!/^\d+(\.\d{1,3})?$/.test(row.readingValue.trim())) return { ...row, status: "error", error: "القراءة الحالية غير صالحة." };
+    if (!/^\d+(\.\d{1,2})?$/.test(row.readingValue.trim())) return { ...row, status: "error", error: "القراءة الحالية يجب أن تكون رقماً موجباً أو صفراً حتى منزلتين عشريتين." };
     if (!/^\d{4}-\d{2}-\d{2}$/.test(row.readingDate)) return { ...row, status: "error", error: "استخدم تاريخاً بصيغة سنة-شهر-يوم." };
     const previousValue = latestBySubscriber.get(subscriber.id) ?? 0;
     const currentValue = Number(row.readingValue);
