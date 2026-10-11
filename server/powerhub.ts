@@ -942,7 +942,11 @@ export const powerhubRouter = router({
           p_all_branches: input.allBranches,
         });
         if (error || !data?.[0]) {
-          const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+          if (imageKey) {
+        try { await storageRemove(imageKey); }
+        catch (cleanupError) { console.error("[PowerHub] orphaned reading image cleanup failed after transaction rollback", cleanupError); }
+      }
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
           if (errorText.includes("SUBACCOUNT_ROLE_NOT_ALLOWED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة آدمن المنصة." });
           if (errorText.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك." });
           if (errorText.includes("FIELD_USER_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى لمستخدمي تطبيق إدخال قراءة العداد في باقتك." });
@@ -1780,6 +1784,20 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "issueInvoices");
       const readingAt = input.readingAt ?? new Date();
+      const site = await getSupabaseSite(input.siteId);
+      const { data: activeTariff, error: tariffLookupError } = await supabaseAdmin().from("tariffs")
+        .select("id")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .eq("is_active", true)
+        .order("effective_from", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (tariffLookupError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من التعرفة الفعالة قبل تسجيل القراءة." });
+      if (!activeTariff) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة لهذا الفرع؛ أضف التعرفة قبل تسجيل القراءة حتى لا تُحفظ قراءة دون فاتورة." });
+      const dueDate = new Date(readingAt);
+      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
+      const billingPeriod = readingAt.toISOString().slice(0, 7);
       let imageKey: string | undefined;
       let imageHash: string | undefined;
       if (input.imageData) {
@@ -1791,10 +1809,6 @@ export const powerhubRouter = router({
         const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${input.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
         imageKey = stored.key;
       }
-      const site = await getSupabaseSite(input.siteId);
-      const dueDate = new Date(readingAt);
-      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
-      const billingPeriod = readingAt.toISOString().slice(0, 7);
       const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading_and_issue_invoice", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
         p_client_operation_id: input.clientOperationId ?? null, p_reading_at: readingAt.toISOString(), p_reading_value: input.readingValue,
@@ -1810,6 +1824,11 @@ export const powerhubRouter = router({
           notification_ids: Array<number | string> | null; already_processed: boolean;
         };
         const notificationIds = (row.notification_ids ?? []).map(Number);
+        // An idempotent replay reuses the existing reading, so a newly uploaded retry image is not attached.
+        if (row.replayed && imageKey) {
+          try { await storageRemove(imageKey); }
+          catch (cleanupError) { console.error("[PowerHub] orphaned reading retry image cleanup failed", cleanupError); }
+        }
         // The database commits reading + approval + invoice in one transaction. Notify only after commit.
         const deliveries = await Promise.all(notificationIds.map(async (notificationId) => {
           try {
