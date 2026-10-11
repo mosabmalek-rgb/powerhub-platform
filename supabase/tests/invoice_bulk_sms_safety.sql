@@ -54,7 +54,8 @@ create table public.notification_messages (
   invoice_id bigint, subscriber_id bigint, channel text, event_type text,
   status text not null, scheduled_at timestamptz, payload jsonb not null default '{}'::jsonb,
   recipient text, operation_key text, last_error text, updated_at timestamptz not null default now(),
-  send_type text, schedule_type text, template_id bigint
+  send_type text, schedule_type text, template_id bigint,
+  constraint notification_messages_tenant_operation_key_unique unique (tenant_id, operation_key)
 );
 create table public.site_portal_settings (tenant_id bigint, site_id bigint, portal_code text);
 create table public.tenant_messaging_configurations (tenant_id bigint, channel text, invoice_message_style text);
