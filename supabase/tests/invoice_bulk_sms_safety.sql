@@ -69,7 +69,11 @@ values (1, 'active', 'platform_admin');
 insert into public.platform_settings(setting_key, is_enabled, value)
 values ('invoice_delivery_channels', true, '{"smsEnabled": true}'::jsonb);
 insert into public.powerhub_message_templates(tenant_id,channel,event_type,is_active,body)
-values (10,'sms','invoice_issued',true,'فاتورة {{invoice_no}} {{total_amount}} {{invoice_link}}');
+values (10,'sms','invoice_issued',true,'إلى {{subscriber_name}}|{{invoice_no}}|{{total_amount}}|{{billing_period}}|{{balance_due}}|{{due_date}}');
+insert into public.tenant_messaging_configurations(tenant_id,channel,invoice_message_style)
+values (10,'sms','details');
+insert into public.subscribers(id,tenant_id,site_id,full_name,subscriber_no,phone)
+values (1010,10,20,'مشترك اختبار','SUB-1010','+970599001010');
 
 insert into public.invoices(id,tenant_id,site_id,status,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date)
 values
@@ -81,7 +85,8 @@ values
   (106,10,20,'issued',1006,'PH-106','2026-09',10,10,date '2026-10-20'),
   (107,10,20,'issued',1007,'PH-107','2026-09',10,10,date '2026-10-20'),
   (108,10,20,'draft',1008,'PH-108','2026-09',10,10,date '2026-10-20'),
-  (109,10,20,'cancelled',1009,'PH-109','2026-09',10,10,date '2026-10-20');
+  (109,10,20,'cancelled',1009,'PH-109','2026-09',10,10,date '2026-10-20'),
+  (110,10,20,'issued',1010,'PH-110','2026-09',10,10,date '2026-10-20');
 
 insert into public.notification_messages(tenant_id,invoice_id,subscriber_id,channel,event_type,status,scheduled_at,payload,recipient)
 values
@@ -135,6 +140,48 @@ begin
   end if;
 end
 $test_existing$;
+
+do $test_new_queue$
+declare
+  v_notification_id bigint;
+  v_invoice_id bigint;
+  v_queued boolean;
+  v_message_count integer;
+  v_rendered text;
+begin
+  select notification_id, invoice_id, queued
+    into v_notification_id, v_invoice_id, v_queued
+  from public.powerhub_queue_selected_invoice_sms(1,10,20,array[110]::bigint[]);
+  if v_invoice_id <> 110 or v_queued is not true then
+    raise exception 'missing SMS row was not queued: invoice %, queued %', v_invoice_id, v_queued;
+  end if;
+
+  select count(*), max(payload->>'renderedText')
+    into v_message_count, v_rendered
+  from public.notification_messages
+  where invoice_id=110 and tenant_id=10 and channel='sms' and event_type='invoice_issued';
+  if v_message_count <> 1 then
+    raise exception 'expected exactly one queued SMS row for invoice 110, got %', v_message_count;
+  end if;
+  if v_rendered <> 'إلى مشترك اختبار|PH-110|10|2026-09|10|2026-10-20' then
+    raise exception 'unified invoice template variables were not rendered correctly: %', v_rendered;
+  end if;
+
+  select notification_id, invoice_id, queued
+    into v_notification_id, v_invoice_id, v_queued
+  from public.powerhub_queue_selected_invoice_sms(1,10,20,array[110]::bigint[]);
+  if v_invoice_id <> 110 or v_queued is not false then
+    raise exception 'second queue call was not treated as already queued: invoice %, queued %', v_invoice_id, v_queued;
+  end if;
+
+  select count(*) into v_message_count
+  from public.notification_messages
+  where invoice_id=110 and tenant_id=10 and channel='sms' and event_type='invoice_issued';
+  if v_message_count <> 1 then
+    raise exception 'repeated queue call duplicated invoice SMS: % rows', v_message_count;
+  end if;
+end
+$test_new_queue$;
 
 do $test_scope$
 declare caught boolean := false;
