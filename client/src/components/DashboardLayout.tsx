@@ -58,7 +58,7 @@ const menuGroups = [
   {
     label: "المالية",
     items: [
-      { icon: ReceiptText, label: "الفواتير والتعرفات", path: "/invoices" },
+      { icon: ReceiptText, label: "الفواتير", path: "/invoices" },
       { icon: WalletCards, label: "التحصيلات", path: "/collections" },
       { icon: WalletCards, label: "حسابات الشركة", path: "/company-accounts" },
       { icon: Fuel, label: "المصروفات والربحية", path: "/expenses" },
