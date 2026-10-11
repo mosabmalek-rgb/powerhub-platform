@@ -106,7 +106,7 @@ BEGIN
       entity_type, entity_id, action, before_data, after_data, metadata
     )
     SELECT
-      u.tenant_id, p.site_id, NULL, 'system_migration', 'system',
+      u.tenant_id, p.site_id, NULL, NULL, NULL,
       'meter_reading', u.id::text, 'automatic_opening_baseline_approval',
       jsonb_build_object(
         'status', p.status,
@@ -127,7 +127,7 @@ BEGIN
       ),
       jsonb_build_object(
         'reason', 'opening_baseline_auto_approval_rollout',
-        'migration', '20261010193500_powerhub_opening_baseline_auto_approval_backfill',
+        'migration', '20261011075630_powerhub_opening_baseline_auto_approval_backfill_20261010',
         'initiatedByUserId', p.entered_by_user_id,
         'invoiceIssued', false
       )

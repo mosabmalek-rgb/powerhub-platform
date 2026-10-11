@@ -63,6 +63,10 @@ describe("opening subscriber readings contract", () => {
     expect(migration).toContain("POWERHUB_OPENING_READING_SINGLE_GUARD_PATTERN_NOT_FOUND");
     expect(migration).toContain("POWERHUB_OPENING_READING_BULK_GUARD_PATTERN_NOT_FOUND");
     expect(migration).toContain("automatic_opening_baseline_approval");
+    expect(migration).toContain("u.tenant_id, p.site_id, NULL, NULL, NULL,");
+    expect(migration).not.toContain("system_migration");
+    expect(migration).toContain("u.tenant_id, p.site_id, NULL, NULL, NULL,");
+    expect(migration).not.toContain("system_migration");
     expect(migration).toContain("'invoiceIssued', false");
     expect(migration).toContain("Automatically approved % pending opening-baseline readings; no invoices were issued.");
     expect(migration).not.toContain("powerhub_issue_invoice_from_reading");
