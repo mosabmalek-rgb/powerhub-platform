@@ -120,7 +120,7 @@ begin
       if start_local is null then
         start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
       end if;
-      if start_day is null or start_day = case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end then
+      if start_day is null or start_day = (case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end) then
         next_month_local := date_trunc('month', start_local) + interval '1 month' + interval '14 days';
       else
         start_day := case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end;
