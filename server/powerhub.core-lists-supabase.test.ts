@@ -57,7 +57,7 @@ const state = vi.hoisted(() => {
         lt: () => query,
         not: () => query,
         range: (from: number, to: number) => { filteredRows = filteredRows.slice(from, to + 1); return query; },
-        limit: () => query,
+        limit: (count: number) => { filteredRows = filteredRows.slice(0, count); return query; },
         maybeSingle: () => resolved(filteredRows[0] ?? null),
         then: <TResult1 = { data: unknown[]; error: null }, TResult2 = never>(
           onfulfilled?: ((value: { data: unknown[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
@@ -101,6 +101,19 @@ const state = vi.hoisted(() => {
     },
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
+      if (name === "powerhub_company_account_balance_rollup") {
+        const input = args as { p_tenant_id: number; p_account_ids: number[] };
+        const accounts = (tables.company_accounts ?? []) as Array<Record<string, unknown>>;
+        const movements = (tables.account_transactions ?? []) as Array<Record<string, unknown>>;
+        return resolved(accounts
+          .filter((account) => Number(account.tenant_id) === Number(input.p_tenant_id) && account.is_active === true && input.p_account_ids.map(Number).includes(Number(account.id)))
+          .map((account) => ({
+            account_id: Number(account.id),
+            balance: Number(account.opening_balance ?? 0) + movements
+              .filter((movement) => Number(movement.tenant_id) === Number(input.p_tenant_id) && Number(movement.account_id) === Number(account.id))
+              .reduce((total, movement) => total + (["deposit", "transfer_in", "collection"].includes(String(movement.transaction_type)) ? 1 : -1) * Number(movement.amount ?? 0), 0),
+          })));
+      }
       if (name === "powerhub_create_tariff_idempotent") return resolved([{ tariff_id: 41, replayed: false }]);
       if (name === "powerhub_subscriber_portal_list") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
       if (name === "powerhub_subscriber_portal_theme") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
@@ -961,6 +974,29 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       name: "powerhub_request_subscription_upgrade",
       args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_requested_package_code: "professional" },
     })]);
+  });
+
+  it("يحسب رصيد حساب الشركة من سجل الحركات الكامل لا من أول ألف حركة فقط", async () => {
+    state.tables.company_accounts = [{
+      id: 90, tenant_id: 20, name: "كاش", account_type: "cash", phone_number: null, color: "#64748b",
+      opening_balance: 100, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z",
+    }];
+    state.tables.company_account_sites = [{ account_id: 90, site_id: 10 }];
+    state.tables.account_transactions = Array.from({ length: 1005 }, (_, index) => ({
+      id: index + 1, tenant_id: 20, account_id: 90, transaction_type: "collection", amount: 1,
+      description: "تحصيل", reference_no: String(index + 1), related_payment_id: null, related_account_id: null,
+      created_by_user_id: 1, occurred_at: new Date(Date.UTC(2026, 7, 1, 0, index)).toISOString(),
+      created_at: new Date(Date.UTC(2026, 7, 1, 0, index)).toISOString(),
+    }));
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+
+    const accounts = await caller.companyAccounts.list({ siteId: 10 });
+    expect(accounts[0]).toMatchObject({ id: 90, balance: 1105 });
+    expect(accounts[0].transactions).toHaveLength(1000);
+    expect(state.rpcCalls).toContainEqual({
+      name: "powerhub_company_account_balance_rollup",
+      args: { p_tenant_id: 20, p_account_ids: [90] },
+    });
   });
 
   it("يعرض حصة المشتركين من Supabase دون MySQL", async () => {
