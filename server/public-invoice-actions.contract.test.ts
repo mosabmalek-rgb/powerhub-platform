@@ -19,12 +19,27 @@ describe("public invoice and inquiry actions", () => {
   it("gates public inquiry payment documentation by entitlement and outstanding balance", () => {
     const server = read("server/powerhub.ts");
     const portal = read("client/src/pages/SubscriberPortalPage.tsx");
+    const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
+    const paymentPage = read("client/src/pages/PaymentDocumentationPage.tsx");
     expect(server).toContain('rpc("powerhub_payment_documentation_access"');
     expect(server).toContain("paymentDocumentationAvailable,");
+    expect(publicInvoice).toContain('!["draft", "cancelled", "paid"].includes(String(invoice.status).toLowerCase())');
+    expect(paymentPage).toContain('!["draft", "cancelled", "paid"].includes(String(invoice?.status ?? "").toLowerCase())');
     expect(portal).toContain("portalData.paymentDocumentationAvailable");
     expect(portal).toContain("Number(invoice.balanceDue) > 0");
+    expect(portal).toContain('!["draft", "cancelled", "paid"].includes(String(invoice.status).toLowerCase())');
     expect(portal).toContain("shareInvoice.useMutation");
     expect(portal).toContain("/payment-documentation/public/");
+  });
+
+  it("hides public payment documentation for paid, draft, and cancelled invoices", () => {
+    const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
+    const portal = read("client/src/pages/SubscriberPortalPage.tsx");
+    const paymentPage = read("client/src/pages/PaymentDocumentationPage.tsx");
+    for (const source of [publicInvoice, portal, paymentPage]) {
+      expect(source).toContain('"draft", "cancelled", "paid"');
+      expect(source).toContain("balanceDue");
+    }
   });
 
   it("uses the entitled subscriber portal logo and falls back to the platform logo", () => {
