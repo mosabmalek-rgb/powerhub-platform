@@ -14,7 +14,7 @@ begin
   if v_signature is null then raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: powerhub_create_payment missing'; end if;
   select pg_get_functiondef(v_signature) into v_definition;
   v_old := $old$if v_account.account_type<>p_payment_method then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$old$;
-  v_new := $new$if v_account.account_type<>p_payment_method and (p_payment_method='cash' or p_transfer_from_type is null or p_transfer_from_type<>p_payment_method) then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$new$;
+  v_new := $new$if (p_payment_method='cash' and v_account.account_type<>'cash') or (p_payment_method<>'cash' and v_account.account_type='cash') then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$new$;
   if position(v_old in v_definition)=0 then raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: create_payment guard did not match current definition'; end if;
   execute replace(v_definition,v_old,v_new);
 
@@ -22,7 +22,7 @@ begin
   if v_signature is null then raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: powerhub_submit_payment_documentation missing'; end if;
   select pg_get_functiondef(v_signature) into v_definition;
   v_old := $old$if v_account.account_type <> p_payment_method then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$old$;
-  v_new := $new$if p_payment_method = 'cash' and v_account.account_type <> 'cash' then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$new$;
+  v_new := $new$if (p_payment_method='cash' and v_account.account_type<>'cash') or (p_payment_method<>'cash' and v_account.account_type='cash') then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$new$;
   if position(v_old in v_definition)=0 then raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: internal submit guard did not match current definition'; end if;
   execute replace(v_definition,v_old,v_new);
 
@@ -32,7 +32,7 @@ begin
   v_old := $old$if v_account.account_type <> p_payment_method then
     raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode = 'P0001';
   end if;$old$;
-  v_new := $new$if p_payment_method = 'cash' and v_account.account_type <> 'cash' then
+  v_new := $new$if (p_payment_method='cash' and v_account.account_type<>'cash') or (p_payment_method<>'cash' and v_account.account_type='cash') then
     raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode = 'P0001';
   end if;$new$;
   if position(v_old in v_definition)=0 then raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: public submit guard did not match current definition'; end if;
