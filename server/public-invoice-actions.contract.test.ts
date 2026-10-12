@@ -42,8 +42,23 @@ describe("public invoice and inquiry actions", () => {
     expect(server).toContain('rpc("powerhub_create_portal_invoice_share_link"');
     expect(server).toContain("getVerifiedPortalInvoice(input)");
     expect(migration).toContain("powerhub_subscriber_portal_invoice(");
-    expect(migration).toContain("now()+interval '7 days'");
+    expect(migration).toContain("input_canonical");
+    expect(migration).toContain("'^00(970|972)(56|59)[0-9]{7}
+    const payloadMigration = read("supabase/migrations/20261012130500_powerhub_shared_invoice_scope_payload.sql");
+    expect(payloadMigration).toContain("'siteId',v_invoice.site_id");
+    expect(payloadMigration).toContain("'tenantId',v_link.tenant_id");
+    expect(payloadMigration).toContain("grant execute on function public.powerhub_get_shared_invoice_by_token_hash(text)");
+  });
+});
+");
+    expect(migration).toContain("subscriber.archived_at is null");
+    expect(migration).toContain("public.powerhub_payment_documentation_access(v_tenant_id)");
+    expect(migration).toContain("coalesce(v_invoice_balance_due, 0) <= 0");
+    expect(migration).toContain("INVOICE_ALREADY_PAID");
+    expect(migration).toContain("now() + interval '7 days'");
     expect(migration).toContain("grant execute on function public.powerhub_create_portal_invoice_share_link");
+    expect(server).toContain('text.includes("PAYMENT_DOCUMENTATION_NOT_AVAILABLE")');
+    expect(server).toContain('text.includes("INVOICE_ALREADY_PAID")');
     const payloadMigration = read("supabase/migrations/20261012130500_powerhub_shared_invoice_scope_payload.sql");
     expect(payloadMigration).toContain("'siteId',v_invoice.site_id");
     expect(payloadMigration).toContain("'tenantId',v_link.tenant_id");
