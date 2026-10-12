@@ -72,8 +72,7 @@ begin
 
   return query select v_updated_at, false;
 end;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_prepare_manual_message_campaign(p_tenant_id bigint, p_site_id bigint, p_template_id bigint, p_operation_id uuid, p_subscriber_ids bigint[], p_actor_user_id bigint)
  RETURNS TABLE(campaign_id bigint, requested integer, queued integer, replayed boolean)
