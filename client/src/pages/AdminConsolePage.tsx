@@ -30,7 +30,7 @@ const paymentMethodLabels: Record<string, string> = { cash: "نقدي", wallet: 
 const notificationStatusLabels: Record<string, string> = { pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "مرسلة", delivered: "مرسلة", read: "مرسلة", failed: "غير مرسلة" };
 
 function statusLabel(status?: string) {
-  return ({ trial: "تجريبي", active: "فعّال", overdue: "متأخر", suspended: "معلّق", cancelled: "ملغي" } as Record<string, string>)[status ?? ""] ?? "غير مهيأ";
+  return ({ trial: "تجريبي", active: "فعّال", overdue: "متأخر", suspended: "معلّق", cancelled: "ملغي", expired: "منتهي", archived: "مؤرشف" } as Record<string, string>)[status ?? ""] ?? "غير مهيأ";
 }
 
 function HideUnusedSubscriberOverview() {
