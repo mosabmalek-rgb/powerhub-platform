@@ -32,6 +32,15 @@ describe("public invoice and inquiry actions", () => {
     expect(portal).toContain("/payment-documentation/public/");
   });
 
+  it("registers public payment documentation route without an authenticated route gate", () => {
+    const app = read("client/src/App.tsx");
+    const publicRoute = '<Route path={"/payment-documentation/public/:token"} component={PaymentDocumentationPage} />';
+    expect(app).toContain('const PaymentDocumentationPage = lazy(() => import("./pages/PaymentDocumentationPage"));');
+    expect(app).toContain(publicRoute);
+    expect(app.indexOf(publicRoute)).toBeLessThan(app.indexOf('<Route path={"/payment-documentation/review"}>'));
+    expect(app).toContain('<Route path={"/invoice/:token"} component={PublicInvoice} />');
+  });
+
   it("hides public payment documentation for paid, draft, and cancelled invoices", () => {
     const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
     const portal = read("client/src/pages/SubscriberPortalPage.tsx");
