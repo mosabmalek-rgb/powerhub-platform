@@ -40,7 +40,7 @@ export default function PublicInvoice() {
             {companyName ? <p className="mt-2 text-base font-bold text-slate-200 sm:text-lg">{companyName}</p> : null}
             <p className="mt-3"><span className="inline-flex rounded-full bg-[#F5B800]/10 px-3 py-1 text-xs font-bold text-[#F5B800]">فاتورة قابلة للمشاركة</span></p>
             <p className="mt-2 text-sm text-slate-400">صفحة عامة آمنة — تُعرض بعد اعتماد الفاتورة</p>
-            <p className="mt-4 text-xl font-extrabold text-white/95 sm:text-2xl">{subscriber?.fullName ?? "المشترك"}</p>
+            <p className="mt-4 text-2xl font-extrabold text-white/95">{subscriber?.fullName ?? "المشترك"}</p>
             <p className="mt-1 text-sm leading-6 text-slate-400">الفترة {invoice.billingPeriod}</p>
           </div>
         </header>
