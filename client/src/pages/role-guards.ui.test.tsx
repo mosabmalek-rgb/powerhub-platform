@@ -351,6 +351,26 @@ describe("role guards in administration UI", () => {
     expect(screen.queryByRole("button", { name: "حفظ المصروف" })).not.toBeInTheDocument();
   });
 
+  it("keeps the receiving company account inside the payment form without duplicate destination fields", () => {
+    mocks.activeRole = "owner";
+    render(<OperationsPage section="collections" />);
+    const form = screen.getByRole("button", { name: "تسجيل الدفعة" }).closest("form");
+    expect(form).not.toBeNull();
+    const destination = screen.getByRole("combobox", { name: "الحساب المستقبِل للتحصيل" });
+    expect(form).toContainElement(destination);
+    expect(screen.getByText(/سيُسجل التحصيل في حساب/)).toBeInTheDocument();
+    expect(form?.querySelector('[name="transferToAccount"]')).toBeNull();
+    expect(form?.querySelector('[name="transferToType"]')).toBeNull();
+  });
+
+  it("does not show collector session opening or closing controls to an owner", () => {
+    mocks.activeRole = "owner";
+    render(<OperationsPage section="collections" />);
+    expect(screen.queryByRole("button", { name: "فتح جلسة تحصيل" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إغلاق الجلسة" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /سجل جلسات التحصيل/ })).toBeInTheDocument();
+  });
+
   it("shows the collector session opening flow to the collector", () => {
     mocks.activeRole = "collector";
     render(<OperationsPage section="collections" />);
