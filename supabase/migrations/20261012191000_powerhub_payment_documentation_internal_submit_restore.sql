@@ -115,7 +115,7 @@ begin
 
   return query select v_request_id, false;
 end;
-$function$
+$function$;
 
 
 revoke all on function public.powerhub_submit_payment_documentation(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text,text,text,text,uuid) from public, anon, authenticated;
