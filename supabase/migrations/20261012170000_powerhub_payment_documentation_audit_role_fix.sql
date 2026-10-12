@@ -125,11 +125,11 @@ begin
   if v_request.status<>'pending' then raise exception 'PAYMENT_DOCUMENTATION_INVALID_STATE' using errcode='P0001'; end if;
 
   v_payment_no:=format('PH-EDOC-%s-%s',to_char(clock_timestamp(),'YYYYMMDDHH24MISSMS'),v_request.id);
-  select payment_id,replayed into v_payment_id,v_replayed
+  select created.payment_id, created.replayed into v_payment_id,v_replayed
   from public.powerhub_create_payment(p_tenant_id,p_site_id,p_user_id,v_request.subscriber_id,v_request.invoice_id,
     v_payment_no,v_request.payment_amount,v_request.payment_method,v_request.destination_account_id,v_request.sender_phone,
     case when v_request.payment_method<>'cash' then v_request.payment_method else null end,
-    v_request.reference_no,v_request.receipt_image_key,v_request.receipt_image_hash,null,gen_random_uuid());
+    v_request.reference_no,v_request.receipt_image_key,v_request.receipt_image_hash,null,gen_random_uuid()) as created;
 
   v_retention_until:=now()+interval '2 months';
   update public.payment_documentation_requests set status='approved',reviewed_by_user_id=p_user_id,reviewed_at=now(),
