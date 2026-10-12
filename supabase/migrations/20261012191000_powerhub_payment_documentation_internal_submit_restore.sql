@@ -67,7 +67,10 @@ begin
   if not v_account.allow_payment_documentation then raise exception 'COMPANY_ACCOUNT_NOT_ENABLED_FOR_PAYMENT_DOCUMENTATION' using errcode='P0001'; end if;
   if (p_payment_method='cash' and v_account.account_type<>'cash') or (p_payment_method<>'cash' and v_account.account_type='cash') then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;
 
-  if not exists (
+  if exists (
+    select 1 from public.company_account_sites
+    where account_id=v_account.id and tenant_id=p_tenant_id
+  ) and not exists (
     select 1 from public.company_account_sites
     where account_id=v_account.id and tenant_id=p_tenant_id and site_id=p_site_id
   ) then
