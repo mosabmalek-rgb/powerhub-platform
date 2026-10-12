@@ -128,6 +128,9 @@ describe("public invoice and inquiry actions", () => {
     expect(migration).toContain("(p_payment_method='cash' and v_account.account_type<>'cash')");
     expect(migration).toContain("(p_payment_method<>'cash' and v_account.account_type='cash')");
     expect(migration).not.toContain("p_payment_method='jawwal_pay' and v_account.account_type<>'jawwal_pay'");
+    const internalRestore = read("supabase/migrations/20261012191000_powerhub_payment_documentation_internal_submit_restore.sql");
+    expect(internalRestore).toContain("if (p_payment_method='cash' and v_account.account_type<>'cash') or (p_payment_method<>'cash' and v_account.account_type='cash')");
+    expect(internalRestore).toContain("from public, anon, authenticated");
   });
 
   it("shows full destination-account identity and offers a scoped receipt preview", () => {
@@ -171,8 +174,10 @@ describe("public invoice and inquiry actions", () => {
     const migration = read("supabase/migrations/20261012190000_powerhub_payment_documentation_source_destination_type_support.sql");
     expect(migration).toContain("if v_signature is not null then");
     expect(migration).toContain("elsif position(v_new in v_definition)=0 then");
-    expect(migration).toContain("powerhub_submit_public_payment_documentation");
-    expect(migration).toContain("powerhub_create_payment");
+    expect(migration).toContain("v_intermediate := $intermediate$if v_account.account_type<>p_payment_method");
+    expect(migration).toContain("public.powerhub_create_payment");
+    expect(migration).toContain("public.powerhub_submit_public_payment_documentation");
+    expect(migration).toContain("(p_payment_method<>'cash' and v_account.account_type='cash')");
   });
 
   it("revalidates identity, entitlement, invoice scope and balance in the database before link creation", () => {
