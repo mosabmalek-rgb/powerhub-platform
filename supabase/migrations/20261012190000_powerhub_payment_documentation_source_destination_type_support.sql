@@ -15,8 +15,11 @@ begin
   select pg_get_functiondef(v_signature) into v_definition;
   v_old := $old$if v_account.account_type<>p_payment_method then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$old$;
   v_new := $new$if (p_payment_method='cash' and v_account.account_type<>'cash') or (p_payment_method<>'cash' and v_account.account_type='cash') then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$new$;
-  if position(v_old in v_definition)=0 then raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: create_payment guard did not match current definition'; end if;
-  execute replace(v_definition,v_old,v_new);
+  if position(v_old in v_definition)>0 then
+    execute replace(v_definition,v_old,v_new);
+  elsif position(v_new in v_definition)=0 then
+    raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: create_payment guard did not match current or fixed definition';
+  end if;
 
   v_signature := to_regprocedure('public.powerhub_submit_payment_documentation(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text,text,text,text,uuid)');
   -- Some staging snapshots do not have the internal web submission RPC yet.
@@ -25,8 +28,11 @@ begin
     select pg_get_functiondef(v_signature) into v_definition;
     v_old := $old$if v_account.account_type <> p_payment_method then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$old$;
     v_new := $new$if (p_payment_method='cash' and v_account.account_type<>'cash') or (p_payment_method<>'cash' and v_account.account_type='cash') then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;$new$;
-    if position(v_old in v_definition)=0 then raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: internal submit guard did not match current definition'; end if;
-    execute replace(v_definition,v_old,v_new);
+    if position(v_old in v_definition)>0 then
+      execute replace(v_definition,v_old,v_new);
+    elsif position(v_new in v_definition)=0 then
+      raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: internal submit guard did not match current or fixed definition';
+    end if;
   end if;
 
   v_signature := to_regprocedure('public.powerhub_submit_public_payment_documentation(text,bigint,numeric,text,text,text,text,text,uuid)');
@@ -38,7 +44,10 @@ begin
   v_new := $new$if (p_payment_method='cash' and v_account.account_type<>'cash') or (p_payment_method<>'cash' and v_account.account_type='cash') then
     raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode = 'P0001';
   end if;$new$;
-  if position(v_old in v_definition)=0 then raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: public submit guard did not match current definition'; end if;
-  execute replace(v_definition,v_old,v_new);
+  if position(v_old in v_definition)>0 then
+    execute replace(v_definition,v_old,v_new);
+  elsif position(v_new in v_definition)=0 then
+    raise exception 'PAYMENT_DOC_SOURCE_DESTINATION_FIX: public submit guard did not match current or fixed definition';
+  end if;
 end
 $migration$;
