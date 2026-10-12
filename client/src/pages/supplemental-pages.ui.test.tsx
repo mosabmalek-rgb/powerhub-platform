@@ -45,7 +45,21 @@ vi.mock("@/lib/trpc", () => ({
       subscription: { currentUpgradeRequest: { useQuery: () => ({ data: null }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
       reports: { range: { useQuery: () => ({ data: report }) }, allBranchesRange: { useQuery: () => ({ data: { ...report, scope: { branchCount: 1 }, branchSummaries: [] } }) } },
       reportBranding: { get: { useQuery: () => ({ data: { companyName: "شركة التقرير", reportLogoKey: null, logoUrl: null } }) }, update: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
-      invoices: { publicByToken: { useQuery: () => ({ data: { invoice: { invoiceNo: "PH-PUBLIC-0001", billingPeriod: "2026-08", status: "issued", consumptionKwh: "42", balanceDue: "63" }, subscriber: { fullName: "مستخدم الرابط العام" }, lines: [{ id: 1, description: "استهلاك الكهرباء", amount: "63" }] }, isLoading: false, isError: false }) } },
+      invoices: { publicByToken: { useQuery: () => ({ data: {
+        companyName: "مولدات السيف",
+        companyLogoUrl: null,
+        invoice: {
+          invoiceNo: "PH-PUBLIC-0001", billingPeriod: "2026-08", status: "issued",
+          previousReading: "100.5", currentReading: "142.5", consumptionKwh: "42", pricePerKwh: "1.5",
+          fixedFee: 0, taxAmount: 0, balanceDue: "63",
+        },
+        subscriber: { fullName: "مستخدم الرابط العام" },
+        lines: [
+          { id: 1, description: "استهلاك الكهرباء", amount: "63" },
+          { id: 2, description: "الرسم الثابت", amount: "0" },
+          { id: 3, description: "الضريبة", amount: "0" },
+        ],
+      }, isLoading: false, isError: false }) } },
     },
   },
 }));
@@ -59,6 +73,26 @@ describe("supplemental PowerHub page review", () => {
     expect(screen.getByText(/مستخدم الرابط العام/)).toBeInTheDocument();
     expect(screen.getByText("PH-PUBLIC-0001")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /نسخ رابط الفاتورة/ })).toBeInTheDocument();
+  });
+
+  it("centers the shared invoice title, shows company name and reading details, and hides zero fee/tax lines", () => {
+    render(<PublicInvoice />);
+
+    const title = screen.getByRole("heading", { name: "فاتورة كهرباء" });
+    expect(title.parentElement).toHaveClass("text-center");
+    expect(screen.getByText("مولدات السيف")).toBeInTheDocument();
+    expect(screen.getByText("مستخدم الرابط العام")).toHaveClass("text-2xl");
+    expect(screen.getByText("القراءة السابقة")).toBeInTheDocument();
+    expect(screen.getByText("القراءة الحالية")).toBeInTheDocument();
+    expect(screen.getByText("سعر الكيلوواط")).toBeInTheDocument();
+    expect(screen.getByText(/١٠٠٫٥|100\.5/)).toBeInTheDocument();
+    expect(screen.getByText(/١٤٢٫٥|142\.5/)).toBeInTheDocument();
+    expect(screen.queryByText("الرسم الثابت")).not.toBeInTheDocument();
+    expect(screen.queryByText("الضريبة")).not.toBeInTheDocument();
+
+    const logo = screen.getByRole("img", { name: "PowerHub — منصة إدارة مولدات الكهرباء" });
+    expect(logo.querySelector("img")).toHaveClass("h-[6.75rem]");
+    expect(logo.querySelector("img")).toHaveClass("w-[21.6rem]");
   });
 
   it("selects the tenant site and displays the report's operational and financial data", async () => {

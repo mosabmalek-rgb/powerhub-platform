@@ -141,7 +141,17 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_normalize_subscriber_phones") return resolved([{ updated_count: 1, skipped_count: 0 }]);
       if (name === "powerhub_sync_invoice_sms_template") return resolved([{ template_id: 129 }]);
       if (name === "powerhub_create_invoice_share_link") return resolved([{ share_link_id: 128 }]);
-      if (name === "powerhub_get_shared_invoice_by_token_hash") return resolved({ invoice: { id: 70, invoice_no: "MAIN-202608-0001" }, subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, lines: [{ id: 129, invoice_id: 70, description: "استهلاك كهرباء" }] });
+      if (name === "powerhub_get_shared_invoice_by_token_hash") return resolved({
+        siteId: 10, tenantId: 20,
+        invoice: {
+          id: 70, subscriberId: 30, invoiceNo: "MAIN-202608-0001", billingPeriod: "2026-08",
+          issueDate: "2026-08-02T00:00:00.000Z", dueDate: "2026-08-16T00:00:00.000Z",
+          previousReading: 90, currentReading: 100, consumptionKwh: 10, pricePerKwh: 10,
+          fixedFee: 0, taxAmount: 0, discountAmount: 0, totalAmount: 100, paidAmount: 25, balanceDue: 75, status: "issued",
+        },
+        subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" },
+        lines: [{ id: 129, invoice_id: 70, description: "استهلاك كهرباء" }],
+      });
       if (name === "powerhub_update_report_branding") return resolved([{ company_name: "شركة الاختبار", report_logo_key: null }]);
       if (name === "powerhub_update_subscriber") return resolved([{ updated_at: "2026-08-03T00:00:00.000Z", replayed: false }]);
       if (name === "powerhub_bulk_upsert_subscribers") return resolved([{ created: [{ id: 31, sourceRow: 2, fullName: "مشترك اختبار", subscriberNo: "MAIN-NEW" }], updated: [], failed: [] }]);
@@ -1036,8 +1046,17 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const shared = await caller.invoices.createShareLink({ siteId: 10, invoiceId: 70 });
     expect(shared.path).toMatch(/^\/invoice\/.+/);
     const result = await caller.invoices.publicByToken({ token: shared.token });
-    expect(result).toMatchObject({ invoice: { id: 70, invoice_no: "MAIN-202608-0001" }, subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" }, lines: [{ description: "استهلاك كهرباء" }] });
-    expect(state.rpcCalls.map((call) => call.name)).toEqual(["powerhub_create_invoice_share_link", "powerhub_get_shared_invoice_by_token_hash"]);
+    expect(result).toMatchObject({
+      siteId: 10, companyName: "شركة المولد", companyLogoUrl: null, paymentDocumentationAvailable: true,
+      invoice: { id: 70, invoiceNo: "MAIN-202608-0001" },
+      subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" },
+      lines: [{ description: "استهلاك كهرباء" }],
+    });
+    expect(state.rpcCalls.map((call) => call.name)).toEqual([
+      "powerhub_create_invoice_share_link",
+      "powerhub_get_shared_invoice_by_token_hash",
+      "powerhub_payment_documentation_access",
+    ]);
   });
 
   it("يعتمد القراءة الميدانية ويصدر الفاتورة عبر RPC الذري دون MySQL", async () => {
