@@ -74,6 +74,7 @@ function Router() {
       <Route path={"/reports"}>{() => <RouteAccessGate><ReportsPage /></RouteAccessGate>}</Route>
       <Route path={"/financial-dashboard"}>{() => <RouteAccessGate><FinancialDashboardPage /></RouteAccessGate>}</Route>
       <Route path={"/financial-settlements"}>{() => <RouteAccessGate><FinancialSettlementsPage /></RouteAccessGate>}</Route>
+      <Route path={"/payment-documentation/public/:token"} component={PaymentDocumentationPage} />
       <Route path={"/payment-documentation/review"}>{() => <RouteAccessGate><PaymentDocumentationReviewPage /></RouteAccessGate>}</Route>
       <Route path={"/payment-documentation"}>{() => <RouteAccessGate><PaymentDocumentationPage /></RouteAccessGate>}</Route>
       <Route path={"/company-accounts"}>{() => <RouteAccessGate><CompanyAccountsPage /></RouteAccessGate>}</Route>
