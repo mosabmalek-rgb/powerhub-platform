@@ -157,6 +157,15 @@ describe("public invoice and inquiry actions", () => {
     expect(server).toContain('admin.rpc("powerhub_cycle_for_reading"');
     expect(server).toContain("paymentDocumentationGazaDateBoundary");
     expect(server).toContain('if (input.status !== "all") query = query.eq("status", input.status)');
+    expect(review).toContain('if (period === "current_cycle") return false');
+    expect(review).toContain("لا يمكن التحقق من مطابقة لقطة الطلبات لدورة القراءة الحالية دون اتصال");
+  });
+
+  it("keeps platform and tenant audit roles separate when the internal documentation request is submitted", () => {
+    const restoreMigration = read("supabase/migrations/20261012191000_powerhub_payment_documentation_internal_submit_restore.sql");
+    expect(restoreMigration).toContain("left join public.tenant_members m on m.user_id=u.id and m.tenant_id=p_tenant_id");
+    expect(restoreMigration).toContain("actor_platform_role, actor_tenant_role");
+    expect(restoreMigration).toContain("if v_platform_role not in ('platform_owner','platform_admin','finance_admin') then v_platform_role:=null; end if;");
   });
 
   it("restores the internal payment-documentation RPC and keeps its execution service-role-only", () => {
