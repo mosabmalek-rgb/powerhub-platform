@@ -81,7 +81,7 @@ describe("supplemental PowerHub page review", () => {
     const title = screen.getByRole("heading", { name: "فاتورة كهرباء" });
     expect(title.parentElement).toHaveClass("text-center");
     expect(screen.getByText("مولدات السيف")).toBeInTheDocument();
-    expect(screen.getByText("مستخدم الرابط العام")).toHaveClass("text-xl");
+    expect(screen.getByText("مستخدم الرابط العام")).toHaveClass("text-2xl");
     expect(screen.getByText("القراءة السابقة")).toBeInTheDocument();
     expect(screen.getByText("القراءة الحالية")).toBeInTheDocument();
     expect(screen.getByText("سعر الكيلوواط")).toBeInTheDocument();
