@@ -545,15 +545,19 @@ export const adminRouterWithSupabaseReadContracts = router({
     if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "لا يوجد حساب TweetSMS لهذا المولد." });
     let result: { ok: boolean; balance?: number; message?: string } = { ok: false, message: "تعذر فحص TweetSMS لهذا المولد." };
     try {
-      const credentials = decryptTweetSmsCredentials(account.credential_ciphertext, account.credential_iv);
-      const endpoint = account.api_endpoint;
-      const login = await checkTweetSmsAccount({ endpoint, credentials });
-      const sender = login.ok && account.sender_name ? await checkTweetSmsSender({ endpoint, credentials, sender: account.sender_name }) : null;
-      const balance = login.ok && (!sender || sender.ok) ? await checkTweetSmsBalance({ endpoint, credentials }) : null;
-      if (!login.ok) result = { ok: false, message: login.message };
-      else if (sender && !sender.ok) result = { ok: false, message: sender.message };
-      else if (!balance?.ok) result = { ok: false, message: balance?.message ?? "تعذر قراءة رصيد TweetSMS." };
-      else result = { ok: true, balance: balance.balance };
+      if (!account.sender_name?.trim()) {
+        result = { ok: false, message: "أدخل اسم المرسل المسجّل في TweetSMS قبل تأكيد الربط." };
+      } else {
+        const credentials = decryptTweetSmsCredentials(account.credential_ciphertext, account.credential_iv);
+        const endpoint = account.api_endpoint;
+        const login = await checkTweetSmsAccount({ endpoint, credentials });
+        const sender = login.ok ? await checkTweetSmsSender({ endpoint, credentials, sender: account.sender_name.trim() }) : null;
+        const balance = login.ok && sender?.ok ? await checkTweetSmsBalance({ endpoint, credentials }) : null;
+        if (!login.ok) result = { ok: false, message: login.message };
+        else if (!sender?.ok) result = { ok: false, message: sender?.message ?? "تعذر التحقق من اسم المرسل لدى TweetSMS." };
+        else if (!balance?.ok) result = { ok: false, message: balance?.message ?? "تعذر قراءة رصيد TweetSMS." };
+        else result = { ok: true, balance: balance.balance };
+      }
     } catch (cause) {
       result = { ok: false, message: cause instanceof Error ? cause.message : "تعذر فحص TweetSMS لهذا المولد." };
     }
