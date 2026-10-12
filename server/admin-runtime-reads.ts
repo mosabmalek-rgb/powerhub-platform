@@ -56,6 +56,101 @@ function decryptTweetSmsCredentials(ciphertext: string, iv: string): TweetSmsCre
 export const adminRouterWithSupabaseReadContracts = router({
   ...legacyRecord,
 
+  // List the tenant directory first, then attach optional TweetSMS configuration.
+  // An account row is created only after credentials are configured, so querying
+  // tenant_tweetsms_accounts alone hides every owner who still needs setup.
+  listTweetSmsAccounts: platformAdminProcedure.query(async () => {
+    const admin = supabaseAdmin();
+    const tenants: Array<Record<string, unknown>> = [];
+    const pageSize = 500;
+
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await admin
+        .from("tenants")
+        .select("id,name,status,created_at")
+        .order("created_at", { ascending: false })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قائمة أصحاب المولدات من Supabase." });
+      const page = (data ?? []) as Array<Record<string, unknown>>;
+      tenants.push(...page);
+      if (page.length < pageSize) break;
+    }
+
+    const tenantIds = tenants
+      .map((tenant) => Number(tenant.id))
+      .filter((tenantId) => Number.isSafeInteger(tenantId) && tenantId > 0);
+    if (!tenantIds.length) return [];
+
+    const [ownersResult, subscriptionsResult, accountsResult] = await Promise.all([
+      admin.from("tenant_owner_profiles")
+        .select("tenant_id,full_name,phone,whatsapp_number,company_name")
+        .in("tenant_id", tenantIds),
+      admin.from("tenant_subscriptions")
+        .select("tenant_id,package_code,status,ends_at,archived_at,created_at")
+        .in("tenant_id", tenantIds)
+        .order("created_at", { ascending: false }),
+      admin.from("tenant_tweetsms_accounts")
+        .select("id,tenant_id,api_endpoint,credential_ciphertext,credential_iv,sender_name,monthly_limit,is_active,last_tested_at,last_error,updated_at")
+        .in("tenant_id", tenantIds)
+        .order("updated_at", { ascending: false }),
+    ]);
+
+    if (ownersResult.error || subscriptionsResult.error || accountsResult.error) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات إعدادات TweetSMS لأصحاب المولدات." });
+    }
+
+    const ownersByTenant = new Map<number, Record<string, unknown>>();
+    for (const owner of (ownersResult.data ?? []) as Array<Record<string, unknown>>) {
+      const tenantId = Number(owner.tenant_id);
+      if (!ownersByTenant.has(tenantId)) ownersByTenant.set(tenantId, owner);
+    }
+
+    // Subscription history may contain multiple rows for the same tenant.
+    // The query is ordered newest-first; retain only the current/latest row.
+    const subscriptionsByTenant = new Map<number, Record<string, unknown>>();
+    for (const subscription of (subscriptionsResult.data ?? []) as Array<Record<string, unknown>>) {
+      const tenantId = Number(subscription.tenant_id);
+      if (!subscriptionsByTenant.has(tenantId)) subscriptionsByTenant.set(tenantId, subscription);
+    }
+
+    const accountsByTenant = new Map<number, Record<string, unknown>>();
+    for (const account of (accountsResult.data ?? []) as Array<Record<string, unknown>>) {
+      const tenantId = Number(account.tenant_id);
+      if (!accountsByTenant.has(tenantId)) accountsByTenant.set(tenantId, account);
+    }
+
+    return tenants.map((tenant) => {
+      const tenantId = Number(tenant.id);
+      const owner = ownersByTenant.get(tenantId);
+      const subscription = subscriptionsByTenant.get(tenantId);
+      const account = accountsByTenant.get(tenantId);
+      const monthlyLimit = Number(account?.monthly_limit ?? 0);
+      return {
+        id: account ? Number(account.id) : null,
+        tenantId,
+        tenantName: String(tenant.name ?? owner?.company_name ?? `مساحة #${tenantId}`),
+        ownerName: typeof owner?.full_name === "string" ? owner.full_name : null,
+        ownerPhone: typeof owner?.phone === "string" ? owner.phone : typeof owner?.whatsapp_number === "string" ? owner.whatsapp_number : null,
+        tenantStatus: typeof tenant.status === "string" ? tenant.status : null,
+        packageCode: typeof subscription?.package_code === "string" ? subscription.package_code : null,
+        subscriptionStatus: subscription?.archived_at ? "archived" : typeof subscription?.status === "string" ? subscription.status : null,
+        subscriptionEndsAt: typeof subscription?.ends_at === "string" ? subscription.ends_at : null,
+        apiEndpoint: typeof account?.api_endpoint === "string" ? account.api_endpoint : null,
+        senderName: typeof account?.sender_name === "string" ? account.sender_name : null,
+        monthlyLimit,
+        usedThisMonth: 0,
+        remaining: monthlyLimit,
+        isActive: Boolean(account?.is_active),
+        // Encrypted credential fields are used only to derive a boolean and are
+        // intentionally never returned to the browser.
+        configured: Boolean(account?.credential_ciphertext && account?.credential_iv),
+        lastTestedAt: account?.last_tested_at ?? null,
+        lastError: typeof account?.last_error === "string" ? account.last_error.slice(0, 500) : null,
+        updatedAt: account?.updated_at ?? null,
+      };
+    });
+  }),
+
   savePlatformTweetSmsAccount: platformAdminProcedure.input(centralTweetSmsAccountInput).mutation(async ({ ctx, input }) => {
     const credentials = runtimeCentralTweetSmsCredentials();
     const encrypted = credentials ? encryptTenantCredential(JSON.stringify(credentials)) : null;
