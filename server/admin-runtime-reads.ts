@@ -48,7 +48,7 @@ function safeTweetSmsDiagnostic(message: string, credentials?: TweetSmsCredentia
     safe = safe.split(encodeURIComponent(secret)).join("[مخفي]");
   }
   return safe
-    .replace(/((?:api[_ -]?key|api[_ -]?secret|token|secret)\\s*[:=]\\s*)[^&\\s,;]+/gi, "$1[مخفي]")
+    .replace(/((?:api[_ -]?key|api[_ -]?secret|token|secret)\s*[:=]\s*)[^&\s,;]+/gi, "$1[مخفي]")
     .slice(0, 500);
 }
 
@@ -584,6 +584,6 @@ export const adminRouterWithSupabaseReadContracts = router({
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ نتيجة فحص TweetSMS في Supabase." });
     }
     const row = data?.[0];
-    return { ok: result.ok, balance: result.balance ?? null, message: result.message ?? null, accountActive: Boolean(row?.is_active) };
+    return { ok: result.ok, balance: result.balance ?? null, message: safeMessage, accountActive: Boolean(row?.is_active) };
   }),
 });
