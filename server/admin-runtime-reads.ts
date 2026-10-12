@@ -178,15 +178,18 @@ export const adminRouterWithSupabaseReadContracts = router({
     if (accountError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حساب TweetSMS المركزي من Supabase." });
     if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "لم يتم إعداد حساب TweetSMS المركزي." });
     let result: { ok: boolean; balance?: number; message?: string } = { ok: false, message: "تعذر فحص حساب TweetSMS المركزي." };
+    let credentialsForRedaction: TweetSmsCredentialsShape | null = null;
     try {
       const credentials = account.credential_ciphertext && account.credential_iv ? JSON.parse(decryptTenantCredential(account.credential_ciphertext, account.credential_iv)) as TweetSmsCredentialsShape : runtimeCentralTweetSmsCredentials();
+      credentialsForRedaction = credentials;
       if (!credentials) throw new Error("لم تُحفظ بيانات اعتماد TweetSMS بعد.");
       const login = await checkTweetSmsAccount({ endpoint: account.api_endpoint, credentials });
       const sender = login.ok && account.sender_name ? await checkTweetSmsSender({ endpoint: account.api_endpoint, credentials, sender: account.sender_name }) : null;
       const balance = login.ok && (!sender || sender.ok) ? await checkTweetSmsBalance({ endpoint: account.api_endpoint, credentials }) : null;
       if (!login.ok) result = { ok: false, message: login.message }; else if (sender && !sender.ok) result = { ok: false, message: sender.message }; else if (!balance?.ok) result = { ok: false, message: balance?.message ?? "تعذر قراءة رصيد TweetSMS." }; else result = { ok: true, balance: balance.balance };
     } catch (cause) { result = { ok: false, message: cause instanceof Error ? cause.message : "تعذر فحص حساب TweetSMS المركزي." }; }
-    const { data, error } = await admin.rpc("powerhub_record_platform_tweetsms_test", { p_user_id: ctx.user.id, p_success: result.ok, p_balance: Number.isFinite(result.balance) ? Math.max(0, Math.round(result.balance ?? 0)) : null, p_error: result.ok ? null : result.message });
+    const safeMessage = result.message ? safeTweetSmsDiagnostic(result.message, credentialsForRedaction) : null;
+    const { data, error } = await admin.rpc("powerhub_record_platform_tweetsms_test", { p_user_id: ctx.user.id, p_success: result.ok, p_balance: Number.isFinite(result.balance) ? Math.max(0, Math.round(result.balance ?? 0)) : null, p_error: result.ok ? null : safeMessage });
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل نتيجة فحص TweetSMS المركزي في Supabase." });
     const row = data?.[0];
     return { ok: result.ok, balance: result.balance ?? null, message: safeMessage, accountActive: Boolean(row?.is_active) };
