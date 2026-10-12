@@ -43,7 +43,7 @@ vi.mock("@/lib/trpc", () => ({
       listSmsPlans: { useQuery: () => ({ data: [{ id: 1, code: "starter-sms", name: "باقة جوال الأساسية", includedMessages: 100, isActive: true, description: "اختبار" }] }) },
       listSmsPackageRequests: { useQuery: () => ({ data: [] }) },
       listTweetSmsAccounts: { useQuery: () => ({ data: [
-        { id: 7, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerPhone: "0790000000", apiEndpoint: "https://api.example.test", senderName: "MouldNorth", monthlyLimit: 500, usedThisMonth: 42, remaining: 458, isActive: true, configured: true, subscriptionStatus: "active", lastTestedAt: null, lastError: null, updatedAt: new Date() },
+        { id: 7, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerPhone: "0790000000", apiEndpoint: "https://api.example.test", senderName: "MouldNorth", monthlyLimit: 500, usedThisMonth: 42, remaining: 458, providerBalance: 80, lastBalanceCheckedAt: new Date("2026-10-12T10:00:00.000Z"), isActive: true, configured: true, subscriptionStatus: "active", lastTestedAt: new Date("2026-10-12T10:00:00.000Z"), lastError: null, updatedAt: new Date() },
         { id: null, tenantId: 10, tenantName: "مساحة مولد جديد", ownerName: "مالك جديد", ownerPhone: "0790000010", apiEndpoint: null, senderName: null, monthlyLimit: 0, usedThisMonth: 0, remaining: 0, isActive: false, configured: false, subscriptionStatus: "active", lastTestedAt: null, lastError: null, updatedAt: null },
       ] }) },
       getPlatformTweetSmsAccount: { useQuery: () => ({ data: { id: 1, apiEndpoint: "https://tweetsms.ps", senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: new Date(), lastTestedAt: new Date(), lastError: null, isActive: true, configured: true } }) },
@@ -134,6 +134,8 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("حسابات TweetSMS لأصحاب المولدات")).toBeInTheDocument();
     expect(screen.getByText("مالك جديد")).toBeInTheDocument();
     expect(screen.getByText("بانتظار API")).toBeInTheDocument();
+    expect(screen.getByText("تم التحقق من الربط")).toBeInTheDocument();
+    expect(screen.getByText(/رصيد المزود:/)).toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getByText("مولدات محظورة")).toBeInTheDocument();
     fireEvent.click(sidebarNav("التنبيهات والإشعارات"));
