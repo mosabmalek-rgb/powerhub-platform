@@ -1200,6 +1200,14 @@ export const powerhubRouter = router({
     }),
     lookup: publicProcedure.input(subscriberPortalLookupInput).query(async ({ input }) => {
       const { portal, subscriber, invoices: subscriberInvoices, payments: completedPayments } = await getVerifiedPortalSubscriber(input);
+      const portalTenant = await supabaseAdmin().from("site_portal_settings").select("tenant_id").eq("portal_code", input.portalCode).eq("is_enabled", true).maybeSingle();
+      if (portalTenant.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إعدادات بوابة الاستعلام." });
+      let paymentDocumentationAvailable = false;
+      if (portalTenant.data?.tenant_id) {
+        const feature = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(portalTenant.data.tenant_id) });
+        if (feature.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع." });
+        paymentDocumentationAvailable = Boolean(feature.data?.[0]?.allowed);
+      }
       const currentPeriod = new Date().toISOString().slice(0, 7);
       const currentInvoice = subscriberInvoices.find((invoice) => invoice.billingPeriod === currentPeriod);
       const outstandingBalance = subscriberInvoices.reduce((total, invoice) => total + Number(invoice.balanceDue || 0), 0);
@@ -1240,6 +1248,7 @@ export const powerhubRouter = router({
         })),
         consumptionHistory: subscriberInvoices.slice(0, 6).reverse().map((invoice) => ({ period: invoice.billingPeriod, consumptionKwh: Number(invoice.consumptionKwh) })),
         payments: completedPayments.map((payment) => ({ ...payment, amount: Number(payment.amount) })),
+        paymentDocumentationAvailable,
       };
     }),
     shareInvoice: publicProcedure.input(subscriberPortalLookupInput.extend({ invoiceNo: z.string().trim().min(1).max(60) })).mutation(async ({ input }) => {
