@@ -19,12 +19,68 @@ describe("public invoice and inquiry actions", () => {
   it("gates public inquiry payment documentation by entitlement and outstanding balance", () => {
     const server = read("server/powerhub.ts");
     const portal = read("client/src/pages/SubscriberPortalPage.tsx");
+    const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
+    const paymentPage = read("client/src/pages/PaymentDocumentationPage.tsx");
     expect(server).toContain('rpc("powerhub_payment_documentation_access"');
     expect(server).toContain("paymentDocumentationAvailable,");
+    expect(publicInvoice).toContain('!["draft", "cancelled", "paid"].includes(String(invoice.status).toLowerCase())');
+    expect(paymentPage).toContain('!["draft", "cancelled", "paid"].includes(String(invoice?.status ?? "").toLowerCase())');
     expect(portal).toContain("portalData.paymentDocumentationAvailable");
     expect(portal).toContain("Number(invoice.balanceDue) > 0");
+    expect(portal).toContain('!["draft", "cancelled", "paid"].includes(String(invoice.status).toLowerCase())');
     expect(portal).toContain("shareInvoice.useMutation");
     expect(portal).toContain("/payment-documentation/public/");
+  });
+
+  it("hides public payment documentation for paid, draft, and cancelled invoices", () => {
+    const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
+    const portal = read("client/src/pages/SubscriberPortalPage.tsx");
+    const paymentPage = read("client/src/pages/PaymentDocumentationPage.tsx");
+    for (const source of [publicInvoice, portal, paymentPage]) {
+      expect(source).toContain('"draft", "cancelled", "paid"');
+      expect(source).toContain("balanceDue");
+    }
+  });
+
+  it("keeps payment-documentation approval atomic with payment, collection, invoice balance, and audit", () => {
+    const approvalMigration = read("supabase/migrations/20260920200000_powerhub_payment_documentation_receipt_retention.sql");
+    const paymentMigration = read("supabase/migrations/0014_powerhub_create_payment_rpc.sql");
+    const server = read("server/powerhub.ts");
+
+    expect(server).toContain('rpc("powerhub_approve_payment_documentation"');
+    expect(approvalMigration).toContain("create or replace function public.powerhub_approve_payment_documentation");
+    expect(approvalMigration).toContain("from public.powerhub_create_payment(");
+    expect(approvalMigration).toContain("set status='approved'");
+    expect(approvalMigration).toContain("payment_id=v_payment_id");
+    expect(approvalMigration).toContain("insert into public.audit_logs");
+    expect(paymentMigration).toContain("insert into public.payments");
+    expect(paymentMigration).toContain("insert into public.account_transactions");
+    expect(paymentMigration).toContain("'collection'");
+    expect(paymentMigration).toContain("update public.invoices");
+    expect(paymentMigration).toContain("actor_platform_role");
+  });
+
+  it("keeps platform and tenant audit roles separate in payment approval migrations", () => {
+    const paymentMigration = read("supabase/migrations/20261012170000_powerhub_payment_documentation_audit_role_fix.sql");
+
+    expect(paymentMigration).toContain("create or replace function public.powerhub_create_payment");
+    expect(paymentMigration).toContain("create or replace function public.powerhub_approve_payment_documentation");
+    expect(paymentMigration).toContain("create or replace function public.powerhub_reject_payment_documentation");
+    expect(paymentMigration).toContain("left join public.tenant_members m on m.user_id=u.id and m.tenant_id=p_tenant_id");
+    expect(paymentMigration).toContain("actor_platform_role,actor_tenant_role");
+    expect(paymentMigration).toContain("if v_platform_role not in ('platform_owner','platform_admin','finance_admin') then v_platform_role:=null; end if;");
+    expect(paymentMigration).toContain("insert into public.account_transactions");
+    expect(paymentMigration).toContain("'collection'");
+    expect(paymentMigration).toContain("update public.invoices");
+  });
+
+  it("does not write public visitors into the constrained platform audit role", () => {
+    const migration = read("supabase/migrations/20261012183000_powerhub_public_payment_documentation_audit_role_fix.sql");
+
+    expect(migration.toLowerCase()).toContain("create or replace function public.powerhub_submit_public_payment_documentation");
+    expect(migration).toContain("v_link.tenant_id, v_invoice.site_id, null, null,");
+    expect(migration).toContain("'submissionSource', 'public_invoice_share_link'");
+    expect(migration).not.toContain("null, 'public',");
   });
 
   it("uses the entitled subscriber portal logo and falls back to the platform logo", () => {
@@ -43,7 +99,7 @@ describe("public invoice and inquiry actions", () => {
     const server = read("server/powerhub.ts");
 
     expect(migration).toContain("create or replace function public.powerhub_get_public_payment_documentation_context");
-    expect(migration).toContain("create or replace function public.powerhub_submit_public_payment_documentation");
+    expect(migration.toLowerCase()).toContain("create or replace function public.powerhub_submit_public_payment_documentation");
     expect(migration).toContain("revoke all on function public.powerhub_get_public_payment_documentation_context(text)");
     expect(migration).toContain("grant execute on function public.powerhub_get_public_payment_documentation_context(text) to service_role");
     expect(migration).toContain("grant execute on function public.powerhub_submit_public_payment_documentation(text, bigint, numeric, text, text, text, text, text, uuid) to service_role");

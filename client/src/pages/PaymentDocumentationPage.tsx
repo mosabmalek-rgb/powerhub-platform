@@ -209,7 +209,7 @@ function PublicPaymentDocumentationView({ token, loading, error, context, submit
   const invoice=context.invoice;
   const subscriber=context.subscriber;
   const accounts=context.accounts ?? [];
-  const canPay=Boolean(context.paymentDocumentationAvailable && Number(invoice?.balanceDue)>0 && invoice?.status!=="cancelled");
+  const canPay=Boolean(context.paymentDocumentationAvailable && Number(invoice?.balanceDue)>0 && !["draft", "cancelled", "paid"].includes(String(invoice?.status ?? "").toLowerCase()));
 
   if (submitted) return <div className="min-h-screen bg-[#0D1117] px-4 py-10" dir="rtl"><main className="mx-auto max-w-xl rounded-[28px] border border-white/10 bg-[#111823] p-8 text-center shadow-2xl"><div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-emerald-400/10 text-emerald-300"><CheckCircle2 className="h-8 w-8" /></div><h1 className="mt-5 text-2xl font-extrabold text-white">تم إرسال طلب توثيق الدفع</h1><p className="mt-3 leading-7 text-slate-400">تم تسجيل الطلب للمراجعة، ولن تُحتسب الحركة المالية إلا بعد الاعتماد.</p><p className="mt-5 text-sm text-slate-500">الفاتورة: {invoice.invoiceNo}</p></main></div>;
 
