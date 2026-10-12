@@ -70,7 +70,7 @@ export const adminRouterWithSupabaseReadContracts = router({
   // List the tenant directory first, then attach optional TweetSMS configuration.
   // An account row is created only after credentials are configured, so querying
   // tenant_tweetsms_accounts alone hides every owner who still needs setup.
-  listTweetSmsAccounts: platformAdminProcedure.query(async () => {
+  listTweetSmsAccounts: platformAdminProcedure.query(async ({ ctx }) => {
     const admin = supabaseAdmin();
     const tenants: Array<Record<string, unknown>> = [];
     const pageSize = 500;
@@ -92,7 +92,7 @@ export const adminRouterWithSupabaseReadContracts = router({
       .filter((tenantId) => Number.isSafeInteger(tenantId) && tenantId > 0);
     if (!tenantIds.length) return [];
 
-    const [ownersResult, subscriptionsResult, accountsResult] = await Promise.all([
+    const [ownersResult, subscriptionsResult, accountsResult, quotaSummaryResult] = await Promise.all([
       admin.from("tenant_owner_profiles")
         .select("tenant_id,full_name,phone,whatsapp_number,company_name")
         .in("tenant_id", tenantIds),
@@ -104,9 +104,10 @@ export const adminRouterWithSupabaseReadContracts = router({
         .select("id,tenant_id,api_endpoint,credential_ciphertext,credential_iv,sender_name,monthly_limit,is_active,last_provider_balance,last_balance_checked_at,last_tested_at,last_error,updated_at")
         .in("tenant_id", tenantIds)
         .order("updated_at", { ascending: false }),
+      admin.rpc("powerhub_admin_tweetsms_quota_summary", { p_user_id: ctx.user.id, p_tenant_ids: tenantIds }),
     ]);
 
-    if (ownersResult.error || subscriptionsResult.error || accountsResult.error) {
+    if (ownersResult.error || subscriptionsResult.error || accountsResult.error || quotaSummaryResult.error) {
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات إعدادات TweetSMS لأصحاب المولدات." });
     }
 
@@ -124,6 +125,11 @@ export const adminRouterWithSupabaseReadContracts = router({
       if (!subscriptionsByTenant.has(tenantId)) subscriptionsByTenant.set(tenantId, subscription);
     }
 
+    const quotasByTenant = new Map<number, Record<string, unknown>>();
+    for (const quota of (quotaSummaryResult.data ?? []) as Array<Record<string, unknown>>) {
+      quotasByTenant.set(Number(quota.tenant_id), quota);
+    }
+
     const accountsByTenant = new Map<number, Record<string, unknown>>();
     for (const account of (accountsResult.data ?? []) as Array<Record<string, unknown>>) {
       const tenantId = Number(account.tenant_id);
@@ -135,7 +141,11 @@ export const adminRouterWithSupabaseReadContracts = router({
       const owner = ownersByTenant.get(tenantId);
       const subscription = subscriptionsByTenant.get(tenantId);
       const account = accountsByTenant.get(tenantId);
-      const monthlyLimit = Number(account?.monthly_limit ?? 0);
+      const quota = quotasByTenant.get(tenantId);
+      const monthlyLimitMode = String(quota?.monthly_limit_mode ?? "inherit");
+      const monthlyLimit = monthlyLimitMode === "unlimited" ? null : Number(quota?.monthly_limit ?? 0);
+      const usedThisMonth = Number(quota?.used_this_month ?? 0);
+      const remaining = monthlyLimitMode === "unlimited" ? null : Number(quota?.remaining ?? monthlyLimit ?? 0);
       return {
         id: account ? Number(account.id) : null,
         tenantId,
@@ -149,8 +159,11 @@ export const adminRouterWithSupabaseReadContracts = router({
         apiEndpoint: typeof account?.api_endpoint === "string" ? account.api_endpoint : null,
         senderName: typeof account?.sender_name === "string" ? account.sender_name : null,
         monthlyLimit,
-        usedThisMonth: 0,
-        remaining: monthlyLimit,
+        monthlyLimitMode,
+        smsFeatureEligible: Boolean(quota?.sms_feature_eligible),
+        smsFeatureEnabled: Boolean(quota?.sms_feature_enabled),
+        usedThisMonth,
+        remaining,
         providerBalance: account?.last_provider_balance === null || account?.last_provider_balance === undefined ? null : Number(account.last_provider_balance),
         lastBalanceCheckedAt: account?.last_balance_checked_at ?? null,
         isActive: Boolean(account?.is_active),
