@@ -44,5 +44,9 @@ describe("public invoice and inquiry actions", () => {
     expect(migration).toContain("powerhub_subscriber_portal_invoice(");
     expect(migration).toContain("now()+interval '7 days'");
     expect(migration).toContain("grant execute on function public.powerhub_create_portal_invoice_share_link");
+    const payloadMigration = read("supabase/migrations/20261012130500_powerhub_shared_invoice_scope_payload.sql");
+    expect(payloadMigration).toContain("'siteId',v_invoice.site_id");
+    expect(payloadMigration).toContain("'tenantId',v_link.tenant_id");
+    expect(payloadMigration).toContain("grant execute on function public.powerhub_get_shared_invoice_by_token_hash(text)");
   });
 });
