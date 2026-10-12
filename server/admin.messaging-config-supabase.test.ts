@@ -139,7 +139,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     expect(rows[0]).toMatchObject({ tenantId: 20, ownerName: "مالك مهيأ", ownerPhone: "0590000020", id: 31, configured: true, isActive: false, subscriptionStatus: "active" });
     expect(rows[1]).toMatchObject({ tenantId: 21, ownerName: "مالك جديد", ownerPhone: "0590000021", id: null, configured: false, isActive: false, subscriptionStatus: "active" });
     expect(JSON.stringify(rows)).not.toContain("cipher-fixture");
-    expect(JSON.stringify(rows)).not.toContain("cipher-fixture");
+    expect(JSON.stringify(rows)).not.toContain("iv-fixture");
     expect(state.calls).toEqual(["tenants", "tenant_owner_profiles", "tenant_subscriptions", "tenant_tweetsms_accounts"]);
     state.rows.tenants = originalRows.tenants;
     state.rows.tenant_owner_profiles = originalRows.tenant_owner_profiles;
