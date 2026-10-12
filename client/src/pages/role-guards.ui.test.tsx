@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BillingPage from "./BillingPage";
 import FlexiblePermissionsPanel from "@/components/FlexiblePermissionsPanel";
 import MessagingSettingsPage from "./MessagingSettingsPage";
 import MeterReadingsPage from "./MeterReadingsPage";
+import BulkReadingEntry from "@/components/BulkReadingEntry";
 import NetworkDirectoryPage from "./NetworkDirectoryPage";
 import OperationsPage from "./OperationsPage";
 import SettingsPage from "./SettingsPage";
@@ -27,6 +28,10 @@ const mocks = vi.hoisted(() => {
   bulkInvoiceSendDetails: { items: [] as any[] },
   payments: [] as any[],
   createShareLink: vi.fn(),
+  createSubscriberMutate: vi.fn(),
+  createGeneratorMutate: vi.fn(),
+  createReadingMutate: vi.fn(),
+  createReadingMutateAsync: vi.fn(async () => ({ status: "approved", readingId: 900, invoiceId: 901 })),
   sendDeferredInvoices: vi.fn(),
   sendPendingSms: vi.fn(),
   sendBulkInvoiceSms: vi.fn(),
@@ -68,11 +73,11 @@ vi.mock("@/lib/trpc", () => ({
       readingCycle: { get: { useQuery: () => mocks.query({ cycleType: "MONTHLY", weeklyStartDay: 7, monthlyStartDay: 1 }) }, save: { useMutation: mocks.mutation } },
       staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, archived: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"] }) }, assign: { useMutation: mocks.mutation }, archive: { useMutation: mocks.mutation }, restore: { useMutation: mocks.mutation }, setActive: { useMutation: mocks.mutation }, suspend: { useMutation: mocks.mutation }, clearSuspension: { useMutation: mocks.mutation }, create: { useMutation: mocks.mutation }, activity: { useQuery: () => mocks.query([]) }, resetPassword: { useMutation: mocks.mutation }, customRoles: { useQuery: () => mocks.query([]) }, permissionChanges: { useQuery: () => mocks.query([]) }, updatePermissions: { useMutation: mocks.mutation }, saveCustomRole: { useMutation: mocks.mutation }, deleteCustomRole: { useMutation: mocks.mutation } },
       meters: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
-      readings: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: () => mocks.query({ items: [], hasNext: false, nextCursor: null }) }, create: { useMutation: mocks.mutation }, getImage: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } }, mobileSync: { approveAndIssue: { useMutation: mocks.mutation } },
+      readings: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: () => mocks.query({ items: [], hasNext: false, nextCursor: null }) }, create: { useMutation: () => ({ mutate: mocks.createReadingMutate, mutateAsync: mocks.createReadingMutateAsync, isPending: false }) }, getImage: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } }, mobileSync: { approveAndIssue: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, page: { useQuery: () => mocks.query({ items: mocks.invoices, hasNext: false, nextCursor: null }) }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
-      subscribers: { list: { useQuery: () => mocks.query(mocks.subscribers) }, quota: { useQuery: () => mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "basic" }) }, phoneReview: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation } },
-      generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
+      subscribers: { list: { useQuery: () => mocks.query(mocks.subscribers) }, quota: { useQuery: () => mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "basic" }) }, phoneReview: { useQuery: () => mocks.query([]) }, create: { useMutation: () => ({ mutate: mocks.createSubscriberMutate, isPending: false }) }, bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation } },
+      generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: () => ({ mutate: mocks.createGeneratorMutate, isPending: false }) }, update: { useMutation: mocks.mutation } },
       payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: () => mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }) }, create: { useMutation: mocks.mutation } },
       companyAccounts: {
         list: {
@@ -99,7 +104,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("keeps invoice issuance automatic and hides manual issue controls from the viewer", () => {
@@ -198,6 +203,62 @@ describe("role guards in administration UI", () => {
     expect(mocks.retryFailedInvoiceNotifications).toHaveBeenCalledWith({ siteId: 1, notificationIds: [101] });
   });
 
+  it("submits a new subscriber with normalized form fields through the real mutation path", async () => {
+    mocks.activeRole = "owner";
+    mocks.createSubscriberMutate.mockImplementation((input: unknown) => {
+      expect(input).toMatchObject({ siteId: 1, fullName: "مشترك تجريبي", phone: "0599000000", subscriptionType: "residential", serviceStatus: "active", openingReadingApproved: false });
+    });
+    render(<NetworkDirectoryPage kind="subscribers" />);
+    fireEvent.click(screen.getByRole("button", { name: "فتح البطاقة" }));
+    fireEvent.change(screen.getByLabelText("الاسم"), { target: { value: "مشترك تجريبي" } });
+    fireEvent.change(screen.getByLabelText("رقم الجوال"), { target: { value: "0599000000" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة المشترك" }));
+    await waitFor(() => expect(mocks.createSubscriberMutate).toHaveBeenCalledTimes(1));
+  });
+
+  it("submits a new generator through the real create mutation path", async () => {
+    mocks.activeRole = "technician";
+    mocks.createGeneratorMutate.mockImplementation((input: unknown) => {
+      expect(input).toMatchObject({ siteId: 1, code: "GEN-TEST-01", name: "مولد اختبار", fuelType: "diesel" });
+    });
+    render(<NetworkDirectoryPage kind="generators" />);
+    fireEvent.change(screen.getByLabelText("رمز المولد"), { target: { value: "GEN-TEST-01" } });
+    fireEvent.change(screen.getByLabelText("الاسم"), { target: { value: "مولد اختبار" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة المولد" }));
+    await waitFor(() => expect(mocks.createGeneratorMutate).toHaveBeenCalledTimes(1));
+  });
+
+  it("validates the reading form before calling the create mutation", async () => {
+    mocks.activeRole = "owner";
+    render(<MeterReadingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: /حفظ القراءة واعتمادها/ }));
+    expect(await screen.findByText("اختر المشترك قبل حفظ القراءة.")).toBeInTheDocument();
+    expect(mocks.createReadingMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("previews and submits valid bulk readings through the create mutation", async () => {
+    mocks.activeRole = "owner";
+    mocks.subscribers = [{ id: 77, fullName: "مشترك جماعي", subscriberNo: "PH-BULK-77", phone: "+970599000077", serviceStatus: "active" }];
+    render(<BulkReadingEntry siteId={1} subscribers={mocks.subscribers} readings={[]} onSaved={async () => {}} />);
+    const inputs = screen.getAllByRole("textbox");
+    fireEvent.change(inputs[0], { target: { value: "PH-BULK-77" } });
+    fireEvent.change(inputs[1], { target: { value: "12.52" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ القراءات السليمة" }));
+    await waitFor(() => expect(mocks.createReadingMutateAsync).toHaveBeenCalledTimes(1));
+    expect(mocks.createReadingMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ siteId: 1, subscriberId: 77, readingValue: "12.52" }));
+  });
+
+  it("collapses the add-subscriber card by default and opens it on request", () => {
+    mocks.activeRole = "owner";
+    render(<NetworkDirectoryPage kind="subscribers" />);
+    expect(screen.getByText("إضافة مشترك")).toHaveClass("font-extrabold");
+    expect(screen.getByRole("button", { name: "فتح البطاقة" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إضافة المشترك" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "فتح البطاقة" }));
+    expect(screen.getByRole("button", { name: "طي البطاقة" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إضافة المشترك" })).toBeInTheDocument();
+  });
+
   it("renders the subscriber directory in read-only mode for the viewer", () => {
     mocks.subscribers = [{ id: 101, fullName: "مشترك الاختبار", subscriberNo: "PH-TEST-ABC123", phone: "+970700000000", subscriptionType: "residential", serviceStatus: "active" }];
     render(<NetworkDirectoryPage kind="subscribers" />);
@@ -288,6 +349,27 @@ describe("role guards in administration UI", () => {
     mocks.activeRole = "collector";
     render(<OperationsPage section="expenses" />);
     expect(screen.queryByRole("button", { name: "حفظ المصروف" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the receiving company account inside the payment form without duplicate destination fields", () => {
+    mocks.activeRole = "owner";
+    render(<OperationsPage section="collections" />);
+    const form = screen.getByRole("button", { name: "تسجيل الدفعة" }).closest("form");
+    expect(form).not.toBeNull();
+    const destination = screen.getByRole("combobox", { name: "الحساب المستقبِل للتحصيل" });
+    expect(form).toContainElement(destination);
+    fireEvent.change(destination, { target: { value: "90" } });
+    expect(screen.getByText(/سيُسجل التحصيل في حساب/)).toBeInTheDocument();
+    expect(form?.querySelector('[name="transferToAccount"]')).toBeNull();
+    expect(form?.querySelector('[name="transferToType"]')).toBeNull();
+  });
+
+  it("does not show collector session opening or closing controls to an owner", () => {
+    mocks.activeRole = "owner";
+    render(<OperationsPage section="collections" />);
+    expect(screen.queryByRole("button", { name: "فتح جلسة تحصيل" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إغلاق الجلسة" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /سجل جلسات التحصيل/ })).toBeInTheDocument();
   });
 
   it("shows the collector session opening flow to the collector", () => {
