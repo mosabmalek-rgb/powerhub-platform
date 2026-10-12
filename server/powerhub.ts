@@ -2158,7 +2158,7 @@ export const powerhubRouter = router({
       destinationAccountId: z.number().int().positive(),
       paymentAmount: z.number().positive(),
       paymentMethod: z.enum(["cash","jawwal_pay","palpay","bank_of_palestine","wallet","bank_transfer","card"]),
-      senderPhone: z.string().trim().regex(/^\\+?[0-9]{7,20}$/, "رقم الجوال المحوِّل يجب أن يكون صحيحاً.").optional(),
+      senderPhone: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الجوال المحوِّل يجب أن يكون صحيحاً.").optional(),
       referenceNo: z.string().trim().max(120).optional(),
       receiptImageData: z.string().max(9_500_000).optional(),
       receiptImageMime: z.enum(["image/jpeg","image/png","image/webp"]).optional(),
