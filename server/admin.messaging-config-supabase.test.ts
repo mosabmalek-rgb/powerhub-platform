@@ -240,6 +240,37 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     state.rows.tenant_tweetsms_accounts = original;
   });
 
+  it("يحجب مفتاح API إذا أعاده مزود TweetSMS داخل رسالة الخطأ", async () => {
+    state.calls.splice(0);
+    state.rpcArgs.splice(0);
+    tweetSms.checkAccount.mockReset();
+    tweetSms.checkSender.mockReset();
+    tweetSms.checkBalance.mockReset();
+    const original = state.rows.tenant_tweetsms_accounts;
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rows.tenant_tweetsms_accounts = [{
+      tenant_id: 20,
+      api_endpoint: "https://tweetsms.ps",
+      credential_ciphertext: encrypted.ciphertext,
+      credential_iv: encrypted.iv,
+      sender_name: "PowerHup",
+      updated_at: "2026-08-27T00:00:00.000Z",
+    }];
+    tweetSms.checkAccount.mockResolvedValueOnce({ ok: false, message: "Provider rejected API key tenant-key-123" });
+
+    const caller = adminRouter.createCaller(adminContext());
+    const result = await caller.testTweetSmsAccount({ tenantId: 20 });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("[مخفي]");
+    expect(result.message).not.toContain("tenant-key-123");
+    const recordTest = state.rpcArgs.find((entry) => entry.functionName === "powerhub_record_tenant_tweetsms_test");
+    expect(recordTest?.args?.p_error).toContain("[مخفي]");
+    expect(JSON.stringify(recordTest?.args)).not.toContain("tenant-key-123");
+    expect(tweetSms.checkSender).not.toHaveBeenCalled();
+    expect(tweetSms.checkBalance).not.toHaveBeenCalled();
+    state.rows.tenant_tweetsms_accounts = original;
+  });
+
   it("يقرأ سياسات صلاحيات المنصة من Supabase دون MySQL", async () => {
     state.calls.splice(0);
     const caller = adminRouter.createCaller(adminContext());
