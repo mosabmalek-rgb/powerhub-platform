@@ -1047,8 +1047,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(shared.path).toMatch(/^\/invoice\/.+/);
     const result = await caller.invoices.publicByToken({ token: shared.token });
     expect(result).toMatchObject({
-      siteId: 10, companyName: "شركة المولد", companyLogoUrl: null, paymentDocumentationAvailable: false,
-      invoice: { id: 70, invoice_no: "MAIN-202608-0001" },
+      siteId: 10, companyName: "شركة المولد", companyLogoUrl: null, paymentDocumentationAvailable: true,
+      invoice: { id: 70, invoiceNo: "MAIN-202608-0001" },
       subscriber: { fullName: "مشترك الاختبار", subscriberNo: "MAIN-001" },
       lines: [{ description: "استهلاك كهرباء" }],
     });
