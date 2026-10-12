@@ -358,6 +358,7 @@ describe("role guards in administration UI", () => {
     expect(form).not.toBeNull();
     const destination = screen.getByRole("combobox", { name: "الحساب المستقبِل للتحصيل" });
     expect(form).toContainElement(destination);
+    fireEvent.change(destination, { target: { value: "90" } });
     expect(screen.getByText(/سيُسجل التحصيل في حساب/)).toBeInTheDocument();
     expect(form?.querySelector('[name="transferToAccount"]')).toBeNull();
     expect(form?.querySelector('[name="transferToType"]')).toBeNull();
