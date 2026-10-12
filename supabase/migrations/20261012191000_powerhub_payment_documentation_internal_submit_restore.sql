@@ -14,6 +14,7 @@ declare
   v_existing public.payment_documentation_requests%rowtype;
   v_request_id bigint;
   v_platform_role text;
+  v_tenant_role text;
   v_consumption_value numeric;
   v_sender_phone text;
 begin
@@ -105,12 +106,16 @@ begin
   )
   returning id into v_request_id;
 
-  select platform_role into v_platform_role from public.users where id=p_user_id;
+  select u.platform_role, m.role into v_platform_role, v_tenant_role
+  from public.users u
+  left join public.tenant_members m on m.user_id=u.id and m.tenant_id=p_tenant_id
+  where u.id=p_user_id;
+  if v_platform_role not in ('platform_owner','platform_admin','finance_admin') then v_platform_role:=null; end if;
   insert into public.audit_logs(
-    tenant_id, site_id, user_id, actor_platform_role, entity_type, entity_id, action,
+    tenant_id, site_id, user_id, actor_platform_role, actor_tenant_role, entity_type, entity_id, action,
     after_data, metadata
   ) values (
-    p_tenant_id, p_site_id, p_user_id, v_platform_role, 'payment_documentation_request',
+    p_tenant_id, p_site_id, p_user_id, v_platform_role, v_tenant_role, 'payment_documentation_request',
     v_request_id::text, 'submit',
     jsonb_build_object('invoiceId', p_invoice_id, 'paymentAmount', p_payment_amount, 'paymentMethod', p_payment_method, 'destinationAccountId', p_destination_account_id),
     jsonb_build_object('receiptImageAttached', p_receipt_image_key is not null)
