@@ -11,9 +11,31 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("copyTextSafely(url)");
     expect(billing).not.toContain('navigator.share({ title: "فاتورة PowerHub"');
     expect(billing).toContain("إظهار الفاتورة");
-    expect(billing).toContain("openWindowSafely(");
+    expect(billing).toContain("setPreviewInvoiceUrl");
+    expect(billing).toContain("<iframe title=\"معاينة الفاتورة\"");
+    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)}");
+    expect(billing).not.toContain("openWindowSafely(");
     expect(billing).toContain("window.location.origin");
     expect(billing).toContain("result.path");
+  });
+
+  it("opens invoice preview as an overlay dialog without navigating away or opening a new tab", () => {
+    const billing = read("client/src/pages/BillingPage.tsx");
+    expect(billing).toContain("const [previewInvoiceUrl, setPreviewInvoiceUrl] = useState<string | null>(null)");
+    expect(billing).toContain("setPreviewInvoiceUrl(`${window.location.origin}${result.path}`)");
+    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)} onOpenChange={(open) => !open && setPreviewInvoiceUrl(null)}>");
+    expect(billing).toContain("<iframe title=\"معاينة الفاتورة\"");
+    expect(billing).toContain("تظهر الفاتورة هنا فوق الصفحة الحالية");
+  });
+
+  it("explains every attendance add/update field and the report date filters", () => {
+    const attendance = read("client/src/pages/AttendancePage.tsx");
+    for (const label of ["الموظف", "تاريخ الدوام", "الساعات الاعتيادية", "الساعات الإضافية", "أيام الغياب", "ملاحظات (اختياري)"]) {
+      expect(attendance).toContain(label);
+    }
+    for (const description of ["اختيار الموظف نفسه مع تاريخ مسجل يحدّث سجل ذلك اليوم", "القيمة الافتراضية 8 ساعات", "ربع ساعة", "نصف يوم", "سبب الغياب", "فلاتر التقرير: حدّد تاريخ البداية والنهاية"]) {
+      expect(attendance).toContain(description);
+    }
   });
 
   it("gates public inquiry payment documentation by entitlement and outstanding balance", () => {
