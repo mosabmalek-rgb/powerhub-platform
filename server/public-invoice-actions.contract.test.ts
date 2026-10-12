@@ -60,6 +60,20 @@ describe("public invoice and inquiry actions", () => {
     expect(paymentMigration).toContain("actor_platform_role");
   });
 
+  it("keeps platform and tenant audit roles separate in payment approval migrations", () => {
+    const paymentMigration = read("supabase/migrations/20261012170000_powerhub_payment_documentation_audit_role_fix.sql");
+
+    expect(paymentMigration).toContain("create or replace function public.powerhub_create_payment");
+    expect(paymentMigration).toContain("create or replace function public.powerhub_approve_payment_documentation");
+    expect(paymentMigration).toContain("create or replace function public.powerhub_reject_payment_documentation");
+    expect(paymentMigration).toContain("left join public.tenant_members m on m.user_id=u.id and m.tenant_id=p_tenant_id");
+    expect(paymentMigration).toContain("actor_platform_role,actor_tenant_role");
+    expect(paymentMigration).toContain("if v_platform_role not in ('platform_owner','platform_admin','finance_admin') then v_platform_role:=null; end if;");
+    expect(paymentMigration).toContain("insert into public.account_transactions");
+    expect(paymentMigration).toContain("'collection'");
+    expect(paymentMigration).toContain("update public.invoices");
+  });
+
   it("uses the entitled subscriber portal logo and falls back to the platform logo", () => {
     const server = read("server/powerhub.ts");
     const invoice = read("client/src/pages/PublicInvoice.tsx");
