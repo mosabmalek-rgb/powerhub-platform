@@ -72,6 +72,9 @@ describe("public invoice and inquiry actions", () => {
     expect(migration).toContain("coalesce(v_invoice_balance_due, 0) <= 0");
     expect(migration).toContain("INVOICE_ALREADY_PAID");
     expect(migration).toContain("for update of invoice");
+    expect(migration).toContain("hashtextextended(");
+    expect(migration).toContain("'payment-documentation-invoice:'");
+    expect(migration.indexOf("hashtextextended(")).toBeLessThan(migration.indexOf("for update of invoice"));
     expect(migration).toContain("now() + interval '7 days'");
     expect(migration).toContain("revoke all on function public.powerhub_create_portal_invoice_share_link");
     expect(migration).toContain("grant execute on function public.powerhub_create_portal_invoice_share_link");
