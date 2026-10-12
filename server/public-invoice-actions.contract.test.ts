@@ -42,6 +42,24 @@ describe("public invoice and inquiry actions", () => {
     }
   });
 
+  it("keeps payment-documentation approval atomic with payment, collection, invoice balance, and audit", () => {
+    const approvalMigration = read("supabase/migrations/20260920200000_powerhub_payment_documentation_receipt_retention.sql");
+    const paymentMigration = read("supabase/migrations/0014_powerhub_create_payment_rpc.sql");
+    const server = read("server/powerhub.ts");
+
+    expect(server).toContain('rpc("powerhub_approve_payment_documentation"');
+    expect(approvalMigration).toContain("create or replace function public.powerhub_approve_payment_documentation");
+    expect(approvalMigration).toContain("from public.powerhub_create_payment(");
+    expect(approvalMigration).toContain("set status='approved'");
+    expect(approvalMigration).toContain("payment_id=v_payment_id");
+    expect(approvalMigration).toContain("insert into public.audit_logs");
+    expect(paymentMigration).toContain("insert into public.payments");
+    expect(paymentMigration).toContain("insert into public.account_transactions");
+    expect(paymentMigration).toContain("'collection'");
+    expect(paymentMigration).toContain("update public.invoices");
+    expect(paymentMigration).toContain("actor_platform_role");
+  });
+
   it("uses the entitled subscriber portal logo and falls back to the platform logo", () => {
     const server = read("server/powerhub.ts");
     const invoice = read("client/src/pages/PublicInvoice.tsx");
