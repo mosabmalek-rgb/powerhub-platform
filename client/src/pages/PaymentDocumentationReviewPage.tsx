@@ -70,7 +70,8 @@ export default function PaymentDocumentationReviewPage() {
     .filter((row) => status === "all" || row.status === status)
     .filter((row) => {
       const submittedDate = dateKeyInGaza(row.submittedAt);
-      if (period === "all_time" || period === "current_cycle") return true;
+      if (period === "all_time") return true;
+      if (period === "current_cycle") return false;
       if (period === "today") return submittedDate === dateKeyInGaza();
       if (period === "specific_day") return submittedDate === specificDate;
       return submittedDate >= fromDate && submittedDate <= toDate;
