@@ -1056,6 +1056,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       "powerhub_create_invoice_share_link",
       "powerhub_get_shared_invoice_by_token_hash",
       "powerhub_payment_documentation_access",
+      "powerhub_subscriber_portal_logo_access",
     ]);
   });
 
