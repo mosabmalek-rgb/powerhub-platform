@@ -85,8 +85,8 @@ describe("supplemental PowerHub page review", () => {
     expect(screen.getByText("القراءة السابقة")).toBeInTheDocument();
     expect(screen.getByText("القراءة الحالية")).toBeInTheDocument();
     expect(screen.getByText("سعر الكيلوواط")).toBeInTheDocument();
-    expect(screen.getByText(/١٠٠٫٥|100\\.5/)).toBeInTheDocument();
-    expect(screen.getByText(/١٤٢٫٥|142\\.5/)).toBeInTheDocument();
+    expect(screen.getByText(/١٠٠٫٥|100\.5/)).toBeInTheDocument();
+    expect(screen.getByText(/١٤٢٫٥|142\.5/)).toBeInTheDocument();
     expect(screen.queryByText("الرسم الثابت")).not.toBeInTheDocument();
     expect(screen.queryByText("الضريبة")).not.toBeInTheDocument();
 
