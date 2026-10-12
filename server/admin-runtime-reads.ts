@@ -90,7 +90,7 @@ export const adminRouterWithSupabaseReadContracts = router({
         .in("tenant_id", tenantIds)
         .order("created_at", { ascending: false }),
       admin.from("tenant_tweetsms_accounts")
-        .select("id,tenant_id,api_endpoint,credential_ciphertext,credential_iv,sender_name,monthly_limit,is_active,last_tested_at,last_error,updated_at")
+        .select("id,tenant_id,api_endpoint,credential_ciphertext,credential_iv,sender_name,monthly_limit,is_active,last_provider_balance,last_balance_checked_at,last_tested_at,last_error,updated_at")
         .in("tenant_id", tenantIds)
         .order("updated_at", { ascending: false }),
     ]);
@@ -140,6 +140,8 @@ export const adminRouterWithSupabaseReadContracts = router({
         monthlyLimit,
         usedThisMonth: 0,
         remaining: monthlyLimit,
+        providerBalance: account?.last_provider_balance === null || account?.last_provider_balance === undefined ? null : Number(account.last_provider_balance),
+        lastBalanceCheckedAt: account?.last_balance_checked_at ?? null,
         isActive: Boolean(account?.is_active),
         // Encrypted credential fields are used only to derive a boolean and are
         // intentionally never returned to the browser.
