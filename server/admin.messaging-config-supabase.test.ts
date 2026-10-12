@@ -110,6 +110,12 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
 
   it("يعرض كل أصحاب المولدات لإعداد TweetSMS حتى عندما لا يملك المستأجر سجل إعدادات بعد، ولا يعيد الأسرار", async () => {
     state.calls.splice(0);
+    const originalRows = {
+      tenants: state.rows.tenants,
+      tenant_owner_profiles: state.rows.tenant_owner_profiles,
+      tenant_subscriptions: state.rows.tenant_subscriptions,
+      tenant_tweetsms_accounts: state.rows.tenant_tweetsms_accounts,
+    };
     state.rows.tenants = [
       { id: 20, name: "مولدات الاختبار", status: "active", created_at: "2026-08-27T00:00:00.000Z" },
       { id: 21, name: "مولد آخر", status: "active", created_at: "2026-08-26T00:00:00.000Z" },
@@ -123,7 +129,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
       { tenant_id: 21, package_code: "basic", status: "active", ends_at: "2026-12-01T00:00:00.000Z", archived_at: null, created_at: "2026-08-26T00:00:00.000Z" },
     ];
     state.rows.tenant_tweetsms_accounts = [
-      { id: 31, tenant_id: 20, api_endpoint: "https://tweetsms.ps", credential_ciphertext: "secret-ciphertext-do-not-return", credential_iv: "secret-iv-do-not-return", sender_name: "PowerHup", monthly_limit: 1000, is_active: false, last_tested_at: null, last_error: null, updated_at: "2026-08-27T00:00:00.000Z" },
+      { id: 31, tenant_id: 20, api_endpoint: "https://tweetsms.ps", credential_ciphertext: "cipher-fixture", credential_iv: "iv-fixture", sender_name: "PowerHup", monthly_limit: 1000, is_active: false, last_tested_at: null, last_error: null, updated_at: "2026-08-27T00:00:00.000Z" },
     ];
 
     const caller = adminRouter.createCaller(adminContext());
@@ -132,9 +138,13 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ tenantId: 20, ownerName: "مالك مهيأ", ownerPhone: "0590000020", id: 31, configured: true, isActive: false, subscriptionStatus: "active" });
     expect(rows[1]).toMatchObject({ tenantId: 21, ownerName: "مالك جديد", ownerPhone: "0590000021", id: null, configured: false, isActive: false, subscriptionStatus: "active" });
-    expect(JSON.stringify(rows)).not.toContain("secret-ciphertext-do-not-return");
-    expect(JSON.stringify(rows)).not.toContain("secret-iv-do-not-return");
+    expect(JSON.stringify(rows)).not.toContain("cipher-fixture");
+    expect(JSON.stringify(rows)).not.toContain("cipher-fixture");
     expect(state.calls).toEqual(["tenants", "tenant_owner_profiles", "tenant_subscriptions", "tenant_tweetsms_accounts"]);
+    state.rows.tenants = originalRows.tenants;
+    state.rows.tenant_owner_profiles = originalRows.tenant_owner_profiles;
+    state.rows.tenant_subscriptions = originalRows.tenant_subscriptions;
+    state.rows.tenant_tweetsms_accounts = originalRows.tenant_tweetsms_accounts;
   });
 
   it("يحفظ حساب TweetSMS منفصلاً للمولد بمفتاح مشفر عبر Supabase فقط", async () => {
