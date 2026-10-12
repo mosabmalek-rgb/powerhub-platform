@@ -2021,18 +2021,26 @@ export const powerhubRouter = router({
         };
         let paymentDocumentationAvailable = false;
         let companyName: string | null = null;
+        let companyLogoUrl: string | null = null;
         if (payload.tenantId) {
           const [feature, branding, site] = await Promise.all([
             supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) }),
-            supabaseAdmin().from("tenant_owner_profiles").select("company_name").eq("tenant_id", Number(payload.tenantId)).maybeSingle(),
+            supabaseAdmin().from("tenant_owner_profiles").select("company_name, report_logo_key").eq("tenant_id", Number(payload.tenantId)).maybeSingle(),
             payload.siteId
               ? supabaseAdmin().from("sites").select("name").eq("tenant_id", Number(payload.tenantId)).eq("id", Number(payload.siteId)).maybeSingle()
               : Promise.resolve({ data: null, error: null }),
           ]);
           paymentDocumentationAvailable = !feature.error && Boolean(feature.data?.[0]?.allowed);
           companyName = (!branding.error && branding.data?.company_name?.trim()) || (!site.error && site.data?.name?.trim()) || null;
+          if (!branding.error && branding.data?.report_logo_key) {
+            try {
+              companyLogoUrl = (await storageGet(branding.data.report_logo_key)).url;
+            } catch {
+              companyLogoUrl = null;
+            }
+          }
         }
-        return { ...payload, siteId: payload.siteId ? Number(payload.siteId) : null, companyName, paymentDocumentationAvailable };
+        return { ...payload, siteId: payload.siteId ? Number(payload.siteId) : null, companyName, companyLogoUrl, paymentDocumentationAvailable };
       };
       if (`${error?.code ?? ""} ${error?.message ?? ""}`.includes("SHARE_LINK_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفاتورة المشتركة من Supabase." });
