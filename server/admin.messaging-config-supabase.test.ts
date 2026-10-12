@@ -14,6 +14,7 @@ const tweetSms = vi.hoisted(() => ({
 
 const state = vi.hoisted(() => {
   const calls: string[] = [];
+  const rpcArgs: Array<{ functionName: string; args?: Record<string, unknown> }> = [];
   const filters: Array<[string, string, unknown]> = [];
   const rows: Record<string, unknown[]> = {
     platform_tweetsms_accounts: [{ id: 9, api_endpoint: "https://sms.example.test", sender_name: "PowerHub", low_balance_threshold: 100, last_provider_balance: 500, last_balance_checked_at: null, last_tested_at: null, last_error: null, is_active: false, credential_ciphertext: "test-ciphertext", credential_iv: "test-iv" }],
@@ -38,8 +39,9 @@ const state = vi.hoisted(() => {
     platform_security_events: [{ id: 21, severity: "warning", status: "open", title: "مراجعة مطلوبة", details: "تفاصيل", created_at: "2026-08-27T00:00:00.000Z" }],
   };
   const client = {
-    rpc(functionName: string) {
+    rpc(functionName: string, args?: Record<string, unknown>) {
       calls.push(`rpc:${functionName}`);
+      rpcArgs.push({ functionName, args });
       if (functionName === "powerhub_save_platform_tweetsms_account") return Promise.resolve({ data: [{ account_id: 9, is_active: false, activation_required: true }], error: null });
       if (functionName === "powerhub_record_platform_tweetsms_test") return Promise.resolve({ data: [{ account_id: 9, is_active: false, last_provider_balance: 80, last_tested_at: "2026-08-27T00:00:00.000Z", last_error: null }], error: null });
       if (functionName === "powerhub_save_tenant_tweetsms_account") return Promise.resolve({ data: [{ account_id: 31, tenant_id: 20, is_active: false, activation_required: true }], error: null });
@@ -56,7 +58,7 @@ const state = vi.hoisted(() => {
       return { select: (..._args: unknown[]) => query };
     },
   };
-  return { calls, filters, rows, client };
+  return { calls, rpcArgs, filters, rows, client };
 });
 
 vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => state.client }));
@@ -68,7 +70,7 @@ vi.mock("./tweetsms-client", () => ({
 }));
 
 import { adminRouter } from "./admin";
-import { encryptTenantCredential } from "./tenant-crypto";
+import { decryptTenantCredential, encryptTenantCredential } from "./tenant-crypto";
 
 type PlatformRole = "platform_owner" | "platform_admin" | "finance_admin";
 
@@ -153,6 +155,40 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     const caller = adminRouter.createCaller(adminContext());
     await expect(caller.saveTweetSmsAccount({ tenantId: 20, apiEndpoint: "https://tweetsms.ps", apiKey: "tenant-key-123", senderName: "PowerHup", monthlyLimit: 1000, isActive: true })).resolves.toEqual({ id: 31, tenantId: 20, isActive: false, activationRequired: true });
     expect(state.calls).toEqual(["tenant_tweetsms_accounts", "rpc:powerhub_save_tenant_tweetsms_account"]);
+  });
+
+  it("يحافظ على مفتاح API الحالي عند تحديث API Secret الاختياري", async () => {
+    state.calls.splice(0);
+    state.rpcArgs.splice(0);
+    const original = state.rows.tenant_tweetsms_accounts;
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "existing-tenant-key-123", apiSecret: "old-secret" }));
+    state.rows.tenant_tweetsms_accounts = [{
+      tenant_id: 20,
+      credential_ciphertext: encrypted.ciphertext,
+      credential_iv: encrypted.iv,
+    }];
+
+    const caller = adminRouter.createCaller(adminContext());
+    await expect(caller.saveTweetSmsAccount({
+      tenantId: 20,
+      apiEndpoint: "https://tweetsms.ps",
+      apiSecret: "new-secret",
+      senderName: "PowerHup",
+      monthlyLimit: 1000,
+      isActive: false,
+    })).resolves.toMatchObject({ tenantId: 20, activationRequired: true });
+
+    const call = state.rpcArgs.find((entry) => entry.functionName === "powerhub_save_tenant_tweetsms_account");
+    expect(call?.args?.p_credential_ciphertext).toEqual(expect.any(String));
+    expect(call?.args?.p_credential_iv).toEqual(expect.any(String));
+    const saved = JSON.parse(decryptTenantCredential(
+      String(call?.args?.p_credential_ciphertext),
+      String(call?.args?.p_credential_iv),
+    )) as { apiKey: string; apiSecret?: string };
+    expect(saved).toEqual({ apiKey: "existing-tenant-key-123", apiSecret: "new-secret" });
+    expect(JSON.stringify(call?.args)).not.toContain("existing-tenant-key-123");
+    expect(JSON.stringify(call?.args)).not.toContain("new-secret");
+    state.rows.tenant_tweetsms_accounts = original;
   });
 
   it("يفحص حساب TweetSMS الخاص بالمولد دون MySQL أو إرسال رسالة ثم يسجل النتيجة", async () => {
