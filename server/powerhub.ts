@@ -2334,14 +2334,27 @@ export const powerhubRouter = router({
         .eq("tenant_id", access.tenantId)
         .in("id", accountIds);
       if (accountError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الحسابات المستقبلة لطلبات التوثيق." });
+      const { data: accountLinks, error: linksError } = await admin.from("company_account_sites")
+        .select("account_id, site_id")
+        .eq("tenant_id", access.tenantId)
+        .in("account_id", accountIds);
+      if (linksError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق حسابات الاستقبال." });
+      const linksByAccount = new Map<number, number[]>();
+      for (const link of accountLinks ?? []) {
+        const accountId = Number(link.account_id);
+        linksByAccount.set(accountId, [...(linksByAccount.get(accountId) ?? []), Number(link.site_id)]);
+      }
       const accountById = new Map((accounts ?? []).map((account) => [Number(account.id), account]));
       return rows.map((row) => {
-        const account = accountById.get(Number(row.destination_account_id));
+        const accountId = Number(row.destination_account_id);
+        const account = accountById.get(accountId);
+        const scopedSites = linksByAccount.get(accountId) ?? [];
+        const visibleAccount = account && (scopedSites.length === 0 || scopedSites.includes(input.siteId)) ? account : null;
         return {
           ...row,
-          destination_account_name: account?.name ?? null,
-          destination_account_type: account?.account_type ?? null,
-          destination_account_phone_number: account?.phone_number ?? null,
+          destination_account_name: visibleAccount?.name ?? null,
+          destination_account_type: visibleAccount?.account_type ?? null,
+          destination_account_phone_number: visibleAccount?.phone_number ?? null,
         };
       });
     }),
