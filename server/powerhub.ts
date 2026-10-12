@@ -1242,6 +1242,29 @@ export const powerhubRouter = router({
         payments: completedPayments.map((payment) => ({ ...payment, amount: Number(payment.amount) })),
       };
     }),
+    shareInvoice: publicProcedure.input(subscriberPortalLookupInput.extend({ invoiceNo: z.string().trim().min(1).max(60) })).mutation(async ({ input }) => {
+      // Validate the exact portal + subscriber number + phone + invoice before
+      // issuing a short-lived public link; the database repeats this validation.
+      const { invoice } = await getVerifiedPortalInvoice(input);
+      if (Number(invoice.balanceDue) <= 0 || invoice.status === "paid") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "هذه الفاتورة مسددة بالكامل." });
+      }
+      const token = generateInvoiceShareToken();
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_portal_invoice_share_link", {
+        p_portal_code: input.portalCode,
+        p_subscriber_no: input.subscriberNo,
+        p_phone: input.phone,
+        p_invoice_no: input.invoiceNo,
+        p_token_hash: hashInvoiceShareToken(token),
+        p_token_preview: token.slice(0, 8),
+      });
+      if (!error && data?.[0]?.share_link_id) return { path: `/invoice/${token}` };
+      const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (text.includes("PORTAL_INVOICE_NOT_FOUND") || text.includes("PORTAL_NOT_AVAILABLE")) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من الفاتورة أو بيانات المشترك." });
+      }
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز رابط آمن لتوثيق الدفع." });
+    }),
     invoice: publicProcedure.input(subscriberPortalLookupInput.extend({ invoiceNo: z.string().trim().min(1).max(60) })).query(async ({ input }) => {
       const { portal, subscriber, invoice, lines } = await getVerifiedPortalInvoice(input);
       return {
