@@ -30,6 +30,42 @@ async function requirePaymentDocumentationFeature(tenantId: number) {
   return data[0] as { allowed: boolean; policy: string; package_code: string | null; entitlement_enabled: boolean };
 }
 
+const paymentDocumentationDateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ يجب أن يكون بصيغة سنة-شهر-يوم.")
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }, "التاريخ المحدد غير صالح.");
+
+function paymentDocumentationGazaDateKey(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function paymentDocumentationGazaDateBoundary(dateKey: string): Date {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const wallClock = Date.UTC(year, month - 1, day);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+  let candidate = wallClock;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = formatter.formatToParts(new Date(candidate));
+    const get = (kind: string) => Number(parts.find((part) => part.type === kind)?.value ?? 0);
+    const represented = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    const delta = represented - candidate;
+    if (delta === 0) break;
+    candidate = wallClock - delta;
+  }
+  return new Date(candidate);
+}
+
+function paymentDocumentationNextDateKey(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+}
 
 export function isPendingInvoiceSmsDue(scheduledAt: string | Date | null, now = new Date()) {
   if (scheduledAt === null) return true;
@@ -2135,7 +2171,7 @@ export const powerhubRouter = router({
       if (errorText.includes("DUPLICATE_PAYMENT_NO")) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
       if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND") || errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب المستقبِل غير متاح ضمن حسابات الشركة." });
-      if (errorText.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة الدفع يجب أن تطابق نوع الحساب المستقبِل المختار." });
+      if (errorText.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "الدفع النقدي يتطلب حساباً نقدياً، أما التحويل الإلكتروني فيتطلب حساباً إلكترونياً؛ ولا يشترط تطابق مزوّد المصدر مع مزوّد الحساب المستقبِل." });
       if (errorText.includes("INVOICE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للمشترك والمحطة المحددين." });
       if (errorText.includes("INVOICE_NOT_COLLECTIBLE")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تسجيل دفعة على فاتورة ملغاة أو مسودة." });
       if (errorText.includes("INVOICE_BALANCE_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد الفاتورة أثناء المزامنة؛ راجع المسودة ثم أعد المحاولة." });
@@ -2201,7 +2237,7 @@ export const powerhubRouter = router({
       if (text.includes("INVOICE_ALREADY_PAID")) throw new TRPCError({ code: "CONFLICT", message: "الفاتورة مسددة بالكامل." });
       if (text.includes("PAYMENT_AMOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "CONFLICT", message: "مبلغ الدفع يتجاوز الرصيد الحالي للفاتورة." });
       if (text.includes("COMPANY_ACCOUNT_NOT_ENABLED")) throw new TRPCError({ code: "BAD_REQUEST", message: "الحساب المستقبِل غير مفعّل لتوثيق الدفع." });
-      if (text.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة الدفع لا تطابق الحساب المستقبِل." });
+      if (text.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "الدفع النقدي يتطلب حساباً نقدياً، أما التحويل الإلكتروني فيتطلب حساباً إلكترونياً؛ ولا يشترط تطابق مزوّد المصدر مع مزوّد الحساب المستقبِل." });
       if (text.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الحساب المستقبِل غير متاح لهذا الفرع." });
       if (text.includes("PAYMENT_DOCUMENTATION_ALREADY_PENDING")) throw new TRPCError({ code: "CONFLICT", message: "يوجد طلب توثيق قيد التحقق لهذه الفاتورة بالفعل." });
       if (text.includes("TRANSFER_SOURCE_PHONE_REQUIRED") || text.includes("RECEIPT_IMAGE_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أكمل بيانات التحويل وإرفاق صورة التحويل." });
@@ -2240,16 +2276,87 @@ export const powerhubRouter = router({
       if (invoiceError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فواتير المشترك." });
       return subscribers.map((subscriber) => ({ ...subscriber, invoices: (invoices ?? []).filter((invoice) => Number(invoice.subscriber_id) === Number(subscriber.id)) }));
     }),
-    list: protectedProcedure.input(siteScoped.extend({ status: z.enum(["pending","approved","rejected","all"]).default("pending") })).query(async ({ ctx, input }) => {
+    list: protectedProcedure.input(siteScoped.extend({
+      status: z.enum(["pending","approved","rejected","all"]).default("pending"),
+      period: z.enum(["current_cycle","today","specific_day","date_range","all_time"]).default("current_cycle"),
+      specificDate: paymentDocumentationDateKeySchema.optional(),
+      fromDate: paymentDocumentationDateKeySchema.optional(),
+      toDate: paymentDocumentationDateKeySchema.optional(),
+    }).superRefine((input, issueContext) => {
+      if (input.period === "specific_day" && !input.specificDate) {
+        issueContext.addIssue({ code: z.ZodIssueCode.custom, path: ["specificDate"], message: "اختر اليوم المطلوب." });
+      }
+      if (input.period === "date_range" && (!input.fromDate || !input.toDate)) {
+        issueContext.addIssue({ code: z.ZodIssueCode.custom, path: ["fromDate"], message: "حدد تاريخ البداية والنهاية." });
+      }
+      if (input.period === "date_range" && input.fromDate && input.toDate && input.fromDate > input.toDate) {
+        issueContext.addIssue({ code: z.ZodIssueCode.custom, path: ["toDate"], message: "تاريخ النهاية يجب أن يساوي تاريخ البداية أو يأتي بعده." });
+      }
+    })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
       await requirePaymentDocumentationFeature(access.tenantId);
-      let query = supabaseAdmin().from("payment_documentation_requests")
+      const admin = supabaseAdmin();
+      let query = admin.from("payment_documentation_requests")
         .select("id, tenant_id, site_id, subscriber_id, invoice_id, destination_account_id, invoice_no_snapshot, subscriber_name_snapshot, subscriber_no_snapshot, billing_period_snapshot, previous_reading_snapshot, current_reading_snapshot, consumption_kwh_snapshot, price_per_kwh_snapshot, consumption_value_snapshot, invoice_total_snapshot, invoice_balance_snapshot, payment_amount, payment_method, sender_phone, reference_no, receipt_image_key, receipt_image_hash, status, rejection_reason, submitted_by_user_id, reviewed_by_user_id, reviewed_at, payment_id, submitted_at, created_at, updated_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("submitted_at", { ascending: false }).limit(200);
       if (input.status !== "all") query = query.eq("status", input.status);
+
+      if (input.period === "current_cycle") {
+        const cycle = await admin.rpc("powerhub_cycle_for_reading", {
+          p_tenant_id: access.tenantId,
+          p_site_id: input.siteId,
+          p_reading_at: new Date().toISOString(),
+        });
+        const cycleRow = Array.isArray(cycle.data) ? cycle.data[0] : null;
+        if (cycle.error || !cycleRow?.cycle_start_at || !cycleRow?.cycle_end_at) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تحديد دورة القراءة الحالية لهذا الفرع." });
+        }
+        query = query.gte("submitted_at", String(cycleRow.cycle_start_at)).lte("submitted_at", String(cycleRow.cycle_end_at));
+      } else if (input.period === "today" || input.period === "specific_day") {
+        const dateKey = input.period === "today" ? paymentDocumentationGazaDateKey() : input.specificDate!;
+        const from = paymentDocumentationGazaDateBoundary(dateKey);
+        const to = paymentDocumentationGazaDateBoundary(paymentDocumentationNextDateKey(dateKey));
+        query = query.gte("submitted_at", from.toISOString()).lt("submitted_at", to.toISOString());
+      } else if (input.period === "date_range") {
+        const from = paymentDocumentationGazaDateBoundary(input.fromDate!);
+        const to = paymentDocumentationGazaDateBoundary(paymentDocumentationNextDateKey(input.toDate!));
+        query = query.gte("submitted_at", from.toISOString()).lt("submitted_at", to.toISOString());
+      }
+
       const { data, error } = await query;
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلبات توثيق الدفع." });
-      return data ?? [];
+      const rows = data ?? [];
+      if (!rows.length) return rows;
+      const accountIds = Array.from(new Set(rows.map((row) => Number(row.destination_account_id)).filter((id) => Number.isInteger(id) && id > 0)));
+      if (!accountIds.length) return rows;
+      const { data: accounts, error: accountError } = await admin.from("company_accounts")
+        .select("id, name, account_type, phone_number")
+        .eq("tenant_id", access.tenantId)
+        .in("id", accountIds);
+      if (accountError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الحسابات المستقبلة لطلبات التوثيق." });
+      const { data: accountLinks, error: linksError } = await admin.from("company_account_sites")
+        .select("account_id, site_id")
+        .eq("tenant_id", access.tenantId)
+        .in("account_id", accountIds);
+      if (linksError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق حسابات الاستقبال." });
+      const linksByAccount = new Map<number, number[]>();
+      for (const link of accountLinks ?? []) {
+        const accountId = Number(link.account_id);
+        linksByAccount.set(accountId, [...(linksByAccount.get(accountId) ?? []), Number(link.site_id)]);
+      }
+      const accountById = new Map((accounts ?? []).map((account) => [Number(account.id), account]));
+      return rows.map((row) => {
+        const accountId = Number(row.destination_account_id);
+        const account = accountById.get(accountId);
+        const scopedSites = linksByAccount.get(accountId) ?? [];
+        const visibleAccount = account && (scopedSites.length === 0 || scopedSites.includes(input.siteId)) ? account : null;
+        return {
+          ...row,
+          destination_account_name: visibleAccount?.name ?? null,
+          destination_account_type: visibleAccount?.account_type ?? null,
+          destination_account_phone_number: visibleAccount?.phone_number ?? null,
+        };
+      });
     }),
     availableAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"], "collectPayments");
@@ -2331,7 +2438,7 @@ export const powerhubRouter = router({
       if (text.includes("INVOICE_ALREADY_PAID")) throw new TRPCError({ code: "CONFLICT", message: "الفاتورة مسددة بالكامل." });
       if (text.includes("PAYMENT_AMOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "CONFLICT", message: "مبلغ الدفع يتجاوز الرصيد الحالي للفاتورة." });
       if (text.includes("COMPANY_ACCOUNT_NOT_ENABLED")) throw new TRPCError({ code: "BAD_REQUEST", message: "الحساب المستقبِل غير مفعّل لتوثيق الدفع الإلكتروني." });
-      if (text.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة الدفع لا تطابق نوع الحساب المستقبِل." });
+      if (text.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "الدفع النقدي يتطلب حساباً نقدياً، أما التحويل الإلكتروني فيتطلب حساباً إلكترونياً؛ ولا يشترط تطابق مزوّد المصدر مع مزوّد الحساب المستقبِل." });
       if (text.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الحساب المستقبِل غير متاح في هذه المحطة." });
       if (text.includes("PAYMENT_DOCUMENTATION_ALREADY_PENDING")) throw new TRPCError({ code: "CONFLICT", message: "يوجد طلب توثيق قيد التحقق لهذه الفاتورة بالفعل." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إرسال طلب توثيق الدفع." });

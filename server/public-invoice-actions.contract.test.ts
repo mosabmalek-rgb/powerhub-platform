@@ -120,6 +120,75 @@ describe("public invoice and inquiry actions", () => {
     expect(server).toContain("[0-9]{7,20}");
   });
 
+  it("allows differing electronic source and destination providers while preserving cash account restrictions", () => {
+    const migration = read("supabase/migrations/20261012190000_powerhub_payment_documentation_source_destination_type_support.sql");
+    expect(migration).toContain("public.powerhub_create_payment");
+    expect(migration).toContain("public.powerhub_submit_payment_documentation");
+    expect(migration).toContain("public.powerhub_submit_public_payment_documentation");
+    expect(migration).toContain("(p_payment_method='cash' and v_account.account_type<>'cash')");
+    expect(migration).toContain("(p_payment_method<>'cash' and v_account.account_type='cash')");
+    expect(migration).not.toContain("p_payment_method='jawwal_pay' and v_account.account_type<>'jawwal_pay'");
+    const internalRestore = read("supabase/migrations/20261012191000_powerhub_payment_documentation_internal_submit_restore.sql");
+    expect(internalRestore).toContain("if (p_payment_method='cash' and v_account.account_type<>'cash') or (p_payment_method<>'cash' and v_account.account_type='cash')");
+    expect(internalRestore).toContain("from public, anon, authenticated");
+  });
+
+  it("shows full destination-account identity and offers a scoped receipt preview", () => {
+    const page = read("client/src/pages/PaymentDocumentationPage.tsx");
+    const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
+    const server = read("server/powerhub.ts");
+    expect(page).toContain("اسم الحساب: {selectedAccount.name}");
+    expect(page).toContain("نوع الحساب المستقبِل: {accountTypeLabel(selectedAccount.accountType)}");
+    expect(page).toContain("الرقم المرتبط بالحساب: {selectedAccount.phoneNumber");
+    expect(review).toContain("عرض صورة التحويل");
+    expect(review).toContain("destination_account_name");
+    expect(review).toContain("destination_account_phone_number");
+    expect(server).toContain("storageGetSignedUrl(data.receipt_image_key)");
+    expect(server).toContain('.eq("tenant_id", access.tenantId).eq("site_id", input.siteId)');
+  });
+
+  it("supports time filters in all payment-documentation review statuses", () => {
+    const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
+    const server = read("server/powerhub.ts");
+    for (const label of ["هذه الدورة", "اليوم", "يوم محدد", "فترة زمنية محددة", "كل الفترات"]) {
+      expect(review).toContain(label);
+    }
+    expect(server).toContain('period: z.enum(["current_cycle","today","specific_day","date_range","all_time"])');
+    expect(server).toContain('admin.rpc("powerhub_cycle_for_reading"');
+    expect(server).toContain("paymentDocumentationGazaDateBoundary");
+    expect(server).toContain('if (input.status !== "all") query = query.eq("status", input.status)');
+    expect(review).toContain('if (period === "current_cycle") return false');
+    expect(review).toContain("لا يمكن التحقق من مطابقة لقطة الطلبات لدورة القراءة الحالية دون اتصال");
+  });
+
+  it("keeps platform and tenant audit roles separate when the internal documentation request is submitted", () => {
+    const restoreMigration = read("supabase/migrations/20261012191000_powerhub_payment_documentation_internal_submit_restore.sql");
+    expect(restoreMigration).toContain("left join public.tenant_members m on m.user_id=u.id and m.tenant_id=p_tenant_id");
+    expect(restoreMigration).toContain("actor_platform_role, actor_tenant_role");
+    expect(restoreMigration).toContain("if v_platform_role not in ('platform_owner','platform_admin','finance_admin') then v_platform_role:=null; end if;");
+  });
+
+  it("restores the internal payment-documentation RPC and keeps its execution service-role-only", () => {
+    const restoreMigration = read("supabase/migrations/20261012191000_powerhub_payment_documentation_internal_submit_restore.sql");
+    expect(restoreMigration).toContain("CREATE OR REPLACE FUNCTION public.powerhub_submit_payment_documentation");
+    expect(restoreMigration).toContain("grant execute on function public.powerhub_submit_payment_documentation");
+    expect(restoreMigration).toContain("from public, anon, authenticated");
+    expect(restoreMigration).toContain("(p_payment_method='cash' and v_account.account_type<>'cash')");
+    expect(restoreMigration).toContain("(p_payment_method<>'cash' and v_account.account_type='cash')");
+    expect(restoreMigration).toContain("if exists (");
+    expect(restoreMigration).toContain("and not exists (");
+  });
+
+  it("makes the source/destination type migration safe for partial staging schemas and reapplication", () => {
+    const migration = read("supabase/migrations/20261012190000_powerhub_payment_documentation_source_destination_type_support.sql");
+    expect(migration).toContain("if v_signature is not null then");
+    expect(migration).toContain("elsif position(v_new in v_definition)=0 then");
+    expect(migration).toContain("v_intermediate := $intermediate$if v_account.account_type<>p_payment_method");
+    expect(migration).toContain("public.powerhub_create_payment");
+    expect(migration).toContain("public.powerhub_submit_public_payment_documentation");
+    expect(migration).toContain("(p_payment_method<>'cash' and v_account.account_type='cash')");
+  });
+
   it("revalidates identity, entitlement, invoice scope and balance in the database before link creation", () => {
     const server = read("server/powerhub.ts");
     const migration = read("supabase/migrations/20261012130000_powerhub_portal_invoice_share_link.sql");

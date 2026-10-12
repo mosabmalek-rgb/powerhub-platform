@@ -4,6 +4,7 @@
 
 - [Current repository status](CURRENT_STATUS.md)
 - [Access model](access-model.md)
+- [Payment documentation: operational guide](payment-documentation-guide.md)
 - [Production release checklist](production-release-checklist.md)
 - [Production verification](production-verification.md)
 - [Supabase migration status](admin-supabase-migration-status.md)
