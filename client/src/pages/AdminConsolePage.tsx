@@ -70,7 +70,7 @@ export default function AdminConsolePage() {
   const recordSecurityEvent = trpc.admin.recordSecurityEvent.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم تسجيل حدث الأمان."); }, onError: (error) => toast.error(error.message) });
   const saveSecuritySetting = trpc.admin.saveSecuritySetting.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم حفظ إعداد الحماية."); }, onError: (error) => toast.error(error.message) });
   const saveTweetSmsAccount = trpc.admin.saveTweetSmsAccount.useMutation({ onSuccess: async () => { await refresh(); toast.success("تم حفظ حساب TweetSMS المشفر لهذا صاحب المولد."); }, onError: (error) => toast.error(error.message) });
-  const testTweetSmsAccount = trpc.admin.testTweetSmsAccount.useMutation({ onSuccess: async (result) => { await refresh(); if (result.ok) toast.success("تم التحقق من اتصال TweetSMS بنجاح، وحُفظت نتيجة الفحص."); else toast.error(result.message ?? "فشل فحص اتصال TweetSMS."); }, onError: (error) => toast.error(error.message) });
+  const testTweetSmsAccount = trpc.admin.testTweetSmsAccount.useMutation({ onSuccess: async (result) => { await refresh(); const outcome = result as unknown as { ok: boolean; message?: string | null }; if (outcome.ok) toast.success("تم التحقق من اتصال TweetSMS بنجاح، وحُفظت نتيجة الفحص."); else toast.error(outcome.message ?? "فشل فحص اتصال TweetSMS."); }, onError: (error) => toast.error(error.message) });
   const overviewRows = overview.data?.owners ?? [];
   const reportRows = owners.data ?? [];
   const eligibleUsers = useMemo(() => (users.data ?? []).filter((candidate) => candidate.role !== "admin"), [users.data]);
