@@ -30,7 +30,7 @@ async function requirePaymentDocumentationFeature(tenantId: number) {
   return data[0] as { allowed: boolean; policy: string; package_code: string | null; entitlement_enabled: boolean };
 }
 
-const paymentDocumentationDateKeySchema = z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/, "التاريخ يجب أن يكون بصيغة سنة-شهر-يوم.")
+const paymentDocumentationDateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ يجب أن يكون بصيغة سنة-شهر-يوم.")
   .refine((value) => {
     const date = new Date(`${value}T00:00:00.000Z`);
     return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
