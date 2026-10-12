@@ -268,10 +268,11 @@ begin
     raise exception 'PAYMENT_DOCUMENTATION_NOT_AVAILABLE' using errcode = 'P0001';
   end if;
 
-  -- Bind the locked invoice to the exact verified portal/site/tenant/subscriber
-  -- and repeat the canonical phone comparison to avoid relying on UI state.
-  select invoice.id, invoice.balance_due, invoice.status
-    into v_invoice_id, v_invoice_balance_due, v_invoice_status
+  -- Resolve the candidate without row locks, then acquire the same per-invoice
+  -- advisory lock used by public payment submission before locking the invoice row.
+  -- This consistent lock order avoids a create-link/submit deadlock.
+  select invoice.id
+    into v_invoice_id
   from public.invoices as invoice
   join public.subscribers as subscriber
     on subscriber.id = invoice.subscriber_id
@@ -295,10 +296,52 @@ begin
         else stored.digits
       end
     ) = v_canonical_phone
-  limit 1
-  for update of invoice;
+  limit 1;
 
   if v_invoice_id is null then
+    raise exception 'PORTAL_INVOICE_NOT_FOUND' using errcode = 'P0001';
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtextextended(
+      'payment-documentation-invoice:' ||
+      v_tenant_id::text || ':' ||
+      v_site_id::text || ':' ||
+      v_invoice_id::text,
+      0
+    )
+  );
+
+  -- Revalidate exact scope and current phone after waiting for the invoice lock.
+  select invoice.balance_due, invoice.status
+    into v_invoice_balance_due, v_invoice_status
+  from public.invoices as invoice
+  join public.subscribers as subscriber
+    on subscriber.id = invoice.subscriber_id
+   and subscriber.tenant_id = invoice.tenant_id
+   and subscriber.site_id = invoice.site_id
+  cross join lateral (
+    select regexp_replace(coalesce(subscriber.phone, ''), '[^0-9]', '', 'g') as digits
+  ) as stored
+  where invoice.id = v_invoice_id
+    and invoice.site_id = v_site_id
+    and invoice.tenant_id = v_tenant_id
+    and subscriber.archived_at is null
+    and subscriber.subscriber_no = btrim(p_subscriber_no)
+    and invoice.invoice_no = btrim(p_invoice_no)
+    and invoice.status not in ('draft', 'cancelled')
+    and (
+      case
+        when stored.digits ~ '^00(970|972)(56|59)[0-9]{7}$' then '0' || substring(stored.digits from 6)
+        when stored.digits ~ '^(970|972)(56|59)[0-9]{7}$' then '0' || substring(stored.digits from 4)
+        when stored.digits ~ '^0(56|59)[0-9]{7}$' then stored.digits
+        when stored.digits ~ '^(56|59)[0-9]{7}$' then '0' || stored.digits
+        else stored.digits
+      end
+    ) = v_canonical_phone
+  for update of invoice;
+
+  if not found then
     raise exception 'PORTAL_INVOICE_NOT_FOUND' using errcode = 'P0001';
   end if;
 
