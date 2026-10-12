@@ -1200,6 +1200,14 @@ export const powerhubRouter = router({
     }),
     lookup: publicProcedure.input(subscriberPortalLookupInput).query(async ({ input }) => {
       const { portal, subscriber, invoices: subscriberInvoices, payments: completedPayments } = await getVerifiedPortalSubscriber(input);
+      const portalTenant = await supabaseAdmin().from("site_portal_settings").select("tenant_id").eq("portal_code", input.portalCode).eq("is_enabled", true).maybeSingle();
+      if (portalTenant.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إعدادات بوابة الاستعلام." });
+      let paymentDocumentationAvailable = false;
+      if (portalTenant.data?.tenant_id) {
+        const feature = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(portalTenant.data.tenant_id) });
+        if (feature.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع." });
+        paymentDocumentationAvailable = Boolean(feature.data?.[0]?.allowed);
+      }
       const currentPeriod = new Date().toISOString().slice(0, 7);
       const currentInvoice = subscriberInvoices.find((invoice) => invoice.billingPeriod === currentPeriod);
       const outstandingBalance = subscriberInvoices.reduce((total, invoice) => total + Number(invoice.balanceDue || 0), 0);
@@ -1240,7 +1248,34 @@ export const powerhubRouter = router({
         })),
         consumptionHistory: subscriberInvoices.slice(0, 6).reverse().map((invoice) => ({ period: invoice.billingPeriod, consumptionKwh: Number(invoice.consumptionKwh) })),
         payments: completedPayments.map((payment) => ({ ...payment, amount: Number(payment.amount) })),
+        paymentDocumentationAvailable,
       };
+    }),
+    shareInvoice: publicProcedure.input(subscriberPortalLookupInput.extend({ invoiceNo: z.string().trim().min(1).max(60) })).mutation(async ({ input }) => {
+      // The service-only database function revalidates the portal, normalized
+      // subscriber phone, invoice scope, effective feature entitlement and
+      // current outstanding balance before creating a public payment link.
+      const token = generateInvoiceShareToken();
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_portal_invoice_share_link", {
+        p_portal_code: input.portalCode,
+        p_subscriber_no: input.subscriberNo,
+        p_phone: input.phone,
+        p_invoice_no: input.invoiceNo,
+        p_token_hash: hashInvoiceShareToken(token),
+        p_token_preview: token.slice(0, 8),
+      });
+      if (!error && data?.[0]?.share_link_id) return { path: `/invoice/${token}` };
+      const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (text.includes("PAYMENT_DOCUMENTATION_NOT_AVAILABLE")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة لهذا الاشتراك." });
+      }
+      if (text.includes("INVOICE_ALREADY_PAID")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "هذه الفاتورة مسددة بالكامل." });
+      }
+      if (text.includes("PORTAL_INVOICE_NOT_FOUND") || text.includes("PORTAL_NOT_AVAILABLE")) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من الفاتورة أو بيانات المشترك." });
+      }
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز رابط آمن لتوثيق الدفع." });
     }),
     invoice: publicProcedure.input(subscriberPortalLookupInput.extend({ invoiceNo: z.string().trim().min(1).max(60) })).query(async ({ input }) => {
       const { portal, subscriber, invoice, lines } = await getVerifiedPortalInvoice(input);
@@ -2023,18 +2058,23 @@ export const powerhubRouter = router({
         let companyName: string | null = null;
         let companyLogoUrl: string | null = null;
         if (payload.tenantId) {
-          const [feature, branding, site] = await Promise.all([
+          const [feature, branding, site, portalLogoAccess, portalSetting] = await Promise.all([
             supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) }),
-            supabaseAdmin().from("tenant_owner_profiles").select("company_name, report_logo_key").eq("tenant_id", Number(payload.tenantId)).maybeSingle(),
+            supabaseAdmin().from("tenant_owner_profiles").select("company_name").eq("tenant_id", Number(payload.tenantId)).maybeSingle(),
             payload.siteId
               ? supabaseAdmin().from("sites").select("name").eq("tenant_id", Number(payload.tenantId)).eq("id", Number(payload.siteId)).maybeSingle()
+              : Promise.resolve({ data: null, error: null }),
+            supabaseAdmin().rpc("powerhub_subscriber_portal_logo_access", { p_tenant_id: Number(payload.tenantId) }),
+            payload.siteId
+              ? supabaseAdmin().from("site_portal_settings").select("logo_key").eq("tenant_id", Number(payload.tenantId)).eq("site_id", Number(payload.siteId)).eq("is_enabled", true).maybeSingle()
               : Promise.resolve({ data: null, error: null }),
           ]);
           paymentDocumentationAvailable = !feature.error && Boolean(feature.data?.[0]?.allowed);
           companyName = (!branding.error && branding.data?.company_name?.trim()) || (!site.error && site.data?.name?.trim()) || null;
-          if (!branding.error && branding.data?.report_logo_key) {
+          const canUsePortalLogo = !portalLogoAccess.error && Boolean(portalLogoAccess.data?.[0]?.allowed);
+          if (canUsePortalLogo && !portalSetting.error && portalSetting.data?.logo_key) {
             try {
-              companyLogoUrl = (await storageGet(branding.data.report_logo_key)).url;
+              companyLogoUrl = await storageGetSignedUrl(portalSetting.data.logo_key);
             } catch {
               companyLogoUrl = null;
             }
@@ -2118,7 +2158,7 @@ export const powerhubRouter = router({
       destinationAccountId: z.number().int().positive(),
       paymentAmount: z.number().positive(),
       paymentMethod: z.enum(["cash","jawwal_pay","palpay","bank_of_palestine","wallet","bank_transfer","card"]),
-      senderPhone: z.string().trim().regex(/^\\+?[0-9]{7,20}$/, "رقم الجوال المحوِّل يجب أن يكون صحيحاً.").optional(),
+      senderPhone: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الجوال المحوِّل يجب أن يكون صحيحاً.").optional(),
       referenceNo: z.string().trim().max(120).optional(),
       receiptImageData: z.string().max(9_500_000).optional(),
       receiptImageMime: z.enum(["image/jpeg","image/png","image/webp"]).optional(),

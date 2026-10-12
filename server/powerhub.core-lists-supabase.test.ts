@@ -141,6 +141,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_normalize_subscriber_phones") return resolved([{ updated_count: 1, skipped_count: 0 }]);
       if (name === "powerhub_sync_invoice_sms_template") return resolved([{ template_id: 129 }]);
       if (name === "powerhub_create_invoice_share_link") return resolved([{ share_link_id: 128 }]);
+      if (name === "powerhub_create_portal_invoice_share_link") return resolved([{ share_link_id: 132, site_id: 10, tenant_id: 20 }]);
       if (name === "powerhub_get_shared_invoice_by_token_hash") return resolved({
         siteId: 10, tenantId: 20,
         invoice: {
@@ -304,6 +305,65 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.subscriberPortal.theme({ portalCode: "main" })).resolves.toMatchObject({ logoUrl: "https://signed.example/logo.png" });
     await expect(caller.subscriberPortal.lookup({ portalCode: "main", subscriberNo: "MAIN-001", phone: "+970595000000" })).resolves.toMatchObject({ portal: { logoUrl: "https://signed.example/logo.png" } });
     signed.mockRestore();
+  });
+
+  it("creates a payment-documentation link only through the server-validated portal RPC", async () => {
+    const caller = powerhubRouter.createCaller({ user: null as never, req: {} as never, res: {} as never });
+    const result = await caller.subscriberPortal.shareInvoice({
+      portalCode: "main",
+      subscriberNo: "MAIN-001",
+      phone: "+970595000000",
+      invoiceNo: "MAIN-202608-0001",
+    });
+    expect(result.path.startsWith("/invoice/")).toBe(true);
+
+    const call = state.rpcCalls.find((entry) => entry.name === "powerhub_create_portal_invoice_share_link");
+    expect(call).toBeDefined();
+    expect(call?.args).toMatchObject({
+      p_portal_code: "main",
+      p_subscriber_no: "MAIN-001",
+      p_phone: "+970595000000",
+      p_invoice_no: "MAIN-202608-0001",
+      p_token_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      p_token_preview: expect.any(String),
+    });
+    expect(state.rpcCalls.some((entry) => entry.name === "powerhub_subscriber_portal_invoice")).toBe(false);
+  });
+
+  it("rejects payment-link creation when the database entitlement check denies the feature", async () => {
+    const originalRpc = state.client.rpc;
+    state.client.rpc = (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_portal_invoice_share_link") {
+        return Promise.resolve({ data: null, error: { code: "P0001", message: "PAYMENT_DOCUMENTATION_NOT_AVAILABLE" } }) as never;
+      }
+      return originalRpc(name, args);
+    };
+    const caller = powerhubRouter.createCaller({ user: null as never, req: {} as never, res: {} as never });
+    await expect(caller.subscriberPortal.shareInvoice({
+      portalCode: "main",
+      subscriberNo: "MAIN-001",
+      phone: "+970595000000",
+      invoiceNo: "MAIN-202608-0001",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("rejects payment-link creation for a paid invoice returned by the database", async () => {
+    const originalRpc = state.client.rpc;
+    state.client.rpc = (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_portal_invoice_share_link") {
+        return Promise.resolve({ data: null, error: { code: "P0001", message: "INVOICE_ALREADY_PAID" } }) as never;
+      }
+      return originalRpc(name, args);
+    };
+    const caller = powerhubRouter.createCaller({ user: null as never, req: {} as never, res: {} as never });
+    await expect(caller.subscriberPortal.shareInvoice({
+      portalCode: "main",
+      subscriberNo: "MAIN-001",
+      phone: "+970595000000",
+      invoiceNo: "MAIN-202608-0001",
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("يعرض بوابة المشترك العامة وفاتورتها عبر دوال Supabase بعد التحقق الثنائي دون MySQL", async () => {
@@ -1056,6 +1116,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       "powerhub_create_invoice_share_link",
       "powerhub_get_shared_invoice_by_token_hash",
       "powerhub_payment_documentation_access",
+      "powerhub_subscriber_portal_logo_access",
     ]);
   });
 

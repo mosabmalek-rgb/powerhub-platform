@@ -395,7 +395,7 @@ describe("role guards in administration UI", () => {
     mocks.activeRole = "accountant";
     mocks.invoices = [{ id: 44, invoiceNo: "PH-TEST-0044", billingPeriod: "2026-08", consumptionKwh: "50", totalAmount: "75", paidAmount: "0", balanceDue: "75", status: "issued", issueDate: new Date().toISOString(), cycleStartAt: null } as any];
     render(<BillingPage />);
-    fireEvent.click(screen.getByRole("button", { name: /إرسال رابط الفاتورة/ }));
+    fireEvent.click(screen.getByRole("button", { name: /نسخ رابط الفاتورة/ }));
     expect(mocks.createShareLink).toHaveBeenCalledWith({ siteId: 1, invoiceId: 44 });
   });
 
