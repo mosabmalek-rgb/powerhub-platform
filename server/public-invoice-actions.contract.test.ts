@@ -77,7 +77,7 @@ describe("public invoice and inquiry actions", () => {
   it("does not write public visitors into the constrained platform audit role", () => {
     const migration = read("supabase/migrations/20261012183000_powerhub_public_payment_documentation_audit_role_fix.sql");
 
-    expect(migration).toContain("create or replace function public.powerhub_submit_public_payment_documentation");
+    expect(migration.toLowerCase()).toContain("create or replace function public.powerhub_submit_public_payment_documentation");
     expect(migration).toContain("v_link.tenant_id, v_invoice.site_id, null, null,");
     expect(migration).toContain("'submissionSource', 'public_invoice_share_link'");
     expect(migration).not.toContain("null, 'public',");
@@ -99,7 +99,7 @@ describe("public invoice and inquiry actions", () => {
     const server = read("server/powerhub.ts");
 
     expect(migration).toContain("create or replace function public.powerhub_get_public_payment_documentation_context");
-    expect(migration).toContain("create or replace function public.powerhub_submit_public_payment_documentation");
+    expect(migration.toLowerCase()).toContain("create or replace function public.powerhub_submit_public_payment_documentation");
     expect(migration).toContain("revoke all on function public.powerhub_get_public_payment_documentation_context(text)");
     expect(migration).toContain("grant execute on function public.powerhub_get_public_payment_documentation_context(text) to service_role");
     expect(migration).toContain("grant execute on function public.powerhub_submit_public_payment_documentation(text, bigint, numeric, text, text, text, text, text, uuid) to service_role");
