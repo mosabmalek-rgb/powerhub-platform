@@ -27,7 +27,7 @@ const generatorApprovalInput = z.object({ generatorId: z.number().int().positive
 const notificationInput = z.object({ status: z.enum(["pending", "processing", "submitted", "delivered", "read", "failed", "needs_review"]).optional() }).optional();
 const securityEventInput = z.object({ eventType: z.enum(["suspicious_login", "backup", "security_change"]), severity: z.enum(["info", "warning", "critical"]), status: z.enum(["open", "resolved", "success", "failed"]), title: z.string().min(3).max(180), details: z.string().max(4000).optional(), relatedUserId: z.number().int().positive().optional() });
 const securitySettingInput = z.object({ settingKey: z.string().min(2).max(100), isEnabled: z.boolean(), value: z.string().max(4000).optional() });
-const tweetSmsAccountInput = z.object({ tenantId: z.number().int().positive(), apiEndpoint: z.string().trim().max(500).optional(), apiKey: z.string().trim().min(8).max(4096).optional(), apiSecret: z.string().trim().max(4096).optional(), senderName: z.string().trim().min(1).max(120), monthlyLimit: z.number().int().min(0).max(10_000_000), isActive: z.boolean() });
+const tweetSmsAccountInput = z.object({ tenantId: z.number().int().positive(), apiEndpoint: z.string().trim().max(500).optional(), apiKey: z.string().trim().min(8).max(4096).optional(), apiSecret: z.string().trim().max(4096).optional(), senderName: z.string().trim().min(1).max(120), monthlyLimit: z.number().int().min(0).max(10_000_000).optional(), isActive: z.boolean() });
 const testTweetSmsInput = z.object({ tenantId: z.number().int().positive() });
 const centralTweetSmsAccountInput = z.object({ apiEndpoint: z.string().trim().max(500).optional(), senderName: z.string().trim().min(1).max(120), lowBalanceThreshold: z.number().int().min(0).max(10_000_000), isActive: z.boolean() });
 const emptyInput = z.object({});
@@ -552,7 +552,7 @@ export const adminRouterWithSupabaseReadContracts = router({
       p_credential_ciphertext: identity?.ciphertext ?? "",
       p_credential_iv: identity?.iv ?? "",
       p_sender_name: input.senderName.trim(),
-      p_monthly_limit: input.monthlyLimit,
+      p_monthly_limit: input.monthlyLimit ?? 0,
       p_is_active: input.isActive,
     });
     if (error) {
