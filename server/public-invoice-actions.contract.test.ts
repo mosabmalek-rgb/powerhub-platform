@@ -74,6 +74,15 @@ describe("public invoice and inquiry actions", () => {
     expect(paymentMigration).toContain("update public.invoices");
   });
 
+  it("does not write public visitors into the constrained platform audit role", () => {
+    const migration = read("supabase/migrations/20261012183000_powerhub_public_payment_documentation_audit_role_fix.sql");
+
+    expect(migration).toContain("create or replace function public.powerhub_submit_public_payment_documentation");
+    expect(migration).toContain("v_link.tenant_id, v_invoice.site_id, null, null,");
+    expect(migration).toContain("'submissionSource', 'public_invoice_share_link'");
+    expect(migration).not.toContain("null, 'public',");
+  });
+
   it("uses the entitled subscriber portal logo and falls back to the platform logo", () => {
     const server = read("server/powerhub.ts");
     const invoice = read("client/src/pages/PublicInvoice.tsx");
