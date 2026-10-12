@@ -120,6 +120,42 @@ describe("public invoice and inquiry actions", () => {
     expect(server).toContain("[0-9]{7,20}");
   });
 
+  it("allows differing electronic source and destination providers while preserving cash account restrictions", () => {
+    const migration = read("supabase/migrations/20261012190000_powerhub_payment_documentation_source_destination_type_support.sql");
+    expect(migration).toContain("public.powerhub_create_payment");
+    expect(migration).toContain("public.powerhub_submit_payment_documentation");
+    expect(migration).toContain("public.powerhub_submit_public_payment_documentation");
+    expect(migration).toContain("(p_payment_method='cash' and v_account.account_type<>'cash')");
+    expect(migration).toContain("(p_payment_method<>'cash' and v_account.account_type='cash')");
+    expect(migration).not.toContain("p_payment_method='jawwal_pay' and v_account.account_type<>'jawwal_pay'");
+  });
+
+  it("shows full destination-account identity and offers a scoped receipt preview", () => {
+    const page = read("client/src/pages/PaymentDocumentationPage.tsx");
+    const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
+    const server = read("server/powerhub.ts");
+    expect(page).toContain("اسم الحساب: {selectedAccount.name}");
+    expect(page).toContain("نوع الحساب المستقبِل: {accountTypeLabel(selectedAccount.accountType)}");
+    expect(page).toContain("الرقم المرتبط بالحساب: {selectedAccount.phoneNumber");
+    expect(review).toContain("عرض صورة التحويل");
+    expect(review).toContain("destination_account_name");
+    expect(review).toContain("destination_account_phone_number");
+    expect(server).toContain("storageGetSignedUrl(data.receipt_image_key)");
+    expect(server).toContain('.eq("tenant_id", access.tenantId).eq("site_id", input.siteId)');
+  });
+
+  it("supports time filters in all payment-documentation review statuses", () => {
+    const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
+    const server = read("server/powerhub.ts");
+    for (const label of ["هذه الدورة", "اليوم", "يوم محدد", "فترة زمنية محددة", "كل الفترات"]) {
+      expect(review).toContain(label);
+    }
+    expect(server).toContain('period: z.enum(["current_cycle","today","specific_day","date_range","all_time"])');
+    expect(server).toContain('admin.rpc("powerhub_cycle_for_reading"');
+    expect(server).toContain("paymentDocumentationGazaDateBoundary");
+    expect(server).toContain('if (input.status !== "all") query = query.eq("status", input.status)');
+  });
+
   it("revalidates identity, entitlement, invoice scope and balance in the database before link creation", () => {
     const server = read("server/powerhub.ts");
     const migration = read("supabase/migrations/20261012130000_powerhub_portal_invoice_share_link.sql");
