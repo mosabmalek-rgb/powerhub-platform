@@ -177,12 +177,12 @@ end if;
     end if;
   end loop;
 
-  update public.powerhub_message_campaigns
-  set queued=(select count(*) from public.powerhub_message_campaign_recipients where campaign_id=v_campaign.id),
+  update public.powerhub_message_campaigns as campaign
+  set queued=(select count(*) from public.powerhub_message_campaign_recipients as recipient where recipient.campaign_id=v_campaign.id),
       requested=array_length(v_ids,1),
       updated_at=now()
-  where id=v_campaign.id
-  returning powerhub_message_campaigns.queued into queued;
+  where campaign.id=v_campaign.id
+  returning campaign.queued into queued;
 
   campaign_id := v_campaign.id;
   requested := array_length(v_ids,1);
