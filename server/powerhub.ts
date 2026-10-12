@@ -1252,12 +1252,9 @@ export const powerhubRouter = router({
       };
     }),
     shareInvoice: publicProcedure.input(subscriberPortalLookupInput.extend({ invoiceNo: z.string().trim().min(1).max(60) })).mutation(async ({ input }) => {
-      // Validate the exact portal + subscriber number + phone + invoice before
-      // issuing a short-lived public link; the database repeats this validation.
-      const { invoice } = await getVerifiedPortalInvoice(input);
-      if (Number(invoice.balanceDue) <= 0 || invoice.status === "paid") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "هذه الفاتورة مسددة بالكامل." });
-      }
+      // The service-only database function revalidates the portal, normalized
+      // subscriber phone, invoice scope, effective feature entitlement and
+      // current outstanding balance before creating a public payment link.
       const token = generateInvoiceShareToken();
       const { data, error } = await supabaseAdmin().rpc("powerhub_create_portal_invoice_share_link", {
         p_portal_code: input.portalCode,
@@ -1269,6 +1266,12 @@ export const powerhubRouter = router({
       });
       if (!error && data?.[0]?.share_link_id) return { path: `/invoice/${token}` };
       const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (text.includes("PAYMENT_DOCUMENTATION_NOT_AVAILABLE")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة لهذا الاشتراك." });
+      }
+      if (text.includes("INVOICE_ALREADY_PAID")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "هذه الفاتورة مسددة بالكامل." });
+      }
       if (text.includes("PORTAL_INVOICE_NOT_FOUND") || text.includes("PORTAL_NOT_AVAILABLE")) {
         throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من الفاتورة أو بيانات المشترك." });
       }
