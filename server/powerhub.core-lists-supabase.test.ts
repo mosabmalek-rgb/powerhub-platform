@@ -309,12 +309,13 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("creates a payment-documentation link only through the server-validated portal RPC", async () => {
     const caller = powerhubRouter.createCaller({ user: null as never, req: {} as never, res: {} as never });
-    await expect(caller.subscriberPortal.shareInvoice({
+    const result = await caller.subscriberPortal.shareInvoice({
       portalCode: "main",
       subscriberNo: "MAIN-001",
       phone: "+970595000000",
       invoiceNo: "MAIN-202608-0001",
-    })).resolves.toMatchObject({ path: /^\\/invoice\\/.+/ });
+    });
+    expect(result.path).toMatch(/^\\/invoice\\/.+/);
 
     const call = state.rpcCalls.find((entry) => entry.name === "powerhub_create_portal_invoice_share_link");
     expect(call).toBeDefined();
