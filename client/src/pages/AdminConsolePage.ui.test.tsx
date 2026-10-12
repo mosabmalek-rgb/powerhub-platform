@@ -42,7 +42,10 @@ vi.mock("@/lib/trpc", () => ({
       securityCenter: { useQuery: () => ({ data: { events: [{ id: 1, eventType: "backup", severity: "info", status: "success", title: "نسخة اختبار", details: "تمت بنجاح", createdAt: new Date() }], settings: [{ id: 1, settingKey: "platform_audit_guard", isEnabled: true, value: null }] } }) },
       listSmsPlans: { useQuery: () => ({ data: [{ id: 1, code: "starter-sms", name: "باقة جوال الأساسية", includedMessages: 100, isActive: true, description: "اختبار" }] }) },
       listSmsPackageRequests: { useQuery: () => ({ data: [] }) },
-      listTweetSmsAccounts: { useQuery: () => ({ data: [{ id: 7, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerPhone: "0790000000", apiEndpoint: "https://api.example.test", senderName: "MouldNorth", monthlyLimit: 500, usedThisMonth: 42, remaining: 458, isActive: true, configured: true, lastTestedAt: null, lastError: null, updatedAt: new Date() }] }) },
+      listTweetSmsAccounts: { useQuery: () => ({ data: [
+        { id: 7, tenantId: 9, tenantName: "مساحة مولد الاختبار", ownerName: "صاحب المولد التجريبي", ownerPhone: "0790000000", apiEndpoint: "https://api.example.test", senderName: "MouldNorth", monthlyLimit: 500, usedThisMonth: 42, remaining: 458, isActive: true, configured: true, subscriptionStatus: "active", lastTestedAt: null, lastError: null, updatedAt: new Date() },
+        { id: null, tenantId: 10, tenantName: "مساحة مولد جديد", ownerName: "مالك جديد", ownerPhone: "0790000010", apiEndpoint: null, senderName: null, monthlyLimit: 0, usedThisMonth: 0, remaining: 0, isActive: false, configured: false, subscriptionStatus: "active", lastTestedAt: null, lastError: null, updatedAt: null },
+      ] }) },
       getPlatformTweetSmsAccount: { useQuery: () => ({ data: { id: 1, apiEndpoint: "https://tweetsms.ps", senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: new Date(), lastTestedAt: new Date(), lastError: null, isActive: true, configured: true } }) },
       platformTweetSmsReport: { useQuery: () => ({ data: { account: null, total: 42, usageRows: [{ tenantId: 9, tenantName: "مساحة مولد الاختبار", total: 42, submitted: 40, failed: 2 }], alerts: [{ id: 1, balance: 80, threshold: 100, status: "open", notifiedAt: new Date() }] } }) },
       listPlatformSmsFallbackProviders: { useQuery: () => ({ data: [{ id: 13, name: "مزود بديل تجريبي", providerKey: "backup-sms", apiEndpoint: "https://backup.example.test", senderName: "PowerHub", priority: 10, integrationStatus: "pending_contract", isActive: true, configured: true, lastTestedAt: null, lastError: null, updatedAt: new Date() }] }) },
@@ -127,6 +130,10 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("حساب TweetSMS المركزي للمنصة")).toBeInTheDocument();
     expect(screen.getByText("استهلاك الرسائل حسب صاحب المولد")).toBeInTheDocument();
     expect(screen.getByText("تنبيهات رصيد TweetSMS")).toBeInTheDocument();
+    fireEvent.click(sidebarNav("حسابات TweetSMS"));
+    expect(screen.getByText("حسابات TweetSMS لأصحاب المولدات")).toBeInTheDocument();
+    expect(screen.getByText("مالك جديد")).toBeInTheDocument();
+    expect(screen.getByText("بانتظار API")).toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getByText("مولدات محظورة")).toBeInTheDocument();
     fireEvent.click(sidebarNav("التنبيهات والإشعارات"));
