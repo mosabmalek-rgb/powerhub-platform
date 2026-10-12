@@ -209,6 +209,37 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     expect(tweetSms.checkBalance).toHaveBeenCalledTimes(1);
   });
 
+  it("لا يؤكد نجاح الربط إذا كان اسم المرسل مفقودًا، حتى لو أمكن تسجيل الدخول", async () => {
+    state.calls.splice(0);
+    state.rpcArgs.splice(0);
+    tweetSms.checkAccount.mockReset();
+    tweetSms.checkSender.mockReset();
+    tweetSms.checkBalance.mockReset();
+    const original = state.rows.tenant_tweetsms_accounts;
+    const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
+    state.rows.tenant_tweetsms_accounts = [{
+      tenant_id: 20,
+      api_endpoint: "https://tweetsms.ps",
+      credential_ciphertext: encrypted.ciphertext,
+      credential_iv: encrypted.iv,
+      sender_name: null,
+      updated_at: "2026-08-27T00:00:00.000Z",
+    }];
+    tweetSms.checkAccount.mockResolvedValueOnce({ ok: true, message: "ok" });
+
+    const caller = adminRouter.createCaller(adminContext());
+    await expect(caller.testTweetSmsAccount({ tenantId: 20 })).resolves.toMatchObject({
+      ok: false,
+      message: "أدخل اسم المرسل المسجّل في TweetSMS قبل تأكيد الربط.",
+    });
+    const recordTest = state.rpcArgs.find((entry) => entry.functionName === "powerhub_record_tenant_tweetsms_test");
+    expect(recordTest?.args?.p_success).toBe(false);
+    expect(tweetSms.checkAccount).not.toHaveBeenCalled();
+    expect(tweetSms.checkSender).not.toHaveBeenCalled();
+    expect(tweetSms.checkBalance).not.toHaveBeenCalled();
+    state.rows.tenant_tweetsms_accounts = original;
+  });
+
   it("يقرأ سياسات صلاحيات المنصة من Supabase دون MySQL", async () => {
     state.calls.splice(0);
     const caller = adminRouter.createCaller(adminContext());
