@@ -315,7 +315,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       phone: "+970595000000",
       invoiceNo: "MAIN-202608-0001",
     });
-    expect(result.path).toMatch(/^\\/invoice\\/.+/);
+    expect(result.path.startsWith("/invoice/")).toBe(true);
 
     const call = state.rpcCalls.find((entry) => entry.name === "powerhub_create_portal_invoice_share_link");
     expect(call).toBeDefined();
@@ -335,7 +335,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.client.rpc = (name: string, args: unknown) => {
       state.rpcCalls.push({ name, args });
       if (name === "powerhub_create_portal_invoice_share_link") {
-        return Promise.resolve({ data: null, error: { code: "P0001", message: "PAYMENT_DOCUMENTATION_NOT_AVAILABLE" } });
+        return Promise.resolve({ data: null, error: { code: "P0001", message: "PAYMENT_DOCUMENTATION_NOT_AVAILABLE" } }) as never;
       }
       return originalRpc(name, args);
     };
@@ -353,7 +353,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.client.rpc = (name: string, args: unknown) => {
       state.rpcCalls.push({ name, args });
       if (name === "powerhub_create_portal_invoice_share_link") {
-        return Promise.resolve({ data: null, error: { code: "P0001", message: "INVOICE_ALREADY_PAID" } });
+        return Promise.resolve({ data: null, error: { code: "P0001", message: "INVOICE_ALREADY_PAID" } }) as never;
       }
       return originalRpc(name, args);
     };
