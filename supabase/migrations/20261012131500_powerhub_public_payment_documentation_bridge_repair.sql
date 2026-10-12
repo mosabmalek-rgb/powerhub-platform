@@ -4,6 +4,11 @@
 -- preserves service-role-only access and aligns account scope between context
 -- lookup and submission.
 
+-- Older/staging schema snapshots may not yet have this opt-in column.
+-- Existing accounts remain disabled by default; production already has the column.
+alter table public.company_accounts
+  add column if not exists allow_payment_documentation boolean not null default false;
+
 create or replace function public.powerhub_get_public_payment_documentation_context(p_token_hash text)
 returns jsonb
 language plpgsql
