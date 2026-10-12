@@ -482,9 +482,41 @@ export const adminRouterWithSupabaseReadContracts = router({
   }),
 
   saveTweetSmsAccount: platformAdminProcedure.input(tweetSmsAccountInput).mutation(async ({ ctx, input }) => {
-    const identity = input.apiKey || input.apiSecret ? encryptTenantCredential(JSON.stringify({ apiKey: input.apiKey ?? "", apiSecret: input.apiSecret ?? "" })) : null;
-    await supabaseAdmin().from("tenant_tweetsms_accounts").select("id").eq("tenant_id", input.tenantId).limit(1);
-    const { data, error } = await supabaseAdmin().rpc("powerhub_save_tenant_tweetsms_account", {
+    const admin = supabaseAdmin();
+    const { data: existingAccount, error: existingAccountError } = await admin
+      .from("tenant_tweetsms_accounts")
+      .select("credential_ciphertext,credential_iv")
+      .eq("tenant_id", input.tenantId)
+      .maybeSingle();
+    if (existingAccountError) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات TweetSMS الحالية لهذا المولد." });
+    }
+
+    let existingCredentials: TweetSmsCredentialsShape | null = null;
+    if (existingAccount?.credential_ciphertext || existingAccount?.credential_iv) {
+      if (!existingAccount.credential_ciphertext || !existingAccount.credential_iv) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "بيانات اعتماد TweetSMS الحالية غير مكتملة؛ أدخل مفتاح API صحيحًا من جديد." });
+      }
+      existingCredentials = decryptTweetSmsCredentials(existingAccount.credential_ciphertext, existingAccount.credential_iv);
+    }
+
+    const credentialsChangedByInput = Boolean(input.apiKey?.trim() || input.apiSecret?.trim());
+    let identity: { ciphertext: string; iv: string } | null = null;
+    if (credentialsChangedByInput) {
+      // Blank fields mean "keep the saved value", so rotating the optional secret
+      // must not accidentally replace the existing API key with an empty string.
+      const apiKey = input.apiKey?.trim() || existingCredentials?.apiKey || "";
+      const apiSecret = input.apiSecret?.trim() || existingCredentials?.apiSecret;
+      if (!apiKey) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل مفتاح TweetSMS عند إنشاء الحساب." });
+      }
+      identity = encryptTenantCredential(JSON.stringify({
+        apiKey,
+        ...(apiSecret ? { apiSecret } : {}),
+      }));
+    }
+
+    const { data, error } = await admin.rpc("powerhub_save_tenant_tweetsms_account", {
       p_user_id: ctx.user.id,
       p_tenant_id: input.tenantId,
       p_api_endpoint: input.apiEndpoint?.trim() || "https://tweetsms.ps",
