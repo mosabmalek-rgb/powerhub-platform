@@ -41,6 +41,17 @@ function runtimeCentralTweetSmsCredentials() {
 
 type TweetSmsCredentialsShape = TweetSmsCredentials;
 
+function safeTweetSmsDiagnostic(message: string, credentials?: TweetSmsCredentialsShape | null): string {
+  let safe = message;
+  for (const secret of [credentials?.apiKey, credentials?.apiSecret].filter((value): value is string => Boolean(value))) {
+    safe = safe.split(secret).join("[مخفي]");
+    safe = safe.split(encodeURIComponent(secret)).join("[مخفي]");
+  }
+  return safe
+    .replace(/((?:api[_ -]?key|api[_ -]?secret|token|secret)\\s*[:=]\\s*)[^&\\s,;]+/gi, "$1[مخفي]")
+    .slice(0, 500);
+}
+
 async function writeGeneratorAudit(actorUserId: number, generator: { tenant_id: number; site_id: number }, generatorId: number, action: string, beforeStatus: string, afterStatus: string) {
   const { error } = await supabaseAdmin().from("audit_logs").insert({ tenant_id: generator.tenant_id, site_id: generator.site_id, user_id: actorUserId, entity_type: "generator", entity_id: String(generatorId), action, before_data: { status: beforeStatus }, after_data: { status: afterStatus } });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث حالة المولد لكن تعذر تسجيل التدقيق في Supabase." });
@@ -147,7 +158,7 @@ export const adminRouterWithSupabaseReadContracts = router({
         // intentionally never returned to the browser.
         configured: Boolean(account?.credential_ciphertext && account?.credential_iv),
         lastTestedAt: account?.last_tested_at ?? null,
-        lastError: typeof account?.last_error === "string" ? account.last_error.slice(0, 500) : null,
+        lastError: typeof account?.last_error === "string" ? safeTweetSmsDiagnostic(account.last_error) : null,
         updatedAt: account?.updated_at ?? null,
       };
     });
@@ -178,7 +189,7 @@ export const adminRouterWithSupabaseReadContracts = router({
     const { data, error } = await admin.rpc("powerhub_record_platform_tweetsms_test", { p_user_id: ctx.user.id, p_success: result.ok, p_balance: Number.isFinite(result.balance) ? Math.max(0, Math.round(result.balance ?? 0)) : null, p_error: result.ok ? null : result.message });
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل نتيجة فحص TweetSMS المركزي في Supabase." });
     const row = data?.[0];
-    return { ok: result.ok, balance: result.balance ?? null, message: result.message ?? null, accountActive: Boolean(row?.is_active) };
+    return { ok: result.ok, balance: result.balance ?? null, message: safeMessage, accountActive: Boolean(row?.is_active) };
   }),
   setTenantStatus: platformAdminProcedure.input(tenantStatusInput).mutation(async ({ ctx, input }) => {
     const admin = supabaseAdmin();
@@ -544,11 +555,13 @@ export const adminRouterWithSupabaseReadContracts = router({
     if (accountError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حساب TweetSMS من Supabase." });
     if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "لا يوجد حساب TweetSMS لهذا المولد." });
     let result: { ok: boolean; balance?: number; message?: string } = { ok: false, message: "تعذر فحص TweetSMS لهذا المولد." };
+    let credentialsForRedaction: TweetSmsCredentialsShape | null = null;
     try {
       if (!account.sender_name?.trim()) {
         result = { ok: false, message: "أدخل اسم المرسل المسجّل في TweetSMS قبل تأكيد الربط." };
       } else {
         const credentials = decryptTweetSmsCredentials(account.credential_ciphertext, account.credential_iv);
+        credentialsForRedaction = credentials;
         const endpoint = account.api_endpoint;
         const login = await checkTweetSmsAccount({ endpoint, credentials });
         const sender = login.ok ? await checkTweetSmsSender({ endpoint, credentials, sender: account.sender_name.trim() }) : null;
@@ -561,7 +574,8 @@ export const adminRouterWithSupabaseReadContracts = router({
     } catch (cause) {
       result = { ok: false, message: cause instanceof Error ? cause.message : "تعذر فحص TweetSMS لهذا المولد." };
     }
-    const { data, error } = await admin.rpc("powerhub_record_tenant_tweetsms_test", { p_user_id: ctx.user.id, p_tenant_id: input.tenantId, p_expected_updated_at: account.updated_at, p_success: result.ok, p_balance: Number.isFinite(result.balance) ? Math.max(0, Math.round(result.balance ?? 0)) : null, p_error: result.ok ? null : result.message });
+    const safeMessage = result.message ? safeTweetSmsDiagnostic(result.message, credentialsForRedaction) : null;
+    const { data, error } = await admin.rpc("powerhub_record_tenant_tweetsms_test", { p_user_id: ctx.user.id, p_tenant_id: input.tenantId, p_expected_updated_at: account.updated_at, p_success: result.ok, p_balance: Number.isFinite(result.balance) ? Math.max(0, Math.round(result.balance ?? 0)) : null, p_error: result.ok ? null : safeMessage });
     if (error) {
       if ((error.message ?? "").includes("CONFIGURATION_CHANGED")) throw new TRPCError({ code: "CONFLICT", message: "تغير إعداد TweetSMS أثناء الفحص؛ أعد المحاولة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ نتيجة فحص TweetSMS في Supabase." });
