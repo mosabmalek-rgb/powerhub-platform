@@ -11,7 +11,7 @@ import { segmentArabicSms } from "@shared/sms-segmentation";
 import { MESSAGE_SCHEDULE_TIME_ZONE, buildMonthlyScheduleAnchor, buildWeeklyScheduleAnchor } from "@/lib/messaging-schedule";
 import { formatDateTimeLocalInTimeZone, parseDateTimeLocalInTimeZone } from "@/lib/zoned-date-time";
 import { BellRing, CircleAlert, Eye, FileText, KeyRound, Loader2, LockKeyhole, MessageSquareText, RotateCcw, ShieldCheck, WalletCards } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -40,70 +40,143 @@ const previewValues: Record<string, string> = {
   billing_period: "آب 2026", total_amount: "33,000", balance_due: "18,000", due_date: "31 آب 2026",
   invoice_link: "https://powerhub.example/invoice/INV-2026-00125", portal_link: "https://powerhub.example/portal?g=MAIN",
 };
-const statusLabels: Record<string, string> = { pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "مرسلة", delivered: "مرسلة", read: "مرسلة", failed: "غير مرسلة", needs_review: "تحتاج مراجعة" };
+const statusLabels: Record<string, string> = { pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "قبلها مزود الرسائل", delivered: "تم التسليم", read: "تمت القراءة", failed: "فشلت", needs_review: "تحتاج مراجعة" };
 const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|due_date|invoice_link|portal_link)\s*}}/g, (_, key) => previewValues[key] ?? "");
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
 
-function FailedSmsPanel({ siteId }: { siteId: number }) {
-  const utils = trpc.useUtils();
-  const failedQuery = trpc.powerhub.notifications.listFailedSms.useQuery(
-    { siteId },
-    { refetchInterval: 15000 }
-  );
-  const resolveReview = trpc.powerhub.notifications.resolveSmsNeedsReview.useMutation({
-    onSuccess: async () => {
-      await failedQuery.refetch();
-      toast.success("تم تثبيت نتيجة مراجعة الرسالة.");
-    },
+function UnifiedMessageHistoryPanel({ siteId }: { siteId: number }) {
+  const unifiedMessaging = (trpc.powerhub as typeof trpc.powerhub & { unifiedMessaging?: unknown }).unifiedMessaging;
+  if (!unifiedMessaging) return null;
+  return <UnifiedMessageHistory siteId={siteId} />;
+}
+
+function UnifiedMessageHistory({ siteId }: { siteId: number }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [period, setPeriod] = useState<"cycle" | "today" | "custom">("cycle");
+  const [startDate, setStartDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
+  const [endDate, setEndDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
+  const [type, setType] = useState<"all" | "invoice_issued" | "payment_reminder" | "payment_received" | "subscriber_reference" | "service_alert" | "manual" | "automatic">("all");
+  const [channel, setChannel] = useState<"all" | "sms" | "whatsapp">("all");
+  const [status, setStatus] = useState<"all" | "pending" | "processing" | "submitted" | "delivered" | "read" | "failed" | "needs_review">("all");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const history = trpc.powerhub.unifiedMessaging.history.useQuery({
+    siteId, period, startDate: period === "custom" ? startDate : undefined,
+    endDate: period === "custom" ? endDate : undefined, type, channel, status,
+    search: search.trim() || undefined, limit: 50, offset: page * 50,
+  }, { refetchInterval: 15000 });
+  const retryInvoice = trpc.powerhub.notifications.retryFailedInvoiceNotification.useMutation({
+    onSuccess: async () => { await history.refetch(); toast.success("تمت إعادة معالجة طلب رسالة الفاتورة."); },
     onError: (error) => toast.error(error.message),
   });
-  const retry = trpc.powerhub.notifications.retryFailedSmsBatch.useMutation({
+  const retryReceipt = trpc.powerhub.notifications.retryPaymentReceipt.useMutation({
+    onSuccess: async () => { await history.refetch(); toast.success("تمت إعادة معالجة طلب إيصال الدفع."); },
+    onError: (error) => toast.error(error.message),
+  });
+  const retrySmsBatch = trpc.powerhub.notifications.retryFailedSmsBatch.useMutation({
     onSuccess: async (result) => {
-      await utils.powerhub.notifications.listFailedSms.invalidate();
-      const message = "نتيجة إعادة الإرسال: " + result.submitted + " ناجحة، " + result.failed + " فاشلة، " + result.skipped + " متجاوزة" + (result.needsReview ? "، " + result.needsReview + " تحتاج مراجعة" : "") + (result.reviewPersistenceFailed ? "، تعذر تأكيد حفظ حالة المراجعة لعدد " + result.reviewPersistenceFailed + " رسالة" : "") + ".";
-      if (result.failed > 0 || result.needsReview > 0 || result.reviewPersistenceFailed > 0) toast.warning(message);
-      else if (result.submitted > 0) toast.success(message);
-      else toast.info(message);
+      await history.refetch();
+      const message = "نتيجة إعادة المحاولة: " + result.submitted + " أُرسلت إلى المزود، " + result.failed + " فاشلة، " + result.skipped + " متجاوزة" + (result.needsReview ? "، " + result.needsReview + " تحتاج مراجعة" : "") + ".";
+      if (result.failed > 0 || result.needsReview > 0) toast.warning(message); else toast.success(message);
     },
     onError: (error) => toast.error(error.message),
   });
-  const rows = failedQuery.data ?? [];
-  const [selected, setSelected] = useState<number[]>([]);
-  useEffect(() => setSelected((current) => current.filter((id) => rows.some((row) => row.notification.id === id))), [rows]);
-  const toggle = (id: number) => setSelected((current) => current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
-  const retrySelected = () => {
-    if (!selected.length) return toast.error("حدد رسالة فاشلة واحدة على الأقل.");
-    retry.mutate({ siteId, notificationIds: selected });
+  const resolveReview = trpc.powerhub.notifications.resolveSmsNeedsReview.useMutation({
+    onSuccess: async () => { await history.refetch(); toast.success("تم تثبيت نتيجة مراجعة الرسالة."); },
+    onError: (error) => toast.error(error.message),
+  });
+  useEffect(() => { setPage(0); }, [period, startDate, endDate, type, channel, status, search]);
+  const data: any = history.data;
+  const rows: any[] = Array.isArray(data?.items) ? data.items : [];
+  const stats: any = data?.stats ?? {};
+  const busy = retryInvoice.isPending || retryReceipt.isPending || retrySmsBatch.isPending || resolveReview.isPending;
+  const retry = (row: any) => {
+    if (row.status !== "failed") return;
+    if (row.eventType === "invoice_issued" && row.invoiceId) retryInvoice.mutate({ siteId, notificationId: Number(row.id) });
+    else if (row.eventType === "payment_received") retryReceipt.mutate({ siteId, notificationId: Number(row.id) });
+    else retrySmsBatch.mutate({ siteId, notificationIds: [Number(row.id)] });
   };
-  return <Card className="border-rose-400/20 bg-rose-400/[.035]">
-    <CardContent className="space-y-4 p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2"><CircleAlert className="h-5 w-5 text-rose-300" /><h2 className="font-bold text-white">الرسائل الفاشلة</h2></div>
-          <p className="mt-1 text-sm leading-6 text-slate-400">مكان موحّد لرسائل SMS الفاشلة والرسائل التي تحتاج مراجعة بسبب نتيجة تسليم غير مؤكدة. الرسائل غير المؤكدة لا تُعاد تلقائياً.</p>
+  const statusClass = (value: string) => ["submitted", "delivered", "read"].includes(value)
+    ? "bg-emerald-400/10 text-emerald-300"
+    : value === "failed" ? "bg-rose-400/10 text-rose-300"
+    : value === "needs_review" ? "bg-amber-400/10 text-amber-200"
+    : "bg-sky-400/10 text-sky-200";
+  const eventLabel = (value: string) => ({
+    invoice_issued: "فاتورة", payment_reminder: "تذكير بالسداد", payment_received: "إيصال دفع",
+    subscriber_reference: "ترحيب / رقم مرجعي", subscriber_created: "ترحيب / رقم مرجعي",
+    service_alert: "تنبيه تشغيلي", manual: "رسالة يدوية",
+  } as Record<string, string>)[value] ?? value;
+  const sourceLabel = (row: any) => row.source === "manual" ? "حملة يدوية" : row.source === "automatic" ? "أتمتة" : "مسار سابق";
+  const statusLabel = (value: string) => ({
+    pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "قبلها مزود الرسائل",
+    delivered: "تم التسليم", read: "تمت القراءة", failed: "فشلت", needs_review: "تحتاج مراجعة",
+  } as Record<string, string>)[value] ?? value;
+  const refresh = async () => { await history.refetch(); };
+  const totalPages = Math.max(1, Math.ceil(Number(data?.total ?? 0) / 50));
+  const validCustomRange = period !== "custom" || Boolean(startDate && endDate && startDate <= endDate);
+
+  return <section className="space-y-4">
+    <Card className="border-sky-400/15 bg-[#111823] shadow-panel">
+      <CardContent className="space-y-4 p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2"><MessageSquareText className="h-5 w-5 text-[#F5B800]" /><h2 className="font-bold text-white">سجل الرسائل الموحد</h2></div>
+            <p className="mt-1 text-sm leading-6 text-slate-400">كل رسالة محفوظة تظهر مرة واحدة، مع ربطها بحملتها أو فاتورتها أو إيصالها أو الأتمتة التي أنشأتها. القبول لدى المزود لا يعني بالضرورة التسليم النهائي.</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={history.isFetching}><RotateCcw className={"ml-2 h-4 w-4 " + (history.isFetching ? "animate-spin" : "")} />تحديث السجل</Button>
         </div>
-        <Button type="button" variant="outline" onClick={() => failedQuery.refetch()} disabled={failedQuery.isFetching}><RotateCcw className={`ml-2 h-4 w-4 ${failedQuery.isFetching ? "animate-spin" : ""}`} />تحديث</Button>
-      </div>
-      {selected.length > 0 ? <div className="flex items-center justify-between rounded-lg border border-sky-400/20 bg-sky-400/5 p-3"><span className="text-sm text-slate-300">تم تحديد {selected.length} رسالة</span><Button type="button" onClick={retrySelected} disabled={retry.isPending} className="bg-sky-400 text-[#0D1117] hover:bg-sky-300">{retry.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إعادة إرسال المحدد</Button></div> : null}
-      {failedQuery.isLoading ? <div className="py-8 text-center text-slate-400">جارٍ تحميل الرسائل الفاشلة...</div> : rows.length === 0 ? <div className="rounded-lg border border-white/10 bg-black/10 p-8 text-center text-sm text-slate-400">لا توجد حالياً رسائل SMS غير مرسلة.</div> :
-        <div className="overflow-x-auto"><table className="w-full text-right text-sm"><thead><tr className="border-b border-white/10 text-slate-400">
-          <th className="px-3 py-3"><input type="checkbox" aria-label="تحديد كل الرسائل الفاشلة" checked={selected.length === rows.length && rows.length > 0} onChange={() => setSelected(selected.length === rows.length ? [] : rows.map((row) => row.notification.id))} /></th>
-          <th className="px-3 py-3">المشترك</th><th className="px-3 py-3">النوع</th><th className="px-3 py-3">المصدر</th><th className="px-3 py-3">الحالة</th><th className="px-3 py-3">المحاولات</th><th className="px-3 py-3">آخر خطأ</th><th className="px-3 py-3">الإجراء</th>
-        </tr></thead><tbody>
-          {rows.map((row) => <tr key={row.notification.id} className="border-b border-white/5">
-            <td className="px-3 py-3"><input type="checkbox" checked={selected.includes(row.notification.id)} onChange={() => toggle(row.notification.id)} aria-label={`تحديد رسالة ${row.notification.id}`} /></td>
-            <td className="px-3 py-3"><div className="font-medium text-white">{row.subscriber.name}</div><div className="text-xs text-slate-500">{row.subscriber.phone}</div>{row.invoice ? <div className="text-xs text-slate-500">فاتورة {row.invoice.invoiceNo}</div> : null}</td>
-            <td className="px-3 py-3 text-slate-300">{row.notification.eventType === "invoice_issued" ? "فاتورة" : row.notification.eventType === "payment_reminder" ? "تذكير" : row.notification.eventType === "payment_received" ? "إيصال دفع" : row.notification.eventType}</td>
-            <td className="px-3 py-3">{row.source === "automatic" ? <Badge className="bg-sky-400/10 text-sky-300">آلي</Badge> : <Badge className="bg-amber-400/10 text-amber-200">يدوي</Badge>}</td>
-            <td className="px-3 py-3"><Badge className={row.notification.status === "needs_review" ? "bg-amber-400/10 text-amber-200" : "bg-rose-400/10 text-rose-300"}>{row.notification.status === "needs_review" ? "تحتاج مراجعة" : "غير مرسلة"}</Badge></td>
-            <td className="px-3 py-3 text-slate-300">{row.notification.attempts}</td>
-            <td className="max-w-xs px-3 py-3 text-xs text-rose-200">{row.notification.lastError ?? "—"}</td>
-            <td className="px-3 py-3">{row.notification.status === "needs_review" ? <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" disabled={resolveReview.isPending} onClick={() => resolveReview.mutate({ siteId, notificationId: row.notification.id, resolution: "submitted" })}>تأكيد أنها أُرسلت</Button><Button type="button" size="sm" variant="outline" disabled={resolveReview.isPending} onClick={() => resolveReview.mutate({ siteId, notificationId: row.notification.id, resolution: "failed", reason: "تمت المراجعة يدوياً وتأكيد عدم التسليم." })}>تأكيد فشلها</Button></div> : <Button type="button" size="sm" variant="outline" disabled={row.notification.status !== "failed" || retry.isPending} onClick={() => retry.mutate({ siteId, notificationIds: [row.notification.id] })}>إعادة إرسال</Button>}</td>
-          </tr>)}
-        </tbody></table></div>}
-    </CardContent>
-  </Card>;
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-white/8 bg-white/[.025] p-3"><p className="text-xs text-slate-400">إجمالي الرسائل حسب الفلاتر</p><p className="mt-1 text-2xl font-bold text-white">{stats.total ?? 0}</p></div>
+          <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[.025] p-3"><p className="text-xs text-slate-400">قبلها مزود الرسائل</p><p className="mt-1 text-2xl font-bold text-emerald-300">{stats.submitted ?? 0}</p></div>
+          <div className="rounded-xl border border-rose-400/15 bg-rose-400/[.025] p-3"><p className="text-xs text-slate-400">فاشلة</p><p className="mt-1 text-2xl font-bold text-rose-300">{stats.failed ?? 0}</p></div>
+          <div className="rounded-xl border border-amber-400/15 bg-amber-400/[.025] p-3"><p className="text-xs text-slate-400">تحتاج مراجعة</p><p className="mt-1 text-2xl font-bold text-amber-200">{stats.needsReview ?? 0}</p></div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">الفترة الزمنية</span><select value={period} onChange={(e) => { setPeriod(e.target.value as typeof period); setPage(0); }} className={inputClass}><option value="cycle">هذه الدورة</option><option value="today">اليوم</option><option value="custom">مخصص: بداية ونهاية</option></select></label>
+          {period === "custom" ? <>
+            <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">من تاريخ</span><input type="date" value={startDate} max={endDate || undefined} onChange={(e) => { setStartDate(e.target.value); setPage(0); }} className={inputClass} /></label>
+            <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">إلى تاريخ (شامل)</span><input type="date" value={endDate} min={startDate || undefined} onChange={(e) => { setEndDate(e.target.value); setPage(0); }} className={inputClass} /></label>
+          </> : null}
+          <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">نوع الرسالة</span><select value={type} onChange={(e) => { setType(e.target.value as typeof type); setPage(0); }} className={inputClass}>
+            <option value="all">جميع الأنواع</option><option value="invoice_issued">الفواتير</option><option value="payment_reminder">تذكير بالسداد</option><option value="payment_received">إيصالات الدفع</option><option value="subscriber_reference">الترحيب / الرقم المرجعي</option><option value="service_alert">التنبيهات التشغيلية</option><option value="manual">الحملات اليدوية</option><option value="automatic">الرسائل الآلية والمجدولة</option>
+          </select></label>
+          <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">القناة</span><select value={channel} onChange={(e) => { setChannel(e.target.value as typeof channel); setPage(0); }} className={inputClass}><option value="all">كل القنوات</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option></select></label>
+          <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">حالة الرسالة</span><select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(0); }} className={inputClass}>
+            <option value="all">كل الحالات</option><option value="pending">بانتظار المعالجة</option><option value="processing">قيد المعالجة</option><option value="submitted">قبلها مزود الرسائل</option><option value="delivered">تم التسليم</option><option value="read">تمت القراءة</option><option value="failed">فاشلة</option><option value="needs_review">تحتاج مراجعة</option>
+          </select></label>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="بحث باسم المشترك أو الهاتف أو الفاتورة أو الحملة أو نص الرسالة" className={inputClass} />
+          <Button type="button" variant="outline" onClick={() => { setPeriod("cycle"); setType("all"); setChannel("all"); setStatus("all"); setSearch(""); setPage(0); }}>إعادة ضبط الفلاتر</Button>
+        </div>
+        {!validCustomRange ? <p role="alert" className="text-sm text-rose-200">تحقق من تاريخ البداية والنهاية؛ تاريخ النهاية يجب ألا يسبق البداية.</p> : null}
+        {data?.periodStart && data?.periodEndExclusive ? <p className="text-xs text-slate-500">الفترة الفعلية: {new Date(data.periodStart).toLocaleDateString("ar-PS", { timeZone: data.timezone || "Asia/Gaza" })} – {new Date(new Date(data.periodEndExclusive).getTime() - 1).toLocaleDateString("ar-PS", { timeZone: data.timezone || "Asia/Gaza" })} · المنطقة الزمنية {data.timezone || "Asia/Gaza"}</p> : null}
+        {history.isError ? <p role="alert" className="rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحميل السجل الموحد. راجع صلاحية الحساب ثم أعد التحديث.</p> : null}
+        {history.isLoading ? <p className="py-8 text-center text-sm text-slate-400">جارٍ تحميل الرسائل...</p> : !rows.length ? <p className="rounded-xl border border-white/8 p-8 text-center text-sm text-slate-400">{validCustomRange ? "لا توجد رسائل تطابق الفترة والفلاتر المحددة لهذا الفرع." : "أدخل نطاقاً زمنياً صحيحاً لعرض الرسائل."}</p> :
+          <div className="overflow-x-auto rounded-xl border border-white/8">
+            <table className="w-full min-w-[1120px] text-right text-sm">
+              <thead className="border-b border-white/8 bg-white/[.025] text-xs text-slate-400"><tr><th className="px-3 py-3">وقت الإنشاء</th><th className="px-3 py-3">المشترك / الرقم</th><th className="px-3 py-3">النوع والمصدر</th><th className="px-3 py-3">الفاتورة / الحملة</th><th className="px-3 py-3">القناة</th><th className="px-3 py-3">الحالة</th><th className="px-3 py-3">المحاولات</th><th className="px-3 py-3">التفاصيل</th><th className="px-3 py-3">الإجراء</th></tr></thead>
+              <tbody>{rows.map((row: any) => <React.Fragment key={row.id}>
+                <tr className="border-b border-white/5 align-top">
+                  <td className="whitespace-nowrap px-3 py-3 text-slate-400">{row.createdAt ? new Date(row.createdAt).toLocaleString("ar-PS", { timeZone: data?.timezone || "Asia/Gaza" }) : "—"}</td>
+                  <td className="px-3 py-3"><div className="font-medium text-white">{row.subscriberName || "مشترك غير محدد"}</div><div className="text-xs text-slate-500">{row.subscriberNo || "—"}</div><div className="mt-1 text-xs text-slate-400" dir="ltr">{row.recipient || "—"}</div></td>
+                  <td className="px-3 py-3"><div className="font-medium text-slate-200">{eventLabel(row.eventType)}</div><div className="mt-1 text-xs text-slate-500">{sourceLabel(row)}</div></td>
+                  <td className="px-3 py-3"><div className="text-slate-200">{row.invoiceNo ? row.invoiceNo : "—"}</div>{row.campaignId ? <div className="mt-1 text-xs text-sky-200">{row.campaignLabel}</div> : null}{row.automationName ? <div className="mt-1 text-xs text-slate-500">{row.automationName}</div> : null}</td>
+                  <td className="px-3 py-3 text-slate-300">{row.channel === "whatsapp" ? "WhatsApp" : "SMS"}</td>
+                  <td className="px-3 py-3"><Badge className={statusClass(row.status)}>{statusLabel(row.status)}</Badge>{row.lastError ? <p className="mt-1 max-w-48 text-xs leading-5 text-rose-200">{row.lastError}</p> : null}</td>
+                  <td className="px-3 py-3 text-slate-300">{row.attempts ?? 0}</td>
+                  <td className="px-3 py-3"><Button type="button" size="sm" variant="outline" onClick={() => setExpandedId((current) => current === Number(row.id) ? null : Number(row.id))}>{expandedId === Number(row.id) ? "إخفاء" : "عرض النص"}</Button></td>
+                  <td className="px-3 py-3">{row.status === "failed" ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => retry(row)}><RotateCcw className="ml-1 h-3.5 w-3.5" />إعادة المحاولة</Button> : row.status === "needs_review" ? <div className="flex min-w-48 flex-wrap gap-1"><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => resolveReview.mutate({ siteId, notificationId: Number(row.id), resolution: "submitted" })}>اعتماد الإرسال</Button><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => resolveReview.mutate({ siteId, notificationId: Number(row.id), resolution: "failed", reason: "تمت المراجعة من سجل الرسائل الموحد." })}>تأكيد الفشل</Button></div> : <span className="text-xs text-slate-600">—</span>}</td>
+                </tr>
+                {expandedId === Number(row.id) ? <tr className="border-b border-white/8 bg-white/[.018]"><td colSpan={9} className="px-4 py-4"><div className="grid gap-3 md:grid-cols-2"><div><p className="text-xs font-bold text-slate-400">نص الرسالة المسجل</p><p className="mt-2 whitespace-pre-wrap break-words rounded-lg border border-white/8 p-3 text-sm text-slate-200">{row.messageText || "لا يتوفر نص الرسالة في سجل المصدر."}</p></div><div className="space-y-2 text-xs text-slate-400"><p>معرّف الرسالة: <span className="text-slate-200">{row.id}</span></p><p>معرّف المزود: <span className="break-all text-slate-200">{row.providerMessageId || "غير متوفر"}</span></p><p>آخر تحديث: <span className="text-slate-200">{row.updatedAt ? new Date(row.updatedAt).toLocaleString("ar-PS", { timeZone: data?.timezone || "Asia/Gaza" }) : "—"}</span></p><p>نوع الجدولة: <span className="text-slate-200">{row.scheduleType || "غير محدد"}</span></p><p>العملية المرجعية: <span className="break-all text-slate-200">{row.operationKey || "—"}</span></p></div></div></td></tr> : null}
+              </React.Fragment>)}</tbody>
+            </table>
+          </div>}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-500">الصفحة {page + 1} من {totalPages} · {data?.campaignCount ?? 0} حملة ممثلة ضمن النتائج · التحديث كل 15 ثانية</p><div className="flex gap-2"><Button type="button" variant="outline" size="sm" disabled={page <= 0 || history.isFetching} onClick={() => setPage((current) => Math.max(0, current - 1))}>السابق</Button><Button type="button" variant="outline" size="sm" disabled={page + 1 >= totalPages || history.isFetching} onClick={() => setPage((current) => current + 1)}>التالي</Button></div></div>
+      </CardContent>
+    </Card>
+  </section>;
 }
 
 
@@ -133,7 +206,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   });
   const sendManual = trpc.powerhub.unifiedMessaging.sendManual.useMutation({
     onSuccess: async (result) => {
-      await utils.powerhub.unifiedMessaging.campaign.invalidate();
+      await Promise.all([utils.powerhub.unifiedMessaging.campaign.invalidate(), utils.powerhub.unifiedMessaging.history.invalidate()]);
       const reviewPersistenceFailed = Number(result.reviewPersistenceFailed ?? 0);
       setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, pending: result.pending ?? 0, processing: result.processing ?? 0, needsReview: result.needsReview, reviewPersistenceFailed, issues: (result.results ?? []).filter((row: any) => row.status !== "submitted").map((row: any) => String(row.error ?? (row.status === "needs_review" ? "نتيجة الإرسال غير مؤكدة وتحتاج مراجعة." : row.status === "failed" ? "فشل إرسال الرسالة." : "لم يبدأ إرسال الرسالة."))).filter(Boolean).slice(0, 5) });
       const message = `${result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${result.needsReview} تحتاج مراجعة` + (reviewPersistenceFailed > 0 ? `، وتعذر تأكيد حفظ حالة المراجعة لعدد ${reviewPersistenceFailed} رسالة` : "") + ".";
@@ -294,15 +367,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
 export default function MessagingSettingsPage() {
   const { isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
-  const utils = trpc.useUtils();  const [retryingNotificationId, setRetryingNotificationId] = useState<number | undefined>();
-  const retryInvoiceNotification = trpc.powerhub.notifications.retryFailedInvoiceNotification.useMutation({
-    onSuccess: async () => { setRetryingNotificationId(undefined); await notificationsQuery.refetch(); },
-    onError: () => setRetryingNotificationId(undefined),
-  });
-  const retryPaymentReceipt = trpc.powerhub.notifications.retryPaymentReceipt.useMutation({
-    onSuccess: async () => { setRetryingNotificationId(undefined); await receiptsQuery.refetch(); },
-    onError: () => setRetryingNotificationId(undefined),
-  });
+  const utils = trpc.useUtils();
 
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const [siteId, setSiteId] = useState<number | null>(null);
@@ -310,7 +375,6 @@ export default function MessagingSettingsPage() {
   const enabled = Boolean(isAuthenticated && siteId);
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const owner = can(accessQuery.data?.role, "manageMessaging");
-  const canRetry = can(accessQuery.data?.role, "issueInvoices");
   const canCollect = can(accessQuery.data?.role, "collectPayments");
   const configsQuery = trpc.powerhub.messaging.listConfigurations.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && owner });
   const policyQuery = trpc.powerhub.messaging.deliveryPolicy.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && owner });
@@ -318,7 +382,6 @@ export default function MessagingSettingsPage() {
   const receiptTemplatesQuery = trpc.powerhub.messaging.listPaymentReceiptTemplates.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && owner });
   const phoneReviewQuery = trpc.powerhub.subscribers.phoneReview.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && owner });
   const notificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0, eventType: "invoice_issued" }, { enabled });
-  const receiptsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0, eventType: "payment_received" }, { enabled });
   const scheduleRunsQuery = trpc.powerhub.messaging.listScheduleRuns.useQuery({ siteId: siteId ?? 0, limit: 20 }, { enabled: enabled && ["owner", "manager", "accountant"].includes(accessQuery.data?.role ?? "") });
   const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && owner });
   const smsDailyUsageQuery = trpc.powerhub.messaging.smsDailyUsage.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && owner });
@@ -343,15 +406,13 @@ export default function MessagingSettingsPage() {
   return <DashboardLayout><div className="space-y-6 pb-12"><header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><MessageSquareText className="h-4 w-4" />رسائل الفواتير</div><h1 className="mt-1 text-2xl font-extrabold text-white">قوالب الفاتورة وحالة الإرسال</h1><p className="mt-2 text-sm text-slate-400">يدير آدمن PowerHub حساب TweetSMS واسم المرسل والحصة الشهرية. يمكنك هنا تخصيص القوالب ومتابعة الإرسال فقط.</p></div>{sitesQuery.data?.length ? <select value={siteId ?? ""} onChange={(e) => setSiteId(Number(e.target.value))} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" key={site.id} value={site.id}>{site.name}</option>)}</select> : null}</header>
     {!owner ? <Card className="border-white/8 bg-[#111823]"><CardContent className="p-8 text-center text-sm text-slate-500">تحتاج إلى صلاحية <strong className="text-[#F5B800]">إدارة المراسلات</strong> لعرض حالة الرسائل وقوالبها.</CardContent></Card> : <><section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <ChannelForm title="إعداد WhatsApp Cloud API" channel="whatsapp" existing={configs.find((item) => item.channel === "whatsapp")} pending={saveConfig.isPending} onSubmit={saveConfig.mutate} siteId={siteId!} /> : null}</section>{owner ? <><TweetSmsQuotaCard quota={smsQuotaQuery.data} /><SmsDailyUsageCard data={smsDailyUsageQuery.data} loading={smsDailyUsageQuery.isLoading} /></> : null}
     {available.sms && owner && siteId ? <AutoSendPolicyCard config={smsConfig} siteId={siteId} /> : null}
-      {available.sms && owner && siteId ? <FailedSmsPanel siteId={siteId} /> : null}{open ? <section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <TemplateEditor channel="whatsapp" template={templates.find((item) => item.channel === "whatsapp")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <TemplateEditor channel="sms" template={templates.find((item) => item.channel === "sms")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <PaymentReceiptSmsEditor template={receiptTemplates.find((item) => item.channel === "sms")} pending={saveReceiptTemplate.isPending} onSubmit={saveReceiptTemplate.mutate} siteId={siteId!} /> : null}</section> : null}</>}
+      {open ? <section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <TemplateEditor channel="whatsapp" template={templates.find((item) => item.channel === "whatsapp")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <TemplateEditor channel="sms" template={templates.find((item) => item.channel === "sms")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <PaymentReceiptSmsEditor template={receiptTemplates.find((item) => item.channel === "sms")} pending={saveReceiptTemplate.isPending} onSubmit={saveReceiptTemplate.mutate} siteId={siteId!} /> : null}</section> : null}</>}
     {owner && siteId ? <UnifiedMessagingPanel siteId={siteId} /> : null}
+    {owner && siteId ? <UnifiedMessageHistoryPanel siteId={siteId} /> : null}
     {canViewFinancialAlerts ? <FinancialCollectionAlerts overview={financialOverviewQuery.data} canCollect={canCollect} onOpenInvoice={(invoiceId: number) => navigate(`/invoices?invoiceId=${invoiceId}`)} onCollect={(row: any) => navigate(`/collections?subscriberId=${row.subscriberId}&invoiceId=${row.invoiceId}`)} /> : null}
     {owner && siteId ? <InvoiceSmsQueue rows={notificationsQuery.data ?? []} config={smsConfig} siteId={siteId} /> : null}
     {owner ? <PhoneNormalizationTool rows={phoneReviewQuery.data ?? []} pending={applyPhoneNormalization.isPending} onApply={(subscriberIds: number[]) => applyPhoneNormalization.mutate({ siteId: siteId!, subscriberIds })} /> : null}
-    <InvoiceLog rows={notificationsQuery.data ?? []} canRetry={owner} pendingId={retryingNotificationId} onRetry={(id) => { setRetryingNotificationId(id); retryInvoiceNotification.mutate({ siteId: siteId!, notificationId: id }); }} />
-    {owner ? <ReceiptFailureAlerts rows={receiptsQuery.data ?? []} /> : null}
     {owner ? <ScheduleRunLog rows={scheduleRunsQuery.data ?? []} loading={scheduleRunsQuery.isLoading} /> : null}
-    <PaymentReceiptLog rows={receiptsQuery.data ?? []} canRetry={owner} pendingId={retryingNotificationId} onRetry={(id) => { setRetryingNotificationId(id); retryPaymentReceipt.mutate({ siteId: siteId!, notificationId: id }); }} />
   </div></DashboardLayout>;
 }
 
@@ -451,12 +512,10 @@ function InvoiceSmsQueue({ rows, config, siteId }: { rows: any[]; config: any; s
     {pending.length > 100 ? <p className="mt-3 text-xs text-slate-500">يُعرض أول 100 عنصر فقط في الواجهة؛ الطابور الكامل محفوظ في النظام.</p> : null}
   </CardContent></Card>;
 }
-function InvoiceLog({ rows, canRetry, pendingId, onRetry }: { rows: any[]; canRetry: boolean; pendingId?: number; onRetry: (id: number) => void }) { const total = rows.length; const successful = rows.filter((row) => ["submitted", "delivered", "read"].includes(row.notification.status)).length; const failed = rows.filter((row) => row.notification.status === "failed").length; const successRate = total ? Math.round((successful / total) * 100) : 0; return <section className="space-y-4"><div className="grid gap-4 sm:grid-cols-3"><Stat label="إجمالي الرسائل المرسلة" value={total} tone="gold" /><Stat label="نسبة النجاح" value={`${successRate}%`} tone="green" /><Stat label="الرسائل الفاشلة" value={failed} tone="red" /></div><Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-col gap-2 border-b border-white/8 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-white">سجل إرسال فواتير المشتركين</h2><p className="mt-1 text-xs text-slate-500">يعرض رسائل الفواتير مع نتيجة الإرسال فقط؛ لا تُعرض حالة التسليم أو القراءة في هذه المرحلة.</p></div><span className="w-fit rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">{total} رسالة</span></div><div className="overflow-x-auto"><table className="w-full min-w-[920px] text-right text-sm"><thead className="border-b border-white/8 text-xs text-slate-500"><tr><th className="px-5 py-3">المشترك</th><th className="px-4 py-3">الفاتورة</th><th className="px-4 py-3">القناة</th><th className="px-4 py-3">المستلم</th><th className="px-4 py-3">الحالة</th><th className="px-4 py-3">المحاولات</th><th className="px-4 py-3">سبب الفشل</th><th className="px-4 py-3">التاريخ</th><th className="px-4 py-3"></th></tr></thead><tbody>{rows.map((row) => <tr key={row.notification.id} className="border-b border-white/[.06]"><td className="px-5 py-4 font-bold text-white">{row.subscriber.fullName}</td><td className="px-4 py-4 text-slate-300">{row.invoiceNo ?? "—"}</td><td className="px-4 py-4 text-slate-300">{row.notification.channel === "whatsapp" ? "WhatsApp" : "SMS"}</td><td className="px-4 py-4 text-slate-400" dir="ltr">{row.notification.recipient}</td><td className="px-4 py-4"><Badge className={row.notification.status === "failed" ? "bg-rose-400/10 text-rose-300" : row.notification.status === "delivered" ? "bg-emerald-400/10 text-emerald-300" : "bg-[#F5B800]/10 text-[#F5B800]"}>{statusLabels[row.notification.status] ?? row.notification.status}</Badge></td><td className="px-4 py-4 text-slate-400">{row.notification.attempts}</td><td className="max-w-64 px-4 py-4 text-xs leading-5 text-rose-300">{row.notification.status === "failed" ? row.notification.lastError ?? "لم يحدد المزود السبب." : "—"}</td><td className="px-4 py-4 text-slate-400">{new Date(row.notification.createdAt).toLocaleString("ar-IQ")}</td><td className="px-4 py-4">{canRetry && row.notification.status === "failed" ? <Button size="sm" disabled={pendingId === row.notification.id} onClick={() => onRetry(row.notification.id)} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]"><RotateCcw className="ml-1 h-3.5 w-3.5" />إعادة إرسال</Button> : null}</td></tr>)}{!rows.length && <tr><td colSpan={9} className="px-5 py-12 text-center text-sm text-slate-500">لا توجد رسائل فواتير مسجلة لهذه المحطة بعد.</td></tr>}</tbody></table></div></CardContent></Card></section>; }
 function PhoneNormalizationTool({ rows, pending, onApply }: { rows: any[]; pending: boolean; onApply: (ids: number[]) => void }) { const ready = rows.filter((row) => row.status === "ready"); const manual = rows.filter((row) => row.status === "manual"); return <Card className="border-sky-400/15 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-white">مراجعة الأرقام القديمة</h2><p className="mt-1 text-sm leading-6 text-slate-500">يحدّث النظام فقط الصيغ القابلة للتحقق مثل بادئة 00 أو المسافات؛ لا يخمّن رمز الدولة للأرقام المحلية.</p></div><Button disabled={pending || !ready.length} onClick={() => onApply(ready.map((row) => row.id))} className="bg-sky-400 text-[#0D1117] hover:bg-sky-300">تحديث {ready.length} رقم جاهز</Button></div><div className="mt-4 grid gap-3 lg:grid-cols-2"><div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[.035] p-4"><p className="text-sm font-bold text-emerald-200">جاهز للتحديث التلقائي ({ready.length})</p>{ready.slice(0, 6).map((row) => <p className="mt-2 text-xs text-slate-300" key={row.id}>{row.fullName}: <span dir="ltr">{row.phone} → {row.normalizedPhone}</span></p>)}{!ready.length ? <p className="mt-2 text-xs text-slate-500">لا توجد أرقام تحتاج توحيد صيغة تلقائياً.</p> : null}</div><div className="rounded-xl border border-amber-400/15 bg-amber-400/[.035] p-4"><p className="text-sm font-bold text-amber-200">تحتاج مراجعة يدوية ({manual.length})</p>{manual.slice(0, 6).map((row) => <p className="mt-2 text-xs text-slate-300" key={row.id}>{row.fullName}: <span dir="ltr">{row.phone}</span></p>)}{!manual.length ? <p className="mt-2 text-xs text-slate-500">لا توجد أرقام محلية غير مكتملة.</p> : null}</div></div></CardContent></Card>; }
-function ReceiptFailureAlerts({ rows }: { rows: any[] }) { const repeated = Object.values(rows.filter((row) => row.notification.status === "failed").reduce((groups: Record<string, { name: string; phone: string; failed: number; reason: string }>, row) => { const id = String(row.subscriber.id ?? row.notification.subscriberId); const current = groups[id] ?? { name: row.subscriber.fullName, phone: row.notification.recipient, failed: 0, reason: row.notification.lastError ?? "لم يحدد المزود السبب." }; current.failed += 1; groups[id] = current; return groups; }, {})).filter((item) => item.failed >= 2); if (!repeated.length) return null; return <Card className="border-rose-400/30 bg-rose-400/[.055] shadow-panel"><CardContent className="p-5"><p className="font-bold text-rose-200">تنبيه متابعة: تكرر فشل إرسال الإيصال</p><p className="mt-1 text-sm text-rose-100/70">راجع رقم المشترك وبيانات ربط القناة ثم استخدم إعادة الإرسال من السجل.</p><div className="mt-4 grid gap-3 lg:grid-cols-2">{repeated.map((item) => <div key={item.phone} className="rounded-xl border border-rose-400/15 bg-[#0D1117]/40 p-3"><p className="font-bold text-white">{item.name} <span className="text-rose-300">({item.failed} إخفاقات)</span></p><p className="mt-1 text-xs text-slate-400" dir="ltr">{item.phone}</p><p className="mt-2 text-xs leading-5 text-rose-200">آخر سبب: {item.reason}</p></div>)}</div></CardContent></Card>; }
-function PaymentReceiptLog({ rows, canRetry, pendingId, onRetry }: { rows: any[]; canRetry: boolean; pendingId?: number; onRetry: (id: number) => void }) { const delivered = rows.filter((row) => ["submitted", "delivered", "read"].includes(row.notification.status)).length; const failed = rows.filter((row) => row.notification.status === "failed").length; return <section className="space-y-4"><div className="grid gap-4 sm:grid-cols-3"><Stat label="إيصالات الدفع المرسلة" value={rows.length} tone="gold" /><Stat label="مرسلة" value={delivered} tone="green" /><Stat label="إيصالات فاشلة" value={failed} tone="red" /></div><Card className="border-emerald-400/15 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل إرسال إيصالات الدفع</h2><p className="mt-1 text-xs text-slate-500">يعرض كل إيصال دفع أرسل عبر WhatsApp أو SMS إلى رقم المشترك المسجل.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[980px] text-right text-sm"><thead className="border-b border-white/8 text-xs text-slate-500"><tr><th className="px-5 py-3">المشترك</th><th className="px-4 py-3">الفاتورة</th><th className="px-4 py-3">القناة</th><th className="px-4 py-3">المستلم</th><th className="px-4 py-3">الحالة وسبب الفشل</th><th className="px-4 py-3">المحاولات</th><th className="px-4 py-3">التاريخ</th><th className="px-4 py-3"></th></tr></thead><tbody>{rows.map((row) => <tr key={row.notification.id} className="border-b border-white/[.06]"><td className="px-5 py-4 font-bold text-white">{row.subscriber.fullName}</td><td className="px-4 py-4 text-slate-300" dir="ltr">{row.invoiceNo ?? "—"}</td><td className="px-4 py-4 text-slate-300">{row.notification.channel === "whatsapp" ? "WhatsApp" : "SMS"}</td><td className="px-4 py-4 text-slate-400" dir="ltr">{row.notification.recipient}</td><td className="px-4 py-4"><Badge className={row.notification.status === "failed" ? "bg-rose-400/10 text-rose-300" : ["delivered", "read"].includes(row.notification.status) ? "bg-emerald-400/10 text-emerald-300" : "bg-[#F5B800]/10 text-[#F5B800]"}>{statusLabels[row.notification.status] ?? row.notification.status}</Badge>{row.notification.status === "failed" ? <p className="mt-2 max-w-64 text-xs leading-5 text-rose-200">{row.notification.lastError ?? "لم يحدد المزود سبب الفشل."}</p> : null}</td><td className="px-4 py-4 text-slate-400">{row.notification.attempts}</td><td className="px-4 py-4 text-slate-400">{new Date(row.notification.createdAt).toLocaleString("ar-IQ")}</td><td className="px-4 py-4">{canRetry && row.notification.status === "failed" ? <Button size="sm" disabled={pendingId === row.notification.id} onClick={() => onRetry(row.notification.id)} className="bg-emerald-400 text-[#0D1117] hover:bg-emerald-300"><RotateCcw className="ml-1 h-3.5 w-3.5" />إعادة إرسال</Button> : null}</td></tr>)}{!rows.length && <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-slate-500">لا توجد إيصالات دفع مرسلة لهذه المحطة بعد.</td></tr>}</tbody></table></div></CardContent></Card></section>; }
-function TweetSmsStatusCard({ quota, available }: { quota: any; available: boolean }) { const tone = quota?.isActive && quota?.configured && available ? "border-emerald-400/20 bg-emerald-400/[.035]" : "border-amber-400/25 bg-amber-400/[.045]"; return <Card className={tone}><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-[#F5B800]" /><h2 className="font-bold text-white">حساب TweetSMS</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">يُدار الربط واسم المرسل والحد الشهري من آدمن PowerHub. لا تظهر بيانات API داخل حسابك.</p></div><Badge className={quota?.isActive && quota?.configured && available ? "bg-emerald-400/10 text-emerald-300" : "bg-amber-400/10 text-amber-200"}>{quota?.isActive && quota?.configured && available ? "جاهز للإرسال" : "بانتظار تهيئة الآدمن"}</Badge></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-white/8 bg-[#0D1117]/30 p-3"><p className="text-xs text-slate-500">اسم المرسل</p><p className="mt-1 font-bold text-white" dir="ltr">{quota?.senderName ?? "—"}</p></div><div className="rounded-xl border border-white/8 bg-[#0D1117]/30 p-3"><p className="text-xs text-slate-500">الحالة</p><p className="mt-1 font-bold text-white">{quota?.isActive ? "مفعّل من آدمن المنصة" : "موقوف من آدمن المنصة"}</p></div></div>{quota?.lastError ? <p className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[.06] p-3 text-xs leading-6 text-amber-200">{quota.lastError}</p> : null}</CardContent></Card>; }
+
 function TweetSmsQuotaCard({ quota }: { quota: any }) { return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><h2 className="font-bold text-white">رصيد رسائل TweetSMS</h2><p className="mt-1 text-sm leading-6 text-slate-500">يحدده آدمن PowerHub لكل صاحب مولد ويُحتسب من بداية الشهر الحالي فقط.</p></div><div className="grid grid-cols-3 gap-3 text-center"><div className="rounded-xl border border-white/8 bg-white/[.025] p-3"><p className="text-xs text-slate-500">الحد الشهري</p><p className="mt-1 font-display text-xl font-bold text-[#F5B800]">{quota?.total ?? 0}</p></div><div className="rounded-xl border border-white/8 bg-white/[.025] p-3"><p className="text-xs text-slate-500">المستخدم</p><p className="mt-1 font-display text-xl font-bold text-slate-200">{quota?.used ?? 0}</p></div><div className="rounded-xl border border-white/8 bg-white/[.025] p-3"><p className="text-xs text-slate-500">المتبقي</p><p className="mt-1 font-display text-xl font-bold text-emerald-300">{quota?.remaining ?? 0}</p></div></div></div><p className="mt-4 rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.045] p-3 text-xs leading-6 text-[#f9d66a]">لرفع الحد الشهري تواصل مع آدمن PowerHub؛ لا تحتاج إلى إدخال أي إعداد تقني.</p></CardContent></Card>; }
+
 function SmsDailyUsageCard({ data, loading }: { data: any; loading: boolean }) { const points = data?.points ?? []; const max = Math.max(1, ...points.map((point: any) => Number(point.count ?? 0))); const percent = data?.total ? Math.min(100, (Number(data.used ?? 0) / Number(data.total)) * 100) : 0; return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="font-bold text-white">استهلاك رسائل SMS اليومي</h2><p className="mt-1 text-xs text-slate-500">آخر 14 يوماً من الرسائل التي تمت معالجتها بنجاح.</p></div><div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[.06] px-4 py-3 text-right"><p className="text-xs text-slate-400">الرصيد المتبقي</p><p className="mt-1 text-2xl font-extrabold text-emerald-300">{data?.remaining ?? 0}</p><p className="mt-1 text-xs text-slate-500">من {data?.total ?? 0} رسالة · {percent.toFixed(0)}% مستخدم</p></div></div>{loading ? <Skeleton className="mt-6 h-36 w-full" /> : <div className="mt-6"><div className="flex h-36 items-end gap-1.5 border-b border-white/10 px-1">{points.map((point: any) => <div key={point.date} className="flex h-full flex-1 flex-col items-center justify-end gap-2" title={`${point.date}: ${point.count} رسالة`}><span className="text-[10px] font-bold text-[#F5B800]">{point.count || ""}</span><div className="w-full max-w-8 rounded-t-md bg-[#F5B800] transition-all" style={{ height: `${Math.max(point.count ? 8 : 2, (Number(point.count) / max) * 100)}%` }} /><span className="text-[9px] text-slate-500">{String(point.date).slice(5)}</span></div>)}</div><div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-800"><div className={`h-full rounded-full ${percent >= 100 ? "bg-rose-400" : percent >= 80 ? "bg-amber-300" : "bg-emerald-400"}`} style={{ width: `${percent}%` }} /></div></div>}</CardContent></Card>; }
+
 function ScheduleRunLog({ rows, loading }: { rows: any[]; loading: boolean }) { return <Card className="border-sky-400/15 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل معالجة SMS الفواتير الآلي</h2><p className="mt-1 text-xs text-slate-500">سجل تقني داخلي لمعالجة طابور فواتير SMS؛ لا يمثل جدولة يحددها صاحب المولد.</p></div>{loading ? <div className="space-y-3 p-5"><Skeleton className="h-5 w-full" /><Skeleton className="h-5 w-5/6" /><Skeleton className="h-5 w-2/3" /></div> : <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-right text-sm"><thead className="border-b border-white/8 text-xs text-slate-500"><tr><th className="px-5 py-3">وقت التشغيل</th><th className="px-4 py-3">الحالة</th><th className="px-4 py-3">ممسوحة</th><th className="px-4 py-3">مرسلة</th><th className="px-4 py-3">فاشلة</th><th className="px-4 py-3">متجاوزة</th><th className="px-4 py-3">الخطأ</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-b border-white/[.06]"><td className="px-5 py-4 text-slate-300">{new Date(row.startedAt).toLocaleString("ar-IQ")}</td><td className="px-4 py-4"><Badge className={row.status === "success" ? "bg-emerald-400/10 text-emerald-300" : "bg-rose-400/10 text-rose-300"}>{row.status === "success" ? "نجح التشغيل" : "فشل التشغيل"}</Badge></td><td className="px-4 py-4 text-slate-300">{row.scanned}</td><td className="px-4 py-4 text-emerald-300">{row.submitted}</td><td className="px-4 py-4 text-rose-300">{row.failed}</td><td className="px-4 py-4 text-amber-200">{row.skipped}</td><td className="max-w-80 px-4 py-4 text-xs text-rose-200">{row.error ?? "—"}</td></tr>)}{!rows.length && <tr><td colSpan={7} className="px-5 py-10 text-center text-sm text-slate-500">لم تُنفذ المهمة المجدولة بعد.</td></tr>}</tbody></table></div>}</CardContent></Card>; }
-function Stat({ label, value, tone }: { label: string; value: string | number; tone: "gold" | "green" | "red" }) { const color = tone === "green" ? "text-emerald-300" : tone === "red" ? "text-rose-300" : "text-[#F5B800]"; return <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5"><p className="text-sm text-slate-400">{label}</p><p className={`mt-3 text-3xl font-extrabold ${color}`}>{value}</p></CardContent></Card>; }

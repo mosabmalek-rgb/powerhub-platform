@@ -460,6 +460,367 @@ export async function processUnifiedMessagingAutomations(now = new Date()) {
   return { automations: results.length, results };
 }
 
+
+type UnifiedMessageHistoryInput = {
+  siteId: number;
+  period: "cycle" | "today" | "custom";
+  startDate?: string;
+  endDate?: string;
+  type: "all" | "invoice_issued" | "payment_reminder" | "payment_received" | "subscriber_reference" | "service_alert" | "manual" | "automatic";
+  channel: "all" | "sms" | "whatsapp";
+  status: "all" | "pending" | "processing" | "submitted" | "delivered" | "read" | "failed" | "needs_review";
+  search?: string;
+  limit: number;
+  offset: number;
+};
+
+const HISTORY_PAGE_SIZE = 500;
+const HISTORY_MAX_ROWS = 50_000;
+const HISTORY_ID_CHUNK_SIZE = 500;
+
+function historyDateIsValid(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(value + "T00:00:00.000Z");
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function addCalendarDay(value: string): string {
+  const parsed = new Date(value + "T00:00:00.000Z");
+  parsed.setUTCDate(parsed.getUTCDate() + 1);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function localMidnightUtc(value: string, timeZone: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const targetLocalAsUtc = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+  let guess = targetLocalAsUtc;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date(guess))
+        .filter((part) => part.type !== "literal")
+        .map((part) => [part.type, part.value]),
+    ) as Record<string, string>;
+    const localAsUtc = Date.UTC(
+      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+      Number(parts.hour), Number(parts.minute), Number(parts.second), 0,
+    );
+    const correction = targetLocalAsUtc - localAsUtc;
+    guess += correction;
+    if (correction === 0) break;
+  }
+  return new Date(guess).toISOString();
+}
+
+function addOneMicrosecond(value: string): string {
+  const match = value.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/);
+  if (!match) throw new Error("Invalid timestamp returned by reading-cycle authority.");
+  const secondPart = match[1];
+  const fraction = match[2] ?? "";
+  const zone = match[3];
+  const microseconds = Number(fraction.padEnd(6, "0").slice(0, 6)) + 1;
+  if (microseconds < 1_000_000) {
+    return secondPart + "." + String(microseconds).padStart(6, "0") + zone;
+  }
+  return new Date(Date.parse(secondPart + zone) + 1000).toISOString();
+}
+
+async function readAllHistoryRows(
+  queryPage: (from: number, to: number) => any,
+  failureMessage: string,
+): Promise<any[]> {
+  const rows: any[] = [];
+  for (let from = 0; from <= HISTORY_MAX_ROWS; from += HISTORY_PAGE_SIZE) {
+    const { data, error } = await queryPage(from, from + HISTORY_PAGE_SIZE - 1);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: failureMessage });
+    const page = Array.isArray(data) ? data : [];
+    rows.push(...page);
+    if (rows.length > HISTORY_MAX_ROWS) {
+      throw new TRPCError({
+        code: "PAYLOAD_TOO_LARGE",
+        message: "حجم سجل الرسائل لهذه الفترة كبير جدًا؛ ضيّق الفترة الزمنية ثم أعد المحاولة.",
+      });
+    }
+    if (page.length < HISTORY_PAGE_SIZE) return rows;
+  }
+  throw new TRPCError({
+    code: "PAYLOAD_TOO_LARGE",
+    message: "حجم سجل الرسائل لهذه الفترة كبير جدًا؛ ضيّق الفترة الزمنية ثم أعد المحاولة.",
+  });
+}
+
+async function readHistoryRowsByIds(
+  admin: any,
+  table: string,
+  ids: number[],
+  columns: string,
+  idColumn = "id",
+): Promise<any[]> {
+  const uniqueIds = Array.from(new Set(ids.filter((id) => Number.isSafeInteger(id) && id > 0)));
+  const rows: any[] = [];
+  for (let offset = 0; offset < uniqueIds.length; offset += HISTORY_ID_CHUNK_SIZE) {
+    const chunk = uniqueIds.slice(offset, offset + HISTORY_ID_CHUNK_SIZE);
+    const { data, error } = await admin.from(table).select(columns).in(idColumn, chunk);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل سجل الرسائل." });
+    rows.push(...(Array.isArray(data) ? data : []));
+  }
+  return rows;
+}
+
+function historyMapById(rows: any[]): Map<number, any> {
+  return new Map(rows.map((row) => [Number(row.id), row]));
+}
+
+function historyTemplateText(payload: any): string {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+  for (const key of ["renderedText", "message", "body", "text"]) {
+    if (typeof payload[key] === "string" && payload[key].length > 0) return payload[key];
+  }
+  return "";
+}
+
+async function loadUnifiedMessageHistoryFromTables(
+  admin: any,
+  tenantId: number,
+  input: UnifiedMessageHistoryInput,
+): Promise<any> {
+  const siteId = input.siteId;
+  const configuration = await admin.from("tenant_reading_cycle_configurations")
+    .select("timezone")
+    .eq("tenant_id", tenantId)
+    .eq("site_id", siteId)
+    .maybeSingle();
+  if (configuration.error) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المنطقة الزمنية للفرع." });
+  }
+  const timeZone = String(configuration.data?.timezone || "Asia/Gaza");
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+  } catch {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "المنطقة الزمنية المضبوطة لهذا الفرع غير صالحة." });
+  }
+  let startAt: string;
+  let endAt: string;
+  let cycleEndInclusive = false;
+
+  if (input.period === "cycle") {
+    const cycleResult = await admin.rpc("powerhub_cycle_for_reading", {
+      p_tenant_id: tenantId,
+      p_site_id: siteId,
+      p_reading_at: new Date().toISOString(),
+    });
+    if (cycleResult.error) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديد دورة القراءة والفوترة الحالية." });
+    }
+    const cycle = Array.isArray(cycleResult.data) ? cycleResult.data[0] : cycleResult.data;
+    if (!cycle?.cycle_start_at || !cycle?.cycle_end_at) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد دورة قراءة وفوترة محددة لهذا الفرع." });
+    }
+    startAt = String(cycle.cycle_start_at);
+    endAt = String(cycle.cycle_end_at);
+    cycleEndInclusive = true;
+  } else {
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const localStartDate = input.period === "today" ? today : String(input.startDate ?? "");
+    const localEndDate = input.period === "today" ? today : String(input.endDate ?? "");
+    if (!historyDateIsValid(localStartDate) || !historyDateIsValid(localEndDate) || localStartDate > localEndDate) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "حدد نطاقًا زمنيًا صحيحًا؛ تاريخ النهاية يجب ألا يسبق البداية." });
+    }
+    startAt = localMidnightUtc(localStartDate, timeZone);
+    endAt = localMidnightUtc(addCalendarDay(localEndDate), timeZone);
+  }
+
+  const messageColumns = [
+    "id", "tenant_id", "invoice_id", "subscriber_id", "channel", "event_type", "recipient", "status",
+    "provider_message_id", "payload", "attempts", "last_error", "created_at", "updated_at", "scheduled_at",
+    "send_type", "schedule_type", "operation_key", "template_id", "automation_id",
+  ].join(", ");
+  const messageRows = await readAllHistoryRows((from, to) => {
+    let query = admin.from("notification_messages").select(messageColumns)
+      .eq("tenant_id", tenantId)
+      .gte("created_at", startAt);
+    query = cycleEndInclusive ? query.lte("created_at", endAt) : query.lt("created_at", endAt);
+    if (input.channel !== "all") query = query.eq("channel", input.channel);
+    if (input.status !== "all") query = query.eq("status", input.status);
+    if (input.type === "subscriber_reference") query = query.in("event_type", ["subscriber_reference", "subscriber_created"]);
+    else if (input.type === "payment_reminder") query = query.in("event_type", ["payment_reminder", "invoice_overdue"]);
+    else if (!["all", "manual", "automatic"].includes(input.type)) query = query.eq("event_type", input.type);
+    return query.order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to);
+  }, "تعذر تحميل رسائل الفترة المحددة.");
+
+  if (!messageRows.length) {
+    return {
+      items: [], total: 0, page: Math.floor(input.offset / input.limit) + 1, limit: input.limit, offset: input.offset,
+      campaignCount: 0,
+      stats: { total: 0, submitted: 0, failed: 0, pending: 0, processing: 0, needsReview: 0, campaigns: 0 },
+      period: input.period, periodStart: startAt,
+      periodEndExclusive: cycleEndInclusive ? addOneMicrosecond(endAt) : endAt, timezone: timeZone,
+    };
+  }
+
+  const ids = (values: any[]) => Array.from(new Set(values.filter((value) => value !== null && value !== undefined).map(Number)
+    .filter((value) => Number.isSafeInteger(value) && value > 0)));
+  const notificationIds = ids(messageRows.map((row) => row.id));
+  const subscriberIds = ids(messageRows.map((row) => row.subscriber_id));
+  const invoiceIds = ids(messageRows.map((row) => row.invoice_id));
+  const automationIds = ids(messageRows.map((row) => row.automation_id));
+  const messageTemplateIds = ids(messageRows.map((row) => row.template_id));
+
+  const [subscriberRows, invoiceRows, automationRows, recipientRows] = await Promise.all([
+    readHistoryRowsByIds(admin, "subscribers", subscriberIds, "id,tenant_id,site_id,full_name,subscriber_no"),
+    readHistoryRowsByIds(admin, "invoices", invoiceIds, "id,tenant_id,site_id,invoice_no"),
+    readHistoryRowsByIds(admin, "powerhub_message_automations", automationIds, "id,tenant_id,site_id,name,template_id"),
+    (async () => {
+      const rows: any[] = [];
+      for (let offset = 0; offset < notificationIds.length; offset += HISTORY_ID_CHUNK_SIZE) {
+        const chunk = notificationIds.slice(offset, offset + HISTORY_ID_CHUNK_SIZE);
+        const { data, error } = await admin.from("powerhub_message_campaign_recipients")
+          .select("id,campaign_id,notification_id,subscriber_id")
+          .in("notification_id", chunk);
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل روابط حملات الرسائل." });
+        rows.push(...(data ?? []));
+      }
+      return rows;
+    })(),
+  ]);
+
+  const campaignIds = ids(recipientRows.map((row) => row.campaign_id));
+  const campaignRows = await readHistoryRowsByIds(admin, "powerhub_message_campaigns", campaignIds, "id,tenant_id,site_id,template_id");
+  const templateIds = ids([
+    ...messageTemplateIds,
+    ...automationRows.map((row) => row.template_id),
+    ...campaignRows.map((row) => row.template_id),
+  ]);
+  const templateRows = await readHistoryRowsByIds(admin, "powerhub_message_templates", templateIds, "id,tenant_id,name");
+
+  const subscribers = historyMapById(subscriberRows);
+  const invoices = historyMapById(invoiceRows);
+  const automations = historyMapById(automationRows);
+  const campaigns = historyMapById(campaignRows);
+  const templates = historyMapById(templateRows.filter((row) => Number(row.tenant_id) === tenantId));
+  const campaignRecipients = new Map<number, any>();
+  for (const row of recipientRows) campaignRecipients.set(Number(row.notification_id), row);
+
+  const search = input.search?.trim().toLocaleLowerCase() || "";
+  const scopedRows: any[] = [];
+  for (const message of messageRows) {
+    const messageId = Number(message.id);
+    const subscriber = message.subscriber_id == null ? null : subscribers.get(Number(message.subscriber_id));
+    const invoice = message.invoice_id == null ? null : invoices.get(Number(message.invoice_id));
+    const automation = message.automation_id == null ? null : automations.get(Number(message.automation_id));
+    const recipientLink = campaignRecipients.get(messageId);
+    const candidateCampaign = recipientLink ? campaigns.get(Number(recipientLink.campaign_id)) : null;
+    const campaign = candidateCampaign && Number(candidateCampaign.tenant_id) === tenantId ? candidateCampaign : null;
+
+    // Campaign recipients are a relationship, not a second message. Reject malformed or crossed links.
+    if (recipientLink && (
+      !candidateCampaign
+      || Number(candidateCampaign.tenant_id) !== tenantId
+      || Number(recipientLink.subscriber_id) !== Number(message.subscriber_id)
+    )) continue;
+
+    // Fail closed if a referenced entity is missing, belongs to another tenant, or points at another site.
+    if (message.subscriber_id != null && (!subscriber || Number(subscriber.tenant_id) !== tenantId)) continue;
+    if (message.invoice_id != null && (!invoice || Number(invoice.tenant_id) !== tenantId)) continue;
+    if (message.automation_id != null && (!automation || Number(automation.tenant_id) !== tenantId)) continue;
+    if (candidateCampaign && Number(candidateCampaign.tenant_id) !== tenantId) continue;
+    if (subscriber && Number(subscriber.site_id) !== siteId) continue;
+    if (invoice && Number(invoice.site_id) !== siteId) continue;
+    if (campaign && Number(campaign.site_id) !== siteId) continue;
+    if (automation?.site_id != null && Number(automation.site_id) !== siteId) continue;
+
+    const inSite = Number(subscriber?.site_id) === siteId
+      || Number(invoice?.site_id) === siteId
+      || Number(campaign?.site_id) === siteId
+      || Number(automation?.site_id) === siteId;
+    if (!inSite) continue;
+
+    const campaignTemplate = campaign ? templates.get(Number(campaign.template_id)) : null;
+    const messageTemplate = message.template_id == null ? null : templates.get(Number(message.template_id));
+    const templateName = campaignTemplate?.name ?? messageTemplate?.name ?? automation?.name ?? null;
+    const source = campaign || message.event_type === "manual" || message.send_type === "manual"
+      ? "manual"
+      : automation || ["automatic", "scheduled"].includes(String(message.send_type))
+        ? "automatic"
+        : "legacy";
+
+    const row = {
+      id: message.id,
+      invoiceId: message.invoice_id,
+      invoiceNo: invoice?.invoice_no ?? null,
+      subscriberId: message.subscriber_id,
+      subscriberName: subscriber?.full_name ?? null,
+      subscriberNo: subscriber?.subscriber_no ?? null,
+      recipient: message.recipient,
+      channel: message.channel,
+      eventType: message.event_type,
+      status: message.status,
+      providerMessageId: message.provider_message_id,
+      attempts: message.attempts,
+      lastError: message.last_error,
+      messageText: historyTemplateText(message.payload),
+      createdAt: message.created_at,
+      updatedAt: message.updated_at,
+      scheduledAt: message.scheduled_at,
+      sendType: message.send_type,
+      scheduleType: message.schedule_type,
+      source,
+      campaignId: campaign?.id ?? null,
+      campaignLabel: campaign ? "حملة #" + campaign.id + (templateName ? " — " + templateName : "") : null,
+      automationId: automation?.id ?? null,
+      automationName: automation?.name ?? null,
+      templateName,
+      operationKey: message.operation_key,
+    };
+
+    const normalizedSearch = [
+      row.subscriberName, row.subscriberNo, row.recipient, row.invoiceNo,
+      row.campaignId == null ? "" : String(row.campaignId), row.templateName, row.messageText,
+    ].map((value) => String(value ?? "").toLocaleLowerCase()).join("\n");
+    if (search && !normalizedSearch.includes(search)) continue;
+    if (input.type === "manual" && source !== "manual") continue;
+    if (input.type === "automatic" && source !== "automatic") continue;
+    if (input.type === "subscriber_reference" && !["subscriber_reference", "subscriber_created"].includes(String(row.eventType))) continue;
+    if (input.type === "payment_reminder" && !["payment_reminder", "invoice_overdue"].includes(String(row.eventType))) continue;
+    if (!["all", "manual", "automatic", "subscriber_reference", "payment_reminder"].includes(input.type)
+      && row.eventType !== input.type) continue;
+    scopedRows.push(row);
+  }
+
+  scopedRows.sort((left, right) => {
+    const timeDifference = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    return timeDifference || Number(right.id) - Number(left.id);
+  });
+  const campaignsInResult = new Set(scopedRows.map((row) => row.campaignId).filter((id) => id != null).map(String));
+  const stats = {
+    total: scopedRows.length,
+    submitted: scopedRows.filter((row) => ["submitted", "delivered", "read"].includes(String(row.status))).length,
+    failed: scopedRows.filter((row) => row.status === "failed").length,
+    pending: scopedRows.filter((row) => row.status === "pending").length,
+    processing: scopedRows.filter((row) => row.status === "processing").length,
+    needsReview: scopedRows.filter((row) => row.status === "needs_review").length,
+    campaigns: campaignsInResult.size,
+  };
+  return {
+    items: scopedRows.slice(input.offset, input.offset + input.limit),
+    total: scopedRows.length,
+    page: Math.floor(input.offset / input.limit) + 1,
+    limit: input.limit,
+    offset: input.offset,
+    campaignCount: campaignsInResult.size,
+    stats,
+    period: input.period,
+    periodStart: startAt,
+    periodEndExclusive: cycleEndInclusive ? addOneMicrosecond(endAt) : endAt,
+    timezone: timeZone,
+  };
+}
+
 export const powerhubUnifiedMessagingRouter = router({
   connectionReadiness: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner","manager","accountant","viewer"], "manageMessaging");
@@ -634,6 +995,45 @@ export const powerhubUnifiedMessagingRouter = router({
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview,reviewPersistenceFailed}});
     return {campaignId,operationId:input.operationId,status:liveCounts.pending + liveCounts.processing > 0 ? "processing" : liveCounts.status,requested:liveCounts.requested,submitted:liveCounts.submitted,failed:liveCounts.failed,skipped:liveCounts.skipped,pending:liveCounts.pending,processing:liveCounts.processing,needsReview:Math.max(liveCounts.needsReview,needsReview),reviewPersistenceFailed,results:result.results,replayed:false};
   }),
+  history: protectedProcedure.input(z.object({
+    siteId:z.number().int().positive(),
+    period:z.enum(["cycle","today","custom"]).default("cycle"),
+    startDate:z.string().refine(historyDateIsValid,"تاريخ غير صالح.").optional(),
+    endDate:z.string().refine(historyDateIsValid,"تاريخ غير صالح.").optional(),
+    type:z.enum(["all","invoice_issued","payment_reminder","payment_received","subscriber_reference","service_alert","manual","automatic"]).default("all"),
+    channel:z.enum(["all","sms","whatsapp"]).default("all"),
+    status:z.enum(["all","pending","processing","submitted","delivered","read","failed","needs_review"]).default("all"),
+    search:z.string().trim().max(160).optional(),
+    limit:z.number().int().min(10).max(100).default(50),
+    offset:z.number().int().min(0).max(10000).default(0),
+  })).query(async({ctx,input})=>{
+    if(input.period==="custom"&&(!input.startDate||!input.endDate||input.startDate>input.endDate)){
+      throw new TRPCError({code:"BAD_REQUEST",message:"حدد بداية ونهاية صحيحتين للفترة المخصصة."});
+    }
+    const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"manageMessaging");
+    const admin = supabaseAdmin();
+    const rpcResult = await admin.rpc("powerhub_unified_messaging_history",{
+      p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+      p_start_date:input.period==="custom"?input.startDate:null,
+      p_end_date:input.period==="custom"?input.endDate:null,
+      p_type:input.type,p_channel:input.channel,p_status:input.status,p_search:input.search||null,
+      p_limit:input.limit,p_offset:input.offset,
+    });
+    if (!rpcResult.error) {
+      return rpcResult.data ?? {items:[],total:0,campaignCount:0,stats:{total:0,submitted:0,failed:0,pending:0,processing:0,needsReview:0,campaigns:0}};
+    }
+    const rpcCode = String((rpcResult.error as any).code ?? "");
+    const rpcMessage = String((rpcResult.error as any).message ?? "");
+    const historyRpcUnavailable = rpcCode === "PGRST202" || rpcCode === "42883"
+      || /could not find the function .*powerhub_unified_messaging_history/i.test(rpcMessage);
+    if (!historyRpcUnavailable) {
+      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سجل الرسائل الموحد."});
+    }
+    // Production may not yet have the optional read-optimized RPC; the server-side fallback
+    // applies the same tenant/site rules using existing tables and the canonical cycle RPC.
+    return loadUnifiedMessageHistoryFromTables(admin, access.tenantId, input);
+  }),
+
   campaign: protectedProcedure.input(z.object({siteId:z.number().int().positive(),operationId:z.string().uuid()})).query(async({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"manageMessaging");
     const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_campaign",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_operation_id:input.operationId});

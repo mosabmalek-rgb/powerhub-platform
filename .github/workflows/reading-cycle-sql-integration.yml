@@ -67,3 +67,10 @@ jobs:
         run: |
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE dashboard_kpi_test"
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname dashboard_kpi_test --set ON_ERROR_STOP=1 --file supabase/tests/dashboard_all_branch_kpis.sql
+
+      - name: Test unified message history filters and tenant/site isolation
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres message_history_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname message_history_test --set ON_ERROR_STOP=1 --file supabase/tests/unified_message_history_filters.sql
