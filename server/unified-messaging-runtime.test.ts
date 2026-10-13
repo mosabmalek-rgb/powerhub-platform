@@ -238,6 +238,21 @@ describe("unified messaging runtime contract", () => {
     expect(adminUi).toContain("الحد الشهري الفعلي وفق سياسة الاشتراك والإضافات");
   });
 
+  it("derives manual campaign result counts from live notification statuses", () => {
+    expect(runtime).toContain("async function getCampaignDeliveryCounts");
+    expect(runtime).toContain('select("id,status").eq("tenant_id",tenantId).eq("channel","sms").in("id",ids)');
+    expect(runtime).toContain('pending: count(["pending","queued"])');
+    expect(runtime).toContain('processing: count(["processing"])');
+    expect(runtime).toContain('submitted: count(["submitted","delivered","read"])');
+  });
+
+  it("provides a safe read-only TweetSMS readiness indicator without exposing credentials", () => {
+    const readiness = runtime.slice(runtime.indexOf("connectionReadiness:"), runtime.indexOf("templates:", runtime.indexOf("connectionReadiness:")));
+    expect(readiness).toContain('select("api_endpoint,sender_name,credential_ciphertext,credential_iv,is_active,last_tested_at,last_error")');
+    expect(readiness).toContain("الربط فعال وجاهز");
+    expect(readiness).not.toContain("credential_ciphertext:");
+  });
+
   it("qualifies every campaign column in the result refresh function", () => {
     expect(campaignRefreshFixMigration).toContain("select campaign.requested into v_requested");
     expect(campaignRefreshFixMigration).toContain("campaign.completed_at,now()");
