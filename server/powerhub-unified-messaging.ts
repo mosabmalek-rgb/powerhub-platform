@@ -476,7 +476,7 @@ type UnifiedMessageHistoryInput = {
 
 const HISTORY_PAGE_SIZE = 500;
 const HISTORY_MAX_ROWS = 50_000;
-const HISTORY_ID_CHUNK_SIZE = 100;
+const HISTORY_ID_CHUNK_SIZE = 500;
 
 function historyDateIsValid(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -597,6 +597,11 @@ async function loadUnifiedMessageHistoryFromTables(
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المنطقة الزمنية للفرع." });
   }
   const timeZone = String(configuration.data?.timezone || "Asia/Gaza");
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+  } catch {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "المنطقة الزمنية المضبوطة لهذا الفرع غير صالحة." });
+  }
   let startAt: string;
   let endAt: string;
   let cycleEndInclusive = false;
@@ -993,8 +998,8 @@ export const powerhubUnifiedMessagingRouter = router({
   history: protectedProcedure.input(z.object({
     siteId:z.number().int().positive(),
     period:z.enum(["cycle","today","custom"]).default("cycle"),
-    startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    startDate:z.string().refine(historyDateIsValid,"تاريخ غير صالح.").optional(),
+    endDate:z.string().refine(historyDateIsValid,"تاريخ غير صالح.").optional(),
     type:z.enum(["all","invoice_issued","payment_reminder","payment_received","subscriber_reference","service_alert","manual","automatic"]).default("all"),
     channel:z.enum(["all","sms","whatsapp"]).default("all"),
     status:z.enum(["all","pending","processing","submitted","delivered","read","failed","needs_review"]).default("all"),
