@@ -61,6 +61,34 @@ async function renderAutomationMessage(
   });
 }
 
+async function getCampaignDeliveryCounts(tenantId: number, siteId: number, campaignId: number) {
+  const admin = supabaseAdmin();
+  const campaign = await admin.from("powerhub_message_campaigns").select("requested,queued,status")
+    .eq("id", campaignId).eq("tenant_id", tenantId).eq("site_id", siteId).maybeSingle();
+  if (campaign.error || !campaign.data) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حالة مستلمي الحملة." });
+  const recipients = await admin.from("powerhub_message_campaign_recipients").select("notification_id")
+    .eq("campaign_id", campaignId);
+  if (recipients.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل رسائل الحملة." });
+  const ids = Array.from(new Set((recipients.data ?? []).map((r:any) => Number(r.notification_id)).filter((id:number) => Number.isSafeInteger(id) && id > 0)));
+  const notifications = ids.length
+    ? await admin.from("notification_messages").select("id,status").eq("tenant_id",tenantId).eq("channel","sms").in("id",ids)
+    : {data:[],error:null};
+  if (notifications.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالة رسائل الحملة." });
+  const rows = notifications.data ?? [];
+  const count = (statuses:string[]) => rows.filter((r:any) => statuses.includes(String(r.status))).length;
+  return {
+    requested: Number(campaign.data.requested ?? ids.length),
+    queued: Number(campaign.data.queued ?? ids.length),
+    submitted: count(["submitted","delivered","read"]),
+    failed: count(["failed"]),
+    skipped: Math.max(0, Number(campaign.data.requested ?? ids.length) - ids.length),
+    pending: count(["pending","queued"]),
+    processing: count(["processing"]),
+    needsReview: count(["needs_review"]),
+    status: String(campaign.data.status ?? "processing"),
+  };
+}
+
 async function processNotificationIdsInBatches(
   tenantId: number,
   actorUserId: number,
@@ -433,6 +461,20 @@ export async function processUnifiedMessagingAutomations(now = new Date()) {
 }
 
 export const powerhubUnifiedMessagingRouter = router({
+  connectionReadiness: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner","manager","accountant","viewer"], "manageMessaging");
+    const { data, error } = await supabaseAdmin().from("tenant_tweetsms_accounts")
+      .select("api_endpoint,sender_name,credential_ciphertext,credential_iv,is_active,last_tested_at,last_error")
+      .eq("tenant_id", access.tenantId).maybeSingle();
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جاهزية ربط TweetSMS." });
+    if (!data) return { status: "not_configured" as const, ready: false, label: "الربط غير مُعدّ", detail: "لم تُحفظ بيانات ربط TweetSMS لهذا المولد." };
+    const configured = Boolean(data.api_endpoint?.trim() && data.sender_name?.trim() && data.credential_ciphertext?.trim() && data.credential_iv?.trim());
+    if (!configured) return { status: "incomplete" as const, ready: false, label: "بيانات الربط غير مكتملة", detail: "أكمل عنوان API والمفتاح واسم المرسل من حسابات TweetSMS لدى مدير المنصة." };
+    if (!data.is_active) return { status: "inactive" as const, ready: false, label: "الربط غير مفعّل", detail: "تم حفظ البيانات، لكن الإرسال غير مفعّل. يلزم نجاح فحص الاتصال ثم تفعيل الحساب." };
+    if (!data.last_tested_at) return { status: "untested" as const, ready: false, label: "الربط لم يُختبر", detail: "الحساب مفعّل لكن لا يوجد فحص اتصال ناجح مسجّل؛ لا تعتبره جاهزًا للإرسال." };
+    if (data.last_error) return { status: "error" as const, ready: false, label: "يوجد خطأ في الربط", detail: String(data.last_error).slice(0, 240) };
+    return { status: "ready" as const, ready: true, label: "الربط فعال وجاهز", detail: "بيانات الربط مكتملة والحساب مفعّل وآخر فحص اتصال ناجح." };
+  }),
   templates: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), channel: channelSchema.optional(), eventType: eventTypeSchema.optional(),
   })).query(async ({ ctx, input }) => {
@@ -545,6 +587,7 @@ export const powerhubUnifiedMessagingRouter = router({
       if (current.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل نتيجة الحملة السابقة."});
       const replayRow = Array.isArray(current.data) ? current.data[0] : current.data;
       if (!replayRow) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات نتيجة الحملة السابقة."});
+      const liveCounts = await getCampaignDeliveryCounts(access.tenantId, input.siteId, campaignId);
       const previousAudit = await supabaseAdmin().from("audit_logs").select("metadata")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
         .eq("entity_type", "message_campaign").eq("entity_id", String(campaignId))
@@ -562,16 +605,16 @@ export const powerhubUnifiedMessagingRouter = router({
       });
       // Preserve the idempotent result contract when there was nothing pending to resume.
       if (pendingIds.length === 0) {
-        return {campaignId,operationId:input.operationId,status:String(replayRow.status ?? "processing"),
-          requested:Number(replayRow.requested ?? 0),submitted:Number(replayRow.submitted ?? 0),
-          failed:Number(replayRow.failed ?? 0),skipped:Number(replayRow.skipped ?? 0),
-          needsReview,reviewPersistenceFailed,results:[],replayed:true};
+        return {campaignId,operationId:input.operationId,status:liveCounts.pending + liveCounts.processing > 0 ? "processing" : liveCounts.status,
+          requested:liveCounts.requested,submitted:liveCounts.submitted,failed:liveCounts.failed,skipped:liveCounts.skipped,
+          pending:liveCounts.pending,processing:liveCounts.processing,needsReview:liveCounts.needsReview,
+          reviewPersistenceFailed,results:[],replayed:true};
       }
       return {
-        campaignId,operationId:input.operationId,status:String(replayRow.status ?? "processing"),
-        requested:Number(replayRow.requested ?? 0),submitted:Number(replayRow.submitted ?? 0),
-        failed:Number(replayRow.failed ?? 0),skipped:Number(replayRow.skipped ?? 0),
-        needsReview,reviewPersistenceFailed,results:resumedResult.results,replayed:true,resumedPending:pendingIds.length,
+        campaignId,operationId:input.operationId,status:liveCounts.pending + liveCounts.processing > 0 ? "processing" : liveCounts.status,
+        requested:liveCounts.requested,submitted:liveCounts.submitted,failed:liveCounts.failed,skipped:liveCounts.skipped,
+        pending:liveCounts.pending,processing:liveCounts.processing,needsReview:liveCounts.needsReview,
+        reviewPersistenceFailed,results:resumedResult.results,replayed:true,resumedPending:pendingIds.length,
       };
     }
 
@@ -585,10 +628,11 @@ export const powerhubUnifiedMessagingRouter = router({
     if (refreshed.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحديث الحالة النهائية للحملة."});
     const finalRow = Array.isArray(refreshed.data) ? refreshed.data[0] : refreshed.data;
     if(!finalRow) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات الحالة النهائية للحملة."});
-    const needsReview = effectiveNeedsReviewCount(finalRow?.needs_review, result.results);
+    const liveCounts = await getCampaignDeliveryCounts(access.tenantId, input.siteId, campaignId);
+    const needsReview = effectiveNeedsReviewCount(liveCounts.needsReview, result.results);
     const reviewPersistenceFailed = countUnconfirmedNeedsReviewPersistence(result.results);
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview,reviewPersistenceFailed}});
-    return {campaignId,operationId:input.operationId,status:String(finalRow.status ?? "processing"),requested:Number(finalRow?.requested ?? input.subscriberIds.length),submitted:Number(finalRow?.submitted ?? result.submitted),failed:Number(finalRow?.failed ?? result.failed),skipped:Number(finalRow?.skipped ?? result.skipped),needsReview,reviewPersistenceFailed,results:result.results,replayed:false};
+    return {campaignId,operationId:input.operationId,status:liveCounts.pending + liveCounts.processing > 0 ? "processing" : liveCounts.status,requested:liveCounts.requested,submitted:liveCounts.submitted,failed:liveCounts.failed,skipped:liveCounts.skipped,pending:liveCounts.pending,processing:liveCounts.processing,needsReview:Math.max(liveCounts.needsReview,needsReview),reviewPersistenceFailed,results:result.results,replayed:false};
   }),
   campaign: protectedProcedure.input(z.object({siteId:z.number().int().positive(),operationId:z.string().uuid()})).query(async({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"manageMessaging");
