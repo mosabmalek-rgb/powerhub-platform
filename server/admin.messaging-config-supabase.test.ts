@@ -44,10 +44,6 @@ const state = vi.hoisted(() => {
       rpcArgs.push({ functionName, args });
       if (functionName === "powerhub_save_platform_tweetsms_account") return Promise.resolve({ data: [{ account_id: 9, is_active: false, activation_required: true }], error: null });
       if (functionName === "powerhub_record_platform_tweetsms_test") return Promise.resolve({ data: [{ account_id: 9, is_active: false, last_provider_balance: 80, last_tested_at: "2026-08-27T00:00:00.000Z", last_error: null }], error: null });
-      if (functionName === "powerhub_admin_tweetsms_quota_summary") {
-        const tenantIds = Array.isArray(args?.p_tenant_ids) ? args.p_tenant_ids as number[] : [];
-        return Promise.resolve({ data: tenantIds.map((tenant_id) => ({ tenant_id, monthly_limit: 1000, monthly_limit_mode: "fixed", sms_feature_eligible: true, sms_feature_enabled: true, used_this_month: 10, remaining: 990 })), error: null });
-      }
       if (functionName === "powerhub_save_tenant_tweetsms_account") return Promise.resolve({ data: [{ account_id: 31, tenant_id: 20, is_active: false, activation_required: true }], error: null });
       if (functionName === "powerhub_record_tenant_tweetsms_test") return Promise.resolve({ data: [{ account_id: 31, is_active: false, last_provider_balance: 80, last_tested_at: "2026-08-27T00:00:00.000Z", last_error: null }], error: null });
       if (functionName === "powerhub_finance_overview") return Promise.resolve({ data: [{ subscriptions: [{ status: "active", count: 2 }], collections_amount: "150.5", collections_count: 3 }], error: null });
@@ -146,7 +142,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
     expect(rows[1]).toMatchObject({ tenantId: 21, ownerName: "مالك جديد", ownerPhone: "0590000021", id: null, configured: false, isActive: false, subscriptionStatus: "active" });
     expect(JSON.stringify(rows)).not.toContain("cipher-fixture");
     expect(JSON.stringify(rows)).not.toContain("iv-fixture");
-    expect(state.calls).toEqual(["tenants", "tenant_owner_profiles", "tenant_subscriptions", "tenant_tweetsms_accounts", "rpc:powerhub_admin_tweetsms_quota_summary"]);
+    expect(state.calls).toEqual(["tenants", "tenant_owner_profiles", "tenant_subscriptions", "tenant_tweetsms_accounts"]);
     state.rows.tenants = originalRows.tenants;
     state.rows.tenant_owner_profiles = originalRows.tenant_owner_profiles;
     state.rows.tenant_subscriptions = originalRows.tenant_subscriptions;
