@@ -40,7 +40,6 @@ const previewValues: Record<string, string> = {
   billing_period: "آب 2026", total_amount: "33,000", balance_due: "18,000", due_date: "31 آب 2026",
   invoice_link: "https://powerhub.example/invoice/INV-2026-00125", portal_link: "https://powerhub.example/portal?g=MAIN",
 };
-const statusLabels: Record<string, string> = { pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "قبلها مزود الرسائل", delivered: "تم التسليم", read: "تمت القراءة", failed: "فشلت", needs_review: "تحتاج مراجعة" };
 const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|due_date|invoice_link|portal_link)\s*}}/g, (_, key) => previewValues[key] ?? "");
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
