@@ -61,6 +61,34 @@ async function renderAutomationMessage(
   });
 }
 
+async function getCampaignDeliveryCounts(tenantId: number, siteId: number, campaignId: number) {
+  const admin = supabaseAdmin();
+  const campaign = await admin.from("powerhub_message_campaigns").select("requested,queued,status")
+    .eq("id", campaignId).eq("tenant_id", tenantId).eq("site_id", siteId).maybeSingle();
+  if (campaign.error || !campaign.data) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حالة مستلمي الحملة." });
+  const recipients = await admin.from("powerhub_message_campaign_recipients").select("notification_id")
+    .eq("campaign_id", campaignId);
+  if (recipients.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل رسائل الحملة." });
+  const ids = Array.from(new Set((recipients.data ?? []).map((r:any) => Number(r.notification_id)).filter((id:number) => Number.isSafeInteger(id) && id > 0)));
+  const notifications = ids.length
+    ? await admin.from("notification_messages").select("id,status").eq("tenant_id",tenantId).eq("channel","sms").in("id",ids)
+    : {data:[],error:null};
+  if (notifications.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالة رسائل الحملة." });
+  const rows = notifications.data ?? [];
+  const count = (statuses:string[]) => rows.filter((r:any) => statuses.includes(String(r.status))).length;
+  return {
+    requested: Number(campaign.data.requested ?? ids.length),
+    queued: Number(campaign.data.queued ?? ids.length),
+    submitted: count(["submitted","delivered","read"]),
+    failed: count(["failed"]),
+    skipped: Math.max(0, Number(campaign.data.requested ?? ids.length) - ids.length),
+    pending: count(["pending","queued"]),
+    processing: count(["processing"]),
+    needsReview: count(["needs_review"]),
+    status: String(campaign.data.status ?? "processing"),
+  };
+}
+
 async function processNotificationIdsInBatches(
   tenantId: number,
   actorUserId: number,
