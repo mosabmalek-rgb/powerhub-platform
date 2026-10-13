@@ -275,9 +275,10 @@ describe("unified messaging runtime contract", () => {
   it("surfaces pending campaign counts and per-message dispatch errors in the UI", () => {
     expect(ui).toContain("lastManualResult.pending");
     expect(ui).toContain("lastManualResult.processing");
-    expect(ui).toContain("سجل الحملات والرسائل");
+    expect(ui).toContain("سجل الرسائل الموحد");
     expect(ui).toContain("unifiedMessaging.history.useQuery");
-    expect(ui).toContain("campaignHistory.invalidate");
+    expect(ui).toContain("هذه الدورة");
+    expect(ui).toContain("مخصص: بداية ونهاية");
     expect(ui).toContain("تفاصيل لم تُرسل");
     expect(ui).toContain("issues: (result.results ?? [])");
     expect(ui).toContain("معاينة الرسالة النهائية");
