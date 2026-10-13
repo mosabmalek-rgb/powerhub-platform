@@ -135,7 +135,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     onSuccess: async (result) => {
       await utils.powerhub.unifiedMessaging.campaign.invalidate();
       const reviewPersistenceFailed = Number(result.reviewPersistenceFailed ?? 0);
-      setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, needsReview: result.needsReview, reviewPersistenceFailed });
+      setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, pending: result.pending ?? 0, processing: result.processing ?? 0, needsReview: result.needsReview, reviewPersistenceFailed });
       const message = `${result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${result.needsReview} تحتاج مراجعة` + (reviewPersistenceFailed > 0 ? `، وتعذر تأكيد حفظ حالة المراجعة لعدد ${reviewPersistenceFailed} رسالة` : "") + ".";
       if (result.failed > 0 || result.needsReview > 0 || reviewPersistenceFailed > 0) toast.warning(message);
       else if (result.submitted > 0) toast.success(message);
@@ -162,7 +162,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const [manualSearch, setManualSearch] = useState("");
   const [selectedSubscribers, setSelectedSubscribers] = useState<number[]>([]);
   const [manualOperationId, setManualOperationId] = useState(() => crypto.randomUUID());
-  const [lastManualResult, setLastManualResult] = useState<null | { campaignId: number; operationId: string; replayed: boolean; requested: number; submitted: number; failed: number; skipped: number; needsReview: number; reviewPersistenceFailed: number }>(null);
+  const [lastManualResult, setLastManualResult] = useState<null | { campaignId: number; operationId: string; replayed: boolean; requested: number; submitted: number; failed: number; skipped: number; pending?: number; processing?: number; needsReview: number; reviewPersistenceFailed: number }>(null);
 
   const activeSmsTemplates = (templates.data ?? []).filter((t: any) => t.channel === "sms" && t.isActive);
   const manualSmsTemplates = activeSmsTemplates.filter((t: any) => !t.eventType || ["subscriber_created","service_alert"].includes(t.eventType));
@@ -237,7 +237,8 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         <p className="mt-1 text-sm leading-6 text-slate-400">القالب والحدث والأتمتة والحملة اليدوية تمر الآن عبر مسار موحد: صلاحية → قاعدة بيانات → طابور → عامل SMS → نتيجة مدققة.</p>
       {lastManualResult ? <div role="status" aria-live="polite" className="mt-4 rounded-xl border border-white/10 bg-white/[.025] p-4">
         <div className="font-bold text-white">{lastManualResult.replayed ? "نتيجة الحملة المسترجعة" : "نتيجة آخر حملة"} #{lastManualResult.campaignId}</div>
-        <div className="mt-2 flex flex-wrap gap-3 text-sm"><span>{lastManualResult.requested} مستهدف</span><span className="text-emerald-300">{lastManualResult.submitted} مرسلة</span><span className="text-rose-300">{lastManualResult.failed} فاشلة</span><span>{lastManualResult.skipped} متجاوزة</span><span className="font-semibold text-amber-200">{lastManualResult.needsReview} تحتاج مراجعة</span></div>
+        <div className="mt-2 flex flex-wrap gap-3 text-sm"><span>{lastManualResult.requested} مستهدف</span><span className="text-emerald-300">{lastManualResult.submitted} مرسلة</span><span className="text-rose-300">{lastManualResult.failed} فاشلة</span><span>{lastManualResult.skipped} متجاوزة</span><span className="text-sky-200">{lastManualResult.pending ?? 0} بانتظار الإرسال</span><span className="text-sky-200">{lastManualResult.processing ?? 0} قيد المعالجة</span><span className="font-semibold text-amber-200">{lastManualResult.needsReview} تحتاج مراجعة</span></div>
+        {(lastManualResult.pending ?? 0) + (lastManualResult.processing ?? 0) > 0 ? <p className="mt-2 text-xs text-sky-100">الحملة لم تنتهِ بعد؛ بقيت رسائل معلّقة أو قيد المعالجة. لا يُعرض ذلك على أنه إرسال ناجح.</p> : null}
         {lastManualResult.needsReview > 0 ? <p className="mt-2 text-xs text-amber-100">لا تُعِد إرسال الرسائل التي تحتاج مراجعة قبل حسم نتيجتها.</p> : null}
       </div> : null}
       </div>
