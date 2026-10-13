@@ -15,6 +15,7 @@ const reminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/2
 const deliveryUncertaintyMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223322_powerhub_sms_delivery_uncertainty.sql"), "utf8");
 const subscriberCampaignFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261013120000_powerhub_fix_subscriber_update_and_manual_campaign.sql"), "utf8");
 const smsQuotaSummaryMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261013130000_powerhub_admin_tweetsms_quota_summary.sql"), "utf8");
+const campaignRefreshFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261013143000_powerhub_fix_campaign_result_refresh_ambiguity.sql"), "utf8");
 const adminReads = fs.readFileSync(path.join(root, "server/admin-runtime-reads.ts"), "utf8");
 const adminUi = fs.readFileSync(path.join(root, "client/src/pages/AdminConsolePage.tsx"), "utf8");
 
@@ -235,6 +236,23 @@ describe("unified messaging runtime contract", () => {
     expect(adminUi).toContain("<details key={account.tenantId}");
     expect(adminUi).not.toContain('name="monthlyLimit"');
     expect(adminUi).toContain("الحد الشهري الفعلي وفق سياسة الاشتراك والإضافات");
+  });
+
+  it("qualifies every campaign column in the result refresh function", () => {
+    expect(campaignRefreshFixMigration).toContain("select campaign.requested into v_requested");
+    expect(campaignRefreshFixMigration).toContain("campaign.completed_at,now()");
+    expect(campaignRefreshFixMigration).toContain("where campaign.id=p_campaign_id");
+    expect(campaignRefreshFixMigration).toContain("revoke execute on function public.powerhub_refresh_message_campaign(bigint,bigint,bigint) from public,anon,authenticated");
+  });
+
+  it("resumes only pending rows on an idempotent manual campaign replay", () => {
+    const replay = runtime.slice(runtime.indexOf("if (row?.replayed)"), runtime.indexOf("\n    const ids=", runtime.indexOf("if (row?.replayed)")));
+    expect(replay).toContain('.eq("status","pending")');
+    expect(replay).toContain("processNotificationIdsInBatches");
+    expect(replay).toContain("resumedPending");
+    expect(replay).not.toContain('.eq("status","failed")');
+    expect(replay).not.toContain('.eq("status","needs_review")');
+    expect(ui).toContain('if (result.status !== "processing") setManualOperationId(crypto.randomUUID());');
   });
 
   it("exposes real manual messaging controls in the UI", () => {
