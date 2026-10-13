@@ -712,6 +712,13 @@ async function loadUnifiedMessageHistoryFromTables(
     const candidateCampaign = recipientLink ? campaigns.get(Number(recipientLink.campaign_id)) : null;
     const campaign = candidateCampaign && Number(candidateCampaign.tenant_id) === tenantId ? candidateCampaign : null;
 
+    // Campaign recipients are a relationship, not a second message. Reject malformed or crossed links.
+    if (recipientLink && (
+      !candidateCampaign
+      || Number(candidateCampaign.tenant_id) !== tenantId
+      || Number(recipientLink.subscriber_id) !== Number(message.subscriber_id)
+    )) continue;
+
     // Fail closed if a referenced entity is missing, belongs to another tenant, or points at another site.
     if (message.subscriber_id != null && (!subscriber || Number(subscriber.tenant_id) !== tenantId)) continue;
     if (message.invoice_id != null && (!invoice || Number(invoice.tenant_id) !== tenantId)) continue;
