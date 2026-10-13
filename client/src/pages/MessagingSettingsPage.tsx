@@ -136,8 +136,11 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
       await utils.powerhub.unifiedMessaging.campaign.invalidate();
       const reviewPersistenceFailed = Number(result.reviewPersistenceFailed ?? 0);
       setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, pending: result.pending ?? 0, processing: result.processing ?? 0, needsReview: result.needsReview, reviewPersistenceFailed, issues: (result.results ?? []).filter((row: any) => row.status !== "submitted").map((row: any) => String(row.error ?? (row.status === "needs_review" ? "نتيجة الإرسال غير مؤكدة وتحتاج مراجعة." : row.status === "failed" ? "فشل إرسال الرسالة." : "لم يبدأ إرسال الرسالة."))).filter(Boolean).slice(0, 5) });
-      const message = `${result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${result.needsReview} تحتاج مراجعة` + (reviewPersistenceFailed > 0 ? `، وتعذر تأكيد حفظ حالة المراجعة لعدد ${reviewPersistenceFailed} رسالة` : "") + ".";
-      if (result.failed > 0 || result.needsReview > 0 || reviewPersistenceFailed > 0) toast.warning(message);
+      const pending = Number(result.pending ?? 0);
+      const processing = Number(result.processing ?? 0);
+      const stillProcessing = result.status === "processing" || pending + processing > 0;
+      const message = `${stillProcessing ? "الحملة ما زالت قيد المعالجة" : result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${pending} معلقة، ${processing} قيد المعالجة، ${result.needsReview} تحتاج مراجعة` + (reviewPersistenceFailed > 0 ? `, وتعذر تأكيد حفظ حالة المراجعة لعدد ${reviewPersistenceFailed} رسالة` : "") + ".";
+      if (stillProcessing || result.failed > 0 || result.needsReview > 0 || reviewPersistenceFailed > 0) toast.warning(message);
       else if (result.submitted > 0) toast.success(message);
       else toast.info(message);
       // Keep the same idempotency key while the campaign is still processing so a retry resumes pending rows instead of creating a duplicate campaign.
