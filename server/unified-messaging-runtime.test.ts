@@ -243,5 +243,7 @@ describe("unified messaging runtime contract", () => {
     expect(ui).toContain("إرسال الحملة");
     expect(ui).toContain("crypto.randomUUID()");
     expect(ui).toContain("failed");
+    expect(ui).toContain("تقدير للنص الحالي");
+    expect(ui).toContain("حروفاً · {sms.segmentCount} رسالة SMS");
   });
 });
