@@ -238,6 +238,15 @@ describe("unified messaging runtime contract", () => {
     expect(adminUi).toContain("الحد الشهري الفعلي وفق سياسة الاشتراك والإضافات");
   });
 
+  it("surfaces pending campaign counts and per-message dispatch errors in the UI", () => {
+    expect(ui).toContain("lastManualResult.pending");
+    expect(ui).toContain("lastManualResult.processing");
+    expect(ui).toContain("تفاصيل لم تُرسل");
+    expect(ui).toContain("issues: (result.results ?? [])");
+    expect(ui).toContain("معاينة الرسالة النهائية");
+    expect(ui).toContain("segmentArabicSms(renderedPreview)");
+  });
+
   it("qualifies every campaign column in the result refresh function", () => {
     expect(campaignRefreshFixMigration).toContain("select campaign.requested into v_requested");
     expect(campaignRefreshFixMigration).toContain("campaign.completed_at,now()");
