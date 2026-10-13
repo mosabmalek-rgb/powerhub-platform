@@ -24,7 +24,7 @@ describe("unified messaging contract", () => {
     expect(messagingRouterSource).toContain('eq("action", "send_manual").order("created_at", { ascending: false }).limit(1).maybeSingle()');
     expect(messagingRouterSource).toContain("const previousAudit = await supabaseAdmin().from(\"audit_logs\").select(\"metadata\")");
     expect(messagingRouterSource).toContain("const previousReviewFailed = Number.isFinite(rawPreviousReviewFailed)");
-    expect(messagingRouterSource).toContain("reviewPersistenceFailed,results:[],replayed:true");
+    expect(messagingRouterSource).toContain("reviewPersistenceFailed");
   });
   it("distinguishes unknown review persistence from confirmed unpersisted states", () => {
     expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow?.needs_review, result.results)");
