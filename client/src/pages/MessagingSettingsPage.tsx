@@ -51,12 +51,13 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
   const [startDate, setStartDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
   const [endDate, setEndDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
   const [type, setType] = useState<"all" | "invoice_issued" | "payment_reminder" | "payment_received" | "subscriber_reference" | "service_alert" | "manual" | "automatic">("all");
+  const [channel, setChannel] = useState<"all" | "sms" | "whatsapp">("all");
   const [status, setStatus] = useState<"all" | "pending" | "processing" | "submitted" | "delivered" | "read" | "failed" | "needs_review">("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const history = trpc.powerhub.unifiedMessaging.history.useQuery({
     siteId, period, startDate: period === "custom" ? startDate : undefined,
-    endDate: period === "custom" ? endDate : undefined, type, status,
+    endDate: period === "custom" ? endDate : undefined, type, channel, status,
     search: search.trim() || undefined, limit: 50, offset: page * 50,
   }, { refetchInterval: 15000 });
   const retryInvoice = trpc.powerhub.notifications.retryFailedInvoiceNotification.useMutation({
@@ -79,7 +80,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
     onSuccess: async () => { await history.refetch(); toast.success("تم تثبيت نتيجة مراجعة الرسالة."); },
     onError: (error) => toast.error(error.message),
   });
-  useEffect(() => { setPage(0); }, [period, startDate, endDate, type, status, search]);
+  useEffect(() => { setPage(0); }, [period, startDate, endDate, type, channel, status, search]);
   const data: any = history.data;
   const rows: any[] = Array.isArray(data?.items) ? data.items : [];
   const stats: any = data?.stats ?? {};
@@ -125,7 +126,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
           <div className="rounded-xl border border-rose-400/15 bg-rose-400/[.025] p-3"><p className="text-xs text-slate-400">فاشلة</p><p className="mt-1 text-2xl font-bold text-rose-300">{stats.failed ?? 0}</p></div>
           <div className="rounded-xl border border-amber-400/15 bg-amber-400/[.025] p-3"><p className="text-xs text-slate-400">تحتاج مراجعة</p><p className="mt-1 text-2xl font-bold text-amber-200">{stats.needsReview ?? 0}</p></div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">الفترة الزمنية</span><select value={period} onChange={(e) => { setPeriod(e.target.value as typeof period); setPage(0); }} className={inputClass}><option value="cycle">هذه الدورة</option><option value="today">اليوم</option><option value="custom">مخصص: بداية ونهاية</option></select></label>
           {period === "custom" ? <>
             <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">من تاريخ</span><input type="date" value={startDate} max={endDate || undefined} onChange={(e) => { setStartDate(e.target.value); setPage(0); }} className={inputClass} /></label>
@@ -134,13 +135,14 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">نوع الرسالة</span><select value={type} onChange={(e) => { setType(e.target.value as typeof type); setPage(0); }} className={inputClass}>
             <option value="all">جميع الأنواع</option><option value="invoice_issued">الفواتير</option><option value="payment_reminder">تذكير بالسداد</option><option value="payment_received">إيصالات الدفع</option><option value="subscriber_reference">الترحيب / الرقم المرجعي</option><option value="service_alert">التنبيهات التشغيلية</option><option value="manual">الحملات اليدوية</option><option value="automatic">الرسائل الآلية والمجدولة</option>
           </select></label>
+          <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">القناة</span><select value={channel} onChange={(e) => { setChannel(e.target.value as typeof channel); setPage(0); }} className={inputClass}><option value="all">كل القنوات</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option></select></label>
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">حالة الرسالة</span><select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(0); }} className={inputClass}>
             <option value="all">كل الحالات</option><option value="pending">بانتظار المعالجة</option><option value="processing">قيد المعالجة</option><option value="submitted">قبلها مزود الرسائل</option><option value="delivered">تم التسليم</option><option value="read">تمت القراءة</option><option value="failed">فاشلة</option><option value="needs_review">تحتاج مراجعة</option>
           </select></label>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="بحث باسم المشترك أو الهاتف أو الفاتورة أو الحملة أو نص الرسالة" className={inputClass} />
-          <Button type="button" variant="outline" onClick={() => { setPeriod("cycle"); setType("all"); setStatus("all"); setSearch(""); setPage(0); }}>إعادة ضبط الفلاتر</Button>
+          <Button type="button" variant="outline" onClick={() => { setPeriod("cycle"); setType("all"); setChannel("all"); setStatus("all"); setSearch(""); setPage(0); }}>إعادة ضبط الفلاتر</Button>
         </div>
         {!validCustomRange ? <p role="alert" className="text-sm text-rose-200">تحقق من تاريخ البداية والنهاية؛ تاريخ النهاية يجب ألا يسبق البداية.</p> : null}
         {history.isError ? <p role="alert" className="rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحميل السجل الموحد. راجع صلاحية الحساب ثم أعد التحديث.</p> : null}
