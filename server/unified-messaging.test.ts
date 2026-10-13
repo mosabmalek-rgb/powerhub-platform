@@ -22,6 +22,8 @@ describe("unified messaging contract", () => {
   });
   it("restores the non-persisted review count from the audit record when replaying a manual campaign", () => {
     expect(messagingRouterSource).toContain('eq("action", "send_manual").order("created_at", { ascending: false }).limit(1).maybeSingle()');
+    expect(messagingRouterSource).toContain("const previousAudit = await supabaseAdmin().from(\"audit_logs\").select(\"metadata\")");
+    expect(messagingRouterSource).toContain("const previousReviewFailed = Number.isFinite(rawPreviousReviewFailed)");
     expect(messagingRouterSource).toContain("reviewPersistenceFailed,results:[],replayed:true");
   });
   it("distinguishes unknown review persistence from confirmed unpersisted states", () => {
