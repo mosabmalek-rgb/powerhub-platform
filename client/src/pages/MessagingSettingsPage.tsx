@@ -116,6 +116,7 @@ function UnifiedMessagingPanel({ siteId }: { siteId: number }) {
 function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const utils = trpc.useUtils();
   const templates = trpc.powerhub.unifiedMessaging.templates.useQuery({ siteId });
+  const campaignHistory = trpc.powerhub.unifiedMessaging.history.useQuery({ siteId }, { refetchInterval: 15000 });
   const connectionReadiness = trpc.powerhub.unifiedMessaging.connectionReadiness.useQuery({ siteId }, { refetchInterval: 30000 });
   const automations = trpc.powerhub.unifiedMessaging.automations.useQuery({ siteId });
   const subscribers = trpc.powerhub.subscribers.list.useQuery({ siteId });
@@ -133,7 +134,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   });
   const sendManual = trpc.powerhub.unifiedMessaging.sendManual.useMutation({
     onSuccess: async (result) => {
-      await utils.powerhub.unifiedMessaging.campaign.invalidate();
+      await Promise.all([utils.powerhub.unifiedMessaging.campaign.invalidate(), utils.powerhub.unifiedMessaging.history.invalidate()]);
       const reviewPersistenceFailed = Number(result.reviewPersistenceFailed ?? 0);
       setLastManualResult({ campaignId: result.campaignId, operationId: result.operationId, replayed: result.replayed, requested: result.requested, submitted: result.submitted, failed: result.failed, skipped: result.skipped, pending: result.pending ?? 0, processing: result.processing ?? 0, needsReview: result.needsReview, reviewPersistenceFailed, issues: (result.results ?? []).filter((row: any) => row.status !== "submitted").map((row: any) => String(row.error ?? (row.status === "needs_review" ? "نتيجة الإرسال غير مؤكدة وتحتاج مراجعة." : row.status === "failed" ? "فشل إرسال الرسالة." : "لم يبدأ إرسال الرسالة."))).filter(Boolean).slice(0, 5) });
       const message = `${result.replayed ? "استُرجعت نتيجة الحملة السابقة" : "اكتملت معالجة الحملة"}: ${result.submitted} مرسلة، ${result.failed} فاشلة، ${result.skipped} متجاوزة، ${result.needsReview} تحتاج مراجعة` + (reviewPersistenceFailed > 0 ? `، وتعذر تأكيد حفظ حالة المراجعة لعدد ${reviewPersistenceFailed} رسالة` : "") + ".";
@@ -286,6 +287,18 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         <div className="rounded-lg border border-white/10 p-3 text-sm text-slate-300">تم تحديد <strong className="text-[#F5B800]">{selectedSubscribers.length}</strong> مشترك</div>
         <div className="max-h-72 overflow-auto rounded-lg border border-white/10">{filteredSubscribers.map((s: any) => <label key={s.id} className="flex items-center gap-3 border-b border-white/5 p-3 text-sm text-slate-200"><input type="checkbox" checked={selectedSubscribers.includes(Number(s.id))} onChange={() => setSelectedSubscribers((current) => current.includes(Number(s.id)) ? current.filter((id) => id !== Number(s.id)) : [...current,Number(s.id)].slice(0,500))} /><span>{s.fullName}</span><span className="mr-auto text-xs text-slate-500" dir="ltr">{s.subscriberNo}</span></label>)}</div>
         <div className="flex justify-end"><Button disabled={sendManual.isPending || !manualTemplateId || !selectedSubscribers.length} onClick={submitManual}>{sendManual.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال الحملة</Button></div>
+      <div className="space-y-3 rounded-xl border border-sky-400/15 p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div><h3 className="font-bold text-white">سجل الحملات والرسائل</h3><p className="mt-1 text-xs leading-6 text-slate-400">سجل دائم من قاعدة البيانات لكل حملة يدوية: المستهدفون، رقم الهاتف، القناة، حالة كل رسالة، عدد المحاولات، ووقت الإنشاء. يتحدث تلقائياً كل 15 ثانية.</p></div>
+          <Button type="button" variant="outline" size="sm" onClick={() => campaignHistory.refetch()} disabled={campaignHistory.isFetching}><RotateCcw className={"ml-2 h-4 w-4 " + (campaignHistory.isFetching ? "animate-spin" : "")} />تحديث السجل</Button>
+        </div>
+        {campaignHistory.isLoading ? <div className="py-6 text-center text-sm text-slate-400">جارٍ تحميل سجل الحملات...</div> : campaignHistory.isError ? <div role="alert" className="rounded-lg border border-rose-400/20 p-4 text-sm text-rose-200">تعذر تحميل سجل الحملات. استخدم زر التحديث أو راجع صلاحيات الحساب.</div> : !(campaignHistory.data ?? []).length ? <div className="rounded-lg border border-white/10 p-6 text-center text-sm text-slate-400">لا توجد حملات مسجلة لهذا الفرع بعد.</div> :
+          <div className="space-y-3">{(campaignHistory.data as any[]).map((campaign: any) => <div key={campaign.id} className="rounded-lg border border-white/10 p-3">
+            <div className="flex flex-wrap items-center gap-2"><strong className="text-white">حملة #{campaign.id}</strong><Badge className={campaign.status === "completed" ? "bg-emerald-400/10 text-emerald-300" : campaign.status === "failed" ? "bg-rose-400/10 text-rose-300" : "bg-amber-400/10 text-amber-200"}>{campaign.status === "completed" ? "مكتملة" : campaign.status === "processing" || campaign.status === "queued" ? "قيد المعالجة" : campaign.status === "partial" ? "مكتملة جزئياً / مراجعة" : "فشلت"}</Badge><span className="text-xs text-slate-500">{campaign.templateName}</span><span className="mr-auto text-xs text-slate-500">{campaign.createdAt ? new Date(campaign.createdAt).toLocaleString("ar-PS") : "—"}</span></div>
+            <div className="mt-2 flex flex-wrap gap-3 text-xs"><span>المستهدف: {campaign.requested}</span><span className="text-emerald-300">مرسلة: {campaign.submitted}</span><span className="text-rose-300">فاشلة: {campaign.failed}</span><span>متجاوزة: {campaign.skipped}</span><span className="text-sky-200">معلقة/قيد المعالجة: {campaign.pending + campaign.processing}</span><span className="text-amber-200">تحتاج مراجعة: {campaign.needsReview}</span></div>
+            <div className="mt-3 space-y-2">{(campaign.recipients ?? []).map((recipient: any) => <div key={recipient.notificationId} className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-2 text-xs"><span className="font-medium text-slate-200">{recipient.subscriberName || "مشترك"}</span><span dir="ltr" className="text-slate-400">{recipient.phone || "—"}</span><span className="text-slate-500">محاولات: {recipient.attempts ?? 0}</span><Badge className={["submitted","delivered","read"].includes(recipient.status) ? "bg-emerald-400/10 text-emerald-300" : recipient.status === "failed" ? "bg-rose-400/10 text-rose-300" : recipient.status === "needs_review" ? "bg-amber-400/10 text-amber-200" : "bg-sky-400/10 text-sky-200"}>{["submitted","delivered","read"].includes(recipient.status) ? "أرسلها المزود" : recipient.status === "failed" ? "فشل الإرسال" : recipient.status === "needs_review" ? "تحتاج مراجعة" : recipient.status === "processing" ? "قيد المعالجة" : "بانتظار الإرسال"}</Badge>{recipient.lastError ? <span className="text-rose-200">{recipient.lastError}</span> : null}</div>)}</div>
+          </div>)}</div>}
+      </div>
       </div>
     </CardContent>
   </Card>;
