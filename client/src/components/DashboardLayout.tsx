@@ -25,7 +25,7 @@ import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import {
   BellRing, Bolt, BriefcaseBusiness, ClipboardCheck, ChartNoAxesCombined, Fuel, Gauge,
-  LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X,
+  LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X, MessageSquareText,
   Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store, RadioTower, Zap, CloudOff, Bot,
 } from "lucide-react";
 import { CSSProperties, startTransition, useEffect, useMemo, useRef, useState } from "react";
@@ -86,7 +86,7 @@ const menuGroups = [
   {
     label: "المراسلات والدعم",
     items: [
-      { icon: BellRing, label: "مركز الرسائل", path: "/notifications" },
+      { icon: MessageSquareText, label: "مركز الرسائل", path: "/notifications" },
       { icon: BellRing, label: "أخبار وإعلانات المنصة", path: "/announcements" },
       { icon: RadioTower, label: "الدردشة والدعم", path: "/support-chat" },
       { icon: Bot, label: "مساعد PowerHub الذكي", path: "/ai-support" },
