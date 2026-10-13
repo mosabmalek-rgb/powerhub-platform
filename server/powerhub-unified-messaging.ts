@@ -587,6 +587,7 @@ export const powerhubUnifiedMessagingRouter = router({
       if (current.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل نتيجة الحملة السابقة."});
       const replayRow = Array.isArray(current.data) ? current.data[0] : current.data;
       if (!replayRow) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات نتيجة الحملة السابقة."});
+      const liveCounts = await getCampaignDeliveryCounts(access.tenantId, input.siteId, campaignId);
       const previousAudit = await supabaseAdmin().from("audit_logs").select("metadata")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
         .eq("entity_type", "message_campaign").eq("entity_id", String(campaignId))
@@ -604,16 +605,16 @@ export const powerhubUnifiedMessagingRouter = router({
       });
       // Preserve the idempotent result contract when there was nothing pending to resume.
       if (pendingIds.length === 0) {
-        return {campaignId,operationId:input.operationId,status:String(replayRow.status ?? "processing"),
-          requested:Number(replayRow.requested ?? 0),submitted:Number(replayRow.submitted ?? 0),
-          failed:Number(replayRow.failed ?? 0),skipped:Number(replayRow.skipped ?? 0),
-          needsReview,reviewPersistenceFailed,results:[],replayed:true};
+        return {campaignId,operationId:input.operationId,status:liveCounts.pending + liveCounts.processing > 0 ? "processing" : liveCounts.status,
+          requested:liveCounts.requested,submitted:liveCounts.submitted,failed:liveCounts.failed,skipped:liveCounts.skipped,
+          pending:liveCounts.pending,processing:liveCounts.processing,needsReview:liveCounts.needsReview,
+          reviewPersistenceFailed,results:[],replayed:true};
       }
       return {
-        campaignId,operationId:input.operationId,status:String(replayRow.status ?? "processing"),
-        requested:Number(replayRow.requested ?? 0),submitted:Number(replayRow.submitted ?? 0),
-        failed:Number(replayRow.failed ?? 0),skipped:Number(replayRow.skipped ?? 0),
-        needsReview,reviewPersistenceFailed,results:resumedResult.results,replayed:true,resumedPending:pendingIds.length,
+        campaignId,operationId:input.operationId,status:liveCounts.pending + liveCounts.processing > 0 ? "processing" : liveCounts.status,
+        requested:liveCounts.requested,submitted:liveCounts.submitted,failed:liveCounts.failed,skipped:liveCounts.skipped,
+        pending:liveCounts.pending,processing:liveCounts.processing,needsReview:liveCounts.needsReview,
+        reviewPersistenceFailed,results:resumedResult.results,replayed:true,resumedPending:pendingIds.length,
       };
     }
 
@@ -627,10 +628,11 @@ export const powerhubUnifiedMessagingRouter = router({
     if (refreshed.error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحديث الحالة النهائية للحملة."});
     const finalRow = Array.isArray(refreshed.data) ? refreshed.data[0] : refreshed.data;
     if(!finalRow) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات الحالة النهائية للحملة."});
-    const needsReview = effectiveNeedsReviewCount(finalRow?.needs_review, result.results);
+    const liveCounts = await getCampaignDeliveryCounts(access.tenantId, input.siteId, campaignId);
+    const needsReview = effectiveNeedsReviewCount(liveCounts.needsReview, result.results);
     const reviewPersistenceFailed = countUnconfirmedNeedsReviewPersistence(result.results);
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview,reviewPersistenceFailed}});
-    return {campaignId,operationId:input.operationId,status:String(finalRow.status ?? "processing"),requested:Number(finalRow?.requested ?? input.subscriberIds.length),submitted:Number(finalRow?.submitted ?? result.submitted),failed:Number(finalRow?.failed ?? result.failed),skipped:Number(finalRow?.skipped ?? result.skipped),needsReview,reviewPersistenceFailed,results:result.results,replayed:false};
+    return {campaignId,operationId:input.operationId,status:liveCounts.pending + liveCounts.processing > 0 ? "processing" : liveCounts.status,requested:liveCounts.requested,submitted:liveCounts.submitted,failed:liveCounts.failed,skipped:liveCounts.skipped,pending:liveCounts.pending,processing:liveCounts.processing,needsReview:Math.max(liveCounts.needsReview,needsReview),reviewPersistenceFailed,results:result.results,replayed:false};
   }),
   campaign: protectedProcedure.input(z.object({siteId:z.number().int().positive(),operationId:z.string().uuid()})).query(async({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"manageMessaging");
