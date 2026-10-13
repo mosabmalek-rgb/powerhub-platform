@@ -66,6 +66,16 @@ describe("unified messaging runtime contract", () => {
     expect(unifiedHistoryMigration).toContain("i.site_id is null or i.site_id = p_site_id");
     expect(unifiedHistoryMigration).not.toContain("m.payload ->> 'siteId' = p_site_id::text");
     expect(unifiedHistoryMigration).toContain("cr.notification_id = m.id");
+    // Production fallback is limited to a missing/unpublished optional RPC; other DB errors fail closed.
+    expect(runtime).toContain("loadUnifiedMessageHistoryFromTables(admin, access.tenantId, input)");
+    expect(runtime).toContain('rpcCode === "PGRST202" || rpcCode === "42883"');
+    expect(runtime).toContain("const HISTORY_MAX_ROWS = 50_000");
+    expect(runtime).toContain("localMidnightUtc(localStartDate, timeZone)");
+    expect(runtime).toContain("if (subscriber && Number(subscriber.site_id) !== siteId) continue;");
+    expect(runtime).toContain("if (invoice && Number(invoice.site_id) !== siteId) continue;");
+    expect(runtime).toContain("if (campaign && Number(campaign.site_id) !== siteId) continue;");
+    expect(runtime).toContain("Number(recipientLink.subscriber_id) !== Number(message.subscriber_id)");
+    expect(runtime).toContain("cycleEndInclusive ? query.lte(\"created_at\", endAt) : query.lt(\"created_at\", endAt)");
     expect(ui).toContain("سجل الرسائل الموحد");
     expect(ui).toContain("هذه الدورة");
     expect(ui).toContain("مخصص: بداية ونهاية");
