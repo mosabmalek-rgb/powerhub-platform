@@ -256,6 +256,8 @@ describe("unified messaging runtime contract", () => {
   it("surfaces pending campaign counts and per-message dispatch errors in the UI", () => {
     expect(ui).toContain("lastManualResult.pending");
     expect(ui).toContain("lastManualResult.processing");
+    expect(ui).toContain("الحملة ما زالت قيد المعالجة");
+    expect(ui).toContain('const stillProcessing = result.status === "processing" || pending + processing > 0;');
     expect(ui).toContain("تفاصيل لم تُرسل");
     expect(ui).toContain("issues: (result.results ?? [])");
     expect(ui).toContain("معاينة الرسالة النهائية");
