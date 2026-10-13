@@ -70,6 +70,10 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain("loadUnifiedMessageHistoryFromTables(admin, access.tenantId, input)");
     expect(runtime).toContain('rpcCode === "PGRST202" || rpcCode === "42883"');
     expect(runtime).toContain("const HISTORY_MAX_ROWS = 50_000");
+    expect(runtime).toContain("const HISTORY_ID_CHUNK_SIZE = 500;");
+    expect(runtime).toContain('startDate:z.string().refine(historyDateIsValid,"تاريخ غير صالح.").optional()');
+    expect(runtime).toContain('endDate:z.string().refine(historyDateIsValid,"تاريخ غير صالح.").optional()');
+    expect(runtime).toContain("المنطقة الزمنية المضبوطة لهذا الفرع غير صالحة.");
     expect(runtime).toContain("localMidnightUtc(localStartDate, timeZone)");
     expect(runtime).toContain("if (subscriber && Number(subscriber.site_id) !== siteId) continue;");
     expect(runtime).toContain("if (invoice && Number(invoice.site_id) !== siteId) continue;");
