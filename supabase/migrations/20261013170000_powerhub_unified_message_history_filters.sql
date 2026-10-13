@@ -62,7 +62,7 @@ begin
 
   if p_period = 'cycle' then
     -- Use the site's canonical reading/billing-cycle authority, not the calendar month.
-    select cycle.cycle_start_at, cycle.cycle_end_at + interval '1 millisecond'
+    select cycle.cycle_start_at, cycle.cycle_end_at + interval '1 microsecond'
       into v_start, v_end
     from public.powerhub_cycle_for_reading(p_tenant_id, p_site_id, now()) cycle;
   elsif p_period = 'today' then
