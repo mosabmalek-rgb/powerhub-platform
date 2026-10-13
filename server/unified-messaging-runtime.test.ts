@@ -65,7 +65,7 @@ describe("unified messaging runtime contract", () => {
     expect(unifiedHistoryMigration).toContain("s.site_id = p_site_id");
     expect(unifiedHistoryMigration).toContain("i.site_id is null or i.site_id = p_site_id");
     expect(unifiedHistoryMigration).not.toContain("m.payload ->> 'siteId' = p_site_id::text");
-    expect(unifiedHistoryMigration).toContain("recipient.notification_id");
+    expect(unifiedHistoryMigration).toContain("cr.notification_id = m.id");
     expect(ui).toContain("سجل الرسائل الموحد");
     expect(ui).toContain("هذه الدورة");
     expect(ui).toContain("مخصص: بداية ونهاية");
