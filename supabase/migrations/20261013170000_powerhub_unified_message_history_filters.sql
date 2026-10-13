@@ -251,4 +251,4 @@ end;
 $function$;
 
 revoke execute on function public.powerhub_unified_messaging_history(bigint,bigint,text,date,date,text,text,text,text,integer,integer) from public, anon, authenticated;
-grant execute on function public.powerhub_unified_messaging_history(bigint,bigint,text,date,date,text,text,text,integer,integer) to service_role;
+grant execute on function public.powerhub_unified_messaging_history(bigint,bigint,text,date,date,text,text,text,text,integer,integer) to service_role;
