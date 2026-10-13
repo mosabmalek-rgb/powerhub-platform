@@ -45,6 +45,12 @@ const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|su
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
 
+function UnifiedMessageHistoryPanel({ siteId }: { siteId: number }) {
+  const unifiedMessaging = (trpc.powerhub as typeof trpc.powerhub & { unifiedMessaging?: unknown }).unifiedMessaging;
+  if (!unifiedMessaging) return null;
+  return <UnifiedMessageHistory siteId={siteId} />;
+}
+
 function UnifiedMessageHistory({ siteId }: { siteId: number }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [period, setPeriod] = useState<"cycle" | "today" | "custom">("cycle");
@@ -402,7 +408,7 @@ export default function MessagingSettingsPage() {
     {available.sms && owner && siteId ? <AutoSendPolicyCard config={smsConfig} siteId={siteId} /> : null}
       {open ? <section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <TemplateEditor channel="whatsapp" template={templates.find((item) => item.channel === "whatsapp")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <TemplateEditor channel="sms" template={templates.find((item) => item.channel === "sms")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <PaymentReceiptSmsEditor template={receiptTemplates.find((item) => item.channel === "sms")} pending={saveReceiptTemplate.isPending} onSubmit={saveReceiptTemplate.mutate} siteId={siteId!} /> : null}</section> : null}</>}
     {owner && siteId ? <UnifiedMessagingPanel siteId={siteId} /> : null}
-    {owner && siteId ? <UnifiedMessageHistory siteId={siteId} /> : null}
+    {owner && siteId ? <UnifiedMessageHistoryPanel siteId={siteId} /> : null}
     {canViewFinancialAlerts ? <FinancialCollectionAlerts overview={financialOverviewQuery.data} canCollect={canCollect} onOpenInvoice={(invoiceId: number) => navigate(`/invoices?invoiceId=${invoiceId}`)} onCollect={(row: any) => navigate(`/collections?subscriberId=${row.subscriberId}&invoiceId=${row.invoiceId}`)} /> : null}
     {owner && siteId ? <InvoiceSmsQueue rows={notificationsQuery.data ?? []} config={smsConfig} siteId={siteId} /> : null}
     {owner ? <PhoneNormalizationTool rows={phoneReviewQuery.data ?? []} pending={applyPhoneNormalization.isPending} onApply={(subscriberIds: number[]) => applyPhoneNormalization.mutate({ siteId: siteId!, subscriberIds })} /> : null}
