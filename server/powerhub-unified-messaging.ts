@@ -634,13 +634,30 @@ export const powerhubUnifiedMessagingRouter = router({
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview,reviewPersistenceFailed}});
     return {campaignId,operationId:input.operationId,status:liveCounts.pending + liveCounts.processing > 0 ? "processing" : liveCounts.status,requested:liveCounts.requested,submitted:liveCounts.submitted,failed:liveCounts.failed,skipped:liveCounts.skipped,pending:liveCounts.pending,processing:liveCounts.processing,needsReview:Math.max(liveCounts.needsReview,needsReview),reviewPersistenceFailed,results:result.results,replayed:false};
   }),
-  history: protectedProcedure.input(z.object({siteId:z.number().int().positive(),limit:z.number().int().min(1).max(100).default(30)})).query(async({ctx,input})=>{
+  history: protectedProcedure.input(z.object({
+    siteId:z.number().int().positive(),
+    period:z.enum(["cycle","today","custom"]).default("cycle"),
+    startDate:z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+    endDate:z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+    type:z.enum(["all","invoice_issued","payment_reminder","payment_received","subscriber_reference","service_alert","manual","automatic"]).default("all"),
+    status:z.enum(["all","pending","processing","submitted","delivered","read","failed","needs_review"]).default("all"),
+    search:z.string().trim().max(160).optional(),
+    limit:z.number().int().min(10).max(100).default(50),
+    offset:z.number().int().min(0).max(10000).default(0),
+  })).query(async({ctx,input})=>{
+    if(input.period==="custom"&&(!input.startDate||!input.endDate||input.startDate>input.endDate)){
+      throw new TRPCError({code:"BAD_REQUEST",message:"حدد بداية ونهاية صحيحتين للفترة المخصصة."});
+    }
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"manageMessaging");
-    const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_campaign_history",{
-      p_tenant_id:access.tenantId,p_site_id:input.siteId,p_limit:input.limit,
+    const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_history",{
+      p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+      p_start_date:input.period==="custom"?input.startDate:null,
+      p_end_date:input.period==="custom"?input.endDate:null,
+      p_type:input.type,p_status:input.status,p_search:input.search||null,
+      p_limit:input.limit,p_offset:input.offset,
     });
-    if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سجل الحملات والرسائل."});
-    return Array.isArray(data) ? data : [];
+    if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سجل الرسائل الموحد."});
+    return data ?? {items:[],total:0,campaignCount:0,stats:{total:0,submitted:0,failed:0,pending:0,processing:0,needsReview:0,campaigns:0}};
   }),
 
   campaign: protectedProcedure.input(z.object({siteId:z.number().int().positive(),operationId:z.string().uuid()})).query(async({ctx,input})=>{
