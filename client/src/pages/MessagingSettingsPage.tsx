@@ -11,7 +11,7 @@ import { segmentArabicSms } from "@shared/sms-segmentation";
 import { MESSAGE_SCHEDULE_TIME_ZONE, buildMonthlyScheduleAnchor, buildWeeklyScheduleAnchor } from "@/lib/messaging-schedule";
 import { formatDateTimeLocalInTimeZone, parseDateTimeLocalInTimeZone } from "@/lib/zoned-date-time";
 import { BellRing, CircleAlert, Eye, FileText, KeyRound, Loader2, LockKeyhole, MessageSquareText, RotateCcw, ShieldCheck, WalletCards } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -46,7 +46,7 @@ const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|su
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
 
 function UnifiedMessageHistory({ siteId }: { siteId: number }) {
-  const query = trpc.useUtils();
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [period, setPeriod] = useState<"cycle" | "today" | "custom">("cycle");
   const [startDate, setStartDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
   const [endDate, setEndDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
@@ -350,7 +350,6 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         <div className="rounded-lg border border-white/10 p-3 text-sm text-slate-300">تم تحديد <strong className="text-[#F5B800]">{selectedSubscribers.length}</strong> مشترك</div>
         <div className="max-h-72 overflow-auto rounded-lg border border-white/10">{filteredSubscribers.map((s: any) => <label key={s.id} className="flex items-center gap-3 border-b border-white/5 p-3 text-sm text-slate-200"><input type="checkbox" checked={selectedSubscribers.includes(Number(s.id))} onChange={() => setSelectedSubscribers((current) => current.includes(Number(s.id)) ? current.filter((id) => id !== Number(s.id)) : [...current,Number(s.id)].slice(0,500))} /><span>{s.fullName}</span><span className="mr-auto text-xs text-slate-500" dir="ltr">{s.subscriberNo}</span></label>)}</div>
         <div className="flex justify-end"><Button disabled={sendManual.isPending || !manualTemplateId || !selectedSubscribers.length} onClick={submitManual}>{sendManual.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال الحملة</Button></div>
-      <div className="xl:col-span-2"><UnifiedMessageHistory siteId={siteId} /></div>
       </div>
     </CardContent>
   </Card>;
@@ -400,6 +399,7 @@ export default function MessagingSettingsPage() {
     {available.sms && owner && siteId ? <AutoSendPolicyCard config={smsConfig} siteId={siteId} /> : null}
       {open ? <section className="grid gap-6 xl:grid-cols-2">{available.whatsapp ? <TemplateEditor channel="whatsapp" template={templates.find((item) => item.channel === "whatsapp")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <TemplateEditor channel="sms" template={templates.find((item) => item.channel === "sms")} pending={saveTemplate.isPending} onSubmit={saveTemplate.mutate} siteId={siteId!} /> : null}{available.sms ? <PaymentReceiptSmsEditor template={receiptTemplates.find((item) => item.channel === "sms")} pending={saveReceiptTemplate.isPending} onSubmit={saveReceiptTemplate.mutate} siteId={siteId!} /> : null}</section> : null}</>}
     {owner && siteId ? <UnifiedMessagingPanel siteId={siteId} /> : null}
+    {owner && siteId ? <UnifiedMessageHistory siteId={siteId} /> : null}
     {canViewFinancialAlerts ? <FinancialCollectionAlerts overview={financialOverviewQuery.data} canCollect={canCollect} onOpenInvoice={(invoiceId: number) => navigate(`/invoices?invoiceId=${invoiceId}`)} onCollect={(row: any) => navigate(`/collections?subscriberId=${row.subscriberId}&invoiceId=${row.invoiceId}`)} /> : null}
     {owner && siteId ? <InvoiceSmsQueue rows={notificationsQuery.data ?? []} config={smsConfig} siteId={siteId} /> : null}
     {owner ? <PhoneNormalizationTool rows={phoneReviewQuery.data ?? []} pending={applyPhoneNormalization.isPending} onApply={(subscriberIds: number[]) => applyPhoneNormalization.mutate({ siteId: siteId!, subscriberIds })} /> : null}
