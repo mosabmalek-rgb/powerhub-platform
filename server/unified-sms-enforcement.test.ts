@@ -30,7 +30,7 @@ describe("unified SMS enforcement", () => {
     );
     expect(claimFix).toContain("subscriber.tenant_id = v_message.tenant_id");
     expect(claimFix).toContain("account.tenant_id = v_message.tenant_id");
-    expect(claimFix).not.toMatch(/where\\s+tenant_id\\s*=/i);
+    expect(claimFix).not.toMatch(/where\s+tenant_id\s*=/i);
     expect(claimFix).toContain("revoke all on function public.powerhub_claim_sms_notification(bigint,bigint) from public, anon, authenticated");
     expect(claimFix).toContain("grant execute on function public.powerhub_claim_sms_notification(bigint,bigint) to service_role");
   });
