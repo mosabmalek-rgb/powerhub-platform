@@ -135,12 +135,16 @@ begin
     left join public.powerhub_message_automations a
       on a.id = m.automation_id and a.tenant_id = m.tenant_id
     where m.tenant_id = p_tenant_id
+      -- If linked entities disagree on site, exclude the message instead of leaking it across sites.
+      and (s.site_id is null or s.site_id = p_site_id)
+      and (i.site_id is null or i.site_id = p_site_id)
+      and (c.site_id is null or c.site_id = p_site_id)
+      and (a.site_id is null or a.site_id = p_site_id)
       and (
         s.site_id = p_site_id
         or i.site_id = p_site_id
         or c.site_id = p_site_id
         or a.site_id = p_site_id
-        or m.payload ->> 'siteId' = p_site_id::text
       )
   ),
   filtered_messages as (
