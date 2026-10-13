@@ -634,6 +634,15 @@ export const powerhubUnifiedMessagingRouter = router({
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_campaign",entityId:String(campaignId),action:"send_manual",metadata:{operationId:input.operationId,requested:input.subscriberIds.length,submitted:result.submitted,failed:result.failed,skipped:result.skipped,needsReview,reviewPersistenceFailed}});
     return {campaignId,operationId:input.operationId,status:liveCounts.pending + liveCounts.processing > 0 ? "processing" : liveCounts.status,requested:liveCounts.requested,submitted:liveCounts.submitted,failed:liveCounts.failed,skipped:liveCounts.skipped,pending:liveCounts.pending,processing:liveCounts.processing,needsReview:Math.max(liveCounts.needsReview,needsReview),reviewPersistenceFailed,results:result.results,replayed:false};
   }),
+  history: protectedProcedure.input(z.object({siteId:z.number().int().positive(),limit:z.number().int().min(1).max(100).default(30)})).query(async({ctx,input})=>{
+    const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"manageMessaging");
+    const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_campaign_history",{
+      p_tenant_id:access.tenantId,p_site_id:input.siteId,p_limit:input.limit,
+    });
+    if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سجل الحملات والرسائل."});
+    return Array.isArray(data) ? data : [];
+  }),
+
   campaign: protectedProcedure.input(z.object({siteId:z.number().int().positive(),operationId:z.string().uuid()})).query(async({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"manageMessaging");
     const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_campaign",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_operation_id:input.operationId});
