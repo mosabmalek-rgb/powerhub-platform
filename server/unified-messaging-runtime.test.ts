@@ -60,6 +60,7 @@ describe("unified messaging runtime contract", () => {
     expect(unifiedHistoryMigration).toContain("public.powerhub_cycle_for_reading(p_tenant_id, p_site_id, now())");
     expect(unifiedHistoryMigration).toContain("p_period = 'today'");
     expect(unifiedHistoryMigration).toContain("p_period = 'custom'");
+    expect(unifiedHistoryMigration).toContain("p_channel = 'all' or m.channel = p_channel");
     expect(unifiedHistoryMigration).toContain("m.tenant_id = p_tenant_id");
     expect(unifiedHistoryMigration).toContain("s.site_id = p_site_id");
     expect(unifiedHistoryMigration).toContain("recipient.notification_id");
