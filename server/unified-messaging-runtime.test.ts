@@ -13,6 +13,11 @@ const api = fs.readFileSync(path.join(root, "server/powerhub.ts"), "utf8");
 const migration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223234_powerhub_unified_messaging_runtime.sql"), "utf8");
 const reminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223225_powerhub_payment_reminder_links.sql"), "utf8");
 const deliveryUncertaintyMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223322_powerhub_sms_delivery_uncertainty.sql"), "utf8");
+const subscriberCampaignFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261013120000_powerhub_fix_subscriber_update_and_manual_campaign.sql"), "utf8");
+const smsQuotaSummaryMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261013130000_powerhub_admin_tweetsms_quota_summary.sql"), "utf8");
+const adminReads = fs.readFileSync(path.join(root, "server/admin-runtime-reads.ts"), "utf8");
+const adminUi = fs.readFileSync(path.join(root, "client/src/pages/AdminConsolePage.tsx"), "utf8");
+
 const automationPolicy = fs.readFileSync(path.join(root, "server/unified-messaging-automation-policy.ts"), "utf8");
 
 describe("unified messaging runtime contract", () => {
@@ -211,11 +216,34 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain("الحملة غير موجودة ضمن الفرع المحدد.");
   });
 
+  it("qualifies subscriber updated_at and manual campaign SQL output references", () => {
+    expect(subscriberCampaignFixMigration).toContain("returning subscribers.updated_at into v_updated_at");
+    expect(subscriberCampaignFixMigration).toContain("on conflict do nothing");
+    expect(subscriberCampaignFixMigration).toContain("returning campaign.queued into queued");
+  });
+
+  it("derives the admin TweetSMS quota from the feature policy and actual monthly SMS segments", () => {
+    expect(smsQuotaSummaryMigration).toContain("powerhub_resolve_tenant_feature_policy(requested.id, 'sms')");
+    expect(smsQuotaSummaryMigration).toContain("sum(greatest(coalesce(messages.segment_count, 1), 1))");
+    expect(smsQuotaSummaryMigration).toContain("messages.status in ('processing', 'submitted', 'delivered', 'read', 'needs_review')");
+    expect(adminReads).toContain('admin.rpc("powerhub_admin_tweetsms_quota_summary"');
+    expect(adminReads).not.toContain("usedThisMonth: 0");
+    expect(adminReads).toContain("monthlyLimitMode");
+  });
+
+  it("keeps TweetSMS setup collapsed by default and removes the misleading editable quota", () => {
+    expect(adminUi).toContain("<details key={account.tenantId}");
+    expect(adminUi).not.toContain('name="monthlyLimit"');
+    expect(adminUi).toContain("الحد الشهري الفعلي وفق سياسة الاشتراك والإضافات");
+  });
+
   it("exposes real manual messaging controls in the UI", () => {
     expect(ui).toContain("إرسال يدوي");
     expect(ui).toContain("تحديد الظاهر");
     expect(ui).toContain("إرسال الحملة");
     expect(ui).toContain("crypto.randomUUID()");
     expect(ui).toContain("failed");
+    expect(ui).toContain("تقدير للنص الحالي");
+    expect(ui).toContain("{sms.characterCount} حرفاً · {sms.segmentCount} رسالة SMS");
   });
 });
