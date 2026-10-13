@@ -8,6 +8,7 @@ create or replace function public.powerhub_unified_messaging_history(
   p_start_date date,
   p_end_date date,
   p_type text,
+  p_channel text,
   p_status text,
   p_search text,
   p_limit integer,
@@ -42,6 +43,9 @@ begin
   if p_type not in ('all', 'invoice_issued', 'payment_reminder', 'payment_received',
                     'subscriber_reference', 'service_alert', 'manual', 'automatic') then
     raise exception 'INVALID_MESSAGE_HISTORY_TYPE' using errcode = '22023';
+  end if;
+  if p_channel not in ('all', 'sms', 'whatsapp') then
+    raise exception 'INVALID_MESSAGE_HISTORY_CHANNEL' using errcode = '22023';
   end if;
   if p_status not in ('all', 'pending', 'processing', 'submitted', 'delivered', 'read', 'failed', 'needs_review') then
     raise exception 'INVALID_MESSAGE_HISTORY_STATUS' using errcode = '22023';
@@ -102,6 +106,7 @@ begin
       coalesce(campaign_template.name, message_template.name, a.name) as template_name,
       a.id as automation_id,
       a.site_id as automation_site_id,
+      a.name as automation_name,
       case
         when c.id is not null or m.event_type = 'manual' or m.send_type = 'manual' then 'manual'
         when m.automation_id is not null or m.send_type in ('automatic', 'scheduled') then 'automatic'
@@ -149,6 +154,7 @@ begin
         or (p_type = 'subscriber_reference' and m.event_type in ('subscriber_reference', 'subscriber_created'))
         or m.event_type = p_type
       )
+      and (p_channel = 'all' or m.channel = p_channel)
       and (p_status = 'all' or m.status = p_status)
       and (
         v_search is null
@@ -207,8 +213,9 @@ begin
                                 else 'حملة #' || m.campaign_id::text ||
                                      coalesce(' — ' || m.template_name, '') end,
           'automationId', m.automation_id,
-          'automationName', case when m.automation_id is null then null else m.template_name end,
-          'templateName', m.template_name
+          'automationName', m.automation_name,
+          'templateName', m.template_name,
+          'operationKey', m.operation_key
         ) as row_json
       from filtered_messages m
       order by m.created_at desc, m.id desc
@@ -243,5 +250,5 @@ begin
 end;
 $function$;
 
-revoke execute on function public.powerhub_unified_messaging_history(bigint,bigint,text,date,date,text,text,text,integer,integer) from public, anon, authenticated;
+revoke execute on function public.powerhub_unified_messaging_history(bigint,bigint,text,date,date,text,text,text,text,integer,integer) from public, anon, authenticated;
 grant execute on function public.powerhub_unified_messaging_history(bigint,bigint,text,date,date,text,text,text,integer,integer) to service_role;
