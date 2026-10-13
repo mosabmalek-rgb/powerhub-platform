@@ -9,6 +9,10 @@ const tokenFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/2
 const monthlyScheduleFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261010075643_powerhub_fix_monthly_schedule_day.sql"), "utf8");
 const scheduler = fs.readFileSync(path.join(root, "server/_core/index.ts"), "utf8");
 const ui = fs.readFileSync(path.join(root, "client/src/pages/MessagingSettingsPage.tsx"), "utf8");
+const logo = fs.readFileSync(path.join(root, "client/src/components/PowerHubLogo.tsx"), "utf8");
+const sidebar = fs.readFileSync(path.join(root, "client/src/components/DashboardLayout.tsx"), "utf8");
+const brandProxy = fs.readFileSync(path.join(root, "server/_core/storageProxy.ts"), "utf8");
+const html = fs.readFileSync(path.join(root, "client/index.html"), "utf8");
 const api = fs.readFileSync(path.join(root, "server/powerhub.ts"), "utf8");
 const migration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223234_powerhub_unified_messaging_runtime.sql"), "utf8");
 const reminderMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223225_powerhub_payment_reminder_links.sql"), "utf8");
@@ -287,6 +291,19 @@ describe("unified messaging runtime contract", () => {
     expect(readiness).toContain('select("api_endpoint,sender_name,credential_ciphertext,credential_iv,is_active,last_tested_at,last_error")');
     expect(readiness).toContain("الربط فعال وجاهز");
     expect(readiness).not.toContain("credential_ciphertext:");
+  });
+
+  it("uses a cached vector logo, a message-specific sidebar icon, and only supported provider statuses", () => {
+    expect(logo).toContain("powerhub-logo-light.svg?v=optimized-svg-20261013");
+    expect(logo).toContain("powerhub-logo-dark.svg?v=optimized-svg-20261013");
+    expect(brandProxy).toContain('if (assetName.endsWith(".svg"))');
+    expect(brandProxy).toContain("max-age=31536000, immutable");
+    expect(html).toContain('type="image/svg+xml"');
+    expect(sidebar).toContain('icon: MessageSquareText, label: "مركز الرسائل"');
+    expect(ui).toContain('<option value="submitted">مرسلة للمزود</option>');
+    expect(ui).not.toContain('<option value="delivered">تم التسليم</option>');
+    expect(ui).not.toContain('<option value="read">تمت القراءة</option>');
+    expect(ui).toContain('if (channel === "sms" && ["submitted", "delivered", "read"].includes(value)) return "مرسلة للمزود";');
   });
 
   it("surfaces pending campaign counts and per-message dispatch errors in the UI", () => {
