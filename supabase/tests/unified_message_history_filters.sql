@@ -61,7 +61,7 @@ create or replace function public.powerhub_cycle_for_reading(p_tenant_id bigint,
 returns table(cycle_start_at timestamptz, cycle_end_at timestamptz)
 language sql stable
 as $$
-  select now() - interval '30 days', now() + interval '30 days'
+  select timestamptz '2026-01-01 00:00:00+00', timestamptz '2026-12-31 00:00:00+00'
   where exists (select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id);
 $$;
 
@@ -83,8 +83,8 @@ insert into public.notification_messages values
 insert into public.powerhub_message_campaign_recipients values (1,501,100,1,now());
 
 insert into public.notification_messages values
-  (4,1,null,100,'sms','manual','+970599000104','submitted','provider-boundary','{"renderedText":"على الحد النهائي"}',1,null,now() + interval '30 days',now(),null,'manual','none','cycle-boundary-included',11,null),
-  (5,1,null,100,'sms','manual','+970599000105','submitted','provider-after-boundary','{"renderedText":"بعد الحد النهائي"}',1,null,now() + interval '30 days' + interval '1 microsecond',now(),null,'manual','none','cycle-boundary-excluded',11,null);
+  (4,1,null,100,'sms','manual','+970599000104','submitted','provider-boundary','{"renderedText":"على الحد النهائي"}',1,null,timestamptz '2026-12-31 00:00:00+00',now(),null,'manual','none','cycle-boundary-included',11,null),
+  (5,1,null,100,'sms','manual','+970599000105','submitted','provider-after-boundary','{"renderedText":"بعد الحد النهائي"}',1,null,timestamptz '2026-12-31 00:00:00.000001+00',now(),null,'manual','none','cycle-boundary-excluded',11,null);
 
 \echo 'Applying unified history migration'
 \ir ../migrations/20261013170000_powerhub_unified_message_history_filters.sql
