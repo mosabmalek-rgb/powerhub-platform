@@ -640,6 +640,7 @@ export const powerhubUnifiedMessagingRouter = router({
     startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     type:z.enum(["all","invoice_issued","payment_reminder","payment_received","subscriber_reference","service_alert","manual","automatic"]).default("all"),
+    channel:z.enum(["all","sms","whatsapp"]).default("all"),
     status:z.enum(["all","pending","processing","submitted","delivered","read","failed","needs_review"]).default("all"),
     search:z.string().trim().max(160).optional(),
     limit:z.number().int().min(10).max(100).default(50),
@@ -653,7 +654,7 @@ export const powerhubUnifiedMessagingRouter = router({
       p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
       p_start_date:input.period==="custom"?input.startDate:null,
       p_end_date:input.period==="custom"?input.endDate:null,
-      p_type:input.type,p_status:input.status,p_search:input.search||null,
+      p_type:input.type,p_channel:input.channel,p_status:input.status,p_search:input.search||null,
       p_limit:input.limit,p_offset:input.offset,
     });
     if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل سجل الرسائل الموحد."});
