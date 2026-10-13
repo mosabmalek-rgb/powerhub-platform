@@ -560,6 +560,13 @@ export const powerhubUnifiedMessagingRouter = router({
         metadata:{operationId:input.operationId,replayed:true,resumedPending:pendingIds.length,status:replayRow.status,
           submitted:resumedResult.submitted,failed:resumedResult.failed,skipped:resumedResult.skipped,needsReview,reviewPersistenceFailed},
       });
+      // Preserve the idempotent result contract when there was nothing pending to resume.
+      if (pendingIds.length === 0) {
+        return {campaignId,operationId:input.operationId,status:String(replayRow.status ?? "processing"),
+          requested:Number(replayRow.requested ?? 0),submitted:Number(replayRow.submitted ?? 0),
+          failed:Number(replayRow.failed ?? 0),skipped:Number(replayRow.skipped ?? 0),
+          needsReview,reviewPersistenceFailed,results:[],replayed:true};
+      }
       return {
         campaignId,operationId:input.operationId,status:String(replayRow.status ?? "processing"),
         requested:Number(replayRow.requested ?? 0),submitted:Number(replayRow.submitted ?? 0),
