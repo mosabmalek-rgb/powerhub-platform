@@ -139,7 +139,8 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
       if (result.failed > 0 || result.needsReview > 0 || reviewPersistenceFailed > 0) toast.warning(message);
       else if (result.submitted > 0) toast.success(message);
       else toast.info(message);
-      if (!result.replayed) setManualOperationId(crypto.randomUUID());
+      // Keep the same idempotency key while the campaign is still processing so a retry resumes pending rows instead of creating a duplicate campaign.
+      if (result.status !== "processing") setManualOperationId(crypto.randomUUID());
     },
     onError: (e) => toast.error(e.message),
   });
