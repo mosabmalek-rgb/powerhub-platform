@@ -637,8 +637,8 @@ export const powerhubUnifiedMessagingRouter = router({
   history: protectedProcedure.input(z.object({
     siteId:z.number().int().positive(),
     period:z.enum(["cycle","today","custom"]).default("cycle"),
-    startDate:z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
-    endDate:z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+    startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     type:z.enum(["all","invoice_issued","payment_reminder","payment_received","subscriber_reference","service_alert","manual","automatic"]).default("all"),
     status:z.enum(["all","pending","processing","submitted","delivered","read","failed","needs_review"]).default("all"),
     search:z.string().trim().max(160).optional(),
