@@ -433,6 +433,20 @@ export async function processUnifiedMessagingAutomations(now = new Date()) {
 }
 
 export const powerhubUnifiedMessagingRouter = router({
+  connectionReadiness: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner","manager","accountant","viewer"], "manageMessaging");
+    const { data, error } = await supabaseAdmin().from("tenant_tweetsms_accounts")
+      .select("api_endpoint,sender_name,credential_ciphertext,credential_iv,is_active,last_tested_at,last_error")
+      .eq("tenant_id", access.tenantId).maybeSingle();
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جاهزية ربط TweetSMS." });
+    if (!data) return { status: "not_configured" as const, ready: false, label: "الربط غير مُعدّ", detail: "لم تُحفظ بيانات ربط TweetSMS لهذا المولد." };
+    const configured = Boolean(data.api_endpoint?.trim() && data.sender_name?.trim() && data.credential_ciphertext?.trim() && data.credential_iv?.trim());
+    if (!configured) return { status: "incomplete" as const, ready: false, label: "بيانات الربط غير مكتملة", detail: "أكمل عنوان API والمفتاح واسم المرسل من حسابات TweetSMS لدى مدير المنصة." };
+    if (!data.is_active) return { status: "inactive" as const, ready: false, label: "الربط غير مفعّل", detail: "تم حفظ البيانات، لكن الإرسال غير مفعّل. يلزم نجاح فحص الاتصال ثم تفعيل الحساب." };
+    if (!data.last_tested_at) return { status: "untested" as const, ready: false, label: "الربط لم يُختبر", detail: "الحساب مفعّل لكن لا يوجد فحص اتصال ناجح مسجّل؛ لا تعتبره جاهزًا للإرسال." };
+    if (data.last_error) return { status: "error" as const, ready: false, label: "يوجد خطأ في الربط", detail: String(data.last_error).slice(0, 240) };
+    return { status: "ready" as const, ready: true, label: "الربط فعال وجاهز", detail: "بيانات الربط مكتملة والحساب مفعّل وآخر فحص اتصال ناجح." };
+  }),
   templates: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), channel: channelSchema.optional(), eventType: eventTypeSchema.optional(),
   })).query(async ({ ctx, input }) => {
