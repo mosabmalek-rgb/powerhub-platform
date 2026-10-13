@@ -145,6 +145,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
           <Button type="button" variant="outline" onClick={() => { setPeriod("cycle"); setType("all"); setChannel("all"); setStatus("all"); setSearch(""); setPage(0); }}>إعادة ضبط الفلاتر</Button>
         </div>
         {!validCustomRange ? <p role="alert" className="text-sm text-rose-200">تحقق من تاريخ البداية والنهاية؛ تاريخ النهاية يجب ألا يسبق البداية.</p> : null}
+        {data?.periodStart && data?.periodEndExclusive ? <p className="text-xs text-slate-500">الفترة الفعلية: {new Date(data.periodStart).toLocaleDateString("ar-PS", { timeZone: data.timezone || "Asia/Gaza" })} – {new Date(new Date(data.periodEndExclusive).getTime() - 1).toLocaleDateString("ar-PS", { timeZone: data.timezone || "Asia/Gaza" })} · المنطقة الزمنية {data.timezone || "Asia/Gaza"}</p> : null}
         {history.isError ? <p role="alert" className="rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحميل السجل الموحد. راجع صلاحية الحساب ثم أعد التحديث.</p> : null}
         {history.isLoading ? <p className="py-8 text-center text-sm text-slate-400">جارٍ تحميل الرسائل...</p> : !rows.length ? <p className="rounded-xl border border-white/8 p-8 text-center text-sm text-slate-400">{validCustomRange ? "لا توجد رسائل تطابق الفترة والفلاتر المحددة لهذا الفرع." : "أدخل نطاقاً زمنياً صحيحاً لعرض الرسائل."}</p> :
           <div className="overflow-x-auto rounded-xl border border-white/8">
