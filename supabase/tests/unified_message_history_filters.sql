@@ -82,6 +82,10 @@ insert into public.notification_messages values
   (3,1,2000,200,'sms','invoice_issued','+970599000200','submitted','provider-3','{"renderedText":"رسالة من فرع آخر"}',1,null,now(),now(),null,'automatic','none',null,11,null);
 insert into public.powerhub_message_campaign_recipients values (1,501,100,1,now());
 
+insert into public.notification_messages values
+  (4,1,null,100,'sms','manual','+970599000104','submitted','provider-boundary','{"renderedText":"على الحد النهائي"}',1,null,now() + interval '30 days',now(),null,'manual','none','cycle-boundary-included',11,null),
+  (5,1,null,100,'sms','manual','+970599000105','submitted','provider-after-boundary','{"renderedText":"بعد الحد النهائي"}',1,null,now() + interval '30 days' + interval '1 microsecond',now(),null,'manual','none','cycle-boundary-excluded',11,null);
+
 \echo 'Applying unified history migration'
 \ir ../migrations/20261013170000_powerhub_unified_message_history_filters.sql
 
@@ -107,7 +111,7 @@ begin
   if (v->>'total')::integer <> 2 then raise exception 'Today filter failed'; end if;
 
   v := public.powerhub_unified_messaging_history(1,10,'cycle',null,null,'all','all','all',null,50,0);
-  if (v->>'total')::integer <> 2 then raise exception 'Canonical cycle filter failed'; end if;
+  if (v->>'total')::integer <> 3 then raise exception 'Canonical cycle filter must include the exact end instant but exclude one microsecond after it; got %', v->>'total'; end if;
 
   v := public.powerhub_unified_messaging_history(1,20,'custom',current_date-1,current_date+1,'all','all','all',null,50,0);
   if (v->>'total')::integer <> 1 then raise exception 'Site isolation failed for second site'; end if;
