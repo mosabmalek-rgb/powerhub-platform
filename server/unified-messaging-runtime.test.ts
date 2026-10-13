@@ -16,6 +16,7 @@ const deliveryUncertaintyMigration = fs.readFileSync(path.join(root, "supabase/m
 const subscriberCampaignFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261013120000_powerhub_fix_subscriber_update_and_manual_campaign.sql"), "utf8");
 const smsQuotaSummaryMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261013130000_powerhub_admin_tweetsms_quota_summary.sql"), "utf8");
 const campaignRefreshFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261013143000_powerhub_fix_campaign_result_refresh_ambiguity.sql"), "utf8");
+const unifiedHistoryMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261013170000_powerhub_unified_message_history_filters.sql"), "utf8");
 const adminReads = fs.readFileSync(path.join(root, "server/admin-runtime-reads.ts"), "utf8");
 const adminUi = fs.readFileSync(path.join(root, "client/src/pages/AdminConsolePage.tsx"), "utf8");
 
@@ -50,6 +51,24 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain("const renderedText = await renderAutomationMessage(template.body, values");
     expect(runtime).toContain("const textBody = await renderAutomationMessage(template.body, values");
     expect(runtime).not.toContain('textBody.includes("{{invoice_link}}")');
+  });
+
+  it("uses one deduplicated tenant/site-scoped message stream with real cycle and custom date filters", () => {
+    expect(runtime).toContain("powerhub_unified_messaging_history");
+    expect(runtime).toContain('period:z.enum(["cycle","today","custom"])');
+    expect(runtime).toContain("p_start_date:input.period===\"custom\"?input.startDate:null");
+    expect(unifiedHistoryMigration).toContain("public.powerhub_cycle_for_reading(p_tenant_id, p_site_id, now())");
+    expect(unifiedHistoryMigration).toContain("p_period = 'today'");
+    expect(unifiedHistoryMigration).toContain("p_period = 'custom'");
+    expect(unifiedHistoryMigration).toContain("m.tenant_id = p_tenant_id");
+    expect(unifiedHistoryMigration).toContain("s.site_id = p_site_id");
+    expect(unifiedHistoryMigration).toContain("recipient.notification_id");
+    expect(ui).toContain("سجل الرسائل الموحد");
+    expect(ui).toContain("هذه الدورة");
+    expect(ui).toContain("مخصص: بداية ونهاية");
+    expect(ui).toContain("الحملات اليدوية");
+    expect(ui).toContain("needs_review");
+    expect(ui).toContain("campaignCount");
   });
 
   it("site-scopes failed SMS rows before applying the result limit", () => {
