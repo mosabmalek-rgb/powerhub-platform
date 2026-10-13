@@ -23,6 +23,18 @@ describe("unified SMS enforcement", () => {
     expect(sql).toContain("TWEETSMS_ACCOUNT_NOT_ACTIVE");
   });
 
+  it("qualifies tenant_id lookups in the SMS claim RPC to avoid PL/pgSQL output collisions", () => {
+    const claimFix = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261013170000_powerhub_fix_sms_claim_tenant_id_ambiguity.sql"),
+      "utf8",
+    );
+    expect(claimFix).toContain("subscriber.tenant_id = v_message.tenant_id");
+    expect(claimFix).toContain("account.tenant_id = v_message.tenant_id");
+    expect(claimFix).not.toMatch(/where\\s+tenant_id\\s*=/i);
+    expect(claimFix).toContain("revoke all on function public.powerhub_claim_sms_notification(bigint,bigint) from public, anon, authenticated");
+    expect(claimFix).toContain("grant execute on function public.powerhub_claim_sms_notification(bigint,bigint) to service_role");
+  });
+
   it("keeps the claim RPC privileged", () => {
     expect(sql).toContain("revoke execute on function public.powerhub_claim_sms_notification");
     expect(sql).toContain("grant execute on function public.powerhub_claim_sms_notification");
