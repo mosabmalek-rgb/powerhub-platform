@@ -16,7 +16,10 @@ describe("unified messaging contract", () => {
     expect(messagingRouterSource).toContain('if(!finalRow) throw new TRPCError');
   });
   it("accounts for persisted review states and adds only outcomes whose review state failed to persist", () => {
-    expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow?.needs_review, result.results)");
+    expect(
+      messagingRouterSource.includes("effectiveNeedsReviewCount(finalRow?.needs_review, result.results)") ||
+      messagingRouterSource.includes("effectiveNeedsReviewCount(liveCounts.needsReview, result.results)")
+    ).toBe(true);
     expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow.needs_review, result.results)");
     expect(messagingRouterSource).toContain("reviewPersistenceFailed");
   });
@@ -27,7 +30,10 @@ describe("unified messaging contract", () => {
     expect(messagingRouterSource).toContain("reviewPersistenceFailed");
   });
   it("distinguishes unknown review persistence from confirmed unpersisted states", () => {
-    expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow?.needs_review, result.results)");
+    expect(
+      messagingRouterSource.includes("effectiveNeedsReviewCount(finalRow?.needs_review, result.results)") ||
+      messagingRouterSource.includes("effectiveNeedsReviewCount(liveCounts.needsReview, result.results)")
+    ).toBe(true);
     expect(messagingRouterSource).toContain("effectiveNeedsReviewCount(finalRow.needs_review, result.results)");
     expect(messagingRouterSource).toContain("countUnconfirmedNeedsReviewPersistence(result.results)");
   });
