@@ -58,7 +58,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
   const [endDate, setEndDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
   const [type, setType] = useState<"all" | "invoice_issued" | "payment_reminder" | "payment_received" | "subscriber_reference" | "service_alert" | "manual" | "automatic">("all");
   const [channel, setChannel] = useState<"all" | "sms" | "whatsapp">("all");
-  const [status, setStatus] = useState<"all" | "pending" | "processing" | "submitted" | "delivered" | "read" | "failed" | "needs_review">("all");
+  const [status, setStatus] = useState<"all" | "pending" | "processing" | "submitted" | "failed" | "needs_review">("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const history = trpc.powerhub.unifiedMessaging.history.useQuery({
@@ -108,10 +108,15 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
     service_alert: "تنبيه تشغيلي", manual: "رسالة يدوية",
   } as Record<string, string>)[value] ?? value;
   const sourceLabel = (row: any) => row.source === "manual" ? "حملة يدوية" : row.source === "automatic" ? "أتمتة" : "مسار سابق";
-  const statusLabel = (value: string) => ({
-    pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "قبلها مزود الرسائل",
-    delivered: "تم التسليم", read: "تمت القراءة", failed: "فشلت", needs_review: "تحتاج مراجعة",
-  } as Record<string, string>)[value] ?? value;
+  const statusLabel = (value: string, channel: string) => {
+    // TweetSMS does not provide a verified delivery/read receipt. Legacy statuses
+    // must not be presented as proof of delivery for SMS messages.
+    if (channel === "sms" && ["submitted", "delivered", "read"].includes(value)) return "مرسلة للمزود";
+    return ({
+      pending: "بانتظار المعالجة", processing: "قيد المعالجة", submitted: "قبلها مزود الرسائل",
+      delivered: "تم التسليم", read: "تمت القراءة", failed: "فشلت", needs_review: "تحتاج مراجعة",
+    } as Record<string, string>)[value] ?? value;
+  };
   const refresh = async () => { await history.refetch(); };
   const totalPages = Math.max(1, Math.ceil(Number(data?.total ?? 0) / 50));
   const validCustomRange = period !== "custom" || Boolean(startDate && endDate && startDate <= endDate);
@@ -143,7 +148,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
           </select></label>
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">القناة</span><select value={channel} onChange={(e) => { setChannel(e.target.value as typeof channel); setPage(0); }} className={inputClass}><option value="all">كل القنوات</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option></select></label>
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">حالة الرسالة</span><select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(0); }} className={inputClass}>
-            <option value="all">كل الحالات</option><option value="pending">بانتظار المعالجة</option><option value="processing">قيد المعالجة</option><option value="submitted">قبلها مزود الرسائل</option><option value="delivered">تم التسليم</option><option value="read">تمت القراءة</option><option value="failed">فاشلة</option><option value="needs_review">تحتاج مراجعة</option>
+            <option value="all">كل الحالات</option><option value="pending">بانتظار المعالجة</option><option value="processing">قيد المعالجة</option><option value="submitted">مرسلة للمزود</option><option value="failed">فاشلة</option><option value="needs_review">تحتاج مراجعة</option>
           </select></label>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -164,7 +169,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
                   <td className="px-3 py-3"><div className="font-medium text-slate-200">{eventLabel(row.eventType)}</div><div className="mt-1 text-xs text-slate-500">{sourceLabel(row)}</div></td>
                   <td className="px-3 py-3"><div className="text-slate-200">{row.invoiceNo ? row.invoiceNo : "—"}</div>{row.campaignId ? <div className="mt-1 text-xs text-sky-200">{row.campaignLabel}</div> : null}{row.automationName ? <div className="mt-1 text-xs text-slate-500">{row.automationName}</div> : null}</td>
                   <td className="px-3 py-3 text-slate-300">{row.channel === "whatsapp" ? "WhatsApp" : "SMS"}</td>
-                  <td className="px-3 py-3"><Badge className={statusClass(row.status)}>{statusLabel(row.status)}</Badge>{row.lastError ? <p className="mt-1 max-w-48 text-xs leading-5 text-rose-200">{row.lastError}</p> : null}</td>
+                  <td className="px-3 py-3"><Badge className={statusClass(row.status)}>{statusLabel(row.status, row.channel)}</Badge>{row.lastError ? <p className="mt-1 max-w-48 text-xs leading-5 text-rose-200">{row.lastError}</p> : null}</td>
                   <td className="px-3 py-3 text-slate-300">{row.attempts ?? 0}</td>
                   <td className="px-3 py-3"><Button type="button" size="sm" variant="outline" onClick={() => setExpandedId((current) => current === Number(row.id) ? null : Number(row.id))}>{expandedId === Number(row.id) ? "إخفاء" : "عرض النص"}</Button></td>
                   <td className="px-3 py-3">{row.status === "failed" ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => retry(row)}><RotateCcw className="ml-1 h-3.5 w-3.5" />إعادة المحاولة</Button> : row.status === "needs_review" ? <div className="flex min-w-48 flex-wrap gap-1"><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => resolveReview.mutate({ siteId, notificationId: Number(row.id), resolution: "submitted" })}>اعتماد الإرسال</Button><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => resolveReview.mutate({ siteId, notificationId: Number(row.id), resolution: "failed", reason: "تمت المراجعة من سجل الرسائل الموحد." })}>تأكيد الفشل</Button></div> : <span className="text-xs text-slate-600">—</span>}</td>
