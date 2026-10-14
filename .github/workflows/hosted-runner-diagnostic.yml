@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   self-hosted-runner-check:
-    name: Verify MOSAB Windows x64 runner
-    runs-on: [self-hosted, Windows, X64]
+    name: Verify self-hosted runner default label
+    runs-on: self-hosted
     timeout-minutes: 3
     steps:
       - name: Confirm local runner allocation and execution
