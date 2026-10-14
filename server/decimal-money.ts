@@ -55,7 +55,7 @@ export function formatMessageAmount(value: string | number | bigint | null | und
   }
 
   let wholeText = whole.toString();
-  if (groupedWhole) wholeText = wholeText.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  wholeText = wholeText.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const sign = negative && (whole !== 0n || tenths !== 0n) ? "-" : "";
   return `${sign}${wholeText}.${tenths.toString()}`;
 }
