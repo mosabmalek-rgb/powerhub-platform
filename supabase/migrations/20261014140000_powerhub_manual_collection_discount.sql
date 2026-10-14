@@ -34,17 +34,20 @@ begin
     select op.response into v_response from public.offline_sync_operations op
     where op.user_id=p_user_id and op.client_operation_id=p_client_operation_id::text limit 1;
     if found then
-      if not exists(select 1 from public.offline_sync_operations op where op.user_id=p_user_id and op.client_operation_id=p_client_operation_id::text and op.tenant_id=p_tenant_id and op.site_id=p_site_id and op.operation_type='payment_create') then raise exception 'PAYMENT_OPERATION_SCOPE_CONFLICT' using errcode='P0001'; end if;
+      if not exists(select 1 from public.offline_sync_operations op where op.user_id=p_user_id and op.client_operation_id=p_client_operation_id::text and op.tenant_id=p_tenant_id and op.site_id=p_site_id and op.operation_type='payment_create' and op.entity_type='payment') then raise exception 'PAYMENT_OPERATION_SCOPE_CONFLICT' using errcode='P0001'; end if;
       if coalesce(v_response->>'id','')='' then raise exception 'INVALID_PAYMENT_OPERATION_REPLAY' using errcode='P0001'; end if;
       return query select (v_response->>'id')::bigint,true; return;
     end if;
     select p.id into v_payment_id from public.payments p where p.client_operation_id=p_client_operation_id::text and p.tenant_id=p_tenant_id and p.site_id=p_site_id limit 1;
-    if found then return query select v_payment_id,true; return; end if;
+    if found then
+      if not exists(select 1 from public.payments p where p.id=v_payment_id and p.subscriber_id=p_subscriber_id and p.invoice_id is not distinct from p_invoice_id) then raise exception 'PAYMENT_OPERATION_SCOPE_CONFLICT' using errcode='P0001'; end if;
+      return query select v_payment_id,true; return;
+    end if;
   end if;
   perform pg_advisory_xact_lock(hashtext(p_payment_no));
   if exists(select 1 from public.payments where payment_no=p_payment_no) then raise exception 'DUPLICATE_PAYMENT_NO' using errcode='P0001'; end if;
   if exists(select 1 from public.financial_settlements where tenant_id=p_tenant_id and site_id=p_site_id and status='locked' and period_start<=now() and period_end>=now()) then raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001'; end if;
-  if not exists(select 1 from public.subscribers where id=p_subscriber_id and tenant_id=p_tenant_id and site_id=p_site_id and service_status='active' and archived_at is null) then raise exception 'SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE' using errcode='P0001'; end if;
+  if not exists(select 1 from public.subscribers where id=p_subscriber_id and tenant_id=p_tenant_id and site_id=p_site_id  ) then raise exception 'SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE' using errcode='P0001'; end if;
   select * into v_account from public.company_accounts where id=p_company_account_id and tenant_id=p_tenant_id and is_active=true for update;
   if not found then raise exception 'COMPANY_ACCOUNT_NOT_FOUND' using errcode='P0001'; end if;
   if v_account.account_type<>p_payment_method then raise exception 'COMPANY_ACCOUNT_TYPE_MISMATCH' using errcode='P0001'; end if;
