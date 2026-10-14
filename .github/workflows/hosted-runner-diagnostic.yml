@@ -10,11 +10,11 @@ permissions:
 
 jobs:
   self-hosted-runner-check:
-    name: Verify self-hosted runner default label
+    name: Verify local tools for PowerHub CI
     runs-on: self-hosted
     timeout-minutes: 3
     steps:
-      - name: Confirm local runner allocation and execution
+      - name: Confirm runner and inspect local toolchain
         shell: cmd
         run: |
           echo SELF_HOSTED_RUNNER_DIAGNOSTIC_STARTED
@@ -25,4 +25,31 @@ jobs:
           if /I not "%RUNNER_OS%"=="Windows" exit /b 1
           if /I not "%RUNNER_ARCH%"=="X64" exit /b 1
           if /I not "%GITHUB_ACTIONS%"=="true" exit /b 1
-          echo SELF_HOSTED_RUNNER_DIAGNOSTIC_PASSED
+          echo --- NODE ---
+          where node >nul 2>nul
+          if errorlevel 1 (echo NODE_NOT_FOUND) else (node --version)
+          echo --- NPM ---
+          where npm >nul 2>nul
+          if errorlevel 1 (echo NPM_NOT_FOUND) else (npm --version)
+          echo --- PNPM ---
+          where pnpm >nul 2>nul
+          if errorlevel 1 (echo PNPM_NOT_FOUND) else (pnpm --version)
+          echo --- COREPACK ---
+          where corepack >nul 2>nul
+          if errorlevel 1 (echo COREPACK_NOT_FOUND) else (corepack --version)
+          echo --- GIT ---
+          where git >nul 2>nul
+          if errorlevel 1 (echo GIT_NOT_FOUND) else (git --version)
+          echo --- DOCKER ---
+          where docker >nul 2>nul
+          if errorlevel 1 (echo DOCKER_NOT_FOUND) else (docker --version)
+          echo --- PSQL ---
+          where psql >nul 2>nul
+          if errorlevel 1 (echo PSQL_NOT_FOUND) else (psql --version)
+          echo --- CREATEDB ---
+          where createdb >nul 2>nul
+          if errorlevel 1 (echo CREATEDB_NOT_FOUND) else (createdb --version)
+          echo --- BASH ---
+          where bash >nul 2>nul
+          if errorlevel 1 (echo BASH_NOT_FOUND) else (bash --version)
+          echo SELF_HOSTED_TOOLCHAIN_DIAGNOSTIC_COMPLETED
