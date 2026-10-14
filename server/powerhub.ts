@@ -2213,6 +2213,10 @@ export const powerhubRouter = router({
       if ((hasTransferSource && !input.transferFromType) || (!hasTransferSource && input.transferFromType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "حدد نوع الحساب المحوِّل فقط عند إدخال رقمه." });
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      if (input.manualDiscountAmount > 0 && !["owner", "manager", "accountant"].includes(access.role)) throw new TRPCError({ code: "FORBIDDEN", message: "الخصم اليدوي متاح للمالك والمدير والمحاسب فقط." });
+      if (input.manualDiscountAmount > 0 && (!input.invoiceId || !input.manualDiscountReason || input.manualDiscountReason.length < 3)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يتطلب الخصم اليدوي اختيار فاتورة واحدة وكتابة سبب واضح لا يقل عن 3 أحرف." });
+      }
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
       if (input.receiptImageData) {
@@ -2231,10 +2235,6 @@ export const powerhubRouter = router({
         if (sessionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة التحصيل في Supabase." });
         if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
         collectorSessionId = Number(openSession.id);
-      }
-      if (input.manualDiscountAmount > 0 && !["owner", "manager", "accountant"].includes(access.role)) throw new TRPCError({ code: "FORBIDDEN", message: "الخصم اليدوي متاح للمالك والمدير والمحاسب فقط." });
-      if (input.manualDiscountAmount > 0 && (!input.invoiceId || !input.manualDiscountReason || input.manualDiscountReason.length < 3)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "يتطلب الخصم اليدوي اختيار فاتورة واحدة وكتابة سبب واضح لا يقل عن 3 أحرف." });
       }
       const rpcArgs = {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId, p_invoice_id: input.invoiceId ?? null,
