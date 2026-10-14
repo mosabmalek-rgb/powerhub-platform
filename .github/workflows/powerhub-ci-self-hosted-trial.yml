@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout diagnostic branch (PowerHub PR code plus isolated diagnostics)
         uses: actions/checkout@v4
+        with:
+          ref: feat/messaging-reading-value-variables
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
