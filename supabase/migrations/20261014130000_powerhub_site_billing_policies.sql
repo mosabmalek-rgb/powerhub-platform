@@ -350,7 +350,7 @@ begin
   loop
     if v_pending.invoice_id <> v_invoice_id then
       insert into public.invoice_lines(tenant_id,invoice_id,line_type,description,quantity,unit_price,amount,display_order)
-      values(p_tenant_id,v_invoice_id,'other',format('رصيد كسر مرحّل من الفاتورة %s',coalesce((select invoice_no from public.invoices where id=v_pending.invoice_id),'—')),1,v_pending.amount,v_pending.amount,v_display_order);
+      values(p_tenant_id,v_invoice_id,'other',format('رصيد كسر مرحّل من الفاتورة %s',coalesce((select source_invoice.invoice_no from public.invoices as source_invoice where source_invoice.id=v_pending.invoice_id),'—')),1,v_pending.amount,v_pending.amount,v_display_order);
       v_display_order := v_display_order + 1;
       update public.billing_adjustments set state='applied',applied_to_invoice_id=v_invoice_id
       where id=v_pending.id and state='pending';
