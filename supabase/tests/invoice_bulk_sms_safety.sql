@@ -30,7 +30,8 @@ create table public.staff_profiles (
 create table public.invoices (
   id bigint primary key, tenant_id bigint not null, site_id bigint not null, status text not null,
   subscriber_id bigint not null, invoice_no text, billing_period text, total_amount numeric,
-  balance_due numeric, due_date date
+  balance_due numeric, due_date date,
+  previous_reading numeric, current_reading numeric, consumption_kwh numeric
 );
 create table public.platform_settings (
   setting_key text primary key, is_enabled boolean not null, value jsonb
@@ -64,6 +65,20 @@ create table public.audit_logs (
   user_id bigint, actor_platform_role text, entity_type text, entity_id text, action text,
   metadata jsonb, before_data jsonb, after_data jsonb
 );
+
+create or replace function public.powerhub_prepare_manual_message_campaign(
+  p_user_id bigint, p_tenant_id bigint, p_site_id bigint, p_channel text, p_message text, p_subscriber_ids bigint[]
+) returns void
+language plpgsql
+as $function$
+declare
+  v_rendered text := p_message;
+begin
+  if v_rendered ~ '{{\\s*(invoice_no|billing_period|total_amount|balance_due|due_date|invoice_link)\\s*}}' then
+    raise exception 'INVOICE_CONTEXT_TOKEN_NOT_ALLOWED';
+  end if;
+end;
+$function$;
 
 insert into public.users(id, account_status, platform_role)
 values (1, 'active', 'platform_admin');
@@ -222,5 +237,17 @@ begin
   end loop;
 end
 $test_unsendable$;
+
+do $test_manual_context_guard$
+declare caught boolean := false;
+begin
+  begin
+    perform public.powerhub_prepare_manual_message_campaign(1,10,20,'sms','إجمالي المستحقات {{total_balance}}',array[1010]::bigint[]);
+  exception when others then
+    if sqlerrm = 'INVOICE_CONTEXT_TOKEN_NOT_ALLOWED' then caught := true; else raise; end if;
+  end;
+  if not caught then raise exception 'manual campaign accepted a context-dependent total-balance token'; end if;
+end
+$test_manual_context_guard$;
 
 \echo 'invoice bulk-SMS safety SQL integration assertions passed'
