@@ -40,7 +40,7 @@ export function formatMessageAmount(value: string | number | bigint | null | und
   if (value == null) return "";
 
   const raw = String(value).trim();
-  const match = /^([+-]?)(\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.(\\d+))?$/.exec(raw);
+  const match = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?$/.exec(raw);
   if (!match) return raw;
 
   const negative = match[1] === "-";
@@ -56,7 +56,7 @@ export function formatMessageAmount(value: string | number | bigint | null | und
   }
 
   let wholeText = whole.toString();
-  if (groupedWhole) wholeText = wholeText.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ",");
+  if (groupedWhole) wholeText = wholeText.replace(/\\B(?=(\d{3})+(?!\d))/g, ",");
   const sign = negative && (whole !== 0n || tenths !== 0n) ? "-" : "";
   return `${sign}${wholeText}.${tenths.toString()}`;
 }
