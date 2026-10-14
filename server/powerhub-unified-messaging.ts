@@ -913,16 +913,58 @@ export const powerhubUnifiedMessagingRouter = router({
     invoiceStyle: z.enum(["details","portal_link"]).optional(),
   })).mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-    const { data, error } = await supabaseAdmin().rpc("powerhub_unified_messaging_upsert_template_v2", {
+    const admin = supabaseAdmin();
+    const wantsInvoiceStyle = input.channel === "sms" && input.eventType === "invoice_issued" && input.invoiceStyle !== undefined;
+    let invoiceStyleToPersist = wantsInvoiceStyle ? input.invoiceStyle! : null;
+
+    // Saving a reusable template must not depend on the SMS provider having been configured.
+    // The invoice-style preference belongs to the tenant's SMS configuration, so persist it
+    // only when that row exists; never create a fake provider configuration just to save a template.
+    if (wantsInvoiceStyle) {
+      const { data: smsConfiguration, error: configurationError } = await admin
+        .from("tenant_messaging_configurations")
+        .select("id")
+        .eq("tenant_id", access.tenantId)
+        .eq("channel", "sms")
+        .maybeSingle();
+      if (configurationError) {
+        console.error("[unifiedMessaging.saveTemplate] configuration lookup failed", {
+          code: configurationError.code,
+          message: configurationError.message,
+        });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إعدادات SMS قبل حفظ تفضيل الفاتورة؛ لم يُحفظ القالب." });
+      }
+      if (!smsConfiguration) invoiceStyleToPersist = null;
+    }
+
+    const { data, error } = await admin.rpc("powerhub_unified_messaging_upsert_template_v2", {
       p_id: input.id ?? null, p_tenant_id: access.tenantId, p_name: input.name, p_description: input.description ?? null,
       p_channel: input.channel, p_event_type: input.eventType ?? null, p_body: input.body, p_variables: input.variables,
-      p_is_active: input.isActive, p_actor_user_id: ctx.user.id, p_invoice_style: input.invoiceStyle ?? null,
+      p_is_active: input.isActive, p_actor_user_id: ctx.user.id, p_invoice_style: invoiceStyleToPersist,
     });
-    if (error) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر حفظ قالب المراسلة الموحدة." });
+    if (error) {
+      console.error("[unifiedMessaging.saveTemplate] template RPC failed", {
+        code: error.code, message: error.message, details: error.details, hint: error.hint,
+        tenantId: access.tenantId, siteId: input.siteId,
+      });
+      const errorText = `${error.code ?? ""} ${error.message ?? ""}`.toUpperCase();
+      if (errorText.includes("TEMPLATE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "القالب المطلوب تعديله لم يعد موجودًا. حدّث القائمة ثم اختر القالب من جديد." });
+      if (errorText.includes("TEMPLATE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تعديل قالب تابع لمساحة أخرى." });
+      if (errorText.includes("INVALID_TEMPLATE_NAME")) throw new TRPCError({ code: "BAD_REQUEST", message: "اسم القالب يجب أن يكون بين حرفين و120 حرفًا." });
+      if (errorText.includes("INVALID_TEMPLATE_BODY")) throw new TRPCError({ code: "BAD_REQUEST", message: "نص القالب فارغ أو يتجاوز الحد المسموح." });
+      if (errorText.includes("PGRST202") || errorText.includes("SCHEMA CACHE") || errorText.includes("FUNCTION PUBLIC.POWERHUB_UNIFIED_MESSAGING_UPSERT_TEMPLATE_V2")) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "إجراء حفظ القالب غير متاح في قاعدة البيانات الحالية. يلزم تطبيق تحديثات قاعدة بيانات مركز المراسلات." });
+      }
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ قالب المراسلة الموحدة. سُجّل سبب الخطأ للتشخيص دون تسجيل نص القالب أو بيانات المشتركين." });
+    }
     const id = Number(Array.isArray(data) ? data[0]?.powerhub_unified_messaging_upsert_template_v2 ?? data[0]?.id : data);
     if (!id) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد قاعدة البيانات معرف القالب." });
-    await writeSupabaseAudit({ userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId, entityType: "message_template", entityId: String(id), action: input.id ? "update" : "create", afterData: { id, channel: input.channel, eventType: input.eventType, isActive: input.isActive, invoiceStyle: input.invoiceStyle ?? null } });
-    return { id };
+    await writeSupabaseAudit({
+      userId: ctx.user.id, tenantId: access.tenantId, siteId: input.siteId,
+      entityType: "message_template", entityId: String(id), action: input.id ? "update" : "create",
+      afterData: { id, channel: input.channel, eventType: input.eventType, isActive: input.isActive, invoiceStyle: invoiceStyleToPersist, invoiceStyleRequested: input.invoiceStyle ?? null },
+    });
+    return { id, invoiceStylePersisted: !wantsInvoiceStyle || invoiceStyleToPersist !== null };
   }),
 
   automations: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
