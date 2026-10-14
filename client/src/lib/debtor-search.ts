@@ -12,11 +12,15 @@ export function filterDebtorsByQuery<T extends DebtorSearchRow>(rows: T[], query
 export function filterAndSortDebtors<T extends ActionableDebtorRow>(rows: T[], query: string, status: DebtorStatusFilter, sort: DebtorSort) {
   const statusRows = filterDebtorsByQuery(rows, query).filter((row) => {
     if (status === "partial") return Number(row.partialInvoices ?? 0) > 0;
-    if (status === "overdue") return Boolean(row.isOverdue) && Number(row.partialInvoices ?? 0) === 0;
-    if (status === "upcoming") return !row.isOverdue && Number(row.partialInvoices ?? 0) === 0;
+    if (status === "overdue") return Boolean(row.isOverdue);
+    if (status === "upcoming") return !row.isOverdue;
     return true;
   });
   if (sort === "balance") return [...statusRows].sort((left, right) => Number(right.outstanding ?? 0) - Number(left.outstanding ?? 0));
   if (sort === "age") return [...statusRows].sort((left, right) => Number(right.ageDays ?? 0) - Number(left.ageDays ?? 0));
-  return statusRows;
+  return [...statusRows].sort((left, right) =>
+    Number(Boolean(right.isOverdue)) - Number(Boolean(left.isOverdue)) ||
+    Number(right.outstanding ?? 0) - Number(left.outstanding ?? 0) ||
+    Number(right.ageDays ?? 0) - Number(left.ageDays ?? 0),
+  );
 }
