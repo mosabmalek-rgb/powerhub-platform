@@ -108,7 +108,13 @@ begin
       and u.platform_role in ('platform_owner','platform_admin','finance_admin'))
     or exists(
       select 1 from public.tenant_members m
-      join public.staff_profiles s on s.user_id=m.user_id and s.tenant_id=m.tenant_id and s.site_id=p_site_id and s.is_active
+      where m.tenant_id=p_tenant_id and m.user_id=p_user_id
+        and m.is_active and m.membership_status='active' and m.role='owner'
+    )
+    or exists(
+      select 1 from public.tenant_members m
+      join public.staff_profiles s on s.user_id=m.user_id and s.tenant_id=m.tenant_id
+        and s.site_id=p_site_id and s.is_active
       where m.tenant_id=p_tenant_id and m.user_id=p_user_id and m.is_active and m.membership_status='active'
         and s.role='owner' and (s.suspension_ends_at is null or s.suspension_ends_at<=now())
     ) into v_allowed;
@@ -191,8 +197,17 @@ begin
   if p_billing_period !~ '^[0-9]{4}-[0-9]{2}$' then raise exception 'INVALID_BILLING_PERIOD' using errcode='P0001'; end if;
   if p_discount_amount<0 then raise exception 'INVALID_DISCOUNT' using errcode='P0001'; end if;
   if p_client_operation_id is not null then
-    select response into v_response from public.offline_sync_operations where user_id=p_user_id and client_operation_id=p_client_operation_id::text limit 1;
+    select response into v_response from public.offline_sync_operations
+    where user_id=p_user_id and client_operation_id=p_client_operation_id::text limit 1;
     if found then
+      if not exists (
+        select 1 from public.offline_sync_operations
+        where user_id=p_user_id and client_operation_id=p_client_operation_id::text
+          and tenant_id=p_tenant_id and site_id=p_site_id and operation_type='invoice_issue'
+          and entity_type='invoice'
+      ) then
+        raise exception 'INVOICE_OPERATION_SCOPE_CONFLICT' using errcode='P0001';
+      end if;
       if coalesce(v_response->>'id','')='' or coalesce(v_response->>'invoiceNo','')='' then raise exception 'INVALID_INVOICE_OPERATION_REPLAY' using errcode='P0001'; end if;
       return query select (v_response->>'id')::bigint,v_response->>'invoiceNo',(v_response->>'totalAmount')::numeric,true;
       return;
