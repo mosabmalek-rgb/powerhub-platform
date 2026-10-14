@@ -485,6 +485,27 @@ export const powerhubRouter = router({
         fractionCarryMaxTenth: Number(row?.fraction_carry_max_tenth ?? 9),
       };
     }),
+    discountSummary: protectedProcedure.input(siteScoped.extend({
+      startDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      endDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+    })).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      if (input.startDate && input.endDate && input.startDate > input.endDate) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." });
+      const start = input.startDate ? new Date(input.startDate + "T00:00:00.000Z").toISOString() : null;
+      const end = input.endDate ? new Date(new Date(input.endDate + "T00:00:00.000Z").getTime() + 86400000 - 1).toISOString() : null;
+      const { data, error } = await supabaseAdmin().rpc("powerhub_billing_discount_summary", {
+        p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_from: start, p_to: end,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إحصاءات الخصومات." });
+      const row = Array.isArray(data) ? data[0] : data;
+      return {
+        automaticDiscountTotal: Number(row?.automatic_discount_total ?? 0),
+        manualDiscountTotal: Number(row?.manual_discount_total ?? 0),
+        totalDiscount: Number(row?.total_discount ?? 0),
+        automaticDiscountCount: Number(row?.automatic_discount_count ?? 0),
+        manualDiscountCount: Number(row?.manual_discount_count ?? 0),
+      };
+    }),
     save: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       minimumMode: z.enum(["disabled", "kwh", "amount"]),
