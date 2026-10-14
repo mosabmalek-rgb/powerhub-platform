@@ -251,7 +251,7 @@ insert into public.offline_sync_operations(tenant_id,site_id,user_id,client_oper
 values (1,10,7,'11111111-1111-4111-8111-111111111111','invoice_issue','invoice',999,'{"id":999,"invoiceNo":"INV-2026-00000999","totalAmount":1}');
 do $$
 begin
-  perform * from public.powerhub_issue_invoice_from_reading(2,20,8,9999,999,'2026-07',now()+interval '15 days',0,'11111111-1111-4111-8111-111111111111');
+  perform * from public.powerhub_issue_invoice_from_reading(2,20,7,9999,999,'2026-07',now()+interval '15 days',0,'11111111-1111-4111-8111-111111111111');
   raise exception 'CROSS_SCOPE_INVOICE_REPLAY_WAS_ACCEPTED';
 exception when sqlstate 'P0001' then
   if sqlerrm <> 'INVOICE_OPERATION_SCOPE_CONFLICT' then raise; end if;
