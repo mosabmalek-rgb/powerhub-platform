@@ -30,13 +30,13 @@ jobs:
           if errorlevel 1 (echo NODE_NOT_FOUND) else (node --version)
           echo --- NPM ---
           where npm >nul 2>nul
-          if errorlevel 1 (echo NPM_NOT_FOUND) else (npm --version)
+          if errorlevel 1 (echo NPM_NOT_FOUND) else (call npm --version)
           echo --- PNPM ---
           where pnpm >nul 2>nul
-          if errorlevel 1 (echo PNPM_NOT_FOUND) else (pnpm --version)
+          if errorlevel 1 (echo PNPM_NOT_FOUND) else (call pnpm --version)
           echo --- COREPACK ---
           where corepack >nul 2>nul
-          if errorlevel 1 (echo COREPACK_NOT_FOUND) else (corepack --version)
+          if errorlevel 1 (echo COREPACK_NOT_FOUND) else (call corepack --version)
           echo --- GIT ---
           where git >nul 2>nul
           if errorlevel 1 (echo GIT_NOT_FOUND) else (git --version)
