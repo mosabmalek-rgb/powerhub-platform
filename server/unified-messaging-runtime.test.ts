@@ -7,6 +7,7 @@ const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messagi
 const invoiceLinksMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223156_powerhub_invoice_message_links.sql"), "utf8");
 const readingVariablesMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014180000_powerhub_invoice_reading_message_variables.sql"), "utf8");
 const manualReadingGuardMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014190000_powerhub_manual_campaign_reading_token_guard.sql"), "utf8");
+const totalBalanceMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014200000_powerhub_total_subscriber_balance_message_variable.sql"), "utf8");
 const tokenFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261010075617_powerhub_fix_postgres_urlsafe_tokens.sql"), "utf8");
 const monthlyScheduleFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261010075643_powerhub_fix_monthly_schedule_day.sql"), "utf8");
 const scheduler = fs.readFileSync(path.join(root, "server/_core/index.ts"), "utf8");
@@ -60,6 +61,12 @@ describe("unified messaging runtime contract", () => {
     expect(ui).toContain('label: "القراءة السابقة"');
     expect(ui).toContain('label: "القراءة الحالية"');
     expect(ui).toContain('label: "الاستهلاك (ك.و.س)"');
+    expect(ui).toContain('label: "الرصيد الإجمالي للمشترك"');
+    expect(totalBalanceMigration).toContain("powerhub_queue_selected_invoice_sms");
+    expect(totalBalanceMigration).toContain("powerhub_queue_invoice_sms_after_issue");
+    expect(totalBalanceMigration).toContain("powerhub_approve_and_issue_mobile_reading");
+    expect(totalBalanceMigration).toContain("{{total_balance}}");
+    expect(runtime).toContain("loadSubscriberTotalBalances");
     expect(runtime).toContain('previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading)');
   });
 
