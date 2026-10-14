@@ -155,6 +155,7 @@ export default function OperationsPage({ section }: { section: Section }) {
     if (!Number.isInteger(companyAccountId) || companyAccountId <= 0) return toast.error("اختر الحساب المستقبِل من حسابات الشركة قبل تسجيل التحصيل.");
     const completePayload = payload;
     if (typeof navigator !== "undefined" && !navigator.onLine) {
+      if (Number(completePayload.manualDiscountAmount ?? 0) > 0) return toast.error("لا يمكن اعتماد الخصم اليدوي دون اتصال؛ اتصل بالإنترنت ثم أعد تسجيل التحصيل حتى لا تضيع التسوية من المسودة.");
       if (!user?.id) return toast.error("تعذر معرفة المستخدم الحالي لحفظ مسودة التحصيل.");
       try { await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "payment_create", payload: { subscriberId: completePayload.subscriberId, invoiceId: completePayload.invoiceId, paymentNo: completePayload.paymentNo, amount: completePayload.amount, paymentMethod: completePayload.paymentMethod ?? "cash", companyAccountId: completePayload.companyAccountId, transferFromAccount: completePayload.transferFromAccount, transferFromType: completePayload.transferFromType, referenceNo: completePayload.referenceNo, receiptImageData: completePayload.receiptImageData, receiptImageMime: completePayload.receiptImageMime } }); toast.success("حُفظ التحصيل وصورة الإيصال محلياً كمسودة معلقة؛ لن يتغير رصيد الفاتورة ولن يصدر إيصال رسمي حتى يوافق الخادم على المزامنة."); }
       catch (error) { toast.error(error instanceof Error ? error.message : "تعذر حفظ مسودة التحصيل."); }
