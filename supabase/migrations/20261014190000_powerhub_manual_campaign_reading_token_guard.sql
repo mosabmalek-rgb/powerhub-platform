@@ -5,7 +5,7 @@ declare
   v_definition text;
   v_patched text;
   v_target text := $target$if v_rendered ~ '{{\\s*(invoice_no|billing_period|total_amount|balance_due|due_date|invoice_link)\\s*}}' then$target$;
-  v_replacement text := $replacement$if v_rendered ~ '{{\\s*(invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|due_date|invoice_link)\\s*}}' then$replacement$;
+  v_replacement text := $replacement$if v_rendered ~ '{{\s*(invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|due_date|invoice_link)\s*}}' then$replacement$;
 begin
   select pg_get_functiondef(p.oid) into v_definition
   from pg_proc p
