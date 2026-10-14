@@ -80,6 +80,50 @@ begin
 end;
 $function$;
 
+-- Faithful disposable function fixtures for the two production paths patched by
+-- the reading-token migration. The integration assertions below verify that
+-- the actual migration adds all tokens to these function definitions.
+create or replace function public.powerhub_queue_invoice_sms_after_issue()
+returns trigger
+language plpgsql
+set search_path=public,pg_temp
+as $function$
+declare
+  v_rendered_text text;
+begin
+  v_rendered_text := replace(v_rendered_text,'{{balance_due}}',new.balance_due::text);
+  return new;
+end;
+$function$;
+
+create or replace function public.powerhub_approve_and_issue_mobile_reading(
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_user_id bigint,
+  p_reading_id bigint,
+  p_base_version integer,
+  p_due_date timestamptz,
+  p_billing_period text,
+  p_discount_amount numeric default 0
+)
+returns table(invoice_id bigint, invoice_no text, total_amount numeric, notification_ids bigint[], already_processed boolean)
+language plpgsql
+security definer
+set search_path=public,pg_temp
+as $function$
+declare
+  v_template text;
+  v_rendered text;
+  v_reading record;
+  v_subscriber record;
+  v_invoice_no text;
+  v_total_amount numeric;
+begin
+  v_rendered:=replace(replace(replace(replace(replace(v_template,'{{subscriber_name}}',coalesce(v_subscriber.full_name,'')),'{{invoice_no}}',v_invoice_no),'{{billing_period}}',p_billing_period),'{{total_amount}}',v_total_amount::text),'{{due_date}}',to_char(p_due_date at time zone 'Asia/Gaza','DD/MM/YYYY'));
+  return;
+end;
+$function$;
+
 insert into public.users(id, account_status, platform_role)
 values (1, 'active', 'platform_admin');
 insert into public.platform_settings(setting_key, is_enabled, value)
@@ -121,6 +165,48 @@ values
 \ir ../migrations/20261014180000_powerhub_invoice_reading_message_variables.sql
 \ir ../migrations/20261014190000_powerhub_manual_campaign_reading_token_guard.sql
 \ir ../migrations/20261014200000_powerhub_total_subscriber_balance_message_variable.sql
+
+do $test_reading_and_balance_migration_targets$
+declare
+  v_trigger_definition text;
+  v_selected_definition text;
+  v_mobile_definition text;
+begin
+  select pg_get_functiondef(p.oid) into v_trigger_definition
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname='powerhub_queue_invoice_sms_after_issue' and p.pronargs=0;
+  select pg_get_functiondef(p.oid) into v_selected_definition
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname='powerhub_queue_selected_invoice_sms' and p.pronargs=4;
+  select pg_get_functiondef(p.oid) into v_mobile_definition
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname='powerhub_approve_and_issue_mobile_reading' and p.pronargs=8;
+
+  if v_trigger_definition is null or v_selected_definition is null or v_mobile_definition is null then
+    raise exception 'READING_MESSAGE_MIGRATION_TARGET_FUNCTION_MISSING';
+  end if;
+
+  if position('{{previous_reading}}' in v_trigger_definition)=0
+     or position('{{current_reading}}' in v_trigger_definition)=0
+     or position('{{consumption_kwh}}' in v_trigger_definition)=0
+     or position('{{total_balance}}' in v_trigger_definition)=0 then
+    raise exception 'INVOICE_TRIGGER_READING_OR_TOTAL_BALANCE_TOKENS_MISSING';
+  end if;
+  if position('{{previous_reading}}' in v_selected_definition)=0
+     or position('{{current_reading}}' in v_selected_definition)=0
+     or position('{{consumption_kwh}}' in v_selected_definition)=0
+     or position('{{total_balance}}' in v_selected_definition)=0 then
+    raise exception 'SELECTED_INVOICE_READING_OR_TOTAL_BALANCE_TOKENS_MISSING';
+  end if;
+  if position('{{previous_reading}}' in v_mobile_definition)=0
+     or position('{{current_reading}}' in v_mobile_definition)=0
+     or position('{{consumption_kwh}}' in v_mobile_definition)=0
+     or position('{{total_balance}}' in v_mobile_definition)=0 then
+    raise exception 'MOBILE_APPROVAL_READING_OR_TOTAL_BALANCE_TOKENS_MISSING';
+  end if;
+end
+$test_reading_and_balance_migration_targets$;
+
 
 do $test_existing$
 declare
