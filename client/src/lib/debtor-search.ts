@@ -1,4 +1,4 @@
-export type DebtorSearchRow = { subscriber?: string | null; invoiceNo?: string | null };
+export type DebtorSearchRow = { subscriber?: string | null; subscriberNo?: string | null; invoiceNo?: string | null };
 export type DebtorStatusFilter = "all" | "overdue" | "partial" | "upcoming";
 export type DebtorSort = "priority" | "balance" | "age";
 type ActionableDebtorRow = DebtorSearchRow & { outstanding?: number; ageDays?: number; isOverdue?: boolean; partialInvoices?: number };
@@ -6,7 +6,7 @@ type ActionableDebtorRow = DebtorSearchRow & { outstanding?: number; ageDays?: n
 export function filterDebtorsByQuery<T extends DebtorSearchRow>(rows: T[], query: string) {
   const normalized = query.trim().toLocaleLowerCase("ar");
   if (!normalized) return rows;
-  return rows.filter((row) => `${row.subscriber ?? ""} ${row.invoiceNo ?? ""}`.toLocaleLowerCase("ar").includes(normalized));
+  return rows.filter((row) => `${row.subscriber ?? ""} ${row.subscriberNo ?? ""} ${row.invoiceNo ?? ""}`.toLocaleLowerCase("ar").includes(normalized));
 }
 
 export function filterAndSortDebtors<T extends ActionableDebtorRow>(rows: T[], query: string, status: DebtorStatusFilter, sort: DebtorSort) {
