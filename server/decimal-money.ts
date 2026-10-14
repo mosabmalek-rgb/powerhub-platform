@@ -44,7 +44,6 @@ export function formatMessageAmount(value: string | number | bigint | null | und
   if (!match) return raw;
 
   const negative = match[1] === "-";
-  const groupedWhole = match[2].includes(",");
   let whole = BigInt(match[2].replace(/,/g, ""));
   let tenths = BigInt((match[3] ?? "0")[0] ?? "0");
   const secondFractionalDigit = (match[3] ?? "")[1] ?? "0";
