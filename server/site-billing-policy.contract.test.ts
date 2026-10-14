@@ -100,6 +100,26 @@ describe("site billing minimum and fractional settlement contract", () => {
     expect(source).toContain("lineType?: string; description: string; amount: number");
   });
 
+  it("reconciles the carried fraction as a negative invoice line without counting it as a discount", () => {
+    const source = read("supabase/migrations/20261014130000_powerhub_site_billing_policies.sql");
+    expect(source).toContain("'other','كسر مُرحّل إلى الفاتورة التالية',1,-v_fraction_to_carry,-v_fraction_to_carry,8");
+    expect(source).toContain("'fraction_carried',v_fraction_to_carry,'pending'");
+    expect(source).toContain("v_total_amount := round(greatest(0,v_raw_total-v_auto_fraction_discount-v_fraction_to_carry)+v_previous_carry,2)");
+  });
+
+  it("rejects cross-tenant/site invoice idempotency replays", () => {
+    const source = read("supabase/migrations/20261014130000_powerhub_site_billing_policies.sql");
+    expect(source).toContain("INVOICE_OPERATION_SCOPE_CONFLICT");
+    expect(source).toContain("operation_type='invoice_issue'");
+    expect(source).toContain("entity_type='invoice'");
+  });
+
+  it("validates payment replay against the original payment scope", () => {
+    const source = read("supabase/migrations/20261014140000_powerhub_manual_collection_discount.sql");
+    expect(source).toContain("PAYMENT_OPERATION_SCOPE_CONFLICT");
+    expect(source).toContain("p.subscriber_id=p_subscriber_id and p.invoice_id is not distinct from p_invoice_id");
+  });
+
   it("applies the minimum amount floor after the ordinary invoice discount", () => {
     const source = read("supabase/migrations/20261014130000_powerhub_site_billing_policies.sql");
     expect(source).toContain("v_raw_total := greatest(0,round(v_energy_amount+v_tariff.fixed_fee+v_tax_amount-p_discount_amount,2))");
