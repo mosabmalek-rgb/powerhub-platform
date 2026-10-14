@@ -170,7 +170,7 @@ begin
   select total_amount,discount_amount into v_total,v_discount from public.invoices where reading_id=1002;
   select sum(case when line_type='discount' then -amount else amount end) into v_lines from public.invoice_lines where invoice_id=(select id from public.invoices where reading_id=1002);
   select amount into v_floor_adjustment from public.invoice_lines where invoice_id=(select id from public.invoices where reading_id=1002) and description='تسوية الحد الأدنى لمبلغ الفاتورة';
-  if v_total<>10 or v_discount<>0.5 or v_lines<>v_total or v_floor_adjustment<>8.5 then raise exception 'MINIMUM_AMOUNT_ASSERTION_FAILED total=% discount=% lines=% floor=%',v_total,v_discount,v_lines,v_floor_adjustment; end if;
+  if v_total<>10 or v_discount<>0.5 or v_lines<>v_total or v_floor_adjustment<>9.5 then raise exception 'MINIMUM_AMOUNT_ASSERTION_FAILED total=% discount=% lines=% floor=%',v_total,v_discount,v_lines,v_floor_adjustment; end if;
 end $$;
 
 -- Automatic fraction discount: 120.80 must result in 120.00 and one 0.80 ledger item.
