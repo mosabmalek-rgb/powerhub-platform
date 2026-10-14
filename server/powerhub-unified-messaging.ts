@@ -6,6 +6,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
+import { decimalAmountToMinorUnits, minorUnitsToAmountString } from "./decimal-money";
 import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
@@ -28,7 +29,7 @@ async function loadSubscriberTotalBalances(
   siteId: number,
   subscriberIds: number[],
 ) {
-  const totals = new Map<number, number>();
+  const totals = new Map<number, bigint>();
   const uniqueIds = Array.from(new Set(subscriberIds.filter((id) => Number.isSafeInteger(id) && id > 0)));
   for (let offset = 0; offset < uniqueIds.length; offset += 100) {
     const ids = uniqueIds.slice(offset, offset + 100);
@@ -42,13 +43,23 @@ async function loadSubscriberTotalBalances(
       if (error) throw new Error("تعذر حساب إجمالي مستحقات المشترك.");
       for (const invoice of data ?? []) {
         const id = Number(invoice.subscriber_id);
-        totals.set(id, (totals.get(id) ?? 0) + Number(invoice.balance_due ?? 0));
+        let balanceMinorUnits: bigint;
+        try {
+          balanceMinorUnits = decimalAmountToMinorUnits(invoice.balance_due);
+        } catch {
+          throw new Error("تعذر حساب إجمالي مستحقات المشترك بسبب قيمة مالية غير صالحة.");
+        }
+        totals.set(id, (totals.get(id) ?? 0n) + balanceMinorUnits);
       }
       if (!data || data.length < 500) break;
       lastInvoiceId = Number(data[data.length - 1].id);
     }
   }
-  return totals;
+  const formattedTotals = new Map<number, string>();
+  for (const [subscriberId, totalMinorUnits] of totals) {
+    formattedTotals.set(subscriberId, minorUnitsToAmountString(totalMinorUnits));
+  }
+  return formattedTotals;
 }
 
 async function renderAutomationMessage(
@@ -337,7 +348,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
           current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
           consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
-          total_balance: String(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? 0),
+          total_balance: totalBalanceBySubscriber.get(Number(subscriber.id)) ?? "0",
           due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
         };
         const renderedText = await renderAutomationMessage(template.body, values, {
@@ -425,7 +436,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
             previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
             current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
             consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
-            total_balance: String(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? 0),
+            total_balance: totalBalanceBySubscriber.get(Number(subscriber.id)) ?? "0",
             due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
           };
           candidates.push({ subscriber, invoice, operationKey, values });
