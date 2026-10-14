@@ -100,6 +100,7 @@ values
   (10,107,1007,'sms','invoice_issued','needs_review',null,'{"sentinel":"review-not-reset"}'::jsonb,'+970590000107');
 
 \ir ../migrations/20261011140000_powerhub_invoice_bulk_send_safety.sql
+\ir ../migrations/20261014180000_powerhub_invoice_reading_message_variables.sql
 
 do $test_existing$
 declare
