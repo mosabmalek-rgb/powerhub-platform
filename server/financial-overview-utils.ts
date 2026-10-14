@@ -72,6 +72,7 @@ export function buildFinancialOverview(input: {
   const branchMap = new Map(input.branches.map((branch) => [branch.id, { ...branch, invoiced: 0, collected: 0, outstanding: 0, overdue: 0, partialInvoices: 0 }]));
   let todayInvoiced = 0, todayCollected = 0, monthInvoiced = 0, monthCollected = 0, monthExpenses = 0, outstanding = 0, overdue = 0, partialInvoices = 0;
   const lastPaymentBySubscriber = new Map<string, Date>();
+  const outstandingInvoices: Array<{ siteId: number; subscriberId: number; subscriber: string; subscriberNo: string; invoiceId: number; invoiceNo: string; outstanding: number; dueDate: string; isOverdue: boolean; ageDays: number; partialInvoices: number; status: string }> = [];
   const debtorMap = new Map<string, { siteId: number; subscriberId: number; subscriber: string; subscriberNo: string; outstanding: number; invoiceCount: number; partialInvoices: number; invoiceId: number; invoiceNo: string; oldestDueDate: Date; isOverdue: boolean }>();
   for (const invoice of input.invoices) {
     if (invoice.status === "cancelled" || invoice.status === "draft") continue;
@@ -79,6 +80,20 @@ export function buildFinancialOverview(input: {
     if (inRange(invoice.issueDate, todayStart, tomorrowStart)) todayInvoiced += total;
     if (inRange(invoice.issueDate, monthStart, nextMonthStart)) { monthInvoiced += total; if (branch) branch.invoiced += total; }
     if (balance > 0) {
+      outstandingInvoices.push({
+        siteId: invoice.siteId,
+        subscriberId: invoice.subscriberId,
+        subscriber: invoice.subscriberName,
+        subscriberNo: invoice.subscriberNo,
+        invoiceId: invoice.id,
+        invoiceNo: invoice.invoiceNo,
+        outstanding: balance,
+        dueDate: invoice.dueDate.toISOString(),
+        isOverdue,
+        ageDays: isOverdue ? Math.max(1, Math.floor((now.getTime() - invoice.dueDate.getTime()) / 86400000)) : 0,
+        partialInvoices: invoice.status === "partially_paid" ? 1 : 0,
+        status: invoice.status,
+      });
       outstanding += balance; if (branch) branch.outstanding += balance;
       if (isOverdue) { overdue += balance; if (branch) branch.overdue += balance; }
       if (invoice.status === "partially_paid") { partialInvoices += 1; if (branch) branch.partialInvoices += 1; }
@@ -109,6 +124,7 @@ export function buildFinancialOverview(input: {
     outstanding: { total: outstanding, overdue, partialInvoices, accountCount: debtorMap.size },
     branchSummaries,
     topDebtors,
+    outstandingInvoices: outstandingInvoices.sort((a, b) => Number(b.isOverdue) - Number(a.isOverdue) || b.outstanding - a.outstanding || b.ageDays - a.ageDays),
     trend: buildFinancialTrendSeries({ invoices: input.invoices, payments: input.payments, expenses: input.expenses, from: trendFrom, to: tomorrowStart }),
   };
 }
