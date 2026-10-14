@@ -181,10 +181,10 @@ begin
   if v_total<>10 or v_discount<>0.5 or v_lines<>v_total or v_floor_adjustment<>9.5 then raise exception 'MINIMUM_AMOUNT_ASSERTION_FAILED total=% discount=% lines=% floor=%',v_total,v_discount,v_lines,v_floor_adjustment; end if;
 end $$;
 
--- Automatic fraction discount: 120.80 must result in 120.00 and one 0.80 ledger item.
+-- Automatic fraction discount: 120.40 must result in 120.00 and one 0.40 ledger item.
 select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,null,true,1,5,false,6,9);
 insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
-values (1003,1,10,103,0,120.8,120.8,'approved');
+values (1003,1,10,103,0,120.4,120.4,'approved');
 select * from public.powerhub_issue_invoice_from_reading(1,10,7,1003,12,'2026-03',now()+interval '15 days',0,null);
 do $$
 declare v_total numeric; v_discount numeric; v_ledger numeric; v_lines numeric;
@@ -192,7 +192,7 @@ begin
   select total_amount,discount_amount into v_total,v_discount from public.invoices where reading_id=1003;
   select coalesce(sum(amount),0) into v_ledger from public.billing_adjustments where invoice_id=(select id from public.invoices where reading_id=1003) and adjustment_type='auto_fraction_discount';
   select sum(case when line_type='discount' then -amount else amount end) into v_lines from public.invoice_lines where invoice_id=(select id from public.invoices where reading_id=1003);
-  if v_total<>120 or v_discount<>0.8 or v_ledger<>0.8 or v_lines<>v_total then raise exception 'AUTO_FRACTION_ASSERTION_FAILED total=% discount=% ledger=% lines=%',v_total,v_discount,v_ledger,v_lines; end if;
+  if v_total<>120 or v_discount<>0.4 or v_ledger<>0.4 or v_lines<>v_total then raise exception 'AUTO_FRACTION_ASSERTION_FAILED total=% discount=% ledger=% lines=%',v_total,v_discount,v_ledger,v_lines; end if;
 end $$;
 
 -- Carry: first invoice excludes 0.80; next invoice applies the same carried amount exactly once.
@@ -263,7 +263,7 @@ declare v_auto numeric; v_manual numeric; v_total numeric;
 begin
   select automatic_discount_total,manual_discount_total,total_discount into v_auto,v_manual,v_total
   from public.powerhub_billing_discount_summary(1,10,now()-interval '1 day',now()+interval '1 day');
-  if v_auto<>0.8 or v_manual<>5 or v_total<>5.8 then raise exception 'DISCOUNT_SUMMARY_ASSERTION_FAILED auto=% manual=% total=%',v_auto,v_manual,v_total; end if;
+  if v_auto<>0.4 or v_manual<>5 or v_total<>5.4 then raise exception 'DISCOUNT_SUMMARY_ASSERTION_FAILED auto=% manual=% total=%',v_auto,v_manual,v_total; end if;
 end $$;
 
 \echo 'site-billing policy PostgreSQL integration assertions passed'
