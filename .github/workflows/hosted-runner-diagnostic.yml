@@ -1,0 +1,27 @@
+name: GitHub-hosted Runner Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostics/github-hosted-runner-20261014
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-runner-check:
+    name: Verify GitHub-hosted ubuntu-latest runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Confirm runner allocation and execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HOSTED_RUNNER_DIAGNOSTIC_STARTED"
+          echo "RUNNER_OS=$RUNNER_OS"
+          echo "RUNNER_ARCH=$RUNNER_ARCH"
+          echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
+          test "$RUNNER_OS" = "Linux"
+          test "$GITHUB_ACTIONS" = "true"
+          echo "HOSTED_RUNNER_DIAGNOSTIC_PASSED"
