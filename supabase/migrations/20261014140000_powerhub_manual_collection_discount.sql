@@ -61,7 +61,7 @@ begin
   v_new_status:=case when v_new_balance=0 then 'paid' when v_invoice.paid_amount>0 then 'partially_paid' when v_invoice.due_date<now() then 'overdue' else 'issued' end;
   update public.invoices set total_amount=v_new_total,discount_amount=discount_amount+p_manual_discount_amount,balance_due=v_new_balance,status=v_new_status,updated_at=now() where id=v_invoice.id and tenant_id=p_tenant_id and site_id=p_site_id;
   insert into public.invoice_lines(tenant_id,invoice_id,line_type,description,quantity,unit_price,amount,display_order)
-  values(p_tenant_id,v_invoice.id,'discount','خصم يدوي عند التحصيل: '||btrim(p_manual_discount_reason),1,p_manual_discount_amount,p_manual_discount_amount,coalesce((select max(display_order)+1 from public.invoice_lines where invoice_id=v_invoice.id),1));
+  values(p_tenant_id,v_invoice.id,'discount','خصم يدوي عند التحصيل',1,p_manual_discount_amount,p_manual_discount_amount,coalesce((select max(display_order)+1 from public.invoice_lines where invoice_id=v_invoice.id),1));
   insert into public.billing_adjustments(tenant_id,site_id,subscriber_id,invoice_id,adjustment_type,amount,state,idempotency_key,created_by_user_id,metadata)
   values(p_tenant_id,p_site_id,p_subscriber_id,v_invoice.id,'manual_collection_discount',p_manual_discount_amount,'applied','payment:'||coalesce(p_client_operation_id::text,p_payment_no)||':manual-discount',p_user_id,jsonb_build_object('reason',btrim(p_manual_discount_reason),'paymentNo',p_payment_no,'cashCollected',p_amount));
   select platform_role into v_platform_role from public.users where id=p_user_id;
