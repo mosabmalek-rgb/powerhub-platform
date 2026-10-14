@@ -10,6 +10,8 @@ const monthlyScheduleFixMigration = fs.readFileSync(path.join(root, "supabase/mi
 const scheduler = fs.readFileSync(path.join(root, "server/_core/index.ts"), "utf8");
 const ui = fs.readFileSync(path.join(root, "client/src/pages/MessagingSettingsPage.tsx"), "utf8");
 const logo = fs.readFileSync(path.join(root, "client/src/components/PowerHubLogo.tsx"), "utf8");
+const lightLogoWebp = fs.readFileSync(path.join(root, "client/public/brand-v1/powerhub-logo-light.webp"));
+const darkLogoWebp = fs.readFileSync(path.join(root, "client/public/brand-v1/powerhub-logo-dark.webp"));
 const sidebar = fs.readFileSync(path.join(root, "client/src/components/DashboardLayout.tsx"), "utf8");
 const brandProxy = fs.readFileSync(path.join(root, "server/_core/storageProxy.ts"), "utf8");
 const html = fs.readFileSync(path.join(root, "client/index.html"), "utf8");
@@ -293,10 +295,16 @@ describe("unified messaging runtime contract", () => {
     expect(readiness).not.toContain("credential_ciphertext:");
   });
 
-  it("uses a cached vector logo, a message-specific sidebar icon, and only supported provider statuses", () => {
-    expect(logo).toContain("powerhub-logo-light.png?v=20260904");
-    expect(logo).toContain("powerhub-logo-dark.png?v=20260904");
+  it("serves lossless theme-specific WebP logos with original PNG fallbacks and supported provider statuses", () => {
+    expect(logo).toContain("/brand-v1/powerhub-logo-light.webp?v=lossless-20261014");
+    expect(logo).toContain('const LIGHT_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-light.png";');
+    expect(logo).toContain("/brand-v1/powerhub-logo-dark.webp?v=lossless-20261014");
+    expect(logo).toContain('const DARK_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-dark.png";');
     expect(brandProxy).toContain('const BRAND_ASSETS = new Set(["powerhub-logo-light.png", "powerhub-logo-dark.png"]); '.trim());
+    expect(lightLogoWebp.subarray(0, 4).toString("ascii")).toBe("RIFF");
+    expect(lightLogoWebp.subarray(8, 12).toString("ascii")).toBe("WEBP");
+    expect(darkLogoWebp.subarray(0, 4).toString("ascii")).toBe("RIFF");
+    expect(darkLogoWebp.subarray(8, 12).toString("ascii")).toBe("WEBP");
     expect(html).toContain('type="image/png"');
     expect(sidebar).toContain('icon: MessageSquareText, label: "مركز الرسائل"');
     expect(ui).toContain('<option value="submitted">مرسلة للمزود</option>');
