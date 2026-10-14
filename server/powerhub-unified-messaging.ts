@@ -6,7 +6,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
-import { decimalAmountToMinorUnits, minorUnitsToAmountString } from "./decimal-money";
+import { decimalAmountToMinorUnits, formatMessageAmount, minorUnitsToAmountString } from "./decimal-money";
 import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
@@ -343,12 +343,12 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
         const values = {
           subscriber_name: subscriber.full_name ?? "", subscriber_no: subscriber.subscriber_no ?? "",
           invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
-          total_amount: invoice?.total_amount == null ? "" : String(invoice.total_amount),
-          balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
+          total_amount: invoice?.total_amount == null ? "" : formatMessageAmount(String(invoice.total_amount)),
+          balance_due: invoice?.balance_due == null ? "" : formatMessageAmount(String(invoice.balance_due)),
           previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
           current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
           consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
-          total_balance: totalBalanceBySubscriber.get(Number(subscriber.id)) ?? "0",
+          total_balance: formatMessageAmount(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? "0"),
           due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
         };
         const renderedText = await renderAutomationMessage(template.body, values, {
