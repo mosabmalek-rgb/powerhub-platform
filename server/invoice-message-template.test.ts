@@ -28,7 +28,12 @@ describe("invoice message templates", () => {
   });
 
 
-  it("formats invoice totals and outstanding balances to one decimal in templates", () => {\n    const rendered = renderInvoiceMessageTemplate("الإجمالي {{total_amount}}، المستحق {{balance_due}}، الرصيد {{total_balance}}", { total_amount: "390.00", balance_due: "150.25", total_balance: "1,000.99" });\n    expect(rendered).toBe("الإجمالي 390.0، المستحق 150.3، الرصيد 1,001.0");\n  });\n\n  it("renders the dedicated payment reminder template with balance and deferred invoice-link placeholder", () => {
+  it("formats invoice totals and outstanding balances to one decimal in templates", () => {
+    const rendered = renderInvoiceMessageTemplate("الإجمالي {{total_amount}}، المستحق {{balance_due}}، الرصيد {{total_balance}}", { total_amount: "390.00", balance_due: "150.25", total_balance: "1,000.99" });
+    expect(rendered).toBe("الإجمالي 390.0، المستحق 150.3، الرصيد 1,001.0");
+  });
+
+  it("renders the dedicated payment reminder template with balance and deferred invoice-link placeholder", () => {
     const rendered = renderInvoiceMessageTemplate(defaultPaymentReminderSmsTemplate, {
       subscriber_name: "أحمد",
       invoice_no: "INV-77",
