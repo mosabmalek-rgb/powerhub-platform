@@ -32,6 +32,7 @@ const messageVariableOptions = [
   { token: "{{previous_reading}}", label: "القراءة السابقة", description: "قراءة العداد السابقة لهذه الفاتورة" },
   { token: "{{current_reading}}", label: "القراءة الحالية", description: "قراءة العداد الحالية لهذه الفاتورة" },
   { token: "{{consumption_kwh}}", label: "الاستهلاك (ك.و.س)", description: "كمية الاستهلاك المسجلة لهذه الفاتورة" },
+  { token: "{{total_balance}}", label: "الرصيد الإجمالي للمشترك", description: "مجموع المستحقات غير المسددة على المشترك في هذا الفرع، شاملاً الفاتورة الحالية إن كانت مستحقة" },
   { token: "{{due_date}}", label: "تاريخ الاستحقاق", description: "آخر موعد للسداد" },
   { token: "{{invoice_link}}", label: "رابط الفاتورة", description: "رابط مباشر للفواتير" },
   { token: "{{portal_link}}", label: "رابط بوابة المشترك", description: "رابط بوابة المشترك للاستعلام والمتابعة" },
@@ -41,10 +42,10 @@ const variableButtonLabels: Record<string, string> = Object.fromEntries(messageV
 const previewValues: Record<string, string> = {
   subscriber_name: "أحمد علي", subscriber_no: "SUB-00125", invoice_no: "INV-2026-00125",
   billing_period: "آب 2026", total_amount: "33,000", balance_due: "18,000", due_date: "31 آب 2026",
-  previous_reading: "12,450", current_reading: "12,785", consumption_kwh: "335",
+  previous_reading: "12,450", current_reading: "12,785", consumption_kwh: "335", total_balance: "42,500",
   invoice_link: "https://powerhub.example/invoice/INV-2026-00125", portal_link: "https://powerhub.example/portal?g=MAIN",
 };
-const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|due_date|invoice_link|portal_link)\s*}}/g, (_, key) => previewValues[key] ?? "");
+const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|total_balance|due_date|invoice_link|portal_link)\s*}}/g, (_, key) => previewValues[key] ?? "");
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
 
