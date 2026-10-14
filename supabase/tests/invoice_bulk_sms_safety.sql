@@ -271,7 +271,7 @@ begin
   if v_message_count <> 1 then
     raise exception 'expected exactly one queued SMS row for invoice 110, got %', v_message_count;
   end if;
-  if v_rendered <> 'إلى مشترك اختبار|PH-110|10|2026-09|10|2026-10-20|90|100|10|30' then
+  if v_rendered <> 'إلى مشترك اختبار|PH-110|10.0|2026-09|10.0|2026-10-20|90|100|10|30.0' then
     raise exception 'unified invoice template variables were not rendered correctly: %', v_rendered;
   end if;
 
