@@ -2,6 +2,14 @@
 
 -- Disposable integration fixture for site-scoped billing policies and adjustments.
 -- CI creates a clean PostgreSQL database. These objects/data never touch PowerHub.
+do $roles$
+begin
+  if not exists(select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
+  if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+  if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if;
+end
+$roles$;
+
 create table public.tenants (id bigint primary key);
 create table public.sites (id bigint primary key, tenant_id bigint not null references public.tenants(id), status text not null default 'active');
 create table public.users (id bigint primary key, role text, platform_role text, account_status text not null default 'active');
