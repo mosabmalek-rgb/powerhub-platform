@@ -217,7 +217,7 @@ jobs:
                   f"- WebP SHA-256: {item['webp_sha256']}",
                   "",
               ])
-          (root / "docs/powerhub-logo-webp-verification.md").write_text("\n".join(report) + "\n")
+          (root / "docs/powerhub-logo-webp-verification.md").write_text("\n".join(report).rstrip() + "\n")
 
           summary = ["## PowerHub logo WebP conversion", "", "| Theme | Dimensions | PNG | WebP | Reduced | Pixel exact |", "|---|---:|---:|---:|---:|---|"]
           for item in verified:
