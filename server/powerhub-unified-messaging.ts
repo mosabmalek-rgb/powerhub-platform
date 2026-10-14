@@ -22,6 +22,35 @@ function asTemplate(row: any) {
   };
 }
 
+async function loadSubscriberTotalBalances(
+  admin: ReturnType<typeof supabaseAdmin>,
+  tenantId: number,
+  siteId: number,
+  subscriberIds: number[],
+) {
+  const totals = new Map<number, number>();
+  const uniqueIds = Array.from(new Set(subscriberIds.filter((id) => Number.isSafeInteger(id) && id > 0)));
+  for (let offset = 0; offset < uniqueIds.length; offset += 100) {
+    const ids = uniqueIds.slice(offset, offset + 100);
+    let lastInvoiceId = 0;
+    for (;;) {
+      const { data, error } = await admin.from("invoices")
+        .select("id,subscriber_id,balance_due")
+        .eq("tenant_id", tenantId).eq("site_id", siteId)
+        .in("subscriber_id", ids).in("status", ["issued", "partially_paid", "overdue"])
+        .gt("balance_due", 0).gt("id", lastInvoiceId).order("id", { ascending: true }).limit(500);
+      if (error) throw new Error("تعذر حساب إجمالي مستحقات المشترك.");
+      for (const invoice of data ?? []) {
+        const id = Number(invoice.subscriber_id);
+        totals.set(id, (totals.get(id) ?? 0) + Number(invoice.balance_due ?? 0));
+      }
+      if (!data || data.length < 500) break;
+      lastInvoiceId = Number(data[data.length - 1].id);
+    }
+  }
+  return totals;
+}
+
 async function renderAutomationMessage(
   body: string,
   values: Record<string, string | null | undefined>,
@@ -292,6 +321,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
         : { data: [], error: null };
       if (invoicesError) throw new Error("تعذر تحميل فواتير الأتمتة.");
       const invoiceMap = new Map((invoices ?? []).map((i: any) => [Number(i.id), i]));
+      const totalBalanceBySubscriber = await loadSubscriberTotalBalances(admin, tenantId, siteId, subscriberIds);
 
       const rows = [];
       for (const payment of freshPayments) {
@@ -307,6 +337,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
           current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
           consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
+          total_balance: String(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? 0),
           due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
         };
         const renderedText = await renderAutomationMessage(template.body, values, {
@@ -371,6 +402,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           }
         }
 
+        const totalBalanceBySubscriber = await loadSubscriberTotalBalances(admin, tenantId, siteId, subscribers.map((subscriber: any) => Number(subscriber.id)));
         const candidates: Array<{ subscriber: any; invoice: any | null; operationKey: string; values: Record<string, string> }> = [];
         for (const subscriber of subscribers) {
           const invoice = eventType === "invoice_overdue" ? invoiceMap.get(Number(subscriber.id)) : null;
@@ -393,6 +425,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
             previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
             current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
             consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
+            total_balance: String(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? 0),
             due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
           };
           candidates.push({ subscriber, invoice, operationKey, values });
