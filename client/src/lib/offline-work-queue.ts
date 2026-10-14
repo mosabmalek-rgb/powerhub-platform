@@ -14,7 +14,7 @@ export type SubscriberCreateDraft = {
   fullName: string;
   phone: string;
   address?: string;
-  subscriptionType: "residential" | "commercial";
+  subscriptionType: "residential" | "commercial" | "institution" | "mosque";
 };
 
 export type SubscriberUpdateDraft = SubscriberCreateDraft & {
