@@ -85,11 +85,13 @@ describe("site billing minimum and fractional settlement contract", () => {
   it("exposes invoice line types and renders applied discounts as deductions in the subscriber PDF", () => {
     const migration = read("supabase/migrations/20261014150000_powerhub_invoice_adjustment_display.sql");
     const pdf = read("client/src/lib/subscriber-portal-pdf.ts");
+    const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
     expect(migration).toContain("'lineType', line.line_type");
     expect(migration).toContain("'lineType',line.line_type");
     expect(migration).toContain("revoke all on function public.powerhub_subscriber_portal_invoice");
     expect(migration).toContain("revoke all on function public.powerhub_get_shared_invoice_by_token_hash");
     expect(pdf).toContain('line.lineType === "discount"');
     expect(pdf).toContain("-Math.abs(Number(line.amount))");
+    expect(publicInvoice).toContain('line.lineType === "discount" ? -Math.abs(Number(line.amount)) : Number(line.amount)');
   });
 });
