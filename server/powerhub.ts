@@ -2232,6 +2232,7 @@ export const powerhubRouter = router({
         if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
         collectorSessionId = Number(openSession.id);
       }
+      if (input.manualDiscountAmount > 0 && !["owner", "manager", "accountant"].includes(access.role)) throw new TRPCError({ code: "FORBIDDEN", message: "الخصم اليدوي متاح للمالك والمدير والمحاسب فقط." });
       if (input.manualDiscountAmount > 0 && (!input.invoiceId || !input.manualDiscountReason || input.manualDiscountReason.length < 3)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "يتطلب الخصم اليدوي اختيار فاتورة واحدة وكتابة سبب واضح لا يقل عن 3 أحرف." });
       }
