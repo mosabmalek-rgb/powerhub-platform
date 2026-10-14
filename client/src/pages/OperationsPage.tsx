@@ -233,6 +233,10 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     <SectionCard title="تسجيل دفعة" className="w-full min-w-0">{canCollect ? <form className="space-y-4" onSubmit={async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); if (receiptFile && receiptFile.size > 7 * 1024 * 1024) return toast.error("يجب ألا تتجاوز صورة الإيصال 7 ميغابايت."); let receiptImageData: string | undefined; let receiptImageMime: "image/webp" | "image/jpeg" | undefined; try { if (receiptFile) { const prepared = await preparePaymentReceiptImage(receiptFile); receiptImageData = prepared.data; receiptImageMime = prepared.mime; } } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر تجهيز صورة الإيصال."); return; } const invoiceIds = selectedInvoiceIds.length ? selectedInvoiceIds : [Number(f.get("invoiceId"))].filter(Boolean);
     if (!invoiceIds.length) return toast.error("اختر فاتورة واحدة على الأقل للتحصيل.");
     const requestedAmount = Number(f.get("amount"));
+    const manualDiscountAmount = Number(f.get("manualDiscountAmount") || 0);
+    const manualDiscountReason = String(f.get("manualDiscountReason") || "").trim();
+    if (manualDiscountAmount > 0 && invoiceIds.length !== 1) return toast.error("الخصم اليدوي متاح عند تحصيل فاتورة واحدة في العملية؛ اختر فاتورة واحدة أولًا.");
+    if (manualDiscountAmount > 0 && manualDiscountReason.length < 3) return toast.error("اكتب سببًا واضحًا للخصم اليدوي لا يقل عن 3 أحرف.");
     if (invoiceIds.length > 1) {
       const totalDue = invoiceIds.reduce((sum,id)=>sum+Number(unpaidInvoicesForSubscriber.find((x:any)=>Number(x.id)===id)?.balanceDue??0),0);
       if (Math.abs(requestedAmount-totalDue)>0.01) return toast.error("عند تحديد عدة فواتير يجب أن يساوي المبلغ إجمالي أرصدة الفواتير المحددة.");
