@@ -486,8 +486,8 @@ export const powerhubRouter = router({
       };
     }),
     discountSummary: protectedProcedure.input(siteScoped.extend({
-      startDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
-      endDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     })).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
       if (input.startDate && input.endDate && input.startDate > input.endDate) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." });
