@@ -8,7 +8,8 @@ describe("subscriber directory pagination and type support", () => {
   it("caps the subscriber directory at 20 rows per page and resets paging when filters change", () => {
     const page = read("client/src/pages/NetworkDirectoryPage.tsx");
     expect(page).toContain("const SUBSCRIBER_PAGE_SIZE = 20");
-    expect(page).toContain("visibleData.slice((currentSubscriberPage - 1) * SUBSCRIBER_PAGE_SIZE, currentSubscriberPage * SUBSCRIBER_PAGE_SIZE)");
+    expect(page).toContain("page: subscriberPage, pageSize: SUBSCRIBER_PAGE_SIZE");
+    expect(page).toContain("subscribersQuery.data?.items ?? []");
     expect(page).toContain('aria-label="فلتر نوع المشترك"');
     expect(page).toContain('value="institution">مؤسسات</option>');
     expect(page).toContain('value="mosque">مساجد</option>');
