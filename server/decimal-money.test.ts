@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decimalAmountToMinorUnits, minorUnitsToAmountString } from "./decimal-money";
+import { decimalAmountToMinorUnits, formatMessageAmount, minorUnitsToAmountString } from "./decimal-money";
 
 describe("exact decimal amount conversion", () => {
   it("sums decimal currency amounts without floating-point drift", () => {
@@ -30,6 +30,16 @@ describe("exact decimal amount conversion", () => {
     expect(decimalAmountToMinorUnits(null)).toBe(0n);
     expect(decimalAmountToMinorUnits(undefined)).toBe(0n);
     expect(minorUnitsToAmountString(decimalAmountToMinorUnits("-0.05"))).toBe("-0.05");
+  });
+
+  it("formats message amounts to one decimal with decimal-safe rounding and grouping", () => {
+    expect(formatMessageAmount("125.50")).toBe("125.5");
+    expect(formatMessageAmount("125.54")).toBe("125.5");
+    expect(formatMessageAmount("125.55")).toBe("125.6");
+    expect(formatMessageAmount("999.99")).toBe("1,000.0");
+    expect(formatMessageAmount("42,500.00")).toBe("42,500.0");
+    expect(formatMessageAmount("-0.06")).toBe("-0.1");
+    expect(formatMessageAmount(null)).toBe("");
   });
 
   it("rejects values outside the two-decimal database currency scale", () => {
