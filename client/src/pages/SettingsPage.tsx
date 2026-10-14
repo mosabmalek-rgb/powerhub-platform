@@ -214,6 +214,92 @@ function TariffSettingsSection({ siteId }: { siteId: number }) {
   </div>;
 }
 
+function SiteBillingPolicySection({ siteId }: { siteId: number }) {
+  const utils = trpc.useUtils();
+  const query = trpc.powerhub.siteBillingPolicy.get.useQuery({ siteId });
+  const [minimumMode, setMinimumMode] = useState<"disabled" | "kwh" | "amount">("disabled");
+  const [minimumConsumptionKwh, setMinimumConsumptionKwh] = useState("1");
+  const [minimumInvoiceAmount, setMinimumInvoiceAmount] = useState("10");
+  const [discountEnabled, setDiscountEnabled] = useState(false);
+  const [discountMin, setDiscountMin] = useState("1");
+  const [discountMax, setDiscountMax] = useState("5");
+  const [carryEnabled, setCarryEnabled] = useState(false);
+  const [carryMin, setCarryMin] = useState("6");
+  const [carryMax, setCarryMax] = useState("9");
+  useEffect(() => {
+    if (!query.data) return;
+    setMinimumMode(query.data.minimumMode);
+    setMinimumConsumptionKwh(query.data.minimumConsumptionKwh || "1");
+    setMinimumInvoiceAmount(query.data.minimumInvoiceAmount || "10");
+    setDiscountEnabled(query.data.automaticFractionDiscountEnabled);
+    setDiscountMin(String(query.data.automaticFractionDiscountMinTenth));
+    setDiscountMax(String(query.data.automaticFractionDiscountMaxTenth));
+    setCarryEnabled(query.data.fractionCarryEnabled);
+    setCarryMin(String(query.data.fractionCarryMinTenth));
+    setCarryMax(String(query.data.fractionCarryMaxTenth));
+  }, [query.data]);
+  const save = trpc.powerhub.siteBillingPolicy.save.useMutation({
+    onSuccess: async () => {
+      await Promise.all([utils.powerhub.siteBillingPolicy.get.invalidate(), utils.powerhub.audit.list.invalidate()]);
+      toast.success("تم حفظ سياسة الحد الأدنى وتسويات الفواتير لهذا الفرع.");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const selectClass = inputClass + " mt-1";
+  return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <div className="mb-4"><h2 className="font-bold text-white">الحد الأدنى وتسويات الفواتير</h2>
+      <p className="mt-1 text-sm leading-6 text-slate-400">إعدادات مستقلة لهذا الفرع. الاستهلاك المقروء لا يتغير؛ تظهر أي تسوية كسطر واضح في الفاتورة.</p></div>
+    {query.isLoading ? <p className="py-4 text-sm text-slate-500">جارٍ تحميل سياسة الفوترة…</p> : query.isError ? <p className="rounded-xl border border-rose-400/20 p-4 text-sm text-rose-200">تعذر تحميل الإعدادات. أعد المحاولة قبل الحفظ.</p> : <form className="space-y-5" onSubmit={(event) => {
+      event.preventDefault();
+      const discountStart = Number(discountMin), discountEnd = Number(discountMax), carryStart = Number(carryMin), carryEnd = Number(carryMax);
+      if (discountEnabled && carryEnabled && discountStart <= carryEnd && carryStart <= discountEnd) {
+        toast.error("نطاق الخصم ونطاق الترحيل متداخلان. اختر نطاقين منفصلين."); return;
+      }
+      save.mutate({
+        siteId, minimumMode,
+        minimumConsumptionKwh: minimumMode === "kwh" ? Number(minimumConsumptionKwh) : undefined,
+        minimumInvoiceAmount: minimumMode === "amount" ? Number(minimumInvoiceAmount) : undefined,
+        automaticFractionDiscountEnabled: discountEnabled,
+        automaticFractionDiscountMinTenth: discountStart, automaticFractionDiscountMaxTenth: discountEnd,
+        fractionCarryEnabled: carryEnabled, fractionCarryMinTenth: carryStart, fractionCarryMaxTenth: carryEnd,
+      });
+    }}>
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="text-xs text-slate-400">نوع الحد الأدنى
+          <select value={minimumMode} onChange={(event) => setMinimumMode(event.target.value as typeof minimumMode)} className={selectClass}>
+            <option value="disabled">معطّل</option><option value="kwh">حد أدنى للاستهلاك (ك.و.س)</option><option value="amount">حد أدنى لمبلغ الفاتورة</option>
+          </select>
+        </label>
+        {minimumMode === "kwh" ? <label className="text-xs text-slate-400">الحد الأدنى للاستهلاك (ك.و.س)
+          <input required type="number" min="0.001" step="0.001" value={minimumConsumptionKwh} onChange={(e) => setMinimumConsumptionKwh(e.target.value)} className={selectClass} dir="ltr" />
+        </label> : null}
+        {minimumMode === "amount" ? <label className="text-xs text-slate-400">الحد الأدنى لمبلغ الفاتورة
+          <input required type="number" min="0.01" step="0.01" value={minimumInvoiceAmount} onChange={(e) => setMinimumInvoiceAmount(e.target.value)} className={selectClass} dir="ltr" />
+        </label> : null}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-xl border border-white/8 p-4 space-y-3">
+          <label className="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" checked={discountEnabled} onChange={(e) => setDiscountEnabled(e.target.checked)} /> تفعيل الخصم التلقائي لكسر الفاتورة</label>
+          <p className="text-xs leading-5 text-slate-500">يصنّف النظام الكسر حسب أول رقم عشري، ويخصم الكسر الكامل عند انطباق النطاق.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs text-slate-400">من الرقم العشري<input type="number" min="0" max="9" step="1" value={discountMin} onChange={(e) => setDiscountMin(e.target.value)} className={selectClass} dir="ltr" /></label>
+            <label className="text-xs text-slate-400">إلى الرقم العشري<input type="number" min="0" max="9" step="1" value={discountMax} onChange={(e) => setDiscountMax(e.target.value)} className={selectClass} dir="ltr" /></label>
+          </div>
+        </div>
+        <div className="rounded-xl border border-white/8 p-4 space-y-3">
+          <label className="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" checked={carryEnabled} onChange={(e) => setCarryEnabled(e.target.checked)} /> ترحيل كسر الفاتورة كرصيد مستحق</label>
+          <p className="text-xs leading-5 text-slate-500">يُعرض الكسر المرحّل منفصلًا في الفاتورة التالية، ولا يُرحّل مرتين.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs text-slate-400">من الرقم العشري<input type="number" min="0" max="9" step="1" value={carryMin} onChange={(e) => setCarryMin(e.target.value)} className={selectClass} dir="ltr" /></label>
+            <label className="text-xs text-slate-400">إلى الرقم العشري<input type="number" min="0" max="9" step="1" value={carryMax} onChange={(e) => setCarryMax(e.target.value)} className={selectClass} dir="ltr" /></label>
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-end"><Button disabled={save.isPending || query.isFetching} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{save.isPending ? "جارٍ الحفظ…" : "حفظ إعدادات الفوترة"}</Button></div>
+    </form>}
+  </CardContent></Card>;
+}
+
 function SubaccountListSkeleton() {
   return <div role="status" aria-label="جارٍ تحميل الحسابات الفرعية" className="space-y-3"><span className="sr-only">جارٍ تحميل الحسابات الفرعية...</span>{Array.from({ length: 4 }, (_, index) => <div key={index} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3"><div className="space-y-2"><Skeleton className="h-4 w-36" /><Skeleton className="h-3 w-48" /></div><div className="flex items-center gap-2"><Skeleton className="h-6 w-16 rounded-full" /><Skeleton className="h-6 w-20 rounded-full" /><Skeleton className="h-8 w-24 rounded-lg" /></div></div>)}</div>;
 }
@@ -282,6 +368,7 @@ export default function SettingsPage() {
   <Button variant="outline" disabled={paymentDocumentationAccess.isLoading || setPaymentDocumentation.isPending || paymentDocumentationAccess.data?.policy === "not_included" || paymentDocumentationAccess.data?.allowed !== true} onClick={() => setPaymentDocumentation.mutate({ siteId: siteId!, isEnabled: false })} className="border-rose-400/40 text-rose-300 hover:bg-rose-400/10 hover:text-rose-200">{setPaymentDocumentation.isPending ? "جارٍ الحفظ…" : "إلغاء تفعيل التوثيق"}</Button>
 </div></div></CardContent></Card>}
     {!isSubaccountsRoute && accessQuery.data?.role === "owner" && siteId ? <ReadingCycleSettingsSection siteId={siteId} /> : null}
+    {!isSubaccountsRoute && accessQuery.data?.role === "owner" && siteId ? <SiteBillingPolicySection siteId={siteId} /> : null}
     {!isSubaccountsRoute && siteId && can(accessQuery.data?.role, "manageTariffs") ? <TariffSettingsSection siteId={siteId} /> : null}
     {!isSubaccountsRoute && canManageTeam && <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-bold text-white">هوية الشركة في التقارير</h2><p className="mt-2 text-sm leading-6 text-slate-400">أضف اسم الشركة وشعارها ليظهرا في التقارير الإدارية وملفات PDF.</p></div>{brandingQuery.data?.logoUrl && <img src={brandingQuery.data.logoUrl} alt="شعار الشركة" className="h-16 max-w-40 rounded-lg border border-white/10 bg-white object-contain p-2" />}</div><div className="mt-4 grid gap-4 md:grid-cols-2"><input value={companyName} onChange={e=>setCompanyName(e.target.value)} className={inputClass} placeholder="اسم الشركة / المولدات..." /><label className="flex h-10 cursor-pointer items-center rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-slate-300"><span className="truncate">{logoData ? "تم اختيار شعار جديد" : "اختر شعار الشركة"}</span><input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={e=>{const file=e.target.files?.[0]; if(!file)return; if(file.size>3*1024*1024)return toast.error("يجب ألا يتجاوز الشعار 3 ميغابايت."); const reader=new FileReader(); reader.onload=()=>{const value=String(reader.result); setLogoData(value.split(",")[1] ?? null); setLogoMime(file.type as typeof logoMime);}; reader.readAsDataURL(file);}} /></label></div><Button onClick={saveBranding} disabled={updateBranding.isPending} className="mt-4 bg-[#F5B800] font-bold text-[#0D1117]">{updateBranding.isPending ? "جارٍ الحفظ…" : "حفظ بيانات الشركة"}</Button></CardContent></Card>}
     {isSubaccountsRoute && <FlexiblePermissionsPanel siteId={siteId ?? 0} staff={(staffQuery.data ?? []) as never} canManageTeam={canManageTeam} />}

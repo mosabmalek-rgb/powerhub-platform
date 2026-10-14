@@ -467,6 +467,79 @@ async function sendPendingInvoiceSmsRuntime(
 
 export const powerhubRouter = router({
   unifiedMessaging: powerhubUnifiedMessagingRouter,
+  siteBillingPolicy: router({
+    get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_site_billing_policy", { p_tenant_id: scope.tenantId, p_site_id: input.siteId });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحد الأدنى والتسويات." });
+      const row = Array.isArray(data) ? data[0] : data;
+      return {
+        minimumMode: row?.minimum_mode ?? "disabled",
+        minimumConsumptionKwh: row?.minimum_consumption_kwh == null ? "" : String(row.minimum_consumption_kwh),
+        minimumInvoiceAmount: row?.minimum_invoice_amount == null ? "" : String(row.minimum_invoice_amount),
+        automaticFractionDiscountEnabled: Boolean(row?.automatic_fraction_discount_enabled),
+        automaticFractionDiscountMinTenth: Number(row?.automatic_fraction_discount_min_tenth ?? 1),
+        automaticFractionDiscountMaxTenth: Number(row?.automatic_fraction_discount_max_tenth ?? 5),
+        fractionCarryEnabled: Boolean(row?.fraction_carry_enabled),
+        fractionCarryMinTenth: Number(row?.fraction_carry_min_tenth ?? 6),
+        fractionCarryMaxTenth: Number(row?.fraction_carry_max_tenth ?? 9),
+      };
+    }),
+    discountSummary: protectedProcedure.input(siteScoped.extend({
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    })).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      if (input.startDate && input.endDate && input.startDate > input.endDate) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." });
+      const start = input.startDate ? new Date(input.startDate + "T00:00:00.000Z").toISOString() : null;
+      const end = input.endDate ? new Date(new Date(input.endDate + "T00:00:00.000Z").getTime() + 86400000 - 1).toISOString() : null;
+      const { data, error } = await supabaseAdmin().rpc("powerhub_billing_discount_summary", {
+        p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_from: start, p_to: end,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إحصاءات الخصومات." });
+      const row = Array.isArray(data) ? data[0] : data;
+      return {
+        automaticDiscountTotal: Number(row?.automatic_discount_total ?? 0),
+        manualDiscountTotal: Number(row?.manual_discount_total ?? 0),
+        totalDiscount: Number(row?.total_discount ?? 0),
+        automaticDiscountCount: Number(row?.automatic_discount_count ?? 0),
+        manualDiscountCount: Number(row?.manual_discount_count ?? 0),
+      };
+    }),
+    save: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      minimumMode: z.enum(["disabled", "kwh", "amount"]),
+      minimumConsumptionKwh: z.number().positive().max(1000000).optional(),
+      minimumInvoiceAmount: z.number().positive().max(100000000).optional(),
+      automaticFractionDiscountEnabled: z.boolean(),
+      automaticFractionDiscountMinTenth: z.number().int().min(0).max(9),
+      automaticFractionDiscountMaxTenth: z.number().int().min(0).max(9),
+      fractionCarryEnabled: z.boolean(),
+      fractionCarryMinTenth: z.number().int().min(0).max(9),
+      fractionCarryMaxTenth: z.number().int().min(0).max(9),
+    })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      const { error } = await supabaseAdmin().rpc("powerhub_save_site_billing_policy", {
+        p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId,
+        p_minimum_mode: input.minimumMode,
+        p_minimum_consumption_kwh: input.minimumMode === "kwh" ? input.minimumConsumptionKwh ?? null : null,
+        p_minimum_invoice_amount: input.minimumMode === "amount" ? input.minimumInvoiceAmount ?? null : null,
+        p_automatic_fraction_discount_enabled: input.automaticFractionDiscountEnabled,
+        p_automatic_fraction_discount_min_tenth: input.automaticFractionDiscountMinTenth,
+        p_automatic_fraction_discount_max_tenth: input.automaticFractionDiscountMaxTenth,
+        p_fraction_carry_enabled: input.fractionCarryEnabled,
+        p_fraction_carry_min_tenth: input.fractionCarryMinTenth,
+        p_fraction_carry_max_tenth: input.fractionCarryMaxTenth,
+      });
+      if (error) {
+        const message = error.message ?? "";
+        if (message.includes("FRACTION_RANGES_OVERLAP")) throw new TRPCError({ code: "BAD_REQUEST", message: "نطاق الخصم ونطاق الترحيل متداخلان؛ اختر نطاقين منفصلين." });
+        if (message.includes("BILLING_POLICY_PERMISSION_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل سياسة الفوترة." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر حفظ سياسة الحد الأدنى والتسويات. تحقق من القيم المدخلة." });
+      }
+      return { ok: true };
+    }),
+  }),
   readingCycle: router({
     get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
@@ -2088,7 +2161,7 @@ export const powerhubRouter = router({
           tenantId?: number;
           invoice: { id: number; subscriberId: number; invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; previousReading: number | null; currentReading: number | null; consumptionKwh: number; pricePerKwh: number; fixedFee: number; taxAmount: number; discountAmount: number; totalAmount: number; paidAmount: number; balanceDue: number; status: string };
           subscriber: { fullName: string; subscriberNo: string } | null;
-          lines: Array<{ id: number; description: string; amount: number; quantity: number; unitPrice: number; displayOrder: number }>;
+          lines: Array<{ id: number; lineType?: string; description: string; amount: number; quantity: number; unitPrice: number; displayOrder: number }>;
         };
         let paymentDocumentationAvailable = false;
         let companyName: string | null = null;
@@ -2134,12 +2207,16 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
-      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
+      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(), manualDiscountAmount: z.number().min(0).max(100000000).default(0), manualDiscountReason: z.string().trim().max(300).optional(),
     }).superRefine((input, ctx) => {
       const hasTransferSource = Boolean(input.transferFromAccount);
       if ((hasTransferSource && !input.transferFromType) || (!hasTransferSource && input.transferFromType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "حدد نوع الحساب المحوِّل فقط عند إدخال رقمه." });
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      if (input.manualDiscountAmount > 0 && !["owner", "manager", "accountant"].includes(access.role)) throw new TRPCError({ code: "FORBIDDEN", message: "الخصم اليدوي متاح للمالك والمدير والمحاسب فقط." });
+      if (input.manualDiscountAmount > 0 && (!input.invoiceId || !input.manualDiscountReason || input.manualDiscountReason.length < 3)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يتطلب الخصم اليدوي اختيار فاتورة واحدة وكتابة سبب واضح لا يقل عن 3 أحرف." });
+      }
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
       if (input.receiptImageData) {
@@ -2159,15 +2236,22 @@ export const powerhubRouter = router({
         if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
         collectorSessionId = Number(openSession.id);
       }
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_payment", {
+      const rpcArgs = {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId, p_invoice_id: input.invoiceId ?? null,
         p_payment_no: input.paymentNo, p_amount: input.amount, p_payment_method: input.paymentMethod, p_company_account_id: input.companyAccountId,
         p_transfer_from_account: input.transferFromAccount ?? null, p_transfer_from_type: input.transferFromType ?? null, p_reference_no: input.referenceNo ?? null,
         p_receipt_image_key: receiptImageKey ?? null, p_receipt_image_hash: receiptImageHash ?? null, p_collector_session_id: collectorSessionId ?? null,
         p_client_operation_id: input.clientOperationId ?? null,
-      });
+      };
+      const { data, error } = input.manualDiscountAmount > 0
+        ? await supabaseAdmin().rpc("powerhub_create_payment_with_discount", { ...rpcArgs, p_manual_discount_amount: input.manualDiscountAmount, p_manual_discount_reason: input.manualDiscountReason })
+        : await supabaseAdmin().rpc("powerhub_create_payment", rpcArgs);
       if (!error && data?.[0]) return { id: Number((data[0] as { payment_id: number | string }).payment_id) };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("MANUAL_DISCOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الخصم أكبر من الرصيد المستحق." });
+      if (errorText.includes("PAYMENT_AND_DISCOUNT_EXCEED_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق." });
+      if (errorText.includes("MANUAL_DISCOUNT_REASON_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل سبب الخصم اليدوي." });
+      if (errorText.includes("PAYMENT_OPERATION_SCOPE_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف العملية مستخدم في نطاق آخر." });
       if (errorText.includes("DUPLICATE_PAYMENT_NO")) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
       if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND") || errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب المستقبِل غير متاح ضمن حسابات الشركة." });
