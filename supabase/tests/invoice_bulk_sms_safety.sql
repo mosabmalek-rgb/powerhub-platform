@@ -70,7 +70,7 @@ values (1, 'active', 'platform_admin');
 insert into public.platform_settings(setting_key, is_enabled, value)
 values ('invoice_delivery_channels', true, '{"smsEnabled": true}'::jsonb);
 insert into public.powerhub_message_templates(tenant_id,channel,event_type,is_active,body)
-values (10,'sms','invoice_issued',true,'إلى {{subscriber_name}}|{{invoice_no}}|{{total_amount}}|{{billing_period}}|{{balance_due}}|{{due_date}}|{{previous_reading}}|{{current_reading}}|{{consumption_kwh}}');
+values (10,'sms','invoice_issued',true,'إلى {{subscriber_name}}|{{invoice_no}}|{{total_amount}}|{{billing_period}}|{{balance_due}}|{{due_date}}|{{previous_reading}}|{{current_reading}}|{{consumption_kwh}}|{{total_balance}}');
 insert into public.tenant_messaging_configurations(tenant_id,channel,invoice_message_style)
 values (10,'sms','details');
 insert into public.subscribers(id,tenant_id,site_id,full_name,subscriber_no,phone)
@@ -87,7 +87,10 @@ values
   (107,10,20,'issued',1007,'PH-107','2026-09',10,10,date '2026-10-20',90,100,10),
   (108,10,20,'draft',1008,'PH-108','2026-09',10,10,date '2026-10-20',90,100,10),
   (109,10,20,'cancelled',1009,'PH-109','2026-09',10,10,date '2026-10-20',90,100,10),
-  (110,10,20,'issued',1010,'PH-110','2026-09',10,10,date '2026-10-20',90,100,10);
+  (110,10,20,'issued',1010,'PH-110','2026-09',10,10,date '2026-10-20',90,100,10),
+  (111,10,20,'issued',1010,'PH-111','2026-08',20,20,date '2026-09-20',80,90,10),
+  (112,10,20,'paid',1010,'PH-112','2026-07',30,0,date '2026-08-20',70,80,10),
+  (113,10,20,'cancelled',1010,'PH-113','2026-06',90,90,date '2026-07-20',60,70,10);
 
 insert into public.notification_messages(tenant_id,invoice_id,subscriber_id,channel,event_type,status,scheduled_at,payload,recipient)
 values
@@ -102,6 +105,7 @@ values
 \ir ../migrations/20261011140000_powerhub_invoice_bulk_send_safety.sql
 \ir ../migrations/20261014180000_powerhub_invoice_reading_message_variables.sql
 \ir ../migrations/20261014190000_powerhub_manual_campaign_reading_token_guard.sql
+\ir ../migrations/20261014200000_powerhub_total_subscriber_balance_message_variable.sql
 
 do $test_existing$
 declare
@@ -166,7 +170,7 @@ begin
   if v_message_count <> 1 then
     raise exception 'expected exactly one queued SMS row for invoice 110, got %', v_message_count;
   end if;
-  if v_rendered <> 'إلى مشترك اختبار|PH-110|10|2026-09|10|2026-10-20|90|100|10' then
+  if v_rendered <> 'إلى مشترك اختبار|PH-110|10|2026-09|10|2026-10-20|90|100|10|30' then
     raise exception 'unified invoice template variables were not rendered correctly: %', v_rendered;
   end if;
 
