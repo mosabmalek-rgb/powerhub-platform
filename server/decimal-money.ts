@@ -29,3 +29,34 @@ export function minorUnitsToAmountString(minorUnits: bigint): string {
 
   return negative && absolute !== 0n ? `-${formatted}` : formatted;
 }
+
+
+/**
+ * Format monetary values for message templates with exactly one fractional digit.
+ * Display rounding is performed with decimal strings/integers (not floating point).
+ * This formatter must never be used for balance aggregation or persisted amounts.
+ */
+export function formatMessageAmount(value: string | number | bigint | null | undefined): string {
+  if (value == null) return "";
+
+  const raw = String(value).trim();
+  const match = /^([+-]?)(\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.(\\d+))?$/.exec(raw);
+  if (!match) return raw;
+
+  const negative = match[1] === "-";
+  const groupedWhole = match[2].includes(",");
+  let whole = BigInt(match[2].replace(/,/g, ""));
+  let tenths = BigInt((match[3] ?? "0")[0] ?? "0");
+  const secondFractionalDigit = (match[3] ?? "")[1] ?? "0";
+  if (secondFractionalDigit >= "5") tenths += 1n;
+
+  if (tenths >= 10n) {
+    whole += 1n;
+    tenths = 0n;
+  }
+
+  let wholeText = whole.toString();
+  if (groupedWhole) wholeText = wholeText.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ",");
+  const sign = negative && (whole !== 0n || tenths !== 0n) ? "-" : "";
+  return `${sign}${wholeText}.${tenths.toString()}`;
+}
