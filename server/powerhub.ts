@@ -1216,6 +1216,39 @@ export const powerhubRouter = router({
     }),
   }),
   subscription: router({
+    ownerRenewalStatus: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const admin = supabaseAdmin();
+      // Resolve the requested site and owner membership directly so this read-only
+      // status remains visible even when an expired subscription gates normal workspace APIs.
+      const { data: site, error: siteError } = await admin.from("sites")
+        .select("id, tenant_id").eq("id", input.siteId).maybeSingle();
+      if (siteError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديد مساحة الاشتراك." });
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود." });
+      const { data: membership, error: membershipError } = await admin.from("tenant_members")
+        .select("role").eq("tenant_id", Number(site.tenant_id)).eq("user_id", ctx.user.id)
+        .eq("is_active", true).eq("membership_status", "active").maybeSingle();
+      if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية مساحة الاشتراك." });
+      if (membership?.role !== "owner") return { isOwner: false as const, subscription: null };
+      const { data: row, error } = await admin.from("tenant_subscriptions")
+        .select("package_code, status, billing_cycle, started_at, ends_at, auto_renew, read_only_until, renewal_count")
+        .eq("tenant_id", Number(site.tenant_id))
+        .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تاريخ انتهاء الاشتراك." });
+      if (!row) return { isOwner: true as const, subscription: null };
+      return {
+        isOwner: true as const,
+        subscription: {
+          packageCode: String(row.package_code ?? ""),
+          status: String(row.status ?? "unknown"),
+          billingCycle: row.billing_cycle ? String(row.billing_cycle) : null,
+          startedAt: row.started_at ? new Date(row.started_at) : null,
+          endsAt: row.ends_at ? new Date(row.ends_at) : null,
+          autoRenew: Boolean(row.auto_renew),
+          readOnlyUntil: row.read_only_until ? new Date(row.read_only_until) : null,
+          renewalCount: Number(row.renewal_count ?? 0),
+        },
+      };
+    }),
     currentUpgradeRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { data, error } = await supabaseAdmin().from("subscription_upgrade_requests")

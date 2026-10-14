@@ -54,6 +54,35 @@ describe("unified messaging contract", () => {
     expect(message).toBe("90|100|10");
     expect(message).not.toContain("{{");
   });
+
+  it("does not require an SMS provider configuration just to save an invoice template", () => {
+    expect(messagingRouterSource).toContain("const wantsInvoiceStyle = input.channel === \"sms\" && input.eventType === \"invoice_issued\" && input.invoiceStyle !== undefined");
+    expect(messagingRouterSource).toContain("if (!smsConfiguration) invoiceStyleToPersist = null");
+    expect(messagingRouterSource).toContain("p_invoice_style: invoiceStyleToPersist");
+    const migration = fs.readFileSync(new URL("../supabase/migrations/20261009223234_powerhub_unified_messaging_runtime.sql", import.meta.url), "utf8");
+    expect(migration).toContain("SMS_CONFIGURATION_REQUIRED_FOR_INVOICE_STYLE");
+  });
+
+  it("records database diagnostics for template-save RPC failures without exposing template content", () => {
+    expect(messagingRouterSource).toContain("[unifiedMessaging.saveTemplate] template RPC failed");
+    expect(messagingRouterSource).toContain("details: error.details, hint: error.hint");
+    expect(messagingRouterSource).toContain("لم يُحفظ القالب.");
+    const diagnosticBlock = messagingRouterSource.match(/console\.error\("\[unifiedMessaging\.saveTemplate\] template RPC failed", \{([\s\S]*?)\}\);/)?.[1] ?? "";
+    expect(diagnosticBlock).toContain("details: error.details, hint: error.hint");
+    expect(diagnosticBlock).not.toContain("input.body");
+    expect(diagnosticBlock).not.toContain("input.phone");
+    expect(diagnosticBlock).not.toContain("credential");
+  });
+
+  it("keeps automation editor template and event selection independent from template editing", () => {
+    const page = fs.readFileSync(new URL("../client/src/pages/MessagingSettingsPage.tsx", import.meta.url), "utf8");
+    expect(page).toContain("const [automationTemplateId, setAutomationTemplateId]");
+    expect(page).toContain("const [automationEventType, setAutomationEventType]");
+    expect(page).toContain("setAutomationTemplateId(a.templateId)");
+    expect(page).toContain("setAutomationEventType(a.eventType)");
+    expect(page).toContain("نوع حدث القالب لا يطابق حدث الأتمتة");
+  });
+
   it("supports the three delivery modes", () => {
     expect(sendType.options).toEqual(["manual","automatic","scheduled"]);
   });

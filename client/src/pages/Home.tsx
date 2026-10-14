@@ -1,6 +1,7 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { MetricCard } from "@/components/MetricCard";
 import { SubscriberQuotaDashboardCard } from "@/components/SubscriberQuotaDashboardCard";
+import { SubscriptionRenewalDashboardCard } from "@/components/SubscriptionRenewalDashboardCard";
 import { OperationalStatusDashboardCard } from "@/components/OperationalStatusDashboardCard";
 import { FinancialTrendSection } from "@/components/FinancialTrendSection";
 import { PowerHubLogo } from "@/components/PowerHubLogo";
@@ -170,6 +171,7 @@ export function WorkspaceHome() {
   const requestSmsPackage = trpc.powerhub.messaging.requestSmsPackage.useMutation({ onSuccess: async () => { setHiddenSmsAlertKey(null); window.localStorage.removeItem("powerhub.sms-alert-hidden"); await smsPackageRequestQuery.refetch(); toast.success("تم إرسال طلب حزمة الرسائل للمراجعة."); }, onError: (error) => toast.error(error.message) });
   const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  const ownerRenewalQuery = trpc.powerhub.subscription.ownerRenewalStatus.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), refetchInterval: 5 * 60 * 1000 });
   const addonRequestsQuery = trpc.powerhub.subscription.currentAddonRequests.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
 
   const quotaQueries = [
@@ -228,6 +230,8 @@ export function WorkspaceHome() {
       <div className="flex items-start gap-4"><div className="mt-0.5 lg:hidden"><PowerHubLogo compact /></div><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Zap className="h-4 w-4 fill-current" />مركز الأداء المالي</div><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">الفوترة والتحصيل تحت السيطرة</h1><p className="mt-2 text-sm text-slate-400">تابع المستحقات والتحصيل والمتأخرات وحالة الفروع من شاشة واحدة.</p></div></div>
       <div className="flex flex-wrap items-center gap-2">{isAuthenticated && sitesQuery.data?.length ? <select aria-label="اختيار الفرع أو الملخص المجمع" value={selectedScope === "all" ? "all" : String(siteId ?? "")} onChange={(event) => { const value = event.target.value; if (value === "all") setScope("all"); else { setScope("branch"); setSiteId(Number(value)); } }} className="h-10 max-w-56 rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300 outline-none">{canUseAllBranches && <option className="bg-[#111823]" value="all">جميع الأفرع (ملخص مجمّع)</option>}{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select> : <span className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300"><CalendarDays className="ml-2 h-4 w-4" />اليوم</span>}<Button variant="outline" className="border-white/10 bg-white/[0.02] text-slate-200 hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={() => setLocation("/quick-actions")}><Zap className="ml-2 h-4 w-4" />الإجراءات السريعة</Button></div>
     </header>
+
+    <SubscriptionRenewalDashboardCard data={ownerRenewalQuery.data} loading={ownerRenewalQuery.isLoading} error={ownerRenewalQuery.isError} ownerAccessVerified={accessQuery.data?.role === "owner"} onRetry={() => ownerRenewalQuery.refetch()} onContact={() => setLocation("/support")} />
 
     {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
 

@@ -235,6 +235,8 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const [invoiceStyle, setInvoiceStyle] = useState<"details"|"portal_link">("details");
   const [automationId, setAutomationId] = useState<number | null>(null);
   const [automationName, setAutomationName] = useState("");
+  const [automationTemplateId, setAutomationTemplateId] = useState<number | null>(null);
+  const [automationEventType, setAutomationEventType] = useState<"subscriber_created"|"invoice_overdue"|"payment_received"|"service_alert">("subscriber_created");
   const [scheduleType, setScheduleType] = useState<"none"|"weekly"|"every_10_days"|"every_15_days"|"monthly">("none");
   const [anchor, setAnchor] = useState("");
   const [automationTimezone, setAutomationTimezone] = useState("Asia/Gaza");
@@ -264,7 +266,11 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const loadAutomation = (id: number) => {
     const a: any = (automations.data ?? []).find((row: any) => row.id === id);
     if (!a) return;
-    setAutomationId(a.id); setAutomationName(a.name); setEventType(a.eventType);
+    setAutomationId(a.id); setAutomationName(a.name);
+    setAutomationTemplateId(a.templateId);
+    if (["subscriber_created", "invoice_overdue", "payment_received", "service_alert"].includes(a.eventType)) {
+      setAutomationEventType(a.eventType);
+    }
     setScheduleType(a.scheduleType === "none" ? "none" : a.scheduleType);
     const timezone = a.timezone || "Asia/Gaza";
     setAutomationTimezone(timezone);
@@ -289,9 +295,15 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         return toast.error("وقت الجدولة المختار غير صالح أو غير موجود في المنطقة الزمنية المحددة.");
       }
     }
+    const selectedAutomationTemplateId = automationTemplateId ?? activeSmsTemplates[0]?.id;
+    if (!selectedAutomationTemplateId) return toast.error("احفظ قالب SMS نشطًا أولًا ثم اختره للأتمتة.");
+    const selectedAutomationTemplate = activeSmsTemplates.find((t: any) => t.id === selectedAutomationTemplateId);
+    if (selectedAutomationTemplate?.eventType && selectedAutomationTemplate.eventType !== automationEventType) {
+      return toast.error("نوع حدث القالب لا يطابق حدث الأتمتة. اختر قالبًا متوافقًا أو عدّل حدث القالب.");
+    }
     saveAutomation.mutate({
-      siteId, id: automationId ?? undefined, templateId: templateId ?? activeSmsTemplates[0]?.id,
-      name: automationName, eventType,
+      siteId, id: automationId ?? undefined, templateId: selectedAutomationTemplateId,
+      name: automationName, eventType: automationEventType,
       sendType: scheduleType === "none" ? "automatic" : "scheduled",
       scheduleType, scheduleAnchorAt: derivedAnchor, timezone: automationTimezone, audience: {},
       triggerConfig: eventType === "invoice_overdue"
@@ -342,7 +354,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         </div>
 
         <div className="space-y-3 rounded-xl border border-white/10 p-4">
-          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); }}>جديدة</Button> : null}</div>
+          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); setAutomationTemplateId(null); setAutomationEventType("subscriber_created"); setScheduleType("none"); setAnchor(""); setAfterDueDays(1); setMinBalance(""); }}>جديدة</Button> : null}</div>
           <input className={inputClass} value={automationName} onChange={(e) => setAutomationName(e.target.value)} placeholder="اسم الأتمتة" />
           <select className={inputClass} value={templateId ?? ""} onChange={(e) => setTemplateId(Number(e.target.value) || null)}><option value="">اختر القالب</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
           <select className={inputClass} value={eventType} onChange={(e) => setEventType(e.target.value as typeof eventType)}><option value="subscriber_created">مشترك جديد</option><option value="invoice_overdue">فاتورة متأخرة</option><option value="payment_received">استلام دفعة</option><option value="service_alert">تنبيه تشغيلي</option><option value="invoice_issued">إصدار فاتورة (المسار الأساسي)</option></select>
