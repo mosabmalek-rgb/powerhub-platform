@@ -1,8 +1,8 @@
 import { cn } from "@/lib/utils";
 import { useOptionalTheme } from "@/contexts/ThemeContext";
 
-export const LIGHT_LOGO_URL = "/api/brand-assets/powerhub-logo-light.png?v=20260904";
-export const DARK_LOGO_URL = "/api/brand-assets/powerhub-logo-dark.png?v=20260904";
+export const LIGHT_LOGO_URL = "/brand-v1/powerhub-logo-light.webp?v=lossless-20261014";
+export const DARK_LOGO_URL = "/brand-v1/powerhub-logo-dark.webp?v=lossless-20261014";
 const LIGHT_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-light.png";
 const DARK_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-dark.png";
 
