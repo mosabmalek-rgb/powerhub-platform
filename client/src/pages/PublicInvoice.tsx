@@ -56,7 +56,7 @@ export default function PublicInvoice() {
           </div>
           <div className="mx-auto mt-5 max-w-3xl overflow-hidden rounded-2xl border border-white/8 text-right">
             <div className="border-b border-white/8 bg-white/[0.025] px-4 py-3 text-sm font-bold text-white">بنود الفاتورة</div>
-            {visibleLines.map((line) => <div className="flex items-center justify-between gap-4 border-b border-white/7 px-4 py-3 text-sm last:border-b-0" key={line.id}><span className="text-slate-300">{line.description}</span><span className="shrink-0 font-display font-bold text-white">{format(line.amount)} شيكل</span></div>)}
+            {visibleLines.map((line) => <div className="flex items-center justify-between gap-4 border-b border-white/7 px-4 py-3 text-sm last:border-b-0" key={line.id}><span className="text-slate-300">{line.description}</span><span className={`shrink-0 font-display font-bold ${line.lineType === "discount" ? "text-emerald-300" : "text-white"}`}>{format(line.lineType === "discount" ? -Math.abs(Number(line.amount)) : Number(line.amount))} شيكل</span></div>)}
             {!visibleLines.length ? <p className="px-4 py-5 text-sm text-slate-400">لا توجد بنود مالية لعرضها.</p> : null}
           </div>
           <div className="mt-9 grid gap-3 sm:grid-cols-2">
