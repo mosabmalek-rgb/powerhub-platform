@@ -1,4 +1,4 @@
-name: Self-hosted Windows Runner Diagnostic
+name: Self-hosted Windows Toolchain and PostgreSQL Readiness
 
 on:
   push:
@@ -9,47 +9,39 @@ permissions:
   contents: read
 
 jobs:
-  self-hosted-runner-check:
-    name: Verify local tools for PowerHub CI
+  inspect:
+    name: Inspect Windows CI prerequisites
     runs-on: self-hosted
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - name: Confirm runner and inspect local toolchain
+      - name: Runner identity
         shell: cmd
         run: |
-          echo SELF_HOSTED_RUNNER_DIAGNOSTIC_STARTED
           echo RUNNER_OS=%RUNNER_OS%
           echo RUNNER_ARCH=%RUNNER_ARCH%
           echo RUNNER_NAME=%RUNNER_NAME%
           echo GITHUB_ACTIONS=%GITHUB_ACTIONS%
-          if /I not "%RUNNER_OS%"=="Windows" exit /b 1
-          if /I not "%RUNNER_ARCH%"=="X64" exit /b 1
-          if /I not "%GITHUB_ACTIONS%"=="true" exit /b 1
-          echo --- NODE ---
-          where node >nul 2>nul
-          if errorlevel 1 (echo NODE_NOT_FOUND) else (node --version)
-          echo --- NPM ---
-          where npm >nul 2>nul
-          if errorlevel 1 (echo NPM_NOT_FOUND) else (call npm --version)
-          echo --- PNPM ---
-          where pnpm >nul 2>nul
-          if errorlevel 1 (echo PNPM_NOT_FOUND) else (call pnpm --version)
-          echo --- COREPACK ---
-          where corepack >nul 2>nul
-          if errorlevel 1 (echo COREPACK_NOT_FOUND) else (call corepack --version)
-          echo --- GIT ---
-          where git >nul 2>nul
-          if errorlevel 1 (echo GIT_NOT_FOUND) else (git --version)
-          echo --- DOCKER ---
-          where docker >nul 2>nul
-          if errorlevel 1 (echo DOCKER_NOT_FOUND) else (docker --version)
-          echo --- PSQL ---
-          where psql >nul 2>nul
-          if errorlevel 1 (echo PSQL_NOT_FOUND) else (psql --version)
-          echo --- CREATEDB ---
-          where createdb >nul 2>nul
-          if errorlevel 1 (echo CREATEDB_NOT_FOUND) else (createdb --version)
-          echo --- BASH ---
-          where bash >nul 2>nul
-          if errorlevel 1 (echo BASH_NOT_FOUND) else (bash --version)
-          echo SELF_HOSTED_TOOLCHAIN_DIAGNOSTIC_COMPLETED
+
+      - name: Check Node and package tools
+        shell: cmd
+        run: |
+          where node
+          node --version
+          where npm
+          call npm --version
+          where corepack
+          corepack --version
+          where git
+          git --version
+
+      - name: Check PostgreSQL and container tools
+        shell: cmd
+        run: |
+          where psql
+          if errorlevel 1 echo PSQL_NOT_INSTALLED
+          where createdb
+          if errorlevel 1 echo CREATEDB_NOT_INSTALLED
+          where docker
+          if errorlevel 1 echo DOCKER_NOT_INSTALLED
+          where podman
+          if errorlevel 1 echo PODMAN_NOT_INSTALLED
