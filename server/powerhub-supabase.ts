@@ -232,6 +232,54 @@ export async function listSupabaseSubscribers(siteId: number) {
 }
 
 
+export async function listSupabaseSubscriberDirectoryPage(input: {
+  siteId: number;
+  page: number;
+  pageSize: number;
+  search?: string;
+  subscriptionType?: "residential" | "commercial" | "institution" | "mosque";
+}) {
+  const admin = supabaseAdmin();
+  let query = admin.from("subscribers")
+    .select("id, tenant_id, site_id, subscriber_no, client_operation_id, full_name, phone, whatsapp_number, address, subscription_type, service_status, created_at, updated_at", { count: "exact" })
+    .eq("site_id", input.siteId)
+    .is("archived_at", null);
+
+  if (input.subscriptionType) query = query.eq("subscription_type", input.subscriptionType);
+  // Remove characters that can alter the PostgREST OR-filter grammar while retaining
+  // normal Arabic names, subscriber references, phone numbers, and invoice-like terms.
+  const term = (input.search ?? "").trim().replace(/[%,()\\]/g, " ").replace(/\s+/g, " ").trim();
+  if (term) {
+    query = query.or([
+      `full_name.ilike.%${term}%`,
+      `subscriber_no.ilike.%${term}%`,
+      `phone.ilike.%${term}%`,
+      `whatsapp_number.ilike.%${term}%`,
+      `address.ilike.%${term}%`,
+    ].join(","));
+  }
+  const from = (input.page - 1) * input.pageSize;
+  const { data, error, count } = await query
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(from, from + input.pageSize - 1);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة سجل المشتركين من Supabase." });
+  const totalCount = count ?? 0;
+  return {
+    items: (data ?? []).map((row) => ({
+      id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberNo: row.subscriber_no,
+      clientOperationId: row.client_operation_id, fullName: row.full_name, phone: row.phone, whatsappNumber: row.whatsapp_number,
+      address: row.address, subscriptionType: row.subscription_type, serviceStatus: row.service_status,
+      createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+    })),
+    totalCount,
+    page: input.page,
+    pageSize: input.pageSize,
+    totalPages: Math.max(1, Math.ceil(totalCount / input.pageSize)),
+  };
+}
+
+
 export async function getSupabaseSubscriberAccountStatement(siteId: number, subscriberId: number) {
   const admin = supabaseAdmin();
   const { data: subscriber, error: subscriberError } = await admin.from("subscribers")
