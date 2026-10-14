@@ -101,6 +101,7 @@ values
 
 \ir ../migrations/20261011140000_powerhub_invoice_bulk_send_safety.sql
 \ir ../migrations/20261014180000_powerhub_invoice_reading_message_variables.sql
+\ir ../migrations/20261014190000_powerhub_manual_campaign_reading_token_guard.sql
 
 do $test_existing$
 declare
