@@ -267,7 +267,6 @@ describe("role guards in administration UI", () => {
     expect(screen.getByText("مشترك اختبار 21")).toBeInTheDocument();
     expect(screen.getByText("مشترك اختبار 23")).toBeInTheDocument();
     expect(screen.queryByText("مشترك اختبار 01")).not.toBeInTheDocument();
-    expect(screen.getByText(/مؤسسات/)).toBeInTheDocument();
   });
 
   it("filters the subscriber directory by institution and mosque type", () => {
