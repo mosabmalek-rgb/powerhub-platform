@@ -294,11 +294,10 @@ describe("unified messaging runtime contract", () => {
   });
 
   it("uses a cached vector logo, a message-specific sidebar icon, and only supported provider statuses", () => {
-    expect(logo).toContain("powerhub-logo-light.svg?v=optimized-svg-20261013");
-    expect(logo).toContain("powerhub-logo-dark.svg?v=optimized-svg-20261013");
-    expect(brandProxy).toContain('if (assetName.endsWith(".svg"))');
-    expect(brandProxy).toContain("max-age=31536000, immutable");
-    expect(html).toContain('type="image/svg+xml"');
+    expect(logo).toContain("powerhub-logo-light.png?v=20260904");
+    expect(logo).toContain("powerhub-logo-dark.png?v=20260904");
+    expect(brandProxy).toContain('const BRAND_ASSETS = new Set(["powerhub-logo-light.png", "powerhub-logo-dark.png"]); '.trim());
+    expect(html).toContain('type="image/png"');
     expect(sidebar).toContain('icon: MessageSquareText, label: "مركز الرسائل"');
     expect(ui).toContain('<option value="submitted">مرسلة للمزود</option>');
     expect(ui).not.toContain('<option value="delivered">تم التسليم</option>');

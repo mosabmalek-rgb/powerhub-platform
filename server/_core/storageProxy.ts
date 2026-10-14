@@ -2,7 +2,7 @@ import type { Express, Response } from "express";
 import { storageGetSignedUrl } from "../storage";
 import { POWERHUB_DARK_SVG, POWERHUB_LIGHT_SVG } from "./brandAssetsFallback";
 
-const BRAND_ASSETS = new Set(["powerhub-logo-light.png", "powerhub-logo-dark.png", "powerhub-logo-light.svg", "powerhub-logo-dark.svg"]);
+const BRAND_ASSETS = new Set(["powerhub-logo-light.png", "powerhub-logo-dark.png"]);
 
 function routeKey(req: { params: unknown }): string {
   return ((req.params as Record<string, string>)["0"] ?? "").replace(/^\/+/, "");
@@ -13,9 +13,7 @@ function sendBrandFallback(assetName: string, res: Response) {
   const svg = isDark ? POWERHUB_DARK_SVG : POWERHUB_LIGHT_SVG;
   res.set("Content-Type", "image/svg+xml; charset=utf-8");
   res.set("X-Content-Type-Options", "nosniff");
-  res.set("Cache-Control", assetName.endsWith(".svg")
-    ? "public, max-age=31536000, immutable"
-    : "public, max-age=3600, stale-while-revalidate=86400");
+  res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
   res.send(svg);
 }
 
@@ -24,12 +22,6 @@ export function registerBrandAssetProxy(app: Express) {
     const assetName = routeKey(req);
     if (!BRAND_ASSETS.has(assetName)) {
       res.status(404).send("Brand asset not found");
-      return;
-    }
-    // The embedded SVG is the lightweight web logo. Serve it directly to avoid
-    // a storage lookup + expiring signed-URL redirect on every cold browser cache.
-    if (assetName.endsWith(".svg")) {
-      sendBrandFallback(assetName, res);
       return;
     }
     try {
