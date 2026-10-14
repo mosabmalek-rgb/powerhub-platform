@@ -2161,7 +2161,7 @@ export const powerhubRouter = router({
           tenantId?: number;
           invoice: { id: number; subscriberId: number; invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; previousReading: number | null; currentReading: number | null; consumptionKwh: number; pricePerKwh: number; fixedFee: number; taxAmount: number; discountAmount: number; totalAmount: number; paidAmount: number; balanceDue: number; status: string };
           subscriber: { fullName: string; subscriberNo: string } | null;
-          lines: Array<{ id: number; description: string; amount: number; quantity: number; unitPrice: number; displayOrder: number }>;
+          lines: Array<{ id: number; lineType?: string; description: string; amount: number; quantity: number; unitPrice: number; displayOrder: number }>;
         };
         let paymentDocumentationAvailable = false;
         let companyName: string | null = null;
