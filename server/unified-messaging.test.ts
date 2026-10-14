@@ -67,7 +67,7 @@ describe("unified messaging contract", () => {
     expect(messagingRouterSource).toContain("[unifiedMessaging.saveTemplate] template RPC failed");
     expect(messagingRouterSource).toContain("details: error.details, hint: error.hint");
     expect(messagingRouterSource).toContain("لم يُحفظ القالب.");
-    const diagnosticBlock = messagingRouterSource.match(/console\\.error\\("\\[unifiedMessaging\\.saveTemplate\\] template RPC failed", \\{([\\s\\S]*?)\\}\\);/)?.[1] ?? "";
+    const diagnosticBlock = messagingRouterSource.match(/console\.error\("\[unifiedMessaging\.saveTemplate\] template RPC failed", \{([\s\S]*?)\}\);/)?.[1] ?? "";
     expect(diagnosticBlock).toContain("details: error.details, hint: error.hint");
     expect(diagnosticBlock).not.toContain("input.body");
     expect(diagnosticBlock).not.toContain("input.phone");
