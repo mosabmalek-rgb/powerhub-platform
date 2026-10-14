@@ -70,24 +70,24 @@ values (1, 'active', 'platform_admin');
 insert into public.platform_settings(setting_key, is_enabled, value)
 values ('invoice_delivery_channels', true, '{"smsEnabled": true}'::jsonb);
 insert into public.powerhub_message_templates(tenant_id,channel,event_type,is_active,body)
-values (10,'sms','invoice_issued',true,'إلى {{subscriber_name}}|{{invoice_no}}|{{total_amount}}|{{billing_period}}|{{balance_due}}|{{due_date}}');
+values (10,'sms','invoice_issued',true,'إلى {{subscriber_name}}|{{invoice_no}}|{{total_amount}}|{{billing_period}}|{{balance_due}}|{{due_date}}|{{previous_reading}}|{{current_reading}}|{{consumption_kwh}}');
 insert into public.tenant_messaging_configurations(tenant_id,channel,invoice_message_style)
 values (10,'sms','details');
 insert into public.subscribers(id,tenant_id,site_id,full_name,subscriber_no,phone)
 values (1010,10,20,'مشترك اختبار','SUB-1010','+970599001010');
 
-insert into public.invoices(id,tenant_id,site_id,status,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date)
+insert into public.invoices(id,tenant_id,site_id,status,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,previous_reading,current_reading,consumption_kwh)
 values
-  (101,10,20,'issued',1001,'PH-101','2026-09',10,10,date '2026-10-20'),
-  (102,10,20,'issued',1002,'PH-102','2026-09',10,10,date '2026-10-20'),
-  (103,10,20,'issued',1003,'PH-103','2026-09',10,10,date '2026-10-20'),
-  (104,10,20,'issued',1004,'PH-104','2026-09',10,10,date '2026-10-20'),
-  (105,10,20,'issued',1005,'PH-105','2026-09',10,10,date '2026-10-20'),
-  (106,10,20,'issued',1006,'PH-106','2026-09',10,10,date '2026-10-20'),
-  (107,10,20,'issued',1007,'PH-107','2026-09',10,10,date '2026-10-20'),
-  (108,10,20,'draft',1008,'PH-108','2026-09',10,10,date '2026-10-20'),
-  (109,10,20,'cancelled',1009,'PH-109','2026-09',10,10,date '2026-10-20'),
-  (110,10,20,'issued',1010,'PH-110','2026-09',10,10,date '2026-10-20');
+  (101,10,20,'issued',1001,'PH-101','2026-09',10,10,date '2026-10-20',90,100,10),
+  (102,10,20,'issued',1002,'PH-102','2026-09',10,10,date '2026-10-20',90,100,10),
+  (103,10,20,'issued',1003,'PH-103','2026-09',10,10,date '2026-10-20',90,100,10),
+  (104,10,20,'issued',1004,'PH-104','2026-09',10,10,date '2026-10-20',90,100,10),
+  (105,10,20,'issued',1005,'PH-105','2026-09',10,10,date '2026-10-20',90,100,10),
+  (106,10,20,'issued',1006,'PH-106','2026-09',10,10,date '2026-10-20',90,100,10),
+  (107,10,20,'issued',1007,'PH-107','2026-09',10,10,date '2026-10-20',90,100,10),
+  (108,10,20,'draft',1008,'PH-108','2026-09',10,10,date '2026-10-20',90,100,10),
+  (109,10,20,'cancelled',1009,'PH-109','2026-09',10,10,date '2026-10-20',90,100,10),
+  (110,10,20,'issued',1010,'PH-110','2026-09',10,10,date '2026-10-20',90,100,10);
 
 insert into public.notification_messages(tenant_id,invoice_id,subscriber_id,channel,event_type,status,scheduled_at,payload,recipient)
 values
@@ -164,7 +164,7 @@ begin
   if v_message_count <> 1 then
     raise exception 'expected exactly one queued SMS row for invoice 110, got %', v_message_count;
   end if;
-  if v_rendered <> 'إلى مشترك اختبار|PH-110|10|2026-09|10|2026-10-20' then
+  if v_rendered <> 'إلى مشترك اختبار|PH-110|10|2026-09|10|2026-10-20|90|100|10' then
     raise exception 'unified invoice template variables were not rendered correctly: %', v_rendered;
   end if;
 
