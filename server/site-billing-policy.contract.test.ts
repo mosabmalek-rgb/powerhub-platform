@@ -94,4 +94,22 @@ describe("site billing minimum and fractional settlement contract", () => {
     expect(pdf).toContain("-Math.abs(Number(line.amount))");
     expect(publicInvoice).toContain('line.lineType === "discount" ? -Math.abs(Number(line.amount)) : Number(line.amount)');
   });
+
+  it("types public invoice line categories for discount rendering", () => {
+    const source = read("server/powerhub.ts");
+    expect(source).toContain("lineType?: string; description: string; amount: number");
+  });
+
+  it("applies the minimum amount floor after the ordinary invoice discount", () => {
+    const source = read("supabase/migrations/20261014130000_powerhub_site_billing_policies.sql");
+    expect(source).toContain("v_raw_total := greatest(0,round(v_energy_amount+v_tariff.fixed_fee+v_tax_amount-p_discount_amount,2))");
+    expect(source).toContain("v_minimum_amount_adjustment := round(coalesce(v_policy.minimum_invoice_amount,0)-v_raw_total,2)");
+    expect(source).toContain("raise exception 'INVALID_DISCOUNT'");
+  });
+
+  it("does not queue an offline payment if a manual discount would be lost", () => {
+    const source = read("client/src/pages/OperationsPage.tsx");
+    expect(source).toContain("لا يمكن اعتماد الخصم اليدوي دون اتصال");
+    expect(source).toContain("Number(completePayload.manualDiscountAmount ?? 0) > 0");
+  });
 });
