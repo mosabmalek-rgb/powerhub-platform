@@ -48,4 +48,37 @@ describe("site billing minimum and fractional settlement contract", () => {
     expect(settings).toContain('value="amount">حد أدنى لمبلغ الفاتورة');
     expect(settings).toContain("نطاق الخصم ونطاق الترحيل متداخلان");
   });
+
+  it("keeps manual collection discounts atomic, auditable, and bounded by remaining debt", () => {
+    const migration = read("supabase/migrations/20261014140000_powerhub_manual_collection_discount.sql");
+    const server = read("server/powerhub.ts");
+    const collectionUi = read("client/src/pages/OperationsPage.tsx");
+    expect(migration).toContain("create or replace function public.powerhub_create_payment_with_discount");
+    expect(migration).toContain("pg_advisory_xact_lock");
+    expect(migration).toContain("MANUAL_DISCOUNT_EXCEEDS_BALANCE");
+    expect(migration).toContain("PAYMENT_AND_DISCOUNT_EXCEED_BALANCE");
+    expect(migration).toContain("manual_collection_discount");
+    expect(migration).toContain("'manual_collection_discount'");
+    expect(migration).toContain("'manual_collection_discount'");
+    expect(migration).toContain("cashCollected");
+    expect(migration).toContain("powerhub_create_payment(");
+    expect(server).toContain("powerhub_create_payment_with_discount");
+    expect(server).toContain("manualDiscountAmount");
+    expect(collectionUi).toContain("manualDiscountReason");
+    expect(collectionUi).toContain("مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق");
+  });
+
+  it("reports only realized automatic and manual discounts by adjustment timestamp", () => {
+    const migration = read("supabase/migrations/20261014140000_powerhub_manual_collection_discount.sql");
+    const server = read("server/powerhub.ts");
+    const dashboard = read("client/src/pages/FinancialDashboardPage.tsx");
+    expect(migration).toContain("powerhub_billing_discount_summary");
+    expect(migration).toContain("a.state='applied'");
+    expect(migration).toContain("a.created_at>=p_from");
+    expect(migration).toContain("a.created_at<=p_to");
+    expect(migration).toContain("a.adjustment_type in ('auto_fraction_discount','manual_collection_discount')");
+    expect(server).toContain("discountSummary: protectedProcedure");
+    expect(dashboard).toContain("إحصاءات الخصومات");
+    expect(dashboard).toContain("الأرصدة المرحّلة ليست خصومات");
+  });
 });
