@@ -1,0 +1,75 @@
+name: PR 223 Final Self-hosted Validation
+
+on:
+  push:
+    branches:
+      - diagnostics/pr223-final-selfhosted-20261014
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr223-final-selfhosted-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: CI, Security, Admin Guard, and SQL fixture (Windows)
+    runs-on: self-hosted
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: cmd
+    env:
+      NODE_OPTIONS: --max-old-space-size=12288
+      VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
+    steps:
+      - name: Checkout PR 223 code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Verify pinned toolchain
+        run: |
+          node --version
+          npm --version
+          corepack --version
+          corepack pnpm --version
+          git --version
+
+      - name: Install project dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Supabase runtime boundary
+        run: node scripts/check-supabase-runtime-boundary.mjs
+
+      - name: TypeScript check
+        run: corepack pnpm check
+
+      - name: Full project test suite
+        run: corepack pnpm test
+
+      - name: Production build
+        run: corepack pnpm build
+
+      - name: Static dependency security guard
+        run: node scripts/check-dependency-security.mjs
+
+      - name: Supabase migration and runtime admin guard tests
+        run: >-
+          corepack pnpm exec vitest run
+          server/admin.legacy-write-guards.test.ts
+          server/admin.tenant-branch-settings-supabase.test.ts
+          server/powerhub-mobile-approve-runtime.test.ts
+          server/supabase-runtime-boundary.test.ts
+          server/admin.dashboard-sync-contract.test.ts
+
+      - name: Install isolated embedded PostgreSQL runtime
+        run: npm install --prefix "%RUNNER_TEMP%\pglite-sql-runtime" --no-save --package-lock=false @electric-sql/pglite@0.5.9
+
+      - name: Run invoice SMS SQL fixture and migrations
+        run: node scripts/run-pglite-invoice-sql.mjs
