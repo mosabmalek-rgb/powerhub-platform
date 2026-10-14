@@ -2186,7 +2186,7 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
-      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
+      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(), manualDiscountAmount: z.number().min(0).max(100000000).default(0), manualDiscountReason: z.string().trim().max(300).optional(),
     }).superRefine((input, ctx) => {
       const hasTransferSource = Boolean(input.transferFromAccount);
       if ((hasTransferSource && !input.transferFromType) || (!hasTransferSource && input.transferFromType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "حدد نوع الحساب المحوِّل فقط عند إدخال رقمه." });
@@ -2211,15 +2211,25 @@ export const powerhubRouter = router({
         if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
         collectorSessionId = Number(openSession.id);
       }
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_payment", {
+      if (input.manualDiscountAmount > 0 && (!input.invoiceId || !input.manualDiscountReason || input.manualDiscountReason.length < 3)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يتطلب الخصم اليدوي اختيار فاتورة واحدة وكتابة سبب واضح لا يقل عن 3 أحرف." });
+      }
+      const rpcArgs = {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId, p_invoice_id: input.invoiceId ?? null,
         p_payment_no: input.paymentNo, p_amount: input.amount, p_payment_method: input.paymentMethod, p_company_account_id: input.companyAccountId,
         p_transfer_from_account: input.transferFromAccount ?? null, p_transfer_from_type: input.transferFromType ?? null, p_reference_no: input.referenceNo ?? null,
         p_receipt_image_key: receiptImageKey ?? null, p_receipt_image_hash: receiptImageHash ?? null, p_collector_session_id: collectorSessionId ?? null,
         p_client_operation_id: input.clientOperationId ?? null,
-      });
+      };
+      const { data, error } = input.manualDiscountAmount > 0
+        ? await supabaseAdmin().rpc("powerhub_create_payment_with_discount", { ...rpcArgs, p_manual_discount_amount: input.manualDiscountAmount, p_manual_discount_reason: input.manualDiscountReason })
+        : await supabaseAdmin().rpc("powerhub_create_payment", rpcArgs);
       if (!error && data?.[0]) return { id: Number((data[0] as { payment_id: number | string }).payment_id) };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("MANUAL_DISCOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الخصم أكبر من الرصيد المستحق." });
+      if (errorText.includes("PAYMENT_AND_DISCOUNT_EXCEED_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق." });
+      if (errorText.includes("MANUAL_DISCOUNT_REASON_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل سبب الخصم اليدوي." });
+      if (errorText.includes("PAYMENT_OPERATION_SCOPE_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف العملية مستخدم في نطاق آخر." });
       if (errorText.includes("DUPLICATE_PAYMENT_NO")) throw new TRPCError({ code: "CONFLICT", message: "رقم الإيصال مستخدم مسبقاً؛ أدخل رقماً مرجعياً مختلفاً." });
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة." });
       if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND") || errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الحساب المستقبِل غير متاح ضمن حسابات الشركة." });
