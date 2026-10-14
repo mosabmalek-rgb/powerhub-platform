@@ -20,44 +20,35 @@ jobs:
           echo RUNNER_OS=%RUNNER_OS%
           echo RUNNER_ARCH=%RUNNER_ARCH%
           echo RUNNER_NAME=%RUNNER_NAME%
-          echo GITHUB_ACTIONS=%GITHUB_ACTIONS%
           whoami
           net session >nul 2>&1
           if errorlevel 1 (echo RUNNER_NOT_ELEVATED) else (echo RUNNER_ELEVATED)
 
-      - name: Check Node and package tools
+      - name: Check toolchain
         shell: cmd
         run: |
-          where node
           node --version
-          where npm
           call npm --version
-          where corepack
           corepack --version
-          where git
           git --version
 
-      - name: Inspect available PostgreSQL installation paths
+      - name: Inspect PostgreSQL installations and isolated runtimes
         shell: cmd
         run: |
           where psql
-          if errorlevel 1 echo PSQL_NOT_INSTALLED
-          where createdb
-          if errorlevel 1 echo CREATEDB_NOT_INSTALLED
+          if errorlevel 1 echo PSQL_NOT_ON_PATH
           where pg_ctl
-          if errorlevel 1 echo PG_CTL_NOT_INSTALLED
-          where initdb
-          if errorlevel 1 echo INITDB_NOT_INSTALLED
+          if errorlevel 1 echo PG_CTL_NOT_ON_PATH
           where docker
-          if errorlevel 1 echo DOCKER_NOT_INSTALLED
+          if errorlevel 1 echo DOCKER_NOT_ON_PATH
           where podman
-          if errorlevel 1 echo PODMAN_NOT_INSTALLED
-          where choco
-          if errorlevel 1 echo CHOCO_NOT_INSTALLED
+          if errorlevel 1 echo PODMAN_NOT_ON_PATH
           where winget
-          if errorlevel 1 echo WINGET_NOT_INSTALLED
-          where powershell
-          if errorlevel 1 echo WINDOWS_POWERSHELL_NOT_INSTALLED
+          if errorlevel 1 echo WINGET_NOT_ON_PATH
           where wsl
-          if errorlevel 1 echo WSL_NOT_INSTALLED
+          if errorlevel 1 echo WSL_NOT_ON_PATH
+          wsl.exe --status
+          wsl.exe --list --quiet
+          if errorlevel 1 echo WSL_DISTRO_LIST_FAILED
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-Service *postgres* -ErrorAction SilentlyContinue | Select-Object Name,Status,StartType | Format-Table -AutoSize; Get-ChildItem 'C:\Program Files\PostgreSQL' -ErrorAction SilentlyContinue | Select-Object FullName"
           exit /b 0
