@@ -263,6 +263,8 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
           <select name="subscriptionType" defaultValue={editing?.subscriptionType ?? "residential"} className={inputClass}>
             <option value="residential">سكني</option>
             <option value="commercial">تجاري</option>
+            <option value="institution">مؤسسات</option>
+            <option value="mosque">مساجد</option>
           </select>
         </Field>
         <Field label="حالة الخدمة">
