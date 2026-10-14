@@ -467,6 +467,58 @@ async function sendPendingInvoiceSmsRuntime(
 
 export const powerhubRouter = router({
   unifiedMessaging: powerhubUnifiedMessagingRouter,
+  siteBillingPolicy: router({
+    get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_site_billing_policy", { p_tenant_id: scope.tenantId, p_site_id: input.siteId });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحد الأدنى والتسويات." });
+      const row = Array.isArray(data) ? data[0] : data;
+      return {
+        minimumMode: row?.minimum_mode ?? "disabled",
+        minimumConsumptionKwh: row?.minimum_consumption_kwh == null ? "" : String(row.minimum_consumption_kwh),
+        minimumInvoiceAmount: row?.minimum_invoice_amount == null ? "" : String(row.minimum_invoice_amount),
+        automaticFractionDiscountEnabled: Boolean(row?.automatic_fraction_discount_enabled),
+        automaticFractionDiscountMinTenth: Number(row?.automatic_fraction_discount_min_tenth ?? 1),
+        automaticFractionDiscountMaxTenth: Number(row?.automatic_fraction_discount_max_tenth ?? 5),
+        fractionCarryEnabled: Boolean(row?.fraction_carry_enabled),
+        fractionCarryMinTenth: Number(row?.fraction_carry_min_tenth ?? 6),
+        fractionCarryMaxTenth: Number(row?.fraction_carry_max_tenth ?? 9),
+      };
+    }),
+    save: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      minimumMode: z.enum(["disabled", "kwh", "amount"]),
+      minimumConsumptionKwh: z.number().positive().max(1000000).optional(),
+      minimumInvoiceAmount: z.number().positive().max(100000000).optional(),
+      automaticFractionDiscountEnabled: z.boolean(),
+      automaticFractionDiscountMinTenth: z.number().int().min(0).max(9),
+      automaticFractionDiscountMaxTenth: z.number().int().min(0).max(9),
+      fractionCarryEnabled: z.boolean(),
+      fractionCarryMinTenth: z.number().int().min(0).max(9),
+      fractionCarryMaxTenth: z.number().int().min(0).max(9),
+    })).mutation(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      const { error } = await supabaseAdmin().rpc("powerhub_save_site_billing_policy", {
+        p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId,
+        p_minimum_mode: input.minimumMode,
+        p_minimum_consumption_kwh: input.minimumMode === "kwh" ? input.minimumConsumptionKwh ?? null : null,
+        p_minimum_invoice_amount: input.minimumMode === "amount" ? input.minimumInvoiceAmount ?? null : null,
+        p_automatic_fraction_discount_enabled: input.automaticFractionDiscountEnabled,
+        p_automatic_fraction_discount_min_tenth: input.automaticFractionDiscountMinTenth,
+        p_automatic_fraction_discount_max_tenth: input.automaticFractionDiscountMaxTenth,
+        p_fraction_carry_enabled: input.fractionCarryEnabled,
+        p_fraction_carry_min_tenth: input.fractionCarryMinTenth,
+        p_fraction_carry_max_tenth: input.fractionCarryMaxTenth,
+      });
+      if (error) {
+        const message = error.message ?? "";
+        if (message.includes("FRACTION_RANGES_OVERLAP")) throw new TRPCError({ code: "BAD_REQUEST", message: "نطاق الخصم ونطاق الترحيل متداخلان؛ اختر نطاقين منفصلين." });
+        if (message.includes("BILLING_POLICY_PERMISSION_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل سياسة الفوترة." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر حفظ سياسة الحد الأدنى والتسويات. تحقق من القيم المدخلة." });
+      }
+      return { ok: true };
+    }),
+  }),
   readingCycle: router({
     get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
