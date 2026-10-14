@@ -15,15 +15,14 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Confirm local runner allocation and execution
-        shell: pwsh
+        shell: cmd
         run: |
-          $ErrorActionPreference = "Stop"
-          Write-Output "SELF_HOSTED_RUNNER_DIAGNOSTIC_STARTED"
-          Write-Output "RUNNER_OS=$env:RUNNER_OS"
-          Write-Output "RUNNER_ARCH=$env:RUNNER_ARCH"
-          Write-Output "RUNNER_NAME=$env:RUNNER_NAME"
-          Write-Output "GITHUB_ACTIONS=$env:GITHUB_ACTIONS"
-          if ($env:RUNNER_OS -ne "Windows") { throw "Expected Windows runner, got $env:RUNNER_OS" }
-          if ($env:RUNNER_ARCH -ne "X64") { throw "Expected X64 runner, got $env:RUNNER_ARCH" }
-          if ($env:GITHUB_ACTIONS -ne "true") { throw "GITHUB_ACTIONS was not true" }
-          Write-Output "SELF_HOSTED_RUNNER_DIAGNOSTIC_PASSED"
+          echo SELF_HOSTED_RUNNER_DIAGNOSTIC_STARTED
+          echo RUNNER_OS=%RUNNER_OS%
+          echo RUNNER_ARCH=%RUNNER_ARCH%
+          echo RUNNER_NAME=%RUNNER_NAME%
+          echo GITHUB_ACTIONS=%GITHUB_ACTIONS%
+          if /I not "%RUNNER_OS%"=="Windows" exit /b 1
+          if /I not "%RUNNER_ARCH%"=="X64" exit /b 1
+          if /I not "%GITHUB_ACTIONS%"=="true" exit /b 1
+          echo SELF_HOSTED_RUNNER_DIAGNOSTIC_PASSED
