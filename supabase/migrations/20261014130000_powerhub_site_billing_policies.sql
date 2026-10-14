@@ -246,11 +246,11 @@ begin
   -- Lock pending carry ledger rows before summing so concurrent invoices cannot
   -- apply the same carried debt twice. The locks and state changes are in this transaction.
   for v_pending in
-    select id, invoice_id, amount
-    from public.billing_adjustments
-    where tenant_id=p_tenant_id and site_id=p_site_id and subscriber_id=v_subscriber.id
-      and adjustment_type='fraction_carried' and state='pending'
-    order by id
+    select adjustment.id, adjustment.invoice_id, adjustment.amount
+    from public.billing_adjustments as adjustment
+    where adjustment.tenant_id=p_tenant_id and adjustment.site_id=p_site_id and adjustment.subscriber_id=v_subscriber.id
+      and adjustment.adjustment_type='fraction_carried' and adjustment.state='pending'
+    order by adjustment.id
     for update
   loop
     v_previous_carry := v_previous_carry + v_pending.amount;
@@ -341,11 +341,11 @@ begin
   -- Show each earlier carried amount as a distinct, auditable line on this invoice.
   v_display_order := 20;
   for v_pending in
-    select id, invoice_id, amount
-    from public.billing_adjustments
-    where tenant_id=p_tenant_id and site_id=p_site_id and subscriber_id=v_subscriber.id
-      and adjustment_type='fraction_carried' and state='pending'
-    order by id
+    select adjustment.id, adjustment.invoice_id, adjustment.amount
+    from public.billing_adjustments as adjustment
+    where adjustment.tenant_id=p_tenant_id and adjustment.site_id=p_site_id and adjustment.subscriber_id=v_subscriber.id
+      and adjustment.adjustment_type='fraction_carried' and adjustment.state='pending'
+    order by adjustment.id
     for update
   loop
     if v_pending.invoice_id <> v_invoice_id then
