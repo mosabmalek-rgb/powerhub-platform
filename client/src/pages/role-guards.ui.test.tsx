@@ -248,6 +248,43 @@ describe("role guards in administration UI", () => {
     expect(mocks.createReadingMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ siteId: 1, subscriberId: 77, readingValue: "12.52" }));
   });
 
+  it("shows no more than 20 subscribers per page and can navigate to the 21st subscriber", () => {
+    mocks.activeRole = "viewer";
+    mocks.subscribers = Array.from({ length: 23 }, (_, index) => ({
+      id: index + 1,
+      fullName: `مشترك اختبار ${String(index + 1).padStart(2, "0")}`,
+      subscriberNo: `SUB-${String(index + 1).padStart(6, "0")}`,
+      phone: `+970599000${String(index + 1).padStart(3, "0")}`,
+      subscriptionType: index === 20 ? "institution" : index === 21 ? "mosque" : "residential",
+      serviceStatus: "active",
+    }));
+    render(<NetworkDirectoryPage kind="subscribers" />);
+    expect(screen.getByText("مشترك اختبار 01")).toBeInTheDocument();
+    expect(screen.getByText("مشترك اختبار 20")).toBeInTheDocument();
+    expect(screen.queryByText("مشترك اختبار 21")).not.toBeInTheDocument();
+    expect(screen.getByText(/عرض 20 مشتركاً كحد أقصى/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+    expect(screen.getByText("مشترك اختبار 21")).toBeInTheDocument();
+    expect(screen.getByText("مشترك اختبار 23")).toBeInTheDocument();
+    expect(screen.queryByText("مشترك اختبار 01")).not.toBeInTheDocument();
+    expect(screen.getByText("مؤسسات")).toBeInTheDocument();
+  });
+
+  it("filters the subscriber directory by institution and mosque type", () => {
+    mocks.subscribers = [
+      { id: 201, fullName: "مشترك سكني", subscriberNo: "SUB-000201", phone: "+970599000201", subscriptionType: "residential", serviceStatus: "active" },
+      { id: 202, fullName: "مؤسسة", subscriberNo: "SUB-000202", phone: "+970599000202", subscriptionType: "institution", serviceStatus: "active" },
+      { id: 203, fullName: "مسجد", subscriberNo: "SUB-000203", phone: "+970599000203", subscriptionType: "mosque", serviceStatus: "active" },
+    ];
+    render(<NetworkDirectoryPage kind="subscribers" />);
+    fireEvent.change(screen.getByLabelText("فلتر نوع المشترك"), { target: { value: "institution" } });
+    expect(screen.getByText("مؤسسة")).toBeInTheDocument();
+    expect(screen.queryByText("مشترك سكني")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("فلتر نوع المشترك"), { target: { value: "mosque" } });
+    expect(screen.getByText("مسجد")).toBeInTheDocument();
+    expect(screen.queryByText("مؤسسة")).not.toBeInTheDocument();
+  });
+
   it("collapses the add-subscriber card by default and opens it on request", () => {
     mocks.activeRole = "owner";
     render(<NetworkDirectoryPage kind="subscribers" />);
