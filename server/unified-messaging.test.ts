@@ -45,6 +45,15 @@ describe("unified messaging contract", () => {
     });
     expect(message).toBe("SUB-1 https://powerhub.example/portal?g=1");
   });
+  it("renders previous reading, current reading, and consumption variables", () => {
+    const message = renderInvoiceMessageTemplate("{{previous_reading}}|{{current_reading}}|{{consumption_kwh}}", {
+      previous_reading: "90",
+      current_reading: "100",
+      consumption_kwh: "10",
+    });
+    expect(message).toBe("90|100|10");
+    expect(message).not.toContain("{{");
+  });
   it("supports the three delivery modes", () => {
     expect(sendType.options).toEqual(["manual","automatic","scheduled"]);
   });
