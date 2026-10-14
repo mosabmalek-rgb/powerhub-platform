@@ -1,0 +1,56 @@
+name: PowerHub CI Self-hosted Trial
+
+on:
+  push:
+    branches:
+      - diagnostics/github-hosted-runner-20261014
+
+permissions:
+  contents: read
+
+concurrency:
+  group: powerhub-ci-selfhosted-trial
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: TypeScript, tests, and production build (self-hosted trial)
+    runs-on: self-hosted
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: cmd
+    env:
+      NODE_OPTIONS: --max-old-space-size=12288
+      VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
+    steps:
+      - name: Checkout diagnostic branch (PowerHub PR code plus isolated diagnostics)
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Bootstrap project-pinned pnpm through Corepack
+        run: |
+          node --version
+          npm --version
+          corepack --version
+          corepack pnpm --version
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Supabase runtime boundary
+        run: node scripts/check-supabase-runtime-boundary.mjs
+
+      - name: TypeScript check
+        run: corepack pnpm check
+
+      - name: Run project test suite
+        run: corepack pnpm test
+
+      - name: Build production artifacts
+        run: corepack pnpm build
