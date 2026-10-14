@@ -7,6 +7,17 @@ describe("تحضير استيراد المشتركين", () => {
     expect(row).toMatchObject({ status: "ready", normalizedSubscriptionType: "residential", rowNumber: 2 });
   });
 
+  it("يقبل نوعي المؤسسات والمساجد وأسماءهما العربية في الاستيراد الجماعي", () => {
+    const rows = prepareSubscriberImport([
+      { fullName: "مؤسسة الاختبار", phone: "+970599000011", address: "", subscriptionType: "مؤسسات" },
+      { fullName: "مسجد الاختبار", phone: "+970599000012", address: "", subscriptionType: "مساجد" },
+      { fullName: "Institution legacy", phone: "+970599000013", address: "", subscriptionType: "institution" },
+      { fullName: "Mosque legacy", phone: "+970599000014", address: "", subscriptionType: "mosque" },
+    ]);
+    expect(rows.map((row) => row.normalizedSubscriptionType)).toEqual(["institution", "mosque", "institution", "mosque"]);
+    expect(rows.every((row) => row.status === "ready")).toBe(true);
+  });
+
   it("يكشف الرقم المكرر والبيانات غير المكتملة قبل الحفظ", () => {
     const rows = prepareSubscriberImport([
       { fullName: "أ", phone: "+970599000001", address: "", subscriptionType: "" },
