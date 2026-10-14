@@ -1,4 +1,4 @@
-name: GitHub-hosted Runner Diagnostic
+name: Self-hosted Windows Runner Diagnostic
 
 on:
   push:
@@ -9,19 +9,21 @@ permissions:
   contents: read
 
 jobs:
-  hosted-runner-check:
-    name: Verify GitHub-hosted ubuntu-latest runner
-    runs-on: ubuntu-latest
+  self-hosted-runner-check:
+    name: Verify MOSAB Windows x64 runner
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 3
     steps:
-      - name: Confirm runner allocation and execution
-        shell: bash
+      - name: Confirm local runner allocation and execution
+        shell: pwsh
         run: |
-          set -euo pipefail
-          echo "HOSTED_RUNNER_DIAGNOSTIC_STARTED"
-          echo "RUNNER_OS=$RUNNER_OS"
-          echo "RUNNER_ARCH=$RUNNER_ARCH"
-          echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
-          test "$RUNNER_OS" = "Linux"
-          test "$GITHUB_ACTIONS" = "true"
-          echo "HOSTED_RUNNER_DIAGNOSTIC_PASSED"
+          $ErrorActionPreference = "Stop"
+          Write-Output "SELF_HOSTED_RUNNER_DIAGNOSTIC_STARTED"
+          Write-Output "RUNNER_OS=$env:RUNNER_OS"
+          Write-Output "RUNNER_ARCH=$env:RUNNER_ARCH"
+          Write-Output "RUNNER_NAME=$env:RUNNER_NAME"
+          Write-Output "GITHUB_ACTIONS=$env:GITHUB_ACTIONS"
+          if ($env:RUNNER_OS -ne "Windows") { throw "Expected Windows runner, got $env:RUNNER_OS" }
+          if ($env:RUNNER_ARCH -ne "X64") { throw "Expected X64 runner, got $env:RUNNER_ARCH" }
+          if ($env:GITHUB_ACTIONS -ne "true") { throw "GITHUB_ACTIONS was not true" }
+          Write-Output "SELF_HOSTED_RUNNER_DIAGNOSTIC_PASSED"
