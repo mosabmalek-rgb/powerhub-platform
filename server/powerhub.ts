@@ -1569,8 +1569,8 @@ export const powerhubRouter = router({
       search: z.string().trim().max(160).optional(),
       subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]).optional(),
     })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
-      return listSupabaseSubscriberDirectoryPage(input);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      return listSupabaseSubscriberDirectoryPage({ ...input, tenantId: access.tenantId });
     }),
     archived: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
