@@ -1,4 +1,5 @@
 import type { InvoiceNotificationChannel } from "./notification-channels";
+import { formatMessageAmount } from "./decimal-money";
 
 export const invoiceTemplateVariables = ["subscriber_name", "subscriber_no", "invoice_no", "billing_period", "total_amount", "balance_due", "previous_reading", "current_reading", "consumption_kwh", "total_balance", "due_date", "invoice_link", "portal_link"] as const;
 
@@ -11,9 +12,16 @@ export const defaultInvoiceMessageTemplates: Record<InvoiceNotificationChannel, 
 
 export type InvoiceTemplateData = Partial<Record<(typeof invoiceTemplateVariables)[number], string>>;
 
+const monetaryTemplateVariables = new Set(["total_amount", "balance_due", "total_balance"]);
+
 export function renderInvoiceMessageTemplate(template: string, values: InvoiceTemplateData) {
+  const displayValues = { ...values };
+  for (const key of monetaryTemplateVariables) {
+    const value = displayValues[key];
+    if (value != null && value !== "") displayValues[key] = formatMessageAmount(value);
+  }
   return invoiceTemplateVariables.reduce(
-    (message, key) => message.replace(new RegExp("\\{\\{\\s*" + key + "\\s*\\}\\}", "g"), values[key] ?? ""),
+    (message, key) => message.replace(new RegExp("\\{\\{\\s*" + key + "\\s*\\}\\}", "g"), displayValues[key] ?? ""),
     template,
   );
 }
