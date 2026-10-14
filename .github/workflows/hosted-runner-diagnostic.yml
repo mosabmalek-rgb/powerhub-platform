@@ -34,7 +34,7 @@ jobs:
           where git
           git --version
 
-      - name: Check PostgreSQL and container tools
+      - name: Report PostgreSQL and container tool availability
         shell: cmd
         run: |
           where psql
@@ -45,3 +45,4 @@ jobs:
           if errorlevel 1 echo DOCKER_NOT_INSTALLED
           where podman
           if errorlevel 1 echo PODMAN_NOT_INSTALLED
+          exit /b 0
