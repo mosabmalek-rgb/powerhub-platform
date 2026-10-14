@@ -19,7 +19,9 @@ describe("invoice message templates", () => {
       consumption_kwh: "335",
     });
     expect(readings).toBe("السابقة 12450، الحالية 12785، الاستهلاك 335");
-    expect(readings).not.toMatch(/{{\\s*(previous_reading|current_reading|consumption_kwh)\\s*}}/);
+    expect(readings).not.toContain("{{previous_reading}}");
+    expect(readings).not.toContain("{{current_reading}}");
+    expect(readings).not.toContain("{{consumption_kwh}}");
   });
 
 
