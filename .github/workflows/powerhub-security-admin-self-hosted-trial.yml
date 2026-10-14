@@ -1,0 +1,48 @@
+name: PowerHub Security and Admin Guard Self-hosted Trial
+
+on:
+  push:
+    branches:
+      - diagnostics/github-hosted-runner-20261014
+
+permissions:
+  contents: read
+
+concurrency:
+  group: powerhub-security-admin-selfhosted-trial
+  cancel-in-progress: false
+
+jobs:
+  security-admin-guard:
+    name: Dependency security and Supabase admin guard (self-hosted)
+    runs-on: self-hosted
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: cmd
+    env:
+      VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Static dependency security guard
+        run: node scripts/check-dependency-security.mjs
+
+      - name: Supabase migration guard tests
+        run: >-
+          corepack pnpm exec vitest run
+          server/admin.legacy-write-guards.test.ts
+          server/admin.tenant-branch-settings-supabase.test.ts
+          server/powerhub-mobile-approve-runtime.test.ts
+          server/supabase-runtime-boundary.test.ts
+          server/admin.dashboard-sync-contract.test.ts
