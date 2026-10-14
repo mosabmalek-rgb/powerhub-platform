@@ -103,12 +103,15 @@ begin
      and p_fraction_carry_min_tenth<=p_automatic_fraction_discount_max_tenth then
     raise exception 'FRACTION_RANGES_OVERLAP' using errcode='P0001';
   end if;
-  select exists(
-    select 1 from public.tenant_members m
-    join public.staff_profiles s on s.user_id=m.user_id and s.tenant_id=m.tenant_id and s.site_id=p_site_id and s.is_active
-    where m.tenant_id=p_tenant_id and m.user_id=p_user_id and m.is_active and m.membership_status='active'
-      and s.role='owner' and (s.suspension_ends_at is null or s.suspension_ends_at<=now())
-  ) into v_allowed;
+  select
+    exists(select 1 from public.users u where u.id=p_user_id and u.account_status='active'
+      and u.platform_role in ('platform_owner','platform_admin','finance_admin'))
+    or exists(
+      select 1 from public.tenant_members m
+      join public.staff_profiles s on s.user_id=m.user_id and s.tenant_id=m.tenant_id and s.site_id=p_site_id and s.is_active
+      where m.tenant_id=p_tenant_id and m.user_id=p_user_id and m.is_active and m.membership_status='active'
+        and s.role='owner' and (s.suspension_ends_at is null or s.suspension_ends_at<=now())
+    ) into v_allowed;
   if not v_allowed then raise exception 'BILLING_POLICY_PERMISSION_REQUIRED' using errcode='P0001'; end if;
   if not exists(select 1 from public.sites where id=p_site_id and tenant_id=p_tenant_id) then raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001'; end if;
 
