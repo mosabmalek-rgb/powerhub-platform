@@ -288,7 +288,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
 
       const invoiceIds = freshPayments.map((p: any) => p.invoice_id).filter(Boolean).map(Number);
       const { data: invoices, error: invoicesError } = invoiceIds.length
-        ? await admin.from("invoices").select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date").eq("tenant_id",tenantId).eq("site_id",siteId).in("id",invoiceIds)
+        ? await admin.from("invoices").select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,previous_reading,current_reading,consumption_kwh").eq("tenant_id",tenantId).eq("site_id",siteId).in("id",invoiceIds)
         : { data: [], error: null };
       if (invoicesError) throw new Error("تعذر تحميل فواتير الأتمتة.");
       const invoiceMap = new Map((invoices ?? []).map((i: any) => [Number(i.id), i]));
@@ -304,6 +304,9 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
           total_amount: invoice?.total_amount == null ? "" : String(invoice.total_amount),
           balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
+          previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
+          current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
+          consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
           due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
         };
         const renderedText = await renderAutomationMessage(template.body, values, {
@@ -349,7 +352,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           let lastInvoiceId = 0;
           for (;;) {
             const { data: invoices, error: invoicesError } = await admin.from("invoices")
-              .select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,status")
+              .select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,status,previous_reading,current_reading,consumption_kwh")
               .eq("tenant_id", tenantId).eq("site_id", siteId).in("subscriber_id", ids)
               .in("status", ["issued","partially_paid","overdue"]).gt("balance_due", 0).lte("due_date", now.toISOString())
               .gt("id", lastInvoiceId).order("id", { ascending: true }).limit(500);
@@ -387,6 +390,9 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
             invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
             total_amount: invoice?.total_amount == null ? "" : String(invoice.total_amount),
             balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
+            previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
+            current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
+            consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
             due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
           };
           candidates.push({ subscriber, invoice, operationKey, values });
