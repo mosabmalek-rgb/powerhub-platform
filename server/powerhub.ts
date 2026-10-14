@@ -20,7 +20,7 @@ import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReadin
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 async function requirePaymentDocumentationFeature(tenantId: number) {
@@ -1562,6 +1562,16 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       return listSupabaseSubscribers(input.siteId);
     }),
+    directoryPage: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(25).default(20),
+      search: z.string().trim().max(160).optional(),
+      subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]).optional(),
+    })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      return listSupabaseSubscriberDirectoryPage({ ...input, tenantId: access.tenantId });
+    }),
     archived: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       const { data, error } = await supabaseAdmin().from("subscribers")
@@ -1633,7 +1643,7 @@ export const powerhubRouter = router({
       phone: z.string().min(5).max(30),
       whatsappNumber: z.string().min(5).max(30).optional(),
       address: z.string().max(1000).optional(),
-      subscriptionType: z.enum(["residential", "commercial"]).default("residential"),
+      subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]).default("residential"),
       clientOperationId: z.string().uuid().optional(),
       openingReading: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
       openingReadingAt: z.string().trim().optional().refine((value) => !value || !Number.isNaN(Date.parse(value)), "تاريخ القراءة الافتتاحية غير صالح."),
@@ -1730,7 +1740,7 @@ export const powerhubRouter = router({
         phone: z.string().trim().max(60),
         whatsappNumber: z.string().trim().max(60).optional(),
         address: z.string().trim().max(1500).optional(),
-        subscriptionType: z.enum(["residential", "commercial"]),
+        subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]),
         openingReading: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
         openingReadingAt: z.string().datetime().optional(),
       })).min(1).max(300),
@@ -1742,7 +1752,7 @@ export const powerhubRouter = router({
       const failureRows: Array<{ sourceRow: number; fullName: string; reason: string }> = [];
       const seenPhones = new Set<string>();
       const seenReferences = new Set<string>();
-      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial"; openingReading?: string; openingReadingAt?: string; openingReadingApproved?: boolean }> = [];
+      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial" | "institution" | "mosque"; openingReading?: string; openingReadingAt?: string; openingReadingApproved?: boolean }> = [];
       for (const row of input.rows) {
         if (!row.openingReading && row.openingReadingAt) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "أدخل قيمة القراءة الافتتاحية قبل تحديد تاريخها." }); continue; }
         if (row.fullName.trim().length < 2) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الاسم الكامل قصير جداً." }); continue; }
@@ -1792,7 +1802,7 @@ export const powerhubRouter = router({
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
-      address: z.string().max(1000).optional(), subscriptionType: z.enum(["residential", "commercial"]), serviceStatus: z.enum(["active", "suspended", "disconnected"]),
+      address: z.string().max(1000).optional(), subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]), serviceStatus: z.enum(["active", "suspended", "disconnected"]),
       clientOperationId: z.string().uuid().optional(), expectedUpdatedAt: z.date().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageSubscribers");

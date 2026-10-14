@@ -14,15 +14,17 @@ export type SubscriberImportDraft = {
 
 export type PreparedSubscriberImportRow = SubscriberImportDraft & {
   rowNumber: number;
-  normalizedSubscriptionType: "residential" | "commercial" | null;
+  normalizedSubscriptionType: "residential" | "commercial" | "institution" | "mosque" | null;
   status: "ready" | "error";
   errors: string[];
 };
 
-function subscriptionType(value: string): "residential" | "commercial" | null {
+function subscriptionType(value: string): "residential" | "commercial" | "institution" | "mosque" | null {
   const normalized = value.trim().toLowerCase();
   if (["residential", "سكني", "سكنية"].includes(normalized)) return "residential";
   if (["commercial", "تجاري", "تجارية"].includes(normalized)) return "commercial";
+  if (["institution", "institutions", "مؤسسة", "مؤسسات", "مؤسسه"].includes(normalized)) return "institution";
+  if (["mosque", "mosques", "مسجد", "مساجد"].includes(normalized)) return "mosque";
   return null;
 }
 
@@ -63,7 +65,7 @@ export function prepareSubscriberImport(rows: SubscriberImportDraft[]): Prepared
     if (whatsappNumber && !/^\+?[0-9]{5,30}$/.test(whatsappNumber) && !/^00[0-9]{7,30}$/.test(whatsappNumber) && !/^0(?:56|59)[0-9]{7}$/.test(whatsappNumber)) {
       errors.push("رقم واتساب اختياري، لكن يجب أن يكون رقماً صحيحاً عند إدخاله.");
     }
-    if (!normalizedSubscriptionType) errors.push("نوع الاشتراك يجب أن يكون سكني أو تجاري.");
+    if (!normalizedSubscriptionType) errors.push("نوع الاشتراك يجب أن يكون سكني أو تجاري أو مؤسسات أو مساجد.");
     if (phone && (phones.get(phone) ?? 0) > 1) errors.push("رقم الجوال مكرر داخل الملف.");
     if (subscriberNo && !/^[A-Z0-9][A-Z0-9_-]{1,79}$/.test(subscriberNo)) errors.push("الرقم المرجعي يجب أن يحتوي أحرفاً أو أرقاماً وشرطات فقط.");
     if (subscriberNo && (references.get(subscriberNo) ?? 0) > 1) errors.push("الرقم المرجعي مكرر داخل الملف.");

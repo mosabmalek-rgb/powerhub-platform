@@ -66,7 +66,7 @@ vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()] }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, directoryPage: { invalidate: vi.fn() }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
     powerhub: {
       sites: { list: { useQuery: () => mocks.query([mocks.site]) }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, anomalyAlert: { useQuery: () => mocks.query({ anomalyAlertPercent: 50 }) }, create: { useMutation: mocks.mutation }, updateAnomalyAlert: { useMutation: mocks.mutation } },
       reportBranding: { get: { useQuery: () => mocks.query({ companyName: "PowerHub", logoUrl: null }) }, update: { useMutation: mocks.mutation } },
@@ -76,7 +76,21 @@ vi.mock("@/lib/trpc", () => ({
       readings: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: () => mocks.query({ items: [], hasNext: false, nextCursor: null }) }, create: { useMutation: () => ({ mutate: mocks.createReadingMutate, mutateAsync: mocks.createReadingMutateAsync, isPending: false }) }, getImage: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } }, mobileSync: { approveAndIssue: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
       invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, page: { useQuery: () => mocks.query({ items: mocks.invoices, hasNext: false, nextCursor: null }) }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
-      subscribers: { list: { useQuery: () => mocks.query(mocks.subscribers) }, quota: { useQuery: () => mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "basic" }) }, phoneReview: { useQuery: () => mocks.query([]) }, create: { useMutation: () => ({ mutate: mocks.createSubscriberMutate, isPending: false }) }, bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation } },
+      subscribers: {
+        list: { useQuery: () => mocks.query(mocks.subscribers) },
+        directoryPage: { useQuery: (input: { page: number; pageSize: number; search?: string; subscriptionType?: string }) => {
+          const term = String(input.search ?? "").trim().toLocaleLowerCase("ar");
+          const filtered = mocks.subscribers.filter((row) =>
+            (!input.subscriptionType || row.subscriptionType === input.subscriptionType) &&
+            (!term || [row.fullName, row.subscriberNo, row.phone, row.whatsappNumber, row.address].some((value) => String(value ?? "").toLocaleLowerCase("ar").includes(term))),
+          );
+          return mocks.query({ items: filtered.slice((input.page - 1) * input.pageSize, input.page * input.pageSize), totalCount: filtered.length, page: input.page, pageSize: input.pageSize, totalPages: Math.max(1, Math.ceil(filtered.length / input.pageSize)) });
+        } },
+        quota: { useQuery: () => mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "basic" }) },
+        phoneReview: { useQuery: () => mocks.query([]) },
+        create: { useMutation: () => ({ mutate: mocks.createSubscriberMutate, isPending: false }) },
+        bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation }
+      },
       generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: () => ({ mutate: mocks.createGeneratorMutate, isPending: false }) }, update: { useMutation: mocks.mutation } },
       payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: () => mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }) }, create: { useMutation: mocks.mutation } },
       companyAccounts: {
@@ -246,6 +260,42 @@ describe("role guards in administration UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "حفظ القراءات السليمة" }));
     await waitFor(() => expect(mocks.createReadingMutateAsync).toHaveBeenCalledTimes(1));
     expect(mocks.createReadingMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ siteId: 1, subscriberId: 77, readingValue: "12.52" }));
+  });
+
+  it("shows no more than 20 subscribers per page and can navigate to the 21st subscriber", () => {
+    mocks.activeRole = "viewer";
+    mocks.subscribers = Array.from({ length: 23 }, (_, index) => ({
+      id: index + 1,
+      fullName: `مشترك اختبار ${String(index + 1).padStart(2, "0")}`,
+      subscriberNo: `SUB-${String(index + 1).padStart(6, "0")}`,
+      phone: `+970599000${String(index + 1).padStart(3, "0")}`,
+      subscriptionType: index === 20 ? "institution" : index === 21 ? "mosque" : "residential",
+      serviceStatus: "active",
+    }));
+    render(<NetworkDirectoryPage kind="subscribers" />);
+    expect(screen.getByText("مشترك اختبار 01")).toBeInTheDocument();
+    expect(screen.getByText("مشترك اختبار 20")).toBeInTheDocument();
+    expect(screen.queryByText("مشترك اختبار 21")).not.toBeInTheDocument();
+    expect(screen.getByText(/عرض 20 مشتركاً كحد أقصى/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+    expect(screen.getByText("مشترك اختبار 21")).toBeInTheDocument();
+    expect(screen.getByText("مشترك اختبار 23")).toBeInTheDocument();
+    expect(screen.queryByText("مشترك اختبار 01")).not.toBeInTheDocument();
+  });
+
+  it("filters the subscriber directory by institution and mosque type", () => {
+    mocks.subscribers = [
+      { id: 201, fullName: "مشترك سكني", subscriberNo: "SUB-000201", phone: "+970599000201", subscriptionType: "residential", serviceStatus: "active" },
+      { id: 202, fullName: "مؤسسة", subscriberNo: "SUB-000202", phone: "+970599000202", subscriptionType: "institution", serviceStatus: "active" },
+      { id: 203, fullName: "مسجد", subscriberNo: "SUB-000203", phone: "+970599000203", subscriptionType: "mosque", serviceStatus: "active" },
+    ];
+    render(<NetworkDirectoryPage kind="subscribers" />);
+    fireEvent.change(screen.getByLabelText("فلتر نوع المشترك"), { target: { value: "institution" } });
+    expect(screen.getByText("مؤسسة")).toBeInTheDocument();
+    expect(screen.queryByText("مشترك سكني")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("فلتر نوع المشترك"), { target: { value: "mosque" } });
+    expect(screen.getByText("مسجد")).toBeInTheDocument();
+    expect(screen.queryByText("مؤسسة")).not.toBeInTheDocument();
   });
 
   it("collapses the add-subscriber card by default and opens it on request", () => {
