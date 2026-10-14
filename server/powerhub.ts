@@ -1633,7 +1633,7 @@ export const powerhubRouter = router({
       phone: z.string().min(5).max(30),
       whatsappNumber: z.string().min(5).max(30).optional(),
       address: z.string().max(1000).optional(),
-      subscriptionType: z.enum(["residential", "commercial"]).default("residential"),
+      subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]).default("residential"),
       clientOperationId: z.string().uuid().optional(),
       openingReading: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
       openingReadingAt: z.string().trim().optional().refine((value) => !value || !Number.isNaN(Date.parse(value)), "تاريخ القراءة الافتتاحية غير صالح."),
@@ -1730,7 +1730,7 @@ export const powerhubRouter = router({
         phone: z.string().trim().max(60),
         whatsappNumber: z.string().trim().max(60).optional(),
         address: z.string().trim().max(1500).optional(),
-        subscriptionType: z.enum(["residential", "commercial"]),
+        subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]),
         openingReading: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
         openingReadingAt: z.string().datetime().optional(),
       })).min(1).max(300),
@@ -1792,7 +1792,7 @@ export const powerhubRouter = router({
     }),
     update: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), id: z.number().int().positive(), fullName: z.string().min(2).max(180), phone: z.string().min(5).max(30),
-      address: z.string().max(1000).optional(), subscriptionType: z.enum(["residential", "commercial"]), serviceStatus: z.enum(["active", "suspended", "disconnected"]),
+      address: z.string().max(1000).optional(), subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]), serviceStatus: z.enum(["active", "suspended", "disconnected"]),
       clientOperationId: z.string().uuid().optional(), expectedUpdatedAt: z.date().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageSubscribers");
