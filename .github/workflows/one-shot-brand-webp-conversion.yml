@@ -1,0 +1,264 @@
+name: One-shot PowerHub logo WebP conversion
+
+on:
+  push:
+    branches:
+      - automation/one-shot-brand-webp-conversion-20261014
+    paths:
+      - .github/workflows/one-shot-brand-webp-conversion.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: powerhub-logo-webp-conversion
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout current main source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Set up Python with image codecs
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned lossless image tooling
+        run: python -m pip install --disable-pip-version-check "Pillow==11.3.0"
+
+      - name: Download originals, convert losslessly, verify pixels, and patch frontend
+        env:
+          ORIGINAL_ASSET_BASE: https://powerhub-platform.vercel.app/api/brand-assets
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from PIL import Image
+
+          root = Path.cwd()
+          temp = Path("/tmp/powerhub-logo-webp")
+          temp.mkdir(parents=True, exist_ok=True)
+          output_dir = root / "client/public/brand-v1"
+          output_dir.mkdir(parents=True, exist_ok=True)
+          verified = []
+
+          for theme in ("light", "dark"):
+              name = f"powerhub-logo-{theme}"
+              source = temp / f"{name}.png"
+              target = output_dir / f"{name}.webp"
+              url = f"{os.environ['ORIGINAL_ASSET_BASE']}/{name}.png?v=lossless-conversion-20261014"
+              subprocess.run(
+                  ["curl", "--fail", "--silent", "--show-error", "--location",
+                   "--retry", "2", "--connect-timeout", "20", url, "--output", str(source)],
+                  check=True,
+              )
+              raw = source.read_bytes()
+              if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+                  raise SystemExit(f"{source.name}: source endpoint did not return a valid PNG")
+              with Image.open(source) as image:
+                  image.load()
+                  original_rgba = image.convert("RGBA")
+                  original_pixels = original_rgba.tobytes()
+                  original_size = image.size
+                  icc_profile = image.info.get("icc_profile")
+                  exif = image.info.get("exif")
+                  has_transparent_pixels = original_rgba.getchannel("A").getextrema()[0] < 255
+                  save_options = {
+                      "format": "WEBP",
+                      "lossless": True,
+                      "quality": 100,
+                      "method": 6,
+                      "exact": True,
+                  }
+                  if icc_profile:
+                      save_options["icc_profile"] = icc_profile
+                  if exif:
+                      save_options["exif"] = exif
+                  original_rgba.save(target, **save_options)
+
+              with Image.open(target) as converted:
+                  converted.load()
+                  actual_rgba = converted.convert("RGBA")
+                  if converted.format != "WEBP":
+                      raise SystemExit(f"{target.name}: output is not WebP")
+                  if actual_rgba.size != original_size:
+                      raise SystemExit(f"{target.name}: dimensions changed: {original_size} -> {actual_rgba.size}")
+                  if actual_rgba.tobytes() != original_pixels:
+                      raise SystemExit(f"{target.name}: decoded RGBA pixels differ from original PNG")
+                  if has_transparent_pixels and actual_rgba.getchannel("A").getextrema()[0] == 255:
+                      raise SystemExit(f"{target.name}: transparency channel was lost")
+
+              converted_bytes = target.read_bytes()
+              if not (len(converted_bytes) >= 12 and converted_bytes[:4] == b"RIFF" and converted_bytes[8:12] == b"WEBP"):
+                  raise SystemExit(f"{target.name}: WebP container signature check failed")
+              if target.stat().st_size >= source.stat().st_size:
+                  raise SystemExit(
+                      f"{target.name}: lossless WebP did not reduce size "
+                      f"({source.stat().st_size} -> {target.stat().st_size} bytes); refusing to replace PNG"
+                  )
+              verified.append({
+                  "theme": theme,
+                  "source": source.name,
+                  "output": str(target.relative_to(root)),
+                  "width": original_size[0],
+                  "height": original_size[1],
+                  "png_bytes": source.stat().st_size,
+                  "webp_bytes": target.stat().st_size,
+                  "reduction_percent": round((1 - target.stat().st_size / source.stat().st_size) * 100, 2),
+                  "pixel_identical_rgba": True,
+                  "transparent_pixels_present": has_transparent_pixels,
+                  "png_sha256": hashlib.sha256(raw).hexdigest(),
+                  "webp_sha256": hashlib.sha256(converted_bytes).hexdigest(),
+              })
+
+          logo_path = root / "client/src/components/PowerHubLogo.tsx"
+          logo = logo_path.read_text()
+          substitutions = {
+              'export const LIGHT_LOGO_URL = "/api/brand-assets/powerhub-logo-light.png?v=20260904";':
+                  'export const LIGHT_LOGO_URL = "/brand-v1/powerhub-logo-light.webp?v=lossless-20261014";',
+              'export const DARK_LOGO_URL = "/api/brand-assets/powerhub-logo-dark.png?v=20260904";':
+                  'export const DARK_LOGO_URL = "/brand-v1/powerhub-logo-dark.webp?v=lossless-20261014";',
+          }
+          for old, new in substitutions.items():
+              if logo.count(old) != 1:
+                  raise SystemExit(f"Expected exactly one logo source declaration: {old}")
+              logo = logo.replace(old, new, 1)
+          if 'const LIGHT_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-light.png";' not in logo:
+              raise SystemExit("Light PNG fallback is not present")
+          if 'const DARK_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-dark.png";' not in logo:
+              raise SystemExit("Dark PNG fallback is not present")
+          logo_path.write_text(logo)
+
+          test_path = root / "server/unified-messaging-runtime.test.ts"
+          tests = test_path.read_text()
+          marker = 'const logo = fs.readFileSync(path.join(root, "client/src/components/PowerHubLogo.tsx"), "utf8");\n'
+          additions = (
+              marker
+              + 'const lightLogoWebp = fs.readFileSync(path.join(root, "client/public/brand-v1/powerhub-logo-light.webp"));\n'
+              + 'const darkLogoWebp = fs.readFileSync(path.join(root, "client/public/brand-v1/powerhub-logo-dark.webp"));\n'
+          )
+          if tests.count(marker) != 1:
+              raise SystemExit("Could not find a unique logo test declaration insertion point")
+          tests = tests.replace(marker, additions, 1)
+          test_name = 'it("uses a cached vector logo, a message-specific sidebar icon, and only supported provider statuses", () => {'
+          if tests.count(test_name) != 1:
+              raise SystemExit("Could not find the existing logo contract test")
+          tests = tests.replace(
+              test_name,
+              'it("serves lossless theme-specific WebP logos with original PNG fallbacks and supported provider statuses", () => {',
+              1,
+          )
+          old_light = 'expect(logo).toContain("powerhub-logo-light.png?v=20260904");'
+          old_dark = 'expect(logo).toContain("powerhub-logo-dark.png?v=20260904");'
+          if tests.count(old_light) != 1 or tests.count(old_dark) != 1:
+              raise SystemExit("Existing logo URL contract assertions changed; refusing a fuzzy test edit")
+          tests = tests.replace(old_light, 'expect(logo).toContain("/brand-v1/powerhub-logo-light.webp?v=lossless-20261014");\n    expect(logo).toContain(\'const LIGHT_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-light.png";\');', 1)
+          tests = tests.replace(old_dark, 'expect(logo).toContain("/brand-v1/powerhub-logo-dark.webp?v=lossless-20261014");\n    expect(logo).toContain(\'const DARK_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-dark.png";\');', 1)
+          proxy_assertion = '    expect(brandProxy).toContain(\'const BRAND_ASSETS = new Set(["powerhub-logo-light.png", "powerhub-logo-dark.png"]); \'.trim());\n'
+          if tests.count(proxy_assertion) != 1:
+              raise SystemExit("Could not find the existing brand proxy boundary assertion")
+          binary_assertions = (
+              proxy_assertion
+              + '    expect(lightLogoWebp.subarray(0, 4).toString("ascii")).toBe("RIFF");\n'
+              + '    expect(lightLogoWebp.subarray(8, 12).toString("ascii")).toBe("WEBP");\n'
+              + '    expect(darkLogoWebp.subarray(0, 4).toString("ascii")).toBe("RIFF");\n'
+              + '    expect(darkLogoWebp.subarray(8, 12).toString("ascii")).toBe("WEBP");\n'
+          )
+          tests = tests.replace(proxy_assertion, binary_assertions, 1)
+          test_path.write_text(tests)
+
+          vercel_path = root / "vercel.json"
+          config = json.loads(vercel_path.read_text())
+          cache_rule = {
+              "source": "/brand-v1/(.*)",
+              "headers": [{"key": "Cache-Control", "value": "public, max-age=31536000, immutable"}],
+          }
+          if cache_rule not in config["headers"]:
+              config["headers"].append(cache_rule)
+          vercel_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+
+          now = datetime.now(timezone.utc).date().isoformat()
+          report = [
+              "# PowerHub logo WebP conversion verification",
+              "",
+              f"- Verified at (UTC date): {now}",
+              "- Source: current original light/dark PNGs fetched from the production brand-asset proxy.",
+              "- Encoding: WebP lossless (exact=True, quality=100, method 6).",
+              "- Pixel validation: PNG and decoded WebP RGBA byte arrays are identical for each theme.",
+              "- Fallbacks: original theme-matched PNG assets remain configured in PowerHubLogo.",
+              "- Browser cache: versioned /brand-v1/ assets use a one-year immutable cache policy.",
+              "",
+              "| Theme | Dimensions | Original PNG | Lossless WebP | Reduction | RGBA pixels identical | Transparent pixels |",
+              "|---|---:|---:|---:|---:|---|---|",
+          ]
+          for item in verified:
+              report.append(
+                  f"| {item['theme']} | {item['width']} × {item['height']} | "
+                  f"{item['png_bytes']:,} B | {item['webp_bytes']:,} B | "
+                  f"{item['reduction_percent']}% | yes | "
+                  f"{'yes' if item['transparent_pixels_present'] else 'no non-opaque pixels in source'} |"
+              )
+          report.extend(["", "## SHA-256", ""])
+          for item in verified:
+              report.extend([
+                  f"### {item['theme'].capitalize()}",
+                  f"- PNG SHA-256: {item['png_sha256']}",
+                  f"- WebP SHA-256: {item['webp_sha256']}",
+                  "",
+              ])
+          (root / "docs/powerhub-logo-webp-verification.md").write_text("\n".join(report) + "\n")
+
+          summary = ["## PowerHub logo WebP conversion", "", "| Theme | Dimensions | PNG | WebP | Reduced | Pixel exact |", "|---|---:|---:|---:|---:|---|"]
+          for item in verified:
+              summary.append(
+                  f"| {item['theme']} | {item['width']} × {item['height']} | "
+                  f"{item['png_bytes']} B | {item['webp_bytes']} B | "
+                  f"{item['reduction_percent']}% | yes |"
+              )
+          summary.extend(["", "RGBA pixels and alpha channel verified byte-for-byte after decoding."])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("\n".join(summary) + "\n")
+          print(json.dumps(verified, indent=2))
+          PY
+
+      - name: Validate TypeScript, tests, and production build
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
+        run: |
+          npm install --global pnpm@10.34.5
+          pnpm install --frozen-lockfile
+          pnpm check
+          pnpm test
+          pnpm build
+
+      - name: Commit verified WebP assets to an isolated branch
+        run: |
+          BRANCH="fix/powerhub-lossless-webp-logos-${GITHUB_RUN_ID}"
+          git switch -c "$BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client/public/brand-v1/powerhub-logo-light.webp client/public/brand-v1/powerhub-logo-dark.webp client/src/components/PowerHubLogo.tsx server/unified-messaging-runtime.test.ts vercel.json docs/powerhub-logo-webp-verification.md
+          git diff --cached --check
+          git commit -m "perf: serve pixel-identical lossless WebP logos"
+          git push --set-upstream origin "$BRANCH"
+          {
+            echo ""
+            echo "### Generated feature branch"
+            echo ""
+            echo "$BRANCH"
+            echo ""
+            echo "Create a pull request from this branch after the conversion and source tests complete."
+          } >> "$GITHUB_STEP_SUMMARY"
