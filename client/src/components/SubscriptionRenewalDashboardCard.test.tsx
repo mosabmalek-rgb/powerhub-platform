@@ -22,7 +22,7 @@ describe("بطاقة اشتراك صاحب المولد", () => {
   it("تعرض الباقة وتاريخ الانتهاء ووسيلة طلب التجديد", () => {
     const onContact = renderCard(new Date(Date.now() + 40 * 86_400_000));
     expect(screen.getByRole("heading", { name: "اشتراكي وتجديدي" })).toBeInTheDocument();
-    expect(screen.getByText("باقة النمو")).toBeInTheDocument();
+    expect(screen.getByText(/الباقة الحالية: النمو/)).toBeInTheDocument();
     expect(screen.getByText("تاريخ الانتهاء")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "التواصل لطلب التجديد" }));
     expect(onContact).toHaveBeenCalledOnce();
