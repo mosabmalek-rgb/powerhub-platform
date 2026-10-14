@@ -22,6 +22,9 @@ describe("invoice message templates", () => {
     expect(readings).not.toContain("{{previous_reading}}");
     expect(readings).not.toContain("{{current_reading}}");
     expect(readings).not.toContain("{{consumption_kwh}}");
+    const balance = renderInvoiceMessageTemplate("المستحقات الإجمالية {{total_balance}} شيكل", { total_balance: "42,500" });
+    expect(balance).toBe("المستحقات الإجمالية 42,500 شيكل");
+    expect(balance).not.toContain("{{total_balance}}");
   });
 
 
