@@ -54,6 +54,30 @@ describe("unified messaging contract", () => {
     expect(message).toBe("90|100|10");
     expect(message).not.toContain("{{");
   });
+
+  it("does not require an SMS provider configuration just to save an invoice template", () => {
+    expect(messagingRouterSource).toContain("const wantsInvoiceStyle = input.channel === \"sms\" && input.eventType === \"invoice_issued\" && input.invoiceStyle !== undefined");
+    expect(messagingRouterSource).toContain("if (!smsConfiguration) invoiceStyleToPersist = null");
+    expect(messagingRouterSource).toContain("p_invoice_style: invoiceStyleToPersist");
+    expect(messagingRouterSource).toContain("SMS_CONFIGURATION_REQUIRED_FOR_INVOICE_STYLE");
+  });
+
+  it("records database diagnostics for template-save RPC failures without exposing template content", () => {
+    expect(messagingRouterSource).toContain("[unifiedMessaging.saveTemplate] template RPC failed");
+    expect(messagingRouterSource).toContain("details: error.details, hint: error.hint");
+    expect(messagingRouterSource).toContain("لم يُحفظ القالب.");
+    expect(messagingRouterSource).not.toContain("body: input.body");
+  });
+
+  it("keeps automation editor template and event selection independent from template editing", () => {
+    const page = fs.readFileSync(new URL("../client/src/pages/MessagingSettingsPage.tsx", import.meta.url), "utf8");
+    expect(page).toContain("const [automationTemplateId, setAutomationTemplateId]");
+    expect(page).toContain("const [automationEventType, setAutomationEventType]");
+    expect(page).toContain("setAutomationTemplateId(a.templateId)");
+    expect(page).toContain("setAutomationEventType(a.eventType)");
+    expect(page).toContain("نوع حدث القالب لا يطابق حدث الأتمتة");
+  });
+
   it("supports the three delivery modes", () => {
     expect(sendType.options).toEqual(["manual","automatic","scheduled"]);
   });
