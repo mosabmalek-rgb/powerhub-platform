@@ -5,6 +5,7 @@ import path from "node:path";
 const root = process.cwd();
 const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messaging.ts"), "utf8");
 const invoiceLinksMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223156_powerhub_invoice_message_links.sql"), "utf8");
+const readingVariablesMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014180000_powerhub_invoice_reading_message_variables.sql"), "utf8");
 const tokenFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261010075617_powerhub_fix_postgres_urlsafe_tokens.sql"), "utf8");
 const monthlyScheduleFixMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261010075643_powerhub_fix_monthly_schedule_day.sql"), "utf8");
 const scheduler = fs.readFileSync(path.join(root, "server/_core/index.ts"), "utf8");
@@ -44,6 +45,19 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("unique (tenant_id, operation_key)");
     expect(migration).toContain("add column if not exists automation_id bigint");
     expect(migration).toContain("notification_messages_automation_runtime_idx");
+  });
+
+  it("patches every live invoice creation route to render previous reading, current reading, and consumption", () => {
+    expect(readingVariablesMigration).toContain("powerhub_queue_invoice_sms_after_issue");
+    expect(readingVariablesMigration).toContain("powerhub_queue_selected_invoice_sms");
+    expect(readingVariablesMigration).toContain("powerhub_approve_and_issue_mobile_reading");
+    expect(readingVariablesMigration).toContain("{{previous_reading}}");
+    expect(readingVariablesMigration).toContain("{{current_reading}}");
+    expect(readingVariablesMigration).toContain("{{consumption_kwh}}");
+    expect(ui).toContain('label: "القراءة السابقة"');
+    expect(ui).toContain('label: "القراءة الحالية"');
+    expect(ui).toContain('label: "الاستهلاك (ك.و.س)"');
+    expect(runtime).toContain('previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading)');
   });
 
   it("does not turn scheduler/template/portal query errors into benign skips", () => {
