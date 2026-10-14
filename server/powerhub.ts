@@ -1742,7 +1742,7 @@ export const powerhubRouter = router({
       const failureRows: Array<{ sourceRow: number; fullName: string; reason: string }> = [];
       const seenPhones = new Set<string>();
       const seenReferences = new Set<string>();
-      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial"; openingReading?: string; openingReadingAt?: string; openingReadingApproved?: boolean }> = [];
+      const accepted: Array<{ sourceRow: number; subscriberNo?: string; fullName: string; phone: string; whatsappNumber?: string; address?: string; subscriptionType: "residential" | "commercial" | "institution" | "mosque"; openingReading?: string; openingReadingAt?: string; openingReadingApproved?: boolean }> = [];
       for (const row of input.rows) {
         if (!row.openingReading && row.openingReadingAt) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "أدخل قيمة القراءة الافتتاحية قبل تحديد تاريخها." }); continue; }
         if (row.fullName.trim().length < 2) { failureRows.push({ sourceRow: row.sourceRow, fullName: row.fullName, reason: "الاسم الكامل قصير جداً." }); continue; }
