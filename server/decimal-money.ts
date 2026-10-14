@@ -1,0 +1,31 @@
+/**
+ * Exact decimal conversion helpers for amounts stored as PostgreSQL numeric(…, 2).
+ * Use integer minor units for arithmetic to avoid IEEE-754 rounding errors.
+ */
+export function decimalAmountToMinorUnits(value: string | number | bigint | null | undefined): bigint {
+  if (value == null) return 0n;
+
+  const raw = String(value).trim();
+  const match = /^([+-]?)(\d+)(?:\.(\d{1,2}))?$/.exec(raw);
+  if (!match) {
+    throw new Error("Invalid monetary amount; expected a decimal with at most two fractional digits.");
+  }
+
+  const wholeUnits = BigInt(match[2]);
+  const fractionText = (match[3] ?? "").padEnd(2, "0");
+  const fractionalUnits = BigInt(fractionText || "0");
+  const amount = wholeUnits * 100n + fractionalUnits;
+  return match[1] === "-" ? -amount : amount;
+}
+
+export function minorUnitsToAmountString(minorUnits: bigint): string {
+  const negative = minorUnits < 0n;
+  const absolute = negative ? -minorUnits : minorUnits;
+  const wholeUnits = absolute / 100n;
+  const fractionalUnits = (absolute % 100n).toString().padStart(2, "0");
+  const formatted = fractionalUnits === "00"
+    ? wholeUnits.toString()
+    : `${wholeUnits}.${fractionalUnits.replace(/0+$/, "")}`;
+
+  return negative && absolute !== 0n ? `-${formatted}` : formatted;
+}
