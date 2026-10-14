@@ -20,6 +20,9 @@ describe("buildFinancialOverview", () => {
     expect(overview.outstanding).toMatchObject({ total: 150, overdue: 70, partialInvoices: 1, accountCount: 2 });
     expect(overview.branchSummaries[0]).toMatchObject({ name: "فرع السوق", outstanding: 80, collectionRate: 0 });
     expect(overview.topDebtors[0]).toMatchObject({ subscriber: "أحمد", outstanding: 70, isOverdue: true, ageDays: 11, lastPaymentAt: "2026-08-21T10:00:00.000Z", invoiceId: 101, invoiceNo: "INV-1" });
+    expect(overview.outstandingInvoices).toHaveLength(2);
+    expect(overview.outstandingInvoices[0]).toMatchObject({ invoiceId: 101, invoiceNo: "INV-1", outstanding: 70, isOverdue: true, partialInvoices: 1 });
+    expect(overview.outstandingInvoices[1]).toMatchObject({ invoiceId: 102, invoiceNo: "INV-2", outstanding: 80, isOverdue: false, partialInvoices: 0 });
   });
 });
 
