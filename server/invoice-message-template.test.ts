@@ -13,6 +13,18 @@ describe("invoice message templates", () => {
     expect(rendered).toContain("أحمد");
     expect(rendered).toContain("INV-12");
     expect(rendered).not.toContain("{{invoice_no}}");
+    const readings = renderInvoiceMessageTemplate("السابقة {{previous_reading}}، الحالية {{current_reading}}، الاستهلاك {{consumption_kwh}}", {
+      previous_reading: "12450",
+      current_reading: "12785",
+      consumption_kwh: "335",
+    });
+    expect(readings).toBe("السابقة 12450، الحالية 12785، الاستهلاك 335");
+    expect(readings).not.toContain("{{previous_reading}}");
+    expect(readings).not.toContain("{{current_reading}}");
+    expect(readings).not.toContain("{{consumption_kwh}}");
+    const balance = renderInvoiceMessageTemplate("المستحقات الإجمالية {{total_balance}} شيكل", { total_balance: "42,500" });
+    expect(balance).toBe("المستحقات الإجمالية 42,500 شيكل");
+    expect(balance).not.toContain("{{total_balance}}");
   });
 
 

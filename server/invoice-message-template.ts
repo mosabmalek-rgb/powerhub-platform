@@ -1,6 +1,6 @@
 import type { InvoiceNotificationChannel } from "./notification-channels";
 
-export const invoiceTemplateVariables = ["subscriber_name", "subscriber_no", "invoice_no", "billing_period", "total_amount", "balance_due", "due_date", "invoice_link", "portal_link"] as const;
+export const invoiceTemplateVariables = ["subscriber_name", "subscriber_no", "invoice_no", "billing_period", "total_amount", "balance_due", "previous_reading", "current_reading", "consumption_kwh", "total_balance", "due_date", "invoice_link", "portal_link"] as const;
 
 export const defaultPaymentReminderSmsTemplate = "PowerHub: {{subscriber_name}}، تذكير بالسداد للفاتورة {{invoice_no}}. المبلغ المتبقي: {{balance_due}} شيكل. تاريخ الاستحقاق: {{due_date}}. {{invoice_link}}";
 

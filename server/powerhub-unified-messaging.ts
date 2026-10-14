@@ -6,6 +6,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
+import { decimalAmountToMinorUnits, minorUnitsToAmountString } from "./decimal-money";
 import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
@@ -20,6 +21,45 @@ function asTemplate(row: any) {
     isActive: Boolean(row.is_active), version: Number(row.version), createdBy: row.created_by == null ? null : Number(row.created_by),
     updatedBy: row.updated_by == null ? null : Number(row.updated_by), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
   };
+}
+
+async function loadSubscriberTotalBalances(
+  admin: ReturnType<typeof supabaseAdmin>,
+  tenantId: number,
+  siteId: number,
+  subscriberIds: number[],
+) {
+  const totals = new Map<number, bigint>();
+  const uniqueIds = Array.from(new Set(subscriberIds.filter((id) => Number.isSafeInteger(id) && id > 0)));
+  for (let offset = 0; offset < uniqueIds.length; offset += 100) {
+    const ids = uniqueIds.slice(offset, offset + 100);
+    let lastInvoiceId = 0;
+    for (;;) {
+      const { data, error } = await admin.from("invoices")
+        .select("id,subscriber_id,balance_due")
+        .eq("tenant_id", tenantId).eq("site_id", siteId)
+        .in("subscriber_id", ids).in("status", ["issued", "partially_paid", "overdue"])
+        .gt("balance_due", 0).gt("id", lastInvoiceId).order("id", { ascending: true }).limit(500);
+      if (error) throw new Error("تعذر حساب إجمالي مستحقات المشترك.");
+      for (const invoice of data ?? []) {
+        const id = Number(invoice.subscriber_id);
+        let balanceMinorUnits: bigint;
+        try {
+          balanceMinorUnits = decimalAmountToMinorUnits(invoice.balance_due);
+        } catch {
+          throw new Error("تعذر حساب إجمالي مستحقات المشترك بسبب قيمة مالية غير صالحة.");
+        }
+        totals.set(id, (totals.get(id) ?? 0n) + balanceMinorUnits);
+      }
+      if (!data || data.length < 500) break;
+      lastInvoiceId = Number(data[data.length - 1].id);
+    }
+  }
+  const formattedTotals = new Map<number, string>();
+  for (const [subscriberId, totalMinorUnits] of totals) {
+    formattedTotals.set(subscriberId, minorUnitsToAmountString(totalMinorUnits));
+  }
+  return formattedTotals;
 }
 
 async function renderAutomationMessage(
@@ -288,10 +328,11 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
 
       const invoiceIds = freshPayments.map((p: any) => p.invoice_id).filter(Boolean).map(Number);
       const { data: invoices, error: invoicesError } = invoiceIds.length
-        ? await admin.from("invoices").select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date").eq("tenant_id",tenantId).eq("site_id",siteId).in("id",invoiceIds)
+        ? await admin.from("invoices").select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,previous_reading,current_reading,consumption_kwh").eq("tenant_id",tenantId).eq("site_id",siteId).in("id",invoiceIds)
         : { data: [], error: null };
       if (invoicesError) throw new Error("تعذر تحميل فواتير الأتمتة.");
       const invoiceMap = new Map((invoices ?? []).map((i: any) => [Number(i.id), i]));
+      const totalBalanceBySubscriber = await loadSubscriberTotalBalances(admin, tenantId, siteId, subscriberIds);
 
       const rows = [];
       for (const payment of freshPayments) {
@@ -304,6 +345,10 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
           total_amount: invoice?.total_amount == null ? "" : String(invoice.total_amount),
           balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
+          previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
+          current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
+          consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
+          total_balance: totalBalanceBySubscriber.get(Number(subscriber.id)) ?? "0",
           due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
         };
         const renderedText = await renderAutomationMessage(template.body, values, {
@@ -349,7 +394,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           let lastInvoiceId = 0;
           for (;;) {
             const { data: invoices, error: invoicesError } = await admin.from("invoices")
-              .select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,status")
+              .select("id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,status,previous_reading,current_reading,consumption_kwh")
               .eq("tenant_id", tenantId).eq("site_id", siteId).in("subscriber_id", ids)
               .in("status", ["issued","partially_paid","overdue"]).gt("balance_due", 0).lte("due_date", now.toISOString())
               .gt("id", lastInvoiceId).order("id", { ascending: true }).limit(500);
@@ -368,6 +413,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           }
         }
 
+        const totalBalanceBySubscriber = await loadSubscriberTotalBalances(admin, tenantId, siteId, subscribers.map((subscriber: any) => Number(subscriber.id)));
         const candidates: Array<{ subscriber: any; invoice: any | null; operationKey: string; values: Record<string, string> }> = [];
         for (const subscriber of subscribers) {
           const invoice = eventType === "invoice_overdue" ? invoiceMap.get(Number(subscriber.id)) : null;
@@ -387,6 +433,10 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
             invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
             total_amount: invoice?.total_amount == null ? "" : String(invoice.total_amount),
             balance_due: invoice?.balance_due == null ? "" : String(invoice.balance_due),
+            previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
+            current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
+            consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
+            total_balance: totalBalanceBySubscriber.get(Number(subscriber.id)) ?? "0",
             due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
           };
           candidates.push({ subscriber, invoice, operationKey, values });
