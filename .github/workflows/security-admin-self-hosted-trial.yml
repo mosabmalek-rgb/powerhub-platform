@@ -1,0 +1,50 @@
+name: PowerHub Security and Admin Guard Self-hosted Trial
+
+on:
+  push:
+    branches:
+      - diagnostics/windows-security-admin-trial
+
+permissions:
+  contents: read
+
+jobs:
+  security-and-admin-guards:
+    name: Dependency security and Supabase admin guards
+    runs-on: self-hosted
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: cmd
+    env:
+      NODE_OPTIONS: --max-old-space-size=12288
+      VITE_SUPABASE_URL: https://powerhub-ci.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: ci-public-key
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Verify project-pinned pnpm
+        run: |
+          node --version
+          corepack pnpm --version
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Static dependency security guard
+        run: node scripts/check-dependency-security.mjs
+
+      - name: Supabase migration and runtime admin guard tests
+        run: >-
+          corepack pnpm exec vitest run
+          server/admin.legacy-write-guards.test.ts
+          server/admin.tenant-branch-settings-supabase.test.ts
+          server/powerhub-mobile-approve-runtime.test.ts
+          server/supabase-runtime-boundary.test.ts
+          server/admin.dashboard-sync-contract.test.ts
