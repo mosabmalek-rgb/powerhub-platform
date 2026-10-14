@@ -1,0 +1,32 @@
+name: Invoice SMS SQL Embedded PostgreSQL Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostics/windows-pglite-invoice-sql
+
+permissions:
+  contents: read
+
+jobs:
+  invoice-sql:
+    name: Execute invoice SMS SQL fixture on embedded PostgreSQL
+    runs-on: self-hosted
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install isolated PostgreSQL WASM runtime
+        run: npm install --prefix "%RUNNER_TEMP%\pglite-sql-runtime" --no-save --package-lock=false @electric-sql/pglite@0.5.9
+
+      - name: Execute invoice SQL fixture and included migrations
+        run: node scripts/run-pglite-invoice-sql.mjs
