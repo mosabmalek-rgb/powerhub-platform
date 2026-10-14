@@ -20,7 +20,7 @@ import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReadin
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 async function requirePaymentDocumentationFeature(tenantId: number) {
@@ -1561,6 +1561,16 @@ export const powerhubRouter = router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       return listSupabaseSubscribers(input.siteId);
+    }),
+    directoryPage: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(25).default(20),
+      search: z.string().trim().max(160).optional(),
+      subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]).optional(),
+    })).query(async ({ ctx, input }) => {
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      return listSupabaseSubscriberDirectoryPage(input);
     }),
     archived: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
