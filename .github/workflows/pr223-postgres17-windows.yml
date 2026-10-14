@@ -1,0 +1,22 @@
+name: PR 223 Native PostgreSQL 17 Windows Integration
+
+on:
+  push:
+    branches:
+      - diagnostics/pr223-postgres17-windows
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-integration:
+    name: Disposable PostgreSQL 17 SQL fixtures
+    runs-on: self-hosted
+    timeout-minutes: 40
+    steps:
+      - name: Checkout PR 223 code
+        uses: actions/checkout@v4
+
+      - name: Start verified disposable PostgreSQL 17 and run SQL fixtures
+        shell: powershell
+        run: ./scripts/run-postgres17-sql-tests.ps1
