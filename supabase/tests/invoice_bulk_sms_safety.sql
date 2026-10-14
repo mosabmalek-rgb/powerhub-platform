@@ -165,6 +165,7 @@ values
 \ir ../migrations/20261014180000_powerhub_invoice_reading_message_variables.sql
 \ir ../migrations/20261014190000_powerhub_manual_campaign_reading_token_guard.sql
 \ir ../migrations/20261014200000_powerhub_total_subscriber_balance_message_variable.sql
+\ir ../migrations/20261014220000_powerhub_message_amount_display_one_decimal.sql
 
 do $test_reading_and_balance_migration_targets$
 declare
