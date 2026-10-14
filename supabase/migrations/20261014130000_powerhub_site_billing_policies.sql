@@ -262,17 +262,18 @@ begin
   end if;
 
   v_tax_amount := round((v_energy_amount+v_tariff.fixed_fee)*(v_tariff.tax_rate/100),2);
-  v_raw_total := round(v_energy_amount+v_tariff.fixed_fee+v_tax_amount,2);
+  v_raw_total := greatest(0,round(v_energy_amount+v_tariff.fixed_fee+v_tax_amount-p_discount_amount,2));
+  if p_discount_amount > round(v_energy_amount+v_tariff.fixed_fee+v_tax_amount,2) then
+    raise exception 'INVALID_DISCOUNT' using errcode='P0001';
+  end if;
 
-  -- Minimum amount is a floor on the bill before discounts and previous carried
-  -- debt; it is a final amount floor (tax-inclusive), not another taxable item.
+  -- Minimum amount is the final pre-fractional floor (tax-inclusive), after
+  -- the caller's ordinary invoice discount. It is not itself a taxable item.
   if v_policy.minimum_mode='amount'
      and v_raw_total < coalesce(v_policy.minimum_invoice_amount,0) then
     v_minimum_amount_adjustment := round(coalesce(v_policy.minimum_invoice_amount,0)-v_raw_total,2);
     v_raw_total := coalesce(v_policy.minimum_invoice_amount,0);
   end if;
-
-  v_raw_total := greatest(0,round(v_raw_total-p_discount_amount,2));
   v_fraction_digit := floor(mod(v_raw_total,1)*10)::integer;
   if v_raw_total > 0 then
     if coalesce(v_policy.automatic_fraction_discount_enabled,false)
