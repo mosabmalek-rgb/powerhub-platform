@@ -233,6 +233,7 @@ export async function listSupabaseSubscribers(siteId: number) {
 
 
 export async function listSupabaseSubscriberDirectoryPage(input: {
+  tenantId: number;
   siteId: number;
   page: number;
   pageSize: number;
@@ -242,13 +243,14 @@ export async function listSupabaseSubscriberDirectoryPage(input: {
   const admin = supabaseAdmin();
   let query = admin.from("subscribers")
     .select("id, tenant_id, site_id, subscriber_no, client_operation_id, full_name, phone, whatsapp_number, address, subscription_type, service_status, created_at, updated_at", { count: "exact" })
+    .eq("tenant_id", input.tenantId)
     .eq("site_id", input.siteId)
     .is("archived_at", null);
 
   if (input.subscriptionType) query = query.eq("subscription_type", input.subscriptionType);
   // Remove characters that can alter the PostgREST OR-filter grammar while retaining
   // normal Arabic names, subscriber references, phone numbers, and invoice-like terms.
-  const term = (input.search ?? "").trim().replace(/[%,()\\]/g, " ").replace(/\s+/g, " ").trim();
+  const term = (input.search ?? "").trim().replace(/[%,().*\\]/g, " ").replace(/\s+/g, " ").trim();
   if (term) {
     query = query.or([
       `full_name.ilike.%${term}%`,
