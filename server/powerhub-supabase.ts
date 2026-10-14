@@ -629,19 +629,31 @@ export async function listSupabaseExpensePage(siteId: number, input: { limit?: n
 
 export async function getSupabaseFinancialOverview(site: SupabaseSite) {
   const admin = supabaseAdmin();
+  // Supabase's configured REST row cap can silently truncate ordinary selects.
+  // Read every table in ordered, bounded pages so the debt totals and search workspace are complete.
+  const readAllPages = async <T,>(readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) => {
+    const result: T[] = [];
+    for (let from = 0; ; from += 1000) {
+      const page = await readPage(from, from + 999);
+      if (page.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جميع بيانات المتأخرات من Supabase." });
+      const rows = page.data ?? [];
+      result.push(...rows);
+      if (rows.length < 1000) break;
+    }
+    return result;
+  };
   const [invoices, payments, expenses, subscribers] = await Promise.all([
-    admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("site_id", site.id),
-    admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("site_id", site.id),
-    admin.from("expenses").select("site_id, amount, occurred_at").eq("site_id", site.id),
-    admin.from("subscribers").select("id, full_name, subscriber_no, service_status").eq("site_id", site.id),
+    readAllPages((from, to) => admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
+    readAllPages((from, to) => admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
+    readAllPages((from, to) => admin.from("expenses").select("site_id, amount, occurred_at").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
+    readAllPages((from, to) => admin.from("subscribers").select("id, full_name, subscriber_no, service_status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
   ]);
-  if (invoices.error || payments.error || expenses.error || subscribers.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي من Supabase." });
-  const byId = new Map((subscribers.data ?? []).map((row) => [Number(row.id), row]));
+  const byId = new Map(subscribers.map((row) => [Number(row.id), row]));
   return buildFinancialOverview({
-    branches: [{ id: site.id, name: site.name, activeSubscribers: (subscribers.data ?? []).filter((row) => row.service_status === "active").length }],
-    invoices: (invoices.data ?? []).map((row) => ({ id: Number(row.id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), subscriberName: byId.get(Number(row.subscriber_id))?.full_name ?? "مشترك", subscriberNo: byId.get(Number(row.subscriber_id))?.subscriber_no ?? "—", invoiceNo: row.invoice_no, issueDate: new Date(row.issue_date), dueDate: new Date(row.due_date), totalAmount: Number(row.total_amount), paidAmount: Number(row.paid_amount), balanceDue: Number(row.balance_due), status: row.status })),
-    payments: (payments.data ?? []).map((row) => ({ siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), amount: Number(row.amount), status: row.status, paidAt: new Date(row.paid_at) })),
-    expenses: (expenses.data ?? []).map((row) => ({ siteId: Number(row.site_id), amount: Number(row.amount), occurredAt: new Date(row.occurred_at) })),
+    branches: [{ id: site.id, name: site.name, activeSubscribers: subscribers.filter((row) => row.service_status === "active").length }],
+    invoices: invoices.map((row) => ({ id: Number(row.id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), subscriberName: byId.get(Number(row.subscriber_id))?.full_name ?? "مشترك", subscriberNo: byId.get(Number(row.subscriber_id))?.subscriber_no ?? "—", invoiceNo: row.invoice_no, issueDate: new Date(row.issue_date), dueDate: new Date(row.due_date), totalAmount: Number(row.total_amount), paidAmount: Number(row.paid_amount), balanceDue: Number(row.balance_due), status: row.status })),
+    payments: payments.map((row) => ({ siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), amount: Number(row.amount), status: row.status, paidAt: new Date(row.paid_at) })),
+    expenses: expenses.map((row) => ({ siteId: Number(row.site_id), amount: Number(row.amount), occurredAt: new Date(row.occurred_at) })),
   });
 }
 
