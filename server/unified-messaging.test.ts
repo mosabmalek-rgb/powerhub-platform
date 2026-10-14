@@ -59,7 +59,8 @@ describe("unified messaging contract", () => {
     expect(messagingRouterSource).toContain("const wantsInvoiceStyle = input.channel === \"sms\" && input.eventType === \"invoice_issued\" && input.invoiceStyle !== undefined");
     expect(messagingRouterSource).toContain("if (!smsConfiguration) invoiceStyleToPersist = null");
     expect(messagingRouterSource).toContain("p_invoice_style: invoiceStyleToPersist");
-    expect(messagingRouterSource).toContain("SMS_CONFIGURATION_REQUIRED_FOR_INVOICE_STYLE");
+    const migration = fs.readFileSync(new URL("../supabase/migrations/20261009223234_powerhub_unified_messaging_runtime.sql", import.meta.url), "utf8");
+    expect(migration).toContain("SMS_CONFIGURATION_REQUIRED_FOR_INVOICE_STYLE");
   });
 
   it("records database diagnostics for template-save RPC failures without exposing template content", () => {
