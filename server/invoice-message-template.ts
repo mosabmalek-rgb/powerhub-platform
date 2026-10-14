@@ -12,7 +12,7 @@ export const defaultInvoiceMessageTemplates: Record<InvoiceNotificationChannel, 
 
 export type InvoiceTemplateData = Partial<Record<(typeof invoiceTemplateVariables)[number], string>>;
 
-const monetaryTemplateVariables = new Set(["total_amount", "balance_due", "total_balance"]);
+const monetaryTemplateVariables = ["total_amount", "balance_due", "total_balance"] as const;
 
 export function renderInvoiceMessageTemplate(template: string, values: InvoiceTemplateData) {
   const displayValues = { ...values };
