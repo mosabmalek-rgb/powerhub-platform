@@ -354,6 +354,7 @@ $test_manual_campaign$;
 
 \ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
 \ir ../migrations/20261015172000_powerhub_mobile_balance_due_message_variable.sql
+\ir ../migrations/20261015183000_powerhub_policy_aware_message_amount_display.sql
 -- Re-apply to prove the SQL formatter migration is idempotent across both environment shapes.
 \ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
 \ir ../migrations/20261015172000_powerhub_mobile_balance_due_message_variable.sql
@@ -404,6 +405,21 @@ $sql_message_financial_assert$;
 \echo 'SQL_MESSAGE_FINANCIAL_ASSERTIONS_PASSED'
 
 select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,null,true,1,5,true,6,9);
+
+do $policy_aware_message_format_assert$
+begin
+  if public.powerhub_format_message_amount(1,10,40.45::numeric) <> '40'
+     or public.powerhub_format_message_amount(1,10,40.50::numeric) <> '40' then
+    raise exception 'SETTLEMENT_POLICY_MESSAGE_AMOUNT_MUST_SUPPRESS_FRACTIONS';
+  end if;
+  if public.powerhub_format_message_amount(2,20,40.45::numeric) <> '40.5'
+     or public.powerhub_format_message_amount(2,20,52.26::numeric) <> '52.3' then
+    raise exception 'NO_SETTLEMENT_POLICY_MESSAGE_AMOUNT_MUST_HAVE_ONE_DECIMAL_MAX';
+  end if;
+end;
+$policy_aware_message_format_assert$;
+
+\echo 'POLICY_AWARE_MESSAGE_AMOUNT_ASSERTIONS_PASSED'
 insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
 values (1007,1,10,103,0,10.2,10.2,'pending_review');
 select * from public.powerhub_approve_and_issue_mobile_reading(1,10,7,1007,1,now()+interval '15 days','2026-07',0);
