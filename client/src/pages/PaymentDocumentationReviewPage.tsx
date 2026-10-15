@@ -61,7 +61,10 @@ export default function PaymentDocumentationReviewPage() {
   const access=trpc.powerhub.staff.myAccess.useQuery({siteId:siteId??0},{enabled:Boolean(siteId),staleTime:0,refetchOnMount:"always"});
   const canApprove=can(access.data?.role,"approvePaymentDocumentation",access.data?.permissions);
   const dateFiltersReady = period === "specific_day" ? Boolean(specificDate) : period === "date_range" ? Boolean(fromDate && toDate && fromDate <= toDate) : true;
-  const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && isOnline && dateFiltersReady),retry:false,staleTime:60_000});
+  // Pending documentation is operationally time-sensitive. Poll only while this page is
+  // mounted and connected; hidden/background tabs do not keep issuing requests.
+  const shouldPollRequests = isOnline && (status === "pending" || status === "all");
+  const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && isOnline && dateFiltersReady),retry:false,staleTime:15_000,refetchInterval:shouldPollRequests?15_000:false,refetchIntervalInBackground:false});
   const loadOfflineRows=useCallback(async()=>{if(!siteId)return;try{setOfflineRows(await listPaymentDocumentationApprovalSnapshots(siteId));}catch{toast.error("تعذر قراءة قائمة الاعتمادات المحلية.");}},[siteId]);
   useEffect(()=>{const on=()=>setIsOnline(true),off=()=>setIsOnline(false);window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);};},[]);
   useEffect(()=>{if(!isOnline)void loadOfflineRows();},[isOnline,loadOfflineRows]);

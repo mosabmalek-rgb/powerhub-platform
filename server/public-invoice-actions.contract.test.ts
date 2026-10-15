@@ -275,8 +275,15 @@ describe("public invoice and inquiry actions", () => {
     expect(subscriptionCard).toBeGreaterThan(branchPerformance);
     expect(subscriptionCard).toBeLessThan(home.indexOf("</div></DashboardLayout>;"));
 
-    expect(review).toContain("staleTime:60_000");
+    expect(review).toContain("staleTime:15_000");
+    expect(review).toContain("refetchInterval:shouldPollRequests?15_000:false");
+    expect(review).toContain("refetchIntervalInBackground:false");
     expect(review).toContain('staleTime:0,refetchOnMount:"always"');
+    const mobileSync = read("client/src/pages/MobileSyncPage.tsx");
+    expect(mobileSync).toContain("staleTime: 15_000, refetchInterval: 15_000, refetchIntervalInBackground: false");
+    expect(mobileSync).toContain("events.isFetching && events.data");
+    expect(mobileSync).toContain("readings.isFetching && readings.data");
+    expect(home).toContain("(sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword");
     expect(review).toContain("requests.isLoading&&isOnline");
     expect(review).toContain("requests.isFetching && requests.data");
     expect(review).toContain("payments.page.invalidate");

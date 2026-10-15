@@ -169,7 +169,8 @@ export function WorkspaceHome() {
   const smsPackageRequestQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), refetchInterval: 15000 });
   const [hiddenSmsAlertKey, setHiddenSmsAlertKey] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("powerhub.sms-alert-hidden"));
   const requestSmsPackage = trpc.powerhub.messaging.requestSmsPackage.useMutation({ onSuccess: async () => { setHiddenSmsAlertKey(null); window.localStorage.removeItem("powerhub.sms-alert-hidden"); await smsPackageRequestQuery.refetch(); toast.success("تم إرسال طلب حزمة الرسائل للمراجعة."); }, onError: (error) => toast.error(error.message) });
-  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  // Most owners have a single branch; skip the cross-branch permission query unless it can affect the UI.
+  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword) });
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const ownerRenewalQuery = trpc.powerhub.subscription.ownerRenewalStatus.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), refetchInterval: 5 * 60 * 1000 });
   const addonRequestsQuery = trpc.powerhub.subscription.currentAddonRequests.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
