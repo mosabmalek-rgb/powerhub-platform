@@ -47,11 +47,11 @@ begin
   -- The central issuer writes the authoritative invoice issuance audit itself.
   -- Locate the legacy audit statement after the invoice block by boundaries rather than
   -- matching its exact formatting; pg_get_functiondef can preserve/normalize whitespace.
-  v_audit_start := v_end + position('insert into public.audit_logs' in substring(v_patched from v_end));
+  v_audit_start := v_end + position('insert into public.audit_logs' in substring(v_patched from v_end)) - 1;
   if v_audit_start < v_end then
     raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_NOT_FOUND';
   end if;
-  v_audit_end := v_audit_start + position(');' in substring(v_patched from v_audit_start)) ;
+  v_audit_end := v_audit_start + position(';' in substring(v_patched from v_audit_start)) - 1;
   if v_audit_end <= v_audit_start then
     raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_END_NOT_FOUND';
   end if;
