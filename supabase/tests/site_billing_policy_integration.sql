@@ -303,6 +303,46 @@ end;$mobile_fixture$;
 \ir ../migrations/20261015143000_powerhub_mobile_invoice_fractional_settlement.sql
 \ir ../migrations/20261015163000_powerhub_mobile_reading_approval_audit.sql
 
+-- Minimal SQL message-function fixtures. They reproduce the exact legacy template
+-- substitution anchors used by the migration without sending or queueing real messages.
+create or replace function public.powerhub_queue_invoice_sms_after_issue()
+returns trigger language plpgsql as $test_message_trigger$
+declare v_rendered_text text := '';
+begin
+  v_rendered_text := replace(v_rendered_text,'{{total_amount}}',new.total_amount::text);
+  v_rendered_text := replace(v_rendered_text,'{{balance_due}}',new.balance_due::text);
+  v_rendered_text := replace(v_rendered_text,'{{previous_reading}}',coalesce(new.previous_reading::text,''));
+  v_rendered_text := replace(v_rendered_text,'{{current_reading}}',coalesce(new.current_reading::text,''));
+  v_rendered_text := replace(v_rendered_text,'{{consumption_kwh}}',coalesce(new.consumption_kwh::text,''));
+  return new;
+end;
+$test_message_trigger$;
+
+create or replace function public.powerhub_queue_selected_invoice_sms(
+  p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_invoice_id bigint
+)
+returns void language plpgsql as $test_selected_message$
+declare v_invoice public.invoices%rowtype; v_rendered_text text := '';
+begin
+  select * into v_invoice from public.invoices
+  where id=p_invoice_id and tenant_id=p_tenant_id and site_id=p_site_id;
+  v_rendered_text:=replace(v_rendered_text,'{{total_amount}}',v_invoice.total_amount::text);
+  v_rendered_text:=replace(v_rendered_text,'{{balance_due}}',v_invoice.balance_due::text);
+end;
+$test_selected_message$;
+
+create or replace function public.powerhub_prepare_manual_message_campaign(
+  p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_subscriber_ids bigint[],
+  p_operation_id uuid,p_template_id bigint
+)
+returns bigint language plpgsql as $test_manual_campaign$
+begin
+  return length('previous_reading|current_reading|consumption_kwh|due_date')::bigint;
+end;
+$test_manual_campaign$;
+
+\ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
+
 select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,null,true,1,5,true,6,9);
 insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
 values (1007,1,10,103,0,10.2,10.2,'pending_review');
