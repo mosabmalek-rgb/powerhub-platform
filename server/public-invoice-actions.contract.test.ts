@@ -28,6 +28,8 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<string, string>>({})");
     expect(billing).toContain("setInvoiceShareLinks((current) => ({ ...current, [invoiceShareCacheKey(variables.siteId, variables.invoiceId)]: result.path }))");
     expect(billing).toContain("if (cachedPath) { void copyTextSafely");
+    expect(billing).toContain("invoiceShareLinks[invoiceShareCacheKey(siteId!, invoice.id)]");
+    expect(billing).toContain("disabled={createLink.isPending || openInvoice.isPending}");
     expect(billing).toContain("جارٍ تجهيز رابط الفاتورة الآمن…");
   });
 
