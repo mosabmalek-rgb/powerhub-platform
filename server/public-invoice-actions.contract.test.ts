@@ -13,17 +13,21 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("إظهار الفاتورة");
     expect(billing).toContain("setPreviewInvoiceUrl");
     expect(billing).toContain("<iframe title=\"معاينة الفاتورة\"");
-    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)}");
+    expect(billing).toContain("<Dialog open={previewInvoiceOpen}");
+    expect(billing).toContain("const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<number, string>>({})");
+    expect(billing).toContain("if (cachedPath) setPreviewInvoiceUrl(`${window.location.origin}${cachedPath}`)");
+    expect(billing).toContain("جارٍ تجهيز رابط الفاتورة الآمن…");
     expect(billing).not.toContain("openWindowSafely(");
     expect(billing).toContain("window.location.origin");
     expect(billing).toContain("result.path");
   });
 
-  it("opens invoice preview as an overlay dialog without navigating away or opening a new tab", () => {
+  it("reuses generated invoice share links for repeat copy/preview actions and shows loading feedback", () => {\n    const billing = read("client/src/pages/BillingPage.tsx");\n    expect(billing).toContain("const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<number, string>>({})");\n    expect(billing).toContain("setInvoiceShareLinks((current) => ({ ...current, [variables.invoiceId]: result.path }))");\n    expect(billing).toContain("if (cachedPath) { void copyTextSafely");\n    expect(billing).toContain("جارٍ تجهيز رابط الفاتورة الآمن…");\n  });\n\n  it("opens invoice preview as an overlay dialog without navigating away or opening a new tab", () => {
     const billing = read("client/src/pages/BillingPage.tsx");
     expect(billing).toContain("const [previewInvoiceUrl, setPreviewInvoiceUrl] = useState<string | null>(null)");
     expect(billing).toContain("setPreviewInvoiceUrl(`${window.location.origin}${result.path}`)");
-    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)} onOpenChange={(open) => !open && setPreviewInvoiceUrl(null)}>");
+    expect(billing).toContain("<Dialog open={previewInvoiceOpen} onOpenChange={(open) => { setPreviewInvoiceOpen(open); if (!open) setPreviewInvoiceUrl(null); }}>");
+    expect(billing).toContain("setPreviewInvoiceOpen(true)");
     expect(billing).toContain("<iframe title=\"معاينة الفاتورة\"");
     expect(billing).toContain("تظهر الفاتورة هنا فوق الصفحة الحالية");
   });
