@@ -21,6 +21,9 @@ describe("scalable subscriber statement summary", () => {
     expect(migration).toContain("count(*)::bigint");
     expect(migration).toContain("coalesce(sum(i.balance_due), 0)");
     expect(migration).toContain("max(p.paid_at)");
+    expect(migration).toContain("invoices_tenant_site_subscriber_issue_id_idx");
+    expect(migration).toContain("payments_tenant_site_subscriber_status_paid_id_idx");
+    expect(migration).toContain("meter_readings_tenant_subscriber_reading_id_idx");
     expect(migration).toContain("from invoice_summary");
     expect(migration).toContain("cross join payment_summary");
     expect(migration).toContain("cross join reading_summary");
