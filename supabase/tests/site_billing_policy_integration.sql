@@ -290,10 +290,7 @@ begin
   select * into v_tariff from public.tariffs
   where tenant_id=p_tenant_id and site_id=p_site_id and is_active=true
   order by id desc limit 1;
-  insert into public.powerhub_invoice_sequences(invoice_year,next_sequence) values(left(p_billing_period,4)::integer,2)
-  on conflict (invoice_year) do update set next_sequence=public.powerhub_invoice_sequences.next_sequence+1
-  returning next_sequence-1 into v_sequence;
-  v_invoice_no:=format('INV-%s-%s',left(p_billing_period,4),lpad(v_sequence::text,8,'0'));
+  v_invoice_no:=format('INV-%s-%s',left(p_billing_period,4),lpad('1',8,'0'));
   v_total_amount:=round(coalesce(v_tariff.price_per_kwh,0)*10.2,2);
   insert into public.invoices(tenant_id,site_id,subscriber_id,reading_id,tariff_id,invoice_no,billing_period,due_date,total_amount,balance_due,status,created_by_user_id)
   values(p_tenant_id,p_site_id,103,p_reading_id,v_tariff.id,v_invoice_no,p_billing_period,p_due_date,v_total_amount,v_total_amount,'issued',p_user_id)
