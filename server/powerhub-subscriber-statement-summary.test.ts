@@ -21,6 +21,9 @@ describe("scalable subscriber statement summary", () => {
     expect(migration).toContain("count(*)::bigint");
     expect(migration).toContain("coalesce(sum(i.balance_due), 0)");
     expect(migration).toContain("max(p.paid_at)");
+    expect(migration).toContain("from invoice_summary");
+    expect(migration).toContain("cross join payment_summary");
+    expect(migration).toContain("cross join reading_summary");
   });
 
   it("exposes the summary RPC only to the server role", () => {
@@ -33,12 +36,12 @@ describe("scalable subscriber statement summary", () => {
     expect(statement).toContain('rpc("powerhub_subscriber_statement_summary"');
     expect(statement).not.toContain('.select("total_amount, paid_amount, balance_due, consumption_kwh")');
     expect(statement).not.toContain('.select("amount")');
-    expect(statement).not.toContain('.select("id")\n      .eq("tenant_id", Number(subscriber.tenant_id)).eq("subscriber_id", subscriberId)');
+    expect(statement).not.toContain('.select("id")');
     expect(statement).toContain(".limit(21)");
   });
 
   it("keeps displayed invoice, payment, and reading details bounded to the latest twenty rows", () => {
-    expect((statement.match(/\.limit\(21\)/g) ?? []).length).toBe(3);
+    expect(statement.split(".limit(21)").length - 1).toBe(3);
     expect(statement).toContain("invoiceHasMore: recentInvoices.length > 20");
     expect(statement).toContain("paymentHasMore: recentPayments.length > 20");
     expect(statement).toContain("readingHasMore: recentReadings.length > 20");
