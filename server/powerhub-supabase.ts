@@ -713,6 +713,210 @@ export async function listSupabaseExpensePage(siteId: number, input: { limit?: n
   return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: last.occurredAt.toISOString(), id: last.id }) : null };
 }
 
+type SupabaseReportInvoice = {
+  id: number;
+  siteId: number;
+  subscriberId: number;
+  invoiceNo: string;
+  billingPeriod: string;
+  issueDate: Date;
+  dueDate: Date;
+  totalAmount: number;
+  paidAmount: number;
+  balanceDue: number;
+  consumptionKwh: number;
+  status: string;
+};
+
+type SupabaseReportPayment = {
+  payment: {
+    id: number;
+    siteId: number;
+    subscriberId: number;
+    paymentNo: string;
+    amount: string;
+    paymentMethod: string;
+    transferFromAccount: string | null;
+    transferFromType: string | null;
+    transferToAccount: string | null;
+    transferToType: string | null;
+    status: string;
+    paidAt: Date;
+    collectedByUserId: number | null;
+  };
+};
+
+type SupabaseReportExpense = { siteId: number; amount: number; occurredAt: Date };
+type SupabaseReportSubscriber = { id: number; siteId: number; fullName: string; subscriberNo: string };
+
+async function readSupabaseReportPages<T>(
+  readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  errorMessage: string,
+): Promise<T[]> {
+  // Keep requests comfortably under PostgREST's usual row cap and follow every page.
+  const pageSize = 500;
+  const result: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const page = await readPage(from, from + pageSize - 1);
+    if (page.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: errorMessage });
+    const rows = page.data ?? [];
+    result.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return result;
+}
+
+function normalizeReportSiteIds(siteIds: number[]) {
+  return Array.from(new Set(siteIds.map(Number).filter((siteId) => Number.isInteger(siteId) && siteId > 0)));
+}
+
+/**
+ * Report-only invoice query. Apply date/cycle and tenant/site filters in PostgreSQL;
+ * do not reuse the general invoice listing, which intentionally returns the full history.
+ */
+export async function listSupabaseReportInvoices(input: {
+  tenantId: number;
+  siteIds: number[];
+  start?: Date;
+  endExclusive?: Date;
+  billingPeriod?: string;
+}): Promise<SupabaseReportInvoice[]> {
+  const siteIds = normalizeReportSiteIds(input.siteIds);
+  if (!siteIds.length) return [];
+  if (!input.billingPeriod && (!input.start || !input.endExclusive || input.start >= input.endExclusive)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "الفترة الزمنية لتقرير الفواتير غير صالحة." });
+  }
+  const admin = supabaseAdmin();
+  const rows = await readSupabaseReportPages((from, to) => {
+    let query: any = admin.from("invoices")
+      .select("id, site_id, subscriber_id, invoice_no, billing_period, issue_date, due_date, total_amount, paid_amount, balance_due, consumption_kwh, status")
+      .eq("tenant_id", input.tenantId)
+      .in("site_id", siteIds);
+    if (input.billingPeriod) query = query.eq("billing_period", input.billingPeriod);
+    else query = query.gte("issue_date", input.start!.toISOString()).lt("issue_date", input.endExclusive!.toISOString());
+    return query.order("id", { ascending: true }).range(from, to);
+  }, "تعذر تحميل فواتير الفترة المحددة من Supabase.");
+  return rows.map((row: any) => ({
+    id: Number(row.id),
+    siteId: Number(row.site_id),
+    subscriberId: Number(row.subscriber_id),
+    invoiceNo: row.invoice_no,
+    billingPeriod: row.billing_period,
+    issueDate: new Date(row.issue_date),
+    dueDate: new Date(row.due_date),
+    totalAmount: Number(row.total_amount ?? 0),
+    paidAmount: Number(row.paid_amount ?? 0),
+    balanceDue: Number(row.balance_due ?? 0),
+    consumptionKwh: Number(row.consumption_kwh ?? 0),
+    status: row.status,
+  }));
+}
+
+/**
+ * Lightweight report payment query. Receipt image keys/URLs are deliberately
+ * omitted because aggregate reports never render or open payment images.
+ */
+export async function listSupabaseReportPayments(input: {
+  tenantId: number;
+  siteIds: number[];
+  start: Date;
+  endExclusive: Date;
+}): Promise<SupabaseReportPayment[]> {
+  const siteIds = normalizeReportSiteIds(input.siteIds);
+  if (!siteIds.length) return [];
+  if (input.start >= input.endExclusive) throw new TRPCError({ code: "BAD_REQUEST", message: "الفترة الزمنية لتقرير التحصيلات غير صالحة." });
+  const admin = supabaseAdmin();
+  const rows = await readSupabaseReportPages((from, to) =>
+    admin.from("payments")
+      .select("id, site_id, subscriber_id, payment_no, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
+      .eq("tenant_id", input.tenantId)
+      .in("site_id", siteIds)
+      .gte("paid_at", input.start.toISOString())
+      .lt("paid_at", input.endExclusive.toISOString())
+      .order("id", { ascending: true })
+      .range(from, to),
+  "تعذر تحميل تحصيلات الفترة المحددة من Supabase.");
+  return rows.map((row: any) => ({
+    payment: {
+      id: Number(row.id),
+      siteId: Number(row.site_id),
+      subscriberId: Number(row.subscriber_id),
+      paymentNo: row.payment_no,
+      amount: String(row.amount),
+      paymentMethod: row.payment_method,
+      transferFromAccount: row.transfer_from_account,
+      transferFromType: row.transfer_from_type,
+      transferToAccount: row.transfer_to_account,
+      transferToType: row.transfer_to_type,
+      status: row.status,
+      paidAt: new Date(row.paid_at),
+      collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id),
+    },
+  }));
+}
+
+export async function listSupabaseReportExpenses(input: {
+  tenantId: number;
+  siteIds: number[];
+  start: Date;
+  endExclusive: Date;
+}): Promise<SupabaseReportExpense[]> {
+  const siteIds = normalizeReportSiteIds(input.siteIds);
+  if (!siteIds.length) return [];
+  if (input.start >= input.endExclusive) throw new TRPCError({ code: "BAD_REQUEST", message: "الفترة الزمنية لتقرير المصروفات غير صالحة." });
+  const admin = supabaseAdmin();
+  const rows = await readSupabaseReportPages((from, to) =>
+    admin.from("expenses")
+      .select("site_id, amount, occurred_at")
+      .eq("tenant_id", input.tenantId)
+      .in("site_id", siteIds)
+      .gte("occurred_at", input.start.toISOString())
+      .lt("occurred_at", input.endExclusive.toISOString())
+      .order("id", { ascending: true })
+      .range(from, to),
+  "تعذر تحميل مصروفات الفترة المحددة من Supabase.");
+  return rows.map((row: any) => ({ siteId: Number(row.site_id), amount: Number(row.amount ?? 0), occurredAt: new Date(row.occurred_at) }));
+}
+
+export async function listSupabaseReportSubscribers(input: {
+  tenantId: number;
+  siteIds: number[];
+  subscriberIds: number[];
+}): Promise<SupabaseReportSubscriber[]> {
+  const siteIds = normalizeReportSiteIds(input.siteIds);
+  const subscriberIds = Array.from(new Set(input.subscriberIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)));
+  if (!siteIds.length || !subscriberIds.length) return [];
+  const admin = supabaseAdmin();
+  const result: SupabaseReportSubscriber[] = [];
+  // The report only needs names for subscribers attached to outstanding invoices.
+  // Chunk the IN predicate to keep request URLs small and concurrency bounded.
+  for (let offset = 0; offset < subscriberIds.length; offset += 1000) {
+    const batches = [];
+    for (let index = offset; index < Math.min(offset + 1000, subscriberIds.length); index += 200) {
+      batches.push(subscriberIds.slice(index, index + 200));
+    }
+    const pages = await Promise.all(batches.map(async (ids) => {
+      const { data, error } = await admin.from("subscribers")
+        .select("id, site_id, full_name, subscriber_no")
+        .eq("tenant_id", input.tenantId)
+        .in("site_id", siteIds)
+        .in("id", ids)
+        .is("archived_at", null);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المشتركين أصحاب المستحقات من Supabase." });
+      return data ?? [];
+    }));
+    for (const rows of pages) {
+      result.push(...rows.map((row: any) => ({
+        id: Number(row.id),
+        siteId: Number(row.site_id),
+        fullName: row.full_name,
+        subscriberNo: row.subscriber_no,
+      })));
+    }
+  }
+  return result;
+}
+
 export async function getSupabaseFinancialOverview(site: SupabaseSite) {
   const admin = supabaseAdmin();
   // Supabase's configured REST row cap can silently truncate ordinary selects.
