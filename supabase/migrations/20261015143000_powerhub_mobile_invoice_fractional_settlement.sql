@@ -27,6 +27,7 @@ $replacement$;
   v_audit_end integer;
   v_duplicate_audit_start integer;
   v_duplicate_audit_end integer;
+  v_audit_statement text;
 begin
   v_definition := pg_get_functiondef(
     'public.powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamptz,text,numeric)'::regprocedure
@@ -69,18 +70,30 @@ begin
     raise exception 'MOBILE_INVOICE_FIRST_AUDIT_END_NOT_FOUND';
   end if;
 
-  -- Preserve the first audit after the actor lookup: it records reading approval.
-  -- Remove the second audit statement, which is the duplicate invoice-issue event
-  -- already written by the policy-aware invoice issuer.
-  v_duplicate_audit_start := v_audit_end
-    + position('insert into public.audit_logs' in substring(v_patched from v_audit_end + 1));
-  if v_duplicate_audit_start <= v_audit_end then
-    raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_NOT_FOUND';
-  end if;
-  v_duplicate_audit_end := v_duplicate_audit_start
-    + position(';' in substring(v_patched from v_duplicate_audit_start)) - 1;
-  if v_duplicate_audit_end <= v_duplicate_audit_start then
-    raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_END_NOT_FOUND';
+  v_audit_statement := substring(v_patched from v_audit_start for v_audit_end - v_audit_start + 1);
+  if position('''invoice''' in v_audit_statement) > 0
+     and position('''issue''' in v_audit_statement) > 0 then
+    -- The policy-aware issuer already writes this invoice-issue event.
+    v_duplicate_audit_start := v_audit_start;
+    v_duplicate_audit_end := v_audit_end;
+  else
+    -- If the first audit is a reading-approval event, preserve it and locate
+    -- the later duplicate invoice-issue event by statement boundaries.
+    v_duplicate_audit_start := v_audit_end
+      + position('insert into public.audit_logs' in substring(v_patched from v_audit_end + 1));
+    if v_duplicate_audit_start <= v_audit_end then
+      raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_NOT_FOUND';
+    end if;
+    v_duplicate_audit_end := v_duplicate_audit_start
+      + position(';' in substring(v_patched from v_duplicate_audit_start)) - 1;
+    if v_duplicate_audit_end <= v_duplicate_audit_start then
+      raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_END_NOT_FOUND';
+    end if;
+    v_audit_statement := substring(v_patched from v_duplicate_audit_start for v_duplicate_audit_end - v_duplicate_audit_start + 1);
+    if position('''invoice''' in v_audit_statement) = 0
+       or position('''issue''' in v_audit_statement) = 0 then
+      raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_NOT_INVOICE_ISSUE';
+    end if;
   end if;
   v_patched := overlay(v_patched placing '' from v_duplicate_audit_start for v_duplicate_audit_end - v_duplicate_audit_start + 1);
 
