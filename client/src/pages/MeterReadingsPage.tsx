@@ -72,7 +72,20 @@ export default function MeterReadingsPage() {
 
   const loadQueuedReadings = useCallback(async () => { if (!siteId || !user?.id) return; try { setQueuedReadings(await listQueuedReadings({ userId: user.id, siteId })); } catch { toast.error("تعذر قراءة طابور العمل دون اتصال على هذا الجهاز."); } }, [siteId, user?.id]);
   useEffect(() => { void loadQueuedReadings(); }, [loadQueuedReadings]);
-  const refresh = async () => { await Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.readings.page.invalidate(), utils.powerhub.invoices.page.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]); await loadQueuedReadings(); };
+  const refresh = async () => {
+    const siteScope = { siteId: siteId ?? 0 };
+    // Refresh only the active branch and exact visible page; avoid invalidating every branch/page.
+    void Promise.all([
+      utils.powerhub.readings.page.invalidate({ ...siteScope, limit: 200 }),
+      utils.powerhub.invoices.page.invalidate({ ...siteScope, limit: 200 }),
+    ]).catch(() => toast.warning("تم حفظ القراءة، لكن تعذر تحديث القوائم فورًا. أعد تحميل العرض للتحقق."));
+    // Secondary summaries are refreshed in the background and do not block the reading workflow.
+    void Promise.all([
+      utils.powerhub.dashboard.summary.invalidate(siteScope),
+      utils.powerhub.audit.list.invalidate(siteScope),
+    ]).catch(() => toast.warning("تم حفظ القراءة، لكن تعذر تحديث بعض الملخصات التابعة."));
+    await loadQueuedReadings();
+  };
   const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: () => { void refresh(); }, onError: (error) => toast.error(error.message) });
   const readingImage = trpc.powerhub.readings.getImage.useMutation({ onSuccess: (result) => setSelectedReadingImage(result.url), onError: (error) => toast.error(error.message) });
   const sendPendingSms = trpc.powerhub.notifications.sendPendingSms.useMutation({ onSuccess: async (result) => { await utils.powerhub.notifications.list.invalidate(); toast.success("تم تجهيز " + result.submitted + " رسالة للإرسال."); }, onError: (error) => toast.error(error.message) });
