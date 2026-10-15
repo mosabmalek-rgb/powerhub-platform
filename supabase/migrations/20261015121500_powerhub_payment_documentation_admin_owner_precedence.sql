@@ -3,11 +3,15 @@
 -- erase an explicit admin disable. Restore admin state from its audit snapshot where the
 -- previous owner RPC was the last writer, then remove owner-only legacy control rows.
 
+-- Restore the latest recorded platform-admin state where an owner toggle overwrote it.
+-- For rows with no prior audit snapshot, reset only the duplicate control state to "inherit";
+-- preserve the independent owner preference in tenant_feature_entitlements.
 with owner_written_controls as (
   select
     c.id,
     c.tenant_id,
     c.feature_key,
+    c.updated_at as previous_updated_at,
     a.actor_user_id,
     a.created_at as audit_created_at,
     a.after_data
@@ -37,40 +41,13 @@ set status = coalesce(o.after_data->>'status', 'inherit'),
     end,
     override_reason = o.after_data->>'override_reason',
     updated_by_user_id = o.actor_user_id,
-    updated_at = coalesce((o.after_data->>'updated_at')::timestamptz, o.audit_created_at)
-from owner_written_controls o
-where c.id = o.id
-  and o.after_data is not null;
-
--- Owner-only legacy rows have their preference in tenant_feature_entitlements already.
--- Remove the duplicate control row so it cannot be mistaken for an admin decision.
-delete from public.tenant_feature_controls c
-where c.feature_key = 'payment_documentation'
-  and (
-    coalesce(c.override_reason, '') = 'owner_toggle'
-    or (
-      exists (
-        select 1
-        from public.tenant_members tm
-        where tm.tenant_id = c.tenant_id
-          and tm.user_id = c.updated_by_user_id
-          and tm.role = 'owner'
-      )
-      and not exists (
-        select 1
-        from (
-          select a.after_data
-          from public.tenant_feature_control_audit a
-          where a.tenant_id = c.tenant_id
-            and a.feature_key = c.feature_key
-            and a.created_at < c.updated_at
-          order by a.created_at desc, a.id desc
-          limit 1
-        ) latest_admin_snapshot
-        where latest_admin_snapshot.after_data is not null
-      )
+    updated_at = coalesce(
+      (o.after_data->>'updated_at')::timestamptz,
+      o.audit_created_at,
+      o.previous_updated_at
     )
-  );
+from owner_written_controls o
+where c.id = o.id;
 
 create or replace function public.powerhub_payment_documentation_access(p_tenant_id bigint)
 returns table(allowed boolean, policy text, package_code text, entitlement_enabled boolean)
