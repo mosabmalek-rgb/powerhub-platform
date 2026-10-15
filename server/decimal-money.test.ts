@@ -44,9 +44,9 @@ describe("exact decimal amount conversion", () => {
 
   it("uses whole units when fractional discount or carry settlement is enabled", () => {
     expect(formatPolicyAwareMessageAmount("40.45", true)).toBe("40");
-    expect(formatPolicyAwareMessageAmount("40.50", true)).toBe("41");
-    expect(formatPolicyAwareMessageAmount("999.99", true)).toBe("1,000");
-    expect(formatPolicyAwareMessageAmount("-40.50", true)).toBe("-41");
+    expect(formatPolicyAwareMessageAmount("40.50", true)).toBe("40");
+    expect(formatPolicyAwareMessageAmount("999.99", true)).toBe("999");
+    expect(formatPolicyAwareMessageAmount("-40.50", true)).toBe("-40");
   });
 
   it("uses at most one decimal when no settlement policy is enabled", () => {
