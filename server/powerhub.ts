@@ -2528,6 +2528,7 @@ export const powerhubRouter = router({
     ownerFeature: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), isEnabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const { data, error } = await supabaseAdmin().rpc("powerhub_owner_set_payment_documentation", { p_user_id: ctx.user.id, p_site_id: input.siteId, p_is_enabled: input.isEnabled });
       if (error) {
+        if (error.message.includes("FEATURE_DISABLED_BY_ADMIN")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "ميزة توثيق الدفع متوقفة من إدارة المنصة، ولا يمكن تفعيلها من حسابك حالياً." });
         if (error.message.includes("FEATURE_GLOBALLY_DISABLED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "توثيق الدفع متوقف حالياً من إدارة PowerHub." });
         if (error.message.includes("FEATURE_NOT_AVAILABLE")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "توثيق الدفع غير متاح ضمن باقتك الحالية." });
         throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تعديل إتاحة توثيق الدفع لهذا الحساب." });
