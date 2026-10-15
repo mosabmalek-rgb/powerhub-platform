@@ -301,6 +301,7 @@ begin
 end;$mobile_fixture$;
 
 \ir ../migrations/20261015143000_powerhub_mobile_invoice_fractional_settlement.sql
+\ir ../migrations/20261015163000_powerhub_mobile_reading_approval_audit.sql
 
 select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,null,true,1,5,true,6,9);
 insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
@@ -318,6 +319,27 @@ begin
     raise exception 'MOBILE_TENTHS_SETTLEMENT_ASSERTION_FAILED total=% discount=% adjustments=%',v_total,v_discount,v_adjustments;
   end if;
 end $mobile_assert$;
+
+
+
+-- Preserve the reading approval audit and exactly one invoice issue audit.
+do $mobile_audit_assert$
+declare
+  v_approval_count integer;
+  v_invoice_issue_count integer;
+begin
+  select count(*) into v_approval_count
+  from public.audit_logs
+  where tenant_id=1 and entity_type='meter_reading' and entity_id='1007' and action='approve';
+  select count(*) into v_invoice_issue_count
+  from public.audit_logs
+  where tenant_id=1 and entity_type='invoice'
+    and entity_id=(select id::text from public.invoices where reading_id=1007)
+    and action='issue';
+  if v_approval_count <> 1 or v_invoice_issue_count <> 1 then
+    raise exception 'MOBILE_AUDIT_ASSERTION_FAILED approval=% invoice_issue=%',v_approval_count,v_invoice_issue_count;
+  end if;
+end $mobile_audit_assert$;
 
 
 -- Monetary template values must never expose a third fractional digit.
