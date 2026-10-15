@@ -2031,7 +2031,6 @@ export const powerhubRouter = router({
       // Resolve membership once for all three capabilities; this is a common hot path.
       const access = await requireSupabaseSiteCapabilities(ctx.user.id, input.siteId, ["recordReadings", "approveReadings", "issueInvoices"]);
       const readingAt = input.readingAt ?? new Date();
-      const site = await getSupabaseSite(input.siteId);
       const { data: activeTariff, error: tariffLookupError } = await supabaseAdmin().from("tariffs")
         .select("id")
         .eq("tenant_id", access.tenantId)
@@ -2043,7 +2042,7 @@ export const powerhubRouter = router({
       if (tariffLookupError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من التعرفة الفعالة قبل تسجيل القراءة." });
       if (!activeTariff) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة لهذا الفرع؛ أضف التعرفة قبل تسجيل القراءة حتى لا تُحفظ قراءة دون فاتورة." });
       const dueDate = new Date(readingAt);
-      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
+      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, access.invoiceDueDays ?? 14)));
       const billingPeriod = readingAt.toISOString().slice(0, 7);
       let imageKey: string | undefined;
       let imageHash: string | undefined;
