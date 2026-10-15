@@ -15,6 +15,9 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       networkMode: "offlineFirst",
+      // Keep recently used tab data warm in memory to avoid a refetch on every route switch.
+      // Mutations must invalidate the affected keys; sensitive access checks can opt out per query.
+      staleTime: 30_000,
       refetchOnReconnect: true,
     },
   },

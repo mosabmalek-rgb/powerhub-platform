@@ -20,7 +20,7 @@ import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReadin
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 async function requirePaymentDocumentationFeature(tenantId: number) {
@@ -2028,12 +2028,9 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/), readingAt: z.date().optional(),
       captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, readingRoles, "recordReadings");
-      // Platform-entered readings now follow the automatic approve-and-invoice path.
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "issueInvoices");
+      // Resolve membership once for all three capabilities; this is a common hot path.
+      const access = await requireSupabaseSiteCapabilities(ctx.user.id, input.siteId, ["recordReadings", "approveReadings", "issueInvoices"]);
       const readingAt = input.readingAt ?? new Date();
-      const site = await getSupabaseSite(input.siteId);
       const { data: activeTariff, error: tariffLookupError } = await supabaseAdmin().from("tariffs")
         .select("id")
         .eq("tenant_id", access.tenantId)
@@ -2045,7 +2042,7 @@ export const powerhubRouter = router({
       if (tariffLookupError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من التعرفة الفعالة قبل تسجيل القراءة." });
       if (!activeTariff) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة لهذا الفرع؛ أضف التعرفة قبل تسجيل القراءة حتى لا تُحفظ قراءة دون فاتورة." });
       const dueDate = new Date(readingAt);
-      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
+      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, access.invoiceDueDays ?? 14)));
       const billingPeriod = readingAt.toISOString().slice(0, 7);
       let imageKey: string | undefined;
       let imageHash: string | undefined;
@@ -2534,9 +2531,10 @@ export const powerhubRouter = router({
       receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      // requirePaymentDocumentationFeature already calls the entitlement RPC and rejects
+      // unavailable plans. The submission RPC independently validates invoice/account scope.
+      // Do not issue the same entitlement RPC twice on this latency-sensitive path.
       await requirePaymentDocumentationFeature(access.tenantId);
-      const feature = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId });
-      if (feature.error || !feature.data?.[0]?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة لهذا الاشتراك." });
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
       if (input.receiptImageData) {
@@ -2583,23 +2581,37 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد طلب توثيق الدفع." });
       }
       const paymentId = Number((data[0] as { payment_id: number | string }).payment_id);
-      const payment = await supabaseAdmin().from("payments").select("id, invoice_id, subscriber_id, payment_no, amount").eq("id", paymentId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
-      if (payment.error || !payment.data?.invoice_id || !payment.data?.subscriber_id) return { paymentId };
-      const [{ data: invoice }, { data: subscriber }, { data: template }] = await Promise.all([
-        supabaseAdmin().from("invoices").select("id, invoice_no, balance_due").eq("id", Number(payment.data.invoice_id)).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle(),
-        supabaseAdmin().from("subscribers").select("id, full_name, phone").eq("id", Number(payment.data.subscriber_id)).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle(),
-        supabaseAdmin().from("tenant_payment_receipt_message_templates").select("body").eq("tenant_id", access.tenantId).eq("channel", "sms").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle(),
-      ]);
-      if (invoice && subscriber?.phone) {
-        try {
-          const recipient = normalizeInternationalPhone(subscriber.phone);
-          const receipt = { subscriberName: subscriber.full_name, paymentNo: String(payment.data.payment_no), paymentAmount: Number(payment.data.amount), invoiceNo: String(invoice.invoice_no), balanceDue: Number(invoice.balance_due) };
-          const renderedText = renderPaymentReceiptTemplate(template?.body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
-          const { data: queueRows } = await supabaseAdmin().rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId, p_event_type: "payment_received", p_invoice_id: Number(invoice.id), p_payment_id: paymentId, p_operation_key: `payment_receipt:${paymentId}`, p_rendered_text: renderedText });
-          void recipient;
-          void queueRows;
-        } catch { /* approval remains authoritative; SMS is a secondary notification path */ }
-      }
+      // One scoped SQL read replaces the payment lookup plus three follow-up reads.
+      // Notification work remains best-effort and never reverses a successful approval.
+      const { data: contextRows, error: contextError } = await supabaseAdmin().rpc("powerhub_payment_receipt_context", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_payment_id: paymentId,
+      });
+      const receiptContext = Array.isArray(contextRows) ? contextRows[0] as {
+        invoice_id?: number | string | null;
+        payment_no?: string | null;
+        payment_amount?: number | string | null;
+        invoice_no?: string | null;
+        balance_due?: number | string | null;
+        subscriber_name?: string | null;
+        subscriber_phone?: string | null;
+        template_body?: string | null;
+      } | undefined : undefined;
+      if (contextError || !receiptContext?.invoice_id || !receiptContext.subscriber_phone) return { paymentId };
+      try {
+        const receipt = {
+          subscriberName: String(receiptContext.subscriber_name ?? ""),
+          paymentNo: String(receiptContext.payment_no ?? ""),
+          paymentAmount: Number(receiptContext.payment_amount ?? 0),
+          invoiceNo: String(receiptContext.invoice_no ?? ""),
+          balanceDue: Number(receiptContext.balance_due ?? 0),
+        };
+        const renderedText = renderPaymentReceiptTemplate(receiptContext.template_body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
+        await supabaseAdmin().rpc("powerhub_queue_payment_sms", {
+          p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId,
+          p_event_type: "payment_received", p_invoice_id: Number(receiptContext.invoice_id),
+          p_payment_id: paymentId, p_operation_key: `payment_receipt:${paymentId}`, p_rendered_text: renderedText,
+        });
+      } catch { /* approval remains authoritative; SMS is a secondary notification path */ }
       return { paymentId };
     }),
     receiptUrl: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).query(async ({ ctx, input }) => {

@@ -7,9 +7,11 @@ describe("tenant subscription gate integration contract", () => {
     const source = readFileSync(resolve(process.cwd(), "server/powerhub-supabase.ts"), "utf8");
 
     expect(source).toContain('import { requireTenantSubscription } from "./subscription-access";');
-    const resolverStart = source.indexOf("export async function resolveSupabaseSiteAccess");
+    const resolverStart = source.indexOf("async function resolveSupabaseSiteAccessDetails");
     expect(resolverStart).toBeGreaterThanOrEqual(0);
     const resolverSource = source.slice(resolverStart);
-    expect(resolverSource).toContain("await requireTenantSubscription(site.tenantId");
+    expect(resolverSource).toContain("requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true })");
+    expect(resolverSource).toContain("Promise.all");
+    expect(resolverSource).toContain("tenant_members");
   });
 });

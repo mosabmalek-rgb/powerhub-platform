@@ -242,4 +242,61 @@ describe("public invoice and inquiry actions", () => {
     expect(payloadMigration).toContain("revoke all on function public.powerhub_get_shared_invoice_by_token_hash(text)");
     expect(payloadMigration).toContain("grant execute on function public.powerhub_get_shared_invoice_by_token_hash(text)");
   });
+
+  it("uses one scoped read for payment receipt context after atomic payment-documentation approval", () => {
+    const server = read("server/powerhub.ts");
+    const migration = read("supabase/migrations/20261015110000_powerhub_payment_receipt_context.sql");
+    const approvalStart = server.indexOf('    approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() }))');
+    const approvalEnd = server.indexOf("    receiptUrl:", approvalStart);
+    const approval = server.slice(approvalStart, approvalEnd);
+
+    expect(approval).toContain('rpc("powerhub_approve_payment_documentation"');
+    expect(approval).toContain('rpc("powerhub_payment_receipt_context"');
+    expect(approval).toContain('rpc("powerhub_queue_payment_sms"');
+    expect(approval).not.toContain('.from("payments")');
+    expect(approval).not.toContain('.from("invoices")');
+    expect(approval).not.toContain('.from("subscribers")');
+    expect(approval).not.toContain('.from("tenant_payment_receipt_message_templates")');
+    expect(migration).toContain("create or replace function public.powerhub_payment_receipt_context");
+    expect(migration).toContain("p.tenant_id = p_tenant_id");
+    expect(migration).toContain("p.site_id = p_site_id");
+    expect(migration).toContain("revoke all on function public.powerhub_payment_receipt_context");
+    expect(migration).toContain("grant execute on function public.powerhub_payment_receipt_context");
+  });
+  it("keeps subscription duration at the end and avoids needless refetches when revisiting tabs", () => {
+    const main = read("client/src/main.tsx");
+    const home = read("client/src/pages/Home.tsx");
+    const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
+    const paymentPage = read("client/src/pages/PaymentDocumentationPage.tsx");
+
+    expect(main).toContain("staleTime: 30_000");
+    const subscriptionCard = home.indexOf("<SubscriptionRenewalDashboardCard");
+    const branchPerformance = home.indexOf("{selectedScope === \"all\" && <BranchPerformanceCard");
+    expect(subscriptionCard).toBeGreaterThan(branchPerformance);
+    expect(subscriptionCard).toBeLessThan(home.indexOf("</div></DashboardLayout>;"));
+
+    expect(review).toContain("staleTime:15_000");
+    expect(review).toContain("refetchInterval:shouldPollRequests?15_000:false");
+    expect(review).toContain('refetchOnMount:"always"');
+    expect(review).toContain("refetchIntervalInBackground:false");
+    expect(review).toContain('staleTime:0,refetchOnMount:"always"');
+    const mobileSync = read("client/src/pages/MobileSyncPage.tsx");
+    expect(mobileSync).toContain('staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false');
+    expect(mobileSync).toContain("events.isFetching && events.data");
+    expect(mobileSync).toContain("readings.isFetching && readings.data");
+    expect(home).toContain("(sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword");
+    expect(review).toContain("requests.isLoading&&isOnline");
+    expect(review).toContain("requests.isFetching && requests.data");
+    expect(review).toContain("payments.page.invalidate");
+    expect(review).toContain("invoices.page.invalidate");
+    expect(review).toContain("dashboard.financialOverview.invalidate");
+    expect(review).toContain("refreshAfterApproval()");
+    expect(paymentPage).toContain("invalidatePaymentDocumentationReview");
+    expect(paymentPage).toContain('staleTime: 0, refetchOnMount: "always"');
+    const auth = read("client/src/_core/hooks/useAuth.ts");
+    expect(auth).toContain("queryClient.clear()");
+    expect(auth).toContain('event === "SIGNED_OUT"');
+    expect(auth).toContain("identityChanged");
+  });
+
 });

@@ -50,35 +50,100 @@ export function mapSupabaseProfile(row: UserRow): SupabaseProfileUser {
   };
 }
 
+const PROFILE_COLUMNS = "id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in";
+const INVITATION_CHECK_TTL_MS = 30_000;
+const SIGN_IN_WRITE_INTERVAL_MS = 5 * 60_000;
+const pendingInvitationChecks = new Map<string, { expiresAt: number; promise: Promise<boolean>; completed: boolean }>();
+
+async function acceptPendingInvitations(input: { id: string; email: string | null }, admin: ReturnType<typeof supabaseAdmin>) {
+  const now = Date.now();
+  const cacheKey = `${input.id}:${input.email ?? ""}`;
+  const cached = pendingInvitationChecks.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.completed ? false : cached.promise;
+  if (cached) pendingInvitationChecks.delete(input.id);
+
+  // Keep invitation processing off the hot path for every UI/API request.
+  // Membership and account profile data are still fetched fresh on every request.
+  // Newly issued invitations are picked up within at most this short TTL per warm instance.
+  const entry = {
+    expiresAt: now + INVITATION_CHECK_TTL_MS,
+    completed: false,
+    promise: (async () => {
+      const [platformInvitation, tenantInvitation] = await Promise.all([
+        admin.rpc("powerhub_accept_pending_platform_invitation", {
+          p_auth_user_id: input.id, p_email: input.email,
+        }),
+        admin.rpc("powerhub_accept_pending_tenant_invitations", {
+          p_auth_user_id: input.id, p_email: input.email,
+        }),
+      ]);
+
+      if (platformInvitation.error && !isMissingRpc(platformInvitation.error)) {
+        throw new Error(platformInvitation.error.message || "تعذر معالجة دعوة الوصول إلى إدارة المنصة.");
+      }
+      if (tenantInvitation.error && !isMissingRpc(tenantInvitation.error)) {
+        throw new Error(tenantInvitation.error.message || "تعذر معالجة دعوة الوصول إلى حساب المولد.");
+      }
+      return Boolean(platformInvitation.data?.[0]?.accepted);
+    })(),
+  };
+  pendingInvitationChecks.set(cacheKey, entry);
+  // Bound the per-instance cache and remove expired entries without timers.
+  if (pendingInvitationChecks.size > 2_000) {
+    for (const [key, value] of pendingInvitationChecks) {
+      if (value.expiresAt <= now) pendingInvitationChecks.delete(key);
+      if (pendingInvitationChecks.size <= 1_500) break;
+    }
+  }
+  try {
+    const accepted = await entry.promise;
+    entry.completed = true;
+    return accepted;
+  } catch (error) {
+    if (pendingInvitationChecks.get(cacheKey) === entry) pendingInvitationChecks.delete(cacheKey);
+    throw error;
+  }
+}
+
 export async function syncSupabaseProfile(input: { id: string; email?: string | null; name?: string | null }) {
   const email = input.email?.trim().toLowerCase() ?? null;
   const name = input.name?.trim() || email?.split("@")[0] || null;
   const admin = supabaseAdmin();
-  const { data, error } = await admin.from("users")
-    .upsert({ auth_user_id: input.id, email, name, login_method: "supabase", last_signed_in: new Date().toISOString() }, { onConflict: "auth_user_id" })
-    .select("id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in")
-    .single();
-  if (error || !data) throw new Error(error?.message || "تعذر مزامنة ملف مستخدم Supabase.");
+  const { data: existing, error: lookupError } = await admin.from("users")
+    .select(PROFILE_COLUMNS).eq("auth_user_id", input.id).maybeSingle();
+  if (lookupError) throw new Error(lookupError.message || "تعذر تحميل ملف مستخدم Supabase.");
 
-  const { data: platformInvitation, error: platformInvitationError } = await admin.rpc("powerhub_accept_pending_platform_invitation", {
-    p_auth_user_id: input.id, p_email: email,
-  });
-  if (platformInvitationError && !isMissingRpc(platformInvitationError)) {
-    throw new Error(platformInvitationError.message || "تعذر معالجة دعوة الوصول إلى إدارة المنصة.");
+  const now = Date.now();
+  const previousSignIn = existing?.last_signed_in ? new Date(existing.last_signed_in).getTime() : 0;
+  const signInWriteDue = !Number.isFinite(previousSignIn) || now - previousSignIn >= SIGN_IN_WRITE_INTERVAL_MS;
+  const identityChanged = !existing || existing.email !== email || existing.name !== name || existing.login_method !== "supabase";
+  let profileRow: UserRow;
+
+  if (!existing) {
+    const { data, error } = await admin.from("users")
+      .upsert({ auth_user_id: input.id, email, name, login_method: "supabase", last_signed_in: new Date(now).toISOString() }, { onConflict: "auth_user_id" })
+      .select(PROFILE_COLUMNS).single();
+    if (error || !data) throw new Error(error?.message || "تعذر مزامنة ملف مستخدم Supabase.");
+    profileRow = data as UserRow;
+  } else if (identityChanged || signInWriteDue) {
+    const updates: Record<string, unknown> = {};
+    if (identityChanged) Object.assign(updates, { email, name, login_method: "supabase" });
+    if (signInWriteDue) updates.last_signed_in = new Date(now).toISOString();
+    const { data, error } = await admin.from("users")
+      .update(updates).eq("auth_user_id", input.id).select(PROFILE_COLUMNS).single();
+    if (error || !data) throw new Error(error?.message || "تعذر تحديث ملف مستخدم Supabase.");
+    profileRow = data as UserRow;
+  } else {
+    profileRow = existing as UserRow;
   }
 
-  const { error: tenantInvitationError } = await admin.rpc("powerhub_accept_pending_tenant_invitations", {
-    p_auth_user_id: input.id, p_email: email,
-  });
-  if (tenantInvitationError && !isMissingRpc(tenantInvitationError)) {
-    throw new Error(tenantInvitationError.message || "تعذر معالجة دعوة الوصول إلى حساب المولد.");
-  }
+  const platformInvitationAccepted = await acceptPendingInvitations({ id: input.id, email }, admin);
+  if (!platformInvitationAccepted) return mapSupabaseProfile(profileRow);
 
-  if (!Boolean(platformInvitation?.[0]?.accepted)) return mapSupabaseProfile(data as UserRow);
-
+  // Platform invitations may change the user's platform role, so return a fresh profile
+  // immediately after acceptance rather than waiting for the next API request.
   const { data: refreshed, error: refreshError } = await admin.from("users")
-    .select("id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in")
-    .eq("auth_user_id", input.id).single();
+    .select(PROFILE_COLUMNS).eq("auth_user_id", input.id).single();
   if (refreshError || !refreshed) throw new Error(refreshError?.message || "تعذر تحديث ملف مستخدم Supabase بعد معالجة الدعوة.");
   return mapSupabaseProfile(refreshed as UserRow);
 }

@@ -169,7 +169,8 @@ export function WorkspaceHome() {
   const smsPackageRequestQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), refetchInterval: 15000 });
   const [hiddenSmsAlertKey, setHiddenSmsAlertKey] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("powerhub.sms-alert-hidden"));
   const requestSmsPackage = trpc.powerhub.messaging.requestSmsPackage.useMutation({ onSuccess: async () => { setHiddenSmsAlertKey(null); window.localStorage.removeItem("powerhub.sms-alert-hidden"); await smsPackageRequestQuery.refetch(); toast.success("تم إرسال طلب حزمة الرسائل للمراجعة."); }, onError: (error) => toast.error(error.message) });
-  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  // Most owners have a single branch; skip the cross-branch permission query unless it can affect the UI.
+  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword) });
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const ownerRenewalQuery = trpc.powerhub.subscription.ownerRenewalStatus.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), refetchInterval: 5 * 60 * 1000 });
   const addonRequestsQuery = trpc.powerhub.subscription.currentAddonRequests.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
@@ -231,7 +232,6 @@ export function WorkspaceHome() {
       <div className="flex flex-wrap items-center gap-2">{isAuthenticated && sitesQuery.data?.length ? <select aria-label="اختيار الفرع أو الملخص المجمع" value={selectedScope === "all" ? "all" : String(siteId ?? "")} onChange={(event) => { const value = event.target.value; if (value === "all") setScope("all"); else { setScope("branch"); setSiteId(Number(value)); } }} className="h-10 max-w-56 rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300 outline-none">{canUseAllBranches && <option className="bg-[#111823]" value="all">جميع الأفرع (ملخص مجمّع)</option>}{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select> : <span className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300"><CalendarDays className="ml-2 h-4 w-4" />اليوم</span>}<Button variant="outline" className="border-white/10 bg-white/[0.02] text-slate-200 hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={() => setLocation("/quick-actions")}><Zap className="ml-2 h-4 w-4" />الإجراءات السريعة</Button></div>
     </header>
 
-    <SubscriptionRenewalDashboardCard data={ownerRenewalQuery.data} loading={ownerRenewalQuery.isLoading} error={ownerRenewalQuery.isError} ownerAccessVerified={accessQuery.data?.role === "owner"} onRetry={() => ownerRenewalQuery.refetch()} onContact={() => setLocation("/support")} />
 
     {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
 
@@ -266,6 +266,8 @@ export function WorkspaceHome() {
 
     {selectedScope === "all" && <BranchPerformanceCard rows={overview?.branchSummaries ?? []} loading={financialOverviewQuery.isLoading} error={financialOverviewQuery.isError} onOpenReports={() => setLocation("/reports")} />}
 
+    {/* Keep subscription duration and renewal information at the end of the dashboard. */}
+    <SubscriptionRenewalDashboardCard data={ownerRenewalQuery.data} loading={ownerRenewalQuery.isLoading} error={ownerRenewalQuery.isError} ownerAccessVerified={accessQuery.data?.role === "owner"} onRetry={() => ownerRenewalQuery.refetch()} onContact={() => setLocation("/support")} />
 
   </div></DashboardLayout>;
 }

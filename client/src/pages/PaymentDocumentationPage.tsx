@@ -50,11 +50,18 @@ export default function PaymentDocumentationPage() {
 
   const search = trpc.powerhub.paymentDocumentation.searchSubscriber.useQuery({siteId,query:query.trim()},{enabled:Boolean(isOnline&&siteId&&query.trim().length>=2)});
   const accounts = trpc.powerhub.paymentDocumentation.availableAccounts.useQuery({siteId: siteId ?? 0},{enabled:Boolean(isOnline&&siteId)});
-  const publicInvoice = trpc.powerhub.invoices.publicByToken.useQuery({ token: invoiceToken }, { enabled: Boolean(queryInvoiceToken && isOnline && !isPublicInvoiceFlow), retry: false });
-  const publicPaymentContext = trpc.powerhub.paymentDocumentation.publicContext.useQuery({ token: invoiceToken }, { enabled: Boolean(isPublicInvoiceFlow && invoiceToken), retry: false });
-  const publicSubmit = trpc.powerhub.paymentDocumentation.publicSubmit.useMutation({ onError: (error) => toast.error(error.message) });
+  const publicInvoice = trpc.powerhub.invoices.publicByToken.useQuery({ token: invoiceToken }, { enabled: Boolean(queryInvoiceToken && isOnline && !isPublicInvoiceFlow), retry: false, staleTime: 0, refetchOnMount: "always" });
+  const publicPaymentContext = trpc.powerhub.paymentDocumentation.publicContext.useQuery({ token: invoiceToken }, { enabled: Boolean(isPublicInvoiceFlow && invoiceToken), retry: false, staleTime: 0, refetchOnMount: "always" });
+  const utils = trpc.useUtils();
+  const invalidatePaymentDocumentationReview = () => {
+    void utils.powerhub.paymentDocumentation.list.invalidate().catch(() => undefined);
+  };
+  const publicSubmit = trpc.powerhub.paymentDocumentation.publicSubmit.useMutation({
+    onSuccess: invalidatePaymentDocumentationReview,
+    onError: (error) => toast.error(error.message),
+  });
   const submit = trpc.powerhub.paymentDocumentation.submit.useMutation({
-    onSuccess:()=>{toast.success("تم إرسال طلب الدفع بنجاح. سيتم التحقق لاعتماد الدفع. دمتم بخير 🌷");setInvoice(null);setFile(null);setAmount("");setReferenceNo("");setSenderPhone("");},
+    onSuccess:()=>{invalidatePaymentDocumentationReview();toast.success("تم إرسال طلب الدفع بنجاح. سيتم التحقق لاعتماد الدفع. دمتم بخير 🌷");setInvoice(null);setFile(null);setAmount("");setReferenceNo("");setSenderPhone("");},
     onError:e=>toast.error(e.message)
   });
 

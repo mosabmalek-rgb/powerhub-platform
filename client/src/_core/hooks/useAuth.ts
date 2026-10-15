@@ -4,6 +4,7 @@ import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -19,6 +20,7 @@ export function useAuth(options?: UseAuthOptions) {
   // desync it from an in-flight login's `state`.
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
   const releaseDevice = trpc.auth.releaseDevice.useMutation();
   const [sessionReady, setSessionReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
@@ -36,8 +38,10 @@ export function useAuth(options?: UseAuthOptions) {
 
   useEffect(() => {
     let active = true;
+    let observedUserId: string | null = null;
     void getSupabaseSession().then(async (session) => {
       if (!active) return;
+      observedUserId = session?.user.id ?? null;
       setHasSession(Boolean(session));
       setSessionReady(true);
       if (!session) {
@@ -58,6 +62,14 @@ export function useAuth(options?: UseAuthOptions) {
     });
 
     const unsubscribe = subscribeSupabaseAuthState((event, session) => {
+      const nextUserId = session?.user.id ?? null;
+      const identityChanged = observedUserId !== nextUserId;
+      // Query keys are mainly scoped by tenant/site, not auth-user ID. Clear private
+      // data when an account leaves or another account signs in; token renewal is excluded.
+      if (event === "SIGNED_OUT" || (identityChanged && (event === "SIGNED_IN" || (observedUserId !== null && nextUserId !== null)))) {
+        queryClient.clear();
+      }
+      observedUserId = nextUserId;
       setHasSession(Boolean(session));
       setSessionReady(true);
       if (!session) {
@@ -81,7 +93,7 @@ export function useAuth(options?: UseAuthOptions) {
       unsubscribe();
       active = false;
     };
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     if (authDataRevision === 0) return;
@@ -108,6 +120,7 @@ export function useAuth(options?: UseAuthOptions) {
 
   const logout = useCallback(async () => {
     setIsLoggingOut(true);
+    queryClient.clear();
     setCachedUser(null);
     setOfflineLeaseUserId(null);
     if (typeof window !== "undefined") {
@@ -126,7 +139,7 @@ export function useAuth(options?: UseAuthOptions) {
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }
-  }, [releaseDevice, utils]);
+  }, [releaseDevice, utils, queryClient]);
 
   // A cached user is useful for offline mode, but must never authorize the
   // online workspace before the current Supabase session has completed a live

@@ -33,6 +33,7 @@ vi.mock("./powerhub-mobile-approval-supabase", () => ({
 
 vi.mock("./powerhub-supabase", () => ({
   requireSupabaseSiteRole: state.access,
+  requireSupabaseSiteCapabilities: state.access,
   getSupabaseSite: state.site,
   writeSupabaseAudit: state.audit,
 }));
