@@ -452,3 +452,57 @@ end $template_amount_assert$;
 
 \echo 'mobile invoice fractional settlement assertions passed'
 
+
+
+-- No billing-policy row: preserve the raw two-decimal invoice math and do not auto-settle.
+do $missing_policy_precondition$
+begin
+  if exists(select 1 from public.site_billing_policies where tenant_id=2 and site_id=20) then
+    raise exception 'MISSING_POLICY_FIXTURE_HAS_POLICY';
+  end if;
+end;
+$missing_policy_precondition$;
+
+insert into public.subscribers(id,tenant_id,site_id,full_name,subscriber_no)
+values (201,2,20,'No policy test subscriber','S-201');
+insert into public.tariffs(id,tenant_id,site_id,is_active,price_per_kwh,fixed_fee,tax_rate)
+values (21,2,20,true,1,0,0);
+insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
+values (2001,2,20,201,0,120.4,120.4,'approved');
+select * from public.powerhub_issue_invoice_from_reading(2,20,8,2001,21,'2026-07',now()+interval '15 days',0,null);
+
+do $missing_policy_assert$
+declare
+  v_total numeric;
+  v_balance numeric;
+  v_discount numeric;
+  v_lines numeric;
+  v_auto_adjustments integer;
+  v_carried_adjustments integer;
+begin
+  select total_amount,balance_due,discount_amount
+    into v_total,v_balance,v_discount
+  from public.invoices where tenant_id=2 and site_id=20 and reading_id=2001;
+  select sum(case when line_type='discount' then -amount else amount end)
+    into v_lines
+  from public.invoice_lines
+  where invoice_id=(select id from public.invoices where tenant_id=2 and site_id=20 and reading_id=2001);
+  select count(*) into v_auto_adjustments
+  from public.billing_adjustments
+  where tenant_id=2 and site_id=20
+    and invoice_id=(select id from public.invoices where tenant_id=2 and site_id=20 and reading_id=2001)
+    and adjustment_type='auto_fraction_discount' and state='applied';
+  select count(*) into v_carried_adjustments
+  from public.billing_adjustments
+  where tenant_id=2 and site_id=20
+    and invoice_id=(select id from public.invoices where tenant_id=2 and site_id=20 and reading_id=2001)
+    and adjustment_type='fraction_carried';
+  if v_total<>120.4 or v_balance<>120.4 or v_discount<>0
+     or v_lines<>v_total or v_auto_adjustments<>0 or v_carried_adjustments<>0 then
+    raise exception 'NO_SITE_BILLING_POLICY_ASSERTION_FAILED total=% balance=% discount=% lines=% auto_adjustments=% carry_adjustments=%',
+      v_total,v_balance,v_discount,v_lines,v_auto_adjustments,v_carried_adjustments;
+  end if;
+end;
+$missing_policy_assert$;
+
+\echo 'NO_SITE_BILLING_POLICY_ASSERTIONS_PASSED'
