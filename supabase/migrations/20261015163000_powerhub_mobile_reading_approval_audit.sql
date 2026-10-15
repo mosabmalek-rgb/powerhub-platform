@@ -15,7 +15,7 @@ declare
   v_audit_statement text;
   v_approval_audit text := $replacement$
 insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data)
-values(p_tenant_id,p_site_id,p_user_id,v_platform_role,'meter_reading',p_reading_id::text,'approve',jsonb_build_object('status','approved','versionNo',v_version));
+values(p_tenant_id,p_site_id,p_user_id,v_platform_role,'meter_reading',p_reading_id::text,'approve',jsonb_build_object('status','approved','versionNo',p_base_version+1));
 $replacement$;
 begin
   v_definition := pg_get_functiondef(
