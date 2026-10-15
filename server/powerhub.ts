@@ -2835,14 +2835,14 @@ export const powerhubRouter = router({
       const [allInvoices, paymentRows, expenseRows] = await Promise.all([
         listSupabaseReportInvoices({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
         listSupabaseReportPayments({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
-        listSupabaseReportExpenses({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
+        listSupabaseReportExpenses({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
       ]);
       const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
       const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive);
       const collectorsIds = Array.from(new Set(completedPayments.flatMap(({ payment }) => payment.collectedByUserId === null ? [] : [payment.collectedByUserId])));
       const [collectorRows, subscriberRows] = await Promise.all([
         collectorsIds.length ? supabaseAdmin().from("users").select("id, name, email").in("id", collectorsIds) : Promise.resolve({ data: [], error: null }),
-        listSupabaseReportSubscribers({ tenantId: site.tenantId, siteIds: [input.siteId], subscriberIds: invoiceRows.map((invoice) => invoice.subscriberId) }),
+        listSupabaseReportSubscribers({ tenantId: access.tenantId, siteIds: [input.siteId], subscriberIds: invoiceRows.map((invoice) => invoice.subscriberId) }),
       ]);
       if (collectorRows.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المحصلين من Supabase." });
       const collectorsById = new Map((collectorRows.data ?? []).map((collector) => [Number(collector.id), collector.name || collector.email || "محصل غير محدد"]));
@@ -2946,15 +2946,15 @@ export const powerhubRouter = router({
       if (Number.isNaN(start.getTime()) || start.toISOString().slice(0, 7) !== input.billingPeriod) throw new TRPCError({ code: "BAD_REQUEST", message: "فترة التقرير الشهري غير صالحة." });
       const endExclusive = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
       const [allInvoices, periodPayments, periodExpenses] = await Promise.all([
-        listSupabaseReportInvoices({ tenantId: site.tenantId, siteIds: [input.siteId], billingPeriod: input.billingPeriod }),
-        listSupabaseReportPayments({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
-        listSupabaseReportExpenses({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
+        listSupabaseReportInvoices({ tenantId: access.tenantId, siteIds: [input.siteId], billingPeriod: input.billingPeriod }),
+        listSupabaseReportPayments({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
+        listSupabaseReportExpenses({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
       ]);
       const invoiceRows = allInvoices.filter((invoice) => invoice.billingPeriod === input.billingPeriod && invoice.status !== "cancelled");
       const collectorIds = Array.from(new Set(periodPayments.flatMap(({ payment }) => payment.collectedByUserId === null ? [] : [payment.collectedByUserId])));
       const [collectorRows, subscriberRows] = await Promise.all([
         collectorIds.length ? supabaseAdmin().from("users").select("id, name, email").in("id", collectorIds) : Promise.resolve({ data: [], error: null }),
-        listSupabaseReportSubscribers({ tenantId: site.tenantId, siteIds: [input.siteId], subscriberIds: invoiceRows.map((invoice) => invoice.subscriberId) }),
+        listSupabaseReportSubscribers({ tenantId: access.tenantId, siteIds: [input.siteId], subscriberIds: invoiceRows.map((invoice) => invoice.subscriberId) }),
       ]);
       if (collectorRows.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المحصلين من Supabase." });
       const collectorsById = new Map((collectorRows.data ?? []).map((collector) => [Number(collector.id), collector.name || collector.email || "محصل غير محدد"]));
