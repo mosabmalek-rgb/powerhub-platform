@@ -55,12 +55,36 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const currentSubscriberPage = Math.min(subscriberPage, totalSubscriberPages);
   const pageData: any[] = visibleData;
   const activeSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
-  const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.directoryPage.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
+  const refresh = (operation: "create" | "update" = "update") => {
+    const siteScope = { siteId: siteId ?? 0 };
+    const refreshTasks = kind === "subscribers"
+      ? [
+          utils.powerhub.subscribers.list.invalidate(siteScope),
+          utils.powerhub.subscribers.directoryPage.invalidate({
+            ...siteScope, page: subscriberPage, pageSize: SUBSCRIBER_PAGE_SIZE, search: subscriberSearch,
+            ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}),
+          }),
+          ...(operation === "create" ? [utils.powerhub.subscribers.quota.invalidate(siteScope)] : []),
+          utils.powerhub.dashboard.financialOverview.invalidate({ ...siteScope, scope: "branch" }),
+          utils.powerhub.dashboard.summary.invalidate(siteScope),
+          utils.powerhub.audit.list.invalidate(siteScope),
+        ]
+      : [
+          utils.powerhub.generators.list.invalidate(siteScope),
+          utils.powerhub.dashboard.summary.invalidate(siteScope),
+          utils.powerhub.audit.list.invalidate(siteScope),
+        ];
+    // Revalidation runs in the background after the server confirms the save.
+    // The mutation success message must not wait for unrelated summaries or audit reads.
+    void Promise.all(refreshTasks).catch(() => {
+      toast.warning("تم حفظ العملية، لكن تعذر تحديث بعض البيانات التابعة. أعد تحميل العرض للتحقق من أحدث النتائج.");
+    });
+  };
 
-  const createSubscriber = trpc.powerhub.subscribers.create.useMutation({ onSuccess: async (created) => { await refresh(); toast.success(`تمت إضافة المشترك. الرقم المرجعي: ${created.subscriberNo}`); }, onError: (e) => toast.error(e.message) });
-  const updateSubscriber = trpc.powerhub.subscribers.update.useMutation({ onSuccess: async () => { await refresh(); setEditing(null); toast.success("تم تحديث المشترك."); }, onError: (e) => toast.error(e.message) });
-  const createGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت إضافة المولد."); }, onError: (e) => toast.error(e.message) });
-  const updateGenerator = trpc.powerhub.generators.update.useMutation({ onSuccess: async () => { await refresh(); setEditing(null); toast.success("تم تحديث المولد."); }, onError: (e) => toast.error(e.message) });
+  const createSubscriber = trpc.powerhub.subscribers.create.useMutation({ onSuccess: (created) => { refresh("create"); toast.success(`تمت إضافة المشترك. الرقم المرجعي: ${created.subscriberNo}`); }, onError: (e) => toast.error(e.message) });
+  const updateSubscriber = trpc.powerhub.subscribers.update.useMutation({ onSuccess: () => { refresh("update"); setEditing(null); toast.success("تم تحديث المشترك."); }, onError: (e) => toast.error(e.message) });
+  const createGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: () => { refresh("create"); toast.success("تمت إضافة المولد."); }, onError: (e) => toast.error(e.message) });
+  const updateGenerator = trpc.powerhub.generators.update.useMutation({ onSuccess: () => { refresh("update"); setEditing(null); toast.success("تم تحديث المولد."); }, onError: (e) => toast.error(e.message) });
 
   const submitSubscriber = async (values: Values) => {
     const base = { siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone), address: values.address ? String(values.address) : undefined, subscriptionType: values.subscriptionType as "residential" | "commercial" | "institution" | "mosque", serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected", openingReading: values.openingReading ? String(values.openingReading) : undefined, openingReadingAt: values.openingReadingAt ? String(values.openingReadingAt) : undefined, openingReadingApproved: Boolean(values.openingReading), openingReadingImageData: values.openingReadingImageData ? String(values.openingReadingImageData) : undefined, openingReadingImageMime: values.openingReadingImageMime ? String(values.openingReadingImageMime) as "image/jpeg" | "image/png" | "image/webp" : undefined };
