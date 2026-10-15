@@ -263,4 +263,28 @@ describe("public invoice and inquiry actions", () => {
     expect(migration).toContain("revoke all on function public.powerhub_payment_receipt_context");
     expect(migration).toContain("grant execute on function public.powerhub_payment_receipt_context");
   });
+  it("keeps subscription duration at the end and avoids needless refetches when revisiting tabs", () => {
+    const main = read("client/src/main.tsx");
+    const home = read("client/src/pages/Home.tsx");
+    const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
+    const paymentPage = read("client/src/pages/PaymentDocumentationPage.tsx");
+
+    expect(main).toContain("staleTime: 30_000");
+    const subscriptionCard = home.indexOf("<SubscriptionRenewalDashboardCard");
+    const branchPerformance = home.indexOf("{selectedScope === \"all\" && <BranchPerformanceCard");
+    expect(subscriptionCard).toBeGreaterThan(branchPerformance);
+    expect(subscriptionCard).toBeLessThan(home.indexOf("</div></DashboardLayout>;"));
+
+    expect(review).toContain("staleTime:60_000");
+    expect(review).toContain('staleTime:0,refetchOnMount:"always"');
+    expect(review).toContain("requests.isLoading&&isOnline");
+    expect(review).toContain("requests.isFetching && requests.data");
+    expect(review).toContain("payments.page.invalidate");
+    expect(review).toContain("invoices.page.invalidate");
+    expect(review).toContain("dashboard.financialOverview.invalidate");
+    expect(review).toContain("refreshAfterApproval()");
+    expect(paymentPage).toContain("invalidatePaymentDocumentationReview");
+    expect(paymentPage).toContain('staleTime: 0, refetchOnMount: "always"');
+  });
+
 });
