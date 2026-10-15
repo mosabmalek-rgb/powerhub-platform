@@ -236,7 +236,7 @@ begin
     v_tenant_id, 'payment_documentation', p_is_enabled, p_user_id,
     case when p_is_enabled then v_now else null end, v_now, v_now
   )
-  on conflict(tenant_id, feature_key)
+  on conflict on constraint tenant_feature_entitlements_tenant_id_feature_key_key
   do update set
     is_enabled = excluded.is_enabled,
     activated_by_user_id = excluded.activated_by_user_id,
