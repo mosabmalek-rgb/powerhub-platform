@@ -19,7 +19,7 @@ const addonFeatureMap: Record<string, string> = { subscriber_management: "subscr
 
 async function tenantFeatureSnapshot(tenantId: number) {
   const admin = supabaseAdmin();
-  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult, quotaResults] = await Promise.all([
+  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult, paymentDocumentationAccessResult, quotaResults] = await Promise.all([
     admin.from("tenants").select("id,name,status,slug,created_at").eq("id",tenantId).maybeSingle(),
     admin.from("tenant_owner_profiles").select("tenant_id,owner_user_id,full_name,phone,email,company_name").eq("tenant_id",tenantId).maybeSingle(),
     admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
@@ -29,6 +29,7 @@ async function tenantFeatureSnapshot(tenantId: number) {
     admin.rpc("powerhub_admin_tenant_feature_controls",{p_tenant_id:tenantId}),
     admin.from("package_feature_policies").select("package_code,feature_key,policy,default_limit,limit_mode").order("feature_key"),
     admin.from("tenant_addon_requests").select("id,addon_code,quantity,status,billing_mode,source,starts_at,ends_at,duration_days").eq("tenant_id",tenantId).eq("status","approved").order("ends_at",{ascending:true}).limit(200),
+    admin.rpc("powerhub_payment_documentation_access",{p_tenant_id:tenantId}),
     Promise.all([
       admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"subscribers"}),
       admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"platformUser"}),
@@ -37,7 +38,7 @@ async function tenantFeatureSnapshot(tenantId: number) {
       admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"sms"}),
     ]),
   ]);
-  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error,addonsResult.error,...quotaResults.map((result:any)=>result.error)].filter(Boolean);
+  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error,addonsResult.error,paymentDocumentationAccessResult.error, ...quotaResults.map((result:any)=>result.error)].filter(Boolean);
   if (errors.length) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل مصفوفة ميزات صاحب المولد."});
   const subscription = subscriptionResult.data;
   const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.package_code);
@@ -55,6 +56,9 @@ async function tenantFeatureSnapshot(tenantId: number) {
     },
     controls: controls.map((row:any)=>({tenantId:Number(row.tenant_id),featureKey:row.feature_key,status:row.status,limitMode:row.limit_mode,manualLimit:row.manual_limit == null ? null : Number(row.manual_limit),overrideReason:row.override_reason,updatedByUserId:row.updated_by_user_id == null ? null : Number(row.updated_by_user_id),updatedAt:row.updated_at})),
     packagePolicies: packagePolicies.map((row:any)=>({featureKey:row.feature_key,policy:row.policy,defaultLimit:row.default_limit == null ? null : Number(row.default_limit),limitMode:row.limit_mode})),
+    effectiveFeatureStates: {
+      payment_documentation: Boolean(paymentDocumentationAccessResult.data?.[0]?.allowed),
+    },
     effectiveQuotas: {
       subscriber_management: Number(Array.isArray(quotaResults[0].data) ? quotaResults[0].data[0] : quotaResults[0].data ?? 0),
       platform_users: Number(Array.isArray(quotaResults[1].data) ? quotaResults[1].data[0] : quotaResults[1].data ?? 0),
