@@ -322,5 +322,16 @@ begin
   end if;
 end $mobile_assert$;
 
+
+-- Monetary template values must never expose a third fractional digit.
+do $template_amount_assert$
+declare v_rendered text;
+begin
+  v_rendered := replace('قيمة الفاتورة {{total_amount}} شيكل', '{{total_amount}}', to_char(round(20.456::numeric, 1), 'FM999999999990.0'));
+  if v_rendered <> 'قيمة الفاتورة 20.5 شيكل' then
+    raise exception 'INVOICE_TEMPLATE_AMOUNT_FORMAT_ASSERTION_FAILED rendered=%',v_rendered;
+  end if;
+end $template_amount_assert$;
+
 \echo 'mobile invoice fractional settlement assertions passed'
 
