@@ -305,6 +305,14 @@ describe("public invoice and inquiry actions", () => {
     expect(review).toContain("refreshAfterApproval()");
     expect(paymentPage).toContain("invalidatePaymentDocumentationReview");
     expect(paymentPage).toContain('staleTime: 0, refetchOnMount: "always"');
+    const operations = read("client/src/pages/OperationsPage.tsx");
+    const directory = read("client/src/pages/NetworkDirectoryPage.tsx");
+    const readings = read("client/src/pages/MeterReadingsPage.tsx");
+    expect(operations).toContain("staleTime: 20_000");
+    expect(operations).toContain("staleTime: 15_000");
+    expect(operations).toContain("staleTime: 60_000");
+    expect(directory).toContain("staleTime: 20_000");
+    expect(readings).toContain("staleTime: 15_000");
     const auth = read("client/src/_core/hooks/useAuth.ts");
     expect(auth).toContain("queryClient.clear()");
     expect(auth).toContain('event === "SIGNED_OUT"');
