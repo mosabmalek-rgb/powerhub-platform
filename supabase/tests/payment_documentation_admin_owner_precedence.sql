@@ -1,11 +1,11 @@
- \set ON_ERROR_STOP on
+\set ON_ERROR_STOP on
 
 do $roles$
 begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then execute 'create role anon nologin'; end if;
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then execute 'create role authenticated nologin'; end if;
   if not exists (select 1 from pg_roles where rolname = 'service_role') then execute 'create role service_role nologin bypassrls'; end if;
-end
+end;
 $roles$;
 
 create table public.tenants (
@@ -143,7 +143,7 @@ begin
   if v_status <> 'disabled' then raise exception 'FAIL: migration did not restore the admin disabled state'; end if;
   select allowed into v_allowed from public.powerhub_payment_documentation_access(1);
   if v_allowed is distinct from false then raise exception 'FAIL: admin disabled feature must not be available'; end if;
-end
+end;
 $restore$;
 
 do $owner_blocked$
@@ -154,12 +154,12 @@ begin
     raise exception 'EXPECTED_FEATURE_DISABLED_BY_ADMIN';
   exception when others then
     get stacked diagnostics v_message = message_text;
-    if position('FEATURE_DISABLED_BY_ADMIN' in v_message) = 0 then raise; end if;
+    if v_message <> 'FEATURE_DISABLED_BY_ADMIN' then raise; end if;
   end;
   select status into v_status from public.tenant_feature_controls
   where tenant_id=1 and feature_key='payment_documentation';
   if v_status <> 'disabled' then raise exception 'FAIL: owner toggle changed the admin status'; end if;
-end
+end;
 $owner_blocked$;
 
 -- Admin re-enables the feature. The owner toggle must now affect only their own preference.
@@ -197,7 +197,7 @@ begin
   if v_entitlement is distinct from true or v_allowed is distinct from true then
     raise exception 'FAIL: owner enable preference was not saved or enforced';
   end if;
-end
+end;
 $owner_toggle$;
 
 -- The preference persists while the subscription is active and becomes effective again on renewal.
@@ -207,7 +207,7 @@ declare v_allowed boolean;
 begin
   select allowed into v_allowed from public.powerhub_payment_documentation_access(1);
   if v_allowed is distinct from false then raise exception 'FAIL: expired subscription retained access'; end if;
-end
+end;
 $expired$;
 update public.tenant_subscriptions set ends_at=now() + interval '30 days', status='active' where tenant_id=1;
 do $renewed$
@@ -219,7 +219,7 @@ begin
   if v_entitlement is distinct from true or v_allowed is distinct from true then
     raise exception 'FAIL: owner preference did not persist through subscription renewal';
   end if;
-end
+end;
 $renewed$;
 
 select 'payment documentation admin/owner precedence: PASS' as result;
