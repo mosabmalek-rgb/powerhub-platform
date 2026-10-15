@@ -2762,15 +2762,20 @@ export const powerhubRouter = router({
         readSupabaseReportPages((from, to) => admin.from("expenses").select("amount").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل المصروفات لملخص جميع الأفرع من Supabase."),
       ]);
       const subscriberIds = subscriberRows.map((row) => Number(row.id)).filter(Number.isInteger);
-      const notificationPageRequests: Array<Promise<Array<{ status: string }>>> = [];
-      for (let offset = 0; offset < subscriberIds.length; offset += 200) {
-        const subscriberIdBatch = subscriberIds.slice(offset, offset + 200);
-        notificationPageRequests.push(readSupabaseReportPages(
-          (from, to) => admin.from("notification_messages").select("status").eq("tenant_id", access.tenantId).in("subscriber_id", subscriberIdBatch).order("id", { ascending: true }).range(from, to),
-          "تعذر تحميل حالات الإشعارات لجميع الأفرع من Supabase.",
-        ));
+      const notificationRows: Array<{ status: string }> = [];
+      // Bound concurrency to four batches; large tenants should not fan out hundreds of requests at once.
+      for (let offset = 0; offset < subscriberIds.length; offset += 800) {
+        const notificationPageRequests: Array<Promise<Array<{ status: string }>>> = [];
+        const batchEnd = Math.min(offset + 800, subscriberIds.length);
+        for (let batchOffset = offset; batchOffset < batchEnd; batchOffset += 200) {
+          const subscriberIdBatch = subscriberIds.slice(batchOffset, batchOffset + 200);
+          notificationPageRequests.push(readSupabaseReportPages(
+            (from, to) => admin.from("notification_messages").select("status").eq("tenant_id", access.tenantId).in("subscriber_id", subscriberIdBatch).order("id", { ascending: true }).range(from, to),
+            "تعذر تحميل حالات الإشعارات لجميع الأفرع من Supabase.",
+          ));
+        }
+        notificationRows.push(...(await Promise.all(notificationPageRequests)).flat());
       }
-      const notificationRows = (await Promise.all(notificationPageRequests)).flat();
       const invoiceTotals = invoiceRows.reduce((totals, row) => ({
         invoiced: totals.invoiced + Number(row.total_amount ?? 0),
         paid: totals.paid + Number(row.paid_amount ?? 0),
