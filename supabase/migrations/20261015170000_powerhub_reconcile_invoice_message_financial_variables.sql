@@ -9,6 +9,8 @@ declare
   v_patched text;
   v_target text;
   v_replacement text;
+  v_anchor_pos integer;
+  v_anchor_end integer;
   v_trigger_found boolean := false;
   v_selected_found boolean := false;
   v_mobile_found boolean := false;
@@ -62,13 +64,21 @@ begin
     elsif v_record.proname = 'powerhub_approve_and_issue_mobile_reading' then
       v_mobile_found := true;
       if position('{{total_balance}}' in v_patched) = 0 then
-        v_target := $target$v_rendered:=replace(v_rendered,'{{consumption_kwh}}',coalesce(v_reading.consumption_kwh::text,''));$target$;
-        v_replacement := $replacement$v_rendered:=replace(v_rendered,'{{consumption_kwh}}',coalesce(v_reading.consumption_kwh::text,''));
-v_rendered:=replace(v_rendered,'{{total_balance}}',coalesce((select round(sum(i.balance_due), 1)::text from public.invoices i where i.tenant_id=p_tenant_id and i.site_id=p_site_id and i.subscriber_id=v_subscriber.id and i.status in ('issued','partially_paid','overdue') and i.balance_due>0),'0.0'));$replacement$;
-        v_patched := replace(v_patched, v_target, v_replacement);
-        if v_patched = v_definition then
+        -- Locate the reading-consumption substitution semantically. pg_get_functiondef
+        -- can normalize whitespace, so matching the whole original line is too brittle.
+        v_anchor_pos := strpos(v_patched, 'v_reading.consumption_kwh::text');
+        if v_anchor_pos = 0 then
           raise exception 'MOBILE_READING_TOTAL_BALANCE_ANCHOR_NOT_FOUND';
         end if;
+        v_anchor_end := strpos(substring(v_patched from v_anchor_pos), ';');
+        if v_anchor_end = 0 then
+          raise exception 'MOBILE_READING_TOTAL_BALANCE_STATEMENT_END_NOT_FOUND';
+        end if;
+        v_anchor_end := v_anchor_pos + v_anchor_end - 1;
+        v_patched := overlay(
+          v_patched placing E'\n    v_rendered := replace(v_rendered, ''{{total_balance}}'', coalesce((select round(sum(i.balance_due), 1)::text from public.invoices i where i.tenant_id=p_tenant_id and i.site_id=p_site_id and i.subscriber_id=v_subscriber.id and i.status in (''issued'',''partially_paid'',''overdue'') and i.balance_due>0), ''0.0''));\n'
+          from v_anchor_end + 1 for 0
+        );
       end if;
     end if;
 
