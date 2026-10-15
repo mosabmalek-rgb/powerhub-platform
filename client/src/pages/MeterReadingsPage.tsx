@@ -52,14 +52,14 @@ export default function MeterReadingsPage() {
 
   useEffect(() => { const online = () => setIsOnline(true); const offline = () => setIsOnline(false); window.addEventListener("online", online); window.addEventListener("offline", offline); return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); }; }, []);
   const enabled = Boolean(isAuthenticated && siteId);
-  const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
-  const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 200 }, { enabled });
-  const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 200 }, { enabled });
+  const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled, staleTime: 20_000 });
+  const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 200 }, { enabled, staleTime: 15_000 });
+  const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 200 }, { enabled, staleTime: 15_000 });
   const readings = readingsQuery.data?.items ?? [];
   const invoices = invoicesQuery.data?.items ?? [];
-  const invoiceNotificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0, eventType: "invoice_issued" }, { enabled });
-  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
-  const anomalyQuery = trpc.powerhub.sites.anomalyAlert.useQuery({ siteId: siteId ?? 0 }, { enabled });
+  const invoiceNotificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0, eventType: "invoice_issued" }, { enabled, staleTime: 15_000 });
+  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled, staleTime: 60_000 });
+  const anomalyQuery = trpc.powerhub.sites.anomalyAlert.useQuery({ siteId: siteId ?? 0 }, { enabled, staleTime: 30_000 });
   const role = accessQuery.data?.role;
   const permissions = accessQuery.data?.permissions;
   const canRecordReading = can(role, "recordReadings", permissions);
