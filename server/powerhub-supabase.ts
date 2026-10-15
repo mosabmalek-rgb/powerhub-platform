@@ -94,7 +94,16 @@ export async function getSupabaseSite(siteId: number): Promise<SupabaseSite> {
   };
 }
 
-export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; invoiceDueDays?: number; usesPermissionOverride: boolean; isPlatformAdmin?: boolean }> {
+type ResolvedSupabaseSiteAccess = {
+  role: PowerRole;
+  permissions: PowerCapability[];
+  tenantId: number;
+  invoiceDueDays: number;
+  usesPermissionOverride: boolean;
+  isPlatformAdmin: boolean;
+};
+
+async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number): Promise<ResolvedSupabaseSiteAccess> {
   const admin = supabaseAdmin();
   const [{ data: user, error: userError }, site] = await Promise.all([
     admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle(),
@@ -141,9 +150,14 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
   return { role, permissions, usesPermissionOverride, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, isPlatformAdmin: false };
 }
 
+export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; usesPermissionOverride: boolean }> {
+  const { role, permissions, tenantId, usesPermissionOverride } = await resolveSupabaseSiteAccessDetails(userId, siteId);
+  return { role, permissions, tenantId, usesPermissionOverride };
+}
+
 export async function requireSupabaseSiteRole(userId: number, siteId: number, allowed: PowerRole[], capability?: PowerCapability) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  // resolveSupabaseSiteAccess already loaded the current platform role and account status.
+  const access = await resolveSupabaseSiteAccessDetails(userId, siteId);
+  // The access resolver already loaded the current platform role and account status.
   // Reuse that result instead of issuing a duplicate users-table query on every operation.
   const platformAdmin = access.isPlatformAdmin === true;
   if (!platformAdmin && capability && !access.permissions.includes(capability)) {
@@ -158,11 +172,11 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
     if (policyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
     if (policy && !policy.is_allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
   }
-  return access;
+  return { role: access.role, permissions: access.permissions, tenantId: access.tenantId, usesPermissionOverride: access.usesPermissionOverride };
 }
 
 export async function requireSupabaseSiteCapabilities(userId: number, siteId: number, capabilities: PowerCapability[]) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const access = await resolveSupabaseSiteAccessDetails(userId, siteId);
   if (access.isPlatformAdmin) return access;
 
   const missing = capabilities.find((capability) => !access.permissions.includes(capability));
