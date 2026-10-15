@@ -15,7 +15,12 @@ import SubscriberPortalSettingsPage from "./SubscriberPortalSettingsPage";
 
 const mocks = vi.hoisted(() => {
   const queryCache = new Map<string, { data: unknown; isLoading: boolean; isFetching: boolean }>();
+  const queryCalls: Array<{ key: string; input?: unknown; enabled?: boolean }> = [];
   return {
+  queryCalls,
+  recordQuery: (key: string, input?: unknown, options?: { enabled?: boolean }) => {
+    queryCalls.push({ key, input, enabled: options?.enabled });
+  },
   activeRole: "viewer",
   location: "/readings",
   site: { id: 1, name: "محطة الاختبار", code: "TEST-01" },
@@ -73,12 +78,13 @@ vi.mock("@/lib/trpc", () => ({
       readingCycle: { get: { useQuery: () => mocks.query({ cycleType: "MONTHLY", weeklyStartDay: 7, monthlyStartDay: 1 }) }, save: { useMutation: mocks.mutation } },
       staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, archived: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"] }) }, assign: { useMutation: mocks.mutation }, archive: { useMutation: mocks.mutation }, restore: { useMutation: mocks.mutation }, setActive: { useMutation: mocks.mutation }, suspend: { useMutation: mocks.mutation }, clearSuspension: { useMutation: mocks.mutation }, create: { useMutation: mocks.mutation }, activity: { useQuery: () => mocks.query([]) }, resetPassword: { useMutation: mocks.mutation }, customRoles: { useQuery: () => mocks.query([]) }, permissionChanges: { useQuery: () => mocks.query([]) }, updatePermissions: { useMutation: mocks.mutation }, saveCustomRole: { useMutation: mocks.mutation }, deleteCustomRole: { useMutation: mocks.mutation } },
       meters: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
-      readings: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: () => mocks.query({ items: [], hasNext: false, nextCursor: null }) }, create: { useMutation: () => ({ mutate: mocks.createReadingMutate, mutateAsync: mocks.createReadingMutateAsync, isPending: false }) }, getImage: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } }, mobileSync: { approveAndIssue: { useMutation: mocks.mutation } },
+      readings: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("readings.page", input, options); return mocks.query({ items: [], hasNext: false, nextCursor: null }); } }, create: { useMutation: () => ({ mutate: mocks.createReadingMutate, mutateAsync: mocks.createReadingMutateAsync, isPending: false }) }, getImage: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } }, mobileSync: { approveAndIssue: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
-      invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, page: { useQuery: () => mocks.query({ items: mocks.invoices, hasNext: false, nextCursor: null }) }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
+      invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("invoices.page", input, options); return mocks.query({ items: mocks.invoices, hasNext: false, nextCursor: null }); } }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
       subscribers: {
-        list: { useQuery: () => mocks.query(mocks.subscribers) },
-        directoryPage: { useQuery: (input: { page: number; pageSize: number; search?: string; subscriptionType?: string }) => {
+        list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.list", input, options); return mocks.query(mocks.subscribers); } },
+        directoryPage: { useQuery: (input: { page: number; pageSize: number; search?: string; subscriptionType?: string }, options?: { enabled?: boolean }) => {
+          mocks.recordQuery("subscribers.directoryPage", input, options);
           const term = String(input.search ?? "").trim().toLocaleLowerCase("ar");
           const filtered = mocks.subscribers.filter((row) =>
             (!input.subscriptionType || row.subscriptionType === input.subscriptionType) &&
@@ -86,13 +92,13 @@ vi.mock("@/lib/trpc", () => ({
           );
           return mocks.query({ items: filtered.slice((input.page - 1) * input.pageSize, input.page * input.pageSize), totalCount: filtered.length, page: input.page, pageSize: input.pageSize, totalPages: Math.max(1, Math.ceil(filtered.length / input.pageSize)) });
         } },
-        quota: { useQuery: () => mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "basic" }) },
+        quota: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.quota", input, options); return mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "basic" }); } },
         phoneReview: { useQuery: () => mocks.query([]) },
         create: { useMutation: () => ({ mutate: mocks.createSubscriberMutate, isPending: false }) },
         bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation }
       },
-      generators: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: () => ({ mutate: mocks.createGeneratorMutate, isPending: false }) }, update: { useMutation: mocks.mutation } },
-      payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: () => mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }) }, create: { useMutation: mocks.mutation } },
+      generators: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("generators.list", input, options); return mocks.query([]); } }, create: { useMutation: () => ({ mutate: mocks.createGeneratorMutate, isPending: false }) }, update: { useMutation: mocks.mutation } },
+      payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("payments.page", input, options); return mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }); } }, create: { useMutation: mocks.mutation } },
       companyAccounts: {
         list: {
           useQuery: () => mocks.query([{
@@ -106,19 +112,19 @@ vi.mock("@/lib/trpc", () => ({
           }]),
         },
       },
-      expenses: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: () => mocks.query({ items: [], hasNext: false, nextCursor: null }) }, create: { useMutation: mocks.mutation } },
-      dashboard: { summary: { useQuery: () => mocks.query({ financial: {} }) }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: () => mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }) } },
+      expenses: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("expenses.page", input, options); return mocks.query({ items: [], hasNext: false, nextCursor: null }); } }, create: { useMutation: mocks.mutation } },
+      dashboard: { summary: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.summary", input, options); return mocks.query({ financial: {} }); } }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.financialOverview", input, options); return mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }); } } },
       paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false }), refetch: vi.fn() }) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
-      audit: { list: { useQuery: () => mocks.query([]) } },
+      audit: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("audit.list", input, options); return mocks.query([]); } } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, listScheduleRuns: { useQuery: () => mocks.query([]) }, smsQuota: { useQuery: () => mocks.query({ total: 0, used: 0, remaining: 0 }) }, smsDailyUsage: { useQuery: () => mocks.query({ points: [], total: 0, used: 0, remaining: 0 }) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation }, configureInvoiceAutoSend: { useMutation: mocks.mutation }, requestSmsPackage: { useMutation: mocks.mutation } },
       subscriberPortal: { settings: { useQuery: () => mocks.query(mocks.portalSettings) }, saveSettings: { useMutation: mocks.mutation }, uploadLogo: { useMutation: mocks.mutation }, removeLogo: { useMutation: mocks.mutation } },
-      notifications: { list: { useQuery: () => mocks.query(mocks.notifications) }, countDueInvoiceNotifications: { useQuery: () => mocks.query({ count: 0 }) }, listFailedSms: { useQuery: () => mocks.query([]) }, listBulkInvoiceSends: { useQuery: () => mocks.query(mocks.bulkInvoiceSends) }, bulkInvoiceSendDetails: { useQuery: () => mocks.query(mocks.bulkInvoiceSendDetails) }, retry: { useMutation: mocks.mutation }, retryFailedSmsBatch: { useMutation: mocks.mutation }, resolveSmsNeedsReview: { useMutation: mocks.mutation }, retryFailedInvoiceNotification: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotification, isPending: false }) }, retryFailedInvoiceNotifications: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotifications, isPending: false }) }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceiptSms: { useMutation: () => ({ mutate: mocks.sendPaymentReceiptSms, isPending: false }) }, sendPaymentReminderSms: { useMutation: () => ({ mutate: mocks.sendPaymentReminderSms, isPending: false, variables: undefined }) }, sendBulkInvoiceSms: { useMutation: () => ({ mutate: mocks.sendBulkInvoiceSms, isPending: false }) }, sendAllEligibleInvoiceSms: { useMutation: () => ({ mutate: mocks.sendBulkInvoiceSms, isPending: false }) }, sendDeferredInvoices: { useMutation: () => ({ mutate: mocks.sendDeferredInvoices, isPending: false }) }, sendPendingSms: { useMutation: () => ({ mutate: mocks.sendPendingSms, isPending: false }) } },
+      notifications: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("notifications.list", input, options); return mocks.query(mocks.notifications); } }, countDueInvoiceNotifications: { useQuery: () => mocks.query({ count: 0 }) }, listFailedSms: { useQuery: () => mocks.query([]) }, listBulkInvoiceSends: { useQuery: () => mocks.query(mocks.bulkInvoiceSends) }, bulkInvoiceSendDetails: { useQuery: () => mocks.query(mocks.bulkInvoiceSendDetails) }, retry: { useMutation: mocks.mutation }, retryFailedSmsBatch: { useMutation: mocks.mutation }, resolveSmsNeedsReview: { useMutation: mocks.mutation }, retryFailedInvoiceNotification: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotification, isPending: false }) }, retryFailedInvoiceNotifications: { useMutation: () => ({ mutate: mocks.retryFailedInvoiceNotifications, isPending: false }) }, retryPaymentReceipt: { useMutation: mocks.mutation }, sendPaymentReceiptSms: { useMutation: () => ({ mutate: mocks.sendPaymentReceiptSms, isPending: false }) }, sendPaymentReminderSms: { useMutation: () => ({ mutate: mocks.sendPaymentReminderSms, isPending: false, variables: undefined }) }, sendBulkInvoiceSms: { useMutation: () => ({ mutate: mocks.sendBulkInvoiceSms, isPending: false }) }, sendAllEligibleInvoiceSms: { useMutation: () => ({ mutate: mocks.sendBulkInvoiceSms, isPending: false }) }, sendDeferredInvoices: { useMutation: () => ({ mutate: mocks.sendDeferredInvoices, isPending: false }) }, sendPendingSms: { useMutation: () => ({ mutate: mocks.sendPendingSms, isPending: false }) } },
     },
   },
 }));
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
+afterEach(() => { cleanup(); mocks.queryCalls.length = 0; vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("keeps invoice issuance automatic and hides manual issue controls from the viewer", () => {
@@ -447,6 +453,41 @@ describe("role guards in administration UI", () => {
     render(<BillingPage />);
     fireEvent.click(screen.getByRole("button", { name: /نسخ رابط الفاتورة/ }));
     expect(mocks.createShareLink).toHaveBeenCalledWith({ siteId: 1, invoiceId: 44 });
+  });
+
+  it("loads only queries required by each operational section", () => {
+    mocks.activeRole = "owner";
+    const cases = [
+      { section: "subscribers", expected: ["subscribers.list"] },
+      { section: "generators", expected: ["generators.list"] },
+      { section: "readings", expected: ["subscribers.list", "readings.page"] },
+      { section: "invoices", expected: ["invoices.page"] },
+      { section: "collections", expected: ["subscribers.list", "invoices.page", "payments.page"] },
+      { section: "expenses", expected: ["generators.list", "expenses.page", "dashboard.summary"] },
+      { section: "reports", expected: ["dashboard.summary"] },
+      { section: "notifications", expected: ["notifications.list"] },
+      { section: "audit", expected: ["audit.list"] },
+    ] as const;
+    for (const testCase of cases) {
+      const view = render(<OperationsPage section={testCase.section} />);
+      const enabled = mocks.queryCalls.filter((call) => call.enabled === true).map((call) => call.key).sort();
+      expect(enabled, `enabled query set for ${testCase.section}`).toEqual([...testCase.expected].sort());
+      view.unmount();
+      mocks.queryCalls.length = 0;
+    }
+  });
+
+  it("loads the financial overview only on the subscriber directory and generators only on the generator directory", () => {
+    mocks.activeRole = "owner";
+    const subscribersView = render(<NetworkDirectoryPage kind="subscribers" />);
+    let enabled = mocks.queryCalls.filter((call) => call.enabled === true).map((call) => call.key).sort();
+    expect(enabled).toEqual(["dashboard.financialOverview", "subscribers.directoryPage", "subscribers.quota"]);
+    subscribersView.unmount();
+    mocks.queryCalls.length = 0;
+    const generatorsView = render(<NetworkDirectoryPage kind="generators" />);
+    enabled = mocks.queryCalls.filter((call) => call.enabled === true).map((call) => call.key).sort();
+    expect(enabled).toEqual(["generators.list"]);
+    generatorsView.unmount();
   });
 
   it("keeps audit records unavailable to the collector", () => {
