@@ -269,13 +269,13 @@ end $$;
 \echo 'site-billing policy PostgreSQL integration assertions passed'
 
 -- Verify mobile/manual approval delegates to the policy-aware invoice issuer.
--- This fixture reproduces the legacy duplicate invoice block that previously bypassed tenths settlement.
+-- This fixture reproduces the legacy duplicated invoice construction with a minimal tail.
 create or replace function public.powerhub_approve_and_issue_mobile_reading(
   p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_reading_id bigint,p_base_version integer,
   p_due_date timestamptz,p_billing_period text,p_discount_amount numeric default 0
 )
 returns table(invoice_id bigint,invoice_no text,total_amount numeric,notification_ids bigint[],already_processed boolean)
-language plpgsql security definer set search_path=public,pg_temp as $
+language plpgsql security definer set search_path=public,pg_temp as $mobile_fixture$
 declare
   v_tariff public.tariffs%rowtype;
   v_invoice_id bigint;
@@ -301,7 +301,7 @@ begin
   select platform_role into v_platform_role from public.users where id=p_user_id;
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data) values(p_tenant_id,p_site_id,p_user_id,v_platform_role,'invoice',v_invoice_id::text,'issue',jsonb_build_object('readingId',p_reading_id,'tariffId',v_tariff.id,'invoiceNo',v_invoice_no,'billingPeriod',p_billing_period,'totalAmount',v_total_amount,'automaticInvoice',true));
   return query select v_invoice_id,v_invoice_no,v_total_amount,v_notification_ids,false;
-end;$;
+end;$mobile_fixture$;
 
 \ir ../migrations/20261015143000_powerhub_mobile_invoice_fractional_settlement.sql
 
@@ -310,7 +310,7 @@ insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_re
 values (1007,1,10,103,0,10.2,10.2,'pending_review');
 select * from public.powerhub_approve_and_issue_mobile_reading(1,10,7,1007,1,now()+interval '15 days','2026-07',0);
 
-do $
+do $mobile_assert$
 declare v_total numeric; v_discount numeric; v_adjustments integer;
 begin
   select total_amount,discount_amount into v_total,v_discount from public.invoices where reading_id=1007;
@@ -320,7 +320,7 @@ begin
   if v_total<>20 or v_discount<>0.4 or v_adjustments<>1 then
     raise exception 'MOBILE_TENTHS_SETTLEMENT_ASSERTION_FAILED total=% discount=% adjustments=%',v_total,v_discount,v_adjustments;
   end if;
-end $;
+end $mobile_assert$;
 
 \echo 'mobile invoice fractional settlement assertions passed'
 
