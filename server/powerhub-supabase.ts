@@ -161,6 +161,27 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
   return access;
 }
 
+export async function requireSupabaseSiteCapabilities(userId: number, siteId: number, capabilities: PowerCapability[]) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  if (access.isPlatformAdmin) return access;
+
+  const missing = capabilities.find((capability) => !access.permissions.includes(capability));
+  if (missing) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
+
+  // Resolve all capability policies in parallel after one membership/subscription/site lookup.
+  const policies = await Promise.all(capabilities.map((capability) =>
+    supabaseAdmin().from("platform_role_policies")
+      .select("is_allowed").eq("role", access.role).eq("capability", capability).maybeSingle()
+  ));
+  for (const policyResult of policies) {
+    if (policyResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
+    if (policyResult.data && !policyResult.data.is_allowed) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+    }
+  }
+  return access;
+}
+
 export async function requireSupabaseAccessibleSiteIds(
   userId: number,
   currentSiteId: number,
