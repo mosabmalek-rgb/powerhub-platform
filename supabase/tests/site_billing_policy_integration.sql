@@ -356,6 +356,7 @@ $test_manual_campaign$;
 \ir ../migrations/20261015172000_powerhub_mobile_balance_due_message_variable.sql
 -- Re-apply to prove the SQL formatter migration is idempotent across both environment shapes.
 \ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
+\ir ../migrations/20261015172000_powerhub_mobile_balance_due_message_variable.sql
 
 do $sql_message_financial_assert$
 declare
