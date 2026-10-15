@@ -315,6 +315,8 @@ describe("public invoice and inquiry actions", () => {
     expect(operations).toContain("staleTime: 15_000");
     expect(operations).toContain("staleTime: 60_000");
     expect(operations).toContain("await addPayment.mutateAsync(completePayload)");
+    expect(operations).toContain("const formElement = e.currentTarget; const f = new FormData(formElement);");
+    expect(operations).toContain("formElement.reset(); setSelectedSubscriberId(0);");
     expect(operations).toContain('batchSubmitting ? "جارٍ تسجيل الدفعة…" : "تسجيل الدفعة"');
     expect(directory).toContain("staleTime: 20_000");
     expect(readings).toContain("staleTime: 15_000");
