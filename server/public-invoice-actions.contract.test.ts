@@ -277,10 +277,11 @@ describe("public invoice and inquiry actions", () => {
 
     expect(review).toContain("staleTime:15_000");
     expect(review).toContain("refetchInterval:shouldPollRequests?15_000:false");
+    expect(review).toContain('refetchOnMount:"always"');
     expect(review).toContain("refetchIntervalInBackground:false");
     expect(review).toContain('staleTime:0,refetchOnMount:"always"');
     const mobileSync = read("client/src/pages/MobileSyncPage.tsx");
-    expect(mobileSync).toContain("staleTime: 15_000, refetchInterval: 15_000, refetchIntervalInBackground: false");
+    expect(mobileSync).toContain('staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false');
     expect(mobileSync).toContain("events.isFetching && events.data");
     expect(mobileSync).toContain("readings.isFetching && readings.data");
     expect(home).toContain("(sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword");
@@ -292,6 +293,10 @@ describe("public invoice and inquiry actions", () => {
     expect(review).toContain("refreshAfterApproval()");
     expect(paymentPage).toContain("invalidatePaymentDocumentationReview");
     expect(paymentPage).toContain('staleTime: 0, refetchOnMount: "always"');
+    const auth = read("client/src/_core/hooks/useAuth.ts");
+    expect(auth).toContain("queryClient.clear()");
+    expect(auth).toContain('event === "SIGNED_OUT"');
+    expect(auth).toContain("identityChanged");
   });
 
 });

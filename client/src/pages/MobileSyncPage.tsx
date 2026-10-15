@@ -30,11 +30,11 @@ export default function MobileSyncPage() {
   const enabled = Boolean(isAuthenticated && siteId);
   const from = useMemo(() => isoAtStart(fromDate), [fromDate]);
   const to = useMemo(() => isoAtEnd(toDate), [toDate]);
-  const summary = trpc.powerhub.mobileSync.summary.useQuery({ siteId: siteId ?? 0, from, to }, { enabled, staleTime: 30_000, refetchInterval: 30_000, refetchIntervalInBackground: false });
+  const summary = trpc.powerhub.mobileSync.summary.useQuery({ siteId: siteId ?? 0, from, to }, { enabled, staleTime: 30_000, refetchOnMount: "always", refetchInterval: 30_000, refetchIntervalInBackground: false });
   const technicians = trpc.powerhub.mobileSync.technicians.useQuery({ siteId: siteId ?? 0 }, { enabled });
   // New field readings should appear promptly, but polling stops when this tab is hidden/unmounted.
-  const events = trpc.powerhub.mobileSync.list.useQuery({ siteId: siteId ?? 0, status: status === "all" ? undefined : status, userId: userId === "all" ? undefined : Number(userId), from, to, page, pageSize: 25 }, { enabled, staleTime: 15_000, refetchInterval: 15_000, refetchIntervalInBackground: false });
-  const readings = trpc.powerhub.mobileSync.readings.useQuery({ siteId: siteId ?? 0, userId: userId === "all" ? undefined : Number(userId), from, to, page: readingPage, pageSize: 20 }, { enabled, staleTime: 15_000, refetchInterval: 15_000, refetchIntervalInBackground: false });
+  const events = trpc.powerhub.mobileSync.list.useQuery({ siteId: siteId ?? 0, status: status === "all" ? undefined : status, userId: userId === "all" ? undefined : Number(userId), from, to, page, pageSize: 25 }, { enabled, staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false });
+  const readings = trpc.powerhub.mobileSync.readings.useQuery({ siteId: siteId ?? 0, userId: userId === "all" ? undefined : Number(userId), from, to, page: readingPage, pageSize: 20 }, { enabled, staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false });
   const refresh = () => { void summary.refetch(); void events.refetch(); void readings.refetch(); void technicians.refetch(); };  const utils = trpc.useUtils();
   const bulkApprove = trpc.powerhub.mobileSync.approveAllAndIssue.useMutation({
     onSuccess: async (result) => {
