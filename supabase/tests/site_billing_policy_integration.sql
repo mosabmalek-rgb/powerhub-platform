@@ -342,6 +342,52 @@ end;
 $test_manual_campaign$;
 
 \ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
+-- Re-apply to prove the SQL formatter migration is idempotent across both environment shapes.
+\ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
+
+do $sql_message_financial_assert$
+declare
+  v_definition text;
+begin
+  select pg_get_functiondef('public.powerhub_queue_invoice_sms_after_issue()'::regprocedure) into v_definition;
+  if position('round(new.total_amount, 1)::text' in v_definition) = 0
+     or position('round(new.balance_due, 1)::text' in v_definition) = 0
+     or position('new.total_amount::text' in v_definition) > 0
+     or position('new.balance_due::text' in v_definition) > 0
+     or position('{{total_balance}}' in v_definition) = 0 then
+    raise exception 'SQL_TRIGGER_MESSAGE_AMOUNT_ASSERTION_FAILED';
+  end if;
+
+  select pg_get_functiondef('public.powerhub_queue_selected_invoice_sms(bigint,bigint,bigint,bigint)'::regprocedure) into v_definition;
+  if position('round(v_invoice.total_amount, 1)::text' in v_definition) = 0
+     or position('round(v_invoice.balance_due, 1)::text' in v_definition) = 0
+     or position('v_invoice.total_amount::text' in v_definition) > 0
+     or position('v_invoice.balance_due::text' in v_definition) > 0
+     or position('{{total_balance}}' in v_definition) = 0 then
+    raise exception 'SQL_SELECTED_MESSAGE_AMOUNT_ASSERTION_FAILED';
+  end if;
+
+  select pg_get_functiondef('public.powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamptz,text,numeric)'::regprocedure) into v_definition;
+  if position('round(v_total_amount, 1)::text' in v_definition) = 0
+     or position('v_total_amount::text' in v_definition) > 0
+     or position('{{total_balance}}' in v_definition) = 0 then
+    raise exception 'SQL_MOBILE_MESSAGE_AMOUNT_ASSERTION_FAILED';
+  end if;
+
+  select pg_get_functiondef('public.powerhub_prepare_manual_message_campaign(bigint,bigint,bigint,bigint[],uuid,bigint)'::regprocedure) into v_definition;
+  if position('previous_reading|current_reading|consumption_kwh|total_balance|due_date' in v_definition) = 0 then
+    raise exception 'SQL_MANUAL_CAMPAIGN_TOTAL_BALANCE_ASSERTION_FAILED';
+  end if;
+
+  if round(20.456::numeric, 1)::text <> '20.5'
+     or round(120.40::numeric, 1)::text <> '120.4'
+     or round(0.06::numeric, 1)::text <> '0.1' then
+    raise exception 'SQL_MESSAGE_AMOUNT_ROUNDING_ASSERTION_FAILED';
+  end if;
+end;
+$sql_message_financial_assert$;
+
+\echo 'SQL_MESSAGE_FINANCIAL_ASSERTIONS_PASSED'
 
 select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,null,true,1,5,true,6,9);
 insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
