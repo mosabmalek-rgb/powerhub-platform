@@ -101,6 +101,11 @@ const state = vi.hoisted(() => {
     },
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
+      if (name === "powerhub_subscriber_statement_summary") return resolved([{
+        invoice_count: 1, payment_count: 1, reading_count: 1,
+        total_invoiced: 100, total_collected: 25, total_outstanding: 75,
+        total_consumption_kwh: 10, last_payment_at: "2026-08-03T00:00:00.000Z",
+      }]);
       if (name === "powerhub_company_account_balance_rollup") {
         const input = args as { p_tenant_id: number; p_account_ids: number[] };
         const accounts = (tables.company_accounts ?? []) as Array<Record<string, unknown>>;
