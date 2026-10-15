@@ -44,6 +44,12 @@ begin
 
   v_patched := overlay(v_definition placing v_replacement from v_start for v_end - v_start);
 
+  -- Recalculate the anchor after overlay because replacing the invoice block changes offsets.
+  v_end := position('select platform_role into v_platform_role from public.users where id=p_user_id;' in v_patched);
+  if v_end = 0 then
+    raise exception 'MOBILE_INVOICE_POST_PATCH_AUDIT_ANCHOR_NOT_FOUND';
+  end if;
+
   -- The central issuer writes the authoritative invoice issuance audit itself.
   -- Locate the legacy audit statement after the invoice block by boundaries rather than
   -- matching its exact formatting; pg_get_functiondef can preserve/normalize whitespace.
