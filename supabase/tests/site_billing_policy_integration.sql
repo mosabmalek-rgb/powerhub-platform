@@ -301,6 +301,7 @@ begin
 end;$mobile_fixture$;
 
 \ir ../migrations/20261015143000_powerhub_mobile_invoice_fractional_settlement.sql
+\ir ../migrations/20261015163000_powerhub_mobile_reading_approval_audit.sql
 
 select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,null,true,1,5,true,6,9);
 insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
