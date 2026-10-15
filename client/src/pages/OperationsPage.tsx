@@ -130,20 +130,21 @@ export default function OperationsPage({ section }: { section: Section }) {
     // The server mutation has already succeeded before this runs. Keep the visible
     // result refresh separate from secondary cache invalidation so unrelated data
     // cannot delay the user's confirmation.
-    const requiredRefresh = Promise.all(required.map((refresh) => refresh())).catch(() => {
-      toast.warning("نجحت العملية، لكن تعذر تحديث بعض البيانات المعروضة. أعد تحميل العرض للتحقق.");
-    });
+    if (required.length > 0) {
+      void Promise.all(required.map((refresh) => refresh())).catch(() => {
+        toast.warning("نجحت العملية، لكن تعذر تحديث بعض البيانات المعروضة. أعد تحميل العرض للتحقق.");
+      });
+    }
     if (secondary.length > 0) {
       void Promise.all(secondary.map((refresh) => refresh())).catch(() => {
         toast.warning("نجحت العملية، لكن تعذر تحديث بعض البيانات التابعة. أعد تحميل العرض للتحقق.");
       });
     }
-    await requiredRefresh;
   };
 
-  const addGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: async () => {
+  const addGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: () => {
     toast.success("تمت إضافة المولد.");
-    await refreshOperational(
+    refreshOperational(
       [() => utils.powerhub.generators.list.invalidate({ siteId: siteId ?? 0 })],
       [
         () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
@@ -151,9 +152,9 @@ export default function OperationsPage({ section }: { section: Section }) {
       ],
     );
   }, onError: (e) => toast.error(e.message) });
-  const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: async (result) => {
+  const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: (result) => {
     toast.success(`تم اعتماد القراءة وإصدار الفاتورة ${result.invoiceNo} تلقائيًا.`);
-    await refreshOperational(
+    refreshOperational(
       [() => utils.powerhub.readings.page.invalidate({ siteId: siteId ?? 0, limit: 100 })],
       [
         () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
@@ -162,9 +163,9 @@ export default function OperationsPage({ section }: { section: Section }) {
       ],
     );
   }, onError: (e) => toast.error(e.message) });
-  const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: async () => {
+  const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: () => {
     toast.success("تم تسجيل الدفعة.");
-    await refreshOperational(
+    refreshOperational(
       [
         () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
         () => utils.powerhub.payments.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
@@ -175,16 +176,16 @@ export default function OperationsPage({ section }: { section: Section }) {
       ],
     );
   }, onError: (e) => toast.error(e.message) });
-  const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: async (result) => {
+  const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: (result) => {
     toast.success(result.status === "submitted" ? "تم إرسال إيصال SMS بنجاح." : "تعذر إرسال إيصال SMS؛ راجع سجل الإشعارات.");
-    await refreshOperational([], [
+    refreshOperational([], [
       () => utils.powerhub.notifications.list.invalidate({ siteId: siteId ?? 0 }),
       () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
     ]);
   }, onError: (error) => toast.error(error.message) });
-  const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: async () => {
+  const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: () => {
     toast.success("تم تسجيل المصروف.");
-    await refreshOperational(
+    refreshOperational(
       [
         () => utils.powerhub.expenses.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
         () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
