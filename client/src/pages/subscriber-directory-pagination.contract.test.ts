@@ -8,6 +8,10 @@ describe("subscriber directory pagination and type support", () => {
   it("caps the subscriber directory at 20 rows per page and resets paging when filters change", () => {
     const page = read("client/src/pages/NetworkDirectoryPage.tsx");
     expect(page).toContain("const SUBSCRIBER_PAGE_SIZE = 20");
+    expect(page).toContain("const [debouncedSubscriberSearch, setDebouncedSubscriberSearch] = useState(\"\")");
+    expect(page).toContain("setTimeout(() => setDebouncedSubscriberSearch(subscriberSearch.trim()), 250)");
+    expect(page).toContain("staleTime: 120_000, gcTime: 30 * 60_000, placeholderData: (previousData) => previousData");
+    expect(page).toContain("search: debouncedSubscriberSearch");
     expect(page).toContain("page: subscriberPage, pageSize: SUBSCRIBER_PAGE_SIZE");
     expect(page).toContain("subscribersQuery.data?.items ?? []");
     expect(page).toContain('aria-label="فلتر نوع المشترك"');

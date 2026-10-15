@@ -13,17 +13,32 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("إظهار الفاتورة");
     expect(billing).toContain("setPreviewInvoiceUrl");
     expect(billing).toContain("<iframe title=\"معاينة الفاتورة\"");
-    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)}");
+    expect(billing).toContain("<Dialog open={previewInvoiceOpen}");
+    expect(billing).toContain("const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<string, string>>({})");
+    expect(billing).toContain("function invoiceShareCacheKey(siteId: number, invoiceId: number)");
+    expect(billing).toContain("if (cachedPath) setPreviewInvoiceUrl(`${window.location.origin}${cachedPath}`)");
+    expect(billing).toContain("جارٍ تجهيز رابط الفاتورة الآمن…");
     expect(billing).not.toContain("openWindowSafely(");
     expect(billing).toContain("window.location.origin");
     expect(billing).toContain("result.path");
+  });
+
+  it("reuses generated invoice share links for repeat copy/preview actions and shows loading feedback", () => {
+    const billing = read("client/src/pages/BillingPage.tsx");
+    expect(billing).toContain("const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<string, string>>({})");
+    expect(billing).toContain("setInvoiceShareLinks((current) => ({ ...current, [invoiceShareCacheKey(variables.siteId, variables.invoiceId)]: result.path }))");
+    expect(billing).toContain("if (cachedPath) { void copyTextSafely");
+    expect(billing).toContain("invoiceShareLinks[invoiceShareCacheKey(siteId!, invoice.id)]");
+    expect(billing).toContain("disabled={createLink.isPending || openInvoice.isPending}");
+    expect(billing).toContain("جارٍ تجهيز رابط الفاتورة الآمن…");
   });
 
   it("opens invoice preview as an overlay dialog without navigating away or opening a new tab", () => {
     const billing = read("client/src/pages/BillingPage.tsx");
     expect(billing).toContain("const [previewInvoiceUrl, setPreviewInvoiceUrl] = useState<string | null>(null)");
     expect(billing).toContain("setPreviewInvoiceUrl(`${window.location.origin}${result.path}`)");
-    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)} onOpenChange={(open) => !open && setPreviewInvoiceUrl(null)}>");
+    expect(billing).toContain("<Dialog open={previewInvoiceOpen} onOpenChange={(open) => { setPreviewInvoiceOpen(open); if (!open) setPreviewInvoiceUrl(null); }}>");
+    expect(billing).toContain("setPreviewInvoiceOpen(true)");
     expect(billing).toContain("<iframe title=\"معاينة الفاتورة\"");
     expect(billing).toContain("تظهر الفاتورة هنا فوق الصفحة الحالية");
   });
@@ -293,6 +308,20 @@ describe("public invoice and inquiry actions", () => {
     expect(review).toContain("refreshAfterApproval()");
     expect(paymentPage).toContain("invalidatePaymentDocumentationReview");
     expect(paymentPage).toContain('staleTime: 0, refetchOnMount: "always"');
+    const operations = read("client/src/pages/OperationsPage.tsx");
+    const directory = read("client/src/pages/NetworkDirectoryPage.tsx");
+    const readings = read("client/src/pages/MeterReadingsPage.tsx");
+    expect(operations).toContain("staleTime: 20_000");
+    expect(operations).toContain("staleTime: 15_000");
+    expect(operations).toContain("staleTime: 60_000");
+    expect(operations).toContain("await addPayment.mutateAsync(completePayload)");
+    expect(operations).toContain("const formElement = e.currentTarget; const f = new FormData(formElement);");
+    expect(operations).toContain("formElement.reset(); setSelectedSubscriberId(0);");
+    expect(operations).toContain('batchSubmitting ? "جارٍ تسجيل الدفعة…" : "تسجيل الدفعة"');
+    expect(directory).toContain("staleTime: 20_000");
+    expect(readings).toContain("staleTime: 15_000");
+    expect(readings).toContain("utils.powerhub.readings.page.invalidate({ ...siteScope, limit: 200 })");
+    expect(readings).not.toContain("utils.powerhub.subscribers.list.invalidate()");
     const auth = read("client/src/_core/hooks/useAuth.ts");
     expect(auth).toContain("queryClient.clear()");
     expect(auth).toContain('event === "SIGNED_OUT"');
