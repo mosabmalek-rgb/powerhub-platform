@@ -115,11 +115,8 @@ values (
   1,'payment_documentation',1,'update',
   jsonb_build_object(
     'status','disabled',
-    'limit_mode','inherit',
-    'manual_limit',null,
-    'override_reason','admin_hold',
-    'updated_by_user_id',1,
-    'updated_at',now() - interval '2 minutes'
+    'limitMode','inherit',
+    'manualLimit',null
   ),
   'admin disabled feature',
   now() - interval '2 minutes'
