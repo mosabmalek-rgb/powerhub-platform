@@ -25,7 +25,7 @@ describe("public invoice and inquiry actions", () => {
 
   it("reuses generated invoice share links for repeat copy/preview actions and shows loading feedback", () => {
     const billing = read("client/src/pages/BillingPage.tsx");
-    expect(billing).toContain("const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<number, string>>({})");
+    expect(billing).toContain("const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<string, string>>({})");
     expect(billing).toContain("setInvoiceShareLinks((current) => ({ ...current, [invoiceShareCacheKey(variables.siteId, variables.invoiceId)]: result.path }))");
     expect(billing).toContain("if (cachedPath) { void copyTextSafely");
     expect(billing).toContain("جارٍ تجهيز رابط الفاتورة الآمن…");
