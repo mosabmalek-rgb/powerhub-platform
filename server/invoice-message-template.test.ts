@@ -33,6 +33,25 @@ describe("invoice message templates", () => {
     expect(rendered).toBe("الإجمالي 390.0، المستحق 150.3، الرصيد 1,001.0");
   });
 
+
+  it("hides fractional digits when a settlement policy is active", () => {
+    const rendered = renderInvoiceMessageTemplate(
+      "الإجمالي {{total_amount}}، المستحق {{balance_due}}، الرصيد {{total_balance}}",
+      { total_amount: "120.80", balance_due: "80.40", total_balance: "200.20" },
+      true,
+    );
+    expect(rendered).toBe("الإجمالي 120، المستحق 80، الرصيد 200");
+  });
+
+  it("shows at most one decimal when settlement policies are disabled", () => {
+    const rendered = renderInvoiceMessageTemplate(
+      "الإجمالي {{total_amount}}، المستحق {{balance_due}}",
+      { total_amount: "120.80", balance_due: "80.45" },
+      false,
+    );
+    expect(rendered).toBe("الإجمالي 120.8، المستحق 80.5");
+  });
+
   it("renders the dedicated payment reminder template with balance and deferred invoice-link placeholder", () => {
     const rendered = renderInvoiceMessageTemplate(defaultPaymentReminderSmsTemplate, {
       subscriber_name: "أحمد",
