@@ -6,7 +6,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
 import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
-import { decimalAmountToMinorUnits, formatMessageAmount, minorUnitsToAmountString } from "./decimal-money";
+import { decimalAmountToMinorUnits, formatMessageAmount, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
 import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
@@ -226,6 +226,13 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
   let queuedCount = 0;
   const tenantId = Number(automation.tenant_id);
   const siteId = Number(automation.site_id);
+  const { data: billingPolicy, error: billingPolicyError } = await admin.from("site_billing_policies")
+    .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
+    .eq("tenant_id", tenantId).eq("site_id", siteId).maybeSingle();
+  if (billingPolicyError) throw new Error("تعذر تحميل سياسة تسوية الكسور لتنسيق مبالغ الرسائل.");
+  const settlementDisplayEnabled = Boolean(
+    billingPolicy?.automatic_fraction_discount_enabled || billingPolicy?.fraction_carry_enabled,
+  );
   const audience = automation.audience ?? {};
   const trigger = automation.trigger_config ?? {};
 
@@ -343,12 +350,12 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
         const values = {
           subscriber_name: subscriber.full_name ?? "", subscriber_no: subscriber.subscriber_no ?? "",
           invoice_no: invoice?.invoice_no ?? "", billing_period: invoice?.billing_period ?? "",
-          total_amount: invoice?.total_amount == null ? "" : formatMessageAmount(String(invoice.total_amount)),
-          balance_due: invoice?.balance_due == null ? "" : formatMessageAmount(String(invoice.balance_due)),
+          total_amount: invoice?.total_amount == null ? "" : formatPolicyAwareMessageAmount(String(invoice.total_amount), settlementDisplayEnabled),
+          balance_due: invoice?.balance_due == null ? "" : formatPolicyAwareMessageAmount(String(invoice.balance_due), settlementDisplayEnabled),
           previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
           current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
           consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
-          total_balance: formatMessageAmount(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? "0"),
+          total_balance: formatPolicyAwareMessageAmount(minorUnitsToAmountString(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? 0n), settlementDisplayEnabled),
           due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
         };
         const renderedText = await renderAutomationMessage(template.body, values, {
