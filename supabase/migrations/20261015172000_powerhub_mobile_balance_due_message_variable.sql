@@ -40,15 +40,23 @@ begin
 
     v_patched := overlay(v_definition placing v_replacement from v_anchor_pos for length(v_anchor));
   else
-    -- Locate the total_amount replacement, not the template string, and insert directly
-    -- after its statement. Matching by regex avoids reliance on indentation or spacing.
+    -- The policy-aware issuer can nest total_amount inside a chain of replace calls.
+    -- Prefer the separate total_balance rendering statement as the insertion anchor, and
+    -- fall back to the consumption replacement for older definitions.
     v_match := regexp_match(
       v_definition,
-      $pattern$(v_rendered\s*:=\s*replace\s*\(\s*v_rendered\s*,\s*'\{\{total_amount\}\}'\s*,[^;]*;)$pattern$,
+      $pattern$(v_rendered\s*:=\s*replace\s*\(\s*v_rendered\s*,\s*'\{\{total_balance\}\}'\s*,[^;]*;)$pattern$,
       'i'
     );
     if v_match is null then
-      raise exception 'MOBILE_TOTAL_AMOUNT_STATEMENT_ANCHOR_NOT_FOUND';
+      v_match := regexp_match(
+        v_definition,
+        $pattern$(v_rendered\s*:=\s*replace\s*\(\s*v_rendered\s*,\s*'\{\{consumption_kwh\}\}'\s*,[^;]*;)$pattern$,
+        'i'
+      );
+    end if;
+    if v_match is null then
+      raise exception 'MOBILE_BALANCE_DUE_INSERTION_ANCHOR_NOT_FOUND';
     end if;
 
     v_anchor := v_match[1];
