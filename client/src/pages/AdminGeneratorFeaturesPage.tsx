@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { ArrowRight, Plus, Search, Settings2, UsersRound, Zap } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 
@@ -100,6 +100,7 @@ const addonLabels: Record<string,string> = { subscribers50:"المشتركين",
 
 function FeatureRow({feature,policy,control,activeAddons,onGrant,onSave,pending}:{feature:any;policy:any;control:any;activeAddons:any[];onGrant:(v:any)=>void;onSave:(v:any)=>void;pending:boolean}) {
   const [status,setStatus]=useState(control?.status ?? "inherit");
+  useEffect(() => { setStatus(control?.status ?? "inherit"); }, [control?.status]);
   const [billingMode,setBillingMode]=useState<"free"|"paid">("free");
   const [quantity,setQuantity]=useState(feature.feature_key === "subscriber_management" ? "100" : "1");
   const [note,setNote]=useState("");
