@@ -12,5 +12,6 @@ describe("tenant subscription gate integration contract", () => {
     const resolverSource = source.slice(resolverStart);
     expect(resolverSource).toContain("requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true })");
     expect(resolverSource).toContain("Promise.all");
+    expect(resolverSource).toContain("tenant_members");
   });
 });
