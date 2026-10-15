@@ -1,7 +1,7 @@
 -- Keep platform-admin feature availability separate from the generator owner's preference.
 -- Historically the owner toggle also rewrote tenant_feature_controls.status, which could
 -- erase an explicit admin disable. Restore admin state from its audit snapshot where the
--- previous owner RPC was the last writer, then remove owner-only legacy control rows.
+-- previous owner RPC was the last writer, and reset owner-only legacy control rows without deleting them.
 
 -- Restore the latest recorded platform-admin state where an owner toggle overwrote it.
 -- For rows with no prior audit snapshot, reset only the duplicate control state to "inherit";
@@ -34,13 +34,13 @@ with owner_written_controls as (
 )
 update public.tenant_feature_controls c
 set status = coalesce(o.after_data->>'status', 'inherit'),
-    limit_mode = coalesce(o.after_data->>'limit_mode', 'inherit'),
+    limit_mode = coalesce(o.after_data->>'limit_mode', o.after_data->>'limitMode', 'inherit'),
     manual_limit = case
       when coalesce(o.after_data->>'manual_limit', '') ~ '^\d+$'
         then (o.after_data->>'manual_limit')::integer
       else null
     end,
-    override_reason = o.after_data->>'override_reason',
+    override_reason = coalesce(o.after_data->>'override_reason', o.audit_reason),
     updated_by_user_id = o.actor_user_id,
     updated_at = coalesce(
       (o.after_data->>'updated_at')::timestamptz,
