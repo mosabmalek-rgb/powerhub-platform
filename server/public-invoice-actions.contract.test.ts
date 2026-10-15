@@ -242,4 +242,25 @@ describe("public invoice and inquiry actions", () => {
     expect(payloadMigration).toContain("revoke all on function public.powerhub_get_shared_invoice_by_token_hash(text)");
     expect(payloadMigration).toContain("grant execute on function public.powerhub_get_shared_invoice_by_token_hash(text)");
   });
+
+  it("uses one scoped read for payment receipt context after atomic payment-documentation approval", () => {
+    const server = read("server/powerhub.ts");
+    const migration = read("supabase/migrations/20261015110000_powerhub_payment_receipt_context.sql");
+    const approvalStart = server.indexOf('    approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() }))');
+    const approvalEnd = server.indexOf("    receiptUrl:", approvalStart);
+    const approval = server.slice(approvalStart, approvalEnd);
+
+    expect(approval).toContain('rpc("powerhub_approve_payment_documentation"');
+    expect(approval).toContain('rpc("powerhub_payment_receipt_context"');
+    expect(approval).toContain('rpc("powerhub_queue_payment_sms"');
+    expect(approval).not.toContain('.from("payments")');
+    expect(approval).not.toContain('.from("invoices")');
+    expect(approval).not.toContain('.from("subscribers")');
+    expect(approval).not.toContain('.from("tenant_payment_receipt_message_templates")');
+    expect(migration).toContain("create or replace function public.powerhub_payment_receipt_context");
+    expect(migration).toContain("p.tenant_id = p_tenant_id");
+    expect(migration).toContain("p.site_id = p_site_id");
+    expect(migration).toContain("revoke all on function public.powerhub_payment_receipt_context");
+    expect(migration).toContain("grant execute on function public.powerhub_payment_receipt_context");
+  });
 });
