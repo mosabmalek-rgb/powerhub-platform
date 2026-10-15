@@ -2531,9 +2531,10 @@ export const powerhubRouter = router({
       receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments");
+      // requirePaymentDocumentationFeature already calls the entitlement RPC and rejects
+      // unavailable plans. The submission RPC independently validates invoice/account scope.
+      // Do not issue the same entitlement RPC twice on this latency-sensitive path.
       await requirePaymentDocumentationFeature(access.tenantId);
-      const feature = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId });
-      if (feature.error || !feature.data?.[0]?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة لهذا الاشتراك." });
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
       if (input.receiptImageData) {
