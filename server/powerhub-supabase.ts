@@ -107,7 +107,7 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
 
   // Membership and subscription are independent checks once the site's tenant is known.
   // Run them concurrently to avoid adding one network round trip to every protected operation.
-  const [membershipResult, subscriptionResult] = await Promise.all([
+  const [membershipResult] = await Promise.all([
     admin.from("tenant_members")
       .select("role").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
     requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true }),
