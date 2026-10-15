@@ -6,7 +6,7 @@ const read = (file: string) => fs.readFileSync(path.resolve(process.cwd(), file)
 const supabase = read("server/powerhub-supabase.ts");
 const router = read("server/powerhub.ts");
 const reportReads = supabase.slice(
-  supabase.indexOf("export async function listSupabaseReportInvoices"),
+  supabase.indexOf("async function readSupabaseReportPages"),
   supabase.indexOf("export async function getSupabaseFinancialOverview"),
 );
 const reportRoutes = router.slice(router.indexOf("  reports: router({"), router.indexOf("  reportBranding: router({"));
