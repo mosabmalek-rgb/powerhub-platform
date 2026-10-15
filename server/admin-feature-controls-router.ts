@@ -19,7 +19,7 @@ const addonFeatureMap: Record<string, string> = { subscriber_management: "subscr
 
 async function tenantFeatureSnapshot(tenantId: number) {
   const admin = supabaseAdmin();
-  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult] = await Promise.all([
+  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult, quotaResults] = await Promise.all([
     admin.from("tenants").select("id,name,status,slug,created_at").eq("id",tenantId).maybeSingle(),
     admin.from("tenant_owner_profiles").select("tenant_id,owner_user_id,full_name,phone,email,company_name").eq("tenant_id",tenantId).maybeSingle(),
     admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
@@ -29,8 +29,15 @@ async function tenantFeatureSnapshot(tenantId: number) {
     admin.rpc("powerhub_admin_tenant_feature_controls",{p_tenant_id:tenantId}),
     admin.from("package_feature_policies").select("package_code,feature_key,policy,default_limit,limit_mode").order("feature_key"),
     admin.from("tenant_addon_requests").select("id,addon_code,quantity,status,billing_mode,source,starts_at,ends_at,duration_days").eq("tenant_id",tenantId).eq("status","approved").order("ends_at",{ascending:true}).limit(200),
+    Promise.all([
+      admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"subscribers"}),
+      admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"platformUser"}),
+      admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"fieldUser"}),
+      admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"branch"}),
+      admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"sms"}),
+    ]),
   ]);
-  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error,addonsResult.error].filter(Boolean);
+  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error,addonsResult.error,...quotaResults.map((result:any)=>result.error)].filter(Boolean);
   if (errors.length) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل مصفوفة ميزات صاحب المولد."});
   const subscription = subscriptionResult.data;
   const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.package_code);
@@ -48,6 +55,13 @@ async function tenantFeatureSnapshot(tenantId: number) {
     },
     controls: controls.map((row:any)=>({tenantId:Number(row.tenant_id),featureKey:row.feature_key,status:row.status,limitMode:row.limit_mode,manualLimit:row.manual_limit == null ? null : Number(row.manual_limit),overrideReason:row.override_reason,updatedByUserId:row.updated_by_user_id == null ? null : Number(row.updated_by_user_id),updatedAt:row.updated_at})),
     packagePolicies: packagePolicies.map((row:any)=>({featureKey:row.feature_key,policy:row.policy,defaultLimit:row.default_limit == null ? null : Number(row.default_limit),limitMode:row.limit_mode})),
+    effectiveQuotas: {
+      subscriber_management: Number(Array.isArray(quotaResults[0].data) ? quotaResults[0].data[0] : quotaResults[0].data ?? 0),
+      platform_users: Number(Array.isArray(quotaResults[1].data) ? quotaResults[1].data[0] : quotaResults[1].data ?? 0),
+      field_users: Number(Array.isArray(quotaResults[2].data) ? quotaResults[2].data[0] : quotaResults[2].data ?? 0),
+      branch_management: Number(Array.isArray(quotaResults[3].data) ? quotaResults[3].data[0] : quotaResults[3].data ?? 0),
+      sms: Number(Array.isArray(quotaResults[4].data) ? quotaResults[4].data[0] : quotaResults[4].data ?? 0),
+    },
     activeAddons: (addonsResult.data ?? []).filter((row:any)=>!row.starts_at || new Date(row.starts_at).getTime() <= Date.now()).filter((row:any)=>!row.ends_at || new Date(row.ends_at).getTime() > Date.now()).map((row:any)=>({id:Number(row.id),addonCode:String(row.addon_code),quantity:Number(row.quantity),billingMode:String(row.billing_mode ?? "free"),source:String(row.source ?? "owner_request"),startsAt:row.starts_at,endsAt:row.ends_at,durationDays:Number(row.duration_days ?? 0)})),
   };
 }
