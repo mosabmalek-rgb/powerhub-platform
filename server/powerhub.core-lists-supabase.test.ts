@@ -450,6 +450,83 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     });
   });
 
+  it("يرحّل كل صفحات بيانات النظرة المالية لجميع الأفرع عند تجاوز 1000 سجل", async () => {
+    const originalTables = {
+      invoices: state.tables.invoices,
+      payments: state.tables.payments,
+      expenses: state.tables.expenses,
+      subscribers: state.tables.subscribers,
+      notification_messages: state.tables.notification_messages,
+    };
+    const stamp = new Date().toISOString();
+    const subscriberRows = Array.from({ length: 1001 }, (_, index) => ({
+      id: 10000 + index,
+      tenant_id: 20,
+      site_id: 10,
+      full_name: "مشترك اختبار " + String(index + 1).padStart(4, "0"),
+      subscriber_no: "S-" + String(index + 1).padStart(4, "0"),
+      service_status: "active",
+      archived_at: null,
+    }));
+    state.tables.subscribers = subscriberRows;
+    state.tables.invoices = subscriberRows.map((subscriber, index) => ({
+      id: 20000 + index,
+      tenant_id: 20,
+      site_id: 10,
+      subscriber_id: subscriber.id,
+      invoice_no: "INV-" + String(index + 1).padStart(4, "0"),
+      issue_date: stamp,
+      due_date: stamp,
+      total_amount: 10,
+      paid_amount: 0,
+      balance_due: 10,
+      status: "issued",
+    }));
+    state.tables.payments = subscriberRows.map((subscriber, index) => ({
+      id: 30000 + index,
+      tenant_id: 20,
+      site_id: 10,
+      subscriber_id: subscriber.id,
+      amount: 2,
+      status: "completed",
+      paid_at: stamp,
+    }));
+    state.tables.expenses = subscriberRows.map((_, index) => ({
+      id: 40000 + index,
+      tenant_id: 20,
+      site_id: 10,
+      amount: 1,
+      occurred_at: stamp,
+    }));
+    state.tables.notification_messages = [
+      { id: 50000, tenant_id: 999, subscriber_id: 10000, status: "failed" },
+      { id: 50001, tenant_id: 20, subscriber_id: 10000, status: "completed" },
+    ];
+
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      const operationalSummary = await caller.dashboard.allBranchesSummary({ siteId: 10 });
+      expect(operationalSummary).toMatchObject({
+        branchCount: 1,
+        subscribers: 1001,
+        financial: { invoiced: 10010, collected: 0, outstanding: 10010, expenses: 1001, operatingProfit: -1001 },
+        failedNotifications: 0,
+      });
+      const result = await caller.dashboard.financialOverview({ siteId: 10, scope: "all" });
+      expect(result.branchSummaries).toEqual([
+        expect.objectContaining({ id: 10, activeSubscribers: 1001, invoiced: 10010, collected: 2002, outstanding: 10010 }),
+      ]);
+      expect(result.outstanding).toMatchObject({ total: 10010, accountCount: 1001 });
+      expect(result.month).toMatchObject({ invoiced: 10010, collected: 2002, expenses: 1001, netCash: 1001 });
+    } finally {
+      state.tables.invoices = originalTables.invoices;
+      state.tables.payments = originalTables.payments;
+      state.tables.expenses = originalTables.expenses;
+      state.tables.subscribers = originalTables.subscribers;
+      state.tables.notification_messages = originalTables.notification_messages;
+    }
+  });
+
   it("يرفض عرض بيانات الفرع لمستخدم لا يملك عضوية Supabase فعالة", async () => {
     state.tables.users = [{ id: 2, role: "user" }];
     state.tables.tenant_members = [];

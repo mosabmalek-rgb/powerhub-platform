@@ -749,7 +749,7 @@ type SupabaseReportPayment = {
 type SupabaseReportExpense = { siteId: number; amount: number; occurredAt: Date };
 type SupabaseReportSubscriber = { id: number; siteId: number; fullName: string; subscriberNo: string };
 
-async function readSupabaseReportPages<T>(
+export async function readSupabaseReportPages<T>(
   readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
   errorMessage: string,
 ): Promise<T[]> {
