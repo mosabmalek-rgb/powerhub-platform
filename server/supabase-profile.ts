@@ -53,12 +53,12 @@ export function mapSupabaseProfile(row: UserRow): SupabaseProfileUser {
 const PROFILE_COLUMNS = "id, auth_user_id, name, email, login_method, role, platform_role, account_status, must_change_password, temporary_password_issued_at, created_at, updated_at, last_signed_in";
 const INVITATION_CHECK_TTL_MS = 30_000;
 const SIGN_IN_WRITE_INTERVAL_MS = 5 * 60_000;
-const pendingInvitationChecks = new Map<string, { expiresAt: number; promise: Promise<boolean> }>();
+const pendingInvitationChecks = new Map<string, { expiresAt: number; promise: Promise<boolean>; completed: boolean }>();
 
 async function acceptPendingInvitations(input: { id: string; email: string | null }, admin: ReturnType<typeof supabaseAdmin>) {
   const now = Date.now();
   const cached = pendingInvitationChecks.get(input.id);
-  if (cached && cached.expiresAt > now) return cached.promise;
+  if (cached && cached.expiresAt > now) return cached.completed ? false : cached.promise;
   if (cached) pendingInvitationChecks.delete(input.id);
 
   // Keep invitation processing off the hot path for every UI/API request.
@@ -66,6 +66,7 @@ async function acceptPendingInvitations(input: { id: string; email: string | nul
   // Newly issued invitations are picked up within at most this short TTL per warm instance.
   const entry = {
     expiresAt: now + INVITATION_CHECK_TTL_MS,
+    completed: false,
     promise: (async () => {
       const [platformInvitation, tenantInvitation] = await Promise.all([
         admin.rpc("powerhub_accept_pending_platform_invitation", {
@@ -94,7 +95,9 @@ async function acceptPendingInvitations(input: { id: string; email: string | nul
     }
   }
   try {
-    return await entry.promise;
+    const accepted = await entry.promise;
+    entry.completed = true;
+    return accepted;
   } catch (error) {
     if (pendingInvitationChecks.get(input.id) === entry) pendingInvitationChecks.delete(input.id);
     throw error;
