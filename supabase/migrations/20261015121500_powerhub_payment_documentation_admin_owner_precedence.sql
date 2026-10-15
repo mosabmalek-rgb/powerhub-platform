@@ -58,10 +58,16 @@ where c.feature_key = 'payment_documentation'
       )
       and not exists (
         select 1
-        from public.tenant_feature_control_audit a
-        where a.tenant_id = c.tenant_id
-          and a.feature_key = c.feature_key
-          and a.created_at < c.updated_at
+        from (
+          select a.after_data
+          from public.tenant_feature_control_audit a
+          where a.tenant_id = c.tenant_id
+            and a.feature_key = c.feature_key
+            and a.created_at < c.updated_at
+          order by a.created_at desc, a.id desc
+          limit 1
+        ) latest_admin_snapshot
+        where latest_admin_snapshot.after_data is not null
       )
     )
   );
