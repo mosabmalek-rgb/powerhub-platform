@@ -94,7 +94,7 @@ export async function getSupabaseSite(siteId: number): Promise<SupabaseSite> {
   };
 }
 
-export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; invoiceDueDays: number; usesPermissionOverride: boolean; isPlatformAdmin: boolean }> {
+export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; invoiceDueDays?: number; usesPermissionOverride: boolean; isPlatformAdmin?: boolean }> {
   const admin = supabaseAdmin();
   const [{ data: user, error: userError }, site] = await Promise.all([
     admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle(),
@@ -145,7 +145,7 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   // resolveSupabaseSiteAccess already loaded the current platform role and account status.
   // Reuse that result instead of issuing a duplicate users-table query on every operation.
-  const platformAdmin = access.isPlatformAdmin;
+  const platformAdmin = access.isPlatformAdmin === true;
   if (!platformAdmin && capability && !access.permissions.includes(capability)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
   }
