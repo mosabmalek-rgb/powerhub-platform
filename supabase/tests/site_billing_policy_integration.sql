@@ -278,15 +278,22 @@ returns table(invoice_id bigint,invoice_no text,total_amount numeric,notificatio
 language plpgsql security definer set search_path=public,pg_temp as $mobile_fixture$
 declare
   v_tariff public.tariffs%rowtype;
+  v_reading public.meter_readings%rowtype;
+  v_subscriber public.subscribers%rowtype;
   v_invoice_id bigint;
   v_invoice_no text;
   v_total_amount numeric(14,2);
   v_platform_role text;
   v_sequence bigint;
+  v_rendered text := '';
   v_notification_ids bigint[]:=array[]::bigint[];
 begin
   update public.meter_readings set status='approved'
   where id=p_reading_id and tenant_id=p_tenant_id and site_id=p_site_id;
+  select * into v_reading from public.meter_readings
+  where id=p_reading_id and tenant_id=p_tenant_id and site_id=p_site_id;
+  select * into v_subscriber from public.subscribers
+  where id=v_reading.subscriber_id and tenant_id=p_tenant_id and site_id=p_site_id;
   select * into v_tariff from public.tariffs
   where tenant_id=p_tenant_id and site_id=p_site_id and is_active=true
   order by id desc limit 1;
@@ -296,12 +303,105 @@ begin
   values(p_tenant_id,p_site_id,103,p_reading_id,v_tariff.id,v_invoice_no,p_billing_period,p_due_date,v_total_amount,v_total_amount,'issued',p_user_id)
   returning id into v_invoice_id;
   select platform_role into v_platform_role from public.users where id=p_user_id;
+  -- Keep message-rendering anchors representative of the older mobile RPC shape.
+  -- The production migration formats these variables for display without changing invoice amounts.
+  v_rendered:=replace(v_rendered,'{{total_amount}}',v_total_amount::text);
+  v_rendered:=replace(v_rendered,'{{consumption_kwh}}',coalesce(v_reading.consumption_kwh::text,''));
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data) values(p_tenant_id,p_site_id,p_user_id,v_platform_role,'invoice',v_invoice_id::text,'issue',jsonb_build_object('readingId',p_reading_id,'tariffId',v_tariff.id,'invoiceNo',v_invoice_no,'billingPeriod',p_billing_period,'totalAmount',v_total_amount,'automaticInvoice',true));
   return query select v_invoice_id,v_invoice_no,v_total_amount,v_notification_ids,false;
 end;$mobile_fixture$;
 
 \ir ../migrations/20261015143000_powerhub_mobile_invoice_fractional_settlement.sql
 \ir ../migrations/20261015163000_powerhub_mobile_reading_approval_audit.sql
+
+-- Minimal SQL message-function fixtures. They reproduce the exact legacy template
+-- substitution anchors used by the migration without sending or queueing real messages.
+create or replace function public.powerhub_queue_invoice_sms_after_issue()
+returns trigger language plpgsql as $test_message_trigger$
+declare v_rendered_text text := '';
+begin
+  v_rendered_text := replace(v_rendered_text,'{{total_amount}}',new.total_amount::text);
+  v_rendered_text := replace(v_rendered_text,'{{balance_due}}',new.balance_due::text);
+  v_rendered_text := replace(v_rendered_text,'{{previous_reading}}',coalesce(new.previous_reading::text,''));
+  v_rendered_text := replace(v_rendered_text,'{{current_reading}}',coalesce(new.current_reading::text,''));
+  v_rendered_text := replace(v_rendered_text,'{{consumption_kwh}}',coalesce(new.consumption_kwh::text,''));
+  return new;
+end;
+$test_message_trigger$;
+
+create or replace function public.powerhub_queue_selected_invoice_sms(
+  p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_invoice_id bigint
+)
+returns void language plpgsql as $test_selected_message$
+declare v_invoice public.invoices%rowtype; v_rendered_text text := '';
+begin
+  select * into v_invoice from public.invoices
+  where id=p_invoice_id and tenant_id=p_tenant_id and site_id=p_site_id;
+  v_rendered_text:=replace(v_rendered_text,'{{total_amount}}',v_invoice.total_amount::text);
+  v_rendered_text:=replace(v_rendered_text,'{{balance_due}}',v_invoice.balance_due::text);
+end;
+$test_selected_message$;
+
+create or replace function public.powerhub_prepare_manual_message_campaign(
+  p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_subscriber_ids bigint[],
+  p_operation_id uuid,p_template_id bigint
+)
+returns bigint language plpgsql as $test_manual_campaign$
+begin
+  return length('previous_reading|current_reading|consumption_kwh|due_date')::bigint;
+end;
+$test_manual_campaign$;
+
+\ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
+\ir ../migrations/20261015172000_powerhub_mobile_balance_due_message_variable.sql
+-- Re-apply to prove the SQL formatter migration is idempotent across both environment shapes.
+\ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
+\ir ../migrations/20261015172000_powerhub_mobile_balance_due_message_variable.sql
+
+do $sql_message_financial_assert$
+declare
+  v_definition text;
+begin
+  select pg_get_functiondef('public.powerhub_queue_invoice_sms_after_issue()'::regprocedure) into v_definition;
+  if position('round(new.total_amount, 1)::text' in v_definition) = 0
+     or position('round(new.balance_due, 1)::text' in v_definition) = 0
+     or position('new.total_amount::text' in v_definition) > 0
+     or position('new.balance_due::text' in v_definition) > 0
+     or position('{{total_balance}}' in v_definition) = 0 then
+    raise exception 'SQL_TRIGGER_MESSAGE_AMOUNT_ASSERTION_FAILED';
+  end if;
+
+  select pg_get_functiondef('public.powerhub_queue_selected_invoice_sms(bigint,bigint,bigint,bigint)'::regprocedure) into v_definition;
+  if position('round(v_invoice.total_amount, 1)::text' in v_definition) = 0
+     or position('round(v_invoice.balance_due, 1)::text' in v_definition) = 0
+     or position('v_invoice.total_amount::text' in v_definition) > 0
+     or position('v_invoice.balance_due::text' in v_definition) > 0
+     or position('{{total_balance}}' in v_definition) = 0 then
+    raise exception 'SQL_SELECTED_MESSAGE_AMOUNT_ASSERTION_FAILED';
+  end if;
+
+  select pg_get_functiondef('public.powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamptz,text,numeric)'::regprocedure) into v_definition;
+  if position('round(v_total_amount, 1)::text' in v_definition) = 0
+     or position('v_total_amount::text' in v_definition) > 0
+     or position('{{total_balance}}' in v_definition) = 0
+     or v_definition !~* $pattern$v_rendered\s*:=\s*replace\s*\(\s*v_rendered\s*,\s*'\{\{balance_due\}\}'\s*,\s*round\s*\(\s*v_total_amount\s*,\s*1\s*\)::text\s*\)$pattern$ then
+    raise exception 'SQL_MOBILE_MESSAGE_AMOUNT_ASSERTION_FAILED';
+  end if;
+
+  select pg_get_functiondef('public.powerhub_prepare_manual_message_campaign(bigint,bigint,bigint,bigint[],uuid,bigint)'::regprocedure) into v_definition;
+  if position('previous_reading|current_reading|consumption_kwh|total_balance|due_date' in v_definition) = 0 then
+    raise exception 'SQL_MANUAL_CAMPAIGN_TOTAL_BALANCE_ASSERTION_FAILED';
+  end if;
+
+  if round(20.456::numeric, 1)::text <> '20.5'
+     or round(120.40::numeric, 1)::text <> '120.4'
+     or round(0.06::numeric, 1)::text <> '0.1' then
+    raise exception 'SQL_MESSAGE_AMOUNT_ROUNDING_ASSERTION_FAILED';
+  end if;
+end;
+$sql_message_financial_assert$;
+
+\echo 'SQL_MESSAGE_FINANCIAL_ASSERTIONS_PASSED'
 
 select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,null,true,1,5,true,6,9);
 insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
@@ -354,3 +454,57 @@ end $template_amount_assert$;
 
 \echo 'mobile invoice fractional settlement assertions passed'
 
+
+
+-- No billing-policy row: preserve the raw two-decimal invoice math and do not auto-settle.
+do $missing_policy_precondition$
+begin
+  if exists(select 1 from public.site_billing_policies where tenant_id=2 and site_id=20) then
+    raise exception 'MISSING_POLICY_FIXTURE_HAS_POLICY';
+  end if;
+end;
+$missing_policy_precondition$;
+
+insert into public.subscribers(id,tenant_id,site_id,full_name,subscriber_no)
+values (201,2,20,'No policy test subscriber','S-201');
+insert into public.tariffs(id,tenant_id,site_id,is_active,price_per_kwh,fixed_fee,tax_rate)
+values (21,2,20,true,1,0,0);
+insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
+values (2001,2,20,201,0,120.4,120.4,'approved');
+select * from public.powerhub_issue_invoice_from_reading(2,20,8,2001,21,'2026-07',now()+interval '15 days',0,null);
+
+do $missing_policy_assert$
+declare
+  v_total numeric;
+  v_balance numeric;
+  v_discount numeric;
+  v_lines numeric;
+  v_auto_adjustments integer;
+  v_carried_adjustments integer;
+begin
+  select total_amount,balance_due,discount_amount
+    into v_total,v_balance,v_discount
+  from public.invoices where tenant_id=2 and site_id=20 and reading_id=2001;
+  select sum(case when line_type='discount' then -amount else amount end)
+    into v_lines
+  from public.invoice_lines
+  where invoice_id=(select id from public.invoices where tenant_id=2 and site_id=20 and reading_id=2001);
+  select count(*) into v_auto_adjustments
+  from public.billing_adjustments
+  where tenant_id=2 and site_id=20
+    and invoice_id=(select id from public.invoices where tenant_id=2 and site_id=20 and reading_id=2001)
+    and adjustment_type='auto_fraction_discount' and state='applied';
+  select count(*) into v_carried_adjustments
+  from public.billing_adjustments
+  where tenant_id=2 and site_id=20
+    and invoice_id=(select id from public.invoices where tenant_id=2 and site_id=20 and reading_id=2001)
+    and adjustment_type='fraction_carried';
+  if v_total<>120.4 or v_balance<>120.4 or v_discount<>0
+     or v_lines<>v_total or v_auto_adjustments<>0 or v_carried_adjustments<>0 then
+    raise exception 'NO_SITE_BILLING_POLICY_ASSERTION_FAILED total=% balance=% discount=% lines=% auto_adjustments=% carry_adjustments=%',
+      v_total,v_balance,v_discount,v_lines,v_auto_adjustments,v_carried_adjustments;
+  end if;
+end;
+$missing_policy_assert$;
+
+\echo 'NO_SITE_BILLING_POLICY_ASSERTIONS_PASSED'

@@ -1,3 +1,5 @@
+import { formatMessageAmount } from "./decimal-money";
+
 export type PaymentReceiptMessageInput = {
   subscriberName: string;
   paymentNo: string;
@@ -6,7 +8,7 @@ export type PaymentReceiptMessageInput = {
   balanceDue: number;
 };
 
-const amount = (value: number) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(value);
+const amount = (value: number) => formatMessageAmount(value);
 export const defaultPaymentReceiptSmsTemplate = "مرحباً {{subscriber_name}}، تم استلام دفعة بقيمة {{payment_amount}} عن فاتورتك رقم {{invoice_no}}. رقم الإيصال: {{payment_no}}. الرصيد المتبقي: {{balance_due}}.";
 export const paymentReceiptTemplateVariables = ["{{subscriber_name}}", "{{payment_no}}", "{{payment_amount}}", "{{invoice_no}}", "{{balance_due}}"]; 
 
