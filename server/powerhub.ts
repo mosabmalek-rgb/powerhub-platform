@@ -2827,8 +2827,8 @@ export const powerhubRouter = router({
   reports: router({
     range: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      startDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
-      endDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
@@ -2877,8 +2877,8 @@ export const powerhubRouter = router({
     }),
     allBranchesRange: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      startDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
-      endDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
       const { tenantId } = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
@@ -2941,7 +2941,7 @@ export const powerhubRouter = router({
       }));
       return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: branchIds.length }, summary, collectors, topDebtors, branchSummaries, paymentDetails };
     }),
-    monthly: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), billingPeriod: z.string().regex(/^\\d{4}-\\d{2}$/) })).query(async ({ ctx, input }) => {
+    monthly: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), billingPeriod: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const start = new Date(`${input.billingPeriod}-01T00:00:00.000Z`);
       if (Number.isNaN(start.getTime()) || start.toISOString().slice(0, 7) !== input.billingPeriod) throw new TRPCError({ code: "BAD_REQUEST", message: "فترة التقرير الشهري غير صالحة." });
