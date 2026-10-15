@@ -112,20 +112,20 @@ export default function BillingPage() {
   // Reuse generated secure share tokens during this visit instead of creating a new DB row on every click.
   const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<string, string>>({});
   const enabled = Boolean(isAuthenticated && siteId);
-  const readingCycleQuery = trpc.powerhub.readingCycle.get.useQuery({ siteId: siteId ?? 0 }, { enabled });
-  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
+  const readingCycleQuery = trpc.powerhub.readingCycle.get.useQuery({ siteId: siteId ?? 0 }, { enabled, staleTime: 60_000 });
+  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled, staleTime: 60_000 });
   const canIssue = can(accessQuery.data?.role, "issueInvoices");
   const canManageMessaging = can(accessQuery.data?.role, "manageMessaging");
-  const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 100, cursor: currentInvoiceCursor }, { enabled });
+  const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 100, cursor: currentInvoiceCursor }, { enabled, staleTime: 15_000 });
   const invoiceNotificationsQuery = trpc.powerhub.notifications.list.useQuery({
     siteId: siteId ?? 0, eventType: "invoice_issued", channel: "sms",
     invoiceIds: invoicesQuery.data?.items.map((invoice) => invoice.id) ?? [],
-  }, { enabled: enabled && invoicesQuery.isSuccess });
+  }, { enabled: enabled && invoicesQuery.isSuccess, staleTime: 15_000 });
   const dueInvoiceNotificationCountQuery = trpc.powerhub.notifications.countDueInvoiceNotifications.useQuery(
-    { siteId: siteId ?? 0 }, { enabled: enabled && canManageMessaging },
+    { siteId: siteId ?? 0 }, { enabled: enabled && canManageMessaging, staleTime: 15_000 },
   );
-  const bulkInvoiceSendsQuery = trpc.powerhub.notifications.listBulkInvoiceSends.useQuery({ siteId: siteId ?? 0, from: bulkSendFrom || undefined, to: bulkSendTo || undefined }, { enabled: enabled && canManageMessaging });
-  const bulkInvoiceSendDetailsQuery = trpc.powerhub.notifications.bulkInvoiceSendDetails.useQuery({ siteId: siteId ?? 0, auditLogId: selectedBulkSendId ?? 0 }, { enabled: enabled && canManageMessaging && selectedBulkSendId !== null });
+  const bulkInvoiceSendsQuery = trpc.powerhub.notifications.listBulkInvoiceSends.useQuery({ siteId: siteId ?? 0, from: bulkSendFrom || undefined, to: bulkSendTo || undefined }, { enabled: enabled && canManageMessaging, staleTime: 15_000 });
+  const bulkInvoiceSendDetailsQuery = trpc.powerhub.notifications.bulkInvoiceSendDetails.useQuery({ siteId: siteId ?? 0, auditLogId: selectedBulkSendId ?? 0 }, { enabled: enabled && canManageMessaging && selectedBulkSendId !== null, staleTime: 15_000 });
   const createLink = trpc.powerhub.invoices.createShareLink.useMutation({ onSuccess: async (result, variables) => { setInvoiceShareLinks((current) => ({ ...current, [invoiceShareCacheKey(variables.siteId, variables.invoiceId)]: result.path })); const url = `${window.location.origin}${result.path}`; const copied = await copyTextSafely(url); copied ? toast.success("تم نسخ رابط الفاتورة إلى الحافظة.") : toast.error("تعذر نسخ الرابط. انسخه يدوياً."); }, onError: (error) => toast.error(error.message) });
   const openInvoice = trpc.powerhub.invoices.createShareLink.useMutation({ onSuccess: (result, variables) => { setInvoiceShareLinks((current) => ({ ...current, [variables.invoiceId]: result.path })); setPreviewInvoiceUrl(`${window.location.origin}${result.path}`); setPreviewInvoiceOpen(true); }, onError: (error) => { setPreviewInvoiceOpen(false); setPreviewInvoiceUrl(null); toast.error(error.message); } });
   const retryFailedInvoiceNotification = trpc.powerhub.notifications.retryFailedInvoiceNotification.useMutation({ onSuccess: async (result) => { await Promise.all([utils.powerhub.notifications.list.invalidate(), utils.powerhub.notifications.countDueInvoiceNotifications.invalidate(), utils.powerhub.notifications.bulkInvoiceSendDetails.invalidate(), utils.powerhub.notifications.listBulkInvoiceSends.invalidate(), utils.powerhub.audit.list.invalidate()]); toast.success(result.status === "submitted" ? "تم إرسال SMS بنجاح." : "تعذر إرسال SMS؛ راجع سبب الفشل."); }, onError: (error) => toast.error(error.message) });
