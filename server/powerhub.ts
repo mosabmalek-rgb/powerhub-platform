@@ -2755,30 +2755,36 @@ export const powerhubRouter = router({
       if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع المستأجر من Supabase." });
       const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
       if (!branchIds.length) return { branchCount: 0, subscribers: 0, generators: { active: 0, maintenance: 0 }, financial: { invoiced: 0, collected: 0, outstanding: 0, expenses: 0, operatingProfit: 0 }, energyKwh: 0, failedNotifications: 0 };
-      const [subscriberResult, generatorResult, invoiceResult, expenseResult] = await Promise.all([
-        admin.from("subscribers").select("id, service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds).is("archived_at", null),
-        admin.from("generators").select("status").eq("tenant_id", access.tenantId).in("site_id", branchIds),
-        admin.from("invoices").select("status, total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", access.tenantId).in("site_id", branchIds).neq("status", "cancelled").neq("status", "draft"),
-        admin.from("expenses").select("amount").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+      const [subscriberRows, generatorRows, invoiceRows, expenseRows] = await Promise.all([
+        readSupabaseReportPages((from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds).is("archived_at", null).order("id", { ascending: true }).range(from, to), "تعذر تحميل المشتركين لملخص جميع الأفرع من Supabase."),
+        readSupabaseReportPages((from, to) => admin.from("generators").select("status").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل المولدات لملخص جميع الأفرع من Supabase."),
+        readSupabaseReportPages((from, to) => admin.from("invoices").select("status, total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", access.tenantId).in("site_id", branchIds).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to), "تعذر تحميل الفواتير لملخص جميع الأفرع من Supabase."),
+        readSupabaseReportPages((from, to) => admin.from("expenses").select("amount").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل المصروفات لملخص جميع الأفرع من Supabase."),
       ]);
-      if (subscriberResult.error || generatorResult.error || invoiceResult.error || expenseResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص جميع الأفرع من Supabase." });
-      const subscriberIds = (subscriberResult.data ?? []).map((row) => Number(row.id)).filter(Number.isInteger);
-      const notificationResult = subscriberIds.length
-        ? await admin.from("notification_messages").select("status").eq("tenant_id", access.tenantId).in("subscriber_id", subscriberIds)
-        : { data: [], error: null };
-      if (notificationResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حالة الإشعارات لجميع الأفرع من Supabase." });
-      const invoiceTotals = (invoiceResult.data ?? []).filter((row) => row.status !== "cancelled" && row.status !== "draft").reduce((totals, row) => ({
-        invoiced: totals.invoiced + Number(row.total_amount ?? 0), paid: totals.paid + Number(row.paid_amount ?? 0),
-        outstanding: totals.outstanding + Number(row.balance_due ?? 0), energy: totals.energy + Number(row.consumption_kwh ?? 0),
+      const subscriberIds = subscriberRows.map((row) => Number(row.id)).filter(Number.isInteger);
+      const notificationPageRequests: Array<Promise<Array<{ status: string }>>> = [];
+      for (let offset = 0; offset < subscriberIds.length; offset += 200) {
+        const subscriberIdBatch = subscriberIds.slice(offset, offset + 200);
+        notificationPageRequests.push(readSupabaseReportPages(
+          (from, to) => admin.from("notification_messages").select("status").in("subscriber_id", subscriberIdBatch).order("id", { ascending: true }).range(from, to),
+          "تعذر تحميل حالات الإشعارات لجميع الأفرع من Supabase.",
+        ));
+      }
+      const notificationRows = (await Promise.all(notificationPageRequests)).flat();
+      const invoiceTotals = invoiceRows.reduce((totals, row) => ({
+        invoiced: totals.invoiced + Number(row.total_amount ?? 0),
+        paid: totals.paid + Number(row.paid_amount ?? 0),
+        outstanding: totals.outstanding + Number(row.balance_due ?? 0),
+        energy: totals.energy + Number(row.consumption_kwh ?? 0),
       }), { invoiced: 0, paid: 0, outstanding: 0, energy: 0 });
-      const expensesTotal = (expenseResult.data ?? []).reduce((total, row) => total + Number(row.amount ?? 0), 0);
+      const expensesTotal = expenseRows.reduce((total, row) => total + Number(row.amount ?? 0), 0);
       return {
         branchCount: branchIds.length,
-        subscribers: (subscriberResult.data ?? []).filter((row) => row.service_status === "active").length,
-        generators: { active: (generatorResult.data ?? []).filter((row) => row.status === "active").length, maintenance: (generatorResult.data ?? []).filter((row) => row.status === "maintenance").length },
+        subscribers: subscriberRows.filter((row) => row.service_status === "active").length,
+        generators: { active: generatorRows.filter((row) => row.status === "active").length, maintenance: generatorRows.filter((row) => row.status === "maintenance").length },
         financial: { invoiced: invoiceTotals.invoiced, collected: invoiceTotals.paid, outstanding: invoiceTotals.outstanding, expenses: expensesTotal, operatingProfit: invoiceTotals.paid - expensesTotal },
         energyKwh: invoiceTotals.energy,
-        failedNotifications: (notificationResult.data ?? []).filter((row) => row.status === "failed").length,
+        failedNotifications: notificationRows.filter((row) => row.status === "failed").length,
       };
     }),
     financialOverview: protectedProcedure.input(z.object({
