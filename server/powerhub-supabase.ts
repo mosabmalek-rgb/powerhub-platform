@@ -94,7 +94,7 @@ export async function getSupabaseSite(siteId: number): Promise<SupabaseSite> {
   };
 }
 
-export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; usesPermissionOverride: boolean }> {
+export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; usesPermissionOverride: boolean; isPlatformAdmin: boolean }> {
   const admin = supabaseAdmin();
   const [{ data: user, error: userError }, site] = await Promise.all([
     admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle(),
@@ -103,16 +103,20 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المستخدم من Supabase." });
   if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "ملف المستخدم غير متاح." });
   const platformAdmin = isActivePlatformAdmin({ role: user.role, platformRole: user.platform_role, accountStatus: user.account_status });
-  if (platformAdmin) return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, usesPermissionOverride: false };
+  if (platformAdmin) return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, usesPermissionOverride: false, isPlatformAdmin: true };
 
-  const { data: membership, error: membershipError } = await admin.from("tenant_members")
-    .select("role").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle();
+  // Membership and subscription are independent checks once the site's tenant is known.
+  // Run them concurrently to avoid adding one network round trip to every protected operation.
+  const [membershipResult, subscriptionResult] = await Promise.all([
+    admin.from("tenant_members")
+      .select("role").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
+    requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true }),
+  ]);
+  const { data: membership, error: membershipError } = membershipResult;
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
   if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
 
-  await requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true });
-
-  if (membership.role === "owner") return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, usesPermissionOverride: false };
+  if (membership.role === "owner") return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, usesPermissionOverride: false, isPlatformAdmin: false };
 
   const { data: profiles, error: profileError } = await admin.from("staff_profiles")
     .select("role, permissions, custom_role_id, suspension_started_at, suspension_ends_at, site_id")
@@ -134,14 +138,14 @@ export async function resolveSupabaseSiteAccess(userId: number, siteId: number):
     if (customRoleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
     permissions = asPermissions(customRole?.permissions);
   }
-  return { role, permissions, usesPermissionOverride, tenantId: site.tenantId };
+  return { role, permissions, usesPermissionOverride, tenantId: site.tenantId, isPlatformAdmin: false };
 }
 
 export async function requireSupabaseSiteRole(userId: number, siteId: number, allowed: PowerRole[], capability?: PowerCapability) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const { data: user, error: userError } = await supabaseAdmin().from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle();
-  if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف المستخدم في Supabase." });
-  const platformAdmin = isActivePlatformAdmin({ role: user?.role, platformRole: user?.platform_role, accountStatus: user?.account_status });
+  // resolveSupabaseSiteAccess already loaded the current platform role and account status.
+  // Reuse that result instead of issuing a duplicate users-table query on every operation.
+  const platformAdmin = access.isPlatformAdmin;
   if (!platformAdmin && capability && !access.permissions.includes(capability)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
   }
