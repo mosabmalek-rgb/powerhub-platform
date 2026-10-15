@@ -42,10 +42,10 @@ describe("ملف مستخدم Supabase", () => {
 
   it("does not block authentication when optional invitation RPCs are missing", async () => {
     const profile = {
-      id: 42,
-      auth_user_id: "auth-user-42",
+      id: 44,
+      auth_user_id: "auth-user-44",
       name: "User",
-      email: "user@example.com",
+      email: "user44@example.com",
       login_method: "supabase",
       role: "user" as const,
       platform_role: null,
@@ -109,6 +109,6 @@ describe("ملف مستخدم Supabase", () => {
     state.upsert.mockReturnValue({ select: () => ({ single: async () => ({ data: profile, error: null }) }) });
     state.rpc.mockResolvedValue({ data: null, error: { code: "42501", message: "permission denied" } });
 
-    await expect(syncSupabaseProfile({ id: "auth-user-42", email: "user@example.com", name: "User" })).rejects.toThrow("permission denied");
+    await expect(syncSupabaseProfile({ id: "auth-user-44", email: "user44@example.com", name: "User" })).rejects.toThrow("permission denied");
   });
 });
