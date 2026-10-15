@@ -40,11 +40,11 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const [subscriberPage, setSubscriberPage] = useState(1);
   const [addCardCollapsed, setAddCardCollapsed] = useState(true);
   const enabled = Boolean(siteId && isAuthenticated);
-  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
-  const subscribersQuery = trpc.powerhub.subscribers.directoryPage.useQuery({ siteId: siteId ?? 0, page: subscriberPage, pageSize: SUBSCRIBER_PAGE_SIZE, search: subscriberSearch, ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}) }, { enabled: enabled && kind === "subscribers" });
-  const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers" });
-  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch" }, { enabled: enabled && kind === "subscribers" });
-  const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators" });
+  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled, staleTime: 60_000 });
+  const subscribersQuery = trpc.powerhub.subscribers.directoryPage.useQuery({ siteId: siteId ?? 0, page: subscriberPage, pageSize: SUBSCRIBER_PAGE_SIZE, search: subscriberSearch, ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}) }, { enabled: enabled && kind === "subscribers", staleTime: 20_000 });
+  const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers", staleTime: 30_000 });
+  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch" }, { enabled: enabled && kind === "subscribers", staleTime: 15_000 });
+  const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators", staleTime: 20_000 });
   const role = accessQuery.data?.role;
   const canEdit = kind === "subscribers" ? can(role, "manageSubscribers") : can(role, "manageGenerators");
   const data: any[] = kind === "subscribers" ? subscribersQuery.data?.items ?? [] : generatorsQuery.data ?? [];
