@@ -357,14 +357,15 @@ $test_manual_campaign$;
 -- Re-apply to prove the SQL formatter migration is idempotent across both environment shapes.
 \ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
 \ir ../migrations/20261015172000_powerhub_mobile_balance_due_message_variable.sql
+\ir ../migrations/20261015183000_powerhub_policy_aware_message_amount_display.sql
 
 do $sql_message_financial_assert$
 declare
   v_definition text;
 begin
   select pg_get_functiondef('public.powerhub_queue_invoice_sms_after_issue()'::regprocedure) into v_definition;
-  if position('round(new.total_amount, 1)::text' in v_definition) = 0
-     or position('round(new.balance_due, 1)::text' in v_definition) = 0
+  if position('powerhub_format_message_amount(new.tenant_id, new.site_id, new.total_amount)' in v_definition) = 0
+     or position('powerhub_format_message_amount(new.tenant_id, new.site_id, new.balance_due)' in v_definition) = 0
      or position('new.total_amount::text' in v_definition) > 0
      or position('new.balance_due::text' in v_definition) > 0
      or position('{{total_balance}}' in v_definition) = 0 then
@@ -372,8 +373,8 @@ begin
   end if;
 
   select pg_get_functiondef('public.powerhub_queue_selected_invoice_sms(bigint,bigint,bigint,bigint)'::regprocedure) into v_definition;
-  if position('round(v_invoice.total_amount, 1)::text' in v_definition) = 0
-     or position('round(v_invoice.balance_due, 1)::text' in v_definition) = 0
+  if position('powerhub_format_message_amount(v_invoice.tenant_id, v_invoice.site_id, v_invoice.total_amount)' in v_definition) = 0
+     or position('powerhub_format_message_amount(v_invoice.tenant_id, v_invoice.site_id, v_invoice.balance_due)' in v_definition) = 0
      or position('v_invoice.total_amount::text' in v_definition) > 0
      or position('v_invoice.balance_due::text' in v_definition) > 0
      or position('{{total_balance}}' in v_definition) = 0 then
@@ -381,10 +382,10 @@ begin
   end if;
 
   select pg_get_functiondef('public.powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamptz,text,numeric)'::regprocedure) into v_definition;
-  if position('round(v_total_amount, 1)::text' in v_definition) = 0
+  if position('powerhub_format_message_amount(p_tenant_id, p_site_id, v_total_amount)' in v_definition) = 0
      or position('v_total_amount::text' in v_definition) > 0
      or position('{{total_balance}}' in v_definition) = 0
-     or v_definition !~* $pattern$v_rendered\s*:=\s*replace\s*\(\s*v_rendered\s*,\s*'\{\{balance_due\}\}'\s*,\s*round\s*\(\s*v_total_amount\s*,\s*1\s*\)::text\s*\)$pattern$ then
+     or v_definition !~* $pattern$v_rendered\s*:=\s*replace\s*\(\s*v_rendered\s*,\s*'\{\{balance_due\}\}'\s*,\s*public\.powerhub_format_message_amount\s*\(\s*p_tenant_id\s*,\s*p_site_id\s*,\s*v_total_amount\s*\)\s*\)$pattern$ then
     raise exception 'SQL_MOBILE_MESSAGE_AMOUNT_ASSERTION_FAILED';
   end if;
 
@@ -404,6 +405,21 @@ $sql_message_financial_assert$;
 \echo 'SQL_MESSAGE_FINANCIAL_ASSERTIONS_PASSED'
 
 select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,null,true,1,5,true,6,9);
+
+do $policy_aware_message_format_assert$
+begin
+  if public.powerhub_format_message_amount(1,10,40.45::numeric) <> '40'
+     or public.powerhub_format_message_amount(1,10,40.50::numeric) <> '41' then
+    raise exception 'SETTLEMENT_POLICY_MESSAGE_AMOUNT_MUST_HAVE_NO_DECIMALS';
+  end if;
+  if public.powerhub_format_message_amount(2,20,40.45::numeric) <> '40.5'
+     or public.powerhub_format_message_amount(2,20,52.26::numeric) <> '52.3' then
+    raise exception 'NO_SETTLEMENT_POLICY_MESSAGE_AMOUNT_MUST_HAVE_ONE_DECIMAL_MAX';
+  end if;
+end;
+$policy_aware_message_format_assert$;
+
+\echo 'POLICY_AWARE_MESSAGE_AMOUNT_ASSERTIONS_PASSED'
 insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
 values (1007,1,10,103,0,10.2,10.2,'pending_review');
 select * from public.powerhub_approve_and_issue_mobile_reading(1,10,7,1007,1,now()+interval '15 days','2026-07',0);
