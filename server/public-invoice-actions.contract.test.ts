@@ -22,7 +22,15 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("result.path");
   });
 
-  it("reuses generated invoice share links for repeat copy/preview actions and shows loading feedback", () => {\n    const billing = read("client/src/pages/BillingPage.tsx");\n    expect(billing).toContain("const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<number, string>>({})");\n    expect(billing).toContain("setInvoiceShareLinks((current) => ({ ...current, [variables.invoiceId]: result.path }))");\n    expect(billing).toContain("if (cachedPath) { void copyTextSafely");\n    expect(billing).toContain("جارٍ تجهيز رابط الفاتورة الآمن…");\n  });\n\n  it("opens invoice preview as an overlay dialog without navigating away or opening a new tab", () => {
+  it("reuses generated invoice share links for repeat copy/preview actions and shows loading feedback", () => {
+    const billing = read("client/src/pages/BillingPage.tsx");
+    expect(billing).toContain("const [invoiceShareLinks, setInvoiceShareLinks] = useState<Record<number, string>>({})");
+    expect(billing).toContain("setInvoiceShareLinks((current) => ({ ...current, [variables.invoiceId]: result.path }))");
+    expect(billing).toContain("if (cachedPath) { void copyTextSafely");
+    expect(billing).toContain("جارٍ تجهيز رابط الفاتورة الآمن…");
+  });
+
+  it("opens invoice preview as an overlay dialog without navigating away or opening a new tab", () => {
     const billing = read("client/src/pages/BillingPage.tsx");
     expect(billing).toContain("const [previewInvoiceUrl, setPreviewInvoiceUrl] = useState<string | null>(null)");
     expect(billing).toContain("setPreviewInvoiceUrl(`${window.location.origin}${result.path}`)");
