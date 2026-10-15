@@ -2830,12 +2830,11 @@ export const powerhubRouter = router({
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
-      const site = await getSupabaseSite(input.siteId);
       const [allInvoices, paymentRows, expenseRows] = await Promise.all([
-        listSupabaseReportInvoices({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
-        listSupabaseReportPayments({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
+        listSupabaseReportInvoices({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
+        listSupabaseReportPayments({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
         listSupabaseReportExpenses({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
       ]);
       const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
@@ -2942,11 +2941,10 @@ export const powerhubRouter = router({
       return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: branchIds.length }, summary, collectors, topDebtors, branchSummaries, paymentDetails };
     }),
     monthly: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), billingPeriod: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const start = new Date(`${input.billingPeriod}-01T00:00:00.000Z`);
       if (Number.isNaN(start.getTime()) || start.toISOString().slice(0, 7) !== input.billingPeriod) throw new TRPCError({ code: "BAD_REQUEST", message: "فترة التقرير الشهري غير صالحة." });
       const endExclusive = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
-      const site = await getSupabaseSite(input.siteId);
       const [allInvoices, periodPayments, periodExpenses] = await Promise.all([
         listSupabaseReportInvoices({ tenantId: site.tenantId, siteIds: [input.siteId], billingPeriod: input.billingPeriod }),
         listSupabaseReportPayments({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
