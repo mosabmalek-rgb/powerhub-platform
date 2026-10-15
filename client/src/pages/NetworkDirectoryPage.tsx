@@ -13,7 +13,7 @@ import { filterAndSortDebtors, filterDebtorsByQuery } from "@/lib/debtor-search"
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { can } from "@shared/powerhub-rbac";
 import { Bolt, CircleAlert, Clock3, Copy, FileBarChart2, Loader2, Pencil, Plus, UsersRound, WalletCards } from "lucide-react";
-import { FormEvent, ReactNode, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -36,12 +36,17 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [editing, setEditing] = useState<any>(null);
   const [subscriberSearch, setSubscriberSearch] = useState("");
+  const [debouncedSubscriberSearch, setDebouncedSubscriberSearch] = useState("");
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSubscriberSearch(subscriberSearch.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [subscriberSearch]);
   const [subscriberTypeFilter, setSubscriberTypeFilter] = useState<SubscriberTypeFilter>("all");
   const [subscriberPage, setSubscriberPage] = useState(1);
   const [addCardCollapsed, setAddCardCollapsed] = useState(true);
   const enabled = Boolean(siteId && isAuthenticated);
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled, staleTime: 60_000 });
-  const subscribersQuery = trpc.powerhub.subscribers.directoryPage.useQuery({ siteId: siteId ?? 0, page: subscriberPage, pageSize: SUBSCRIBER_PAGE_SIZE, search: subscriberSearch, ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}) }, { enabled: enabled && kind === "subscribers", staleTime: 20_000 });
+  const subscribersQuery = trpc.powerhub.subscribers.directoryPage.useQuery({ siteId: siteId ?? 0, page: subscriberPage, pageSize: SUBSCRIBER_PAGE_SIZE, search: debouncedSubscriberSearch, ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}) }, { enabled: enabled && kind === "subscribers", staleTime: 120_000, gcTime: 30 * 60_000, placeholderData: (previousData) => previousData });
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers", staleTime: 30_000 });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch" }, { enabled: enabled && kind === "subscribers", staleTime: 15_000 });
   const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators", staleTime: 20_000 });
