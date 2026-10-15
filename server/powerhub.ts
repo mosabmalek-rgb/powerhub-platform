@@ -2581,23 +2581,37 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد طلب توثيق الدفع." });
       }
       const paymentId = Number((data[0] as { payment_id: number | string }).payment_id);
-      const payment = await supabaseAdmin().from("payments").select("id, invoice_id, subscriber_id, payment_no, amount").eq("id", paymentId).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
-      if (payment.error || !payment.data?.invoice_id || !payment.data?.subscriber_id) return { paymentId };
-      const [{ data: invoice }, { data: subscriber }, { data: template }] = await Promise.all([
-        supabaseAdmin().from("invoices").select("id, invoice_no, balance_due").eq("id", Number(payment.data.invoice_id)).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle(),
-        supabaseAdmin().from("subscribers").select("id, full_name, phone").eq("id", Number(payment.data.subscriber_id)).eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle(),
-        supabaseAdmin().from("tenant_payment_receipt_message_templates").select("body").eq("tenant_id", access.tenantId).eq("channel", "sms").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle(),
-      ]);
-      if (invoice && subscriber?.phone) {
-        try {
-          const recipient = normalizeInternationalPhone(subscriber.phone);
-          const receipt = { subscriberName: subscriber.full_name, paymentNo: String(payment.data.payment_no), paymentAmount: Number(payment.data.amount), invoiceNo: String(invoice.invoice_no), balanceDue: Number(invoice.balance_due) };
-          const renderedText = renderPaymentReceiptTemplate(template?.body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
-          const { data: queueRows } = await supabaseAdmin().rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId, p_event_type: "payment_received", p_invoice_id: Number(invoice.id), p_payment_id: paymentId, p_operation_key: `payment_receipt:${paymentId}`, p_rendered_text: renderedText });
-          void recipient;
-          void queueRows;
-        } catch { /* approval remains authoritative; SMS is a secondary notification path */ }
-      }
+      // One scoped SQL read replaces the payment lookup plus three follow-up reads.
+      // Notification work remains best-effort and never reverses a successful approval.
+      const { data: contextRows, error: contextError } = await supabaseAdmin().rpc("powerhub_payment_receipt_context", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_payment_id: paymentId,
+      });
+      const receiptContext = Array.isArray(contextRows) ? contextRows[0] as {
+        invoice_id?: number | string | null;
+        payment_no?: string | null;
+        payment_amount?: number | string | null;
+        invoice_no?: string | null;
+        balance_due?: number | string | null;
+        subscriber_name?: string | null;
+        subscriber_phone?: string | null;
+        template_body?: string | null;
+      } | undefined : undefined;
+      if (contextError || !receiptContext?.invoice_id || !receiptContext.subscriber_phone) return { paymentId };
+      try {
+        const receipt = {
+          subscriberName: String(receiptContext.subscriber_name ?? ""),
+          paymentNo: String(receiptContext.payment_no ?? ""),
+          paymentAmount: Number(receiptContext.payment_amount ?? 0),
+          invoiceNo: String(receiptContext.invoice_no ?? ""),
+          balanceDue: Number(receiptContext.balance_due ?? 0),
+        };
+        const renderedText = renderPaymentReceiptTemplate(receiptContext.template_body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
+        await supabaseAdmin().rpc("powerhub_queue_payment_sms", {
+          p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId,
+          p_event_type: "payment_received", p_invoice_id: Number(receiptContext.invoice_id),
+          p_payment_id: paymentId, p_operation_key: `payment_receipt:${paymentId}`, p_rendered_text: renderedText,
+        });
+      } catch { /* approval remains authoritative; SMS is a secondary notification path */ }
       return { paymentId };
     }),
     receiptUrl: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).query(async ({ ctx, input }) => {
