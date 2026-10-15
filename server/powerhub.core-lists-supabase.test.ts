@@ -456,6 +456,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       payments: state.tables.payments,
       expenses: state.tables.expenses,
       subscribers: state.tables.subscribers,
+      notification_messages: state.tables.notification_messages,
     };
     const stamp = new Date().toISOString();
     const subscriberRows = Array.from({ length: 1001 }, (_, index) => ({
@@ -497,6 +498,10 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       amount: 1,
       occurred_at: stamp,
     }));
+    state.tables.notification_messages = [
+      { id: 50000, tenant_id: 999, subscriber_id: 10000, status: "failed" },
+      { id: 50001, tenant_id: 20, subscriber_id: 10000, status: "completed" },
+    ];
 
     try {
       const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
@@ -505,6 +510,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
         branchCount: 1,
         subscribers: 1001,
         financial: { invoiced: 10010, collected: 0, outstanding: 10010, expenses: 1001, operatingProfit: -1001 },
+        failedNotifications: 0,
       });
       const result = await caller.dashboard.financialOverview({ siteId: 10, scope: "all" });
       expect(result.branchSummaries).toEqual([
@@ -517,6 +523,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       state.tables.payments = originalTables.payments;
       state.tables.expenses = originalTables.expenses;
       state.tables.subscribers = originalTables.subscribers;
+      state.tables.notification_messages = originalTables.notification_messages;
     }
   });
 
