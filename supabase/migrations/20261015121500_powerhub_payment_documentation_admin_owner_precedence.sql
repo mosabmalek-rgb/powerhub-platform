@@ -14,14 +14,15 @@ with owner_written_controls as (
     c.updated_at as previous_updated_at,
     a.actor_user_id,
     a.created_at as audit_created_at,
-    a.after_data
+    a.after_data,
+    a.reason as audit_reason
   from public.tenant_feature_controls c
   join public.tenant_members tm
     on tm.tenant_id = c.tenant_id
    and tm.user_id = c.updated_by_user_id
    and tm.role = 'owner'
   left join lateral (
-    select a.actor_user_id, a.created_at, a.after_data
+    select a.actor_user_id, a.created_at, a.after_data, a.reason
     from public.tenant_feature_control_audit a
     where a.tenant_id = c.tenant_id
       and a.feature_key = c.feature_key
