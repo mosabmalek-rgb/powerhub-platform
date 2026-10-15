@@ -357,7 +357,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
           current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
           consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
-          total_balance: formatPolicyAwareMessageAmount(minorUnitsToAmountString(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? 0n), settlementDisplayEnabled),
+          total_balance: formatPolicyAwareMessageAmount(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? "0", settlementDisplayEnabled),
           due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
         };
         const renderedText = await renderAutomationMessage(template.body, values, {
@@ -445,7 +445,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
             previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading),
             current_reading: invoice?.current_reading == null ? "" : String(invoice.current_reading),
             consumption_kwh: invoice?.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
-            total_balance: formatPolicyAwareMessageAmount(minorUnitsToAmountString(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? 0n), settlementDisplayEnabled),
+            total_balance: formatPolicyAwareMessageAmount(totalBalanceBySubscriber.get(Number(subscriber.id)) ?? "0", settlementDisplayEnabled),
             due_date: invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString("ar-PS") : "",
           };
           candidates.push({ subscriber, invoice, operationKey, values });
