@@ -17,6 +17,14 @@ describe("payment receipt message", () => {
     expect(renderPaymentReceiptTemplate("إيصال {{payment_no}} للمشترك {{subscriber_name}}؛ المتبقي {{balance_due}}.", receipt)).toBe("إيصال PAY-001 للمشترك أحمد علي؛ المتبقي 52.0.");
   });
   
+
+  it("suppresses fractional digits in receipts when settlement policy is enabled", () => {
+    const fractionalReceipt = { ...receipt, paymentAmount: 40.45, balanceDue: 52.26 };
+    expect(renderPaymentReceiptMessage(fractionalReceipt, true)).toContain("بقيمة 40");
+    expect(renderPaymentReceiptMessage(fractionalReceipt, true)).toContain("الرصيد المتبقي: 52");
+    expect(paymentReceiptTemplateParameters(fractionalReceipt, true)).toEqual(["أحمد علي", "PAY-001", "40", "INV-001", "52"]);
+  });
+
   it("formats receipt amounts to one decimal place", () => {
     const fractionalReceipt = { ...receipt, paymentAmount: 40.45, balanceDue: 52.26 };
     const rendered = renderPaymentReceiptMessage(fractionalReceipt);
