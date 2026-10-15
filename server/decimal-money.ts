@@ -72,11 +72,14 @@ export function formatPolicyAwareMessageAmount(
   if (value == null) return "";
   if (!settlementEnabled) return formatMessageAmount(value);
 
-  const minor = decimalAmountToMinorUnits(value);
-  const negative = minor < 0n;
-  const absolute = negative ? -minor : minor;
-  let whole = absolute / 100n;
-  if (absolute % 100n >= 50n) whole += 1n;
+  const raw = String(value).trim();
+  const match = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?$/.exec(raw);
+  if (!match) return raw;
+
+  // Settlement policies should already have reconciled fractions in the invoice.
+  // If an older/unsettled value reaches a message, suppress the fraction without
+  // rounding a debt upward or changing the amount stored in the database.
+  const whole = BigInt(match[2].replace(/,/g, ""));
   const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return negative && whole !== 0n ? `-${grouped}` : grouped;
+  return match[1] === "-" && whole !== 0n ? `-${grouped}` : grouped;
 }
