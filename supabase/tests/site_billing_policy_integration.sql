@@ -306,7 +306,6 @@ begin
   -- Keep message-rendering anchors representative of the older mobile RPC shape.
   -- The production migration formats these variables for display without changing invoice amounts.
   v_rendered:=replace(v_rendered,'{{total_amount}}',v_total_amount::text);
-  v_rendered:=replace(v_rendered,'{{balance_due}}',v_total_amount::text);
   v_rendered:=replace(v_rendered,'{{consumption_kwh}}',coalesce(v_reading.consumption_kwh::text,''));
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data) values(p_tenant_id,p_site_id,p_user_id,v_platform_role,'invoice',v_invoice_id::text,'issue',jsonb_build_object('readingId',p_reading_id,'tariffId',v_tariff.id,'invoiceNo',v_invoice_no,'billingPeriod',p_billing_period,'totalAmount',v_total_amount,'automaticInvoice',true));
   return query select v_invoice_id,v_invoice_no,v_total_amount,v_notification_ids,false;
@@ -354,6 +353,7 @@ end;
 $test_manual_campaign$;
 
 \ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
+\ir ../migrations/20261015172000_powerhub_mobile_balance_due_message_variable.sql
 -- Re-apply to prove the SQL formatter migration is idempotent across both environment shapes.
 \ir ../migrations/20261015170000_powerhub_reconcile_invoice_message_financial_variables.sql
 
@@ -382,7 +382,8 @@ begin
   select pg_get_functiondef('public.powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamptz,text,numeric)'::regprocedure) into v_definition;
   if position('round(v_total_amount, 1)::text' in v_definition) = 0
      or position('v_total_amount::text' in v_definition) > 0
-     or position('{{total_balance}}' in v_definition) = 0 then
+     or position('{{total_balance}}' in v_definition) = 0
+     or v_definition !~* $pattern$v_rendered\s*:=\s*replace\s*\(\s*v_rendered\s*,\s*'\{\{balance_due\}\}'\s*,\s*round\s*\(\s*v_total_amount\s*,\s*1\s*\)::text\s*\)$pattern$ then
     raise exception 'SQL_MOBILE_MESSAGE_AMOUNT_ASSERTION_FAILED';
   end if;
 
