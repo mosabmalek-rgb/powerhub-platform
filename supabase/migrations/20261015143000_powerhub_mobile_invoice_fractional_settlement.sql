@@ -36,6 +36,11 @@ begin
   end if;
 
   v_start := position('insert into public.powerhub_invoice_sequences(invoice_year,next_sequence)' in v_definition);
+  if v_start = 0 then
+    -- Older staging definitions do not allocate from the invoice sequence table;
+    -- their invoice construction block starts at the invoice INSERT itself.
+    v_start := position('insert into public.invoices' in v_definition);
+  end if;
   v_end := position('select platform_role into v_platform_role from public.users where id=p_user_id;' in v_definition);
 
   if v_start = 0 or v_end = 0 or v_end <= v_start then
