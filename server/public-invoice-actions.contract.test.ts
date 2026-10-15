@@ -318,6 +318,8 @@ describe("public invoice and inquiry actions", () => {
     expect(operations).toContain('batchSubmitting ? "جارٍ تسجيل الدفعة…" : "تسجيل الدفعة"');
     expect(directory).toContain("staleTime: 20_000");
     expect(readings).toContain("staleTime: 15_000");
+    expect(readings).toContain("utils.powerhub.readings.page.invalidate({ ...siteScope, limit: 200 })");
+    expect(readings).not.toContain("utils.powerhub.subscribers.list.invalidate()");
     const auth = read("client/src/_core/hooks/useAuth.ts");
     expect(auth).toContain("queryClient.clear()");
     expect(auth).toContain('event === "SIGNED_OUT"');
