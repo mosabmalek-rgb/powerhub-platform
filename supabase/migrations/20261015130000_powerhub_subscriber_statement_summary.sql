@@ -1,6 +1,17 @@
 -- Aggregate subscriber statement totals in PostgreSQL instead of transferring
 -- every historical invoice, payment, and reading row to the application server.
 -- Recent details remain bounded separately by getSupabaseSubscriberAccountStatement.
+-- Composite indexes match the tenant/site/subscriber predicates and the
+-- deterministic newest-first detail queries used by the statement screen.
+create index if not exists invoices_tenant_site_subscriber_issue_id_idx
+  on public.invoices (tenant_id, site_id, subscriber_id, issue_date desc, id desc);
+
+create index if not exists payments_tenant_site_subscriber_status_paid_id_idx
+  on public.payments (tenant_id, site_id, subscriber_id, status, paid_at desc, id desc);
+
+create index if not exists meter_readings_tenant_subscriber_reading_id_idx
+  on public.meter_readings (tenant_id, subscriber_id, reading_at desc, id desc);
+
 create or replace function public.powerhub_subscriber_statement_summary(
   p_tenant_id bigint,
   p_site_id bigint,
