@@ -59,3 +59,24 @@ export function formatMessageAmount(value: string | number | bigint | null | und
   const sign = negative && (whole !== 0n || tenths !== 0n) ? "-" : "";
   return `${sign}${wholeText}.${tenths.toString()}`;
 }
+
+
+/**
+ * Policy-aware monetary display for messages only. Active fractional discount/carry
+ * policies display whole units; otherwise show at most one decimal. Never persist this.
+ */
+export function formatPolicyAwareMessageAmount(
+  value: string | number | bigint | null | undefined,
+  settlementEnabled: boolean,
+): string {
+  if (value == null) return "";
+  if (!settlementEnabled) return formatMessageAmount(value);
+
+  const minor = decimalAmountToMinorUnits(value);
+  const negative = minor < 0n;
+  const absolute = negative ? -minor : minor;
+  let whole = absolute / 100n;
+  if (absolute % 100n >= 50n) whole += 1n;
+  const grouped = whole.toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ",");
+  return negative && whole !== 0n ? `-${grouped}` : grouped;
+}
