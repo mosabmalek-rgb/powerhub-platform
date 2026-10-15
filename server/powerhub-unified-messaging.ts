@@ -226,17 +226,19 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
   let queuedCount = 0;
   const tenantId = Number(automation.tenant_id);
   const siteId = Number(automation.site_id);
-  const { data: billingPolicy, error: billingPolicyError } = await admin.from("site_billing_policies")
-    .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
-    .eq("tenant_id", tenantId).eq("site_id", siteId).maybeSingle();
-  if (billingPolicyError) throw new Error("تعذر تحميل سياسة تسوية الكسور لتنسيق مبالغ الرسائل.");
-  const settlementDisplayEnabled = Boolean(
-    billingPolicy?.automatic_fraction_discount_enabled || billingPolicy?.fraction_carry_enabled,
-  );
+  let settlementDisplayEnabled = false;
   const audience = automation.audience ?? {};
   const trigger = automation.trigger_config ?? {};
 
   try {
+  const { data: billingPolicy, error: billingPolicyError } = await admin.from("site_billing_policies")
+    .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
+    .eq("tenant_id", tenantId).eq("site_id", siteId).maybeSingle();
+  if (billingPolicyError) throw new Error("تعذر تحميل سياسة تسوية الكسور لتنسيق مبالغ الرسائل.");
+  settlementDisplayEnabled = Boolean(
+    billingPolicy?.automatic_fraction_discount_enabled || billingPolicy?.fraction_carry_enabled,
+  );
+
   const template = automation.template;
   if (!template?.is_active || template.channel !== "sms") {
     await finishRun("skipped", 0, 0, 0, 0, "TEMPLATE_DISABLED");
