@@ -2827,26 +2827,32 @@ export const powerhubRouter = router({
   reports: router({
     range: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      startDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      endDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
-      const inRange = (value: Date) => value >= start && value < endExclusive;
-      const [allInvoices, paymentRows, allExpenses, subscriberRows] = await Promise.all([listSupabaseInvoices(input.siteId), listSupabasePayments(input.siteId), listSupabaseExpenses(input.siteId), listSupabaseSubscribers(input.siteId)]);
-      const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && inRange(invoice.issueDate));
-      const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && inRange(payment.paidAt));
-      const expenseRows = allExpenses.filter((expense) => inRange(expense.occurredAt));
-      const collectorIds = Array.from(new Set(completedPayments.flatMap(({ payment }) => payment.collectedByUserId === null ? [] : [payment.collectedByUserId])));
-      const { data: collectorRows, error: collectorsError } = collectorIds.length ? await supabaseAdmin().from("users").select("id, name, email").in("id", collectorIds) : { data: [], error: null };
-      if (collectorsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المحصلين من Supabase." });
-      const collectorsById = new Map((collectorRows ?? []).map((collector) => [Number(collector.id), collector.name || collector.email || "محصل غير محدد"]));
+      const site = await getSupabaseSite(input.siteId);
+      const [allInvoices, paymentRows, expenseRows] = await Promise.all([
+        listSupabaseReportInvoices({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
+        listSupabaseReportPayments({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
+        listSupabaseReportExpenses({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
+      ]);
+      const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
+      const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive);
+      const collectorsIds = Array.from(new Set(completedPayments.flatMap(({ payment }) => payment.collectedByUserId === null ? [] : [payment.collectedByUserId])));
+      const [collectorRows, subscriberRows] = await Promise.all([
+        collectorsIds.length ? supabaseAdmin().from("users").select("id, name, email").in("id", collectorsIds) : Promise.resolve({ data: [], error: null }),
+        listSupabaseReportSubscribers({ tenantId: site.tenantId, siteIds: [input.siteId], subscriberIds: invoiceRows.map((invoice) => invoice.subscriberId) }),
+      ]);
+      if (collectorRows.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المحصلين من Supabase." });
+      const collectorsById = new Map((collectorRows.data ?? []).map((collector) => [Number(collector.id), collector.name || collector.email || "محصل غير محدد"]));
       const subscribersById = new Map(subscriberRows.map((subscriber) => [subscriber.id, subscriber]));
-      const invoiced = invoiceRows.reduce((sum, invoice) => sum + Number(invoice.totalAmount), 0);
-      const outstanding = invoiceRows.reduce((sum, invoice) => sum + Number(invoice.balanceDue), 0);
-      const energyKwh = invoiceRows.reduce((sum, invoice) => sum + Number(invoice.consumptionKwh), 0);
+      const invoiced = invoiceRows.reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+      const outstanding = invoiceRows.reduce((sum, invoice) => sum + invoice.balanceDue, 0);
+      const energyKwh = invoiceRows.reduce((sum, invoice) => sum + invoice.consumptionKwh, 0);
       const collected = completedPayments.reduce((sum, row) => sum + Number(row.payment.amount), 0);
-      const expenseTotal = expenseRows.reduce((sum, expense) => sum + Number(expense.amount), 0);
+      const expenseTotal = expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive).reduce((sum, expense) => sum + expense.amount, 0);
       const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number }>>((acc, row) => {
         const key = String(row.payment.collectedByUserId ?? 0);
         const entry = acc[key] ?? { name: collectorsById.get(row.payment.collectedByUserId ?? 0) ?? "محصل غير محدد", count: 0, amount: 0 };
@@ -2855,14 +2861,24 @@ export const powerhubRouter = router({
         acc[key] = entry;
         return acc;
       }, {})).sort((a, b) => b.amount - a.amount);
-      const topDebtors = invoiceRows.filter((invoice) => Number(invoice.balanceDue) > 0).sort((a, b) => Number(b.balanceDue) - Number(a.balanceDue)).slice(0, 10).map((invoice) => ({ subscriber: subscribersById.get(invoice.subscriberId)?.fullName ?? "مشترك", subscriberNo: subscribersById.get(invoice.subscriberId)?.subscriberNo ?? "—", invoiceNo: invoice.invoiceNo, balanceDue: Number(invoice.balanceDue), dueDate: invoice.dueDate }));
-      const paymentDetails = completedPayments.map(({ payment }) => ({ paymentNo: payment.paymentNo, amount: Number(payment.amount), paymentMethod: payment.paymentMethod, paidAt: payment.paidAt, transferFromAccount: payment.transferFromAccount, transferFromType: payment.transferFromType, transferToAccount: payment.transferToAccount, transferToType: payment.transferToType }));
+      const topDebtors = invoiceRows.filter((invoice) => invoice.balanceDue > 0).sort((a, b) => b.balanceDue - a.balanceDue).slice(0, 10).map((invoice) => ({
+        subscriber: subscribersById.get(invoice.subscriberId)?.fullName ?? "مشترك",
+        subscriberNo: subscribersById.get(invoice.subscriberId)?.subscriberNo ?? "—",
+        invoiceNo: invoice.invoiceNo,
+        balanceDue: invoice.balanceDue,
+        dueDate: invoice.dueDate,
+      }));
+      const paymentDetails = completedPayments.map(({ payment }) => ({
+        paymentNo: payment.paymentNo, amount: Number(payment.amount), paymentMethod: payment.paymentMethod,
+        paidAt: payment.paidAt, transferFromAccount: payment.transferFromAccount, transferFromType: payment.transferFromType,
+        transferToAccount: payment.transferToAccount, transferToType: payment.transferToType,
+      }));
       return { range: { startDate: input.startDate, endDate: input.endDate }, summary: { invoiced, collected, outstanding, energyKwh, expenseTotal, operatingProfit: collected - expenseTotal }, collectors, topDebtors, paymentDetails };
     }),
     allBranchesRange: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      startDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      endDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
       const { tenantId } = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
@@ -2871,55 +2887,85 @@ export const powerhubRouter = router({
       const branchRows = (siteRows ?? []).map((site) => ({ id: Number(site.id), name: site.name }));
       const branchIds = branchRows.map((branch) => branch.id);
       if (!branchIds.length) return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: 0 }, summary: { invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 }, collectors: [], topDebtors: [], branchSummaries: [] };
-      const branchData = await Promise.all(branchIds.map(async (siteId) => {
-        const [invoicesForSite, paymentsForSite, expensesForSite, subscribersForSite] = await Promise.all([listSupabaseInvoices(siteId), listSupabasePayments(siteId), listSupabaseExpenses(siteId), listSupabaseSubscribers(siteId)]);
-        return { invoices: invoicesForSite.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive).map((invoice) => ({ invoice, subscriber: subscribersForSite.find((subscriber) => subscriber.id === invoice.subscriberId) })), payments: paymentsForSite.filter(({ payment }) => payment.paidAt >= start && payment.paidAt < endExclusive), expenses: expensesForSite.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive) };
-      }));
-      const invoiceRows = branchData.flatMap((data) => data.invoices);
-      const paymentRows = branchData.flatMap((data) => data.payments).map(({ payment }) => ({ payment, collector: null }));
-      const expenseRows = branchData.flatMap((data) => data.expenses);
+      const [allInvoices, paymentRows, expenseRows] = await Promise.all([
+        listSupabaseReportInvoices({ tenantId, siteIds: branchIds, start, endExclusive }),
+        listSupabaseReportPayments({ tenantId, siteIds: branchIds, start, endExclusive }),
+        listSupabaseReportExpenses({ tenantId, siteIds: branchIds, start, endExclusive }),
+      ]);
+      const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
+      const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive);
+      const subscribers = await listSupabaseReportSubscribers({ tenantId, siteIds: branchIds, subscriberIds: invoiceRows.map((invoice) => invoice.subscriberId) });
+      const subscribersById = new Map(subscribers.map((subscriber) => [subscriber.id, subscriber]));
       const branchNameById = new Map(branchRows.map((branch) => [branch.id, branch.name]));
       const branchSummaryById = new Map(branchRows.map((branch) => [branch.id, { siteId: branch.id, branchName: branch.name, invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 }]));
-      invoiceRows.forEach((row) => {
-        const summary = branchSummaryById.get(row.invoice.siteId);
+      invoiceRows.forEach((invoice) => {
+        const summary = branchSummaryById.get(invoice.siteId);
         if (!summary) return;
-        summary.invoiced += Number(row.invoice.totalAmount);
-        summary.outstanding += Number(row.invoice.balanceDue);
-        summary.energyKwh += Number(row.invoice.consumptionKwh);
+        summary.invoiced += invoice.totalAmount;
+        summary.outstanding += invoice.balanceDue;
+        summary.energyKwh += invoice.consumptionKwh;
       });
-      const completedPayments = paymentRows.filter((row) => row.payment.status === "completed");
-      completedPayments.forEach((row) => { const summary = branchSummaryById.get(row.payment.siteId); if (summary) summary.collected += Number(row.payment.amount); });
-      expenseRows.forEach((row) => { const summary = branchSummaryById.get(row.siteId); if (summary) summary.expenseTotal += Number(row.amount); });
+      completedPayments.forEach(({ payment }) => {
+        const summary = branchSummaryById.get(payment.siteId);
+        if (summary) summary.collected += Number(payment.amount);
+      });
+      expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive).forEach((expense) => {
+        const summary = branchSummaryById.get(expense.siteId);
+        if (summary) summary.expenseTotal += expense.amount;
+      });
       const branchSummaries = Array.from(branchSummaryById.values()).map((summary) => ({ ...summary, operatingProfit: summary.collected - summary.expenseTotal }));
-      const summary = branchSummaries.reduce((total, branch) => ({ invoiced: total.invoiced + branch.invoiced, collected: total.collected + branch.collected, outstanding: total.outstanding + branch.outstanding, energyKwh: total.energyKwh + branch.energyKwh, expenseTotal: total.expenseTotal + branch.expenseTotal, operatingProfit: total.operatingProfit + branch.operatingProfit }), { invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 });
+      const summary = branchSummaries.reduce((total, branch) => ({
+        invoiced: total.invoiced + branch.invoiced, collected: total.collected + branch.collected,
+        outstanding: total.outstanding + branch.outstanding, energyKwh: total.energyKwh + branch.energyKwh,
+        expenseTotal: total.expenseTotal + branch.expenseTotal, operatingProfit: total.operatingProfit + branch.operatingProfit,
+      }), { invoiced: 0, collected: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 });
       const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number }>>((acc, row) => {
         const key = String(row.payment.collectedByUserId ?? 0);
         const entry = acc[key] ?? { name: "محصل غير محدد", count: 0, amount: 0 };
         entry.count += 1;
         entry.amount += Number(row.payment.amount);
+        acc[key] = entry;
         return acc;
       }, {})).sort((a, b) => b.amount - a.amount);
-      const topDebtors = invoiceRows.filter((row) => Number(row.invoice.balanceDue) > 0).sort((a, b) => Number(b.invoice.balanceDue) - Number(a.invoice.balanceDue)).slice(0, 10).map((row) => ({ branchName: branchNameById.get(row.invoice.siteId) ?? "فرع غير محدد", subscriber: row.subscriber?.fullName ?? "مشترك", subscriberNo: row.subscriber?.subscriberNo ?? "—", invoiceNo: row.invoice.invoiceNo, balanceDue: Number(row.invoice.balanceDue), dueDate: row.invoice.dueDate }));
-      const paymentDetails = completedPayments.map((row) => ({ siteId: row.payment.siteId, paymentNo: row.payment.paymentNo, amount: Number(row.payment.amount), paymentMethod: row.payment.paymentMethod, paidAt: row.payment.paidAt, transferFromAccount: row.payment.transferFromAccount, transferFromType: row.payment.transferFromType, transferToAccount: row.payment.transferToAccount, transferToType: row.payment.transferToType }));
+      const topDebtors = invoiceRows.filter((invoice) => invoice.balanceDue > 0).sort((a, b) => b.balanceDue - a.balanceDue).slice(0, 10).map((invoice) => ({
+        branchName: branchNameById.get(invoice.siteId) ?? "فرع غير محدد",
+        subscriber: subscribersById.get(invoice.subscriberId)?.fullName ?? "مشترك",
+        subscriberNo: subscribersById.get(invoice.subscriberId)?.subscriberNo ?? "—",
+        invoiceNo: invoice.invoiceNo, balanceDue: invoice.balanceDue, dueDate: invoice.dueDate,
+      }));
+      const paymentDetails = completedPayments.map(({ payment }) => ({
+        siteId: payment.siteId, paymentNo: payment.paymentNo, amount: Number(payment.amount),
+        paymentMethod: payment.paymentMethod, paidAt: payment.paidAt,
+        transferFromAccount: payment.transferFromAccount, transferFromType: payment.transferFromType,
+        transferToAccount: payment.transferToAccount, transferToType: payment.transferToType,
+      }));
       return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: branchIds.length }, summary, collectors, topDebtors, branchSummaries, paymentDetails };
     }),
-    monthly: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), billingPeriod: z.string().regex(/^\d{4}-\d{2}$/) })).query(async ({ ctx, input }) => {
+    monthly: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), billingPeriod: z.string().regex(/^\\d{4}-\\d{2}$/) })).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
-      const [invoicesForSite, paymentRows, expenseRows, subscriberRows] = await Promise.all([listSupabaseInvoices(input.siteId), listSupabasePayments(input.siteId), listSupabaseExpenses(input.siteId), listSupabaseSubscribers(input.siteId)]);
-      const invoiceRows = invoicesForSite.filter((invoice) => invoice.billingPeriod === input.billingPeriod && invoice.status !== "cancelled");
-      const matchPeriod = (date: Date | null) => date ? date.toISOString().slice(0, 7) === input.billingPeriod : false;
-      const periodPayments = paymentRows.filter(({ payment }) => matchPeriod(payment.paidAt));
-      const periodExpenses = expenseRows.filter((row) => matchPeriod(row.occurredAt));
+      const start = new Date(`${input.billingPeriod}-01T00:00:00.000Z`);
+      if (Number.isNaN(start.getTime()) || start.toISOString().slice(0, 7) !== input.billingPeriod) throw new TRPCError({ code: "BAD_REQUEST", message: "فترة التقرير الشهري غير صالحة." });
+      const endExclusive = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+      const site = await getSupabaseSite(input.siteId);
+      const [allInvoices, periodPayments, periodExpenses] = await Promise.all([
+        listSupabaseReportInvoices({ tenantId: site.tenantId, siteIds: [input.siteId], billingPeriod: input.billingPeriod }),
+        listSupabaseReportPayments({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
+        listSupabaseReportExpenses({ tenantId: site.tenantId, siteIds: [input.siteId], start, endExclusive }),
+      ]);
+      const invoiceRows = allInvoices.filter((invoice) => invoice.billingPeriod === input.billingPeriod && invoice.status !== "cancelled");
       const collectorIds = Array.from(new Set(periodPayments.flatMap(({ payment }) => payment.collectedByUserId === null ? [] : [payment.collectedByUserId])));
-      const { data: collectorRows, error: collectorsError } = collectorIds.length ? await supabaseAdmin().from("users").select("id, name, email").in("id", collectorIds) : { data: [], error: null };
-      if (collectorsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المحصلين من Supabase." });
-      const collectorsById = new Map((collectorRows ?? []).map((collector) => [Number(collector.id), collector.name || collector.email || "محصل غير محدد"]));
+      const [collectorRows, subscriberRows] = await Promise.all([
+        collectorIds.length ? supabaseAdmin().from("users").select("id, name, email").in("id", collectorIds) : Promise.resolve({ data: [], error: null }),
+        listSupabaseReportSubscribers({ tenantId: site.tenantId, siteIds: [input.siteId], subscriberIds: invoiceRows.map((invoice) => invoice.subscriberId) }),
+      ]);
+      if (collectorRows.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء المحصلين من Supabase." });
+      const collectorsById = new Map((collectorRows.data ?? []).map((collector) => [Number(collector.id), collector.name || collector.email || "محصل غير محدد"]));
       const subscribersById = new Map(subscriberRows.map((subscriber) => [subscriber.id, subscriber]));
-      const invoiced = invoiceRows.reduce((sum, invoice) => sum + Number(invoice.totalAmount), 0);
-      const outstanding = invoiceRows.reduce((sum, invoice) => sum + Number(invoice.balanceDue), 0);
-      const energyKwh = invoiceRows.reduce((sum, invoice) => sum + Number(invoice.consumptionKwh), 0);
+      const invoiced = invoiceRows.reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+      const outstanding = invoiceRows.reduce((sum, invoice) => sum + invoice.balanceDue, 0);
+      const energyKwh = invoiceRows.reduce((sum, invoice) => sum + invoice.consumptionKwh, 0);
       const collected = periodPayments.filter((row) => row.payment.status === "completed").reduce((sum, row) => sum + Number(row.payment.amount), 0);
-      const expenseTotal = periodExpenses.reduce((sum, row) => sum + Number(row.amount), 0);
+      const expenseTotal = periodExpenses.reduce((sum, row) => sum + row.amount, 0);
       const collectors = Object.values(periodPayments.reduce<Record<string, { name: string; count: number; amount: number }>>((acc, row) => {
         const key = String(row.payment.collectedByUserId ?? 0);
         const entry = acc[key] ?? { name: collectorsById.get(row.payment.collectedByUserId ?? 0) ?? "محصل غير محدد", count: 0, amount: 0 };
@@ -2928,7 +2974,11 @@ export const powerhubRouter = router({
         acc[key] = entry;
         return acc;
       }, {})).sort((a, b) => b.amount - a.amount);
-      const topDebtors = invoiceRows.filter((invoice) => Number(invoice.balanceDue) > 0).sort((a, b) => Number(b.balanceDue) - Number(a.balanceDue)).slice(0, 10).map((invoice) => ({ subscriber: subscribersById.get(invoice.subscriberId)?.fullName ?? "مشترك", subscriberNo: subscribersById.get(invoice.subscriberId)?.subscriberNo ?? "—", invoiceNo: invoice.invoiceNo, balanceDue: Number(invoice.balanceDue), dueDate: invoice.dueDate }));
+      const topDebtors = invoiceRows.filter((invoice) => invoice.balanceDue > 0).sort((a, b) => b.balanceDue - a.balanceDue).slice(0, 10).map((invoice) => ({
+        subscriber: subscribersById.get(invoice.subscriberId)?.fullName ?? "مشترك",
+        subscriberNo: subscribersById.get(invoice.subscriberId)?.subscriberNo ?? "—",
+        invoiceNo: invoice.invoiceNo, balanceDue: invoice.balanceDue, dueDate: invoice.dueDate,
+      }));
       return { summary: { invoiced, collected, outstanding, energyKwh, expenseTotal, operatingProfit: collected - expenseTotal }, collectors, topDebtors };
     }),
   }),
