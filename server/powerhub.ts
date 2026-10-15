@@ -2369,9 +2369,22 @@ export const powerhubRouter = router({
     }),
     access: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, []);
-      const { data, error } = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId });
-      if (error || !data?.[0]) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع الإلكتروني." });
-      return { allowed: Boolean(data[0].allowed), policy: String(data[0].policy ?? "not_included"), packageCode: data[0].package_code ? String(data[0].package_code) : null, entitlementEnabled: Boolean(data[0].entitlement_enabled) };
+      const [featureResult, adminControlResult] = await Promise.all([
+        supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: access.tenantId }),
+        supabaseAdmin().from("tenant_feature_controls").select("status").eq("tenant_id", access.tenantId).eq("feature_key", "payment_documentation").maybeSingle(),
+      ]);
+      if (featureResult.error || !featureResult.data?.[0] || adminControlResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع الإلكتروني." });
+      }
+      const adminStatus = String(adminControlResult.data?.status ?? "inherit");
+      return {
+        allowed: Boolean(featureResult.data[0].allowed),
+        policy: String(featureResult.data[0].policy ?? "not_included"),
+        packageCode: featureResult.data[0].package_code ? String(featureResult.data[0].package_code) : null,
+        entitlementEnabled: Boolean(featureResult.data[0].entitlement_enabled),
+        adminStatus,
+        disabledByAdmin: adminStatus === "disabled",
+      };
     }),
     searchSubscriber: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), query: z.string().trim().min(1).max(120) })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"], "collectPayments");
@@ -2515,6 +2528,7 @@ export const powerhubRouter = router({
     ownerFeature: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), isEnabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const { data, error } = await supabaseAdmin().rpc("powerhub_owner_set_payment_documentation", { p_user_id: ctx.user.id, p_site_id: input.siteId, p_is_enabled: input.isEnabled });
       if (error) {
+        if (error.message.includes("FEATURE_DISABLED_BY_ADMIN")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "ميزة توثيق الدفع متوقفة من إدارة المنصة، ولا يمكن تفعيلها من حسابك حالياً." });
         if (error.message.includes("FEATURE_GLOBALLY_DISABLED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "توثيق الدفع متوقف حالياً من إدارة PowerHub." });
         if (error.message.includes("FEATURE_NOT_AVAILABLE")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "توثيق الدفع غير متاح ضمن باقتك الحالية." });
         throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تعديل إتاحة توثيق الدفع لهذا الحساب." });
