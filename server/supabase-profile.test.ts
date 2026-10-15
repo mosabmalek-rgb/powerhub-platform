@@ -3,12 +3,18 @@ import { mapSupabaseProfile, syncSupabaseProfile } from "./supabase-profile";
 
 const state = vi.hoisted(() => ({
   upsert: vi.fn(),
+  update: vi.fn(),
+  lookup: vi.fn(async () => ({ data: null, error: null })),
   rpc: vi.fn(),
 }));
 
 vi.mock("./supabase-admin", () => ({
   supabaseAdmin: () => ({
-    from: () => ({ upsert: state.upsert }),
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: state.lookup }) }),
+      upsert: state.upsert,
+      update: state.update,
+    }),
     rpc: state.rpc,
   }),
 }));
@@ -50,6 +56,7 @@ describe("ملف مستخدم Supabase", () => {
       updated_at: "2026-01-01T00:00:00.000Z",
       last_signed_in: "2026-01-01T00:00:00.000Z",
     };
+    state.lookup.mockResolvedValue({ data: null, error: null });
     state.upsert.mockReturnValue({ select: () => ({ single: async () => ({ data: profile, error: null }) }) });
     state.rpc.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "Could not find the public.powerhub_accept_pending_platform_invitation() function in the schema cache" } });
 
@@ -100,7 +107,7 @@ describe("ملف مستخدم Supabase", () => {
       last_signed_in: "2026-01-01T00:00:00.000Z",
     };
     state.upsert.mockReturnValue({ select: () => ({ single: async () => ({ data: profile, error: null }) }) });
-    state.rpc.mockResolvedValueOnce({ data: null, error: { code: "42501", message: "permission denied" } });
+    state.rpc.mockResolvedValue({ data: null, error: { code: "42501", message: "permission denied" } });
 
     await expect(syncSupabaseProfile({ id: "auth-user-42", email: "user@example.com", name: "User" })).rejects.toThrow("permission denied");
   });
