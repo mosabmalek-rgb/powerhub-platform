@@ -329,18 +329,16 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
   if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المشترك من Supabase." });
   if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن الفرع المحدد." });
 
-  const [invoiceSummaryResult, invoiceRecentResult, paymentSummaryResult, paymentRecentResult, readingRecentResult, readingCountResult] = await Promise.all([
-    admin.from("invoices")
-      .select("total_amount, paid_amount, balance_due, consumption_kwh")
-      .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId)
-      .neq("status", "cancelled"),
+  const [statementSummaryResult, invoiceRecentResult, paymentRecentResult, readingRecentResult] = await Promise.all([
+    admin.rpc("powerhub_subscriber_statement_summary", {
+      p_tenant_id: Number(subscriber.tenant_id),
+      p_site_id: siteId,
+      p_subscriber_id: subscriberId,
+    }),
     admin.from("invoices")
       .select("id, invoice_no, billing_period, issue_date, due_date, previous_reading, current_reading, consumption_kwh, total_amount, paid_amount, balance_due, status, reading_id")
       .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId)
       .neq("status", "cancelled").order("issue_date", { ascending: false }).order("id", { ascending: false }).limit(21),
-    admin.from("payments")
-      .select("amount")
-      .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId).eq("status", "completed"),
     admin.from("payments")
       .select("id, payment_no, invoice_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, status, paid_at")
       .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId).eq("status", "completed")
@@ -349,25 +347,24 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       .select("id, reading_at, reading_value, previous_reading_value, consumption_kwh, capture_method, status, version_no, notes")
       .eq("tenant_id", Number(subscriber.tenant_id)).eq("subscriber_id", subscriberId)
       .order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(21),
-    admin.from("meter_readings")
-      .select("id")
-      .eq("tenant_id", Number(subscriber.tenant_id)).eq("subscriber_id", subscriberId),
   ]);
 
-  if (invoiceSummaryResult.error || invoiceRecentResult.error || paymentSummaryResult.error || paymentRecentResult.error || readingRecentResult.error || readingCountResult.error) {
+  if (statementSummaryResult.error || invoiceRecentResult.error || paymentRecentResult.error || readingRecentResult.error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل كشف حساب المشترك من Supabase." });
   }
 
-  const invoiceSummary = invoiceSummaryResult.data ?? [];
-  const paymentSummary = paymentSummaryResult.data ?? [];
+  const statementSummary = statementSummaryResult.data?.[0];
+  if (!statementSummary) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حساب إجماليات كشف حساب المشترك." });
+  }
+
   const recentInvoices = invoiceRecentResult.data ?? [];
   const recentPayments = paymentRecentResult.data ?? [];
   const recentReadings = readingRecentResult.data ?? [];
-
-  const totalInvoiced = invoiceSummary.reduce((sum, row) => sum + Number(row.total_amount ?? 0), 0);
-  const totalCollected = paymentSummary.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
-  const totalOutstanding = invoiceSummary.reduce((sum, row) => sum + Number(row.balance_due ?? 0), 0);
-  const totalConsumptionKwh = invoiceSummary.reduce((sum, row) => sum + Number(row.consumption_kwh ?? 0), 0);
+  const totalInvoiced = Number(statementSummary.total_invoiced ?? 0);
+  const totalCollected = Number(statementSummary.total_collected ?? 0);
+  const totalOutstanding = Number(statementSummary.total_outstanding ?? 0);
+  const totalConsumptionKwh = Number(statementSummary.total_consumption_kwh ?? 0);
 
   const invoiceIds = recentPayments.map((row) => row.invoice_id === null ? null : Number(row.invoice_id)).filter((id): id is number => id !== null);
   const [paymentInvoiceResult] = invoiceIds.length
@@ -394,14 +391,14 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       updatedAt: new Date(subscriber.updated_at),
     },
     summary: {
-      invoiceCount: invoiceSummary.length,
-      paymentCount: paymentSummary.length,
-      readingCount: (readingCountResult.data ?? []).length,
+      invoiceCount: Number(statementSummary.invoice_count ?? 0),
+      paymentCount: Number(statementSummary.payment_count ?? 0),
+      readingCount: Number(statementSummary.reading_count ?? 0),
       totalInvoiced,
       totalCollected,
       totalOutstanding,
       totalConsumptionKwh,
-      lastPaymentAt: recentPayments[0]?.paid_at ? new Date(recentPayments[0].paid_at) : null,
+      lastPaymentAt: statementSummary.last_payment_at ? new Date(statementSummary.last_payment_at) : null,
     },
     limits: {
       invoiceHasMore: recentInvoices.length > 20,
