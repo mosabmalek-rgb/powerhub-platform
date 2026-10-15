@@ -2766,7 +2766,7 @@ export const powerhubRouter = router({
       for (let offset = 0; offset < subscriberIds.length; offset += 200) {
         const subscriberIdBatch = subscriberIds.slice(offset, offset + 200);
         notificationPageRequests.push(readSupabaseReportPages(
-          (from, to) => admin.from("notification_messages").select("status").in("subscriber_id", subscriberIdBatch).order("id", { ascending: true }).range(from, to),
+          (from, to) => admin.from("notification_messages").select("status").eq("tenant_id", access.tenantId).in("subscriber_id", subscriberIdBatch).order("id", { ascending: true }).range(from, to),
           "تعذر تحميل حالات الإشعارات لجميع الأفرع من Supabase.",
         ));
       }
