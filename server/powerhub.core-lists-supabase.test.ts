@@ -500,6 +500,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
     try {
       const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      const operationalSummary = await caller.dashboard.allBranchesSummary({ siteId: 10 });
+      expect(operationalSummary).toMatchObject({
+        branchCount: 1,
+        subscribers: 1001,
+        financial: { invoiced: 10010, collected: 0, outstanding: 10010, expenses: 1001, operatingProfit: -1001 },
+      });
       const result = await caller.dashboard.financialOverview({ siteId: 10, scope: "all" });
       expect(result.branchSummaries).toEqual([
         expect.objectContaining({ id: 10, activeSubscribers: 1001, invoiced: 10010, collected: 2002, outstanding: 10010 }),
