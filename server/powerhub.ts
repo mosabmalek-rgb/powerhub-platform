@@ -20,7 +20,7 @@ import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReadin
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 async function requirePaymentDocumentationFeature(tenantId: number) {
@@ -2796,24 +2796,23 @@ export const powerhubRouter = router({
       if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع التقرير المالي من Supabase." });
       const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
       if (!branchIds.length) return buildFinancialOverview({ branches: [], invoices: [], payments: [], expenses: [] });
-      const [invoiceResult, paymentResult, expenseResult, subscriberResult] = await Promise.all([
-        admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("tenant_id", access.tenantId).in("site_id", branchIds).not("status", "in", "(cancelled,draft)"),
-        admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("tenant_id", access.tenantId).in("site_id", branchIds),
-        admin.from("expenses").select("site_id, amount, occurred_at").eq("tenant_id", access.tenantId).in("site_id", branchIds),
-        admin.from("subscribers").select("id, site_id, full_name, subscriber_no, service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds),
+      const [invoiceRows, paymentRows, expenseRows, subscriberRows] = await Promise.all([
+        readSupabaseReportPages((from, to) => admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("tenant_id", access.tenantId).in("site_id", branchIds).not("status", "in", "(cancelled,draft)").order("id", { ascending: true }).range(from, to), "تعذر تحميل فواتير ملخص جميع الأفرع من Supabase."),
+        readSupabaseReportPages((from, to) => admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل تحصيلات ملخص جميع الأفرع من Supabase."),
+        readSupabaseReportPages((from, to) => admin.from("expenses").select("site_id, amount, occurred_at").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل مصروفات ملخص جميع الأفرع من Supabase."),
+        readSupabaseReportPages((from, to) => admin.from("subscribers").select("id, site_id, full_name, subscriber_no, service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل المشتركين لملخص جميع الأفرع من Supabase."),
       ]);
-      if (invoiceResult.error || paymentResult.error || expenseResult.error || subscriberResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات التقرير المالي من Supabase." });
-      const subscribersById = new Map((subscriberResult.data ?? []).map((subscriber) => [Number(subscriber.id), subscriber]));
+      const subscribersById = new Map(subscriberRows.map((subscriber) => [Number(subscriber.id), subscriber]));
       const subscriberCountBySite = new Map<number, number>();
-      for (const subscriber of subscriberResult.data ?? []) if (subscriber.service_status === "active") subscriberCountBySite.set(Number(subscriber.site_id), (subscriberCountBySite.get(Number(subscriber.site_id)) ?? 0) + 1);
+      for (const subscriber of subscriberRows) { if (subscriber.service_status === "active") { const siteId = Number(subscriber.site_id); subscriberCountBySite.set(siteId, (subscriberCountBySite.get(siteId) ?? 0) + 1); } }
       return buildFinancialOverview({
         branches: (branchRows ?? []).map((branch) => ({ id: Number(branch.id), name: branch.name, activeSubscribers: subscriberCountBySite.get(Number(branch.id)) ?? 0 })),
-        invoices: (invoiceResult.data ?? []).flatMap((invoice) => {
+        invoices: invoiceRows.flatMap((invoice) => {
           const subscriber = subscribersById.get(Number(invoice.subscriber_id));
           return subscriber ? [{ id: Number(invoice.id), siteId: Number(invoice.site_id), subscriberId: Number(invoice.subscriber_id), subscriberName: subscriber.full_name, subscriberNo: subscriber.subscriber_no, invoiceNo: invoice.invoice_no, issueDate: new Date(invoice.issue_date), dueDate: new Date(invoice.due_date), totalAmount: Number(invoice.total_amount), paidAmount: Number(invoice.paid_amount), balanceDue: Number(invoice.balance_due), status: invoice.status }] : [];
         }),
-        payments: (paymentResult.data ?? []).map((payment) => ({ siteId: Number(payment.site_id), subscriberId: Number(payment.subscriber_id), amount: Number(payment.amount), status: payment.status, paidAt: new Date(payment.paid_at) })),
-        expenses: (expenseResult.data ?? []).map((expense) => ({ siteId: Number(expense.site_id), amount: Number(expense.amount), occurredAt: new Date(expense.occurred_at) })),
+        payments: paymentRows.map((payment) => ({ siteId: Number(payment.site_id), subscriberId: Number(payment.subscriber_id), amount: Number(payment.amount), status: payment.status, paidAt: new Date(payment.paid_at) })),
+        expenses: expenseRows.map((expense) => ({ siteId: Number(expense.site_id), amount: Number(expense.amount), occurredAt: new Date(expense.occurred_at) })),
       });
     }),
   }),
