@@ -171,6 +171,10 @@ export default function OperationsPage({ section }: { section: Section }) {
         () => utils.powerhub.payments.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
       ],
       [
+        // Collection sessions and the payment list expose totals derived from the new payment.
+        () => utils.powerhub.payments.list.invalidate({ siteId: siteId ?? 0 }),
+        () => utils.powerhub.collectorSessions.list.invalidate({ siteId: siteId ?? 0 }),
+        () => utils.powerhub.collectorSessions.current.invalidate({ siteId: siteId ?? 0 }),
         () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
         () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
       ],
