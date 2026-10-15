@@ -3,7 +3,7 @@ import { z } from "zod";
 import { protectedProcedure } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { approveAndIssueMobileReadingSupabase } from "./powerhub-mobile-approval-supabase";
-import { getSupabaseSite, requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseSite, requireSupabaseSiteCapabilities, writeSupabaseAudit } from "./powerhub-supabase";
 import { processNotificationById } from "./notification-worker";
 
 const mobileSyncApproveInput = z.object({
@@ -105,8 +105,7 @@ export async function executeApproveAndIssueMobileReading(input: {
 export const approveAndIssueMobileReadingRuntime = protectedProcedure
   .input(mobileSyncApproveInput)
   .mutation(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
-    await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "issueInvoices");
+    const access = await requireSupabaseSiteCapabilities(ctx.user.id, input.siteId, ["approveReadings", "issueInvoices"]);
     return executeApproveAndIssueMobileReading({
       tenantId: access.tenantId,
       siteId: input.siteId,
