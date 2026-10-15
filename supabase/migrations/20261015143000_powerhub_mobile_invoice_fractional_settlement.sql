@@ -23,9 +23,8 @@ from public.powerhub_issue_invoice_from_reading(
   null
 ) as issued;
 $replacement$;
-  v_duplicate_invoice_audit text := $audit$
-insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data) values(p_tenant_id,p_site_id,p_user_id,v_platform_role,'invoice',v_invoice_id::text,'issue',jsonb_build_object('readingId',p_reading_id,'tariffId',v_tariff.id,'invoiceNo',v_invoice_no,'billingPeriod',p_billing_period,'totalAmount',v_total_amount,'automaticInvoice',true));
-$audit$;
+  v_audit_start integer;
+  v_audit_end integer;
 begin
   v_definition := pg_get_functiondef(
     'public.powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamptz,text,numeric)'::regprocedure
@@ -45,12 +44,18 @@ begin
 
   v_patched := overlay(v_definition placing v_replacement from v_start for v_end - v_start);
 
-  if position(v_duplicate_invoice_audit in v_patched) = 0 then
-    raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_ANCHOR_NOT_FOUND';
-  end if;
-
   -- The central issuer writes the authoritative invoice issuance audit itself.
-  v_patched := replace(v_patched, v_duplicate_invoice_audit, '');
+  -- Locate the legacy audit statement after the invoice block by boundaries rather than
+  -- matching its exact formatting; pg_get_functiondef can preserve/normalize whitespace.
+  v_audit_start := v_end + position('insert into public.audit_logs' in substring(v_patched from v_end));
+  if v_audit_start < v_end then
+    raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_NOT_FOUND';
+  end if;
+  v_audit_end := v_audit_start + position(');' in substring(v_patched from v_audit_start)) ;
+  if v_audit_end <= v_audit_start then
+    raise exception 'MOBILE_INVOICE_DUPLICATE_AUDIT_END_NOT_FOUND';
+  end if;
+  v_patched := overlay(v_patched placing '' from v_audit_start for v_audit_end - v_audit_start + 1);
 
   if position('from public.powerhub_issue_invoice_from_reading(' in v_patched) = 0
      or position('insert into public.powerhub_invoice_sequences(invoice_year,next_sequence)' in v_patched) > 0 then
