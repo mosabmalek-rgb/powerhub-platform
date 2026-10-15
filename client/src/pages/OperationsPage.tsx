@@ -276,7 +276,7 @@ function InvoicesOverview({ invoices }: { invoices: any[] }) {
 function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, pending, sendingReceipt, onSubmit, onSendReceipt, canCollect, canSendReceipts, canDiscount }: any) {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [collectionMethod, setCollectionMethod] = useState("cash");
-  const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId }, { enabled: canCollect });
+  const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId }, { enabled: canCollect, staleTime: 60_000 });
   const accounts = accountsQuery.data ?? [];
   const [companyAccountId, setCompanyAccountId] = useState("");
   const selectedCompanyAccount = accounts.find((account: any) => Number(account.id) === Number(companyAccountId));
