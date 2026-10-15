@@ -99,33 +99,99 @@ export default function OperationsPage({ section }: { section: Section }) {
   const canManageSubscribers = can(powerRole, "manageSubscribers");
   const canManageGenerators = can(powerRole, "manageGenerators");
   const canViewAudit = can(powerRole, "viewAudit");
-  const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
-  const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
-  const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery });
-  const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery });
-  const paymentsQuery = trpc.powerhub.payments.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery });
-  const expensesQuery = trpc.powerhub.expenses.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery });
+  // Keep only the data dependencies required by the currently visible operational section.
+  const needsSubscribers = section === "subscribers" || section === "readings" || section === "collections";
+  const needsGenerators = section === "generators" || section === "expenses";
+  const needsReadings = section === "readings";
+  const needsInvoices = section === "invoices" || section === "collections";
+  const needsPayments = section === "collections";
+  const needsExpenses = section === "expenses";
+  const needsNotifications = section === "notifications";
+  const needsAudit = section === "audit" && canViewAudit;
+  const needsSummary = section === "expenses" || section === "reports";
+  const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsSubscribers });
+  const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsGenerators });
+  const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsReadings });
+  const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsInvoices });
+  const paymentsQuery = trpc.powerhub.payments.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsPayments });
+  const expensesQuery = trpc.powerhub.expenses.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsExpenses });
   const readings = readingsQuery.data?.items ?? [];
   const invoices = invoicesQuery.data?.items ?? [];
   const payments = paymentsQuery.data?.items ?? [];
   const expenses = expensesQuery.data?.items ?? [];
-  const notificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
-  const auditQuery = trpc.powerhub.audit.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(canQuery && canViewAudit) });
-  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
+  const notificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsNotifications });
+  const auditQuery = trpc.powerhub.audit.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(canQuery && needsAudit) });
+  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsSummary });
 
-  const refreshOperational = async () => {
-    await Promise.all([
-      utils.powerhub.subscribers.list.invalidate(), utils.powerhub.generators.list.invalidate(),
-      utils.powerhub.readings.page.invalidate(), utils.powerhub.invoices.page.invalidate(), utils.powerhub.payments.page.invalidate(),
-      utils.powerhub.expenses.page.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate(),
-    ]);
+  const refreshOperational = async (
+    required: Array<() => Promise<unknown>>,
+    secondary: Array<() => Promise<unknown>> = [],
+  ) => {
+    // The server mutation has already succeeded before this runs. Keep the visible
+    // result refresh separate from secondary cache invalidation so unrelated data
+    // cannot delay the user's confirmation.
+    const requiredRefresh = Promise.all(required.map((refresh) => refresh())).catch(() => {
+      toast.warning("نجحت العملية، لكن تعذر تحديث بعض البيانات المعروضة. أعد تحميل العرض للتحقق.");
+    });
+    if (secondary.length > 0) {
+      void Promise.all(secondary.map((refresh) => refresh())).catch(() => {
+        toast.warning("نجحت العملية، لكن تعذر تحديث بعض البيانات التابعة. أعد تحميل العرض للتحقق.");
+      });
+    }
+    await requiredRefresh;
   };
 
-  const addGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تمت إضافة المولد."); }, onError: (e) => toast.error(e.message) });
-  const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: async (result) => { await refreshOperational(); toast.success(`تم اعتماد القراءة وإصدار الفاتورة ${result.invoiceNo} تلقائيًا.`); }, onError: (e) => toast.error(e.message) });
-  const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تم تسجيل الدفعة."); }, onError: (e) => toast.error(e.message) });
-  const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: async (result) => { await refreshOperational(); toast.success(result.status === "submitted" ? "تم إرسال إيصال SMS بنجاح." : "تعذر إرسال إيصال SMS؛ راجع سجل الإشعارات."); }, onError: (error) => toast.error(error.message) });
-  const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: async () => { await refreshOperational(); toast.success("تم تسجيل المصروف."); }, onError: (e) => toast.error(e.message) });
+  const addGenerator = trpc.powerhub.generators.create.useMutation({ onSuccess: async () => {
+    toast.success("تمت إضافة المولد.");
+    await refreshOperational(
+      [() => utils.powerhub.generators.list.invalidate({ siteId: siteId ?? 0 })],
+      [
+        () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
+        () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
+      ],
+    );
+  }, onError: (e) => toast.error(e.message) });
+  const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: async (result) => {
+    toast.success(`تم اعتماد القراءة وإصدار الفاتورة ${result.invoiceNo} تلقائيًا.`);
+    await refreshOperational(
+      [() => utils.powerhub.readings.page.invalidate({ siteId: siteId ?? 0, limit: 100 })],
+      [
+        () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
+        () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
+        () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
+      ],
+    );
+  }, onError: (e) => toast.error(e.message) });
+  const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: async () => {
+    toast.success("تم تسجيل الدفعة.");
+    await refreshOperational(
+      [
+        () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
+        () => utils.powerhub.payments.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
+      ],
+      [
+        () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
+        () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
+      ],
+    );
+  }, onError: (e) => toast.error(e.message) });
+  const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: async (result) => {
+    toast.success(result.status === "submitted" ? "تم إرسال إيصال SMS بنجاح." : "تعذر إرسال إيصال SMS؛ راجع سجل الإشعارات.");
+    await refreshOperational([], [
+      () => utils.powerhub.notifications.list.invalidate({ siteId: siteId ?? 0 }),
+      () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
+    ]);
+  }, onError: (error) => toast.error(error.message) });
+  const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: async () => {
+    toast.success("تم تسجيل المصروف.");
+    await refreshOperational(
+      [
+        () => utils.powerhub.expenses.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
+        () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
+      ],
+      [() => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 })],
+    );
+  }, onError: (e) => toast.error(e.message) });
 
   const siteOptions = sitesQuery.data ?? [];
   const activeSite = useMemo(() => siteOptions.find((site) => site.id === siteId), [siteId, siteOptions]);
