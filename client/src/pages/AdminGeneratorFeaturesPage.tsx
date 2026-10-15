@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { ArrowRight, Plus, Search, Settings2, UsersRound, Zap } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 
@@ -98,19 +98,23 @@ function FeatureControlsIndex() {
 const quotaAddonFeatures = new Set(["subscriber_management","platform_users","field_users","branch_management","sms"]);
 const addonLabels: Record<string,string> = { subscribers50:"المشتركين", platformUser:"مستخدمو المنصة", fieldUser:"المستخدمون الميدانيون", branch:"الفروع", sms:"الرسائل" };
 
-function FeatureRow({feature,policy,control,activeAddons,onGrant,onSave,pending}:{feature:any;policy:any;control:any;activeAddons:any[];onGrant:(v:any)=>void;onSave:(v:any)=>void;pending:boolean}) {
+function FeatureRow({feature,policy,control,activeAddons,effectiveLimitFromServer,subscriptionActive,onGrant,onSave,pending}:{feature:any;policy:any;control:any;activeAddons:any[];effectiveLimitFromServer?:number;subscriptionActive:boolean;onGrant:(v:any)=>void;onSave:(v:any)=>void;pending:boolean}) {
   const [status,setStatus]=useState(control?.status ?? "inherit");
+  useEffect(() => { setStatus(control?.status ?? "inherit"); }, [control?.status]);
   const [billingMode,setBillingMode]=useState<"free"|"paid">("free");
   const [quantity,setQuantity]=useState(feature.feature_key === "subscriber_management" ? "100" : "1");
   const [note,setNote]=useState("");
   const effectiveEligible = policy?.policy === "included" || policy?.policy === "addon";
   const isQuota = feature.feature_type === "quota" && quotaAddonFeatures.has(feature.feature_key);
-  const effectiveEnabled = isQuota ? effectiveEligible : status === "enabled" || (status === "inherit" && policy?.policy === "included");
+  const effectiveEnabled = subscriptionActive && feature.is_active !== false && effectiveEligible
+    && (isQuota ? true : status === "enabled" || (status === "inherit" && policy?.policy === "included"));
   const addonCode = ({subscriber_management:"subscribers50",platform_users:"platformUser",field_users:"fieldUser",branch_management:"branch",sms:"sms"} as Record<string,string>)[feature.feature_key];
   const activeForFeature = activeAddons.filter((a:any)=>a.addonCode===addonCode);
   const addonDelta = activeForFeature.reduce((sum:number,a:any)=>sum + (feature.feature_key === "subscriber_management" ? Number(a.quantity)*50 : Number(a.quantity)),0);
   const baseLimit = policy?.defaultLimit == null ? null : Number(policy.defaultLimit);
-  const effectiveLimit = isQuota && baseLimit != null ? baseLimit + addonDelta : baseLimit;
+  const effectiveLimit = isQuota
+    ? (effectiveLimitFromServer ?? (baseLimit != null ? baseLimit + addonDelta : null))
+    : baseLimit;
   const isSubscriber = feature.feature_key === "subscriber_management";
   const numericQuantity = Number(quantity);
   const validQuantity = Number.isInteger(numericQuantity) && numericQuantity > 0 && (!isSubscriber || numericQuantity % 50 === 0);
@@ -140,7 +144,7 @@ function FeatureControlsDetail({tenantId}:{tenantId:number}) {
     <main className="space-y-6 pb-12">
       <div className="flex items-center gap-3"><Button variant="outline" onClick={()=>navigate("/admin/generator-features")} className="border-white/10 text-white hover:bg-white/5 hover:text-white"><ArrowRight className="ml-1 h-4 w-4"/>أصحاب المولدات</Button><div><p className="text-xs font-bold text-[#F5B800]">الميزات والحدود</p><h1 className="text-2xl font-extrabold text-white">{snapshot.data?.owner?.fullName ?? tenant?.name ?? "تفاصيل صاحب المولد"}</h1><p className="mt-1 text-sm text-slate-500">{tenant?.name ?? "—"} · الباقة {snapshot.data?.subscription?.packageCode ?? "—"}</p></div></div>
       <div className="grid gap-4 md:grid-cols-4"><Card className="border-white/8 bg-[#111823]"><CardContent className="p-4"><UsersRound className="h-5 w-5 text-[#F5B800]"/><p className="mt-3 text-xs text-slate-500">المشتركون</p><p className="mt-1 text-2xl font-extrabold text-white">{numberFormat(snapshot.data?.usage.subscribers)}</p></CardContent></Card><Card className="border-white/8 bg-[#111823]"><CardContent className="p-4"><Zap className="h-5 w-5 text-[#F5B800]"/><p className="mt-3 text-xs text-slate-500">الفروع</p><p className="mt-1 text-2xl font-extrabold text-white">{numberFormat(snapshot.data?.usage.branches)}</p></CardContent></Card><Card className="border-white/8 bg-[#111823]"><CardContent className="p-4"><UsersRound className="h-5 w-5 text-[#F5B800]"/><p className="mt-3 text-xs text-slate-500">مستخدمو المنصة</p><p className="mt-1 text-2xl font-extrabold text-white">{numberFormat(snapshot.data?.usage.platformUsers)}</p></CardContent></Card><Card className="border-white/8 bg-[#111823]"><CardContent className="p-4"><Zap className="h-5 w-5 text-[#F5B800]"/><p className="mt-3 text-xs text-slate-500">المستخدمون الميدانيون</p><p className="mt-1 text-2xl font-extrabold text-white">{numberFormat(snapshot.data?.usage.fieldUsers)}</p></CardContent></Card></div>
-      <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="mb-5"><h2 className="font-bold text-white">مصفوفة الميزات والتحكم</h2><p className="mt-1 text-sm leading-7 text-slate-500">لا يتغير إعداد الباقة نفسه. التعديل هنا استثناء لهذا صاحب المولد فقط.</p></div><div className="space-y-4">{groups.map(([category,list])=><section key={category}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-extrabold text-[#F5B800]">{category}</h3><span className="text-xs text-slate-600">{list.length} ميزات</span></div><div className="space-y-3">{list.map((feature:any)=><FeatureRow key={feature.feature_key} feature={feature} policy={policyByKey.get(feature.feature_key)} control={controlByKey.get(feature.feature_key)} activeAddons={activeAddons} pending={save.isPending||grant.isPending} onGrant={grantAddon} onSave={(v)=>save.mutate({tenantId,featureKey:feature.feature_key,...v})}/>)}</div></section>)}</div></CardContent></Card>
+      <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="mb-5"><h2 className="font-bold text-white">مصفوفة الميزات والتحكم</h2><p className="mt-1 text-sm leading-7 text-slate-500">لا يتغير إعداد الباقة نفسه. التعديل هنا استثناء لهذا صاحب المولد فقط.</p></div><div className="space-y-4">{groups.map(([category,list])=><section key={category}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-extrabold text-[#F5B800]">{category}</h3><span className="text-xs text-slate-600">{list.length} ميزات</span></div><div className="space-y-3">{list.map((feature:any)=><FeatureRow key={feature.feature_key} feature={feature} policy={policyByKey.get(feature.feature_key)} control={controlByKey.get(feature.feature_key)} activeAddons={activeAddons} effectiveLimitFromServer={snapshot.data?.effectiveQuotas?.[feature.feature_key]} subscriptionActive={snapshot.data?.subscription?.isEffectivelyActive === true} pending={save.isPending||grant.isPending} onGrant={grantAddon} onSave={(v)=>save.mutate({tenantId,featureKey:feature.feature_key,...v})}/>)}</div></section>)}</div></CardContent></Card>
     </main>
   </PlatformAdminLayout>;
 }

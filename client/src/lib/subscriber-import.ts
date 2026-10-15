@@ -75,6 +75,6 @@ export function prepareSubscriberImport(rows: SubscriberImportDraft[]): Prepared
       if (!Number.isFinite(reading) || reading < 0 || !/^\d+(\.\d{1,2})?$/.test(row.openingReading.trim())) errors.push("القراءة الافتتاحية يجب أن تكون صفراً أو رقماً موجباً حتى منزلتين عشريتين.");
       if (row.openingReadingAt && Number.isNaN(Date.parse(row.openingReadingAt))) errors.push("تاريخ القراءة الافتتاحية غير صالح.");
     }
-    return { ...row, subscriberNo: subscriberNo || undefined, rowNumber: row.sourceRow ?? index + 2, normalizedSubscriptionType, status: errors.length ? "error" : "ready", errors };
+    return { ...row, phone, whatsappNumber: whatsappNumber || undefined, subscriberNo: subscriberNo || undefined, rowNumber: row.sourceRow ?? index + 2, normalizedSubscriptionType, status: errors.length ? "error" : "ready", errors };
   });
 }

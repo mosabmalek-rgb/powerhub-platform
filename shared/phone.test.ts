@@ -15,6 +15,13 @@ describe("international phone normalization", () => {
     expect(normalizeInternationalPhone("0569000000")).toBe("+970569000000");
   });
 
+  it("restores a leading zero dropped by spreadsheets for Palestinian mobile numbers", () => {
+    expect(normalizeInternationalPhone("599000000")).toBe("+970599000000");
+    expect(normalizeInternationalPhone("569000000")).toBe("+970569000000");
+    expect(normalizeInternationalPhone("0599000000")).toBe("+970599000000");
+    expect(normalizeInternationalPhone("0569000000")).toBe("+970569000000");
+  });
+
   it("accepts 970, 972, and 00-prefixed country codes", () => {
     expect(normalizeInternationalPhone("970599000000")).toBe("+970599000000");
     expect(normalizeInternationalPhone("+972599000000")).toBe("+970599000000");
