@@ -279,6 +279,7 @@ language plpgsql security definer set search_path=public,pg_temp as $mobile_fixt
 declare
   v_tariff public.tariffs%rowtype;
   v_reading public.meter_readings%rowtype;
+  v_subscriber public.subscribers%rowtype;
   v_invoice_id bigint;
   v_invoice_no text;
   v_total_amount numeric(14,2);
@@ -291,6 +292,8 @@ begin
   where id=p_reading_id and tenant_id=p_tenant_id and site_id=p_site_id;
   select * into v_reading from public.meter_readings
   where id=p_reading_id and tenant_id=p_tenant_id and site_id=p_site_id;
+  select * into v_subscriber from public.subscribers
+  where id=v_reading.subscriber_id and tenant_id=p_tenant_id and site_id=p_site_id;
   select * into v_tariff from public.tariffs
   where tenant_id=p_tenant_id and site_id=p_site_id and is_active=true
   order by id desc limit 1;
