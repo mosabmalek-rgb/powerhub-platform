@@ -45,7 +45,16 @@ const previewValues: Record<string, string> = {
   previous_reading: "12,450", current_reading: "12,785", consumption_kwh: "335", total_balance: "42,500",
   invoice_link: "https://powerhub.example/invoice/INV-2026-00125", portal_link: "https://powerhub.example/portal?g=MAIN",
 };
-const previewTemplate = (body: string) => body.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|total_balance|due_date|invoice_link|portal_link)\s*}}/g, (_, key) => previewValues[key] ?? "");
+const previewMoneyKeys = new Set(["total_amount", "balance_due", "total_balance"]);
+const formatPreviewAmount = (value: string) => {
+  const amount = Number(value.replace(/,/g, ""));
+  if (!Number.isFinite(amount)) return value;
+  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(amount);
+};
+const previewTemplate = (body: string) => body.replace(/{{\\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|total_balance|due_date|invoice_link|portal_link)\\s*}}/g, (_, key: string) => {
+  const value = previewValues[key] ?? "";
+  return previewMoneyKeys.has(key) ? formatPreviewAmount(value) : value;
+});
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
 
