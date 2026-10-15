@@ -24,6 +24,18 @@ describe("تحضير استيراد المشتركين", () => {
     expect(rows[0].whatsappNumber).toBe("+970599000002");
   });
 
+  it("يكشف التكرار بعد توحيد 059 و59 إلى الصيغة الدولية نفسها", () => {
+    const rows = prepareSubscriberImport([
+      { fullName: "مشترك أول", phone: "0599000010", address: "", subscriptionType: "سكني" },
+      { fullName: "مشترك ثان", phone: "599000010", address: "", subscriptionType: "تجاري" },
+    ]);
+    expect(rows.every((row) => row.status === "error")).toBe(true);
+    expect(rows[0].phone).toBe("+970599000010");
+    expect(rows[1].phone).toBe("+970599000010");
+    expect(rows[0].errors.join(" ")).toContain("مكرر");
+    expect(rows[1].errors.join(" ")).toContain("مكرر");
+  });
+
   it("يقبل نوعي المؤسسات والمساجد وأسماءهما العربية في الاستيراد الجماعي", () => {
     const rows = prepareSubscriberImport([
       { fullName: "مؤسسة الاختبار", phone: "+970599000011", address: "", subscriptionType: "مؤسسات" },
