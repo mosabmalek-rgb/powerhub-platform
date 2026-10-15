@@ -49,7 +49,7 @@ const previewMoneyKeys = new Set(["total_amount", "balance_due", "total_balance"
 const formatPreviewAmount = (value: string) => {
   const amount = Number(value.replace(/,/g, ""));
   if (!Number.isFinite(amount)) return value;
-  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(amount);
+  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(settlementEnabled ? Math.trunc(amount) : amount);
 };
 const previewTemplate = (body: string) => body.replace(/{{\\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|total_balance|due_date|invoice_link|portal_link)\\s*}}/g, (_, key: string) => {
   const value = previewValues[key] ?? "";
