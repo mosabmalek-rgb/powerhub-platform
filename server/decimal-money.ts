@@ -77,6 +77,6 @@ export function formatPolicyAwareMessageAmount(
   const absolute = negative ? -minor : minor;
   let whole = absolute / 100n;
   if (absolute % 100n >= 50n) whole += 1n;
-  const grouped = whole.toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ",");
+  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return negative && whole !== 0n ? `-${grouped}` : grouped;
 }
