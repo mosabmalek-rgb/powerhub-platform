@@ -267,3 +267,71 @@ begin
 end $$;
 
 \echo 'site-billing policy PostgreSQL integration assertions passed'
+
+-- Verify mobile/manual approval delegates to the policy-aware invoice issuer.
+-- This fixture reproduces the legacy duplicated invoice construction with a minimal tail.
+create or replace function public.powerhub_approve_and_issue_mobile_reading(
+  p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_reading_id bigint,p_base_version integer,
+  p_due_date timestamptz,p_billing_period text,p_discount_amount numeric default 0
+)
+returns table(invoice_id bigint,invoice_no text,total_amount numeric,notification_ids bigint[],already_processed boolean)
+language plpgsql security definer set search_path=public,pg_temp as $mobile_fixture$
+declare
+  v_tariff public.tariffs%rowtype;
+  v_invoice_id bigint;
+  v_invoice_no text;
+  v_total_amount numeric(14,2);
+  v_platform_role text;
+  v_sequence bigint;
+  v_notification_ids bigint[]:=array[]::bigint[];
+begin
+  update public.meter_readings set status='approved'
+  where id=p_reading_id and tenant_id=p_tenant_id and site_id=p_site_id;
+  select * into v_tariff from public.tariffs
+  where tenant_id=p_tenant_id and site_id=p_site_id and is_active=true
+  order by id desc limit 1;
+  insert into public.powerhub_invoice_sequences(invoice_year,next_sequence) values(left(p_billing_period,4)::integer,2)
+  on conflict (invoice_year) do update set next_sequence=public.powerhub_invoice_sequences.next_sequence+1
+  returning next_sequence-1 into v_sequence;
+  v_invoice_no:=format('INV-%s-%s',left(p_billing_period,4),lpad(v_sequence::text,8,'0'));
+  v_total_amount:=round(coalesce(v_tariff.price_per_kwh,0)*10.2,2);
+  insert into public.invoices(tenant_id,site_id,subscriber_id,reading_id,tariff_id,invoice_no,billing_period,due_date,total_amount,balance_due,status,created_by_user_id)
+  values(p_tenant_id,p_site_id,103,p_reading_id,v_tariff.id,v_invoice_no,p_billing_period,p_due_date,v_total_amount,v_total_amount,'issued',p_user_id)
+  returning id into v_invoice_id;
+  select platform_role into v_platform_role from public.users where id=p_user_id;
+  insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data) values(p_tenant_id,p_site_id,p_user_id,v_platform_role,'invoice',v_invoice_id::text,'issue',jsonb_build_object('readingId',p_reading_id,'tariffId',v_tariff.id,'invoiceNo',v_invoice_no,'billingPeriod',p_billing_period,'totalAmount',v_total_amount,'automaticInvoice',true));
+  return query select v_invoice_id,v_invoice_no,v_total_amount,v_notification_ids,false;
+end;$mobile_fixture$;
+
+\ir ../migrations/20261015143000_powerhub_mobile_invoice_fractional_settlement.sql
+
+select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,null,true,1,5,true,6,9);
+insert into public.meter_readings(id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status)
+values (1007,1,10,103,0,10.2,10.2,'pending_review');
+select * from public.powerhub_approve_and_issue_mobile_reading(1,10,7,1007,1,now()+interval '15 days','2026-07',0);
+
+do $mobile_assert$
+declare v_total numeric; v_discount numeric; v_adjustments integer;
+begin
+  select total_amount,discount_amount into v_total,v_discount from public.invoices where reading_id=1007;
+  select count(*) into v_adjustments from public.billing_adjustments
+  where invoice_id=(select id from public.invoices where reading_id=1007)
+    and adjustment_type='auto_fraction_discount' and state='applied' and amount=0.4;
+  if v_total<>20 or v_discount<>0.4 or v_adjustments<>1 then
+    raise exception 'MOBILE_TENTHS_SETTLEMENT_ASSERTION_FAILED total=% discount=% adjustments=%',v_total,v_discount,v_adjustments;
+  end if;
+end $mobile_assert$;
+
+
+-- Monetary template values must never expose a third fractional digit.
+do $template_amount_assert$
+declare v_rendered text;
+begin
+  v_rendered := replace('قيمة الفاتورة {{total_amount}} شيكل', '{{total_amount}}', to_char(round(20.456::numeric, 1), 'FM999999999990.0'));
+  if v_rendered <> 'قيمة الفاتورة 20.5 شيكل' then
+    raise exception 'INVOICE_TEMPLATE_AMOUNT_FORMAT_ASSERTION_FAILED rendered=%',v_rendered;
+  end if;
+end $template_amount_assert$;
+
+\echo 'mobile invoice fractional settlement assertions passed'
+
