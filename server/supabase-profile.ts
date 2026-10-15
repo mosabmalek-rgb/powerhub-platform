@@ -57,7 +57,8 @@ const pendingInvitationChecks = new Map<string, { expiresAt: number; promise: Pr
 
 async function acceptPendingInvitations(input: { id: string; email: string | null }, admin: ReturnType<typeof supabaseAdmin>) {
   const now = Date.now();
-  const cached = pendingInvitationChecks.get(input.id);
+  const cacheKey = `${input.id}:${input.email ?? ""}`;
+  const cached = pendingInvitationChecks.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.completed ? false : cached.promise;
   if (cached) pendingInvitationChecks.delete(input.id);
 
@@ -86,7 +87,7 @@ async function acceptPendingInvitations(input: { id: string; email: string | nul
       return Boolean(platformInvitation.data?.[0]?.accepted);
     })(),
   };
-  pendingInvitationChecks.set(input.id, entry);
+  pendingInvitationChecks.set(cacheKey, entry);
   // Bound the per-instance cache and remove expired entries without timers.
   if (pendingInvitationChecks.size > 2_000) {
     for (const [key, value] of pendingInvitationChecks) {
@@ -99,7 +100,7 @@ async function acceptPendingInvitations(input: { id: string; email: string | nul
     entry.completed = true;
     return accepted;
   } catch (error) {
-    if (pendingInvitationChecks.get(input.id) === entry) pendingInvitationChecks.delete(input.id);
+    if (pendingInvitationChecks.get(cacheKey) === entry) pendingInvitationChecks.delete(cacheKey);
     throw error;
   }
 }
