@@ -364,8 +364,8 @@ declare
   v_definition text;
 begin
   select pg_get_functiondef('public.powerhub_queue_invoice_sms_after_issue()'::regprocedure) into v_definition;
-  if position('round(new.total_amount, 1)::text' in v_definition) = 0
-     or position('round(new.balance_due, 1)::text' in v_definition) = 0
+  if position('powerhub_format_message_amount(new.tenant_id, new.site_id, new.total_amount)' in v_definition) = 0
+     or position('powerhub_format_message_amount(new.tenant_id, new.site_id, new.balance_due)' in v_definition) = 0
      or position('new.total_amount::text' in v_definition) > 0
      or position('new.balance_due::text' in v_definition) > 0
      or position('{{total_balance}}' in v_definition) = 0 then
@@ -373,8 +373,8 @@ begin
   end if;
 
   select pg_get_functiondef('public.powerhub_queue_selected_invoice_sms(bigint,bigint,bigint,bigint)'::regprocedure) into v_definition;
-  if position('round(v_invoice.total_amount, 1)::text' in v_definition) = 0
-     or position('round(v_invoice.balance_due, 1)::text' in v_definition) = 0
+  if position('powerhub_format_message_amount(v_invoice.tenant_id, v_invoice.site_id, v_invoice.total_amount)' in v_definition) = 0
+     or position('powerhub_format_message_amount(v_invoice.tenant_id, v_invoice.site_id, v_invoice.balance_due)' in v_definition) = 0
      or position('v_invoice.total_amount::text' in v_definition) > 0
      or position('v_invoice.balance_due::text' in v_definition) > 0
      or position('{{total_balance}}' in v_definition) = 0 then
@@ -382,10 +382,10 @@ begin
   end if;
 
   select pg_get_functiondef('public.powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamptz,text,numeric)'::regprocedure) into v_definition;
-  if position('round(v_total_amount, 1)::text' in v_definition) = 0
+  if position('powerhub_format_message_amount(p_tenant_id, p_site_id, v_total_amount)' in v_definition) = 0
      or position('v_total_amount::text' in v_definition) > 0
      or position('{{total_balance}}' in v_definition) = 0
-     or v_definition !~* $pattern$v_rendered\s*:=\s*replace\s*\(\s*v_rendered\s*,\s*'\{\{balance_due\}\}'\s*,\s*round\s*\(\s*v_total_amount\s*,\s*1\s*\)::text\s*\)$pattern$ then
+     or v_definition !~* $pattern$v_rendered\s*:=\s*replace\s*\(\s*v_rendered\s*,\s*'\{\{balance_due\}\}'\s*,\s*public\.powerhub_format_message_amount\s*\(\s*p_tenant_id\s*,\s*p_site_id\s*,\s*v_total_amount\s*\)\s*\)$pattern$ then
     raise exception 'SQL_MOBILE_MESSAGE_AMOUNT_ASSERTION_FAILED';
   end if;
 
