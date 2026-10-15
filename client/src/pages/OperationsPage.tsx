@@ -89,7 +89,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   });
 
   const canQuery = Boolean(siteId && isAuthenticated);
-  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery });
+  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery, staleTime: 60_000 });
   const powerRole = accessQuery.data?.role;
   const canCreateFinancialRecord = can(powerRole, "collectPayments");
   const canManageExpenses = can(powerRole, "manageExpenses");
@@ -109,19 +109,19 @@ export default function OperationsPage({ section }: { section: Section }) {
   const needsNotifications = section === "notifications";
   const needsAudit = section === "audit" && canViewAudit;
   const needsSummary = section === "expenses" || section === "reports";
-  const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsSubscribers });
-  const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsGenerators });
-  const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsReadings });
-  const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsInvoices });
-  const paymentsQuery = trpc.powerhub.payments.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsPayments });
-  const expensesQuery = trpc.powerhub.expenses.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsExpenses });
+  const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsSubscribers, staleTime: 20_000 });
+  const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsGenerators, staleTime: 20_000 });
+  const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsReadings, staleTime: 15_000 });
+  const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsInvoices, staleTime: 15_000 });
+  const paymentsQuery = trpc.powerhub.payments.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsPayments, staleTime: 15_000 });
+  const expensesQuery = trpc.powerhub.expenses.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsExpenses, staleTime: 20_000 });
   const readings = readingsQuery.data?.items ?? [];
   const invoices = invoicesQuery.data?.items ?? [];
   const payments = paymentsQuery.data?.items ?? [];
   const expenses = expensesQuery.data?.items ?? [];
-  const notificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsNotifications });
-  const auditQuery = trpc.powerhub.audit.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(canQuery && needsAudit) });
-  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsSummary });
+  const notificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsNotifications, staleTime: 15_000 });
+  const auditQuery = trpc.powerhub.audit.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(canQuery && needsAudit), staleTime: 15_000 });
+  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsSummary, staleTime: 15_000 });
 
   const refreshOperational = async (
     required: Array<() => Promise<unknown>>,
