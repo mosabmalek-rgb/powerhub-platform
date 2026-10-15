@@ -41,10 +41,14 @@ function palestinianEquivalentVariants(value: string) {
  * +972 is converted to +970 only for Palestinian mobile prefixes 56/59.
  */
 export function normalizeInternationalPhone(value: string) {
+  const compact = compactPhone(value);
   const normalized = toPlus(value);
   const nationalFrom970 = normalized.replace(/^\+970/, "");
   const nationalFrom972 = normalized.replace(/^\+972/, "");
 
+  // Excel can drop a numeric cell's leading zero (059... -> 59...).
+  // Treat the 9-digit national form as a Palestinian mobile and canonicalize it.
+  if (/^(56|59)\d{7}$/.test(compact)) return `+970${compact}`;
   if (/^\+970(56|59)\d{7}$/.test(normalized)) return normalized;
   if (/^\+972(56|59)\d{7}$/.test(normalized)) return `+970${nationalFrom972}`;
   if (/^0(56|59)\d{7}$/.test(compactPhone(value))) return `+970${compactPhone(value).slice(1)}`;
