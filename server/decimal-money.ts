@@ -74,9 +74,9 @@ export function formatPolicyAwareMessageAmount(
   if (!settlementEnabled) return formatMessageAmount(value);
 
   const raw = String(value).trim();
-  const match = /^([+-]?)(\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.(\\d+))?$/.exec(raw);
+  const match = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?$/.exec(raw);
   if (!match) return raw;
   const whole = BigInt(match[2].replace(/,/g, ""));
-  const grouped = whole.toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ",");
+  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return match[1] === "-" && whole !== 0n ? `-${grouped}` : grouped;
 }
