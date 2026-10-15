@@ -24,7 +24,7 @@ vi.mock("@/lib/trpc", () => ({
         smsDailyUsage: { useQuery: () => ({ data: { points: [{ date: "2026-08-20", count: 3 }, { date: "2026-08-21", count: 4 }], total: 100, used: 10, remaining: 90 }, isLoading: false }) },
         deliveryPolicy: { useQuery: () => ({ data: state.policy }) },
         listInvoiceTemplates: { useQuery: () => ({ data: [{ channel: "whatsapp", body: "أهلاً {{subscriber_name}}، فاتورتك {{invoice_no}}", isActive: true }] }) },
-        listPaymentReceiptTemplates: { useQuery: () => ({ data: [{ channel: "sms", body: "إيصال {{payment_no}}", isActive: true }] }) },
+        listPaymentReceiptTemplates: { useQuery: () => ({ data: [{ channel: "sms", body: "إيصال {{payment_no}}؛ المبلغ {{payment_amount}}؛ المتبقي {{balance_due}}", isActive: true }] }) },
         saveConfiguration: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         testConnection: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         saveInvoiceTemplate: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
@@ -76,8 +76,10 @@ describe("owner invoice messaging settings", () => {
     expect(screen.getAllByRole("button", { name: "اختبار الاتصال" })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب WhatsApp" }));
     expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, channel: "whatsapp", isActive: true }));
+    fireEvent.click(screen.getByRole("button", { name: "معاينة الرسالة" }));
+    expect(screen.getByText("إيصال PAY-2026-0012؛ المبلغ 40.0؛ المتبقي 52.0")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "حفظ قالب إيصال SMS" }));
-    expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, body: "إيصال {{payment_no}}", isActive: true }));
+    expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ siteId: 3, body: "إيصال {{payment_no}}؛ المبلغ {{payment_amount}}؛ المتبقي {{balance_due}}", isActive: true }));
   });
 
   it("blocks provider setup until the platform administrator explicitly opens the policy", () => {
