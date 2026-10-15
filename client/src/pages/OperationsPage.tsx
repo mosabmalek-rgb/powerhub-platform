@@ -322,7 +322,7 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
         if (amount<=0 || amount+(invoiceIds.length===1 ? manualDiscountAmount : 0)-due>0.01) { toast.error("مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق لإحدى الفواتير."); return; }
         await onSubmit({ siteId, subscriberId: Number(f.get("subscriberId")), invoiceId, paymentNo: invoiceIds.length===1 ? String(f.get("paymentNo")) : String(f.get("paymentNo"))+"-"+invoiceId, amount, paymentMethod: String(f.get("method")), companyAccountId: Number(companyAccountId), transferFromAccount: String(f.get("transferFromAccount") || "") || undefined, transferFromType: String(f.get("transferFromType") || "") || undefined, referenceNo: String(f.get("reference") || "") || undefined, receiptImageData, receiptImageMime, manualDiscountAmount: invoiceIds.length===1 ? manualDiscountAmount : 0, manualDiscountReason: invoiceIds.length===1 ? manualDiscountReason || undefined : undefined, clientOperationId: crypto.randomUUID() });
       }
-      setReceiptFile(null); setSelectedInvoiceIds([]); formElement.reset();
+      setReceiptFile(null); setSelectedInvoiceIds([]); formElement.reset(); setSelectedSubscriberId(0);
     } catch {
       // The mutation already displays the server error. Preserve the form for correction/retry.
       return;
