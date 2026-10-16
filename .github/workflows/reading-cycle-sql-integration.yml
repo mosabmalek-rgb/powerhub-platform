@@ -41,6 +41,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
 
+      - name: Verify single-device field-app sessions
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres mobile_single_device_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname mobile_single_device_test --set ON_ERROR_STOP=1 --file supabase/tests/mobile_single_device_session.sql
+
       - name: Execute migration against disposable PostgreSQL
         env:
           PGPASSWORD: postgres
