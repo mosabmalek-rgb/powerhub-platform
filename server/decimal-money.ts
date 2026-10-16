@@ -76,7 +76,9 @@ export function formatPolicyAwareMessageAmount(
   const raw = String(value).trim();
   const match = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?$/.exec(raw);
   if (!match) return raw;
-  const whole = BigInt(match[2].replace(/,/g, ""));
+  let whole = BigInt(match[2].replace(/,/g, ""));
+  // Display-only whole-unit rounding: stored invoice and balance values stay unchanged.
+  if ((match[3] ?? "")[0] >= "5") whole += 1n;
   const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return match[1] === "-" && whole !== 0n ? `-${grouped}` : grouped;
 }
