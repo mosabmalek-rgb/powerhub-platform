@@ -399,7 +399,7 @@ export function registerMobileApi(app: Express) {
     if (!parsed.success) {
       return sendError(res, 400, "INVALID_READING", "بيانات القراءة غير صالحة.", false, {
         issues: parsed.error.issues.map((issue) => ({
-          path: issue.path.join("."),
+          path: issue.path.map(String).join("."),
           code: issue.code,
           message: issue.message,
         })),
