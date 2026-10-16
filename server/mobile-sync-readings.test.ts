@@ -26,6 +26,8 @@ describe("mobile sync reading details input", () => {
     expect(mobileSyncApproveInput.safeParse({ siteId: 12, readingId: 4, baseVersion: 0 }).success).toBe(false);
     expect(mobileSyncBulkApprovalInput.parse({ siteId: 12 })).toMatchObject({ siteId: 12, limit: 100, sendNow: true });
     expect(mobileSyncBulkApprovalInput.safeParse({ siteId: 12, limit: 101 }).success).toBe(false);
+    expect(mobileSyncBulkApprovalInput.parse({ siteId: 12, limit: 100, excludeReadingIds: [3, 4] })).toMatchObject({ limit: 100, excludeReadingIds: [3, 4] });
+    expect(mobileSyncBulkApprovalInput.safeParse({ siteId: 12, excludeReadingIds: Array.from({ length: 501 }, (_, i) => i + 1) }).success).toBe(false);
   });
 });
 
