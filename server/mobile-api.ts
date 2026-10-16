@@ -27,6 +27,18 @@ const mobileChangePasswordSchema = z.object({ newPassword: z.string().min(8).max
 const refreshSchema = z.object({ refreshToken: z.string().min(32).max(256) });
 const subscriberQuerySchema = z.object({ branchId: z.coerce.number().int().positive(), limit: z.coerce.number().int().min(1).max(100).default(100), cursor: z.coerce.number().int().min(0).default(0) });
 
+const mobileCycleSyncStatsQuerySchema = z.object({
+  branchId: z.coerce.number().int().positive(),
+  from: z.string().datetime(),
+  to: z.string().datetime(),
+}).refine((input) => Date.parse(input.from) < Date.parse(input.to), {
+  message: "تاريخ نهاية الدورة يجب أن يأتي بعد تاريخ البداية.",
+  path: ["to"],
+}).refine((input) => Date.parse(input.to) - Date.parse(input.from) <= 45 * 24 * 60 * 60 * 1000, {
+  message: "الفترة المحددة طويلة أكثر من اللازم.",
+  path: ["to"],
+});
+
 function mobileDateKeyInTimeZone(value: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone, year: "numeric", month: "2-digit", day: "2-digit",
@@ -420,6 +432,47 @@ export function registerMobileApi(app: Express) {
     });
   });
 
+  app.get("/api/mobile/v1/reading-cycle-sync-stats", async (req, res) => {
+    const context = await authenticateMobile(req);
+    if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const parsed = mobileCycleSyncStatsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return sendError(res, 400, "INVALID_CYCLE_SYNC_STATS_QUERY", "بيانات الفترة المحددة غير صالحة.");
+    }
+    const { branchId, from, to } = parsed.data;
+    if (!context.scope.branchIds.includes(branchId)) {
+      return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
+    }
+
+    // These are server-accepted upload confirmations, not local queue counts.
+    // Bound each query page so a long-running field deployment remains accurate
+    // even when sync events exceed Supabase's default response page size.
+    const admin = supabaseAdmin();
+    let offset = 0;
+    let syncedReadingCount = 0;
+    const pageSize = 500;
+    while (true) {
+      const { data: events, error } = await admin.from("mobile_sync_events")
+        .select("synced_count")
+        .eq("tenant_id", context.scope.tenantId)
+        .eq("site_id", branchId)
+        .eq("event_type", "sync_cycle")
+        .gte("occurred_at", from)
+        .lt("occurred_at", to)
+        .order("occurred_at", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+      if (error) return sendSupabaseError(res, error, "تعذر تحميل إحصاءات مزامنة الدورة.");
+      for (const event of events ?? []) {
+        const count = Number(event.synced_count ?? 0);
+        if (Number.isInteger(count) && count > 0) syncedReadingCount += count;
+      }
+      if ((events ?? []).length < pageSize) break;
+      offset += pageSize;
+    }
+
+    return res.json({ branchId, from, to, syncedReadingCount });
+  });
+
   app.get("/api/mobile/v1/subscribers", async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
@@ -551,4 +604,4 @@ export function registerMobileApi(app: Express) {
   });
 }
 
-export const mobileApiSchemas = { login: mobileLoginSchema, changePassword: mobileChangePasswordSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
+export const mobileApiSchemas = { login: mobileLoginSchema, changePassword: mobileChangePasswordSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, cycleSyncStats: mobileCycleSyncStatsQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
