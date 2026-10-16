@@ -151,13 +151,10 @@ begin
 
   -- Refresh-token rotation must update the same session and its activity
   -- timestamp so the stale recovery policy observes it as active.
-  update public.mobile_api_sessions
-     set refresh_token_hash = repeat('7', 64),
-         last_used_at = clock_timestamp()
-   where refresh_token_hash = repeat('6', 64)
-     and user_id = 106 and revoked_at is null
-     and expires_at > clock_timestamp()
-  returning id into v_new_session_id;
+  select r.id into v_new_session_id
+    from public.powerhub_mobile_rotate_refresh_session(
+      repeat('6', 64), repeat('7', 64), clock_timestamp()
+    ) as r;
   if v_new_session_id is null then
     raise exception 'valid refresh token should rotate successfully';
   end if;
