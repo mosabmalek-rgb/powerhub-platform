@@ -16,6 +16,17 @@ describe("Mobile reading local-day window", () => {
   });
 });
 
+describe("Mobile cycle sync statistics query", () => {
+  it("requires a valid branch and an increasing bounded cycle interval", () => {
+    const valid = { branchId: "12", from: "2026-10-01T00:00:00.000Z", to: "2026-11-01T00:00:00.000Z" };
+    expect(mobileApiSchemas.cycleSyncStats.safeParse(valid).success).toBe(true);
+    expect(mobileApiSchemas.cycleSyncStats.safeParse({ ...valid, branchId: "0" }).success).toBe(false);
+    expect(mobileApiSchemas.cycleSyncStats.safeParse({ ...valid, from: valid.to }).success).toBe(false);
+    expect(mobileApiSchemas.cycleSyncStats.safeParse({ ...valid, to: "2026-12-01T00:00:00.000Z" }).success).toBe(false);
+    expect(mobileApiSchemas.cycleSyncStats.safeParse({ ...valid, from: "not-a-date" }).success).toBe(false);
+  });
+});
+
 describe("Mobile API v1 contract", () => {
   it("requires a valid UUID and precision-safe subscriber reading without a meter identifier", () => {
     const base = {
