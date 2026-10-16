@@ -23,7 +23,7 @@ as $function$
           coalesce(p.automatic_fraction_discount_enabled, false)
           or coalesce(p.fraction_carry_enabled, false)
         )
-    ) then round(p_amount, 0)::text
+    ) then trunc(p_amount, 0)::text
     else round(p_amount, 1)::text
   end;
 $function$;
