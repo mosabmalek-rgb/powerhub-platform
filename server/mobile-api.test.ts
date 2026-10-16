@@ -16,6 +16,11 @@ describe("Mobile API v1 contract", () => {
     expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "12" }).success).toBe(true);
     expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "12.5" }).success).toBe(true);
     expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "12.52" }).success).toBe(true);
+    expect(mobileApiSchemas.reading.parse({ ...base, readingValue: "125.000" }).readingValue).toBe("125");
+    expect(mobileApiSchemas.reading.parse({ ...base, readingValue: "125.500" }).readingValue).toBe("125.5");
+    expect(mobileApiSchemas.reading.parse({ ...base, readingValue: "125.520" }).readingValue).toBe("125.52");
+    expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "125.123" }).success).toBe(false);
+    expect(mobileApiSchemas.reading.safeParse({ ...base, readingValue: "125.1230" }).success).toBe(false);
     expect(mobileApiSchemas.reading.safeParse({ ...base, meterId: 789 }).success).toBe(false);
     expect(mobileApiSchemas.reading.safeParse({ ...base, subscriberId: 0 }).success).toBe(false);
   });
