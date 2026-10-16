@@ -461,7 +461,7 @@ export function registerMobileApi(app: Express) {
         .eq("action", "mobile_create")
         .gte("after_data->>readingAt", from)
         .lt("after_data->>readingAt", to)
-        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .range(offset, offset + pageSize - 1);
       if (error) return sendSupabaseError(res, error, "تعذر تحميل إحصاءات مزامنة الدورة.");
       for (const row of auditRows ?? []) {
