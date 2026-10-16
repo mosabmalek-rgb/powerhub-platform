@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mobileSyncApproveInput, mobileSyncBulkApprovalInput, mobileSyncReadingDetailInput, mobileSyncReadingsInput } from "./powerhub";
+import { mobileSyncApproveInput, mobileSyncBulkApprovalInput, mobileSyncReadingDetailInput, mobileSyncReadingsInput, mobileSyncSummaryInput } from "./powerhub";
 
 describe("mobile sync reading details input", () => {
   it("accepts a scoped reading-details request and supplies safe pagination defaults", () => {
@@ -26,5 +26,26 @@ describe("mobile sync reading details input", () => {
     expect(mobileSyncApproveInput.safeParse({ siteId: 12, readingId: 4, baseVersion: 0 }).success).toBe(false);
     expect(mobileSyncBulkApprovalInput.parse({ siteId: 12 })).toMatchObject({ siteId: 12, limit: 100, sendNow: true });
     expect(mobileSyncBulkApprovalInput.safeParse({ siteId: 12, limit: 101 }).success).toBe(false);
+  });
+});
+
+
+describe("mobile sync summary filter contract", () => {
+  it("accepts the same optional technician and date filters as the detail list", () => {
+    expect(mobileSyncSummaryInput.parse({
+      siteId: 16,
+      userId: 8896,
+      from: "2026-10-15T21:00:00.000Z",
+      to: "2026-10-16T20:59:59.999Z",
+    })).toMatchObject({
+      siteId: 16,
+      userId: 8896,
+      from: "2026-10-15T21:00:00.000Z",
+      to: "2026-10-16T20:59:59.999Z",
+    });
+  });
+
+  it("rejects invalid technician filters", () => {
+    expect(mobileSyncSummaryInput.safeParse({ siteId: 16, userId: 0 }).success).toBe(false);
   });
 });
