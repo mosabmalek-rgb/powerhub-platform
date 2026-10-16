@@ -21,6 +21,31 @@ create table public.mobile_api_sessions (
   created_at timestamptz not null default now()
 );
 
+-- Reproduce the pre-existing production refresh RPC in this isolated schema.
+-- This is a fixture prerequisite, not a new production migration.
+create or replace function public.powerhub_mobile_rotate_refresh_session(
+  p_old_refresh_token_hash text,
+  p_new_refresh_token_hash text,
+  p_now timestamptz default now()
+) returns table(id bigint, user_id bigint, tenant_id bigint)
+language sql
+security definer
+set search_path = ''
+as $
+  update public.mobile_api_sessions
+     set refresh_token_hash = p_new_refresh_token_hash,
+         last_used_at = p_now
+   where refresh_token_hash = p_old_refresh_token_hash
+     and revoked_at is null
+     and expires_at > p_now
+  returning id, user_id, tenant_id;
+$;
+
+revoke all on function public.powerhub_mobile_rotate_refresh_session(text, text, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.powerhub_mobile_rotate_refresh_session(text, text, timestamptz)
+  to service_role;
+
 -- Seed two active sessions for the same user across two tenants. Migration must
 -- retain the most recently used one and revoke the other.
 insert into public.mobile_api_sessions
