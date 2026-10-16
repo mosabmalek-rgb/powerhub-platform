@@ -180,7 +180,12 @@ const siteInput = z.object({
 });
 
 const siteScoped = z.object({ siteId: z.number().int().positive() });
-export const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) });
+export export const mobileSyncSummaryInput = siteScoped.extend({
+  userId: z.number().int().positive().optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+});
+const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) });
 export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.number().int().positive() });
 export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) });
 export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100), sendNow: z.boolean().default(true) });
@@ -3668,14 +3673,19 @@ export const powerhubRouter = router({
     }),
   }),
   mobileSync: router({
-    summary: protectedProcedure.input(siteScoped.extend({ from: z.string().datetime().optional(), to: z.string().datetime().optional() })).query(async ({ ctx, input }) => {
+    summary: protectedProcedure.input(mobileSyncSummaryInput).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
       const from = input.from ? new Date(input.from) : new Date(Date.now() - 24 * 60 * 60 * 1000);
       const to = input.to ? new Date(input.to) : new Date();
-      const { data, error } = await supabaseAdmin().from("mobile_sync_events")
+      let query = supabaseAdmin().from("mobile_sync_events")
         .select("user_id, status, synced_count, retryable_count, needs_review_count, occurred_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
         .gte("occurred_at", from.toISOString()).lte("occurred_at", to.toISOString());
+      // Keep KPI scope identical to the selected technician filter used by the
+      // events list and the reading-details table; otherwise a branch-wide count
+      // can show 3 while the detail table is correctly filtered to another user.
+      if (input.userId) query = query.eq("user_id", input.userId);
+      const { data, error } = await query;
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص المزامنة الميدانية من Supabase." });
       const rows = data ?? [];
       const lastEventAt = rows.reduce<string | null>((latest, row) => !latest || row.occurred_at > latest ? row.occurred_at : latest, null);
