@@ -440,7 +440,7 @@ export function registerMobileApi(app: Express) {
     }).select("id, status, consumption_kwh").single();
     if (insertError || !inserted) return sendSupabaseError(res, insertError, "تعذر تسجيل القراءة.");
     try {
-      await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "subscriber_reading", entityId: String(inserted.id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: input.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
+      await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "meter_reading", entityId: String(inserted.id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: input.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
       return res.status(201).json({ id: toNumber(inserted.id), status: inserted.status, consumptionKwh: inserted.consumption_kwh, replayed: false });
     } catch (auditError) {
       return sendSupabaseError(res, auditError instanceof Error ? auditError : null, "تم حفظ القراءة لكن تعذر تسجيل التدقيق.");
