@@ -26,11 +26,28 @@ const mobileLoginSchema = z.object({
 const mobileChangePasswordSchema = z.object({ newPassword: z.string().min(8).max(128) }).strict();
 const refreshSchema = z.object({ refreshToken: z.string().min(32).max(256) });
 const subscriberQuerySchema = z.object({ branchId: z.coerce.number().int().positive(), limit: z.coerce.number().int().min(1).max(100).default(100), cursor: z.coerce.number().int().min(0).default(0) });
+function normalizeMobileReadingValue(value: unknown): unknown {
+  if (typeof value !== "string" && typeof value !== "number") return value;
+  if (typeof value === "number" && (!Number.isFinite(value) || value < 0)) return value;
+  const raw = String(value).trim();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(raw);
+  if (!match) return value;
+  // The field app v1.5.0 sends fixed three-decimal strings (e.g. 125.000).
+  // Strip only insignificant trailing zeroes; never round meaningful precision.
+  const fraction = (match[2] ?? "").replace(/0+$/, "");
+  return fraction ? match[1] + "." + fraction : match[1];
+}
+
+const mobileReadingValueSchema = z.preprocess(
+  normalizeMobileReadingValue,
+  z.string().regex(/^\d+(\.\d{1,2})?$/),
+);
+
 const readingSchema = z.object({
   clientOperationId: z.string().uuid(),
   branchId: z.number().int().positive(),
   subscriberId: z.number().int().positive(),
-  readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  readingValue: mobileReadingValueSchema,
   readingAt: z.string().datetime(),
   captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"),
   isReadingReset: z.boolean().default(false),
