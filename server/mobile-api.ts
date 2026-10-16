@@ -26,6 +26,69 @@ const mobileLoginSchema = z.object({
 const mobileChangePasswordSchema = z.object({ newPassword: z.string().min(8).max(128) }).strict();
 const refreshSchema = z.object({ refreshToken: z.string().min(32).max(256) });
 const subscriberQuerySchema = z.object({ branchId: z.coerce.number().int().positive(), limit: z.coerce.number().int().min(1).max(100).default(100), cursor: z.coerce.number().int().min(0).default(0) });
+
+const mobileCycleSyncStatsQuerySchema = z.object({
+  branchId: z.coerce.number().int().positive(),
+  from: z.string().datetime(),
+  to: z.string().datetime(),
+}).refine((input) => Date.parse(input.from) < Date.parse(input.to), {
+  message: "تاريخ نهاية الدورة يجب أن يأتي بعد تاريخ البداية.",
+  path: ["to"],
+}).refine((input) => Date.parse(input.to) - Date.parse(input.from) <= 45 * 24 * 60 * 60 * 1000, {
+  message: "الفترة المحددة طويلة أكثر من اللازم.",
+  path: ["to"],
+});
+
+function mobileDateKeyInTimeZone(value: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function nextMobileDateKey(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+}
+
+function mobileLocalDateBoundary(dateKey: string, timeZone: string): Date {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const wallClock = Date.UTC(year, month - 1, day);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+  let candidate = wallClock;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const parts = formatter.formatToParts(new Date(candidate));
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+    const represented = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    const delta = represented - candidate;
+    if (delta === 0) break;
+    candidate = wallClock - delta;
+  }
+  return new Date(candidate);
+}
+
+/** UTC instants bounding the branch-local calendar day containing a reading. */
+export function mobileReadingDayWindow(readingAt: string | Date, configuredTimeZone = "Asia/Gaza") {
+  const value = readingAt instanceof Date ? readingAt : new Date(readingAt);
+  if (!Number.isFinite(value.getTime())) throw new Error("Invalid mobile reading timestamp");
+  let timeZone = configuredTimeZone || "Asia/Gaza";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(value);
+  } catch {
+    timeZone = "Asia/Gaza";
+  }
+  const dateKey = mobileDateKeyInTimeZone(value, timeZone);
+  return {
+    start: mobileLocalDateBoundary(dateKey, timeZone),
+    end: mobileLocalDateBoundary(nextMobileDateKey(dateKey), timeZone),
+    timeZone,
+  };
+}
 function normalizeMobileReadingValue(value: unknown): unknown {
   if (typeof value !== "string" && typeof value !== "number") return value;
   if (typeof value === "number" && (!Number.isFinite(value) || value < 0)) return value;
@@ -369,6 +432,50 @@ export function registerMobileApi(app: Express) {
     });
   });
 
+  app.get("/api/mobile/v1/reading-cycle-sync-stats", async (req, res) => {
+    const context = await authenticateMobile(req);
+    if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const parsed = mobileCycleSyncStatsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return sendError(res, 400, "INVALID_CYCLE_SYNC_STATS_QUERY", "بيانات الفترة المحددة غير صالحة.");
+    }
+    const { branchId, from, to } = parsed.data;
+    if (!context.scope.branchIds.includes(branchId)) {
+      return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
+    }
+
+    // Count distinct persisted field readings, not aggregate sync events:
+    // a retried sync can emit another event for the same client operation.
+    // The mobile API writes one audit row per accepted reading with the actual
+    // readingAt in after_data, allowing offline readings to count in their cycle.
+    const admin = supabaseAdmin();
+    let offset = 0;
+    const pageSize = 500;
+    const readingIds = new Set<string>();
+    while (true) {
+      const { data: auditRows, error } = await admin.from("audit_logs")
+        .select("entity_id, after_data")
+        .eq("tenant_id", context.scope.tenantId)
+        .eq("site_id", branchId)
+        .eq("entity_type", "meter_reading")
+        .eq("action", "mobile_create")
+        .gte("after_data->>readingAt", from)
+        .lt("after_data->>readingAt", to)
+        .order("id", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+      if (error) return sendSupabaseError(res, error, "تعذر تحميل إحصاءات مزامنة الدورة.");
+      for (const row of auditRows ?? []) {
+        if (typeof row.entity_id === "string" || typeof row.entity_id === "number") {
+          readingIds.add(String(row.entity_id));
+        }
+      }
+      if ((auditRows ?? []).length < pageSize) break;
+      offset += pageSize;
+    }
+
+    return res.json({ branchId, from, to, syncedReadingCount: readingIds.size });
+  });
+
   app.get("/api/mobile/v1/subscribers", async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
@@ -381,10 +488,25 @@ export function registerMobileApi(app: Express) {
     if (error) return sendSupabaseError(res, error);
     try {
       const items = await Promise.all((rows ?? []).map(async (row) => {
-        const { data: last, error: lastError } = await admin.from("meter_readings").select("reading_value, reading_at")
-          .eq("subscriber_id", row.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
-        if (lastError) throw new Error(lastError.message);
-        return { id: toNumber(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone, address: row.address, branchId: toNumber(row.site_id), lastReading: last?.reading_value == null ? null : normalizeMobileReadingValue(last.reading_value), lastReadingAt: last?.reading_at ?? null };
+        // Keep the opening baseline as the meter-value starting point, but do not
+        // use its timestamp to mark the operational reading cycle as completed.
+        const [lastApprovedResult, lastOperationalResult] = await Promise.all([
+          admin.from("meter_readings").select("reading_value")
+            .eq("subscriber_id", row.id).eq("status", "approved")
+            .order("reading_at", { ascending: false }).limit(1).maybeSingle(),
+          admin.from("meter_readings").select("reading_at")
+            .eq("subscriber_id", row.id).eq("status", "approved")
+            .eq("is_opening_baseline", false)
+            .order("reading_at", { ascending: false }).limit(1).maybeSingle(),
+        ]);
+        if (lastApprovedResult.error) throw new Error(lastApprovedResult.error.message);
+        if (lastOperationalResult.error) throw new Error(lastOperationalResult.error.message);
+        return {
+          id: toNumber(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name,
+          phone: row.phone, address: row.address, branchId: toNumber(row.site_id),
+          lastReading: lastApprovedResult.data?.reading_value == null ? null : normalizeMobileReadingValue(lastApprovedResult.data.reading_value),
+          lastReadingAt: lastOperationalResult.data?.reading_at ?? null,
+        };
       }));
       return res.json({ items, nextCursor: (rows?.length ?? 0) === parsed.data.limit ? String(parsed.data.cursor + parsed.data.limit) : null });
     } catch (lastReadingError) {
@@ -417,10 +539,13 @@ export function registerMobileApi(app: Express) {
     if (subscriberError) return sendSupabaseError(res, subscriberError);
     if (!subscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
     const readingAt = new Date(input.readingAt);
-    const dayStart = new Date(readingAt); dayStart.setUTCHours(0, 0, 0, 0);
-    const nextDay = new Date(dayStart); nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    // Field readings use the platform's configured Gaza calendar convention.
+    // Do not depend on a non-contractual configuration table for duplicate protection.
+    const dayWindow = mobileReadingDayWindow(readingAt, "Asia/Gaza");
     const { data: sameDayReading, error: sameDayError } = await admin.from("meter_readings").select("id")
-      .eq("subscriber_id", subscriber.id).gte("reading_at", dayStart.toISOString()).lt("reading_at", nextDay.toISOString()).neq("status", "rejected").limit(1).maybeSingle();
+      .eq("subscriber_id", subscriber.id)
+      .gte("reading_at", dayWindow.start.toISOString()).lt("reading_at", dayWindow.end.toISOString())
+      .eq("is_opening_baseline", false).neq("status", "rejected").limit(1).maybeSingle();
     if (sameDayError) return sendSupabaseError(res, sameDayError);
     if (sameDayReading) return sendError(res, 409, "READING_ALREADY_EXISTS_TODAY", "توجد قراءة غير مرفوضة لهذا المشترك في اليوم نفسه.");
     const { data: previous, error: previousError } = await admin.from("meter_readings").select("reading_value")
@@ -482,4 +607,4 @@ export function registerMobileApi(app: Express) {
   });
 }
 
-export const mobileApiSchemas = { login: mobileLoginSchema, changePassword: mobileChangePasswordSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
+export const mobileApiSchemas = { login: mobileLoginSchema, changePassword: mobileChangePasswordSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, cycleSyncStats: mobileCycleSyncStatsQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
