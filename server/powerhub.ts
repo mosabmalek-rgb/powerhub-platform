@@ -180,7 +180,7 @@ const siteInput = z.object({
 });
 
 const siteScoped = z.object({ siteId: z.number().int().positive() });
-export export const mobileSyncSummaryInput = siteScoped.extend({
+export const mobileSyncSummaryInput = siteScoped.extend({
   userId: z.number().int().positive().optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
