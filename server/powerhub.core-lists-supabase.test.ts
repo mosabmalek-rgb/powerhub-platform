@@ -622,6 +622,24 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     });
   });
 
+  it("يعرض القراءات الميدانية القديمة المسجلة باسم subscriber_reading", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", name: "مدير المنصة", email: "admin@example.test" }];
+    state.tables.audit_logs = [{
+      id: 109, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin",
+      actor_tenant_role: "owner", entity_type: "subscriber_reading", entity_id: "60",
+      action: "mobile_create", before_data: null, after_data: { readingValue: "100" },
+      metadata: null, created_at: "2026-08-03T00:00:00.000Z",
+    }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.mobileSync.readings({ siteId: 10, page: 1, pageSize: 25 })).resolves.toEqual([expect.objectContaining({
+      id: 60, subscriberName: "مشترك الاختبار", subscriberNo: "MAIN-001", previousReading: 90, currentReading: 100, userId: 1,
+    })]);
+    await expect(caller.mobileSync.readingDetail({ siteId: 10, readingId: 60 })).resolves.toMatchObject({
+      id: 60, subscriberId: 30, subscriberName: "مشترك الاختبار", currentReading: 100,
+      technicianName: "مدير المنصة", technicianEmail: "admin@example.test",
+    });
+  });
+
   it("يعرض الموظفين والسلف وكشوف الرواتب من Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.listEmployees({ siteId: 10, employmentStatus: "active" })).resolves.toMatchObject([{ id: 120, fullName: "محاسب الاختبار", baseWage: "1000" }]);
