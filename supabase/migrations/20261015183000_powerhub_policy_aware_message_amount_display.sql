@@ -23,7 +23,7 @@ as $function$
           coalesce(p.automatic_fraction_discount_enabled, false)
           or coalesce(p.fraction_carry_enabled, false)
         )
-    ) then trunc(p_amount, 0)::text
+    ) then round(p_amount, 0)::text
     else round(p_amount, 1)::text
   end;
 $function$;
@@ -75,6 +75,10 @@ begin
     end if;
 
     if v_patched = v_definition then
+      -- Idempotent reruns are valid when a prior attempt already rewrote this function.
+      if position('powerhub_format_message_amount' in v_definition) > 0 then
+        continue;
+      end if;
       raise exception 'MESSAGE_AMOUNT_POLICY_FORMAT_ANCHOR_NOT_FOUND: %/%', v_record.proname, v_record.pronargs;
     end if;
     execute v_patched;
