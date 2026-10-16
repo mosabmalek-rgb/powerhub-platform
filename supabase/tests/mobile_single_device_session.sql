@@ -119,6 +119,6 @@ begin
     raise exception 'stale recovery should leave exactly one active session; got %', v_active_count;
   end if;
 end;
-$;
+$$;
 
 select 'mobile_single_device_session: ok' as result;
