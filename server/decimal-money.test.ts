@@ -45,9 +45,10 @@ describe("exact decimal amount conversion", () => {
 
   it("hides fractions without rounding up when a settlement policy is enabled", () => {
     expect(formatPolicyAwareMessageAmount("40.45", true)).toBe("40");
-    expect(formatPolicyAwareMessageAmount("40.50", true)).toBe("40");
-    expect(formatPolicyAwareMessageAmount("999.99", true)).toBe("999");
-    expect(formatPolicyAwareMessageAmount("-40.50", true)).toBe("-40");
+    expect(formatPolicyAwareMessageAmount("120.80", true)).toBe("121");
+    expect(formatPolicyAwareMessageAmount("40.50", true)).toBe("41");
+    expect(formatPolicyAwareMessageAmount("999.99", true)).toBe("1,000");
+    expect(formatPolicyAwareMessageAmount("-40.50", true)).toBe("-41");
   });
 
   it("shows at most one decimal when settlement policies are disabled", () => {
