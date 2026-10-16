@@ -21,6 +21,31 @@ create table public.mobile_api_sessions (
   created_at timestamptz not null default now()
 );
 
+-- Reproduce the pre-existing production refresh RPC in this isolated schema.
+-- This is a fixture prerequisite, not a new production migration.
+create or replace function public.powerhub_mobile_rotate_refresh_session(
+  p_old_refresh_token_hash text,
+  p_new_refresh_token_hash text,
+  p_now timestamptz default now()
+) returns table(id bigint, user_id bigint, tenant_id bigint)
+language sql
+security definer
+set search_path = ''
+as $func$
+  update public.mobile_api_sessions
+     set refresh_token_hash = p_new_refresh_token_hash,
+         last_used_at = p_now
+   where refresh_token_hash = p_old_refresh_token_hash
+     and revoked_at is null
+     and expires_at > p_now
+  returning id, user_id, tenant_id;
+$func$;
+
+revoke all on function public.powerhub_mobile_rotate_refresh_session(text, text, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.powerhub_mobile_rotate_refresh_session(text, text, timestamptz)
+  to service_role;
+
 -- Seed two active sessions for the same user across two tenants. Migration must
 -- retain the most recently used one and revoke the other.
 insert into public.mobile_api_sessions
@@ -29,7 +54,9 @@ values
   (101, 201, repeat('a', 64), 'Older device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '1 hour', clock_timestamp() - interval '2 hours'),
   (101, 202, repeat('b', 64), 'Most recent device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '1 minute', clock_timestamp() - interval '1 hour'),
   (103, 203, repeat('d', 64), 'Expired device', clock_timestamp() - interval '1 hour', clock_timestamp() - interval '2 hours', clock_timestamp() - interval '3 hours'),
-  (104, 204, repeat('9', 64), 'Idle device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '20 minutes', clock_timestamp() - interval '1 hour');
+  (104, 204, repeat('9', 64), 'Idle device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '20 minutes', clock_timestamp() - interval '1 hour'),
+  (105, 205, repeat('5', 64), 'Active device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '20 minutes', clock_timestamp() - interval '1 hour'),
+  (106, 206, repeat('6', 64), 'Refresh test device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '20 minutes', clock_timestamp() - interval '1 hour');
 
 \ir ../migrations/20261016180000_powerhub_mobile_single_device_session.sql
 \ir ../migrations/20261016190000_powerhub_mobile_single_device_session_stale_recovery.sql
@@ -117,6 +144,52 @@ begin
    where user_id = 104 and revoked_at is null and expires_at > clock_timestamp();
   if v_active_count <> 1 then
     raise exception 'stale recovery should leave exactly one active session; got %', v_active_count;
+  end if;
+
+  -- A server activity touch updates only the exact active, unexpired session.
+  select id into v_new_session_id
+    from public.mobile_api_sessions
+   where user_id = 105 and device_label = 'Active device' and revoked_at is null;
+  update public.mobile_api_sessions
+     set last_used_at = clock_timestamp()
+   where id = v_new_session_id
+     and user_id = 105 and tenant_id = 205
+     and revoked_at is null and expires_at > clock_timestamp();
+  if not found then
+    raise exception 'active session activity touch should succeed';
+  end if;
+
+  select session_status into v_status
+    from public.powerhub_mobile_create_single_device_session(
+      105, 207, repeat('3', 64), 'Second device after touch', clock_timestamp() + interval '30 days', clock_timestamp()
+    );
+  if v_status <> 'already_active' then
+    raise exception 'recent activity must protect the active session; got %', v_status;
+  end if;
+  if not exists (
+    select 1 from public.mobile_api_sessions
+     where id = v_new_session_id and revoked_at is null
+       and last_used_at > clock_timestamp() - interval '1 minute'
+  ) then
+    raise exception 'recently touched session should remain active';
+  end if;
+
+  -- Refresh-token rotation must update the same session and its activity
+  -- timestamp so the stale recovery policy observes it as active.
+  select r.id into v_new_session_id
+    from public.powerhub_mobile_rotate_refresh_session(
+      repeat('6', 64), repeat('7', 64), clock_timestamp()
+    ) as r;
+  if v_new_session_id is null then
+    raise exception 'valid refresh token should rotate successfully';
+  end if;
+  if not exists (
+    select 1 from public.mobile_api_sessions
+     where id = v_new_session_id and refresh_token_hash = repeat('7', 64)
+       and last_used_at > clock_timestamp() - interval '1 minute'
+       and revoked_at is null
+  ) then
+    raise exception 'refresh rotation should update token hash and activity time';
   end if;
 end;
 $$;

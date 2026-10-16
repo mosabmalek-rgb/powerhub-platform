@@ -247,14 +247,27 @@ async function authenticateMobile(req: Request, allowPasswordChange = false): Pr
     if (payload.tokenUse !== "mobile_access" || !payload.sub || typeof payload.sessionId !== "number" || typeof payload.tenantId !== "number") return null;
     const userId = Number(payload.sub);
     if (!Number.isInteger(userId)) return null;
-    const admin = supabaseAdmin();
-    const { data: session, error } = await admin.from("mobile_api_sessions").select("id")
-      .eq("id", payload.sessionId).eq("user_id", userId).eq("tenant_id", payload.tenantId).is("revoked_at", null).gt("expires_at", isoNow()).maybeSingle();
-    if (error || !session) return null;
     const scope = await resolveMobileScope(userId, payload.tenantId, allowPasswordChange);
     if (!scope) return null;
-    await admin.from("mobile_api_sessions").update({ last_used_at: isoNow() }).eq("id", session.id);
-    return { scope, sessionId: toNumber(session.id) };
+
+    // One conditional UPDATE both records activity and re-validates session state.
+    // PostgreSQL serializes this row update with stale-session reclamation. If a
+    // competing login revoked the row first, this UPDATE returns no row and the
+    // old device is rejected; if this touch wins first, the stale predicate no
+    // longer matches and the current device keeps its claim.
+    const touchedAt = isoNow();
+    const { data: activeSession, error: touchError } = await supabaseAdmin()
+      .from("mobile_api_sessions")
+      .update({ last_used_at: touchedAt })
+      .eq("id", payload.sessionId)
+      .eq("user_id", userId)
+      .eq("tenant_id", payload.tenantId)
+      .is("revoked_at", null)
+      .gt("expires_at", touchedAt)
+      .select("id")
+      .maybeSingle();
+    if (touchError || !activeSession) return null;
+    return { scope, sessionId: payload.sessionId };
   } catch {
     return null;
   }
