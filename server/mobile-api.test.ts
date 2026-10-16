@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { hasFieldAppAccess, hashMobileToken, mobileApiSchemas } from "./mobile-api";
+import { hasFieldAppAccess, hashMobileToken, mobileApiSchemas, mobileReadingDayWindow } from "./mobile-api";
+
+describe("Mobile reading local-day window", () => {
+  it("uses the Asia/Gaza calendar day rather than the UTC day", () => {
+    const beforeLocalMidnight = mobileReadingDayWindow("2026-10-15T20:59:59.000Z", "Asia/Gaza");
+    const afterLocalMidnight = mobileReadingDayWindow("2026-10-15T21:00:00.000Z", "Asia/Gaza");
+    expect(beforeLocalMidnight.start.toISOString()).toBe("2026-10-14T21:00:00.000Z");
+    expect(beforeLocalMidnight.end.toISOString()).toBe("2026-10-15T21:00:00.000Z");
+    expect(afterLocalMidnight.start.toISOString()).toBe("2026-10-15T21:00:00.000Z");
+    expect(afterLocalMidnight.end.toISOString()).toBe("2026-10-16T21:00:00.000Z");
+  });
+
+  it("falls back safely when an invalid time zone is supplied", () => {
+    expect(mobileReadingDayWindow("2026-10-15T21:30:00.000Z", "Invalid/Timezone").timeZone).toBe("Asia/Gaza");
+  });
+});
 
 describe("Mobile API v1 contract", () => {
   it("requires a valid UUID and precision-safe subscriber reading without a meter identifier", () => {
