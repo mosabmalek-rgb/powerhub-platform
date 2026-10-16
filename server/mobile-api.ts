@@ -384,7 +384,7 @@ export function registerMobileApi(app: Express) {
         const { data: last, error: lastError } = await admin.from("meter_readings").select("reading_value, reading_at")
           .eq("subscriber_id", row.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
         if (lastError) throw new Error(lastError.message);
-        return { id: toNumber(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone, address: row.address, branchId: toNumber(row.site_id), lastReading: last?.reading_value ?? null, lastReadingAt: last?.reading_at ?? null };
+        return { id: toNumber(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone, address: row.address, branchId: toNumber(row.site_id), lastReading: last?.reading_value == null ? null : normalizeMobileReadingValue(last.reading_value), lastReadingAt: last?.reading_at ?? null };
       }));
       return res.json({ items, nextCursor: (rows?.length ?? 0) === parsed.data.limit ? String(parsed.data.cursor + parsed.data.limit) : null });
     } catch (lastReadingError) {
