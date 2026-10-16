@@ -483,10 +483,9 @@ export function registerMobileApi(app: Express) {
     if (subscriberError) return sendSupabaseError(res, subscriberError);
     if (!subscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
     const readingAt = new Date(input.readingAt);
-    const { data: cycleConfiguration, error: cycleConfigurationError } = await admin.from("tenant_reading_cycle_configurations")
-      .select("timezone").eq("tenant_id", context.scope.tenantId).eq("site_id", input.branchId).maybeSingle();
-    if (cycleConfigurationError) return sendSupabaseError(res, cycleConfigurationError, "تعذر تحديد المنطقة الزمنية للفرع.");
-    const dayWindow = mobileReadingDayWindow(readingAt, cycleConfiguration?.timezone ?? "Asia/Gaza");
+    // Field readings use the platform's configured Gaza calendar convention.
+    // Do not depend on a non-contractual configuration table for duplicate protection.
+    const dayWindow = mobileReadingDayWindow(readingAt, "Asia/Gaza");
     const { data: sameDayReading, error: sameDayError } = await admin.from("meter_readings").select("id")
       .eq("subscriber_id", subscriber.id)
       .gte("reading_at", dayWindow.start.toISOString()).lt("reading_at", dayWindow.end.toISOString())
