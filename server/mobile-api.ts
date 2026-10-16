@@ -247,14 +247,21 @@ async function authenticateMobile(req: Request, allowPasswordChange = false): Pr
     if (payload.tokenUse !== "mobile_access" || !payload.sub || typeof payload.sessionId !== "number" || typeof payload.tenantId !== "number") return null;
     const userId = Number(payload.sub);
     if (!Number.isInteger(userId)) return null;
-    const admin = supabaseAdmin();
-    const { data: session, error } = await admin.from("mobile_api_sessions").select("id")
-      .eq("id", payload.sessionId).eq("user_id", userId).eq("tenant_id", payload.tenantId).is("revoked_at", null).gt("expires_at", isoNow()).maybeSingle();
-    if (error || !session) return null;
     const scope = await resolveMobileScope(userId, payload.tenantId, allowPasswordChange);
     if (!scope) return null;
-    await admin.from("mobile_api_sessions").update({ last_used_at: isoNow() }).eq("id", session.id);
-    return { scope, sessionId: toNumber(session.id) };
+
+    // The touch RPC acquires the same user-level advisory lock as login and
+    // refresh-token rotation, then verifies the session is still active. If a
+    // concurrent login has reclaimed it, fail closed rather than accept a
+    // request from a revoked device.
+    const { data: touched, error: touchError } = await supabaseAdmin().rpc("powerhub_mobile_touch_session", {
+      p_session_id: payload.sessionId,
+      p_user_id: userId,
+      p_tenant_id: payload.tenantId,
+      p_now: isoNow(),
+    });
+    if (touchError || touched !== true) return null;
+    return { scope, sessionId: payload.sessionId };
   } catch {
     return null;
   }
