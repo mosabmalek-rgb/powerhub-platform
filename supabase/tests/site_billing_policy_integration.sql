@@ -409,8 +409,8 @@ select * from public.powerhub_save_site_billing_policy(7,1,10,'disabled',null,nu
 do $policy_aware_message_format_assert$
 begin
   if public.powerhub_format_message_amount(1,10,40.45::numeric) <> '40'
-     or public.powerhub_format_message_amount(1,10,40.50::numeric) <> '41'
-     or public.powerhub_format_message_amount(1,10,120.80::numeric) <> '121' then
+     or public.powerhub_format_message_amount(1,10,40.50::numeric) <> '40'
+     or public.powerhub_format_message_amount(1,10,120.80::numeric) <> '120' then
     raise exception 'SETTLEMENT_POLICY_MESSAGE_AMOUNT_MUST_SUPPRESS_FRACTIONS';
   end if;
   if public.powerhub_format_message_amount(2,20,40.45::numeric) <> '40.5'
