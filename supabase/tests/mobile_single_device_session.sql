@@ -28,9 +28,11 @@ insert into public.mobile_api_sessions
 values
   (101, 201, repeat('a', 64), 'Older device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '1 hour', clock_timestamp() - interval '2 hours'),
   (101, 202, repeat('b', 64), 'Most recent device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '1 minute', clock_timestamp() - interval '1 hour'),
-  (103, 203, repeat('d', 64), 'Expired device', clock_timestamp() - interval '1 hour', clock_timestamp() - interval '2 hours', clock_timestamp() - interval '3 hours');
+  (103, 203, repeat('d', 64), 'Expired device', clock_timestamp() - interval '1 hour', clock_timestamp() - interval '2 hours', clock_timestamp() - interval '3 hours'),
+  (104, 204, repeat('9', 64), 'Idle device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '20 minutes', clock_timestamp() - interval '1 hour');
 
 \ir ../migrations/20261016180000_powerhub_mobile_single_device_session.sql
+\ir ../migrations/20261016190000_powerhub_mobile_single_device_session_stale_recovery.sql
 
 do $$
 declare
@@ -95,7 +97,28 @@ begin
   if not exists (select 1 from public.mobile_api_sessions where user_id=103 and revoked_at is not null) then
     raise exception 'expired session was not revoked';
   end if;
+
+  -- A stale session is reclaimed after 15 minutes without server activity.
+  select session_status into v_status
+    from public.powerhub_mobile_create_single_device_session(
+      104, 204, repeat('2', 64), 'Replacement after inactivity', clock_timestamp() + interval '30 days', clock_timestamp()
+    );
+  if v_status <> 'created' then
+    raise exception 'stale session should be recoverable; got %', v_status;
+  end if;
+  if not exists (
+    select 1 from public.mobile_api_sessions
+     where user_id = 104 and device_label = 'Idle device' and revoked_at is not null
+  ) then
+    raise exception 'stale session was not revoked';
+  end if;
+  select count(*) into v_active_count
+    from public.mobile_api_sessions
+   where user_id = 104 and revoked_at is null and expires_at > clock_timestamp();
+  if v_active_count <> 1 then
+    raise exception 'stale recovery should leave exactly one active session; got %', v_active_count;
+  end if;
 end;
-$$;
+$;
 
 select 'mobile_single_device_session: ok' as result;
