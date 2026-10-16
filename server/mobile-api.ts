@@ -444,33 +444,36 @@ export function registerMobileApi(app: Express) {
       return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
     }
 
-    // These are server-accepted upload confirmations, not local queue counts.
-    // Bound each query page so a long-running field deployment remains accurate
-    // even when sync events exceed Supabase's default response page size.
+    // Count distinct persisted field readings, not aggregate sync events:
+    // a retried sync can emit another event for the same client operation.
+    // The mobile API writes one audit row per accepted reading with the actual
+    // readingAt in after_data, allowing offline readings to count in their cycle.
     const admin = supabaseAdmin();
     let offset = 0;
-    let syncedReadingCount = 0;
     const pageSize = 500;
+    const readingIds = new Set<string>();
     while (true) {
-      const { data: events, error } = await admin.from("mobile_sync_events")
-        .select("synced_count")
+      const { data: auditRows, error } = await admin.from("audit_logs")
+        .select("entity_id, after_data")
         .eq("tenant_id", context.scope.tenantId)
         .eq("site_id", branchId)
-        .eq("event_type", "sync_cycle")
-        .gte("occurred_at", from)
-        .lt("occurred_at", to)
-        .order("occurred_at", { ascending: true })
+        .eq("entity_type", "meter_reading")
+        .eq("action", "mobile_create")
+        .gte("after_data->>readingAt", from)
+        .lt("after_data->>readingAt", to)
+        .order("created_at", { ascending: true })
         .range(offset, offset + pageSize - 1);
       if (error) return sendSupabaseError(res, error, "تعذر تحميل إحصاءات مزامنة الدورة.");
-      for (const event of events ?? []) {
-        const count = Number(event.synced_count ?? 0);
-        if (Number.isInteger(count) && count > 0) syncedReadingCount += count;
+      for (const row of auditRows ?? []) {
+        if (typeof row.entity_id === "string" || typeof row.entity_id === "number") {
+          readingIds.add(String(row.entity_id));
+        }
       }
-      if ((events ?? []).length < pageSize) break;
+      if ((auditRows ?? []).length < pageSize) break;
       offset += pageSize;
     }
 
-    return res.json({ branchId, from, to, syncedReadingCount });
+    return res.json({ branchId, from, to, syncedReadingCount: readingIds.size });
   });
 
   app.get("/api/mobile/v1/subscribers", async (req, res) => {
