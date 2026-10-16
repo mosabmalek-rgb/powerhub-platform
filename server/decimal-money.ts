@@ -76,9 +76,9 @@ export function formatPolicyAwareMessageAmount(
   const raw = String(value).trim();
   const match = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?$/.exec(raw);
   if (!match) return raw;
-  let whole = BigInt(match[2].replace(/,/g, ""));
-  // Display-only whole-unit rounding: stored invoice and balance values stay unchanged.
-  if ((match[3] ?? "")[0] >= "5") whole += 1n;
+  // Settlement has already dealt with the fraction; hide any remaining
+  // fractional digits here without rounding or mutating the stored amount.
+  const whole = BigInt(match[2].replace(/,/g, ""));
   const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return match[1] === "-" && whole !== 0n ? `-${grouped}` : grouped;
 }
