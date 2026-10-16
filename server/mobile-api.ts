@@ -271,18 +271,26 @@ async function availableTenantsForUser(userId: number) {
 async function createSession(scope: MobileScope, deviceLabel?: string) {
   const refreshToken = newRefreshToken();
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const admin = supabaseAdmin();
-  const { error: revokeError } = await admin.from("mobile_api_sessions")
-    .update({ revoked_at: isoNow() })
-    .eq("user_id", scope.userId).eq("tenant_id", scope.tenantId).is("revoked_at", null);
-  if (revokeError) throw new Error(revokeError.message || "تعذر إغلاق جلسة الجهاز السابق.");
-  const { data: session, error } = await admin.from("mobile_api_sessions")
-    .insert({ user_id: scope.userId, tenant_id: scope.tenantId, refresh_token_hash: hashMobileToken(refreshToken), device_label: deviceLabel, expires_at: expiresAt })
-    .select("id")
-    .single();
-  if (error || !session) throw new Error(error?.message || "Supabase mobile session was not created");
-  const sessionId = toNumber(session.id);
-  return { accessToken: await issueAccessToken({ userId: scope.userId, tenantId: scope.tenantId, sessionId }), refreshToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, sessionId };
+  const { data, error } = await supabaseAdmin().rpc("powerhub_mobile_create_single_device_session", {
+    p_user_id: scope.userId,
+    p_tenant_id: scope.tenantId,
+    p_refresh_token_hash: hashMobileToken(refreshToken),
+    p_device_label: deviceLabel?.trim() || "Android Field Reader",
+    p_expires_at: expiresAt,
+    p_now: isoNow(),
+  });
+  if (error) throw new Error(error.message || "تعذر إنشاء جلسة التطبيق الميداني.");
+  const session = Array.isArray(data) ? data[0] : data;
+  if (!session || session.session_status !== "created" || session.session_id == null) {
+    return null;
+  }
+  const sessionId = toNumber(session.session_id);
+  return {
+    accessToken: await issueAccessToken({ userId: scope.userId, tenantId: scope.tenantId, sessionId }),
+    refreshToken,
+    expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+    sessionId,
+  };
 }
 
 function mobileUserPayload(scope: MobileScope) {
@@ -343,7 +351,16 @@ export function registerMobileApi(app: Express) {
       if (!tenantId) return res.status(409).json({ error: { code: "TENANT_SELECTION_REQUIRED", message: "اختر مساحة الشركة قبل المتابعة.", retryable: false }, tenants: memberships });
       const scope = await resolveMobileScope(user.id, tenantId, true);
       if (!scope) return sendError(res, 403, "MOBILE_ACCESS_DENIED", "لا يملك هذا الحساب صلاحية الدخول للتطبيق الميداني.");
-      return res.json({ ...(await createSession(scope, parsed.data.deviceLabel)), user: mobileUserPayload(scope) });
+      const session = await createSession(scope, parsed.data.deviceLabel);
+      if (!session) {
+        return sendError(
+          res,
+          409,
+          "MOBILE_SESSION_ALREADY_ACTIVE",
+          "هذا الحساب لديه جلسة ميدانية نشطة بالفعل. سجّل الخروج من الجهاز الذي يستخدم الحساب أولاً، ثم أعد المحاولة.",
+        );
+      }
+      return res.json({ ...session, user: mobileUserPayload(scope) });
     } catch (profileError) {
       return sendSupabaseError(res, profileError instanceof Error ? profileError : null, "تعذر تهيئة حساب الموبايل.");
     }
