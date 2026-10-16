@@ -31,7 +31,7 @@ create or replace function public.powerhub_mobile_rotate_refresh_session(
 language sql
 security definer
 set search_path = ''
-as $
+as $func$
   update public.mobile_api_sessions
      set refresh_token_hash = p_new_refresh_token_hash,
          last_used_at = p_now
@@ -39,7 +39,7 @@ as $
      and revoked_at is null
      and expires_at > p_now
   returning id, user_id, tenant_id;
-$;
+$func$;
 
 revoke all on function public.powerhub_mobile_rotate_refresh_session(text, text, timestamptz)
   from public, anon, authenticated;
