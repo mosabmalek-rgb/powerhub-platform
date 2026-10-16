@@ -29,10 +29,13 @@ values
   (101, 201, repeat('a', 64), 'Older device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '1 hour', clock_timestamp() - interval '2 hours'),
   (101, 202, repeat('b', 64), 'Most recent device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '1 minute', clock_timestamp() - interval '1 hour'),
   (103, 203, repeat('d', 64), 'Expired device', clock_timestamp() - interval '1 hour', clock_timestamp() - interval '2 hours', clock_timestamp() - interval '3 hours'),
-  (104, 204, repeat('9', 64), 'Idle device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '20 minutes', clock_timestamp() - interval '1 hour');
+  (104, 204, repeat('9', 64), 'Idle device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '20 minutes', clock_timestamp() - interval '1 hour'),
+  (105, 205, repeat('5', 64), 'Active device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '20 minutes', clock_timestamp() - interval '1 hour'),
+  (106, 206, repeat('6', 64), 'Refresh test device', clock_timestamp() + interval '1 day', clock_timestamp() - interval '20 minutes', clock_timestamp() - interval '1 hour');
 
 \ir ../migrations/20261016180000_powerhub_mobile_single_device_session.sql
 \ir ../migrations/20261016190000_powerhub_mobile_single_device_session_stale_recovery.sql
+\ir ../migrations/20261016200000_powerhub_mobile_session_activity_lock.sql
 
 do $$
 declare
@@ -40,6 +43,7 @@ declare
   v_active_count integer;
   v_kept_label text;
   v_new_session_id bigint;
+  v_touch_ok boolean;
 begin
   select count(*), max(device_label)
     into v_active_count, v_kept_label
@@ -117,6 +121,50 @@ begin
    where user_id = 104 and revoked_at is null and expires_at > clock_timestamp();
   if v_active_count <> 1 then
     raise exception 'stale recovery should leave exactly one active session; got %', v_active_count;
+  end if;
+
+  -- Activity renewal must take the same lock as login and fail closed for a
+  -- session that has already been revoked.
+  select id into v_new_session_id
+    from public.mobile_api_sessions
+   where user_id = 105 and device_label = 'Active device' and revoked_at is null;
+  select public.powerhub_mobile_touch_session(v_new_session_id, 105, 205, clock_timestamp())
+    into v_touch_ok;
+  if v_touch_ok is not true then
+    raise exception 'active session activity touch should succeed';
+  end if;
+
+  select session_status into v_status
+    from public.powerhub_mobile_create_single_device_session(
+      105, 207, repeat('3', 64), 'Second device after touch', clock_timestamp() + interval '30 days', clock_timestamp()
+    );
+  if v_status <> 'already_active' then
+    raise exception 'recent activity must protect the active session; got %', v_status;
+  end if;
+  if not exists (
+    select 1 from public.mobile_api_sessions
+     where id = v_new_session_id and revoked_at is null
+       and last_used_at > clock_timestamp() - interval '1 minute'
+  ) then
+    raise exception 'recently touched session should remain active';
+  end if;
+
+  -- Refresh-token rotation must update the same session and its activity
+  -- timestamp so the stale recovery policy observes it as active.
+  select r.id into v_new_session_id
+    from public.powerhub_mobile_rotate_refresh_session(
+      repeat('6', 64), repeat('7', 64), clock_timestamp()
+    ) as r;
+  if v_new_session_id is null then
+    raise exception 'valid refresh token should rotate successfully';
+  end if;
+  if not exists (
+    select 1 from public.mobile_api_sessions
+     where id = v_new_session_id and refresh_token_hash = repeat('7', 64)
+       and last_used_at > clock_timestamp() - interval '1 minute'
+       and revoked_at is null
+  ) then
+    raise exception 'refresh rotation should update token hash and activity time';
   end if;
 end;
 $$;
