@@ -1,5 +1,5 @@
 import type { InvoiceNotificationChannel } from "./notification-channels";
-import { formatMessageAmount } from "./decimal-money";
+import { formatPolicyAwareMessageAmount } from "./decimal-money";
 
 export const invoiceTemplateVariables = ["subscriber_name", "subscriber_no", "invoice_no", "billing_period", "total_amount", "balance_due", "previous_reading", "current_reading", "consumption_kwh", "total_balance", "due_date", "invoice_link", "portal_link"] as const;
 
@@ -14,11 +14,11 @@ export type InvoiceTemplateData = Partial<Record<(typeof invoiceTemplateVariable
 
 const monetaryTemplateVariables = ["total_amount", "balance_due", "total_balance"] as const;
 
-export function renderInvoiceMessageTemplate(template: string, values: InvoiceTemplateData) {
+export function renderInvoiceMessageTemplate(template: string, values: InvoiceTemplateData, settlementEnabled = false) {
   const displayValues = { ...values };
   for (const key of monetaryTemplateVariables) {
     const value = displayValues[key];
-    if (value != null && value !== "") displayValues[key] = formatMessageAmount(value);
+    if (value != null && value !== "") displayValues[key] = formatPolicyAwareMessageAmount(value, settlementEnabled);
   }
   return invoiceTemplateVariables.reduce(
     (message, key) => message.replace(new RegExp("\\{\\{\\s*" + key + "\\s*\\}\\}", "g"), displayValues[key] ?? ""),

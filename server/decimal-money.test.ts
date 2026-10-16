@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decimalAmountToMinorUnits, formatMessageAmount, minorUnitsToAmountString } from "./decimal-money";
+import { decimalAmountToMinorUnits, formatMessageAmount, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
 
 describe("exact decimal amount conversion", () => {
   it("sums decimal currency amounts without floating-point drift", () => {
@@ -40,6 +40,21 @@ describe("exact decimal amount conversion", () => {
     expect(formatMessageAmount("42,500.00")).toBe("42,500.0");
     expect(formatMessageAmount("-0.06")).toBe("-0.1");
     expect(formatMessageAmount(null)).toBe("");
+  });
+
+
+  it("hides fractions without rounding up when a settlement policy is enabled", () => {
+    expect(formatPolicyAwareMessageAmount("40.45", true)).toBe("40");
+    expect(formatPolicyAwareMessageAmount("120.80", true)).toBe("120");
+    expect(formatPolicyAwareMessageAmount("40.50", true)).toBe("40");
+    expect(formatPolicyAwareMessageAmount("999.99", true)).toBe("999");
+    expect(formatPolicyAwareMessageAmount("-40.50", true)).toBe("-40");
+  });
+
+  it("shows at most one decimal when settlement policies are disabled", () => {
+    expect(formatPolicyAwareMessageAmount("40.45", false)).toBe("40.5");
+    expect(formatPolicyAwareMessageAmount("52.26", false)).toBe("52.3");
+    expect(formatPolicyAwareMessageAmount("40.00", false)).toBe("40.0");
   });
 
   it("rejects values outside the two-decimal database currency scale", () => {

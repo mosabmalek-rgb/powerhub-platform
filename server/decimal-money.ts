@@ -59,3 +59,26 @@ export function formatMessageAmount(value: string | number | bigint | null | und
   const sign = negative && (whole !== 0n || tenths !== 0n) ? "-" : "";
   return `${sign}${wholeText}.${tenths.toString()}`;
 }
+
+
+/**
+ * Policy-aware monetary display for messages only. With a settlement policy,
+ * suppress the fractional portion without rounding a debt upward. Otherwise
+ * retain the existing one-decimal display formatter. Never persist this output.
+ */
+export function formatPolicyAwareMessageAmount(
+  value: string | number | bigint | null | undefined,
+  settlementEnabled: boolean,
+): string {
+  if (value == null) return "";
+  if (!settlementEnabled) return formatMessageAmount(value);
+
+  const raw = String(value).trim();
+  const match = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?$/.exec(raw);
+  if (!match) return raw;
+  // Settlement has already dealt with the fraction; hide any remaining
+  // fractional digits here without rounding or mutating the stored amount.
+  const whole = BigInt(match[2].replace(/,/g, ""));
+  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return match[1] === "-" && whole !== 0n ? `-${grouped}` : grouped;
+}
