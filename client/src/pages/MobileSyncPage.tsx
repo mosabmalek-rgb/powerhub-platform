@@ -27,6 +27,8 @@ export default function MobileSyncPage() {
   const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [page, setPage] = useState(1);
   const [readingPage, setReadingPage] = useState(1);
+  const [bulkTarget, setBulkTarget] = useState(500);
+  const [bulkProgress, setBulkProgress] = useState<{ processed: number; target: number } | null>(null);
   const enabled = Boolean(isAuthenticated && siteId);
   const from = useMemo(() => isoAtStart(fromDate), [fromDate]);
   const to = useMemo(() => isoAtEnd(toDate), [toDate]);
@@ -36,14 +38,52 @@ export default function MobileSyncPage() {
   const events = trpc.powerhub.mobileSync.list.useQuery({ siteId: siteId ?? 0, status: status === "all" ? undefined : status, userId: userId === "all" ? undefined : Number(userId), from, to, page, pageSize: 25 }, { enabled, staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false });
   const readings = trpc.powerhub.mobileSync.readings.useQuery({ siteId: siteId ?? 0, userId: userId === "all" ? undefined : Number(userId), from, to, page: readingPage, pageSize: 20 }, { enabled, staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false });
   const refresh = () => { void summary.refetch(); void events.refetch(); void readings.refetch(); void technicians.refetch(); };  const utils = trpc.useUtils();
-  const bulkApprove = trpc.powerhub.mobileSync.approveAllAndIssue.useMutation({
-    onSuccess: async (result) => {
-      await Promise.all([readings.refetch(), summary.refetch(), events.refetch(), utils.powerhub.invoices.list.invalidate({ siteId: siteId ?? 0 })]);
-      const message = `تمت معالجة ${result.requested} قراءة: ${result.succeeded} ناجحة، ${result.replayed} معاد تشغيلها، ${result.failed} فاشلة.`;
-      toast.success(message);
-    },
-  });
-  const pendingReadingCount = readings.data?.filter((reading) => reading.status === "pending_review").length ?? 0;
+  const bulkApprove = trpc.powerhub.mobileSync.approveAllAndIssue.useMutation();
+  const approvePendingInBatches = async () => {
+    if (!siteId || bulkApprove.isPending) return;
+    const attemptedIds = new Set<number>();
+    let requested = 0;
+    let succeeded = 0;
+    let replayed = 0;
+    let failed = 0;
+    let safetyBatches = 0;
+    setBulkProgress({ processed: 0, target: bulkTarget });
+    try {
+      while (requested < bulkTarget && safetyBatches < Math.ceil(bulkTarget / 100)) {
+        const batchLimit = Math.min(100, bulkTarget - requested);
+        const result = await bulkApprove.mutateAsync({
+          siteId,
+          userId: userId === "all" ? undefined : Number(userId),
+          from,
+          to,
+          limit: batchLimit,
+          excludeReadingIds: Array.from(attemptedIds).slice(-500),
+          sendNow: true,
+        });
+        if (result.requested === 0) break;
+        requested += result.requested;
+        succeeded += result.succeeded;
+        replayed += result.replayed;
+        failed += result.failed;
+        result.results.forEach((item) => attemptedIds.add(item.readingId));
+        safetyBatches += 1;
+        setBulkProgress({ processed: requested, target: bulkTarget });
+        if (result.requested < batchLimit) break;
+      }
+      await Promise.all([
+        readings.refetch(),
+        summary.refetch(),
+        events.refetch(),
+        utils.powerhub.invoices.list.invalidate({ siteId }),
+      ]);
+      toast.success(`اكتملت المعالجة: ${requested} قراءة، ${succeeded} ناجحة، ${replayed} معاد تشغيلها، ${failed} فاشلة.${requested >= bulkTarget ? " تم بلوغ الحد المختار؛ أعد التشغيل لمعالجة المزيد." : ""}`);
+    } catch (error) {
+      await Promise.all([readings.refetch(), summary.refetch(), events.refetch()]);
+      toast.error(error instanceof Error ? `توقفت المعالجة بعد ${requested} قراءة: ${error.message}` : `توقفت المعالجة بعد ${requested} قراءة بسبب خطأ غير متوقع.`);
+    } finally {
+      setBulkProgress(null);
+    }
+  };
 
   const cards = [
     { label: "قراءات مستلمة", value: summary.data?.syncedReadings ?? 0, icon: CheckCircle2, tone: "text-emerald-300" },
@@ -76,7 +116,7 @@ export default function MobileSyncPage() {
     </CardContent></Card>
 
     <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4"><div><h2 className="font-extrabold text-white">تفاصيل القراءات المستلمة ميدانياً</h2><p className="mt-1 text-xs text-slate-500">تظهر فقط القراءات المسجلة من تطبيق الفني ضمن الفرع والفترة المختارين.</p></div><div className="flex max-w-xl flex-wrap items-center justify-end gap-2"><div className="rounded-xl border border-sky-400/25 bg-sky-400/10 px-3 py-2 text-right"><Badge className="bg-sky-400/15 text-sky-200">اعتماد جماعي آمن</Badge><p className="mt-1 text-xs leading-5 text-sky-100/85">كل قراءة تُعتمد وتُفوتر كمعاملة ذرية مستقلة؛ فشل قراءة لا يلغي نجاح البقية.</p></div><Button disabled={!pendingReadingCount || bulkApprove.isPending} onClick={() => bulkApprove.mutate({ siteId: siteId ?? 0, userId: userId === "all" ? undefined : Number(userId), from, to, limit: 100, sendNow: true })} className="bg-emerald-500 font-bold text-white hover:bg-emerald-400">{bulkApprove.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="ml-2 h-4 w-4" />}اعتماد وإصدار المعلّق (حتى 100) ({pendingReadingCount})</Button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4"><div><h2 className="font-extrabold text-white">تفاصيل القراءات المستلمة ميدانياً</h2><p className="mt-1 text-xs text-slate-500">تظهر فقط القراءات المسجلة من تطبيق الفني ضمن الفرع والفترة المختارين.</p></div><div className="flex max-w-xl flex-wrap items-center justify-end gap-2"><div className="rounded-xl border border-sky-400/25 bg-sky-400/10 px-3 py-2 text-right"><Badge className="bg-sky-400/15 text-sky-200">اعتماد جماعي آمن</Badge><p className="mt-1 text-xs leading-5 text-sky-100/85">تُعالج القراءات على دفعات متتابعة من 100 كحد أقصى لكل طلب؛ فشل قراءة لا يلغي نجاح البقية.</p></div><label className="text-xs text-slate-400">الحد الإجمالي<select aria-label="الحد الإجمالي للاعتماد" className="mt-1 h-10 rounded-xl border border-white/10 bg-[#111823] px-3 text-sm text-white" value={bulkTarget} disabled={bulkApprove.isPending} onChange={(event) => setBulkTarget(Number(event.target.value))}><option value={100}>100 قراءة</option><option value={250}>250 قراءة</option><option value={500}>500 قراءة</option></select></label><Button disabled={!(readings.data?.length) || bulkApprove.isPending} onClick={() => void approvePendingInBatches()} className="bg-emerald-500 font-bold text-white hover:bg-emerald-400">{bulkApprove.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="ml-2 h-4 w-4" />}{bulkProgress ? `جارٍ معالجة ${bulkProgress.processed} من ${bulkProgress.target}` : `اعتماد وإصدار المعلّق (حتى ${bulkTarget})`}</Button></div></div>
       {readings.isError ? <div role="alert" className="mx-5 my-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-400/25 bg-rose-400/5 p-4 text-sm text-rose-200"><span>تعذر تحميل تفاصيل القراءات من الخادم. لا يعني ذلك أن القراءات غير موجودة؛ أعد المحاولة بعد التحقق من الاتصال.</span><Button size="sm" variant="outline" onClick={() => void readings.refetch()} className="border-rose-300/30 text-rose-100">إعادة تحميل التفاصيل</Button></div> : null}
       {readings.isFetching && readings.data ? <p role="status" aria-live="polite" className="flex items-center gap-2 px-5 pt-3 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> جارٍ تحديث القراءات المستلمة في الخلفية؛ تبقى النتائج الحالية ظاهرة.</p> : null}
       {readings.isLoading && !readings.data ? <div className="grid h-48 place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div> : readings.data?.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-right"><thead className="bg-white/[0.025] text-xs text-slate-400"><tr><th className="px-5 py-3">المشترك</th><th className="px-5 py-3">الرقم المرجعي</th><th className="px-5 py-3">القراءة السابقة</th><th className="px-5 py-3">القراءة الحالية</th><th className="px-5 py-3">الحالة</th><th className="px-5 py-3">وقت القراءة</th><th className="px-5 py-3">وقت المزامنة</th><th className="px-5 py-3">التفاصيل</th></tr></thead><tbody className="divide-y divide-white/7">{readings.data.map(reading => <tr key={reading.id} className="transition-colors hover:bg-white/[0.025]"><td className="px-5 py-4 font-bold text-white">{reading.subscriberName}</td><td className="px-5 py-4 font-mono text-sm text-[#F5B800]">{reading.subscriberNo}</td><td className="px-5 py-4 text-sm text-slate-300">{reading.previousReading ?? "—"}</td><td className="px-5 py-4 text-sm font-bold text-emerald-300">{reading.currentReading}</td><td className="px-5 py-4"><Badge className={reading.status === "approved" ? "bg-emerald-500/15 text-emerald-300" : reading.status === "pending_review" ? "bg-sky-500/15 text-sky-300" : "bg-slate-500/15 text-slate-300"}>{reading.status === "approved" ? "معتمدة ومفوترة" : reading.status === "pending_review" ? "بانتظار الاعتماد" : reading.status}</Badge></td><td className="px-5 py-4 text-xs text-slate-400">{new Date(reading.readingAt).toLocaleString("ar-IQ")}</td><td className="px-5 py-4 text-xs text-slate-400">{new Date(reading.syncedAt).toLocaleString("ar-IQ")}</td><td className="px-5 py-4"><Button size="sm" variant="outline" onClick={() => window.open(`/mobile-sync/readings/${reading.id}?siteId=${siteId}`, "_blank", "noopener,noreferrer")} className="border-[#F5B800]/35 text-[#F5B800] hover:bg-[#F5B800]/10"><ExternalLink className="ml-1 h-3.5 w-3.5" />فتح</Button></td></tr>)}</tbody></table></div> : readings.isError ? null : <div className="py-14 text-center text-sm text-slate-500">لا توجد قراءات ميدانية مستلمة ضمن الفلاتر الحالية.</div>}
