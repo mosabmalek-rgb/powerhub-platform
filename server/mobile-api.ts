@@ -109,8 +109,8 @@ async function issueAccessToken(input: { userId: number; tenantId: number; sessi
     .sign(jwtSecret());
 }
 
-function sendError(res: Response, status: number, code: string, message: string, retryable = false) {
-  return res.status(status).json({ error: { code, message, retryable } });
+function sendError(res: Response, status: number, code: string, message: string, retryable = false, details?: Record<string, unknown>) {
+  return res.status(status).json({ error: { code, message, retryable, ...(details ? { details } : {}) } });
 }
 
 function sendSupabaseError(res: Response, error: { message: string } | null, message = "تعذر الوصول إلى قاعدة البيانات.") {
@@ -396,7 +396,15 @@ export function registerMobileApi(app: Express) {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
     const parsed = readingSchema.safeParse(req.body);
-    if (!parsed.success) return sendError(res, 400, "INVALID_READING", "بيانات القراءة غير صالحة.");
+    if (!parsed.success) {
+      return sendError(res, 400, "INVALID_READING", "بيانات القراءة غير صالحة.", false, {
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          code: issue.code,
+          message: issue.message,
+        })),
+      });
+    }
     const input = parsed.data;
     if (!context.scope.branchIds.includes(input.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية تسجيل قراءة لهذا الفرع.");
     const admin = supabaseAdmin();
