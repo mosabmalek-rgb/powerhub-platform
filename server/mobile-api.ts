@@ -250,17 +250,23 @@ async function authenticateMobile(req: Request, allowPasswordChange = false): Pr
     const scope = await resolveMobileScope(userId, payload.tenantId, allowPasswordChange);
     if (!scope) return null;
 
-    // The touch RPC acquires the same user-level advisory lock as login and
-    // refresh-token rotation, then verifies the session is still active. If a
-    // concurrent login has reclaimed it, fail closed rather than accept a
-    // request from a revoked device.
-    const { data: touched, error: touchError } = await supabaseAdmin().rpc("powerhub_mobile_touch_session", {
-      p_session_id: payload.sessionId,
-      p_user_id: userId,
-      p_tenant_id: payload.tenantId,
-      p_now: isoNow(),
-    });
-    if (touchError || touched !== true) return null;
+    // One conditional UPDATE both records activity and re-validates session state.
+    // PostgreSQL serializes this row update with stale-session reclamation. If a
+    // competing login revoked the row first, this UPDATE returns no row and the
+    // old device is rejected; if this touch wins first, the stale predicate no
+    // longer matches and the current device keeps its claim.
+    const touchedAt = isoNow();
+    const { data: activeSession, error: touchError } = await supabaseAdmin()
+      .from("mobile_api_sessions")
+      .update({ last_used_at: touchedAt })
+      .eq("id", payload.sessionId)
+      .eq("user_id", userId)
+      .eq("tenant_id", payload.tenantId)
+      .is("revoked_at", null)
+      .gt("expires_at", touchedAt)
+      .select("id")
+      .maybeSingle();
+    if (touchError || !activeSession) return null;
     return { scope, sessionId: payload.sessionId };
   } catch {
     return null;
