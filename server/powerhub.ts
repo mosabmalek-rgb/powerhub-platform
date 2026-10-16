@@ -188,7 +188,7 @@ export const mobileSyncSummaryInput = siteScoped.extend({
 export const mobileSyncReadingsInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(10).max(100).default(25) });
 export const mobileSyncReadingDetailInput = siteScoped.extend({ readingId: z.number().int().positive() });
 export const mobileSyncApproveInput = z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) });
-export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100), sendNow: z.boolean().default(true) });
+export const mobileSyncBulkApprovalInput = siteScoped.extend({ userId: z.number().int().positive().optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), limit: z.number().int().min(1).max(100).default(100), excludeReadingIds: z.array(z.number().int().positive()).max(500).optional(), sendNow: z.boolean().default(true) });
 export const sendDeferredInvoiceNotificationsInput = z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(200), invoiceIds: z.array(z.number().int().positive()).min(1).max(200).optional() });
 export const retryFailedInvoiceNotificationInput = siteScoped.extend({ notificationId: z.number().int().positive() });
 export const retryFailedInvoiceNotificationsInput = siteScoped.extend({ notificationIds: z.array(z.number().int().positive()).min(1).max(200) });
@@ -3783,20 +3783,68 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
 
-      let auditQuery = supabaseAdmin().from("audit_logs")
-        .select("entity_id, created_at")
-        .eq("tenant_id", access.tenantId)
-        .eq("site_id", input.siteId)
-        .in("entity_type", ["meter_reading", "subscriber_reading"])
-        .eq("action", "mobile_create");
-      if (input.userId) auditQuery = auditQuery.eq("user_id", input.userId);
-      if (input.from) auditQuery = auditQuery.gte("created_at", input.from);
-      if (input.to) auditQuery = auditQuery.lte("created_at", input.to);
-      const { data: auditRows, error: auditError } = await auditQuery.order("created_at", { ascending: false }).range(0, input.limit - 1);
-      if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءات المؤهلة للاعتماد الجماعي." });
+      // Keep each server request bounded to at most 100 approvals, but scan past
+      // already-reviewed events so a client can safely process a larger total in
+      // sequential batches. Excluded IDs keep failed items from looping forever
+      // inside a single multi-batch action.
+      const excludedReadingIds = new Set<number>(input.excludeReadingIds ?? []);
+      const seenReadingIds = new Set<number>(excludedReadingIds);
+      const selectedAuditRows: Array<{ entity_id: string; user_id: number | null; created_at: string }> = [];
+      const auditScanPageSize = 500;
+      let auditOffset = 0;
 
-      const readingIds = Array.from(new Set((auditRows ?? []).map((row) => Number(row.entity_id)).filter(Number.isInteger)));
-      if (!readingIds.length) return { requested: 0, succeeded: 0, failed: 0, replayed: 0, results: [] as Array<{ readingId: number; status: "succeeded" | "failed" | "replayed"; invoiceNo?: string; error?: string }> };
+      while (selectedAuditRows.length < input.limit) {
+        let auditQuery = supabaseAdmin().from("audit_logs")
+          .select("entity_id, user_id, created_at")
+          .eq("tenant_id", access.tenantId)
+          .eq("site_id", input.siteId)
+          .in("entity_type", ["meter_reading", "subscriber_reading"])
+          .eq("action", "mobile_create");
+        if (input.userId) auditQuery = auditQuery.eq("user_id", input.userId);
+        if (input.from) auditQuery = auditQuery.gte("created_at", input.from);
+        if (input.to) auditQuery = auditQuery.lte("created_at", input.to);
+        const { data: pageRows, error: auditError } = await auditQuery
+          .order("created_at", { ascending: false })
+          .range(auditOffset, auditOffset + auditScanPageSize - 1);
+        if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءات المؤهلة للاعتماد الجماعي." });
+
+        const page = pageRows ?? [];
+        if (!page.length) break;
+        auditOffset += page.length;
+
+        const newAuditRows: Array<{ entity_id: string; user_id: number | null; created_at: string }> = [];
+        for (const audit of page) {
+          const readingId = Number(audit.entity_id);
+          if (!Number.isSafeInteger(readingId) || readingId <= 0 || seenReadingIds.has(readingId)) continue;
+          seenReadingIds.add(readingId);
+          newAuditRows.push(audit);
+        }
+
+        if (newAuditRows.length) {
+          const candidateIds = newAuditRows.map((row) => Number(row.entity_id));
+          const { data: candidateReadings, error: candidateError } = await supabaseAdmin().from("meter_readings")
+            .select("id, status")
+            .eq("tenant_id", access.tenantId)
+            .in("id", candidateIds);
+          if (candidateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالات القراءات قبل الاعتماد الجماعي." });
+
+          const pendingIds = new Set((candidateReadings ?? [])
+            .filter((reading) => reading.status === "pending_review")
+            .map((reading) => Number(reading.id)));
+          for (const audit of newAuditRows) {
+            if (!pendingIds.has(Number(audit.entity_id))) continue;
+            selectedAuditRows.push(audit);
+            if (selectedAuditRows.length >= input.limit) break;
+          }
+        }
+
+        if (page.length < auditScanPageSize) break;
+      }
+
+      const readingIds = selectedAuditRows.map((row) => Number(row.entity_id));
+      if (!readingIds.length) {
+        return { requested: 0, succeeded: 0, failed: 0, replayed: 0, results: [] as Array<{ readingId: number; status: "succeeded" | "failed" | "replayed"; invoiceNo?: string; error?: string }> };
+      }
 
       const { data: readingRows, error: readingsError } = await supabaseAdmin().from("meter_readings")
         .select("id, subscriber_id, reading_at, status, version_no")
