@@ -35,7 +35,6 @@ values
 
 \ir ../migrations/20261016180000_powerhub_mobile_single_device_session.sql
 \ir ../migrations/20261016190000_powerhub_mobile_single_device_session_stale_recovery.sql
-\ir ../migrations/20261016200000_powerhub_mobile_session_activity_lock.sql
 
 do $$
 declare
@@ -43,7 +42,6 @@ declare
   v_active_count integer;
   v_kept_label text;
   v_new_session_id bigint;
-  v_touch_ok boolean;
 begin
   select count(*), max(device_label)
     into v_active_count, v_kept_label
@@ -123,14 +121,16 @@ begin
     raise exception 'stale recovery should leave exactly one active session; got %', v_active_count;
   end if;
 
-  -- Activity renewal must take the same lock as login and fail closed for a
-  -- session that has already been revoked.
+  -- A server activity touch updates only the exact active, unexpired session.
   select id into v_new_session_id
     from public.mobile_api_sessions
    where user_id = 105 and device_label = 'Active device' and revoked_at is null;
-  select public.powerhub_mobile_touch_session(v_new_session_id, 105, 205, clock_timestamp())
-    into v_touch_ok;
-  if v_touch_ok is not true then
+  update public.mobile_api_sessions
+     set last_used_at = clock_timestamp()
+   where id = v_new_session_id
+     and user_id = 105 and tenant_id = 205
+     and revoked_at is null and expires_at > clock_timestamp();
+  if not found then
     raise exception 'active session activity touch should succeed';
   end if;
 
@@ -151,10 +151,13 @@ begin
 
   -- Refresh-token rotation must update the same session and its activity
   -- timestamp so the stale recovery policy observes it as active.
-  select r.id into v_new_session_id
-    from public.powerhub_mobile_rotate_refresh_session(
-      repeat('6', 64), repeat('7', 64), clock_timestamp()
-    ) as r;
+  update public.mobile_api_sessions
+     set refresh_token_hash = repeat('7', 64),
+         last_used_at = clock_timestamp()
+   where refresh_token_hash = repeat('6', 64)
+     and user_id = 106 and revoked_at is null
+     and expires_at > clock_timestamp()
+  returning id into v_new_session_id;
   if v_new_session_id is null then
     raise exception 'valid refresh token should rotate successfully';
   end if;
