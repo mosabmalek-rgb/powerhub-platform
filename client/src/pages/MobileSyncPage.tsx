@@ -39,8 +39,6 @@ export default function MobileSyncPage() {
   const readings = trpc.powerhub.mobileSync.readings.useQuery({ siteId: siteId ?? 0, userId: userId === "all" ? undefined : Number(userId), from, to, page: readingPage, pageSize: 20 }, { enabled, staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false });
   const refresh = () => { void summary.refetch(); void events.refetch(); void readings.refetch(); void technicians.refetch(); };  const utils = trpc.useUtils();
   const bulkApprove = trpc.powerhub.mobileSync.approveAllAndIssue.useMutation();
-  const pendingReadingCount = readings.data?.filter((reading) => reading.status === "pending_review").length ?? 0;
-
   const approvePendingInBatches = async () => {
     if (!siteId || bulkApprove.isPending) return;
     const attemptedIds = new Set<number>();
