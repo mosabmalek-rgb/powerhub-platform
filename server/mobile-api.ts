@@ -26,11 +26,28 @@ const mobileLoginSchema = z.object({
 const mobileChangePasswordSchema = z.object({ newPassword: z.string().min(8).max(128) }).strict();
 const refreshSchema = z.object({ refreshToken: z.string().min(32).max(256) });
 const subscriberQuerySchema = z.object({ branchId: z.coerce.number().int().positive(), limit: z.coerce.number().int().min(1).max(100).default(100), cursor: z.coerce.number().int().min(0).default(0) });
+function normalizeMobileReadingValue(value: unknown): unknown {
+  if (typeof value !== "string" && typeof value !== "number") return value;
+  if (typeof value === "number" && (!Number.isFinite(value) || value < 0)) return value;
+  const raw = String(value).trim();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(raw);
+  if (!match) return value;
+  // The field app v1.5.0 sends fixed three-decimal strings (e.g. 125.000).
+  // Strip only insignificant trailing zeroes; never round meaningful precision.
+  const fraction = (match[2] ?? "").replace(/0+$/, "");
+  return fraction ? match[1] + "." + fraction : match[1];
+}
+
+const mobileReadingValueSchema = z.preprocess(
+  normalizeMobileReadingValue,
+  z.string().regex(/^\d+(\.\d{1,2})?$/),
+);
+
 const readingSchema = z.object({
   clientOperationId: z.string().uuid(),
   branchId: z.number().int().positive(),
   subscriberId: z.number().int().positive(),
-  readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  readingValue: mobileReadingValueSchema,
   readingAt: z.string().datetime(),
   captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"),
   isReadingReset: z.boolean().default(false),
@@ -367,7 +384,7 @@ export function registerMobileApi(app: Express) {
         const { data: last, error: lastError } = await admin.from("meter_readings").select("reading_value, reading_at")
           .eq("subscriber_id", row.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
         if (lastError) throw new Error(lastError.message);
-        return { id: toNumber(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone, address: row.address, branchId: toNumber(row.site_id), lastReading: last?.reading_value ?? null, lastReadingAt: last?.reading_at ?? null };
+        return { id: toNumber(row.id), subscriberNo: row.subscriber_no, fullName: row.full_name, phone: row.phone, address: row.address, branchId: toNumber(row.site_id), lastReading: last?.reading_value == null ? null : normalizeMobileReadingValue(last.reading_value), lastReadingAt: last?.reading_at ?? null };
       }));
       return res.json({ items, nextCursor: (rows?.length ?? 0) === parsed.data.limit ? String(parsed.data.cursor + parsed.data.limit) : null });
     } catch (lastReadingError) {
@@ -423,7 +440,7 @@ export function registerMobileApi(app: Express) {
     }).select("id, status, consumption_kwh").single();
     if (insertError || !inserted) return sendSupabaseError(res, insertError, "تعذر تسجيل القراءة.");
     try {
-      await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "subscriber_reading", entityId: String(inserted.id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: input.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
+      await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "meter_reading", entityId: String(inserted.id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: input.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
       return res.status(201).json({ id: toNumber(inserted.id), status: inserted.status, consumptionKwh: inserted.consumption_kwh, replayed: false });
     } catch (auditError) {
       return sendSupabaseError(res, auditError instanceof Error ? auditError : null, "تم حفظ القراءة لكن تعذر تسجيل التدقيق.");

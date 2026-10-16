@@ -3718,7 +3718,7 @@ export const powerhubRouter = router({
       let auditQuery = supabaseAdmin().from("audit_logs")
         .select("entity_id, user_id, created_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
-        .eq("entity_type", "meter_reading").eq("action", "mobile_create");
+        .in("entity_type", ["meter_reading", "subscriber_reading"]).eq("action", "mobile_create");
       if (input.userId) auditQuery = auditQuery.eq("user_id", input.userId);
       if (input.from) auditQuery = auditQuery.gte("created_at", input.from);
       if (input.to) auditQuery = auditQuery.lte("created_at", input.to);
@@ -3747,7 +3747,7 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewAudit");
       const { data: audit, error: auditError } = await supabaseAdmin().from("audit_logs")
         .select("user_id, created_at").eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
-        .eq("entity_type", "meter_reading").eq("action", "mobile_create").eq("entity_id", String(input.readingId)).maybeSingle();
+        .in("entity_type", ["meter_reading", "subscriber_reading"]).eq("action", "mobile_create").eq("entity_id", String(input.readingId)).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (auditError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مصدر القراءة الميدانية في Supabase." });
       if (!audit || audit.user_id === null) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة الميدانية غير موجودة ضمن الفرع المحدد." });
       const { data: reading, error: readingError } = await supabaseAdmin().from("meter_readings")
@@ -3777,7 +3777,7 @@ export const powerhubRouter = router({
         .select("entity_id, created_at")
         .eq("tenant_id", access.tenantId)
         .eq("site_id", input.siteId)
-        .eq("entity_type", "meter_reading")
+        .in("entity_type", ["meter_reading", "subscriber_reading"])
         .eq("action", "mobile_create");
       if (input.userId) auditQuery = auditQuery.eq("user_id", input.userId);
       if (input.from) auditQuery = auditQuery.gte("created_at", input.from);
