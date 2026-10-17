@@ -15,6 +15,11 @@ export const router = t.router;
 export const mergeRouters = t.mergeRouters;
 export const publicProcedure = t.procedure;
 
+// A single HTTP request can carry multiple batched tRPC procedures. Keep
+// device-claim deduplication strictly request-scoped: never reuse authorization
+// decisions across requests, sessions, devices, or warm serverless invocations.
+const deviceClaimByRequest = new WeakMap<object, Map<string, Promise<void>>>();
+
 async function enforceSingleDeviceSession(ctx: TrpcContext) {
   // Some isolated procedure tests construct a minimal context without an HTTP request.
   // Real Express requests always provide headers, so production enforcement remains strict.
@@ -23,16 +28,33 @@ async function enforceSingleDeviceSession(ctx: TrpcContext) {
   if (typeof deviceId !== "string" || !/^[0-9a-f-]{36}$/i.test(deviceId)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "تعذر التحقق من جهاز الدخول. أعد تحميل PowerHub وحاول مرة أخرى." });
   }
-  const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
-    p_user_id: ctx.user!.openId,
-    p_device_id: deviceId,
-    p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-  });
-  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الجهاز." });
-  const row = Array.isArray(data) ? data[0] : null;
-  if (!row?.allowed) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
+
+  const request = ctx.req as object;
+  let requestClaims = deviceClaimByRequest.get(request);
+  if (!requestClaims) {
+    requestClaims = new Map<string, Promise<void>>();
+    deviceClaimByRequest.set(request, requestClaims);
   }
+  const claimKey = `${ctx.user!.openId}:${deviceId}`;
+  let claim = requestClaims.get(claimKey);
+  if (!claim) {
+    claim = (async () => {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
+        p_user_id: ctx.user!.openId,
+        p_device_id: deviceId,
+        p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الجهاز." });
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row?.allowed) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
+      }
+    })();
+    // Keep both success and failure for this request only so a batch cannot fan out
+    // repeated device RPCs or produce inconsistent decisions within the same request.
+    requestClaims.set(claimKey, claim);
+  }
+  await claim;
 }
 
 const requireUser = t.middleware(async opts => {
