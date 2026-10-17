@@ -33,7 +33,9 @@ onlineManager.setEventListener((setOnline) => {
     });
   };
   const handleOnline = () => verify();
-  const handleOffline = () => setOnline(false);
+  // Browser offline hints can be false positives; probe the application origin
+  // before React Query pauses queries and mutations.
+  const handleOffline = () => verify();
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
   verify();

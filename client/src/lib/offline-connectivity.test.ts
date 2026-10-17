@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { probePowerHubConnectivity } from "./offline-connectivity";
 
 describe("PowerHub connectivity probe", () => {
-  it("does not issue a request when the browser reports no network", async () => {
+  it("trusts a successful origin check even when the browser reports offline", async () => {
     const fetcher = vi.fn(async () => new Response("ok", { status: 200 }));
-    await expect(probePowerHubConnectivity(fetcher, false)).resolves.toBe(false);
-    expect(fetcher).not.toHaveBeenCalled();
+    await expect(probePowerHubConnectivity(fetcher, false)).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("requires a successful response from the PowerHub health endpoint", async () => {
@@ -19,12 +19,22 @@ describe("PowerHub connectivity probe", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it("treats server errors and network failures as unavailable", async () => {
-    await expect(
-      probePowerHubConnectivity(async () => new Response("unavailable", { status: 503 }), true),
-    ).resolves.toBe(false);
-    await expect(
-      probePowerHubConnectivity(async () => { throw new Error("network unavailable"); }, true),
-    ).resolves.toBe(false);
+  it("retries a transient failure before classifying PowerHub as offline", async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response("temporary error", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+
+    await expect(probePowerHubConnectivity(fetcher, true)).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats persistent server errors and network failures as unavailable", async () => {
+    const serverError = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    await expect(probePowerHubConnectivity(serverError, true)).resolves.toBe(false);
+    expect(serverError).toHaveBeenCalledTimes(2);
+
+    const networkError = vi.fn(async () => { throw new Error("network unavailable"); });
+    await expect(probePowerHubConnectivity(networkError, true)).resolves.toBe(false);
+    expect(networkError).toHaveBeenCalledTimes(2);
   });
 });

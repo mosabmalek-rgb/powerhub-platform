@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveOfflineAuthTransition } from "./offline-auth-state";
+import { resolveOfflineAuthTransition, selectAuthSnapshot } from "./offline-auth-state";
 
 describe("offline authentication state transitions", () => {
   it("preserves the offline lease when the initial session is absent", () => {
@@ -20,5 +20,19 @@ describe("offline authentication state transitions", () => {
 
   it("prefers a real online session when one is present", () => {
     expect(resolveOfflineAuthTransition("SIGNED_IN", "user-123", false)).toBe("online-session");
+  });
+});
+
+describe("auth session snapshot ordering", () => {
+  it("does not let an older empty session snapshot erase a newer sign-in event", () => {
+    expect(selectAuthSnapshot(null, "fresh-session", 4, 5)).toBe("fresh-session");
+  });
+
+  it("does not let an older session snapshot undo a newer sign-out event", () => {
+    expect(selectAuthSnapshot("stale-session", null, 4, 5)).toBeNull();
+  });
+
+  it("accepts a session snapshot when no newer auth event occurred", () => {
+    expect(selectAuthSnapshot(null, "old-session", 4, 4)).toBeNull();
   });
 });
