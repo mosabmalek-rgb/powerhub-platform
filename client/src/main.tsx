@@ -5,6 +5,7 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
+import { AuthProvider } from "@/_core/hooks/useAuth";
 import { startLogin } from "./const";
 import { getSupabaseAccessToken, getSupabaseSession, subscribeSupabaseAuthState } from "./lib/supabase";
 import { clearOfflineQueryCacheForUser, hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
@@ -170,7 +171,9 @@ function renderApp() {
   createRoot(document.getElementById("root")!).render(
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <App />
+        <AuthProvider>
+          <App />
+        </AuthProvider>
       </QueryClientProvider>
     </trpc.Provider>
   );
