@@ -120,9 +120,30 @@ async function bootstrapOfflineState() {
     const nextUserId = session?.user.id ?? null;
 
     if (event === "SIGNED_OUT") {
-      queryClient.clear();
-      if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
-      activeOfflineUserId = null;
+      let explicitLogout = false;
+      try {
+        explicitLogout = window.localStorage.getItem("powerhub:explicit-logout") === "1";
+      } catch {
+        // If storage is blocked, preserve the local cache; useAuth still revokes the lease.
+      }
+
+      if (explicitLogout) {
+        queryClient.clear();
+        if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
+        activeOfflineUserId = null;
+        return;
+      }
+
+      // Supabase can emit SIGNED_OUT after a transient session loss. Preserve the
+      // lease-scoped cache and restore it instead of treating that event as user intent.
+      void getValidOfflineAuthLease().then(async (lease) => {
+        if (!lease) {
+          activeOfflineUserId = null;
+          return;
+        }
+        activeOfflineUserId = lease.userId;
+        await hydrateOfflineQueryCache(queryClient, lease.userId);
+      });
       return;
     }
 
