@@ -45,7 +45,11 @@ export function useAuth(options?: UseAuthOptions) {
     const restoreOfflineUser = async (expectedRevision: number) => {
       const lease = await getValidOfflineAuthLease();
       if (!lease) {
-        if (active && transitionRevision === expectedRevision) setSessionReady(true);
+        if (active && transitionRevision === expectedRevision) {
+          setCachedUser(null);
+          setOfflineLeaseUserId(null);
+          setSessionReady(true);
+        }
         return;
       }
       const cached = await getOfflineAuthUser<CachedAuthUser>(lease.userId);
