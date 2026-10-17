@@ -208,6 +208,15 @@ export async function persistOfflineQuery(query: Query, userId: string, now = Da
   }
 }
 
+export async function clearOfflineQueryCacheForUser(userId: string) {
+  try {
+    const records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
+    await deleteQueryCacheKeys(records.filter((record) => record.userId === userId).map((record) => record.key));
+  } catch {
+    // Best-effort privacy cleanup must not break the sign-out flow.
+  }
+}
+
 export async function persistOfflineAuthUser(userId: string, user: unknown) {
   const record: OfflineAuthUserRecord = {
     userId,
