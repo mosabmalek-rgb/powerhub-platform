@@ -1,19 +1,8 @@
 import { Cloud, CloudOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 
 export function OfflineStatusBanner() {
-  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
+  const { isOnline } = usePowerHubConnectivity();
 
   if (isOnline) return null;
 
