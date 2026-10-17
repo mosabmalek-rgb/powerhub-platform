@@ -19,6 +19,10 @@ function authMessage(error: unknown) {
   return message;
 }
 
+function isBrowserOffline() {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
 export default function LoginPage() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
@@ -38,9 +42,9 @@ export default function LoginPage() {
           return;
         }
 
-        // If the access token has expired while offline, allow the separately
-        // signed 48-hour device lease to restore the cached identity. The lease
-        // is never renewed offline and is invalidated by explicit sign-out.
+        // A local lease is a fallback for offline use only. When online, keep
+        // the form available so the user can establish a fresh Supabase session.
+        if (!isBrowserOffline()) return;
         const lease = await getValidOfflineAuthLease();
         if (!active || !lease) return;
         const cachedUser = await getOfflineAuthUser(lease.userId);
@@ -66,16 +70,18 @@ export default function LoginPage() {
         return;
       }
 
-      const offlineLease = await getValidOfflineAuthLease();
-      if (offlineLease) {
-        const cachedUser = await getOfflineAuthUser(offlineLease.userId);
-        if (cachedUser) {
-          window.location.assign("/workspace");
-          return;
+      // Never let a cached offline lease bypass a real password login while
+      // the browser is online. Otherwise a stale lease can create a
+      // /login -> /workspace -> /login redirect loop.
+      if (isBrowserOffline()) {
+        const offlineLease = await getValidOfflineAuthLease();
+        if (offlineLease) {
+          const cachedUser = await getOfflineAuthUser(offlineLease.userId);
+          if (cachedUser) {
+            window.location.assign("/workspace");
+            return;
+          }
         }
-      }
-
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
         throw new Error("لا يوجد اتصال بالإنترنت.");
       }
 
