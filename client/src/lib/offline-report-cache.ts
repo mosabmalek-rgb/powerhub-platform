@@ -11,6 +11,8 @@ export type CachedReportSnapshot = {
 
 const databaseName = "powerhub-offline-report-cache";
 const storeName = "snapshots";
+export const OFFLINE_REPORT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_REPORT_SNAPSHOTS = 50;
 
 function cacheKey(input: Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">) {
   return [input.userId, input.siteId, input.scope, input.startDate, input.endDate].join(":");
@@ -41,9 +43,32 @@ async function request<T>(mode: IDBTransactionMode, callback: (store: IDBObjectS
 export async function saveReportSnapshot(input: Omit<CachedReportSnapshot, "key" | "savedAt">) {
   const snapshot: CachedReportSnapshot = { ...input, key: cacheKey(input), savedAt: Date.now() };
   await request("readwrite", (store) => store.put(snapshot));
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(storeName, "readwrite");
+    const store = transaction.objectStore(storeName);
+    const all = store.getAll();
+    all.onsuccess = () => {
+      const rows = (all.result as CachedReportSnapshot[])
+        .filter((row) => Number.isFinite(row.savedAt) && Date.now() - row.savedAt < OFFLINE_REPORT_CACHE_TTL_MS)
+        .sort((a, b) => b.savedAt - a.savedAt);
+      const keep = new Set(rows.slice(0, MAX_REPORT_SNAPSHOTS).map((row) => row.key));
+      for (const row of all.result as CachedReportSnapshot[]) if (!keep.has(row.key)) store.delete(row.key);
+    };
+    all.onerror = () => { transaction.abort(); };
+    transaction.oncomplete = () => { database.close(); resolve(); };
+    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error("تعذر تنظيف لقطات التقارير القديمة.")); };
+    transaction.onabort = () => { database.close(); reject(transaction.error ?? new Error("تم إلغاء تنظيف لقطات التقارير.")); };
+  });
   return snapshot;
 }
 
 export async function loadReportSnapshot(input: Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">) {
-  return request<CachedReportSnapshot | undefined>("readonly", (store) => store.get(cacheKey(input)));
+  const snapshot = await request<CachedReportSnapshot | undefined>("readonly", (store) => store.get(cacheKey(input)));
+  if (!snapshot) return undefined;
+  if (!Number.isFinite(snapshot.savedAt) || Date.now() - snapshot.savedAt >= OFFLINE_REPORT_CACHE_TTL_MS) {
+    await request("readwrite", (store) => store.delete(snapshot.key));
+    return undefined;
+  }
+  return snapshot;
 }
