@@ -8,6 +8,7 @@ import App from "./App";
 import { startLogin } from "./const";
 import { getSupabaseAccessToken, getSupabaseSession, subscribeSupabaseAuthState } from "./lib/supabase";
 import { hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
+import { probePowerHubConnectivity } from "./lib/offline-connectivity";
 import { getPowerHubDeviceId, getValidOfflineAuthLease } from "./lib/offline-auth";
 import "./index.css";
 
@@ -25,11 +26,19 @@ const queryClient = new QueryClient({
 
 onlineManager.setEventListener((setOnline) => {
   if (typeof window === "undefined") return () => undefined;
-  const handleOnline = () => setOnline(true);
+  let disposed = false;
+  const verify = () => {
+    void probePowerHubConnectivity().then((reachable) => {
+      if (!disposed) setOnline(reachable);
+    });
+  };
+  const handleOnline = () => verify();
   const handleOffline = () => setOnline(false);
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
+  verify();
   return () => {
+    disposed = true;
     window.removeEventListener("online", handleOnline);
     window.removeEventListener("offline", handleOffline);
   };
@@ -140,6 +149,6 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     // Versioned URL forces an immediate Service Worker update after changing
     // cache semantics, even when a legacy worker had cached /sw.js itself.
-    void navigator.serviceWorker.register("/sw.js?v=4").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
+    void navigator.serviceWorker.register("/sw.js?v=5").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
   });
 }
