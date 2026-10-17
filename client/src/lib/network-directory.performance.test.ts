@@ -12,9 +12,16 @@ describe("subscriber directory performance contract", () => {
   });
 
   it("keeps recently fetched pages responsive and preloads the next page", () => {
-    expect(pageSource).toContain("staleTime: 30_000");
+    expect(pageSource).toContain("staleTime: 60 * 60 * 1000");
+    expect(pageSource).toContain("gcTime: 2 * 60 * 60 * 1000");
+    expect(pageSource).toContain("window.setInterval");
+    expect(pageSource).toContain("60 * 60 * 1000");
+    expect(pageSource).toContain("تحديث القائمة");
     expect(pageSource).toContain("placeholderData: (previousData) => previousData");
     expect(pageSource).toContain("directoryPage.prefetch({");
+    expect(pageSource).toContain("for (let firstPage = 2; firstPage <= target.totalPages; firstPage += 3)");
+    expect(pageSource).toContain("Math.min(3, target.totalPages - firstPage + 1)");
+    expect(pageSource).toContain("activeSubscriberPrefetchScopesRef");
     expect(pageSource).toContain("subscribersQuery.isPlaceholderData");
   });
 });

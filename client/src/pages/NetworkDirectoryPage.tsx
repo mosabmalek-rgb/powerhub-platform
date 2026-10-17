@@ -12,8 +12,8 @@ import { trpc } from "@/lib/trpc";
 import { filterAndSortDebtors, filterDebtorsByQuery } from "@/lib/debtor-search";
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { can } from "@shared/powerhub-rbac";
-import { Bolt, CircleAlert, Clock3, Copy, FileBarChart2, Loader2, Pencil, Plus, UsersRound, WalletCards } from "lucide-react";
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { Bolt, CircleAlert, Clock3, Copy, FileBarChart2, Loader2, Pencil, Plus, RefreshCw, UsersRound, WalletCards } from "lucide-react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -40,6 +40,8 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const [subscriberTypeFilter, setSubscriberTypeFilter] = useState<SubscriberTypeFilter>("all");
   const [subscriberPage, setSubscriberPage] = useState(1);
   const [addCardCollapsed, setAddCardCollapsed] = useState(true);
+  const [isManuallyRefreshingSubscribers, setIsManuallyRefreshingSubscribers] = useState(false);
+  const [directoryRefreshGeneration, setDirectoryRefreshGeneration] = useState(0);
   useEffect(() => {
     const normalizedSearch = normalizeSubscriberSearch(subscriberSearch);
     if (normalizedSearch === debouncedSubscriberSearch) return;
@@ -50,6 +52,20 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     return () => window.clearTimeout(timeoutId);
   }, [subscriberSearch, debouncedSubscriberSearch]);
   const enabled = Boolean(siteId && isAuthenticated);
+  const subscriberDirectoryScopeKey = `${siteId ?? 0}:${debouncedSubscriberSearch}:${subscriberTypeFilter}`;
+  const activeSubscriberDirectoryScopeRef = useRef("");
+  activeSubscriberDirectoryScopeRef.current = enabled && kind === "subscribers" && siteId
+    ? subscriberDirectoryScopeKey
+    : "";
+  const activeSubscriberPrefetchScopesRef = useRef(new Set<string>());
+  const warmedSubscriberDirectoryRef = useRef(new Map<string, string>());
+  const requestedSubscriberWarmupRef = useRef(new Map<string, {
+    key: string;
+    siteId: number;
+    search: string;
+    subscriptionType: SubscriberTypeFilter;
+    totalPages: number;
+  }>());
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const subscribersQuery = trpc.powerhub.subscribers.directoryPage.useQuery({
     siteId: siteId ?? 0,
@@ -59,22 +75,121 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}),
   }, {
     enabled: enabled && kind === "subscribers",
-    staleTime: 30_000,
+    // The directory is stable: retain page data for an hour and in memory for two hours.
+    staleTime: 60 * 60 * 1000,
+    gcTime: 2 * 60 * 60 * 1000,
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: false,
   });
+  // Render page 1 as soon as it arrives; warm all remaining pages in the background in batches of 3.
+  // Every page stays cached for two hours, and fresh for one hour, so ordinary paging is client-cache work.
   useEffect(() => {
-    const pageCount = subscribersQuery.data?.totalPages ?? 0;
-    const nextPage = subscriberPage + 1;
-    if (!enabled || kind !== "subscribers" || !siteId || !subscribersQuery.data || subscribersQuery.isPlaceholderData || nextPage > pageCount) return;
-    void utils.powerhub.subscribers.directoryPage.prefetch({
+    const totalPages = Number(subscribersQuery.data?.totalPages ?? 0);
+    if (!enabled || kind !== "subscribers" || !siteId || !subscribersQuery.data || subscribersQuery.isPlaceholderData) return;
+
+    const scopeKey = subscriberDirectoryScopeKey;
+    const warmupKey = `${scopeKey}:${directoryRefreshGeneration}:${totalPages}`;
+    const request = {
+      key: warmupKey,
       siteId,
-      page: nextPage,
-      pageSize: SUBSCRIBER_PAGE_SIZE,
       search: debouncedSubscriberSearch,
-      ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}),
-    }, { staleTime: 30_000 }).catch(() => undefined);
-  }, [enabled, kind, siteId, subscriberPage, debouncedSubscriberSearch, subscriberTypeFilter, subscribersQuery.data?.totalPages, subscribersQuery.isPlaceholderData, utils]);
+      subscriptionType: subscriberTypeFilter,
+      totalPages,
+    };
+    requestedSubscriberWarmupRef.current.set(scopeKey, request);
+    if (warmedSubscriberDirectoryRef.current.get(scopeKey) === warmupKey || activeSubscriberPrefetchScopesRef.current.has(scopeKey)) return;
+
+    activeSubscriberPrefetchScopesRef.current.add(scopeKey);
+    void (async () => {
+      try {
+        while (activeSubscriberDirectoryScopeRef.current === scopeKey) {
+          const target = requestedSubscriberWarmupRef.current.get(scopeKey);
+          if (!target || warmedSubscriberDirectoryRef.current.get(scopeKey) === target.key) return;
+
+          let requestChanged = false;
+          for (let firstPage = 2; firstPage <= target.totalPages; firstPage += 3) {
+            if (activeSubscriberDirectoryScopeRef.current !== scopeKey) return;
+            if (requestedSubscriberWarmupRef.current.get(scopeKey)?.key !== target.key) {
+              requestChanged = true;
+              break;
+            }
+            const pages = Array.from(
+              { length: Math.min(3, target.totalPages - firstPage + 1) },
+              (_unused, index) => firstPage + index,
+            );
+            await Promise.all(pages.map((page) =>
+              utils.powerhub.subscribers.directoryPage.prefetch({
+                siteId: target.siteId,
+                page,
+                pageSize: SUBSCRIBER_PAGE_SIZE,
+                search: target.search,
+                ...(target.subscriptionType !== "all" ? { subscriptionType: target.subscriptionType } : {}),
+              }, { staleTime: 60 * 60 * 1000, gcTime: 2 * 60 * 60 * 1000 }).catch(() => undefined),
+            ));
+          }
+
+          if (requestChanged) continue;
+          if (activeSubscriberDirectoryScopeRef.current !== scopeKey) return;
+          if (requestedSubscriberWarmupRef.current.get(scopeKey)?.key === target.key) {
+            warmedSubscriberDirectoryRef.current.set(scopeKey, target.key);
+            return;
+          }
+        }
+      } finally {
+        activeSubscriberPrefetchScopesRef.current.delete(scopeKey);
+      }
+    })();
+  }, [
+    enabled,
+    kind,
+    siteId,
+    subscriberDirectoryScopeKey,
+    debouncedSubscriberSearch,
+    subscriberTypeFilter,
+    subscribersQuery.data?.totalPages,
+    subscribersQuery.dataUpdatedAt,
+    subscribersQuery.isPlaceholderData,
+    directoryRefreshGeneration,
+    utils,
+  ]);
+  useEffect(() => {
+    if (!enabled || kind !== "subscribers") return;
+    const intervalId = window.setInterval(() => {
+      void utils.powerhub.subscribers.directoryPage.invalidate()
+        .then(() => setDirectoryRefreshGeneration((generation) => generation + 1))
+        .catch(() => {
+          toast.error("تعذر تحديث قائمة المشتركين تلقائياً. استخدم زر التحديث اليدوي.");
+        });
+    }, 60 * 60 * 1000);
+    return () => window.clearInterval(intervalId);
+  }, [enabled, kind, utils]);
+
+  const refreshSubscriberDirectory = async () => {
+    if (isManuallyRefreshingSubscribers || kind !== "subscribers") return;
+    setIsManuallyRefreshingSubscribers(true);
+    try {
+      await utils.powerhub.subscribers.directoryPage.invalidate();
+      setDirectoryRefreshGeneration((generation) => generation + 1);
+      toast.success("تم تحديث قائمة المشتركين.");
+    } catch {
+      toast.error("تعذر تحديث قائمة المشتركين. تحقق من الاتصال ثم أعد المحاولة.");
+    } finally {
+      setIsManuallyRefreshingSubscribers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (kind !== "subscribers" || !siteId) return;
+    const onSubscriberDirectoryChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ siteId?: number }>).detail;
+      if (detail?.siteId === siteId) {
+        setDirectoryRefreshGeneration((generation) => generation + 1);
+      }
+    };
+    window.addEventListener("powerhub:subscriber-directory-changed", onSubscriberDirectoryChanged);
+    return () => window.removeEventListener("powerhub:subscriber-directory-changed", onSubscriberDirectoryChanged);
+  }, [kind, siteId]);
+
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers" });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch" }, { enabled: enabled && kind === "subscribers" });
   const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators" });
@@ -108,7 +223,9 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
         ];
     // Revalidation runs in the background after the server confirms the save.
     // The mutation success message must not wait for unrelated summaries or audit reads.
-    void Promise.all(refreshTasks).catch(() => {
+    void Promise.all(refreshTasks).then(() => {
+      if (kind === "subscribers") setDirectoryRefreshGeneration((generation) => generation + 1);
+    }).catch(() => {
       toast.warning("تم حفظ العملية، لكن تعذر تحديث بعض البيانات التابعة. أعد تحميل العرض للتحقق من أحدث النتائج.");
     });
   };
@@ -188,7 +305,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const pending = createSubscriber.isPending || updateSubscriber.isPending || createGenerator.isPending || updateGenerator.isPending;
 
   return <DashboardLayout><div className="space-y-6 pb-12">
-    <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); setSubscriberPage(1); setSubscriberSearch(""); setDebouncedSubscriberSearch(""); setSubscriberTypeFilter("all"); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></header>
+    <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><div className="flex items-center gap-2">{kind === "subscribers" ? <Button type="button" variant="outline" size="sm" onClick={() => void refreshSubscriberDirectory()} disabled={isManuallyRefreshingSubscribers || subscribersQuery.isFetching} className="shrink-0 border-white/10 text-slate-200"><RefreshCw className={`ml-2 h-4 w-4 ${isManuallyRefreshingSubscribers || subscribersQuery.isFetching ? "animate-spin" : ""}`} />تحديث القائمة</Button> : null}<select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); setSubscriberPage(1); setSubscriberSearch(""); setDebouncedSubscriberSearch(""); setSubscriberTypeFilter("all"); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></div></header>
     <div className={kind === "subscribers" ? "space-y-6" : "grid gap-6 xl:grid-cols-[.8fr_1.2fr]"}>
       {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <><div className="mb-4 flex items-center justify-between gap-3"><span className={addCardCollapsed && !editing ? "text-lg font-extrabold text-white sm:text-xl" : "text-sm font-bold text-slate-300"}>{editing ? "تعديل بيانات المشترك" : "إضافة مشترك"}</span><Button type="button" size="sm" variant="outline" onClick={() => setAddCardCollapsed((value) => !value)} className="border-white/10 text-slate-200">{addCardCollapsed ? "فتح البطاقة" : "طي البطاقة"}</Button></div>{!addCardCollapsed ? <SubscriberEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} /> : null}</> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
       <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل {title}</h2><span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">{kind === "subscribers" ? `${visibleData.length ? (currentSubscriberPage - 1) * SUBSCRIBER_PAGE_SIZE + 1 : 0}–${Math.min(currentSubscriberPage * SUBSCRIBER_PAGE_SIZE, totalSubscriberResults)} من ${totalSubscriberResults} نتيجة` : `${visibleData.length} من ${data.length} سجل`}</span></div><div className="p-5">{kind === "subscribers" ? <div className="mb-4 grid gap-3 sm:grid-cols-2"><label className="block text-xs text-slate-400"><span className="mb-1 block">بحث ذكي وسريع</span><input aria-label="بحث ذكي في سجل المشتركين" list={`subscriber-autocomplete-${siteId}`} value={subscriberSearch} onChange={(event) => setSubscriberSearch(event.target.value)} placeholder="اسم المشترك أو الرقم المرجعي أو الهاتف…" className={inputClass} /><datalist id={`subscriber-autocomplete-${siteId}`}>{data.slice(0,200).flatMap((row) => [<option key={`name-${row.id}`} value={row.fullName}/>,<option key={`number-${row.id}`} value={row.subscriberNo}/>,<option key={`phone-${row.id}`} value={row.phone}/>])}</datalist></label><label className="block text-xs text-slate-400"><span className="mb-1 block">نوع المشترك</span><select aria-label="فلتر نوع المشترك" value={subscriberTypeFilter} onChange={(event) => { setSubscriberTypeFilter(event.target.value as SubscriberTypeFilter); setSubscriberPage(1); }} className={inputClass}><option value="all">كل الأنواع</option><option value="residential">سكني</option><option value="commercial">تجاري</option><option value="institution">مؤسسات</option><option value="mosque">مساجد</option></select></label></div> : null}{pageData.length ? <div className="space-y-2">{pageData.map((item) => <RecordRow key={item.id} kind={kind} item={item} canEdit={canEdit} onEdit={() => { setEditing(item); setAddCardCollapsed(false); }} onOpenStatement={kind === "subscribers" && siteId ? () => setLocation(`/subscriber-statement/${item.id}?siteId=${siteId}`) : undefined} />)}</div> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">{kind === "subscribers" && (searchTerm || subscriberTypeFilter !== "all") ? "لا توجد نتائج مطابقة للبحث أو نوع المشترك المحدد." : `لا توجد سجلات في ${activeSite?.name}.`} {canEdit && !searchTerm && subscriberTypeFilter === "all" ? "استخدم النموذج لإضافة أول سجل." : ""}</div>}{kind === "subscribers" && totalSubscriberResults > SUBSCRIBER_PAGE_SIZE ? <nav aria-label="صفحات سجل المشتركين" className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4"><span className="text-xs text-slate-400">عرض 20 مشتركاً كحد أقصى في الصفحة</span><div className="flex items-center gap-2"><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage(1)} className="border-white/10 text-slate-200">الأولى</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage((page) => Math.max(1, page - 1))} className="border-white/10 text-slate-200">السابق</Button><span aria-live="polite" className="min-w-24 text-center text-xs text-slate-300">صفحة {currentSubscriberPage} من {totalSubscriberPages}</span><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage((page) => Math.min(totalSubscriberPages, page + 1))} className="border-white/10 text-slate-200">التالي</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage(totalSubscriberPages)} className="border-white/10 text-slate-200">الأخيرة</Button></div></nav> : null}</div></CardContent></Card>
