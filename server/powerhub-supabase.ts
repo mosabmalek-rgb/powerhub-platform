@@ -1060,26 +1060,22 @@ function subscriberOverride(tenantId: number, value: unknown) {
 }
 
 export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
-  const admin = supabaseAdmin();
-  const [tenantResult, countResult, quotaResult] = await Promise.all([
-    admin.from("tenant_subscriptions")
-      .select("package_code")
-      .eq("tenant_id", tenantId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).is("archived_at", null),
-    admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: tenantId, p_resource: "subscribers" }),
-  ]);
-  if (tenantResult.error || countResult.error || quotaResult.error) {
+  // One database RPC replaces three independent PostgREST round trips.
+  // The create RPC still rechecks the limit under a tenant-scoped transaction lock.
+  const { data, error } = await supabaseAdmin()
+    .rpc("powerhub_subscriber_quota_summary", { p_tenant_id: tenantId });
+  if (error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
   }
-  if (!tenantResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-  const rawRpcLimit = quotaResult.data;
-  const rpcLimit = typeof rawRpcLimit === "number" || typeof rawRpcLimit === "string" ? Number(rawRpcLimit) : NaN;
-  const limit = Number.isFinite(rpcLimit) ? Math.max(0, rpcLimit) : configuredSubscriberLimit(String(tenantResult.data.package_code), null);
-  const currentCount = countResult.count ?? 0;
-  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenantResult.data.package_code as string };
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+  const plan = String(row.package_code ?? "");
+  const rawLimit = row.quota_limit;
+  const parsedLimit = typeof rawLimit === "number" || typeof rawLimit === "string" ? Number(rawLimit) : NaN;
+  const limit = Number.isFinite(parsedLimit) ? Math.max(0, parsedLimit) : configuredSubscriberLimit(plan, null);
+  const parsedCount = Number(row.current_count ?? 0);
+  const currentCount = Number.isFinite(parsedCount) ? Math.max(0, parsedCount) : 0;
+  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
 }
 
 export type SupabaseQuotaResource = "subscribers" | "platformUser" | "fieldUser" | "branch" | "sms";
