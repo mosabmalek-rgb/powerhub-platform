@@ -7,7 +7,7 @@ import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
 import { getSupabaseAccessToken, getSupabaseSession, subscribeSupabaseAuthState } from "./lib/supabase";
-import { hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
+import { clearOfflineQueryCacheForUser, hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
 import { probePowerHubConnectivity } from "./lib/offline-connectivity";
 import { getPowerHubDeviceId, getValidOfflineAuthLease } from "./lib/offline-auth";
 import "./index.css";
@@ -116,14 +116,21 @@ async function bootstrapOfflineState() {
   }
 
   subscribeSupabaseAuthState((event, session) => {
+    const previousUserId = activeOfflineUserId;
     const nextUserId = session?.user.id ?? null;
-    if (nextUserId === activeOfflineUserId) return;
+    if (nextUserId === previousUserId && event !== "SIGNED_OUT") return;
 
     queryClient.clear();
     activeOfflineUserId = nextUserId;
+    if (previousUserId && previousUserId !== nextUserId) {
+      void clearOfflineQueryCacheForUser(previousUserId);
+    }
     if (activeOfflineUserId) void hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
 
-    if (event === "SIGNED_OUT") activeOfflineUserId = null;
+    if (event === "SIGNED_OUT") {
+      if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
+      activeOfflineUserId = null;
+    }
   });
 
   queryClient.getQueryCache().subscribe((event) => {
