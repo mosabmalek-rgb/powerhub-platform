@@ -3,7 +3,8 @@
   "git": {
     "deploymentEnabled": {
       "feature/powerhub-smart-support-chat-v1": false,
-      "perf/phase1-latency-telemetry": false
+      "perf/phase1-latency-telemetry": false,
+      "perf/profile-sync-stage-telemetry": false
     }
   },
   "installCommand": "pnpm install --frozen-lockfile",
