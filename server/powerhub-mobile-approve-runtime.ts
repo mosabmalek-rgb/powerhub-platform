@@ -5,6 +5,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { approveAndIssueMobileReadingSupabase } from "./powerhub-mobile-approval-supabase";
 import { getSupabaseSite, requireSupabaseSiteCapabilities, writeSupabaseAudit } from "./powerhub-supabase";
 import { processNotificationById } from "./notification-worker";
+import { measureSlowStage } from "./performance-telemetry";
 
 const mobileSyncApproveInput = z.object({
   siteId: z.number().int().positive(),
@@ -36,27 +37,31 @@ export async function executeApproveAndIssueMobileReading(input: {
   sendNow?: boolean;
 }) {
   const admin = supabaseAdmin();
-  const { data: reading, error: readingError } = await admin.from("meter_readings")
-    .select("id, subscriber_id, reading_at, status")
-    .eq("tenant_id", input.tenantId)
-    .eq("id", input.readingId)
-    .maybeSingle();
+  const { data: reading, error: readingError } = await measureSlowStage("mobileReadings.approveAndIssue", "load_reading", async () =>
+    admin.from("meter_readings")
+      .select("id, subscriber_id, reading_at, status")
+      .eq("tenant_id", input.tenantId)
+      .eq("id", input.readingId)
+      .maybeSingle());
   if (readingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءة من Supabase." });
   if (!reading) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
 
-  const subscriberResult = await admin.from("subscribers")
-    .select("id")
-    .eq("tenant_id", input.tenantId)
-    .eq("site_id", input.siteId)
-    .eq("id", reading.subscriber_id)
-    .maybeSingle();
+  const subscriberResult = await measureSlowStage("mobileReadings.approveAndIssue", "validate_subscriber_scope", async () =>
+    admin.from("subscribers")
+      .select("id")
+      .eq("tenant_id", input.tenantId)
+      .eq("site_id", input.siteId)
+      .eq("id", reading.subscriber_id)
+      .maybeSingle());
   if (subscriberResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق المشترك في Supabase." });
   if (!subscriberResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
 
-  const site = await getSupabaseSite(input.siteId);
+  const site = await measureSlowStage("mobileReadings.approveAndIssue", "load_site_settings", async () =>
+    getSupabaseSite(input.siteId));
   const dueDate = new Date(reading.reading_at);
   dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
-  const result = await approveAndIssueMobileReadingSupabase({
+  const result = await measureSlowStage("mobileReadings.approveAndIssue", "atomic_approve_issue_rpc", async () =>
+    approveAndIssueMobileReadingSupabase({
     tenantId: input.tenantId,
     siteId: input.siteId,
     userId: input.userId,
@@ -65,9 +70,10 @@ export async function executeApproveAndIssueMobileReading(input: {
     dueDate,
     billingPeriod: new Date(reading.reading_at).toISOString().slice(0, 7),
     discountAmount: 0,
-  });
+  }));
 
-  const deliveries = input.sendNow === false ? [] : await dispatchQueuedNotifications(result.notificationIds, input.userId);
+  const deliveries = input.sendNow === false ? [] : await measureSlowStage("mobileReadings.approveAndIssue", "dispatch_invoice_notifications", async () =>
+    dispatchQueuedNotifications(result.notificationIds, input.userId));
   const notificationMode = input.sendNow === false ? "deferred" : "immediate";
 
   try {
