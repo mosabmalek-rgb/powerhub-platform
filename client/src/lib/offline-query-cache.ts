@@ -5,7 +5,7 @@ const DATABASE_NAME = "powerhub-offline-cache";
 const DATABASE_VERSION = 2;
 const QUERY_STORE = "queries";
 const AUTH_STORE = "auth-users";
-export const OFFLINE_QUERY_OFFLINE_QUERY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+export const OFFLINE_QUERY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER = 200;
 export const OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES = 2 * 1024 * 1024;
 let successfulWritesSincePrune = 0;
@@ -79,13 +79,6 @@ export function isOfflineQueryRecordUsable(
   } catch {
     return false;
   }
-}
-
-function collectStrings(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.flatMap(collectStrings);
-  if (value && typeof value === "object") return Object.values(value).flatMap(collectStrings);
-  return [];
 }
 
 function assertIndexedDb() {
