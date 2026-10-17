@@ -44,8 +44,10 @@ async function refreshSupabaseSession(): Promise<Session | null> {
   const requestRevision = authStateRevision;
   refreshSessionInFlight = supabase.auth.refreshSession()
     .then(({ data }) => {
-      const nextSession = selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision);
-      currentSession = nextSession;
+      // A refresh response without a session is not a sign-out signal. Keep
+      // the event-driven state, but prefer newer auth events over stale data.
+      if (!data.session) return currentSession;
+      currentSession = selectAuthSnapshot(data.session, currentSession, requestRevision, authStateRevision);
       sessionInitialized = true;
       scheduleSessionRefresh(currentSession);
       return currentSession;
