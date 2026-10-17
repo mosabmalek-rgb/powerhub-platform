@@ -14,6 +14,10 @@ describe("offline authentication state transitions", () => {
     expect(resolveOfflineAuthTransition("SIGNED_OUT", null, true)).toBe("explicit-sign-out");
   });
 
+  it("does not restore an offline lease while an explicit logout is still being finalized", () => {
+    expect(resolveOfflineAuthTransition("INITIAL_SESSION", null, true)).toBe("explicit-sign-out");
+  });
+
   it("prefers a real online session when one is present", () => {
     expect(resolveOfflineAuthTransition("SIGNED_IN", "user-123", false)).toBe("online-session");
   });
