@@ -4,7 +4,7 @@ import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { resolveOfflineAuthTransition } from "@/lib/offline-auth-state";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 type UseAuthOptions = {
@@ -27,6 +27,7 @@ export function useAuth(options?: UseAuthOptions) {
   const [hasSession, setHasSession] = useState(false);
   const [authDataRevision, setAuthDataRevision] = useState(0);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const explicitLogoutInProgress = useRef(false);
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: hasSession,
@@ -69,9 +70,9 @@ export function useAuth(options?: UseAuthOptions) {
     const unsubscribe = subscribeSupabaseAuthState((event, session) => {
       const revision = ++transitionRevision;
       const nextUserId = session?.user.id ?? null;
-      let explicitLogoutRequested = false;
+      let explicitLogoutRequested = explicitLogoutInProgress.current;
       try {
-        explicitLogoutRequested = window.localStorage.getItem("powerhub:explicit-logout") === "1";
+        explicitLogoutRequested = explicitLogoutRequested || window.localStorage.getItem("powerhub:explicit-logout") === "1";
       } catch {
         // Storage may be unavailable in private browsing; event alone is not enough
         // to distinguish a deliberate logout from startup/session restoration.
@@ -162,12 +163,15 @@ export function useAuth(options?: UseAuthOptions) {
   }, [meQuery.data]);
 
   const logout = useCallback(async () => {
+    explicitLogoutInProgress.current = true;
     setIsLoggingOut(true);
     queryClient.clear();
     setCachedUser(null);
     setOfflineLeaseUserId(null);
-    if (typeof window !== "undefined") {
+    try {
       window.localStorage.setItem("powerhub:explicit-logout", "1");
+    } catch {
+      // The in-memory flag still protects this logout when localStorage is blocked.
     }
 
     try {
@@ -182,6 +186,7 @@ export function useAuth(options?: UseAuthOptions) {
       try { window.localStorage.removeItem("powerhub:explicit-logout"); } catch { /* best effort */ }
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
+      explicitLogoutInProgress.current = false;
     }
   }, [releaseDevice, utils, queryClient]);
 
