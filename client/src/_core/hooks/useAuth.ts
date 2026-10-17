@@ -46,7 +46,6 @@ function withTimeoutFallback<T>(promise: Promise<T>, fallback: T, timeoutMs: num
 function useAuthController() {
   // This controller is mounted once by AuthProvider. Every route guard, page,
   // and layout consumes the same auth/session snapshot through useAuth().
-  const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
   const releaseDevice = trpc.auth.releaseDevice.useMutation();
