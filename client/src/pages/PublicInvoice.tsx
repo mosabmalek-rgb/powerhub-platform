@@ -21,9 +21,11 @@ export default function PublicInvoice() {
       setLoadingTimedOut(false);
       return;
     }
+    // A manual retry after the fallback must start a fresh bounded wait.
+    if (loadingTimedOut) return;
     const timeout = window.setTimeout(() => setLoadingTimedOut(true), 16_000);
     return () => window.clearTimeout(timeout);
-  }, [invoiceQuery.isFetching, invoiceQuery.isSuccess, invoiceQuery.isError, token]);
+  }, [invoiceQuery.isFetching, invoiceQuery.isSuccess, invoiceQuery.isError, token, loadingTimedOut]);
 
   // The invoice may be shown inside the billing dialog. Let that parent know when
   // data has loaded or failed; iframe onLoad only signals that index.html arrived.
