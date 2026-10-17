@@ -174,6 +174,9 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_approve_and_issue_mobile_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, notification_ids: [], already_processed: false }]);
       if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
       if (name === "powerhub_payment_documentation_access") return resolved([{ allowed: true, policy: "enabled", package_code: "basic", entitlement_enabled: true }]);
+      if (name === "powerhub_subscriber_quota_summary") return resolved([{
+        package_code: "professional", current_count: 0, quota_limit: 500,
+      }]);
       if (name === "powerhub_effective_tenant_quota") {
         const resource = String((args as Record<string, unknown>)?.p_resource ?? "");
         const hasOwnerLimitOverride = Array.isArray(tables.platform_settings) && tables.platform_settings.some((row) => {
