@@ -156,12 +156,15 @@ export function useAuth(options?: UseAuthOptions) {
     // Subscribe first to avoid a session event racing the initial snapshot.
     // Bound session-storage initialization as well: a stalled browser auth lock
     // should show the login route rather than an endless "redirecting" spinner.
+    // If an auth event arrives while this read is pending, it is newer and wins;
+    // a timeout fallback of null must never undo a successful SIGNED_IN event.
+    const initialReadRevision = transitionRevision;
     void withTimeoutFallback(
       getSupabaseSession(),
       null,
       SESSION_BOOTSTRAP_TIMEOUT_MS,
     ).then((session) => {
-      if (!active) return;
+      if (!active || transitionRevision !== initialReadRevision) return;
       const revision = ++transitionRevision;
       observedUserId = session?.user.id ?? null;
       setHasSession(Boolean(session));
