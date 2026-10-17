@@ -2207,7 +2207,7 @@ export const powerhubRouter = router({
         let companyName: string | null = null;
         let companyLogoUrl: string | null = null;
         if (payload.tenantId) {
-          const [feature, branding, site, portalLogoAccess, portalSetting] = await Promise.all([
+          const [feature, branding, site, portalLogoAccess, portalSetting] = await measureSlowStage("invoices.publicByToken", "parallel_branding_entitlement_queries", async () => Promise.all([
             supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) }),
             supabaseAdmin().from("tenant_owner_profiles").select("company_name").eq("tenant_id", Number(payload.tenantId)).maybeSingle(),
             payload.siteId
@@ -2217,13 +2217,14 @@ export const powerhubRouter = router({
             payload.siteId
               ? supabaseAdmin().from("site_portal_settings").select("logo_key").eq("tenant_id", Number(payload.tenantId)).eq("site_id", Number(payload.siteId)).eq("is_enabled", true).maybeSingle()
               : Promise.resolve({ data: null, error: null }),
-          ]);
+          ]));
           paymentDocumentationAvailable = !feature.error && Boolean(feature.data?.[0]?.allowed);
           companyName = (!branding.error && branding.data?.company_name?.trim()) || (!site.error && site.data?.name?.trim()) || null;
           const canUsePortalLogo = !portalLogoAccess.error && Boolean(portalLogoAccess.data?.[0]?.allowed);
           if (canUsePortalLogo && !portalSetting.error && portalSetting.data?.logo_key) {
             try {
-              companyLogoUrl = await storageGetSignedUrl(portalSetting.data.logo_key);
+              companyLogoUrl = await measureSlowStage("invoices.publicByToken", "sign_company_logo_url", async () =>
+                storageGetSignedUrl(portalSetting.data.logo_key));
             } catch {
               companyLogoUrl = null;
             }
