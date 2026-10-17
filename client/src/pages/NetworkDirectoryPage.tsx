@@ -208,9 +208,9 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     const refreshTasks = kind === "subscribers"
       ? [
           utils.powerhub.subscribers.list.invalidate(siteScope),
-          // Mark every cached page for this directory stale; the active page refetches,
-          // while previously visited pages cannot remain stale when the user navigates back.
-          utils.powerhub.subscribers.directoryPage.invalidate(),
+          // Invalidate every cached page for this branch only; do not stale other tenants'
+          // directory caches after a local create/update.
+          utils.powerhub.subscribers.directoryPage.invalidate({ siteId: siteScope.siteId }),
           ...(operation === "create" ? [utils.powerhub.subscribers.quota.invalidate(siteScope)] : []),
           utils.powerhub.dashboard.financialOverview.invalidate({ ...siteScope, scope: "branch" }),
           utils.powerhub.dashboard.summary.invalidate(siteScope),
