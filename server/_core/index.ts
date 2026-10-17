@@ -122,7 +122,12 @@ export function createPowerHubApp() {
     res.once("finish", () => {
       const durationMs = Math.round(performance.now() - startedAt);
       if (durationMs < 800) return;
-      const route = req.path
+      // Use only the pathname (never the query string, which can contain input).
+      // Express strips the mounted prefix from req.path, so originalUrl is needed
+      // to capture tRPC procedure names in batched requests.
+      const route = req.originalUrl
+        .split("?", 1)[0]
+        .replace(/^\/api\/trpc\/?/, "")
         .split(",")
         .map((part) => part.replace(/[^a-zA-Z0-9_.$/-]/g, "").slice(0, 120))
         .filter(Boolean)
