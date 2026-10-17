@@ -4,7 +4,7 @@ import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { resolveOfflineAuthTransition } from "@/lib/offline-auth-state";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
 
 type UseAuthOptions = {
@@ -43,12 +43,9 @@ function withTimeoutFallback<T>(promise: Promise<T>, fallback: T, timeoutMs: num
   });
 }
 
-export function useAuth(options?: UseAuthOptions) {
-  // Login is started via startLogin() in the effect below, only when we actually
-  // navigate — never during render. startLogin() mints a one-time nonce + writes
-  // the state cookie, so calling it per render would overwrite the cookie and
-  // desync it from an in-flight login's `state`.
-  const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
+function useAuthController() {
+  // This controller is mounted once by AuthProvider. Every route guard, page,
+  // and layout consumes the same auth/session snapshot through useAuth().
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
   const releaseDevice = trpc.auth.releaseDevice.useMutation();
@@ -268,40 +265,58 @@ export function useAuth(options?: UseAuthOptions) {
     isLoggingOut,
   };
 
-  useEffect(() => {
-    if (!redirectOnUnauthenticated) return;
-    if (!sessionReady || meQuery.isLoading) return;
-    if (state.user) return;
-    if (typeof window === "undefined") return;
-    if (redirectPath && window.location.pathname === redirectPath) return;
-
-    // Do not treat a transient auth.me/API failure as a logout. Confirm the
-    // browser session itself is gone before starting a new login flow.
-    void getSupabaseSession().then(async (session) => {
-      if (session) return;
-      const lease = await getValidOfflineAuthLease();
-      if (lease || !powerHubReachable) return;
-
-      if (redirectPath) {
-        window.location.href = redirectPath;
-      } else {
-        startLogin();
-      }
-    });
-  }, [
-    redirectOnUnauthenticated,
-    redirectPath,
-    meQuery.isLoading,
-    sessionReady,
-    state.user,
-    powerHubReachable,
-  ]);
-
   return {
     ...state,
+    powerHubReachable,
     refresh: () => meQuery.refetch(),
     logout,
   };
+}
+
+type AuthContextValue = ReturnType<typeof useAuthController>;
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const auth = useAuthController();
+  return createElement(AuthContext.Provider, { value: auth }, children);
+}
+
+/**
+ * All UI consumers share a single auth bootstrap and auth.me query. Optional
+ * redirects stay local to the consumer, but never create another session state.
+ */
+export function useAuth(options?: UseAuthOptions): AuthContextValue {
+  const auth = useContext(AuthContext);
+  const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
+
+  useEffect(() => {
+    if (!auth || !redirectOnUnauthenticated) return;
+    if (auth.loading || auth.user) return;
+    if (typeof window === "undefined") return;
+    if (redirectPath && window.location.pathname === redirectPath) return;
+
+    // Do not treat transient API failures as logout. Confirm whether a valid
+    // Supabase session remains before starting a new login flow.
+    void getSupabaseSession().then(async (session) => {
+      if (session) return;
+      const lease = await getValidOfflineAuthLease();
+      if (lease || !auth.powerHubReachable) return;
+
+      if (redirectPath) window.location.href = redirectPath;
+      else startLogin();
+    });
+  }, [
+    auth?.loading,
+    auth?.user,
+    auth?.powerHubReachable,
+    redirectOnUnauthenticated,
+    redirectPath,
+  ]);
+
+  if (!auth) {
+    throw new Error("useAuth must be used within AuthProvider.");
+  }
+  return auth;
 }
 
 async function supabaseSignOutSafely() {
