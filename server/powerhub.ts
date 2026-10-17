@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
-import { measureSlowStage } from "./performance-telemetry";
+import { measureSlowStage, withTimeout } from "./performance-telemetry";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
@@ -2193,8 +2193,11 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: "تعذر إنشاء رابط مشاركة فريد للفاتورة؛ أعد المحاولة." });
       }),
     publicByToken: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
-      const { data, error } = await measureSlowStage("invoices.publicByToken", "shared_invoice_lookup_rpc", async () =>
-        supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", { p_token_hash: hashInvoiceShareToken(input.token) }));
+      const { data, error } = await measureSlowStage("invoices.publicByToken", "shared_invoice_lookup_rpc", () =>
+        withTimeout("invoices.publicByToken", "shared_invoice_lookup_rpc", (signal) =>
+          supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", {
+            p_token_hash: hashInvoiceShareToken(input.token),
+          }).abortSignal(signal), 8_000));
       if (!error && data && typeof data === "object" && !Array.isArray(data)) {
         const payload = data as {
           siteId?: number;
@@ -2207,28 +2210,43 @@ export const powerhubRouter = router({
         let companyName: string | null = null;
         let companyLogoUrl: string | null = null;
         if (payload.tenantId) {
-          const [feature, branding, site, portalLogoAccess, portalSetting] = await measureSlowStage("invoices.publicByToken", "parallel_branding_entitlement_queries", async () => Promise.all([
-            supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) }),
-            supabaseAdmin().from("tenant_owner_profiles").select("company_name").eq("tenant_id", Number(payload.tenantId)).maybeSingle(),
-            payload.siteId
-              ? supabaseAdmin().from("sites").select("name").eq("tenant_id", Number(payload.tenantId)).eq("id", Number(payload.siteId)).maybeSingle()
-              : Promise.resolve({ data: null, error: null }),
-            supabaseAdmin().rpc("powerhub_subscriber_portal_logo_access", { p_tenant_id: Number(payload.tenantId) }),
-            payload.siteId
-              ? supabaseAdmin().from("site_portal_settings").select("logo_key").eq("tenant_id", Number(payload.tenantId)).eq("site_id", Number(payload.siteId)).eq("is_enabled", true).maybeSingle()
-              : Promise.resolve({ data: null, error: null }),
-          ]));
-          paymentDocumentationAvailable = !feature.error && Boolean(feature.data?.[0]?.allowed);
-          companyName = (!branding.error && branding.data?.company_name?.trim()) || (!site.error && site.data?.name?.trim()) || null;
-          const canUsePortalLogo = !portalLogoAccess.error && Boolean(portalLogoAccess.data?.[0]?.allowed);
-          const portalLogoKey = portalSetting.data?.logo_key;
-          if (canUsePortalLogo && !portalSetting.error && portalLogoKey) {
-            try {
-              companyLogoUrl = await measureSlowStage("invoices.publicByToken", "sign_company_logo_url", async () =>
-                storageGetSignedUrl(portalLogoKey));
-            } catch {
-              companyLogoUrl = null;
+          try {
+            const [feature, branding, site, portalLogoAccess, portalSetting] = await measureSlowStage("invoices.publicByToken", "parallel_branding_entitlement_queries", () =>
+              withTimeout("invoices.publicByToken", "parallel_branding_entitlement_queries", (signal) => Promise.all([
+                supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) }).abortSignal(signal),
+                supabaseAdmin().from("tenant_owner_profiles").select("company_name").eq("tenant_id", Number(payload.tenantId)).maybeSingle().abortSignal(signal),
+                payload.siteId
+                  ? supabaseAdmin().from("sites").select("name").eq("tenant_id", Number(payload.tenantId)).eq("id", Number(payload.siteId)).maybeSingle().abortSignal(signal)
+                  : Promise.resolve({ data: null, error: null }),
+                supabaseAdmin().rpc("powerhub_subscriber_portal_logo_access", { p_tenant_id: Number(payload.tenantId) }).abortSignal(signal),
+                payload.siteId
+                  ? supabaseAdmin().from("site_portal_settings").select("logo_key").eq("tenant_id", Number(payload.tenantId)).eq("site_id", Number(payload.siteId)).eq("is_enabled", true).maybeSingle().abortSignal(signal)
+                  : Promise.resolve({ data: null, error: null }),
+              ]), 2_500));
+            paymentDocumentationAvailable = !feature.error && Boolean(feature.data?.[0]?.allowed);
+            companyName = (!branding.error && branding.data?.company_name?.trim()) || (!site.error && site.data?.name?.trim()) || null;
+            const canUsePortalLogo = !portalLogoAccess.error && Boolean(portalLogoAccess.data?.[0]?.allowed);
+            const portalLogoKey = portalSetting.data?.logo_key;
+            if (canUsePortalLogo && !portalSetting.error && portalLogoKey) {
+              try {
+                companyLogoUrl = await measureSlowStage("invoices.publicByToken", "sign_company_logo_url", () =>
+                  withTimeout("invoices.publicByToken", "sign_company_logo_url", () => storageGetSignedUrl(portalLogoKey), 2_000));
+              } catch {
+                companyLogoUrl = null;
+              }
             }
+          } catch {
+            // Branding and optional payment-documentation availability must never
+            // prevent the invoice itself from rendering when an ancillary service stalls.
+            paymentDocumentationAvailable = false;
+            companyName = null;
+            companyLogoUrl = null;
+            console.warn("[PowerHub stage timeout]", {
+              operation: "invoices.publicByToken",
+              stage: "optional_invoice_enrichment",
+              timeoutMs: 2_500,
+              vercelRegion: process.env.VERCEL_REGION ?? "local",
+            });
           }
         }
         return { ...payload, siteId: payload.siteId ? Number(payload.siteId) : null, companyName, companyLogoUrl, paymentDocumentationAvailable };
