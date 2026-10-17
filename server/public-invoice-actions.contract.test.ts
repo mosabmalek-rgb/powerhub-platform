@@ -19,6 +19,20 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("result.path");
   });
 
+  it("allows same-origin framing only for shared invoice previews", () => {
+    const config = JSON.parse(read("vercel.json")) as {
+      headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }>;
+      functions: Record<string, { regions?: string[] }>;
+    };
+    const general = config.headers.find((rule) => rule.source === "/:path((?!invoice/).*)");
+    const invoice = config.headers.find((rule) => rule.source === "/invoice/:token");
+    expect(general?.headers.find((header) => header.key === "Content-Security-Policy")?.value).toContain("frame-ancestors 'none'");
+    expect(general?.headers.find((header) => header.key === "X-Frame-Options")?.value).toBe("DENY");
+    expect(invoice?.headers.find((header) => header.key === "Content-Security-Policy")?.value).toContain("frame-ancestors 'self'");
+    expect(invoice?.headers.find((header) => header.key === "X-Frame-Options")?.value).toBe("SAMEORIGIN");
+    expect(config.functions["api/[...path].js"].regions).toEqual(["sin1"]);
+  });
+
   it("opens invoice preview as an overlay dialog without navigating away or opening a new tab", () => {
     const billing = read("client/src/pages/BillingPage.tsx");
     expect(billing).toContain("const [previewInvoiceUrl, setPreviewInvoiceUrl] = useState<string | null>(null)");

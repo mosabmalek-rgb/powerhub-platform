@@ -104,32 +104,63 @@ type ResolvedSupabaseSiteAccess = {
 };
 
 async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number): Promise<ResolvedSupabaseSiteAccess> {
+  const accessStartedAt = performance.now();
+  let userAndSiteMs = 0;
+  let membershipAndSubscriptionMs = 0;
+  let staffProfilesMs = 0;
+  let customRoleMs = 0;
+  const reportSlowAccess = (outcome: "platform_admin" | "owner" | "staff") => {
+    const totalMs = Math.round(performance.now() - accessStartedAt);
+    if (totalMs < 800) return;
+    // Do not log user, tenant, or site identifiers or any permission contents.
+    console.warn("[PowerHub access latency]", {
+      stage: "resolveSupabaseSiteAccessDetails",
+      outcome,
+      totalMs,
+      userAndSiteMs,
+      membershipAndSubscriptionMs,
+      staffProfilesMs,
+      customRoleMs,
+    });
+  };
   const admin = supabaseAdmin();
+  const identityAndSiteStartedAt = performance.now();
   const [{ data: user, error: userError }, site] = await Promise.all([
     admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle(),
     getSupabaseSite(siteId),
   ]);
+  userAndSiteMs = Math.round(performance.now() - identityAndSiteStartedAt);
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المستخدم من Supabase." });
   if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "ملف المستخدم غير متاح." });
   const platformAdmin = isActivePlatformAdmin({ role: user.role, platformRole: user.platform_role, accountStatus: user.account_status });
-  if (platformAdmin) return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, usesPermissionOverride: false, isPlatformAdmin: true };
+  if (platformAdmin) {
+    reportSlowAccess("platform_admin");
+    return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, usesPermissionOverride: false, isPlatformAdmin: true };
+  }
 
   // Membership and subscription are independent checks once the site's tenant is known.
   // Run them concurrently to avoid adding one network round trip to every protected operation.
+  const membershipAndSubscriptionStartedAt = performance.now();
   const [membershipResult] = await Promise.all([
     admin.from("tenant_members")
       .select("role").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
     requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true }),
   ]);
+  membershipAndSubscriptionMs = Math.round(performance.now() - membershipAndSubscriptionStartedAt);
   const { data: membership, error: membershipError } = membershipResult;
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
   if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
 
-  if (membership.role === "owner") return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, usesPermissionOverride: false, isPlatformAdmin: false };
+  if (membership.role === "owner") {
+    reportSlowAccess("owner");
+    return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, usesPermissionOverride: false, isPlatformAdmin: false };
+  }
 
+  const staffProfilesStartedAt = performance.now();
   const { data: profiles, error: profileError } = await admin.from("staff_profiles")
     .select("role, permissions, custom_role_id, suspension_started_at, suspension_ends_at, site_id")
     .eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true);
+  staffProfilesMs = Math.round(performance.now() - staffProfilesStartedAt);
   if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تعيين المستخدم في Supabase." });
   const profile = (profiles ?? []).find((item) => Number(item.site_id) === siteId) ?? (profiles ?? []).find((item) => item.site_id === null);
   if (!profile) throw new TRPCError({ code: "FORBIDDEN", message: "لا يوجد تعيين فعال لك في هذه المحطة." });
@@ -142,11 +173,14 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   const usesPermissionOverride = hasExplicitPermissions || Boolean(profile.custom_role_id);
   let permissions = hasExplicitPermissions ? asPermissions(profile.permissions) : defaultCapabilitiesForRole(role);
   if (!hasExplicitPermissions && profile.custom_role_id) {
+    const customRoleStartedAt = performance.now();
     const { data: customRole, error: customRoleError } = await admin.from("custom_permission_roles")
       .select("permissions").eq("id", profile.custom_role_id).eq("tenant_id", site.tenantId).eq("is_active", true).maybeSingle();
+    customRoleMs = Math.round(performance.now() - customRoleStartedAt);
     if (customRoleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
     permissions = asPermissions(customRole?.permissions);
   }
+  reportSlowAccess("staff");
   return { role, permissions, usesPermissionOverride, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, isPlatformAdmin: false };
 }
 
@@ -1059,8 +1093,38 @@ function subscriberOverride(tenantId: number, value: unknown) {
   return typeof candidate === "number" && Number.isInteger(candidate) && candidate >= 0 ? candidate : undefined;
 }
 
+function isMissingSubscriberQuotaSummaryRpc(error: { code?: string; message?: string } | null | undefined) {
+  if (!error) return false;
+  return error.code === "PGRST202"
+    || error.code === "42883"
+    || /could not find .*powerhub_subscriber_quota_summary.*schema cache|function .*powerhub_subscriber_quota_summary.*does not exist/i.test(error.message ?? "");
+}
+
 export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
   const admin = supabaseAdmin();
+  // The one-round-trip RPC is deployed with this PR's migration. Until that migration
+  // has been applied to a production database, fall back only for Postgres/PostgREST
+  // "function missing" errors. Network, permission, and data errors must not be hidden.
+  const summary = await admin.rpc("powerhub_subscriber_quota_summary", { p_tenant_id: tenantId });
+  if (!summary.error) {
+    const row = Array.isArray(summary.data) ? summary.data[0] : null;
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
+    const plan = String(row.package_code ?? "");
+    const rawLimit = row.quota_limit;
+    const parsedLimit = typeof rawLimit === "number" || typeof rawLimit === "string" ? Number(rawLimit) : NaN;
+    const limit = Number.isFinite(parsedLimit) ? Math.max(0, parsedLimit) : configuredSubscriberLimit(plan, null);
+    const parsedCount = Number(row.current_count ?? 0);
+    const currentCount = Number.isFinite(parsedCount) ? Math.max(0, parsedCount) : 0;
+    return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
+  }
+
+  if (!isMissingSubscriberQuotaSummaryRpc(summary.error)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
+  }
+
+  // Backward-compatible rollout path: three parallel reads preserve behavior if the
+  // migration has not yet reached the target database. The create RPC remains the
+  // authoritative atomic quota gate, so this preflight is never an access-control decision.
   const [tenantResult, countResult, quotaResult] = await Promise.all([
     admin.from("tenant_subscriptions")
       .select("package_code")
@@ -1068,18 +1132,25 @@ export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    admin.from("subscribers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).is("archived_at", null),
+    // Match powerhub_create_subscriber's current quota count, which includes archived rows.
+    admin.from("subscribers")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId),
     admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: tenantId, p_resource: "subscribers" }),
   ]);
   if (tenantResult.error || countResult.error || quotaResult.error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة المشتركين من Supabase." });
   }
   if (!tenantResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "مساحة صاحب المولد غير موجودة." });
-  const rawRpcLimit = quotaResult.data;
-  const rpcLimit = typeof rawRpcLimit === "number" || typeof rawRpcLimit === "string" ? Number(rawRpcLimit) : NaN;
-  const limit = Number.isFinite(rpcLimit) ? Math.max(0, rpcLimit) : configuredSubscriberLimit(String(tenantResult.data.package_code), null);
-  const currentCount = countResult.count ?? 0;
-  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan: tenantResult.data.package_code as string };
+  const plan = String(tenantResult.data.package_code ?? "");
+  const quotaData = Array.isArray(quotaResult.data) ? quotaResult.data[0] : quotaResult.data;
+  const rawLimit = typeof quotaData === "object" && quotaData !== null && "quota_limit" in quotaData
+    ? (quotaData as { quota_limit?: unknown }).quota_limit
+    : quotaData;
+  const parsedLimit = typeof rawLimit === "number" || typeof rawLimit === "string" ? Number(rawLimit) : NaN;
+  const limit = Number.isFinite(parsedLimit) ? Math.max(0, parsedLimit) : configuredSubscriberLimit(plan, null);
+  const currentCount = Number(countResult.count ?? 0);
+  return { limit, currentCount, remaining: Math.max(0, limit - currentCount), plan };
 }
 
 export type SupabaseQuotaResource = "subscribers" | "platformUser" | "fieldUser" | "branch" | "sms";

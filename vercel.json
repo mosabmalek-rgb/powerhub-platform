@@ -2,7 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "feature/powerhub-smart-support-chat-v1": false
+      "feature/powerhub-smart-support-chat-v1": false,
+      "perf/phase1-latency-telemetry": false
     }
   },
   "installCommand": "pnpm install --frozen-lockfile",
@@ -10,12 +11,15 @@
   "outputDirectory": "dist/public",
   "functions": {
     "api/[...path].js": {
-      "includeFiles": "dist/index.js"
+      "includeFiles": "dist/index.js",
+      "regions": [
+        "sin1"
+      ]
     }
   },
   "headers": [
     {
-      "source": "/(.*)",
+      "source": "/:path((?!invoice/).*)",
       "headers": [
         {
           "key": "Content-Security-Policy",
@@ -24,6 +28,43 @@
         {
           "key": "X-Frame-Options",
           "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=()"
+        },
+        {
+          "key": "X-Permitted-Cross-Domain-Policies",
+          "value": "none"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "same-origin"
+        }
+      ]
+    },
+    {
+      "source": "/invoice/:token",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co; worker-src 'self' blob:"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
         },
         {
           "key": "X-Content-Type-Options",

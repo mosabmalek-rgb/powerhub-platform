@@ -174,6 +174,9 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_approve_and_issue_mobile_reading") return resolved([{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, notification_ids: [], already_processed: false }]);
       if (name === "powerhub_create_payment") return resolved([{ payment_id: 81, replayed: false }]);
       if (name === "powerhub_payment_documentation_access") return resolved([{ allowed: true, policy: "enabled", package_code: "basic", entitlement_enabled: true }]);
+      if (name === "powerhub_subscriber_quota_summary") return resolved([{
+        package_code: "professional", current_count: 0, quota_limit: 500,
+      }]);
       if (name === "powerhub_effective_tenant_quota") {
         const resource = String((args as Record<string, unknown>)?.p_resource ?? "");
         const hasOwnerLimitOverride = Array.isArray(tables.platform_settings) && tables.platform_settings.some((row) => {
@@ -1175,6 +1178,19 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يعرض حصة المشتركين من Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toEqual({ limit: 500, currentCount: 0, remaining: 500, plan: "professional" });
+  });
+
+  it("يعود لمسار قراءة الحصة المتوافق إذا لم تُطبّق ترحيلة RPC بعد", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_subscriber_quota_summary") {
+        return { data: null, error: { code: "PGRST202", message: "Could not find the function public.powerhub_subscriber_quota_summary in the schema cache" } };
+      }
+      return state.defaultRpc(name, args);
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toMatchObject({ limit: 1000, currentCount: 0, remaining: 1000, plan: "professional" });
+    expect(state.rpcCalls.map((call) => call.name)).toContain("powerhub_effective_tenant_quota");
   });
 
   it("يحفظ الاستيراد الجماعي عبر RPC Supabase الذرية دون MySQL", async () => {

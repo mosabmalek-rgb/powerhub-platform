@@ -15,6 +15,11 @@ export const router = t.router;
 export const mergeRouters = t.mergeRouters;
 export const publicProcedure = t.procedure;
 
+// A single HTTP request can carry multiple batched tRPC procedures. Keep
+// device-claim deduplication strictly request-scoped: never reuse authorization
+// decisions across requests, sessions, devices, or warm serverless invocations.
+const deviceClaimByRequest = new WeakMap<object, Map<string, Promise<void>>>();
+
 async function enforceSingleDeviceSession(ctx: TrpcContext) {
   // Some isolated procedure tests construct a minimal context without an HTTP request.
   // Real Express requests always provide headers, so production enforcement remains strict.
@@ -23,16 +28,33 @@ async function enforceSingleDeviceSession(ctx: TrpcContext) {
   if (typeof deviceId !== "string" || !/^[0-9a-f-]{36}$/i.test(deviceId)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "تعذر التحقق من جهاز الدخول. أعد تحميل PowerHub وحاول مرة أخرى." });
   }
-  const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
-    p_user_id: ctx.user!.openId,
-    p_device_id: deviceId,
-    p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-  });
-  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الجهاز." });
-  const row = Array.isArray(data) ? data[0] : null;
-  if (!row?.allowed) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
+
+  const request = ctx.req as object;
+  let requestClaims = deviceClaimByRequest.get(request);
+  if (!requestClaims) {
+    requestClaims = new Map<string, Promise<void>>();
+    deviceClaimByRequest.set(request, requestClaims);
   }
+  const claimKey = `${ctx.user!.openId}:${deviceId}`;
+  let claim = requestClaims.get(claimKey);
+  if (!claim) {
+    claim = (async () => {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
+        p_user_id: ctx.user!.openId,
+        p_device_id: deviceId,
+        p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الجهاز." });
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row?.allowed) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
+      }
+    })();
+    // Keep both success and failure for this request only so a batch cannot fan out
+    // repeated device RPCs or produce inconsistent decisions within the same request.
+    requestClaims.set(claimKey, claim);
+  }
+  await claim;
 }
 
 const requireUser = t.middleware(async opts => {
@@ -60,15 +82,40 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
+// Reuse the maintenance-mode read only among procedures in the same HTTP
+// batch. A new request always re-reads the setting, so administrative changes
+// are not hidden by a cross-request cache.
+const maintenanceSettingByRequest = new WeakMap<object, Promise<{ is_enabled: boolean; message: string | null } | null>>();
+
+async function readMaintenanceSettingForRequest(ctx: TrpcContext) {
+  const request = ctx.req as object | undefined;
+  if (!request) {
+    const { data, error } = await supabaseAdmin().from("platform_settings")
+      .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });
+    return data;
+  }
+
+  let pending = maintenanceSettingByRequest.get(request);
+  if (!pending) {
+    pending = (async () => {
+      const { data, error } = await supabaseAdmin().from("platform_settings")
+        .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });
+      return data;
+    })();
+    maintenanceSettingByRequest.set(request, pending);
+  }
+  return pending;
+}
+
 const enforceMaintenanceMode = t.middleware(async opts => {
   const user = opts.ctx.user;
   if (user?.role === "admin" && !isActivePlatformIdentity(user)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "حساب المنصة الإداري غير نشط أو لا يملك دور منصة صالحاً." });
   }
   if (!user || isActivePlatformAdmin(user) || isActivePlatformSupport(user) || opts.path === "auth.me") return opts.next();
-  const { data: maintenance, error } = await supabaseAdmin().from("platform_settings")
-    .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
-  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });
+  const maintenance = await readMaintenanceSettingForRequest(opts.ctx);
   if (maintenance?.is_enabled) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: maintenance.message || "المنصة تحت الصيانة مؤقتاً. يرجى المحاولة لاحقاً." });
   }

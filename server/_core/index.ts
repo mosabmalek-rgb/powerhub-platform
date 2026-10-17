@@ -115,6 +115,34 @@ export function createPowerHubApp() {
     message: "هذا المسار قديم؛ تتم الجدولة حالياً عبر Supabase Cron.",
   }));
   // tRPC API
+  // Emit low-volume latency telemetry for slow API requests only. Never log
+  // request bodies, authorization headers, cookies, or user-supplied values.
+  app.use("/api/trpc", (req, res, next) => {
+    const startedAt = performance.now();
+    res.once("finish", () => {
+      const durationMs = Math.round(performance.now() - startedAt);
+      if (durationMs < 800) return;
+      // Use only the pathname (never the query string, which can contain input).
+      // Express strips the mounted prefix from req.path, so originalUrl is needed
+      // to capture tRPC procedure names in batched requests.
+      const route = req.originalUrl
+        .split("?", 1)[0]
+        .replace(/^\/api\/trpc\/?/, "")
+        .split(",")
+        .map((part) => part.replace(/[^a-zA-Z0-9_.$/-]/g, "").slice(0, 120))
+        .filter(Boolean)
+        .join(",");
+      console.warn("[PowerHub API latency]", {
+        route: route || "unknown",
+        method: req.method,
+        status: res.statusCode,
+        durationMs,
+        responseBytes: Number(res.getHeader("content-length") ?? 0) || undefined,
+        vercelRegion: process.env.VERCEL_REGION ?? "local",
+      });
+    });
+    next();
+  });
   app.use(
     "/api/trpc",
     createExpressMiddleware({
