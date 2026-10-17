@@ -8,7 +8,8 @@ import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-
 import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { toast } from "sonner";
 
 const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع" } as const;
@@ -20,11 +21,11 @@ function getErrorMessage(error: unknown) { return error instanceof Error ? error
 export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { siteId: number; userId: number; compact?: boolean }) {
   const utils = trpc.useUtils();
   const [items, setItems] = useState<QueuedOfflineWork[]>([]);
-  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const { isOnline, reconnectGeneration } = usePowerHubConnectivity();
   const [syncing, setSyncing] = useState(false);
+  const lastAutoSyncGeneration = useRef(0);
   const load = useCallback(async () => { try { setItems(await listOfflineWork({ userId, siteId })); } catch { toast.error("تعذر قراءة مسودات العمل المحلي على هذا الجهاز."); } }, [siteId, userId]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { const online = () => setIsOnline(true); const offline = () => setIsOnline(false); window.addEventListener("online", online); window.addEventListener("offline", offline); return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); }; }, []);
 
   const createSubscriber = trpc.powerhub.subscribers.create.useMutation();
   const updateSubscriber = trpc.powerhub.subscribers.update.useMutation();
@@ -150,10 +151,50 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     finally { setSyncing(false); await load(); }
   };
 
+  const retryFailedAndSync = async () => {
+    if (!isOnline) return toast.error("تحتاج إلى اتصال قبل إعادة المحاولة.");
+    try {
+      const [allItems, metadataRows] = await Promise.all([
+        listOfflineWork({ userId, siteId }),
+        listSyncMetadata({ userId, siteId }),
+      ]);
+      const now = Date.now();
+      for (const item of allItems.filter((entry) => entry.status === "failed")) {
+        const metadata = metadataRows.find((row) => row.operationId === item.clientOperationId);
+        // Only retry transient failures. Validation/auth rejection and conflicts
+        // remain blocked until the underlying issue is reviewed.
+        if (metadata && metadata.outcome !== "retryable") continue;
+        if (metadata) {
+          const { lastError: previousError, ...baseMetadata } = metadata;
+          void previousError;
+          await upsertSyncMetadata({
+            ...baseMetadata,
+            attempts: 0,
+            nextAttemptAt: now,
+            outcome: "pending",
+            updatedAt: now,
+          });
+        }
+        await updateOfflineWork(item.id, { status: "pending", error: undefined });
+      }
+      await load();
+      await syncPending();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  useEffect(() => {
+    if (!isOnline || reconnectGeneration === 0 || lastAutoSyncGeneration.current === reconnectGeneration) return;
+    lastAutoSyncGeneration.current = reconnectGeneration;
+    void load();
+    void syncPending();
+  }, [isOnline, reconnectGeneration, load]);
+
   const pending = items.filter((item) => item.status === "pending" || (item.status === "failed"));
   const unresolved = items.filter((item) => item.status !== "applied");
   if (compact && !items.length) return null;
-  return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><CloudOff className="h-4 w-4" />مركز مزامنة المسودات</div><p className="mt-1 text-xs leading-5 text-slate-400">تُحفظ المسودات محلياً أولاً. لا يصدر رقم فاتورة ولا يتغير سجل مالي قبل قبول الخادم للعملية؛ والتحصيل المعلق لا يملك إيصالاً رسمياً قبل قبول المزامنة.</p></div><div className="flex items-center gap-2"><Badge className={isOnline ? "bg-emerald-400/10 text-emerald-300" : "bg-amber-400/10 text-amber-200"}>{isOnline ? "متصل" : "دون اتصال"}</Badge><Button size="sm" disabled={!isOnline || !pending.length || syncing} onClick={() => void syncPending()} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]"><RefreshCw className={`ml-1.5 h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />مزامنة المعلقة ({pending.length})</Button></div></div>
-    {items.length ? <div className="mt-4 space-y-2">{items.map((item) => <div key={item.id} className="flex flex-col gap-3 rounded-xl border border-white/8 bg-white/[.018] p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-sm text-white">{labelByKind[item.kind]} {item.appliedLabel ? `— ${item.appliedLabel}` : ""}</p><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString("ar-IQ")} · {labelByStatus[item.status]}</p>{item.error ? <p className="mt-1 max-w-2xl text-xs text-rose-200">{item.error}</p> : null}</div><div className="flex items-center gap-2"><Badge className={item.status === "applied" ? "bg-emerald-400/10 text-emerald-300" : item.status === "conflict" ? "bg-rose-400/10 text-rose-200" : item.status === "failed" ? "bg-amber-400/10 text-amber-200" : "bg-sky-400/10 text-sky-200"}>{item.status === "conflict" ? <AlertTriangle className="ml-1 h-3 w-3" /> : item.status === "applied" ? <CheckCircle2 className="ml-1 h-3 w-3" /> : null}{labelByStatus[item.status]}</Badge>{["pending", "failed"].includes(item.status) ? <Button size="sm" variant="outline" disabled={!isOnline || syncing} onClick={() => void syncPending()} className="border-white/15 text-slate-100"><RefreshCw className="ml-1 h-3 w-3" />مزامنة</Button> : null}<Button aria-label={`حذف مسودة ${labelByKind[item.kind]}`} size="icon" variant="ghost" disabled={syncing} onClick={() => void removeOfflineWork(item.id).then(load)} className="h-8 w-8 text-slate-400 hover:bg-rose-400/10 hover:text-rose-200"><Trash2 className="h-3.5 w-3.5" /></Button></div></div>)}</div> : <p className="mt-4 rounded-xl border border-dashed border-white/10 px-4 py-5 text-center text-sm text-slate-500">لا توجد مسودات محلية في هذا الفرع.</p>}
+  return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><CloudOff className="h-4 w-4" />مركز مزامنة المسودات</div><p className="mt-1 text-xs leading-5 text-slate-400">تُحفظ المسودات محلياً أولاً. لا يصدر رقم فاتورة ولا يتغير سجل مالي قبل قبول الخادم للعملية؛ والتحصيل المعلق لا يملك إيصالاً رسمياً قبل قبول المزامنة.</p></div><div className="flex items-center gap-2"><Badge className={isOnline ? "bg-emerald-400/10 text-emerald-300" : "bg-amber-400/10 text-amber-200"}>{isOnline ? "متصل" : "دون اتصال"}</Badge><Button size="sm" disabled={!isOnline || !pending.length || syncing} onClick={() => void retryFailedAndSync()} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]"><RefreshCw className={`ml-1.5 h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />مزامنة المعلقة ({pending.length})</Button></div></div>
+    {items.length ? <div className="mt-4 space-y-2">{items.map((item) => <div key={item.id} className="flex flex-col gap-3 rounded-xl border border-white/8 bg-white/[.018] p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-sm text-white">{labelByKind[item.kind]} {item.appliedLabel ? `— ${item.appliedLabel}` : ""}</p><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString("ar-IQ")} · {labelByStatus[item.status]}</p>{item.error ? <p className="mt-1 max-w-2xl text-xs text-rose-200">{item.error}</p> : null}</div><div className="flex items-center gap-2"><Badge className={item.status === "applied" ? "bg-emerald-400/10 text-emerald-300" : item.status === "conflict" ? "bg-rose-400/10 text-rose-200" : item.status === "failed" ? "bg-amber-400/10 text-amber-200" : "bg-sky-400/10 text-sky-200"}>{item.status === "conflict" ? <AlertTriangle className="ml-1 h-3 w-3" /> : item.status === "applied" ? <CheckCircle2 className="ml-1 h-3 w-3" /> : null}{labelByStatus[item.status]}</Badge>{["pending", "failed"].includes(item.status) ? <Button size="sm" variant="outline" disabled={!isOnline || syncing} onClick={() => void retryFailedAndSync()} className="border-white/15 text-slate-100"><RefreshCw className="ml-1 h-3 w-3" />مزامنة</Button> : null}<Button aria-label={`حذف مسودة ${labelByKind[item.kind]}`} size="icon" variant="ghost" disabled={syncing} onClick={() => void removeOfflineWork(item.id).then(load)} className="h-8 w-8 text-slate-400 hover:bg-rose-400/10 hover:text-rose-200"><Trash2 className="h-3.5 w-3.5" /></Button></div></div>)}</div> : <p className="mt-4 rounded-xl border border-dashed border-white/10 px-4 py-5 text-center text-sm text-slate-500">لا توجد مسودات محلية في هذا الفرع.</p>}
     {unresolved.some((item) => item.status === "conflict") ? <p className="mt-3 text-xs leading-5 text-amber-100">تحذير: التعارض لا يدمج تلقائياً. احذف المسودة بعد مراجعة السجل الحالي وأنشئ تعديلاً جديداً من بيانات الخادم.</p> : null}</CardContent></Card>;
 }

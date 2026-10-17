@@ -5,7 +5,11 @@ const DATABASE_NAME = "powerhub-offline-cache";
 const DATABASE_VERSION = 2;
 const QUERY_STORE = "queries";
 const AUTH_STORE = "auth-users";
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+export const OFFLINE_QUERY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+export const OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER = 200;
+export const OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES = 2 * 1024 * 1024;
+let successfulWritesSincePrune = 0;
+let pruneInFlight: Promise<void> | null = null;
 
 const CACHEABLE_PROCEDURES = new Set([
   "sites",
@@ -48,10 +52,15 @@ type OfflineAuthUserRecord = {
 };
 
 export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
-  const strings = collectStrings(queryKey);
-  if (!strings.includes("powerhub")) return false;
-  if (strings.some((value) => BLOCKED_PROCEDURES.has(value))) return false;
-  return strings.some((value) => CACHEABLE_PROCEDURES.has(value));
+  const first = queryKey[0];
+  const segments = Array.isArray(first)
+    ? first.filter((part): part is string => typeof part === "string")
+    : typeof first === "string"
+      ? queryKey.slice(0, 3).filter((part): part is string => typeof part === "string")
+      : [];
+  if (segments[0] !== "powerhub") return false;
+  if (segments.some((value) => BLOCKED_PROCEDURES.has(value))) return false;
+  return CACHEABLE_PROCEDURES.has(segments[1] ?? "");
 }
 
 export function offlineQueryCacheKey(queryKey: readonly unknown[]) {
@@ -70,13 +79,6 @@ export function isOfflineQueryRecordUsable(
   } catch {
     return false;
   }
-}
-
-function collectStrings(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.flatMap(collectStrings);
-  if (value && typeof value === "object") return Object.values(value).flatMap(collectStrings);
-  return [];
 }
 
 function assertIndexedDb() {
@@ -112,9 +114,49 @@ async function withStore<T>(storeName: string, mode: IDBTransactionMode, action:
   });
 }
 
+async function deleteQueryCacheKeys(keys: readonly string[]) {
+  if (!keys.length) return;
+  const database = await openDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(QUERY_STORE, "readwrite");
+    const store = transaction.objectStore(QUERY_STORE);
+    for (const key of keys) store.delete(key);
+    transaction.oncomplete = () => { database.close(); resolve(); };
+    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error("تعذر تنظيف الكاش المحلي.")); };
+    transaction.onabort = () => { database.close(); reject(transaction.error ?? new Error("تم إلغاء تنظيف الكاش المحلي.")); };
+  });
+}
+
+export async function pruneOfflineQueryCache(now = Date.now()) {
+  if (pruneInFlight) return pruneInFlight;
+  pruneInFlight = (async () => {
+    let records: OfflineQueryRecord[];
+    try { records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll()); } catch { return; }
+    const remove = new Set<string>();
+    const byUser = new Map<string, OfflineQueryRecord[]>();
+    for (const record of records) {
+      const valid = Number.isFinite(record.expiresAt) && record.expiresAt > now &&
+        typeof record.userId === "string" && record.userId.length > 0 &&
+        typeof record.serializedData === "string" && typeof record.serializedQueryKey === "string" &&
+        isOfflineQueryRecordUsable(record, record.userId, now);
+      if (!valid) { remove.add(record.key); continue; }
+      const group = byUser.get(record.userId) ?? [];
+      group.push(record);
+      byUser.set(record.userId, group);
+    }
+    for (const group of byUser.values()) {
+      group.sort((a, b) => b.updatedAt - a.updatedAt);
+      for (const record of group.slice(OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER)) remove.add(record.key);
+    }
+    try { await deleteQueryCacheKeys([...remove]); } catch { /* cache maintenance is best effort */ }
+  })().finally(() => { pruneInFlight = null; });
+  return pruneInFlight;
+}
+
 export async function hydrateOfflineQueryCache(queryClient: QueryClient, userId: string, now = Date.now()) {
   let records: OfflineQueryRecord[] = [];
   try {
+    await pruneOfflineQueryCache(now);
     records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
   } catch {
     return 0;
@@ -140,19 +182,38 @@ export async function persistOfflineQuery(query: Query, userId: string, now = Da
   if (!isOfflineCacheableQueryKey(query.queryKey)) return;
 
   const serializedQueryKey = offlineQueryCacheKey(query.queryKey);
+  const serializedData = superjson.stringify(query.state.data);
+  if (new TextEncoder().encode(serializedData).byteLength > OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES) {
+    await deleteQueryCacheKeys([userId + ":" + serializedQueryKey]).catch(() => undefined);
+    return;
+  }
   const record: OfflineQueryRecord = {
-    key: `${userId}:${serializedQueryKey}`,
+    key: userId + ":" + serializedQueryKey,
     userId,
     serializedQueryKey,
-    serializedData: superjson.stringify(query.state.data),
+    serializedData,
     updatedAt: query.state.dataUpdatedAt || now,
-    expiresAt: now + CACHE_TTL_MS,
+    expiresAt: now + OFFLINE_QUERY_CACHE_TTL_MS,
   };
 
   try {
     await withStore("queries", "readwrite", (store) => store.put(record));
+    successfulWritesSincePrune += 1;
+    if (successfulWritesSincePrune >= 20) {
+      successfulWritesSincePrune = 0;
+      void pruneOfflineQueryCache(now);
+    }
   } catch {
     // Offline persistence is an enhancement; never let it break the live query.
+  }
+}
+
+export async function clearOfflineQueryCacheForUser(userId: string) {
+  try {
+    const records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
+    await deleteQueryCacheKeys(records.filter((record) => record.userId === userId).map((record) => record.key));
+  } catch {
+    // Best-effort privacy cleanup must not break the sign-out flow.
   }
 }
 

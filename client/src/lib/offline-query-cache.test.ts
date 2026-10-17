@@ -21,9 +21,12 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
   });
 
-  it("rejects unrelated namespaces from the offline cache", () => {
+  it("rejects unrelated namespaces and similarly named nested data", () => {
     expect(isOfflineCacheableQueryKey(["users", "list"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["settings", "get"])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub", "subscriberQuota", "get", { label: "subscribers" }])).toBe(false);
+    expect(isOfflineCacheableQueryKey([["powerhub", "subscribers", "list"], { input: { siteId: 7 } }])).toBe(true);
+    expect(isOfflineCacheableQueryKey([["powerhub", "payments", "list"], { input: { siteId: 7 } }])).toBe(false);
   });
 
   it("keeps site-scoped query keys distinct after serialization", () => {

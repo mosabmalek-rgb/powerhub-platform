@@ -7,7 +7,8 @@ import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
 import { getSupabaseAccessToken, getSupabaseSession, subscribeSupabaseAuthState } from "./lib/supabase";
-import { hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
+import { clearOfflineQueryCacheForUser, hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
+import { probePowerHubConnectivity } from "./lib/offline-connectivity";
 import { getPowerHubDeviceId, getValidOfflineAuthLease } from "./lib/offline-auth";
 import "./index.css";
 
@@ -25,11 +26,19 @@ const queryClient = new QueryClient({
 
 onlineManager.setEventListener((setOnline) => {
   if (typeof window === "undefined") return () => undefined;
-  const handleOnline = () => setOnline(true);
+  let disposed = false;
+  const verify = () => {
+    void probePowerHubConnectivity().then((reachable) => {
+      if (!disposed) setOnline(reachable);
+    });
+  };
+  const handleOnline = () => verify();
   const handleOffline = () => setOnline(false);
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
+  verify();
   return () => {
+    disposed = true;
     window.removeEventListener("online", handleOnline);
     window.removeEventListener("offline", handleOffline);
   };
@@ -107,14 +116,45 @@ async function bootstrapOfflineState() {
   }
 
   subscribeSupabaseAuthState((event, session) => {
+    const previousUserId = activeOfflineUserId;
     const nextUserId = session?.user.id ?? null;
-    if (nextUserId === activeOfflineUserId) return;
+
+    if (event === "SIGNED_OUT") {
+      let explicitLogout = false;
+      try {
+        explicitLogout = window.localStorage.getItem("powerhub:explicit-logout") === "1";
+      } catch {
+        // If storage is blocked, preserve the local cache; useAuth still revokes the lease.
+      }
+
+      if (explicitLogout) {
+        queryClient.clear();
+        if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
+        activeOfflineUserId = null;
+        return;
+      }
+
+      // Supabase can emit SIGNED_OUT after a transient session loss. Preserve the
+      // lease-scoped cache and restore it instead of treating that event as user intent.
+      void getValidOfflineAuthLease().then(async (lease) => {
+        if (!lease) {
+          activeOfflineUserId = null;
+          return;
+        }
+        activeOfflineUserId = lease.userId;
+        await hydrateOfflineQueryCache(queryClient, lease.userId);
+      });
+      return;
+    }
+
+    // An initial null session can occur while offline. Keep the lease-scoped
+    // cache in that case; only switch/clear when a real account is established.
+    if (!nextUserId || nextUserId === previousUserId) return;
 
     queryClient.clear();
+    if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
     activeOfflineUserId = nextUserId;
-    if (activeOfflineUserId) void hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
-
-    if (event === "SIGNED_OUT") activeOfflineUserId = null;
+    void hydrateOfflineQueryCache(queryClient, nextUserId);
   });
 
   queryClient.getQueryCache().subscribe((event) => {
@@ -140,6 +180,6 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     // Versioned URL forces an immediate Service Worker update after changing
     // cache semantics, even when a legacy worker had cached /sw.js itself.
-    void navigator.serviceWorker.register("/sw.js?v=4").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
+    void navigator.serviceWorker.register("/sw.js?v=5").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
   });
 }
