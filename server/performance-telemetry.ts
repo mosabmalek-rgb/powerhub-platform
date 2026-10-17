@@ -23,3 +23,33 @@ export async function measureSlowStage<T>(
     }
   }
 }
+
+/**
+ * Bound a network-dependent stage so a stalled upstream cannot leave a public
+ * page loading forever. When supported, the provided AbortSignal cancels the
+ * underlying HTTP request as well as ending the caller's wait.
+ */
+export async function withTimeout<T>(
+  operation: string,
+  stage: string,
+  work: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const controller = new AbortController();
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${operation} timed out at ${stage}`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([work(controller.signal), timeout]);
+  } catch (error) {
+    if (!controller.signal.aborted) controller.abort();
+    throw error;
+  } finally {
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+  }
+}
