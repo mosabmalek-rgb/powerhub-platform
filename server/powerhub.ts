@@ -2220,7 +2220,7 @@ export const powerhubRouter = router({
                   : Promise.resolve({ data: null, error: null }),
                 supabaseAdmin().rpc("powerhub_subscriber_portal_logo_access", { p_tenant_id: Number(payload.tenantId) }).abortSignal(signal),
                 payload.siteId
-                  ? supabaseAdmin().from("site_portal_settings").select("logo_key").eq("tenant_id", Number(payload.tenantId)).eq("site_id", Number(payload.siteId)).eq("is_enabled", true).maybeSingle().abortSignal(signal)
+                  ? supabaseAdmin().from("site_portal_settings").select("logo_key").eq("tenant_id", Number(payload.tenantId)).eq("site_id", Number(payload.siteId)).eq("is_enabled", true).maybeSingle()
                   : Promise.resolve({ data: null, error: null }),
               ]), 2_500));
             paymentDocumentationAvailable = !feature.error && Boolean(feature.data?.[0]?.allowed);
