@@ -131,6 +131,15 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
       }
       await refresh();
+      const successfulSubscriberChanges = results.filter((result) =>
+        (result.item.kind === "subscriber_create" || result.item.kind === "subscriber_update") &&
+        (result.outcome === "applied" || result.outcome === "already_applied"),
+      );
+      if (typeof window !== "undefined") {
+        for (const changedSiteId of new Set(successfulSubscriberChanges.map((result) => result.item.siteId))) {
+          window.dispatchEvent(new CustomEvent("powerhub:subscriber-directory-changed", { detail: { siteId: changedSiteId } }));
+        }
+      }
       const retriable = results.filter((r) => r.outcome === "retryable").length;
       const conflicts = results.filter((r) => r.outcome === "conflict").length;
       const completed = results.filter((r) => r.outcome === "applied" || r.outcome === "already_applied").length;
