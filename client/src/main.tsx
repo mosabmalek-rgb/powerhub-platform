@@ -118,19 +118,22 @@ async function bootstrapOfflineState() {
   subscribeSupabaseAuthState((event, session) => {
     const previousUserId = activeOfflineUserId;
     const nextUserId = session?.user.id ?? null;
-    if (nextUserId === previousUserId && event !== "SIGNED_OUT") return;
-
-    queryClient.clear();
-    activeOfflineUserId = nextUserId;
-    if (previousUserId && previousUserId !== nextUserId) {
-      void clearOfflineQueryCacheForUser(previousUserId);
-    }
-    if (activeOfflineUserId) void hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
 
     if (event === "SIGNED_OUT") {
+      queryClient.clear();
       if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
       activeOfflineUserId = null;
+      return;
     }
+
+    // An initial null session can occur while offline. Keep the lease-scoped
+    // cache in that case; only switch/clear when a real account is established.
+    if (!nextUserId || nextUserId === previousUserId) return;
+
+    queryClient.clear();
+    if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
+    activeOfflineUserId = nextUserId;
+    void hydrateOfflineQueryCache(queryClient, nextUserId);
   });
 
   queryClient.getQueryCache().subscribe((event) => {
