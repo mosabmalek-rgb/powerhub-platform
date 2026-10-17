@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { measureSlowStage } from "./performance-telemetry";
+import { measureSlowStage, withTimeout } from "./performance-telemetry";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -22,6 +22,15 @@ describe("privacy-safe stage latency telemetry", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await expect(measureSlowStage("readings.approve", "atomic_approval_rpc", async () => "ok", 250)).resolves.toBe("ok");
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("aborts a stalled stage and rejects when its deadline is exceeded", async () => {
+    let observedSignal: AbortSignal | undefined;
+    await expect(withTimeout("invoices.publicByToken", "shared_invoice_lookup_rpc", async (signal) => {
+      observedSignal = signal;
+      return new Promise<string>((resolve) => setTimeout(() => resolve("late result"), 50));
+    }, 5)).rejects.toThrow("invoices.publicByToken timed out at shared_invoice_lookup_rpc");
+    expect(observedSignal?.aborted).toBe(true);
   });
 
   it("logs a slow stage even when the operation throws, then preserves the error", async () => {
