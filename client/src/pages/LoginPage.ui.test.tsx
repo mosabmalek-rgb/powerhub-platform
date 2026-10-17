@@ -15,6 +15,8 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signInWithPassword: state.signInWithPassword, signUp: state.signUp } },
+}));
+vi.mock("@/lib/offline-connectivity", () => ({
   probePowerHubConnectivity: state.probePowerHubConnectivity,
 }));
 vi.mock("@/lib/offline-auth", () => ({
