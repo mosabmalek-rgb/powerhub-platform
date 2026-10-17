@@ -282,7 +282,7 @@ export default function BillingPage() {
               </div>
             </div>
           ) : previewInvoiceUrl ? (
-            <iframe key={previewReloadCount} ref={previewIframeRef} title="معاينة الفاتورة" src={previewInvoiceUrl} className="h-full min-h-0 w-full flex-1 bg-[#0D1117]" referrerPolicy="strict-origin-when-cross-origin" />
+            <iframe title="معاينة الفاتورة" key={previewReloadCount} ref={previewIframeRef} src={previewInvoiceUrl} className="h-full min-h-0 w-full flex-1 bg-[#0D1117]" referrerPolicy="strict-origin-when-cross-origin" />
           ) : null}
         </DialogContent>
       </Dialog>
