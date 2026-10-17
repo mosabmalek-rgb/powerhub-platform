@@ -10,6 +10,7 @@ import { can } from "@shared/powerhub-rbac";
 import { segmentArabicSms } from "@shared/sms-segmentation";
 import { MESSAGE_SCHEDULE_TIME_ZONE, buildMonthlyScheduleAnchor, buildWeeklyScheduleAnchor } from "@/lib/messaging-schedule";
 import { formatDateTimeLocalInTimeZone, parseDateTimeLocalInTimeZone } from "@/lib/zoned-date-time";
+import { previewMessageTemplate } from "@/lib/message-template-preview";
 import { BellRing, CircleAlert, Eye, FileText, KeyRound, Loader2, LockKeyhole, MessageSquareText, RotateCcw, ShieldCheck, WalletCards } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -39,23 +40,6 @@ const messageVariableOptions = [
 ] as const;
 const variableLabels = messageVariableOptions.map((item) => item.token);
 const variableButtonLabels: Record<string, string> = Object.fromEntries(messageVariableOptions.map((item) => [item.token, item.label]));
-const previewValues: Record<string, string> = {
-  subscriber_name: "أحمد علي", subscriber_no: "SUB-00125", invoice_no: "INV-2026-00125",
-  billing_period: "آب 2026", total_amount: "33,000.8", balance_due: "18,000.4", due_date: "31 آب 2026",
-  previous_reading: "12,450", current_reading: "12,785", consumption_kwh: "335", total_balance: "42,500.6",
-  invoice_link: "https://powerhub.example/invoice/INV-2026-00125", portal_link: "https://powerhub.example/portal?g=MAIN",
-};
-const previewMoneyKeys = new Set(["total_amount", "balance_due", "total_balance"]);
-const formatPreviewAmount = (value: string, settlementEnabled: boolean) => {
-  const amount = Number(value.replace(/,/g, ""));
-  if (!Number.isFinite(amount)) return value;
-  return new Intl.NumberFormat("en-US", settlementEnabled ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(settlementEnabled ? Math.trunc(amount) : amount);
-};
-const previewTemplate = (body: string, settlementEnabled: boolean) => body.replace(/{{\\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|total_balance|due_date|invoice_link|portal_link)\\s*}}/g, (_, key: string) => {
-  const value = previewValues[key] ?? "";
-  return previewMoneyKeys.has(key) ? formatPreviewAmount(value, settlementEnabled) : value;
-});
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>; }
 
 function UnifiedMessageHistoryPanel({ siteId }: { siteId: number }) {
@@ -359,7 +343,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
           {eventType === "invoice_issued" ? <select className={inputClass} value={invoiceStyle} onChange={(e) => setInvoiceStyle(e.target.value as typeof invoiceStyle)}><option value="details">الفاتورة بالطريقة الافتراضية</option><option value="portal_link">رابط الفاتورة + النص</option></select> : null}
           <textarea className={inputClass + " min-h-32 py-2"} value={body} onChange={(e) => setBody(e.target.value)} placeholder="اكتب نص الرسالة باستخدام المتغيرات المعتمدة." />
           <div className="grid gap-2 sm:grid-cols-2">{messageVariableOptions.map((item) => <Button key={item.token} type="button" size="sm" variant="outline" onClick={() => setBody((current) => current + (current && !current.endsWith(" ") ? " " : "") + item.token)} className="justify-start border-white/10 text-slate-200"><span className="font-bold">+ {item.label}</span><code className="mr-auto text-[10px] text-slate-500" dir="ltr">{item.token}</code></Button>)}</div>
-          <div className="rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-3"><p className="text-xs font-bold text-[#F5B800]">معاينة الرسالة النهائية</p><p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white">{previewTemplate(body, settlementDisplayEnabled)}</p>{eventType !== "invoice_issued" || invoiceStyle !== "portal_link" ? (() => { const renderedPreview = previewTemplate(body, settlementDisplayEnabled); const sms = segmentArabicSms(renderedPreview); return <div aria-live="polite" className={`mt-3 rounded-lg border px-3 py-2 text-xs ${sms.segmentCount > 1 ? "border-amber-400/25 bg-amber-400/[.06] text-amber-200" : "border-emerald-400/20 bg-emerald-400/[.04] text-emerald-200"}`}><strong>{sms.characterCount} حرفاً · {sms.segmentCount} رسالة SMS تقديرية</strong><p className="mt-1 text-slate-400">يُحسب العداد على النص المعروض بعد استبدال المتغيرات بقيم نموذجية؛ قد يختلف العدد الفعلي باختلاف اسم المشترك والروابط.</p></div>; })() : <p className="mt-3 text-xs text-slate-400">تُحسب شرائح الرسالة النهائية بعد إضافة رابط الفاتورة الفعلي.</p>}</div>
+          <div className="rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-3"><p className="text-xs font-bold text-[#F5B800]">معاينة الرسالة النهائية</p><p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white">{previewMessageTemplate(body, settlementDisplayEnabled)}</p>{eventType !== "invoice_issued" || invoiceStyle !== "portal_link" ? (() => { const renderedPreview = previewMessageTemplate(body, settlementDisplayEnabled); const sms = segmentArabicSms(renderedPreview); return <div aria-live="polite" className={`mt-3 rounded-lg border px-3 py-2 text-xs ${sms.segmentCount > 1 ? "border-amber-400/25 bg-amber-400/[.06] text-amber-200" : "border-emerald-400/20 bg-emerald-400/[.04] text-emerald-200"}`}><strong>{sms.characterCount} حرفاً · {sms.segmentCount} رسالة SMS تقديرية</strong><p className="mt-1 text-slate-400">يُحسب العداد على النص المعروض بعد استبدال المتغيرات بقيم نموذجية؛ قد يختلف العدد الفعلي باختلاف اسم المشترك والروابط.</p></div>; })() : <p className="mt-3 text-xs text-slate-400">تُحسب شرائح الرسالة النهائية بعد إضافة رابط الفاتورة الفعلي.</p>}</div>
           <Button disabled={saveTemplate.isPending || !name.trim() || !body.trim()} onClick={submitTemplate}>{saveTemplate.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ القالب الموحد</Button>
           <div className="space-y-2">{(templates.data ?? []).map((t: any) => <button type="button" key={t.id} onClick={() => loadTemplate(t.id)} className="w-full rounded-lg border border-white/10 p-3 text-right hover:border-[#F5B800]/30"><div className="font-medium text-white">{t.name} <Badge>{t.channel}</Badge></div><div className="mt-1 text-xs text-slate-500">v{t.version} · {t.eventType ?? "عام"} · {t.isActive ? "نشط" : "متوقف"}</div></button>)}</div>
         </div>
