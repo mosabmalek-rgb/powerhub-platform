@@ -13,7 +13,7 @@ export function resolveOfflineAuthTransition(
   sessionUserId: string | null,
   explicitLogoutRequested: boolean,
 ): OfflineAuthTransition {
-  if (event === "SIGNED_OUT" && explicitLogoutRequested) return "explicit-sign-out";
+  if (explicitLogoutRequested && !sessionUserId) return "explicit-sign-out";
   if (sessionUserId) return "online-session";
   return "recover-offline-session";
 }
