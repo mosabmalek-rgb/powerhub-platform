@@ -4,7 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getValidOfflineAuthLease } from "@/lib/offline-auth";
 import { getOfflineAuthUser } from "@/lib/offline-query-cache";
-import { getSupabaseSession, supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import { probePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { ArrowRight, KeyRound, Loader2, Mail, ShieldCheck } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
@@ -33,22 +34,22 @@ export default function LoginPage() {
   useEffect(() => {
     let active = true;
 
-    // A persisted Supabase session object alone is not enough to prove that
-    // PowerHub can authorize the account. In particular, an expired/revoked
-    // token can otherwise bounce forever between /login and /workspace.
-    // While online, leave the password form available and let a fresh sign-in
-    // replace any stale local session. Offline entry requires a valid local lease.
-    void getSupabaseSession()
-      .then(async () => {
-        if (!active || !isBrowserOffline()) return;
-        const lease = await getValidOfflineAuthLease();
-        if (!active || !lease) return;
-        const cachedUser = await getOfflineAuthUser(lease.userId);
-        if (active && cachedUser) window.location.replace("/workspace");
-      })
-      .catch(() => {
-        // Keep the login form usable even if reading the persisted session fails.
-      });
+    const restoreOfflineWorkspace = async () => {
+      // navigator.onLine is only a hint. Verify the PowerHub origin before
+      // treating this device as offline or restoring a cached workspace.
+      if (!isBrowserOffline()) return;
+      const reachable = await probePowerHubConnectivity();
+      if (!active || reachable) return;
+
+      const lease = await getValidOfflineAuthLease();
+      if (!active || !lease) return;
+      const cachedUser = await getOfflineAuthUser(lease.userId);
+      if (active && cachedUser) window.location.replace("/workspace");
+    };
+
+    void restoreOfflineWorkspace().catch(() => {
+      // Keep the password form usable if browser storage or connectivity checks fail.
+    });
 
     return () => {
       active = false;
@@ -60,9 +61,9 @@ export default function LoginPage() {
     setError(null);
     setPending(true);
     try {
-      // When actually offline, only a verified local lease may reopen the cached
-      // workspace. Do not wait for network-backed Supabase session refresh first.
-      if (isBrowserOffline()) {
+      // The browser can report offline while this origin is reachable. Confirm
+      // the application server before deciding to use the offline lease path.
+      if (isBrowserOffline() && !(await probePowerHubConnectivity())) {
         const offlineLease = await getValidOfflineAuthLease();
         if (offlineLease) {
           const cachedUser = await getOfflineAuthUser(offlineLease.userId);
