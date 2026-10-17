@@ -5,7 +5,7 @@ import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease
 import { resolveOfflineAuthTransition } from "@/lib/offline-auth-state";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { onlineManager, useQueryClient } from "@tanstack/react-query";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -56,6 +56,7 @@ export function useAuth(options?: UseAuthOptions) {
   const [hasSession, setHasSession] = useState(false);
   const [authDataRevision, setAuthDataRevision] = useState(0);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [powerHubReachable, setPowerHubReachable] = useState(() => onlineManager.isOnline());
   const explicitLogoutInProgress = useRef(false);
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
@@ -187,6 +188,12 @@ export function useAuth(options?: UseAuthOptions) {
   }, [queryClient]);
 
   useEffect(() => {
+    const syncReachability = () => setPowerHubReachable(onlineManager.isOnline());
+    syncReachability();
+    return onlineManager.subscribe(syncReachability);
+  }, []);
+
+  useEffect(() => {
     if (authDataRevision === 0) return;
     void utils.auth.me.invalidate();
   }, [authDataRevision, utils.auth.me]);
@@ -246,8 +253,7 @@ export function useAuth(options?: UseAuthOptions) {
     !hasSession &&
       offlineLeaseUserId &&
       cachedUser &&
-      typeof navigator !== "undefined" &&
-      navigator.onLine === false,
+      !powerHubReachable,
   );
   // Keep the last confirmed profile during a transient auth.me failure/refetch.
   // The server remains the authority for every protected operation; this prevents
@@ -274,7 +280,7 @@ export function useAuth(options?: UseAuthOptions) {
     void getSupabaseSession().then(async (session) => {
       if (session) return;
       const lease = await getValidOfflineAuthLease();
-      if (lease || (typeof navigator !== "undefined" && navigator.onLine === false)) return;
+      if (lease || !powerHubReachable) return;
 
       if (redirectPath) {
         window.location.href = redirectPath;
@@ -288,6 +294,7 @@ export function useAuth(options?: UseAuthOptions) {
     meQuery.isLoading,
     sessionReady,
     state.user,
+    powerHubReachable,
   ]);
 
   return {
