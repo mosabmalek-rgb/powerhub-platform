@@ -33,7 +33,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const submitPaymentDocumentation = trpc.powerhub.paymentDocumentation.submit.useMutation();
   const approvePaymentDocumentation = trpc.powerhub.paymentDocumentation.approve.useMutation();
 
-  const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
+  const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.directoryPage.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
 
   const buildMetadata = async (pendingItems: QueuedOfflineWork[]) => {
     const stored = await listSyncMetadata({ userId, siteId });
