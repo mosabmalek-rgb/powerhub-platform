@@ -82,15 +82,40 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
+// Reuse the maintenance-mode read only among procedures in the same HTTP
+// batch. A new request always re-reads the setting, so administrative changes
+// are not hidden by a cross-request cache.
+const maintenanceSettingByRequest = new WeakMap<object, Promise<{ is_enabled: boolean; message: string | null } | null>>();
+
+async function readMaintenanceSettingForRequest(ctx: TrpcContext) {
+  const request = ctx.req as object | undefined;
+  if (!request) {
+    const { data, error } = await supabaseAdmin().from("platform_settings")
+      .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });
+    return data;
+  }
+
+  let pending = maintenanceSettingByRequest.get(request);
+  if (!pending) {
+    pending = (async () => {
+      const { data, error } = await supabaseAdmin().from("platform_settings")
+        .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });
+      return data;
+    })();
+    maintenanceSettingByRequest.set(request, pending);
+  }
+  return pending;
+}
+
 const enforceMaintenanceMode = t.middleware(async opts => {
   const user = opts.ctx.user;
   if (user?.role === "admin" && !isActivePlatformIdentity(user)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "حساب المنصة الإداري غير نشط أو لا يملك دور منصة صالحاً." });
   }
   if (!user || isActivePlatformAdmin(user) || isActivePlatformSupport(user) || opts.path === "auth.me") return opts.next();
-  const { data: maintenance, error } = await supabaseAdmin().from("platform_settings")
-    .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
-  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });
+  const maintenance = await readMaintenanceSettingForRequest(opts.ctx);
   if (maintenance?.is_enabled) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: maintenance.message || "المنصة تحت الصيانة مؤقتاً. يرجى المحاولة لاحقاً." });
   }
