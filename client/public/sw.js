@@ -1,5 +1,5 @@
-const SHELL_CACHE = "powerhub-shell-v5";
-const ASSET_CACHE = "powerhub-assets-v5";
+const SHELL_CACHE = "powerhub-shell-v6";
+const ASSET_CACHE = "powerhub-assets-v6";
 const CACHE_PREFIX = "powerhub-";
 const APP_SHELL = ["/", "/login", "/workspace", "/manifest.json"];
 const NAVIGATION_TIMEOUT_MS = 2_500;
