@@ -5,6 +5,21 @@ import { checkTweetSmsBalance, sendTweetSms, type TweetSmsCredentials } from "./
 import { normalizeInternationalPhone } from "../shared/phone";
 import { writeSupabaseAudit } from "./powerhub-supabase";
 
+type SafeSupabaseWorkerError = { code?: string | null; message?: string | null } | null | undefined;
+
+function logSupabaseWorkerQueryFailure(operation: string, error: SafeSupabaseWorkerError): void {
+  const rawCode = typeof error?.code === "string" ? error.code : "";
+  const rawMessage = typeof error?.message === "string" ? error.message : "Unknown Supabase error";
+  const safeMessage = rawMessage
+    .replace(/(\bbearer\s+)[^\s,;]+/gi, "$1[REDACTED]")
+    .replace(/\b(api[_ -]?key|secret|password|token)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]")
+    .slice(0, 500);
+  console.error(`[notification-worker] ${operation} failed`, {
+    code: /^[A-Z0-9_]{2,16}$/.test(rawCode) ? rawCode : "unknown",
+    message: safeMessage,
+  });
+}
+
 type ReviewPersistenceState = "persisted" | "not_persisted" | "unknown";
 type DispatchResult = { status: "submitted" | "failed" | "skipped" | "needs_review"; providerMessageId?: string | null; error?: string; reviewPersistenceState?: ReviewPersistenceState };
 type SmsClaim = {
@@ -259,7 +274,7 @@ export async function processNotificationQueueForTenant(tenantId: number, actorU
 export async function processAutomaticUnifiedNotifications(now = new Date()) {
   const admin = supabaseAdmin();
   const { error: reclaimError } = await admin.rpc("powerhub_reclaim_stale_sms_notifications", { p_limit: 200 });
-  if (reclaimError) throw new Error("تعذر استرداد رسائل المراسلة الموحدة العالقة قبل بدء الدورة.");
+  if (reclaimError) { logSupabaseWorkerQueryFailure("unified stale-message reclaim", reclaimError); throw new Error("تعذر استرداد رسائل المراسلة الموحدة العالقة قبل بدء الدورة."); }
 
   const { data: messages, error: messagesError } = await admin
     .from("notification_messages")
@@ -273,7 +288,7 @@ export async function processAutomaticUnifiedNotifications(now = new Date()) {
     .order("scheduled_at", { ascending: true })
     .order("id", { ascending: true })
     .limit(200);
-  if (messagesError) throw new Error("تعذر تحميل رسائل المراسلة الموحدة المعلقة.");
+  if (messagesError) { logSupabaseWorkerQueryFailure("unified pending-message query", messagesError); throw new Error("تعذر تحميل رسائل المراسلة الموحدة المعلقة."); }
 
   const { data: actor, error: actorError } = await admin.from("users")
     .select("id")
@@ -282,7 +297,7 @@ export async function processAutomaticUnifiedNotifications(now = new Date()) {
     .order("id", { ascending: true })
     .limit(1)
     .maybeSingle();
-  if (actorError) throw new Error("تعذر تحديد منفذ المعالجة المركزي للمراسلات الموحدة.");
+  if (actorError) { logSupabaseWorkerQueryFailure("unified platform actor lookup", actorError); throw new Error("تعذر تحديد منفذ المعالجة المركزي للمراسلات الموحدة."); }
   if (!actor) throw new Error("لا يوجد حساب آدمن منصة نشط لمعالجة المراسلات الموحدة.");
 
   const notificationRows = (messages ?? []).filter((row: any) => Number.isInteger(Number(row.id)) && Number.isInteger(Number(row.tenant_id)) && Number.isInteger(Number(row.subscriber_id)));
@@ -290,7 +305,7 @@ export async function processAutomaticUnifiedNotifications(now = new Date()) {
   const { data: subscribers, error: subscribersError } = subscriberIds.length
     ? await admin.from("subscribers").select("id,tenant_id,site_id").in("id", subscriberIds)
     : { data: [], error: null };
-  if (subscribersError) throw new Error("تعذر التحقق من فروع رسائل المراسلة الموحدة.");
+  if (subscribersError) { logSupabaseWorkerQueryFailure("unified subscriber-scope query", subscribersError); throw new Error("تعذر التحقق من فروع رسائل المراسلة الموحدة."); }
   const subscriberScope = new Map((subscribers ?? []).map((row: any) => [Number(row.id), { tenantId: Number(row.tenant_id), siteId: Number(row.site_id) }]));
   const byScope = new Map<string, { tenantId: number; siteId: number; ids: number[] }>();
   for (const row of notificationRows) {
@@ -318,7 +333,7 @@ export async function processAutomaticUnifiedNotifications(now = new Date()) {
       .eq("status", "pending")
       .not("scheduled_at", "is", null)
       .lte("scheduled_at", now.toISOString());
-    if (scopeError) throw new Error("تعذر التحقق من عزل مستأجر رسائل المراسلة الموحدة.");
+    if (scopeError) { logSupabaseWorkerQueryFailure("unified message tenant-scope recheck", scopeError); throw new Error("تعذر التحقق من عزل مستأجر رسائل المراسلة الموحدة."); }
     const scopedIds = (scopedRows ?? [])
       .filter((row: any) => subscriberScope.get(Number(row.subscriber_id))?.tenantId === tenantId && subscriberScope.get(Number(row.subscriber_id))?.siteId === siteId)
       .map((row: any) => Number(row.id))
@@ -370,7 +385,7 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
   const admin = supabaseAdmin();
 
   const { error: reclaimError } = await admin.rpc("powerhub_reclaim_stale_sms_notifications", { p_limit: 200 });
-  if (reclaimError) throw new Error("تعذر استرداد رسائل SMS العالقة قبل بدء الدورة.");
+  if (reclaimError) { logSupabaseWorkerQueryFailure("invoice SMS stale-message reclaim", reclaimError); throw new Error("تعذر استرداد رسائل SMS العالقة قبل بدء الدورة."); }
 
   // Business rule: the only automatic SMS is invoice_issued.
   // The cron is an internal dispatcher only; tenant-configured cycles are enforced by scheduled_at.
@@ -387,7 +402,7 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
     .order("created_at", { ascending: true })
     .limit(200);
 
-  if (messagesError) throw new Error("تعذر تحميل رسائل فواتير SMS المعلقة.");
+  if (messagesError) { logSupabaseWorkerQueryFailure("invoice SMS pending-message query", messagesError); throw new Error("تعذر تحميل رسائل فواتير SMS المعلقة."); }
 
   const { data: actor, error: actorError } = await admin
     .from("users")
@@ -398,7 +413,7 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
     .limit(1)
     .maybeSingle();
 
-  if (actorError) throw new Error("تعذر تحديد منفذ المعالجة المركزي.");
+  if (actorError) { logSupabaseWorkerQueryFailure("invoice SMS platform actor lookup", actorError); throw new Error("تعذر تحديد منفذ المعالجة المركزي."); }
   if (!actor) throw new Error("لا يوجد حساب آدمن منصة نشط لمعالجة طابور SMS.");
 
   const byTenant = new Map<number, number[]>();

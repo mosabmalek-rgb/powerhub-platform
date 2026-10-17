@@ -161,6 +161,43 @@ describe("عامل TweetSMS عبر Supabase", () => {
     expect(provider.balance).toHaveBeenCalledTimes(1);
   });
 
+  it("logs safe Supabase diagnostics when the unified worker cannot resolve its platform actor", async () => {
+    const now = new Date("2026-10-16T12:41:00.000Z");
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    state.rpc.mockResolvedValueOnce({ data: 0, error: null });
+    state.from.mockImplementation((table: string) => {
+      const query: any = {
+        select() { return query; },
+        eq() { return query; },
+        in() { return query; },
+        neq() { return query; },
+        not() { return query; },
+        lte() { return query; },
+        order() { return query; },
+        limit() { return query; },
+        maybeSingle: async () => table === "users"
+          ? { data: null, error: { code: "42703", message: "column platform_role does not exist; api_key=do-not-log" } }
+          : { data: null, error: null },
+        then(resolve: (value: unknown) => unknown) {
+          return Promise.resolve({ data: [], error: null }).then(resolve);
+        },
+      };
+      return query;
+    });
+
+    try {
+      await expect(processAutomaticUnifiedNotifications(now)).rejects.toThrow("تعذر تحديد منفذ المعالجة المركزي للمراسلات الموحدة.");
+      expect(errorLog).toHaveBeenCalledWith("[notification-worker] unified platform actor lookup failed", {
+        code: "42703",
+        message: "column platform_role does not exist; api_key=[REDACTED]",
+      });
+      expect(errorLog.mock.calls.flat().join(" ")).not.toContain("do-not-log");
+      expect(provider.send).not.toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
   it("يعالج الرسائل الموحدة المستحقة ويستثني invoice_issued والمجدولة مستقبلاً", async () => {
     const encrypted = encryptTenantCredential(JSON.stringify({ apiKey: "tenant-key-123" }));
     const now = new Date("2026-10-08T10:00:00.000Z");
