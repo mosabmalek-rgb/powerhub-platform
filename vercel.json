@@ -13,7 +13,7 @@
     "api/[...path].js": {
       "includeFiles": "dist/index.js",
       "regions": [
-        "dub1"
+        "dxb1"
       ]
     }
   },
