@@ -4,7 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getValidOfflineAuthLease } from "@/lib/offline-auth";
 import { getOfflineAuthUser } from "@/lib/offline-query-cache";
-import { getSupabaseSession, supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import { probePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { ArrowRight, KeyRound, Loader2, Mail, ShieldCheck } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
@@ -32,27 +33,23 @@ export default function LoginPage() {
 
   useEffect(() => {
     let active = true;
-    void getSupabaseSession()
-      .then(async (session) => {
-        if (!active) return;
-        if (session) {
-          // A persisted, still-valid Supabase session is the trusted sign-in state
-          // for this device. Reuse it instead of forcing a network login.
-          window.location.replace("/workspace");
-          return;
-        }
 
-        // A local lease is a fallback for offline use only. When online, keep
-        // the form available so the user can establish a fresh Supabase session.
-        if (!isBrowserOffline()) return;
-        const lease = await getValidOfflineAuthLease();
-        if (!active || !lease) return;
-        const cachedUser = await getOfflineAuthUser(lease.userId);
-        if (active && cachedUser) window.location.replace("/workspace");
-      })
-      .catch(() => {
-        // Offline with no usable persisted session or lease: remain on the login form.
-      });
+    const restoreOfflineWorkspace = async () => {
+      // navigator.onLine is only a hint. Verify the PowerHub origin before
+      // treating this device as offline or restoring a cached workspace.
+      if (!isBrowserOffline()) return;
+      const reachable = await probePowerHubConnectivity();
+      if (!active || reachable) return;
+
+      const lease = await getValidOfflineAuthLease();
+      if (!active || !lease) return;
+      const cachedUser = await getOfflineAuthUser(lease.userId);
+      if (active && cachedUser) window.location.replace("/workspace");
+    };
+
+    void restoreOfflineWorkspace().catch(() => {
+      // Keep the password form usable if browser storage or connectivity checks fail.
+    });
 
     return () => {
       active = false;
@@ -64,16 +61,9 @@ export default function LoginPage() {
     setError(null);
     setPending(true);
     try {
-      const existingSession = await getSupabaseSession().catch(() => null);
-      if (existingSession) {
-        window.location.assign("/workspace");
-        return;
-      }
-
-      // Never let a cached offline lease bypass a real password login while
-      // the browser is online. Otherwise a stale lease can create a
-      // /login -> /workspace -> /login redirect loop.
-      if (isBrowserOffline()) {
+      // The browser can report offline while this origin is reachable. Confirm
+      // the application server before deciding to use the offline lease path.
+      if (isBrowserOffline() && !(await probePowerHubConnectivity())) {
         const offlineLease = await getValidOfflineAuthLease();
         if (offlineLease) {
           const cachedUser = await getOfflineAuthUser(offlineLease.userId);
@@ -85,12 +75,17 @@ export default function LoginPage() {
         throw new Error("لا يوجد اتصال بالإنترنت.");
       }
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      // Do not skip credential validation just because local storage contains a
+      // session. signInWithPassword must be allowed to replace stale/revoked state.
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
       if (signInError) throw signInError;
-      const session = await getSupabaseSession();
-      if (!session) throw new Error("تعذر تثبيت جلسة الدخول. حاول مرة أخرى.");
-      // Use a full navigation after sign-in so the protected route boots from
-      // the persisted Supabase session instead of racing React route state.
+      if (!data.session) throw new Error("تعذر تثبيت جلسة الدخول. حاول مرة أخرى.");
+
+      // The sign-in response itself contains the newly-created session. Avoid a
+      // second shared session read here, which may still hold an older snapshot.
       window.location.assign("/workspace");
     } catch (submitError) {
       setError(authMessage(submitError));

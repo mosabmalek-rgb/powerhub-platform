@@ -5,7 +5,7 @@ import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease
 import { resolveOfflineAuthTransition } from "@/lib/offline-auth-state";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { onlineManager, useQueryClient } from "@tanstack/react-query";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -13,6 +13,35 @@ type UseAuthOptions = {
 };
 
 const AUTH_DATA_EVENTS = new Set(["INITIAL_SESSION", "SIGNED_IN", "SIGNED_OUT", "USER_UPDATED"]);
+
+const OFFLINE_AUTH_BOOTSTRAP_TIMEOUT_MS = 1_500;
+const SESSION_BOOTSTRAP_TIMEOUT_MS = 5_000;
+
+function withTimeoutFallback<T>(promise: Promise<T>, fallback: T, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(fallback);
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
+}
 
 export function useAuth(options?: UseAuthOptions) {
   // Login is started via startLogin() in the effect below, only when we actually
@@ -27,6 +56,7 @@ export function useAuth(options?: UseAuthOptions) {
   const [hasSession, setHasSession] = useState(false);
   const [authDataRevision, setAuthDataRevision] = useState(0);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [powerHubReachable, setPowerHubReachable] = useState(() => onlineManager.isOnline());
   const explicitLogoutInProgress = useRef(false);
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
@@ -44,16 +74,26 @@ export function useAuth(options?: UseAuthOptions) {
     let transitionRevision = 0;
 
     const restoreOfflineUser = async (expectedRevision: number) => {
-      const lease = await getValidOfflineAuthLease();
+      // IndexedDB is only a best-effort offline enhancement. It must not keep
+      // the route gate in "loading" forever when browser storage stalls.
+      const lease = await withTimeoutFallback(
+        getValidOfflineAuthLease(),
+        null,
+        OFFLINE_AUTH_BOOTSTRAP_TIMEOUT_MS,
+      );
+      if (!active || transitionRevision !== expectedRevision) return;
       if (!lease) {
-        if (active && transitionRevision === expectedRevision) {
-          setCachedUser(null);
-          setOfflineLeaseUserId(null);
-          setSessionReady(true);
-        }
+        setCachedUser(null);
+        setOfflineLeaseUserId(null);
+        setSessionReady(true);
         return;
       }
-      const cached = await getOfflineAuthUser<CachedAuthUser>(lease.userId);
+
+      const cached = await withTimeoutFallback(
+        getOfflineAuthUser<CachedAuthUser>(lease.userId),
+        null,
+        OFFLINE_AUTH_BOOTSTRAP_TIMEOUT_MS,
+      );
       if (!active || transitionRevision !== expectedRevision) return;
       if (cached) {
         setCachedUser(cached);
@@ -96,10 +136,13 @@ export function useAuth(options?: UseAuthOptions) {
           setOfflineLeaseUserId(null);
         }
         setOfflineLeaseUserId(session.user.id);
+        // A real Supabase session is enough to finish the bootstrap phase.
+        // Do not wait for IndexedDB profile-cache reads to settle before letting
+        // auth.me validate the session and the protected route proceed.
+        setSessionReady(true);
         void getOfflineAuthUser<CachedAuthUser>(session.user.id).then((cached) => {
           if (!active || transitionRevision !== revision) return;
           if (cached) setCachedUser(cached);
-          setSessionReady(true);
         });
       } else {
         // INITIAL_SESSION(null), token/session recovery failures, and non-explicit
@@ -112,25 +155,30 @@ export function useAuth(options?: UseAuthOptions) {
     });
 
     // Subscribe first to avoid a session event racing the initial snapshot.
-    void getSupabaseSession().then(async (session) => {
-      if (!active) return;
+    // Bound session-storage initialization as well: a stalled browser auth lock
+    // should show the login route rather than an endless "redirecting" spinner.
+    // If an auth event arrives while this read is pending, it is newer and wins;
+    // a timeout fallback of null must never undo a successful SIGNED_IN event.
+    const initialReadRevision = transitionRevision;
+    void withTimeoutFallback(
+      getSupabaseSession(),
+      null,
+      SESSION_BOOTSTRAP_TIMEOUT_MS,
+    ).then((session) => {
+      if (!active || transitionRevision !== initialReadRevision) return;
       const revision = ++transitionRevision;
       observedUserId = session?.user.id ?? null;
       setHasSession(Boolean(session));
       if (session) {
-        const cached = await getOfflineAuthUser<CachedAuthUser>(session.user.id);
-        if (!active || transitionRevision !== revision) return;
-        if (cached) setCachedUser(cached);
         setOfflineLeaseUserId(session.user.id);
         setSessionReady(true);
+        void getOfflineAuthUser<CachedAuthUser>(session.user.id).then((cached) => {
+          if (!active || transitionRevision !== revision) return;
+          if (cached) setCachedUser(cached);
+        });
       } else {
-        await restoreOfflineUser(revision);
+        void restoreOfflineUser(revision);
       }
-    }).catch(async () => {
-      if (!active) return;
-      const revision = ++transitionRevision;
-      setHasSession(false);
-      await restoreOfflineUser(revision);
     });
 
     return () => {
@@ -138,6 +186,12 @@ export function useAuth(options?: UseAuthOptions) {
       unsubscribe();
     };
   }, [queryClient]);
+
+  useEffect(() => {
+    const syncReachability = () => setPowerHubReachable(onlineManager.isOnline());
+    syncReachability();
+    return onlineManager.subscribe(syncReachability);
+  }, []);
 
   useEffect(() => {
     if (authDataRevision === 0) return;
@@ -199,8 +253,7 @@ export function useAuth(options?: UseAuthOptions) {
     !hasSession &&
       offlineLeaseUserId &&
       cachedUser &&
-      typeof navigator !== "undefined" &&
-      navigator.onLine === false,
+      !powerHubReachable,
   );
   // Keep the last confirmed profile during a transient auth.me failure/refetch.
   // The server remains the authority for every protected operation; this prevents
@@ -227,7 +280,7 @@ export function useAuth(options?: UseAuthOptions) {
     void getSupabaseSession().then(async (session) => {
       if (session) return;
       const lease = await getValidOfflineAuthLease();
-      if (lease || (typeof navigator !== "undefined" && navigator.onLine === false)) return;
+      if (lease || !powerHubReachable) return;
 
       if (redirectPath) {
         window.location.href = redirectPath;
@@ -241,6 +294,7 @@ export function useAuth(options?: UseAuthOptions) {
     meQuery.isLoading,
     sessionReady,
     state.user,
+    powerHubReachable,
   ]);
 
   return {
