@@ -2221,10 +2221,11 @@ export const powerhubRouter = router({
           paymentDocumentationAvailable = !feature.error && Boolean(feature.data?.[0]?.allowed);
           companyName = (!branding.error && branding.data?.company_name?.trim()) || (!site.error && site.data?.name?.trim()) || null;
           const canUsePortalLogo = !portalLogoAccess.error && Boolean(portalLogoAccess.data?.[0]?.allowed);
-          if (canUsePortalLogo && !portalSetting.error && portalSetting.data?.logo_key) {
+          const portalLogoKey = portalSetting.data?.logo_key;
+          if (canUsePortalLogo && !portalSetting.error && portalLogoKey) {
             try {
               companyLogoUrl = await measureSlowStage("invoices.publicByToken", "sign_company_logo_url", async () =>
-                storageGetSignedUrl(portalSetting.data.logo_key));
+                storageGetSignedUrl(portalLogoKey));
             } catch {
               companyLogoUrl = null;
             }
