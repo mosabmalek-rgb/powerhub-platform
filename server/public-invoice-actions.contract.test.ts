@@ -33,11 +33,30 @@ describe("public invoice and inquiry actions", () => {
     expect(config.functions["api/[...path].js"].regions).toEqual(["sin1"]);
   });
 
+  it("bounds public invoice loading and returns a retryable iframe error instead of an endless spinner", () => {
+    const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
+    const server = read("server/powerhub.ts");
+    const telemetry = read("server/performance-telemetry.ts");
+    const billing = read("client/src/pages/BillingPage.tsx");
+    expect(publicInvoice).toContain("16_000");
+    expect(publicInvoice).toContain("تعذر تحميل الفاتورة الآن");
+    expect(publicInvoice).toContain("void invoiceQuery.refetch()");
+    expect(publicInvoice).toContain("powerhub-public-invoice-status");
+    expect(server).toContain("shared_invoice_lookup_rpc");
+    expect(server).toContain("8_000");
+    expect(server).toContain("parallel_branding_entitlement_queries");
+    expect(server).toContain("2_500");
+    expect(telemetry).toContain("controller.abort()");
+    expect(billing).toContain('previewInvoiceStatus === "error"');
+    expect(billing).toContain("إعادة المحاولة");
+    expect(billing).toContain("event.source !== previewIframeRef.current?.contentWindow");
+  });
+
   it("opens invoice preview as an overlay dialog without navigating away or opening a new tab", () => {
     const billing = read("client/src/pages/BillingPage.tsx");
     expect(billing).toContain("const [previewInvoiceUrl, setPreviewInvoiceUrl] = useState<string | null>(null)");
     expect(billing).toContain("setPreviewInvoiceUrl(`${window.location.origin}${result.path}`)");
-    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)} onOpenChange={(open) => !open && setPreviewInvoiceUrl(null)}>");
+    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)} onOpenChange={(open) => { if (!open) { setPreviewInvoiceUrl(null); updatePreviewStatus(\"loading\"); } }}>");
     expect(billing).toContain("<iframe title=\"معاينة الفاتورة\"");
     expect(billing).toContain("تظهر الفاتورة هنا فوق الصفحة الحالية");
   });
