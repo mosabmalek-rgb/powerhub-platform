@@ -53,7 +53,7 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/login"} component={LoginPage} />
-      <Route path={"/workspace"}>{() => <RouteAccessGate><WorkspaceHome /></RouteAccessGate>}</Route>
+      <Route path={"/workspace"} component={WorkspaceHome} />
       <Route path={"/setup"}>{() => <RouteAccessGate><SetupWizardPage /></RouteAccessGate>}</Route>
       <Route path={"/quick-actions"}>{() => <RouteAccessGate><QuickActionsPage /></RouteAccessGate>}</Route>
       <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
