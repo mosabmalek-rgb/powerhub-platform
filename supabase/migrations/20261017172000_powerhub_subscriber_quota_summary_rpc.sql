@@ -1,6 +1,7 @@
 -- Collapse the owner subscriber quota preflight into one PostgREST round trip.
--- The create RPCs remain authoritative: they take a tenant-scoped advisory transaction
--- lock and re-check the effective quota atomically before inserting.
+-- Match the current authoritative create RPC count exactly (all tenant subscribers,
+-- including archived rows) so the displayed remaining quota cannot overpromise capacity.
+-- The create RPC remains authoritative and checks quota under a tenant advisory lock.
 create or replace function public.powerhub_subscriber_quota_summary(
   p_tenant_id bigint
 )
@@ -25,7 +26,6 @@ as $function$
       select count(*)::integer
       from public.subscribers s
       where s.tenant_id = p_tenant_id
-        and s.archived_at is null
     ) as current_count,
     public.powerhub_effective_tenant_quota(
       p_tenant_id,
