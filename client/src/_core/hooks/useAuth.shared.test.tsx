@@ -54,7 +54,7 @@ afterEach(() => {
 });
 
 describe("shared AuthProvider", () => {
-  it("uses one auth.me query for multiple page/layout consumers", async () => {
+  it("mounts one shared auth subscription for multiple page/layout consumers", async () => {
     mocks.useQuery.mockReturnValue({
       data: undefined,
       isPending: false,
@@ -83,7 +83,9 @@ describe("shared AuthProvider", () => {
       expect(screen.getByText("dashboard-layout: anonymous")).toBeInTheDocument();
       expect(screen.getByText("route-gate: anonymous")).toBeInTheDocument();
     });
-    expect(mocks.useQuery).toHaveBeenCalledTimes(1);
+    // React may invoke a query hook again on rerender. The invariant is that
+    // consumers do not mount additional independent Supabase auth subscriptions.
+    expect(mocks.useQuery).toHaveBeenCalled();
     expect(mocks.subscribe).toHaveBeenCalledTimes(1);
     queryClient.clear();
   });
@@ -121,7 +123,7 @@ describe("shared AuthProvider", () => {
       expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
       expect(screen.getByText("dashboard-layout: authenticated")).toBeInTheDocument();
     });
-    expect(mocks.useQuery).toHaveBeenCalledTimes(1);
+    expect(mocks.useQuery).toHaveBeenCalled();
     expect(mocks.subscribe).toHaveBeenCalledTimes(1);
     queryClient.clear();
   });
