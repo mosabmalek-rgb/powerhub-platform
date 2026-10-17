@@ -1,4 +1,5 @@
 import { createClient, type AuthChangeEvent, type Session } from "@supabase/supabase-js";
+import { selectAuthSnapshot } from "@/lib/offline-auth-state";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -21,6 +22,9 @@ let sessionReadInFlight: Promise<Session | null> | null = null;
 let authSubscriptionReady = false;
 let refreshSessionInFlight: Promise<Session | null> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+// Incremented for every accepted Supabase auth event. Async getSession/refresh
+// snapshots must not overwrite a newer sign-in/sign-out event when they finish.
+let authStateRevision = 0;
 
 type AuthSubscriber = (event: AuthChangeEvent, session: Session | null) => void;
 const authSubscribers = new Set<AuthSubscriber>();
@@ -37,14 +41,13 @@ function scheduleSessionRefresh(session: Session | null) {
 
 async function refreshSupabaseSession(): Promise<Session | null> {
   if (refreshSessionInFlight) return refreshSessionInFlight;
+  const requestRevision = authStateRevision;
   refreshSessionInFlight = supabase.auth.refreshSession()
     .then(({ data }) => {
-      if (data.session) {
-        currentSession = data.session;
-        sessionInitialized = true;
-        scheduleSessionRefresh(currentSession);
-        return currentSession;
-      }
+      const nextSession = selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision);
+      currentSession = nextSession;
+      sessionInitialized = true;
+      scheduleSessionRefresh(currentSession);
       return currentSession;
     })
     .catch(() => currentSession)
@@ -65,6 +68,7 @@ function ensureAuthSubscription() {
       return;
     }
 
+    authStateRevision += 1;
     currentSession = session;
     sessionInitialized = true;
     scheduleSessionRefresh(session);
@@ -99,15 +103,19 @@ export async function getSupabaseSession(): Promise<Session | null> {
 
   if (sessionReadInFlight) return sessionReadInFlight;
 
+  const requestRevision = authStateRevision;
   sessionReadInFlight = supabase.auth
     .getSession()
     .then(({ data }) => {
-      currentSession = data.session ?? null;
+      // A newer SIGNED_IN / SIGNED_OUT / INITIAL_SESSION event is authoritative;
+      // never let this possibly stale snapshot clobber it.
+      currentSession = selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision);
       sessionInitialized = true;
       scheduleSessionRefresh(currentSession);
       return currentSession;
     })
     .catch(() => {
+      if (requestRevision !== authStateRevision) return currentSession;
       // Never manufacture a new session after a transient storage/network
       // failure. Keep a still-valid in-memory session if one exists.
       if (currentSession && (currentSession.expires_at ?? 0) > Math.floor(Date.now() / 1000)) return currentSession;
