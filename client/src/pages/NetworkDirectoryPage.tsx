@@ -12,7 +12,7 @@ import { trpc } from "@/lib/trpc";
 import { filterAndSortDebtors, filterDebtorsByQuery } from "@/lib/debtor-search";
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { can } from "@shared/powerhub-rbac";
-import { Bolt, CircleAlert, Clock3, Copy, FileBarChart2, Loader2, Pencil, Plus, UsersRound, WalletCards } from "lucide-react";
+import { Bolt, CircleAlert, Clock3, Copy, FileBarChart2, Loader2, Pencil, Plus, RefreshCw, UsersRound, WalletCards } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -40,6 +40,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const [subscriberTypeFilter, setSubscriberTypeFilter] = useState<SubscriberTypeFilter>("all");
   const [subscriberPage, setSubscriberPage] = useState(1);
   const [addCardCollapsed, setAddCardCollapsed] = useState(true);
+  const [isManuallyRefreshingSubscribers, setIsManuallyRefreshingSubscribers] = useState(false);
   useEffect(() => {
     const normalizedSearch = normalizeSubscriberSearch(subscriberSearch);
     if (normalizedSearch === debouncedSubscriberSearch) return;
@@ -59,7 +60,9 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}),
   }, {
     enabled: enabled && kind === "subscribers",
-    staleTime: 30_000,
+    // The directory is stable: retain page data for an hour and in memory for two hours.
+    staleTime: 60 * 60 * 1000,
+    gcTime: 2 * 60 * 60 * 1000,
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: false,
   });
@@ -73,8 +76,31 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
       pageSize: SUBSCRIBER_PAGE_SIZE,
       search: debouncedSubscriberSearch,
       ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}),
-    }, { staleTime: 30_000 }).catch(() => undefined);
+    }, { staleTime: 60 * 60 * 1000, gcTime: 2 * 60 * 60 * 1000 }).catch(() => undefined);
   }, [enabled, kind, siteId, subscriberPage, debouncedSubscriberSearch, subscriberTypeFilter, subscribersQuery.data?.totalPages, subscribersQuery.isPlaceholderData, utils]);
+  useEffect(() => {
+    if (!enabled || kind !== "subscribers") return;
+    const intervalId = window.setInterval(() => {
+      void utils.powerhub.subscribers.directoryPage.invalidate().catch(() => {
+        toast.error("تعذر تحديث قائمة المشتركين تلقائياً. استخدم زر التحديث اليدوي.");
+      });
+    }, 60 * 60 * 1000);
+    return () => window.clearInterval(intervalId);
+  }, [enabled, kind, utils]);
+
+  const refreshSubscriberDirectory = async () => {
+    if (isManuallyRefreshingSubscribers || kind !== "subscribers") return;
+    setIsManuallyRefreshingSubscribers(true);
+    try {
+      await utils.powerhub.subscribers.directoryPage.invalidate();
+      toast.success("تم تحديث قائمة المشتركين.");
+    } catch {
+      toast.error("تعذر تحديث قائمة المشتركين. تحقق من الاتصال ثم أعد المحاولة.");
+    } finally {
+      setIsManuallyRefreshingSubscribers(false);
+    }
+  };
+
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers" });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch" }, { enabled: enabled && kind === "subscribers" });
   const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators" });
@@ -188,7 +214,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const pending = createSubscriber.isPending || updateSubscriber.isPending || createGenerator.isPending || updateGenerator.isPending;
 
   return <DashboardLayout><div className="space-y-6 pb-12">
-    <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); setSubscriberPage(1); setSubscriberSearch(""); setDebouncedSubscriberSearch(""); setSubscriberTypeFilter("all"); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></header>
+    <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><div className="flex items-center gap-2">{kind === "subscribers" ? <Button type="button" variant="outline" size="sm" onClick={() => void refreshSubscriberDirectory()} disabled={isManuallyRefreshingSubscribers || subscribersQuery.isFetching} className="shrink-0 border-white/10 text-slate-200"><RefreshCw className={`ml-2 h-4 w-4 ${isManuallyRefreshingSubscribers || subscribersQuery.isFetching ? "animate-spin" : ""}`} />تحديث القائمة</Button> : null}<select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); setSubscriberPage(1); setSubscriberSearch(""); setDebouncedSubscriberSearch(""); setSubscriberTypeFilter("all"); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></div></header>
     <div className={kind === "subscribers" ? "space-y-6" : "grid gap-6 xl:grid-cols-[.8fr_1.2fr]"}>
       {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <><div className="mb-4 flex items-center justify-between gap-3"><span className={addCardCollapsed && !editing ? "text-lg font-extrabold text-white sm:text-xl" : "text-sm font-bold text-slate-300"}>{editing ? "تعديل بيانات المشترك" : "إضافة مشترك"}</span><Button type="button" size="sm" variant="outline" onClick={() => setAddCardCollapsed((value) => !value)} className="border-white/10 text-slate-200">{addCardCollapsed ? "فتح البطاقة" : "طي البطاقة"}</Button></div>{!addCardCollapsed ? <SubscriberEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} /> : null}</> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
       <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل {title}</h2><span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">{kind === "subscribers" ? `${visibleData.length ? (currentSubscriberPage - 1) * SUBSCRIBER_PAGE_SIZE + 1 : 0}–${Math.min(currentSubscriberPage * SUBSCRIBER_PAGE_SIZE, totalSubscriberResults)} من ${totalSubscriberResults} نتيجة` : `${visibleData.length} من ${data.length} سجل`}</span></div><div className="p-5">{kind === "subscribers" ? <div className="mb-4 grid gap-3 sm:grid-cols-2"><label className="block text-xs text-slate-400"><span className="mb-1 block">بحث ذكي وسريع</span><input aria-label="بحث ذكي في سجل المشتركين" list={`subscriber-autocomplete-${siteId}`} value={subscriberSearch} onChange={(event) => setSubscriberSearch(event.target.value)} placeholder="اسم المشترك أو الرقم المرجعي أو الهاتف…" className={inputClass} /><datalist id={`subscriber-autocomplete-${siteId}`}>{data.slice(0,200).flatMap((row) => [<option key={`name-${row.id}`} value={row.fullName}/>,<option key={`number-${row.id}`} value={row.subscriberNo}/>,<option key={`phone-${row.id}`} value={row.phone}/>])}</datalist></label><label className="block text-xs text-slate-400"><span className="mb-1 block">نوع المشترك</span><select aria-label="فلتر نوع المشترك" value={subscriberTypeFilter} onChange={(event) => { setSubscriberTypeFilter(event.target.value as SubscriberTypeFilter); setSubscriberPage(1); }} className={inputClass}><option value="all">كل الأنواع</option><option value="residential">سكني</option><option value="commercial">تجاري</option><option value="institution">مؤسسات</option><option value="mosque">مساجد</option></select></label></div> : null}{pageData.length ? <div className="space-y-2">{pageData.map((item) => <RecordRow key={item.id} kind={kind} item={item} canEdit={canEdit} onEdit={() => { setEditing(item); setAddCardCollapsed(false); }} onOpenStatement={kind === "subscribers" && siteId ? () => setLocation(`/subscriber-statement/${item.id}?siteId=${siteId}`) : undefined} />)}</div> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">{kind === "subscribers" && (searchTerm || subscriberTypeFilter !== "all") ? "لا توجد نتائج مطابقة للبحث أو نوع المشترك المحدد." : `لا توجد سجلات في ${activeSite?.name}.`} {canEdit && !searchTerm && subscriberTypeFilter === "all" ? "استخدم النموذج لإضافة أول سجل." : ""}</div>}{kind === "subscribers" && totalSubscriberResults > SUBSCRIBER_PAGE_SIZE ? <nav aria-label="صفحات سجل المشتركين" className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4"><span className="text-xs text-slate-400">عرض 20 مشتركاً كحد أقصى في الصفحة</span><div className="flex items-center gap-2"><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage(1)} className="border-white/10 text-slate-200">الأولى</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage((page) => Math.max(1, page - 1))} className="border-white/10 text-slate-200">السابق</Button><span aria-live="polite" className="min-w-24 text-center text-xs text-slate-300">صفحة {currentSubscriberPage} من {totalSubscriberPages}</span><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage((page) => Math.min(totalSubscriberPages, page + 1))} className="border-white/10 text-slate-200">التالي</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage(totalSubscriberPages)} className="border-white/10 text-slate-200">الأخيرة</Button></div></nav> : null}</div></CardContent></Card>
