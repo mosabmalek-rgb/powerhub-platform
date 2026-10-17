@@ -19,6 +19,9 @@ describe("subscriber directory performance contract", () => {
     expect(pageSource).toContain("تحديث القائمة");
     expect(pageSource).toContain("placeholderData: (previousData) => previousData");
     expect(pageSource).toContain("directoryPage.prefetch({");
+    expect(pageSource).toContain("for (let firstPage = 2; firstPage <= target.totalPages; firstPage += 3)");
+    expect(pageSource).toContain("Math.min(3, target.totalPages - firstPage + 1)");
+    expect(pageSource).toContain("activeSubscriberPrefetchScopesRef");
     expect(pageSource).toContain("subscribersQuery.isPlaceholderData");
   });
 });
