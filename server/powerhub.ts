@@ -2216,7 +2216,7 @@ export const powerhubRouter = router({
                 supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) }).abortSignal(signal),
                 supabaseAdmin().from("tenant_owner_profiles").select("company_name").eq("tenant_id", Number(payload.tenantId)).maybeSingle(),
                 payload.siteId
-                  ? supabaseAdmin().from("sites").select("name").eq("tenant_id", Number(payload.tenantId)).eq("id", Number(payload.siteId)).maybeSingle().abortSignal(signal)
+                  ? supabaseAdmin().from("sites").select("name").eq("tenant_id", Number(payload.tenantId)).eq("id", Number(payload.siteId)).maybeSingle()
                   : Promise.resolve({ data: null, error: null }),
                 supabaseAdmin().rpc("powerhub_subscriber_portal_logo_access", { p_tenant_id: Number(payload.tenantId) }).abortSignal(signal),
                 payload.siteId
