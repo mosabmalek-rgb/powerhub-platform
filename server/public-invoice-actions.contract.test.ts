@@ -42,6 +42,10 @@ describe("public invoice and inquiry actions", () => {
     expect(publicInvoice).toContain("تعذر تحميل الفاتورة الآن");
     expect(publicInvoice).toContain("void invoiceQuery.refetch()");
     expect(publicInvoice).toContain("powerhub-public-invoice-status");
+    expect(server).toContain("create_link_rpc_attempt_");
+    expect(server).toContain("invoices.createShareLink");
+    expect(server).toContain("site_authorization");
+    expect(server).toContain("5_000");
     expect(server).toContain("shared_invoice_lookup_rpc");
     expect(server).toContain("8_000");
     expect(server).toContain("parallel_branding_entitlement_queries");
