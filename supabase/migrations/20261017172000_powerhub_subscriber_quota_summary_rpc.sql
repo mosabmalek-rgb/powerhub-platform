@@ -19,7 +19,7 @@ as $function$
       select ts.package_code::text
       from public.tenant_subscriptions ts
       where ts.tenant_id = p_tenant_id
-      order by ts.created_at desc
+      order by ts.ends_at desc nulls last, ts.id desc
       limit 1
     ) as package_code,
     (
