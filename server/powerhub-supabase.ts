@@ -1132,10 +1132,10 @@ export async function getSupabaseOwnerSubscriberQuota(tenantId: number) {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    // Match powerhub_create_subscriber's current quota count, which includes archived rows.
     admin.from("subscribers")
       .select("id", { count: "exact", head: true })
-      .eq("tenant_id", tenantId)
-      .is("archived_at", null),
+      .eq("tenant_id", tenantId),
     admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: tenantId, p_resource: "subscribers" }),
   ]);
   if (tenantResult.error || countResult.error || quotaResult.error) {
