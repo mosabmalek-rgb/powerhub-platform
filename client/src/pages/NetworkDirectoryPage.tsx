@@ -13,7 +13,7 @@ import { filterAndSortDebtors, filterDebtorsByQuery } from "@/lib/debtor-search"
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { can } from "@shared/powerhub-rbac";
 import { Bolt, CircleAlert, Clock3, Copy, FileBarChart2, Loader2, Pencil, Plus, RefreshCw, UsersRound, WalletCards } from "lucide-react";
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -41,6 +41,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const [subscriberPage, setSubscriberPage] = useState(1);
   const [addCardCollapsed, setAddCardCollapsed] = useState(true);
   const [isManuallyRefreshingSubscribers, setIsManuallyRefreshingSubscribers] = useState(false);
+  const [directoryRefreshGeneration, setDirectoryRefreshGeneration] = useState(0);
   useEffect(() => {
     const normalizedSearch = normalizeSubscriberSearch(subscriberSearch);
     if (normalizedSearch === debouncedSubscriberSearch) return;
@@ -51,6 +52,20 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     return () => window.clearTimeout(timeoutId);
   }, [subscriberSearch, debouncedSubscriberSearch]);
   const enabled = Boolean(siteId && isAuthenticated);
+  const subscriberDirectoryScopeKey = `${siteId ?? 0}:${debouncedSubscriberSearch}:${subscriberTypeFilter}`;
+  const activeSubscriberDirectoryScopeRef = useRef("");
+  activeSubscriberDirectoryScopeRef.current = enabled && kind === "subscribers" && siteId
+    ? subscriberDirectoryScopeKey
+    : "";
+  const activeSubscriberPrefetchScopesRef = useRef(new Set<string>());
+  const warmedSubscriberDirectoryRef = useRef(new Map<string, string>());
+  const requestedSubscriberWarmupRef = useRef(new Map<string, {
+    key: string;
+    siteId: number;
+    search: string;
+    subscriptionType: SubscriberTypeFilter;
+    totalPages: number;
+  }>());
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const subscribersQuery = trpc.powerhub.subscribers.directoryPage.useQuery({
     siteId: siteId ?? 0,
@@ -66,24 +81,85 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: false,
   });
+  // Render page 1 as soon as it arrives; warm all remaining pages in the background in batches of 3.
+  // Every page stays cached for two hours, and fresh for one hour, so ordinary paging is client-cache work.
   useEffect(() => {
-    const pageCount = subscribersQuery.data?.totalPages ?? 0;
-    const nextPage = subscriberPage + 1;
-    if (!enabled || kind !== "subscribers" || !siteId || !subscribersQuery.data || subscribersQuery.isPlaceholderData || nextPage > pageCount) return;
-    void utils.powerhub.subscribers.directoryPage.prefetch({
+    const totalPages = Number(subscribersQuery.data?.totalPages ?? 0);
+    if (!enabled || kind !== "subscribers" || !siteId || !subscribersQuery.data || subscribersQuery.isPlaceholderData) return;
+
+    const scopeKey = subscriberDirectoryScopeKey;
+    const warmupKey = `${scopeKey}:${directoryRefreshGeneration}:${totalPages}`;
+    const request = {
+      key: warmupKey,
       siteId,
-      page: nextPage,
-      pageSize: SUBSCRIBER_PAGE_SIZE,
       search: debouncedSubscriberSearch,
-      ...(subscriberTypeFilter !== "all" ? { subscriptionType: subscriberTypeFilter } : {}),
-    }, { staleTime: 60 * 60 * 1000, gcTime: 2 * 60 * 60 * 1000 }).catch(() => undefined);
-  }, [enabled, kind, siteId, subscriberPage, debouncedSubscriberSearch, subscriberTypeFilter, subscribersQuery.data?.totalPages, subscribersQuery.isPlaceholderData, utils]);
+      subscriptionType: subscriberTypeFilter,
+      totalPages,
+    };
+    requestedSubscriberWarmupRef.current.set(scopeKey, request);
+    if (warmedSubscriberDirectoryRef.current.get(scopeKey) === warmupKey || activeSubscriberPrefetchScopesRef.current.has(scopeKey)) return;
+
+    activeSubscriberPrefetchScopesRef.current.add(scopeKey);
+    void (async () => {
+      try {
+        while (activeSubscriberDirectoryScopeRef.current === scopeKey) {
+          const target = requestedSubscriberWarmupRef.current.get(scopeKey);
+          if (!target || warmedSubscriberDirectoryRef.current.get(scopeKey) === target.key) return;
+
+          let requestChanged = false;
+          for (let firstPage = 2; firstPage <= target.totalPages; firstPage += 3) {
+            if (activeSubscriberDirectoryScopeRef.current !== scopeKey) return;
+            if (requestedSubscriberWarmupRef.current.get(scopeKey)?.key !== target.key) {
+              requestChanged = true;
+              break;
+            }
+            const pages = Array.from(
+              { length: Math.min(3, target.totalPages - firstPage + 1) },
+              (_unused, index) => firstPage + index,
+            );
+            await Promise.all(pages.map((page) =>
+              utils.powerhub.subscribers.directoryPage.prefetch({
+                siteId: target.siteId,
+                page,
+                pageSize: SUBSCRIBER_PAGE_SIZE,
+                search: target.search,
+                ...(target.subscriptionType !== "all" ? { subscriptionType: target.subscriptionType } : {}),
+              }, { staleTime: 60 * 60 * 1000, gcTime: 2 * 60 * 60 * 1000 }).catch(() => undefined),
+            ));
+          }
+
+          if (requestChanged) continue;
+          if (activeSubscriberDirectoryScopeRef.current !== scopeKey) return;
+          if (requestedSubscriberWarmupRef.current.get(scopeKey)?.key === target.key) {
+            warmedSubscriberDirectoryRef.current.set(scopeKey, target.key);
+            return;
+          }
+        }
+      } finally {
+        activeSubscriberPrefetchScopesRef.current.delete(scopeKey);
+      }
+    })();
+  }, [
+    enabled,
+    kind,
+    siteId,
+    subscriberDirectoryScopeKey,
+    debouncedSubscriberSearch,
+    subscriberTypeFilter,
+    subscribersQuery.data?.totalPages,
+    subscribersQuery.dataUpdatedAt,
+    subscribersQuery.isPlaceholderData,
+    directoryRefreshGeneration,
+    utils,
+  ]);
   useEffect(() => {
     if (!enabled || kind !== "subscribers") return;
     const intervalId = window.setInterval(() => {
-      void utils.powerhub.subscribers.directoryPage.invalidate().catch(() => {
-        toast.error("تعذر تحديث قائمة المشتركين تلقائياً. استخدم زر التحديث اليدوي.");
-      });
+      void utils.powerhub.subscribers.directoryPage.invalidate()
+        .then(() => setDirectoryRefreshGeneration((generation) => generation + 1))
+        .catch(() => {
+          toast.error("تعذر تحديث قائمة المشتركين تلقائياً. استخدم زر التحديث اليدوي.");
+        });
     }, 60 * 60 * 1000);
     return () => window.clearInterval(intervalId);
   }, [enabled, kind, utils]);
@@ -93,6 +169,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     setIsManuallyRefreshingSubscribers(true);
     try {
       await utils.powerhub.subscribers.directoryPage.invalidate();
+      setDirectoryRefreshGeneration((generation) => generation + 1);
       toast.success("تم تحديث قائمة المشتركين.");
     } catch {
       toast.error("تعذر تحديث قائمة المشتركين. تحقق من الاتصال ثم أعد المحاولة.");
@@ -100,6 +177,18 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
       setIsManuallyRefreshingSubscribers(false);
     }
   };
+
+  useEffect(() => {
+    if (kind !== "subscribers" || !siteId) return;
+    const onSubscriberDirectoryChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ siteId?: number }>).detail;
+      if (detail?.siteId === siteId) {
+        setDirectoryRefreshGeneration((generation) => generation + 1);
+      }
+    };
+    window.addEventListener("powerhub:subscriber-directory-changed", onSubscriberDirectoryChanged);
+    return () => window.removeEventListener("powerhub:subscriber-directory-changed", onSubscriberDirectoryChanged);
+  }, [kind, siteId]);
 
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers" });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch" }, { enabled: enabled && kind === "subscribers" });
@@ -134,7 +223,9 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
         ];
     // Revalidation runs in the background after the server confirms the save.
     // The mutation success message must not wait for unrelated summaries or audit reads.
-    void Promise.all(refreshTasks).catch(() => {
+    void Promise.all(refreshTasks).then(() => {
+      if (kind === "subscribers") setDirectoryRefreshGeneration((generation) => generation + 1);
+    }).catch(() => {
       toast.warning("تم حفظ العملية، لكن تعذر تحديث بعض البيانات التابعة. أعد تحميل العرض للتحقق من أحدث النتائج.");
     });
   };
