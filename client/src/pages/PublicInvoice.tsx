@@ -4,19 +4,54 @@ import { trpc } from "@/lib/trpc";
 import { copyTextSafely } from "@/lib/clipboard";
 import { CreditCard, Download, FileText, Loader2, Share2 } from "lucide-react";
 import { useRoute } from "wouter";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export default function PublicInvoice() {
   const [, params] = useRoute("/invoice/:token");
   const token = params?.token ?? "";
-  const invoiceQuery = trpc.powerhub.invoices.publicByToken.useQuery({ token }, { enabled: token.length >= 16, retry: false });
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const invoiceQuery = trpc.powerhub.invoices.publicByToken.useQuery(
+    { token },
+    { enabled: token.length >= 16, retry: false, staleTime: 0 },
+  );
 
-  if (invoiceQuery.isLoading) {
-    return <div className="grid min-h-screen place-items-center bg-[#0D1117]"><Loader2 className="h-8 w-8 animate-spin text-[#F5B800]" /></div>;
+  useEffect(() => {
+    if (invoiceQuery.isSuccess || invoiceQuery.isError || !invoiceQuery.isFetching || token.length < 16) {
+      setLoadingTimedOut(false);
+      return;
+    }
+    // A manual retry after the fallback must start a fresh bounded wait.
+    if (loadingTimedOut) return;
+    const timeout = window.setTimeout(() => setLoadingTimedOut(true), 16_000);
+    return () => window.clearTimeout(timeout);
+  }, [invoiceQuery.isFetching, invoiceQuery.isSuccess, invoiceQuery.isError, token, loadingTimedOut]);
+
+  // The invoice may be shown inside the billing dialog. Let that parent know when
+  // data has loaded or failed; iframe onLoad only signals that index.html arrived.
+  useEffect(() => {
+    if (window.parent === window) return;
+    const status = invoiceQuery.isSuccess && invoiceQuery.data
+      ? "loaded"
+      : (invoiceQuery.isError || loadingTimedOut || token.length < 16 ? "error" : null);
+    if (!status) return;
+    window.parent.postMessage({ type: "powerhub-public-invoice-status", status }, window.location.origin);
+  }, [invoiceQuery.isSuccess, invoiceQuery.isError, invoiceQuery.data, loadingTimedOut, token]);
+
+  if (invoiceQuery.isLoading && !loadingTimedOut) {
+    return <div className="grid min-h-screen place-items-center bg-[#0D1117]"><Loader2 className="h-8 w-8 animate-spin text-[#F5B800]" /><p className="mt-4 text-sm text-slate-400">جارٍ تحميل الفاتورة…</p></div>;
   }
 
-  if (invoiceQuery.isError || !invoiceQuery.data) {
-    return <div className="min-h-screen bg-[#0D1117] px-4 py-10" dir="ltr"><main dir="rtl" style={{ width: "100%", maxWidth: "576px", margin: "0 auto" }} className="rounded-[28px] border border-white/10 bg-[#111823] p-8 text-center shadow-2xl shadow-black/30"><PowerHubLogo className="justify-center" /><div className="mx-auto mt-8 grid h-14 w-14 place-items-center rounded-2xl bg-rose-400/10 text-rose-400"><FileText className="h-6 w-6" /></div><h1 className="mt-5 text-xl font-extrabold text-white">الرابط غير صالح أو منتهي</h1><p className="mt-3 leading-7 text-slate-400">تحقق من رابط الفاتورة، أو اطلب من مشغّل PowerHub إرسال رابط جديد.</p></main></div>;
+  const errorMessage = String(invoiceQuery.error?.message ?? "");
+  const linkIsInvalid = token.length < 16 || errorMessage.includes("رابط الفاتورة غير صالح أو منتهي");
+  if (invoiceQuery.isError || !invoiceQuery.data || loadingTimedOut || linkIsInvalid) {
+    const title = linkIsInvalid ? "الرابط غير صالح أو منتهي" : loadingTimedOut ? "تأخر تحميل الفاتورة" : "تعذر تحميل الفاتورة الآن";
+    const description = linkIsInvalid
+      ? "تحقق من رابط الفاتورة، أو اطلب من مشغّل PowerHub إرسال رابط جديد."
+      : loadingTimedOut
+        ? "استغرق تحميل الفاتورة وقتاً أطول من المعتاد. تحقق من الاتصال ثم أعد المحاولة."
+        : "تعذر الاتصال بخدمة الفواتير مؤقتاً. يمكنك إعادة المحاولة دون الحاجة إلى طلب رابط جديد.";
+    return <div className="min-h-screen bg-[#0D1117] px-4 py-10" dir="ltr"><main dir="rtl" style={{ width: "100%", maxWidth: "576px", margin: "0 auto" }} className="rounded-[28px] border border-white/10 bg-[#111823] p-8 text-center shadow-2xl shadow-black/30"><PowerHubLogo className="justify-center" /><div className="mx-auto mt-8 grid h-14 w-14 place-items-center rounded-2xl bg-rose-400/10 text-rose-400"><FileText className="h-6 w-6" /></div><h1 className="mt-5 text-xl font-extrabold text-white">{title}</h1><p className="mt-3 leading-7 text-slate-400">{description}</p>{!linkIsInvalid ? <Button className="mt-6 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]" onClick={() => { setLoadingTimedOut(false); void invoiceQuery.refetch(); }}>إعادة المحاولة</Button> : null}</main></div>;
   }
 
   const { invoice, subscriber, lines, paymentDocumentationAvailable, companyName, companyLogoUrl } = invoiceQuery.data;

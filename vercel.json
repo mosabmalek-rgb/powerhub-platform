@@ -4,7 +4,8 @@
     "deploymentEnabled": {
       "feature/powerhub-smart-support-chat-v1": false,
       "perf/phase1-latency-telemetry": false,
-      "perf/profile-sync-stage-telemetry": false
+      "perf/profile-sync-stage-telemetry": false,
+      "fix/public-invoice-load-timeout": false
     }
   },
   "installCommand": "pnpm install --frozen-lockfile",
