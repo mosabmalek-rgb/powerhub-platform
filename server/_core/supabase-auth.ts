@@ -1,9 +1,9 @@
 import { ForbiddenError } from "@shared/_core/errors";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Request } from "express";
 import { syncSupabaseProfile, type SupabaseProfileUser } from "../supabase-profile";
 
-let cachedAuthClient: { url: string; publishableKey: string; client: ReturnType<typeof createClient> } | null = null;
+let cachedAuthClient: { url: string; publishableKey: string; client: SupabaseClient<any, "public", "public", any, any> } | null = null;
 
 function getSupabaseAuthClient(url: string, publishableKey: string) {
   if (cachedAuthClient?.url === url && cachedAuthClient.publishableKey === publishableKey) {
