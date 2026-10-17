@@ -2175,15 +2175,17 @@ export const powerhubRouter = router({
     }),
     createShareLink: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive(), expiresAt: z.date().optional() }))
       .mutation(async ({ ctx, input }) => {
-        const access = await measureSlowStage("invoices.createShareLink", "site_authorization", async () =>
-          requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices"));
+        const access = await measureSlowStage("invoices.createShareLink", "site_authorization", () =>
+          withTimeout("invoices.createShareLink", "site_authorization", async () =>
+            requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices"), 5_000));
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const token = generateInvoiceShareToken();
-          const { data, error } = await measureSlowStage("invoices.createShareLink", `create_link_rpc_attempt_${attempt + 1}`, async () =>
-            supabaseAdmin().rpc("powerhub_create_invoice_share_link", {
-              p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_invoice_id: input.invoiceId,
-              p_token_hash: hashInvoiceShareToken(token), p_token_preview: token.slice(0, 8), p_expires_at: input.expiresAt?.toISOString() ?? null,
-            }));
+          const { data, error } = await measureSlowStage("invoices.createShareLink", `create_link_rpc_attempt_${attempt + 1}`, () =>
+            withTimeout("invoices.createShareLink", `create_link_rpc_attempt_${attempt + 1}`, async (signal) =>
+              await supabaseAdmin().rpc("powerhub_create_invoice_share_link", {
+                p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_invoice_id: input.invoiceId,
+                p_token_hash: hashInvoiceShareToken(token), p_token_preview: token.slice(0, 8), p_expires_at: input.expiresAt?.toISOString() ?? null,
+              }).abortSignal(signal), 8_000));
           if (!error && Number((data as Array<{ share_link_id: number | string }> | null)?.[0]?.share_link_id)) return { token, path: `/invoice/${token}` };
           const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
           if (error?.code === "23505" && attempt < 2) continue;
