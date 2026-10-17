@@ -2,36 +2,48 @@ import { useEffect, useState } from "react";
 
 export const POWERHUB_CONNECTIVITY_PROBE_TIMEOUT_MS = 3_500;
 const HEALTH_PATH = "/api/health";
+const PROBE_ATTEMPTS = 2;
 type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 let sharedProbe: Promise<boolean> | null = null;
 
 async function runHealthProbe(fetcher: HealthFetch, timeoutMs: number): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetcher(HEALTH_PATH, {
-      method: "GET",
-      cache: "no-store",
-      credentials: "same-origin",
-      headers: { "cache-control": "no-cache" },
-      signal: controller.signal,
-    });
-    return response.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
+  // A single short network hiccup must not flip the whole app into offline
+  // mode. Retry once inside the same bounded window before declaring it down.
+  const attemptTimeoutMs = Math.max(750, Math.floor(timeoutMs / PROBE_ATTEMPTS));
+
+  for (let attempt = 0; attempt < PROBE_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), attemptTimeoutMs);
+    try {
+      const response = await fetcher(HEALTH_PATH, {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { "cache-control": "no-cache" },
+        signal: controller.signal,
+      });
+      if (response.ok) return true;
+    } catch {
+      // Retry once: browser connectivity hints and transient request failures
+      // are not sufficient evidence that the PowerHub origin is unreachable.
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
+  return false;
 }
 
-/** Check the PowerHub origin itself, not just the browser's optimistic online hint. */
+/** Verify actual PowerHub reachability; navigator.onLine is only a hint. */
 export function probePowerHubConnectivity(
   fetcher: HealthFetch = globalThis.fetch,
-  onlineHint = typeof navigator === "undefined" || navigator.onLine,
+  _onlineHint = typeof navigator === "undefined" || navigator.onLine,
   timeoutMs = POWERHUB_CONNECTIVITY_PROBE_TIMEOUT_MS,
 ): Promise<boolean> {
-  if (!onlineHint) return Promise.resolve(false);
+  // Do not short-circuit when navigator.onLine is false. That event is
+  // frequently unreliable on desktop Wi-Fi/VPN setups; same-origin health
+  // fetch is the real signal of whether the app can reach its server.
   if (fetcher === globalThis.fetch) {
     if (sharedProbe) return sharedProbe;
     sharedProbe = runHealthProbe(fetcher, timeoutMs).finally(() => {
@@ -44,26 +56,26 @@ export function probePowerHubConnectivity(
 
 /** Verified reachability and a counter that increments only after a real reconnection. */
 export function usePowerHubConnectivity() {
-  const [isOnline, setIsOnline] = useState(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine,
-  );
+  // Avoid displaying a false offline banner based solely on the browser hint
+  // while the first same-origin reachability probe is still running.
+  const [isOnline, setIsOnline] = useState(true);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
 
   useEffect(() => {
     let active = true;
-    let lastReachable = typeof navigator === "undefined" ? true : navigator.onLine;
+    let lastReachable: boolean | null = null;
 
     const check = async () => {
       const reachable = await probePowerHubConnectivity();
       if (!active) return;
       setIsOnline(reachable);
-      if (reachable && !lastReachable) setReconnectGeneration((generation) => generation + 1);
+      if (reachable && lastReachable === false) setReconnectGeneration((generation) => generation + 1);
       lastReachable = reachable;
     };
-    const handleOffline = () => {
-      lastReachable = false;
-      setIsOnline(false);
-    };
+    // An "offline" browser event may be a false positive. Verify the app origin
+    // before changing the UI/React Query network state instead of flipping it
+    // offline immediately.
+    const handleOffline = () => { void check(); };
     const handleOnline = () => { void check(); };
     const handleVisible = () => {
       if (document.visibilityState === "visible") void check();
