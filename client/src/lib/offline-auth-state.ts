@@ -17,3 +17,17 @@ export function resolveOfflineAuthTransition(
   if (sessionUserId) return "online-session";
   return "recover-offline-session";
 }
+
+/**
+ * A getSession/refreshSession snapshot may finish after a newer auth event.
+ * In that case, the session updated by the event must win over the stale
+ * async response, especially when that response contains null.
+ */
+export function selectAuthSnapshot<T>(
+  snapshot: T | null,
+  current: T | null,
+  requestRevision: number,
+  currentRevision: number,
+): T | null {
+  return requestRevision === currentRevision ? snapshot : current;
+}
