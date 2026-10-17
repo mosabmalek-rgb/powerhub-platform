@@ -25,6 +25,16 @@ export async function measureSlowStage<T>(
 }
 
 /**
+ * Attach an AbortSignal where the Supabase query builder supports it. Some
+ * lightweight test doubles and resolved result objects do not expose this API,
+ * so callers retain the original awaitable value in that case.
+ */
+export function withAbortSignalIfSupported<T>(request: T, signal: AbortSignal): T {
+  const candidate = request as T & { abortSignal?: (signal: AbortSignal) => T };
+  return typeof candidate?.abortSignal === "function" ? candidate.abortSignal(signal) : request;
+}
+
+/**
  * Bound a network-dependent stage so a stalled upstream cannot leave a public
  * page loading forever. When supported, the provided AbortSignal cancels the
  * underlying HTTP request as well as ending the caller's wait.
