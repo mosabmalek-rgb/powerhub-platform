@@ -1189,7 +1189,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       return state.defaultRpc(name, args);
     });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toMatchObject({ limit: 500, currentCount: 0, remaining: 500, plan: "professional" });
+    await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toMatchObject({ limit: 1000, currentCount: 0, remaining: 1000, plan: "professional" });
     expect(state.rpcCalls.map((call) => call.name)).toContain("powerhub_effective_tenant_quota");
   });
 
