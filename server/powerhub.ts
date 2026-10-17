@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
+import { measureSlowStage } from "./performance-telemetry";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
@@ -2126,10 +2127,12 @@ export const powerhubRouter = router({
     }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), readingId: z.number().int().positive(), baseVersion: z.number().int().positive(), sendNow: z.boolean().default(true) }))
       .mutation(async ({ ctx, input }) => {
-        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings");
-        const { data, error } = await supabaseAdmin().rpc("powerhub_approve_reading", {
-          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion,
-        });
+        const access = await measureSlowStage("readings.approve", "site_authorization", async () =>
+          requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "approveReadings"));
+        const { data, error } = await measureSlowStage("readings.approve", "atomic_approval_rpc", async () =>
+          supabaseAdmin().rpc("powerhub_approve_reading", {
+            p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_base_version: input.baseVersion,
+          }));
         if (!error && data?.[0]) return { success: true };
         const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
         if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
@@ -2172,13 +2175,15 @@ export const powerhubRouter = router({
     }),
     createShareLink: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive(), expiresAt: z.date().optional() }))
       .mutation(async ({ ctx, input }) => {
-        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+        const access = await measureSlowStage("invoices.createShareLink", "site_authorization", async () =>
+          requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices"));
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const token = generateInvoiceShareToken();
-          const { data, error } = await supabaseAdmin().rpc("powerhub_create_invoice_share_link", {
-            p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_invoice_id: input.invoiceId,
-            p_token_hash: hashInvoiceShareToken(token), p_token_preview: token.slice(0, 8), p_expires_at: input.expiresAt?.toISOString() ?? null,
-          });
+          const { data, error } = await measureSlowStage("invoices.createShareLink", `create_link_rpc_attempt_${attempt + 1}`, async () =>
+            supabaseAdmin().rpc("powerhub_create_invoice_share_link", {
+              p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_invoice_id: input.invoiceId,
+              p_token_hash: hashInvoiceShareToken(token), p_token_preview: token.slice(0, 8), p_expires_at: input.expiresAt?.toISOString() ?? null,
+            }));
           if (!error && Number((data as Array<{ share_link_id: number | string }> | null)?.[0]?.share_link_id)) return { token, path: `/invoice/${token}` };
           const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
           if (error?.code === "23505" && attempt < 2) continue;
@@ -2188,7 +2193,8 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: "تعذر إنشاء رابط مشاركة فريد للفاتورة؛ أعد المحاولة." });
       }),
     publicByToken: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
-      const { data, error } = await supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", { p_token_hash: hashInvoiceShareToken(input.token) });
+      const { data, error } = await measureSlowStage("invoices.publicByToken", "shared_invoice_lookup_rpc", async () =>
+        supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", { p_token_hash: hashInvoiceShareToken(input.token) }));
       if (!error && data && typeof data === "object" && !Array.isArray(data)) {
         const payload = data as {
           siteId?: number;
@@ -2577,9 +2583,12 @@ export const powerhubRouter = router({
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إرسال طلب توثيق الدفع." });
     }),
     approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
-      await requirePaymentDocumentationFeature(access.tenantId);
-      const { data, error } = await supabaseAdmin().rpc("powerhub_approve_payment_documentation", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_request_id: input.requestId });
+      const access = await measureSlowStage("paymentDocumentation.approve", "site_authorization", async () =>
+        requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation"));
+      await measureSlowStage("paymentDocumentation.approve", "feature_entitlement", async () =>
+        requirePaymentDocumentationFeature(access.tenantId));
+      const { data, error } = await measureSlowStage("paymentDocumentation.approve", "atomic_approval_rpc", async () =>
+        supabaseAdmin().rpc("powerhub_approve_payment_documentation", { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_request_id: input.requestId }));
       if (error || !data?.[0]) {
         const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
         if (text.includes("NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "طلب توثيق الدفع غير موجود." });
@@ -2591,9 +2600,10 @@ export const powerhubRouter = router({
       const paymentId = Number((data[0] as { payment_id: number | string }).payment_id);
       // One scoped SQL read replaces the payment lookup plus three follow-up reads.
       // Notification work remains best-effort and never reverses a successful approval.
-      const { data: contextRows, error: contextError } = await supabaseAdmin().rpc("powerhub_payment_receipt_context", {
-        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_payment_id: paymentId,
-      });
+      const { data: contextRows, error: contextError } = await measureSlowStage("paymentDocumentation.approve", "receipt_context_rpc", async () =>
+        supabaseAdmin().rpc("powerhub_payment_receipt_context", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_payment_id: paymentId,
+        }));
       const receiptContext = Array.isArray(contextRows) ? contextRows[0] as {
         invoice_id?: number | string | null;
         payment_no?: string | null;
@@ -2614,11 +2624,12 @@ export const powerhubRouter = router({
           balanceDue: Number(receiptContext.balance_due ?? 0),
         };
         const renderedText = renderPaymentReceiptTemplate(receiptContext.template_body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
-        await supabaseAdmin().rpc("powerhub_queue_payment_sms", {
-          p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId,
-          p_event_type: "payment_received", p_invoice_id: Number(receiptContext.invoice_id),
-          p_payment_id: paymentId, p_operation_key: `payment_receipt:${paymentId}`, p_rendered_text: renderedText,
-        });
+        await measureSlowStage("paymentDocumentation.approve", "queue_receipt_notification", async () =>
+          supabaseAdmin().rpc("powerhub_queue_payment_sms", {
+            p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId,
+            p_event_type: "payment_received", p_invoice_id: Number(receiptContext.invoice_id),
+            p_payment_id: paymentId, p_operation_key: `payment_receipt:${paymentId}`, p_rendered_text: renderedText,
+          }));
       } catch { /* approval remains authoritative; SMS is a secondary notification path */ }
       return { paymentId };
     }),
