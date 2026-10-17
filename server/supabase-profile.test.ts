@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mapSupabaseProfile, syncSupabaseProfile } from "./supabase-profile";
 
 const state = vi.hoisted(() => ({
@@ -20,6 +20,53 @@ vi.mock("./supabase-admin", () => ({
 }));
 
 describe("ملف مستخدم Supabase", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("identifies a slow profile lookup without logging identity data", async () => {
+    const now = new Date().toISOString();
+    const profile = {
+      id: 45,
+      auth_user_id: "auth-user-45",
+      name: "User",
+      email: "user45@example.com",
+      login_method: "supabase",
+      role: "user" as const,
+      platform_role: null,
+      account_status: "active" as const,
+      must_change_password: false,
+      temporary_password_issued_at: null,
+      created_at: now,
+      updated_at: now,
+      last_signed_in: now,
+    };
+    state.lookup.mockReset().mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 275));
+      return { data: profile, error: null };
+    });
+    state.rpc.mockReset().mockResolvedValue({
+      data: null,
+      error: { code: "PGRST202", message: "Could not find the pending invitation function in the schema cache" },
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(syncSupabaseProfile({
+      id: "auth-user-45",
+      email: "user45@example.com",
+      name: "User",
+    })).resolves.toMatchObject({ id: 45, accountStatus: "active" });
+
+    const timingCall = warn.mock.calls.find(([label, metadata]) =>
+      label === "[PowerHub stage latency]"
+      && (metadata as { operation?: string; stage?: string } | undefined)?.operation === "auth.profileSync"
+      && (metadata as { stage?: string } | undefined)?.stage === "lookup_user_profile"
+    );
+    expect(timingCall).toBeDefined();
+    expect(JSON.stringify(timingCall)).not.toContain("auth-user-45");
+    expect(JSON.stringify(timingCall)).not.toContain("user45@example.com");
+  });
+
   it("يحوّل أسماء أعمدة Supabase إلى عقد المستخدم الذي يستهلكه الخادم", () => {
     const user = mapSupabaseProfile({
       id: "7",

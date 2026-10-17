@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase-admin";
+import { measureSlowStage } from "./performance-telemetry";
 
 export type SupabaseProfileUser = {
   id: number;
@@ -109,8 +110,9 @@ export async function syncSupabaseProfile(input: { id: string; email?: string | 
   const email = input.email?.trim().toLowerCase() ?? null;
   const name = input.name?.trim() || email?.split("@")[0] || null;
   const admin = supabaseAdmin();
-  const { data: existing, error: lookupError } = await admin.from("users")
-    .select(PROFILE_COLUMNS).eq("auth_user_id", input.id).maybeSingle();
+  const { data: existing, error: lookupError } = await measureSlowStage("auth.profileSync", "lookup_user_profile", async () =>
+    admin.from("users")
+      .select(PROFILE_COLUMNS).eq("auth_user_id", input.id).maybeSingle());
   if (lookupError) throw new Error(lookupError.message || "تعذر تحميل ملف مستخدم Supabase.");
 
   const now = Date.now();
@@ -120,30 +122,34 @@ export async function syncSupabaseProfile(input: { id: string; email?: string | 
   let profileRow: UserRow;
 
   if (!existing) {
-    const { data, error } = await admin.from("users")
-      .upsert({ auth_user_id: input.id, email, name, login_method: "supabase", last_signed_in: new Date(now).toISOString() }, { onConflict: "auth_user_id" })
-      .select(PROFILE_COLUMNS).single();
+    const { data, error } = await measureSlowStage("auth.profileSync", "insert_missing_user_profile", async () =>
+      admin.from("users")
+        .upsert({ auth_user_id: input.id, email, name, login_method: "supabase", last_signed_in: new Date(now).toISOString() }, { onConflict: "auth_user_id" })
+        .select(PROFILE_COLUMNS).single());
     if (error || !data) throw new Error(error?.message || "تعذر مزامنة ملف مستخدم Supabase.");
     profileRow = data as UserRow;
   } else if (identityChanged || signInWriteDue) {
     const updates: Record<string, unknown> = {};
     if (identityChanged) Object.assign(updates, { email, name, login_method: "supabase" });
     if (signInWriteDue) updates.last_signed_in = new Date(now).toISOString();
-    const { data, error } = await admin.from("users")
-      .update(updates).eq("auth_user_id", input.id).select(PROFILE_COLUMNS).single();
+    const { data, error } = await measureSlowStage("auth.profileSync", "update_user_profile", async () =>
+      admin.from("users")
+        .update(updates).eq("auth_user_id", input.id).select(PROFILE_COLUMNS).single());
     if (error || !data) throw new Error(error?.message || "تعذر تحديث ملف مستخدم Supabase.");
     profileRow = data as UserRow;
   } else {
     profileRow = existing as UserRow;
   }
 
-  const platformInvitationAccepted = await acceptPendingInvitations({ id: input.id, email }, admin);
+  const platformInvitationAccepted = await measureSlowStage("auth.profileSync", "process_pending_invitations", async () =>
+    acceptPendingInvitations({ id: input.id, email }, admin));
   if (!platformInvitationAccepted) return mapSupabaseProfile(profileRow);
 
   // Platform invitations may change the user's platform role, so return a fresh profile
   // immediately after acceptance rather than waiting for the next API request.
-  const { data: refreshed, error: refreshError } = await admin.from("users")
-    .select(PROFILE_COLUMNS).eq("auth_user_id", input.id).single();
+  const { data: refreshed, error: refreshError } = await measureSlowStage("auth.profileSync", "reload_profile_after_invitation", async () =>
+    admin.from("users")
+      .select(PROFILE_COLUMNS).eq("auth_user_id", input.id).single());
   if (refreshError || !refreshed) throw new Error(refreshError?.message || "تعذر تحديث ملف مستخدم Supabase بعد معالجة الدعوة.");
   return mapSupabaseProfile(refreshed as UserRow);
 }
