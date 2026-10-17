@@ -4,7 +4,7 @@ import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { resolveOfflineAuthTransition } from "@/lib/offline-auth-state";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
 
 type UseAuthOptions = {
@@ -278,7 +278,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuthController();
-  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
+  return createElement(AuthContext.Provider, { value: auth }, children);
 }
 
 /**
