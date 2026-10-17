@@ -8,7 +8,8 @@ import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-
 import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { toast } from "sonner";
 
 const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع" } as const;
@@ -20,11 +21,11 @@ function getErrorMessage(error: unknown) { return error instanceof Error ? error
 export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { siteId: number; userId: number; compact?: boolean }) {
   const utils = trpc.useUtils();
   const [items, setItems] = useState<QueuedOfflineWork[]>([]);
-  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const { isOnline, reconnectGeneration } = usePowerHubConnectivity();
   const [syncing, setSyncing] = useState(false);
+  const lastAutoSyncGeneration = useRef(0);
   const load = useCallback(async () => { try { setItems(await listOfflineWork({ userId, siteId })); } catch { toast.error("تعذر قراءة مسودات العمل المحلي على هذا الجهاز."); } }, [siteId, userId]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { const online = () => setIsOnline(true); const offline = () => setIsOnline(false); window.addEventListener("online", online); window.addEventListener("offline", offline); return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); }; }, []);
 
   const createSubscriber = trpc.powerhub.subscribers.create.useMutation();
   const updateSubscriber = trpc.powerhub.subscribers.update.useMutation();
@@ -149,6 +150,13 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     } catch (error) { toast.error(getErrorMessage(error)); }
     finally { setSyncing(false); await load(); }
   };
+
+  useEffect(() => {
+    if (!isOnline || reconnectGeneration === 0 || lastAutoSyncGeneration.current === reconnectGeneration) return;
+    lastAutoSyncGeneration.current = reconnectGeneration;
+    void load();
+    void syncPending();
+  }, [isOnline, reconnectGeneration, load]);
 
   const pending = items.filter((item) => item.status === "pending" || (item.status === "failed"));
   const unresolved = items.filter((item) => item.status !== "applied");
