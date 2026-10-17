@@ -18,6 +18,7 @@ import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { can } from "@shared/powerhub-rbac";
 import { Camera, CloudOff, Download, FileSpreadsheet, Gauge, Loader2, RotateCw, Send, Trash2, Wifi } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -38,7 +39,8 @@ export default function MeterReadingsPage() {
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [queuedReadings, setQueuedReadings] = useState<QueuedReading[]>([]);
-  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const { isOnline, reconnectGeneration } = usePowerHubConnectivity();
+  const lastAutoSyncGeneration = useRef(0);
   const [readingSearch, setReadingSearch] = useState("");
   const [readingStatus, setReadingStatus] = useState<"all" | "pending_review" | "approved">("all");
   const [readingPage, setReadingPage] = useState(1);
@@ -50,7 +52,6 @@ export default function MeterReadingsPage() {
   const [selectedReadingImage, setSelectedReadingImage] = useState<string | null>(null);
   const pdfRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { const online = () => setIsOnline(true); const offline = () => setIsOnline(false); window.addEventListener("online", online); window.addEventListener("offline", offline); return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); }; }, []);
   const enabled = Boolean(isAuthenticated && siteId);
   const subscribersQuery = trpc.powerhub.subscribers.list.useQuery({ siteId: siteId ?? 0 }, { enabled });
   const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 200 }, { enabled });
@@ -70,7 +71,17 @@ export default function MeterReadingsPage() {
   const canSettleLegacyReading = canApproveReading && canIssueInvoice;
   const currentSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
 
-  const loadQueuedReadings = useCallback(async () => { if (!siteId || !user?.id) return; try { setQueuedReadings(await listQueuedReadings({ userId: user.id, siteId })); } catch { toast.error("تعذر قراءة طابور العمل دون اتصال على هذا الجهاز."); } }, [siteId, user?.id]);
+  const loadQueuedReadings = useCallback(async () => {
+    if (!siteId || !user?.id) return [];
+    try {
+      const records = await listQueuedReadings({ userId: user.id, siteId });
+      setQueuedReadings(records);
+      return records;
+    } catch {
+      toast.error("تعذر قراءة طابور العمل دون اتصال على هذا الجهاز.");
+      return [];
+    }
+  }, [siteId, user?.id]);
   useEffect(() => { void loadQueuedReadings(); }, [loadQueuedReadings]);
   const refresh = async () => { await Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.readings.page.invalidate(), utils.powerhub.invoices.page.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]); await loadQueuedReadings(); };
   const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: () => { void refresh(); }, onError: (error) => toast.error(error.message) });
@@ -101,12 +112,12 @@ export default function MeterReadingsPage() {
   const downloadExcel = async () => { try { const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook(); workbook.creator = "PowerHub"; const sheet = workbook.addWorksheet("قراءات المشتركين", { views: [{ rightToLeft: true }] }); sheet.addRow(["المشترك", "الرقم المرجعي", "القراءة", "الاستهلاك kWh", "الحالة", "التاريخ"]); exportRows(exportReadings).forEach((row) => sheet.addRow(row)); sheet.columns = [{ width: 28 }, { width: 22 }, { width: 16 }, { width: 18 }, { width: 20 }, { width: 18 }]; const header = sheet.getRow(1); header.font = { bold: true, color: { argb: "FFFFFFFF" } }; header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; const buffer = await workbook.xlsx.writeBuffer(); download(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `powerhub-subscriber-readings-${new Date().toISOString().slice(0, 10)}.xlsx`); } catch { toast.error("تعذر تجهيز ملف Excel."); } };
   const downloadPdf = async () => { if (!pdfRef.current || !exportReadings.length) { toast.error("لا توجد قراءات ضمن النطاق المحدد."); return; } try { await downloadReportHtmlAsPdf(pdfRef.current, `قراءات-المشتركين-${new Date().toISOString().slice(0, 10)}.pdf`, { title: "تقرير قراءات المشتركين من PowerHub" }); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
   const queueReading = async (reading: Omit<QueuedReading, "id" | "createdAt" | "status" | "userId" | "attempts" | "nextAttemptAt">) => { if (!user?.id) throw new Error("تعذر تحديد المستخدم الحالي لحفظ القراءة."); await enqueueReading({ ...reading, userId: user.id }); await loadQueuedReadings(); };
-  const syncQueuedReadings = async () => {
+  const syncQueuedReadings = async (records: QueuedReading[] = queuedReadings) => {
     if (!isOnline) { toast.error("لا يمكن المزامنة قبل عودة الاتصال."); return; }
     const now = Date.now();
-    const ready = queuedReadings.filter((item) => isQueuedReadingReadyForSync(item, now));
+    const ready = records.filter((item) => isQueuedReadingReadyForSync(item, now));
     if (!ready.length) {
-      const waiting = queuedReadings.filter((item) => item.status === "failed" && item.lastErrorKind === "retryable" && item.nextAttemptAt > now).length;
+      const waiting = records.filter((item) => item.status === "failed" && item.lastErrorKind === "retryable" && item.nextAttemptAt > now).length;
       if (waiting) toast.message(`توجد ${waiting} قراءة مؤجلة وفق سياسة إعادة المحاولة. ستصبح قابلة للمزامنة بعد انتهاء مهلة الانتظار.`);
       else toast.message("لا توجد قراءات مستحقة للمزامنة حالياً.");
       return;
@@ -130,6 +141,14 @@ export default function MeterReadingsPage() {
     }
     await loadQueuedReadings();
   };
+
+  useEffect(() => {
+    if (!isOnline || reconnectGeneration === 0 || lastAutoSyncGeneration.current === reconnectGeneration) return;
+    lastAutoSyncGeneration.current = reconnectGeneration;
+    void loadQueuedReadings().then((records) => {
+      if (records.length) void syncQueuedReadings(records);
+    });
+  }, [isOnline, reconnectGeneration, loadQueuedReadings]);
 
   if (loading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><div className="mx-auto mt-12 max-w-xl rounded-[28px] border border-[#F5B800]/20 bg-[#111823] p-8 text-center shadow-panel"><Gauge className="mx-auto h-8 w-8 text-[#F5B800]" /><h1 className="mt-5 text-xl font-extrabold text-white">سجّل الدخول لتسجيل القراءات</h1><p className="mt-3 leading-7 text-slate-400">تحتاج قراءة المشترك وصورتها إلى مستخدم مصرح له وفرع محدد.</p><Button onClick={() => startLogin()} className="mt-6 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تسجيل الدخول</Button></div></DashboardLayout>;
