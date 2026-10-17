@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const pageSource = readFileSync(new URL("./NetworkDirectoryPage.tsx", import.meta.url), "utf8");
+const pageSource = readFileSync(new URL("../pages/NetworkDirectoryPage.tsx", import.meta.url), "utf8");
 
 describe("subscriber directory performance contract", () => {
   it("debounces search input before issuing directory queries", () => {
