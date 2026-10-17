@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceHome } from "./Home";
 
 const state = vi.hoisted(() => ({
+  authLoading: false,
+  isAuthenticated: true,
+  user: { id: 4, role: "user", mustChangePassword: false } as { id: number; role: string; mustChangePassword: boolean } | null,
+  setLocation: vi.fn(),
   configured: true,
   isActive: true,
   remaining: 458,
@@ -27,11 +31,11 @@ const state = vi.hoisted(() => ({
   refetchSubaccountQuota: vi.fn(),
 }));
 
-vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false, user: { id: 4, role: "user", mustChangePassword: false } }) }));
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: state.isAuthenticated, loading: state.authLoading, user: state.user }) }));
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/MetricCard", () => ({ MetricCard: ({ label, value }: { label: string; value: string }) => <div>{label}: {value}</div> }));
 vi.mock("@/hooks/useBranchFilter", () => ({ useBranchFilter: () => ({ branchId: 1, setBranchId: vi.fn() }) }));
-vi.mock("wouter", () => ({ useLocation: () => ["/workspace", vi.fn()] }));
+vi.mock("wouter", () => ({ useLocation: () => ["/workspace", state.setLocation] }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
@@ -55,6 +59,10 @@ vi.mock("@/lib/trpc", () => ({
 }));
 
 afterEach(() => {
+  state.authLoading = false;
+  state.isAuthenticated = true;
+  state.user = { id: 4, role: "user", mustChangePassword: false };
+  state.setLocation.mockReset();
   state.configured = true;
   state.isActive = true;
   state.remaining = 458;
@@ -76,6 +84,29 @@ afterEach(() => {
   state.refetchSubaccountQuota.mockReset();
   vi.clearAllMocks();
   document.body.innerHTML = "";
+});
+
+describe("تهيئة مصادقة مساحة العمل", () => {
+  it("keeps the workspace in a verification state while auth is loading instead of redirecting prematurely", () => {
+    state.authLoading = true;
+    state.isAuthenticated = false;
+    state.user = null;
+
+    render(<WorkspaceHome />);
+
+    expect(screen.getByText("جارٍ التحقق من جلسة الدخول…")).toBeInTheDocument();
+    expect(state.setLocation).not.toHaveBeenCalledWith("/login");
+  });
+
+  it("redirects to login only after auth loading has completed and no authenticated user exists", () => {
+    state.authLoading = false;
+    state.isAuthenticated = false;
+    state.user = null;
+
+    render(<WorkspaceHome />);
+
+    expect(screen.getByText("جارٍ توجيهك إلى تسجيل الدخول…")).toBeInTheDocument();
+  });
 });
 
 describe("إشعارات حدود الاشتراك في لوحة المالك", () => {
