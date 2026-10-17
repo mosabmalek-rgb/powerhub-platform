@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
-import { measureSlowStage, withTimeout } from "./performance-telemetry";
+import { measureSlowStage, withAbortSignalIfSupported, withTimeout } from "./performance-telemetry";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
@@ -2182,10 +2182,10 @@ export const powerhubRouter = router({
           const token = generateInvoiceShareToken();
           const { data, error } = await measureSlowStage("invoices.createShareLink", `create_link_rpc_attempt_${attempt + 1}`, () =>
             withTimeout("invoices.createShareLink", `create_link_rpc_attempt_${attempt + 1}`, async (signal) =>
-              await supabaseAdmin().rpc("powerhub_create_invoice_share_link", {
+              await withAbortSignalIfSupported(supabaseAdmin().rpc("powerhub_create_invoice_share_link", {
                 p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_invoice_id: input.invoiceId,
                 p_token_hash: hashInvoiceShareToken(token), p_token_preview: token.slice(0, 8), p_expires_at: input.expiresAt?.toISOString() ?? null,
-              }).abortSignal(signal), 8_000));
+              }), signal), 8_000));
           if (!error && Number((data as Array<{ share_link_id: number | string }> | null)?.[0]?.share_link_id)) return { token, path: `/invoice/${token}` };
           const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
           if (error?.code === "23505" && attempt < 2) continue;
@@ -2197,9 +2197,9 @@ export const powerhubRouter = router({
     publicByToken: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
       const { data, error } = await measureSlowStage("invoices.publicByToken", "shared_invoice_lookup_rpc", () =>
         withTimeout("invoices.publicByToken", "shared_invoice_lookup_rpc", async (signal) =>
-          await supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", {
+          await withAbortSignalIfSupported(supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", {
             p_token_hash: hashInvoiceShareToken(input.token),
-          }).abortSignal(signal), 8_000));
+          }), signal), 8_000));
       if (!error && data && typeof data === "object" && !Array.isArray(data)) {
         const payload = data as {
           siteId?: number;
@@ -2215,12 +2215,12 @@ export const powerhubRouter = router({
           try {
             const [feature, branding, site, portalLogoAccess, portalSetting] = await measureSlowStage("invoices.publicByToken", "parallel_branding_entitlement_queries", () =>
               withTimeout("invoices.publicByToken", "parallel_branding_entitlement_queries", (signal) => Promise.all([
-                supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) }).abortSignal(signal),
+                withAbortSignalIfSupported(supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) }), signal),
                 supabaseAdmin().from("tenant_owner_profiles").select("company_name").eq("tenant_id", Number(payload.tenantId)).maybeSingle(),
                 payload.siteId
                   ? supabaseAdmin().from("sites").select("name").eq("tenant_id", Number(payload.tenantId)).eq("id", Number(payload.siteId)).maybeSingle()
                   : Promise.resolve({ data: null, error: null }),
-                supabaseAdmin().rpc("powerhub_subscriber_portal_logo_access", { p_tenant_id: Number(payload.tenantId) }).abortSignal(signal),
+                withAbortSignalIfSupported(supabaseAdmin().rpc("powerhub_subscriber_portal_logo_access", { p_tenant_id: Number(payload.tenantId) }), signal),
                 payload.siteId
                   ? supabaseAdmin().from("site_portal_settings").select("logo_key").eq("tenant_id", Number(payload.tenantId)).eq("site_id", Number(payload.siteId)).eq("is_enabled", true).maybeSingle()
                   : Promise.resolve({ data: null, error: null }),
