@@ -90,16 +90,17 @@ describe("shared AuthProvider", () => {
     queryClient.clear();
   });
 
-  it("updates all consumers from one shared auth event without reinitializing the controller", async () => {
+  it("updates all consumers together when a real session sign-in event arrives", async () => {
     let authListener: ((event: string, session: { user: { id: string } } | null) => void) | undefined;
-    mocks.useQuery.mockReturnValue({
-      data: { id: "user-1", role: "user" },
+    let queryData: { id: string; role: string } | undefined;
+    mocks.useQuery.mockImplementation(() => ({
+      data: queryData,
       isPending: false,
-      isSuccess: true,
+      isSuccess: Boolean(queryData),
       error: null,
       refetch: vi.fn(),
-    });
-    mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
+    }));
+    mocks.getSession.mockResolvedValue(null);
     mocks.subscribe.mockImplementation((listener: typeof authListener) => {
       authListener = listener;
       return vi.fn();
@@ -117,7 +118,12 @@ describe("shared AuthProvider", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(screen.getByText("workspace: anonymous")).toBeInTheDocument();
+      expect(screen.getByText("dashboard-layout: anonymous")).toBeInTheDocument();
+      expect(mocks.subscribe).toHaveBeenCalledTimes(1);
+    });
+    queryData = { id: "user-1", role: "user" };
     authListener?.("SIGNED_IN", { user: { id: "user-1" } });
     await waitFor(() => {
       expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
