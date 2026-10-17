@@ -2194,8 +2194,8 @@ export const powerhubRouter = router({
       }),
     publicByToken: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
       const { data, error } = await measureSlowStage("invoices.publicByToken", "shared_invoice_lookup_rpc", () =>
-        withTimeout("invoices.publicByToken", "shared_invoice_lookup_rpc", (signal) =>
-          supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", {
+        withTimeout("invoices.publicByToken", "shared_invoice_lookup_rpc", async (signal) =>
+          await supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", {
             p_token_hash: hashInvoiceShareToken(input.token),
           }).abortSignal(signal), 8_000));
       if (!error && data && typeof data === "object" && !Array.isArray(data)) {
@@ -2214,7 +2214,7 @@ export const powerhubRouter = router({
             const [feature, branding, site, portalLogoAccess, portalSetting] = await measureSlowStage("invoices.publicByToken", "parallel_branding_entitlement_queries", () =>
               withTimeout("invoices.publicByToken", "parallel_branding_entitlement_queries", (signal) => Promise.all([
                 supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: Number(payload.tenantId) }).abortSignal(signal),
-                supabaseAdmin().from("tenant_owner_profiles").select("company_name").eq("tenant_id", Number(payload.tenantId)).maybeSingle().abortSignal(signal),
+                supabaseAdmin().from("tenant_owner_profiles").select("company_name").eq("tenant_id", Number(payload.tenantId)).maybeSingle(),
                 payload.siteId
                   ? supabaseAdmin().from("sites").select("name").eq("tenant_id", Number(payload.tenantId)).eq("id", Number(payload.siteId)).maybeSingle().abortSignal(signal)
                   : Promise.resolve({ data: null, error: null }),
