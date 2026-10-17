@@ -1180,6 +1180,19 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toEqual({ limit: 500, currentCount: 0, remaining: 500, plan: "professional" });
   });
 
+  it("يعود لمسار قراءة الحصة المتوافق إذا لم تُطبّق ترحيلة RPC بعد", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_subscriber_quota_summary") {
+        return { data: null, error: { code: "PGRST202", message: "Could not find the function public.powerhub_subscriber_quota_summary in the schema cache" } };
+      }
+      return state.defaultRpc(name, args);
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.subscribers.quota({ siteId: 10 })).resolves.toMatchObject({ limit: 1000, currentCount: 0, remaining: 1000, plan: "professional" });
+    expect(state.rpcCalls.map((call) => call.name)).toContain("powerhub_effective_tenant_quota");
+  });
+
   it("يحفظ الاستيراد الجماعي عبر RPC Supabase الذرية دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.bulkImport({ siteId: 10, updateExisting: false, rows: [{ sourceRow: 2, subscriberNo: "MAIN-NEW", fullName: "مشترك اختبار", phone: "+970595000111", subscriptionType: "residential" }] }))
