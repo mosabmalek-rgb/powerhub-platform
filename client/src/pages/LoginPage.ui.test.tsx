@@ -4,15 +4,35 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import LoginPage from "./LoginPage";
 
-const state = vi.hoisted(() => ({ setLocation: vi.fn(), signInWithPassword: vi.fn(), signUp: vi.fn() }));
+const state = vi.hoisted(() => ({
+  setLocation: vi.fn(),
+  signInWithPassword: vi.fn(),
+  signUp: vi.fn(),
+  getValidOfflineAuthLease: vi.fn(),
+  getOfflineAuthUser: vi.fn(),
+}));
 
 vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signInWithPassword: state.signInWithPassword, signUp: state.signUp } },
   getSupabaseSession: vi.fn().mockResolvedValue(null),
 }));
+vi.mock("@/lib/offline-auth", () => ({
+  getValidOfflineAuthLease: state.getValidOfflineAuthLease,
+}));
+vi.mock("@/lib/offline-query-cache", () => ({
+  getOfflineAuthUser: state.getOfflineAuthUser,
+}));
 vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 
-afterEach(() => { cleanup(); state.setLocation.mockReset(); state.signInWithPassword.mockReset(); state.signUp.mockReset(); });
+afterEach(() => {
+  cleanup();
+  state.setLocation.mockReset();
+  state.signInWithPassword.mockReset();
+  state.signUp.mockReset();
+  state.getValidOfflineAuthLease.mockReset();
+  state.getOfflineAuthUser.mockReset();
+  vi.stubGlobal("navigator", { ...navigator, onLine: true });
+});
 
 describe("LoginPage", () => {
   it("signs in with email and password through Supabase", async () => {
@@ -22,6 +42,21 @@ describe("LoginPage", () => {
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "SecurePass123" } });
     fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
+  });
+
+  it("does not let a cached offline lease bypass password sign-in while online", async () => {
+    vi.stubGlobal("navigator", { ...navigator, onLine: true });
+    state.getValidOfflineAuthLease.mockResolvedValue({ userId: "cached-user", issuedAt: 1, expiresAt: Date.now() + 60_000 });
+    state.getOfflineAuthUser.mockResolvedValue({ id: 123, email: "admin@powerhub.test" });
+    state.signInWithPassword.mockResolvedValue({ error: { message: "Invalid login credentials" } });
+
+    render(<LoginPage />);
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "admin@powerhub.test" } });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "WrongPassword123" } });
+    fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+
+    await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "WrongPassword123" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("البريد الإلكتروني أو كلمة المرور غير صحيحين.");
   });
 
   it("does not expose self-registration because accounts are created from Supabase administration", () => {
