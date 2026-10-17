@@ -2,6 +2,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
+import { resolveOfflineAuthTransition } from "@/lib/offline-auth-state";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -39,59 +40,97 @@ export function useAuth(options?: UseAuthOptions) {
   useEffect(() => {
     let active = true;
     let observedUserId: string | null = null;
-    void getSupabaseSession().then(async (session) => {
-      if (!active) return;
-      observedUserId = session?.user.id ?? null;
-      setHasSession(Boolean(session));
-      setSessionReady(true);
-      if (!session) {
-        const offlineLease = await getValidOfflineAuthLease();
-        if (offlineLease) {
-          const cached = await getOfflineAuthUser<CachedAuthUser>(offlineLease.userId);
-          if (active && cached) {
-            setCachedUser(cached);
-            setOfflineLeaseUserId(offlineLease.userId);
-            setHasSession(true);
-          }
-        }
+    let transitionRevision = 0;
+
+    const restoreOfflineUser = async (expectedRevision: number) => {
+      const lease = await getValidOfflineAuthLease();
+      if (!lease) {
+        if (active && transitionRevision === expectedRevision) setSessionReady(true);
         return;
       }
-      const cached = await getOfflineAuthUser<CachedAuthUser>(session.user.id);
-      if (active && cached) setCachedUser(cached);
-      if (active) setOfflineLeaseUserId(session.user.id);
-    });
+      const cached = await getOfflineAuthUser<CachedAuthUser>(lease.userId);
+      if (!active || transitionRevision !== expectedRevision) return;
+      if (cached) {
+        setCachedUser(cached);
+        setOfflineLeaseUserId(lease.userId);
+      } else {
+        setCachedUser(null);
+        setOfflineLeaseUserId(null);
+      }
+      // Do not set hasSession=true here: the lease is local-only and must not
+      // enable protected server queries without a real Supabase session.
+      setSessionReady(true);
+    };
 
     const unsubscribe = subscribeSupabaseAuthState((event, session) => {
+      const revision = ++transitionRevision;
       const nextUserId = session?.user.id ?? null;
-      const identityChanged = observedUserId !== nextUserId;
-      // Query keys are mainly scoped by tenant/site, not auth-user ID. Clear private
-      // data when an account leaves or another account signs in; token renewal is excluded.
-      if (event === "SIGNED_OUT" || (identityChanged && (event === "SIGNED_IN" || (observedUserId !== null && nextUserId !== null)))) {
-        queryClient.clear();
+      let explicitLogoutRequested = false;
+      try {
+        explicitLogoutRequested = window.localStorage.getItem("powerhub:explicit-logout") === "1";
+      } catch {
+        // Storage may be unavailable in private browsing; event alone is not enough
+        // to distinguish a deliberate logout from startup/session restoration.
       }
+
+      const transition = resolveOfflineAuthTransition(event, nextUserId, explicitLogoutRequested);
+      const identityChanged = observedUserId !== nextUserId;
+      if (event === "SIGNED_OUT" || (identityChanged && nextUserId !== null)) queryClient.clear();
       observedUserId = nextUserId;
       setHasSession(Boolean(session));
-      setSessionReady(true);
-      if (!session) {
+
+      if (transition === "explicit-sign-out") {
         setCachedUser(null);
         setOfflineLeaseUserId(null);
         void revokeOfflineAuthLease();
-      } else {
+        try { window.localStorage.removeItem("powerhub:explicit-logout"); } catch { /* best effort */ }
+        setSessionReady(true);
+      } else if (transition === "online-session" && session) {
+        if (identityChanged) {
+          setCachedUser(null);
+          setOfflineLeaseUserId(null);
+        }
         setOfflineLeaseUserId(session.user.id);
         void getOfflineAuthUser<CachedAuthUser>(session.user.id).then((cached) => {
+          if (!active || transitionRevision !== revision) return;
           if (cached) setCachedUser(cached);
+          setSessionReady(true);
         });
+      } else {
+        // INITIAL_SESSION(null), token/session recovery failures, and non-explicit
+        // SIGNED_OUT must try the local lease before the route gate decides to redirect.
+        setHasSession(false);
+        void restoreOfflineUser(revision);
       }
 
-      // TOKEN_REFRESHED only replaces credentials. It must not invalidate every
-      // auth.me query instance across the application, otherwise a routine token
-      // renewal can fan out into a request storm. Identity/profile changes do.
       if (AUTH_DATA_EVENTS.has(event)) setAuthDataRevision((value) => value + 1);
     });
 
+    // Subscribe first to avoid a session event racing the initial snapshot.
+    void getSupabaseSession().then(async (session) => {
+      if (!active) return;
+      const revision = ++transitionRevision;
+      observedUserId = session?.user.id ?? null;
+      setHasSession(Boolean(session));
+      if (session) {
+        const cached = await getOfflineAuthUser<CachedAuthUser>(session.user.id);
+        if (!active || transitionRevision !== revision) return;
+        if (cached) setCachedUser(cached);
+        setOfflineLeaseUserId(session.user.id);
+        setSessionReady(true);
+      } else {
+        await restoreOfflineUser(revision);
+      }
+    }).catch(async () => {
+      if (!active) return;
+      const revision = ++transitionRevision;
+      setHasSession(false);
+      await restoreOfflineUser(revision);
+    });
+
     return () => {
-      unsubscribe();
       active = false;
+      unsubscribe();
     };
   }, [queryClient]);
 
@@ -136,6 +175,7 @@ export function useAuth(options?: UseAuthOptions) {
       setCachedUser(null);
       setOfflineLeaseUserId(null);
       await revokeOfflineAuthLease();
+      try { window.localStorage.removeItem("powerhub:explicit-logout"); } catch { /* best effort */ }
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }
