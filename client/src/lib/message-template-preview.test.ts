@@ -8,7 +8,7 @@ describe("message-template monetary preview", () => {
       false,
     );
     expect(rendered).toBe("الفاتورة 33,000.8، المتبقي 18,000.5، الرصيد الإجمالي 42,500.7");
-    expect(rendered).not.toMatch(/\\d+\\.\\d{2,}/);
+    expect(rendered).not.toMatch(/\d+\.\d{2,}/);
   });
 
   it("hides fractions when the settlement display policy is enabled", () => {

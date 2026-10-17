@@ -8,13 +8,13 @@ const previewValues: Record<string, string> = {
 const previewMoneyKeys = new Set(["total_amount", "balance_due", "total_balance"]);
 
 function groupWholeAmount(value: bigint): string {
-  return value.toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ",");
+  return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 /** Preview-only money formatting: mirror the runtime's one-decimal policy without floating-point conversion. */
 export function formatPreviewAmount(value: string, settlementEnabled: boolean): string {
   const raw = value.trim();
-  const match = /^([+-]?)(\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.(\\d+))?$/.exec(raw);
+  const match = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?$/.exec(raw);
   if (!match) return value;
 
   const negative = match[1] === "-";
@@ -38,7 +38,7 @@ export function formatPreviewAmount(value: string, settlementEnabled: boolean): 
 }
 
 export function previewMessageTemplate(body: string, settlementEnabled: boolean): string {
-  return body.replace(/{{\\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|total_balance|due_date|invoice_link|portal_link)\\s*}}/g, (_match, key: string) => {
+  return body.replace(/{{\s*(subscriber_name|subscriber_no|invoice_no|billing_period|total_amount|balance_due|previous_reading|current_reading|consumption_kwh|total_balance|due_date|invoice_link|portal_link)\s*}}/g, (_match, key: string) => {
     const value = previewValues[key] ?? "";
     return previewMoneyKeys.has(key) ? formatPreviewAmount(value, settlementEnabled) : value;
   });
