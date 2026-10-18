@@ -323,9 +323,11 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     const query = paymentSearch.trim().toLowerCase();
     const paidDate = gazaDateKey(payment.paidAt);
     const matchesSearch = !query || [payment.transferFromAccount, payment.transferToAccount, payment.paymentNo, entry.subscriber?.fullName].some((value) => String(value ?? "").toLowerCase().includes(query));
-    const matchesProvider = paymentProvider === "all" || payment.paymentMethod === paymentProvider || payment.transferFromType === paymentProvider || payment.transferToType === paymentProvider;
-    const matchesReceiverType = paymentReceiverType === "all" || payment.transferToType === paymentReceiverType;
-    const matchesReceiverAccount = paymentReceiverAccountId === "all" || (payment.transferToAccount && String(payment.transferToAccount) === String(accounts.find((account: any) => String(account.id) === paymentReceiverAccountId)?.phoneNumber ?? accounts.find((account: any) => String(account.id) === paymentReceiverAccountId)?.name));
+    const matchesProvider = paymentProvider === "all" || payment.paymentMethod === paymentProvider || payment.transferFromType === paymentProvider;
+    const matchedReceiverAccount = accounts.find((account: any) => [account.phoneNumber, account.name].some((value) => value && String(value) === String(payment.transferToAccount)));
+    const matchesReceiverType = paymentReceiverType === "all" || payment.transferToType === paymentReceiverType || matchedReceiverAccount?.accountType === paymentReceiverType;
+    const selectedReceiverAccount = accounts.find((account: any) => String(account.id) === paymentReceiverAccountId);
+    const matchesReceiverAccount = paymentReceiverAccountId === "all" || (selectedReceiverAccount && [selectedReceiverAccount.phoneNumber, selectedReceiverAccount.name].some((value: unknown) => value && String(value) === String(payment.transferToAccount)));
     const matchesStart = !effectivePaymentStart || paidDate >= effectivePaymentStart;
     const matchesEnd = !effectivePaymentEnd || paidDate <= effectivePaymentEnd;
     return matchesSearch && matchesProvider && matchesReceiverType && matchesReceiverAccount && matchesStart && matchesEnd;
