@@ -132,10 +132,10 @@ describe("public invoice and inquiry actions", () => {
 
   it("checks report-only dependencies from the actual invoice module script, not the HTML manifest key", () => {
     const build = read("scripts/build-production.mjs");
-    expect(build).toContain('html.matchAll(/<script\\\\b[^>]*>/gi)');
-    expect(build).toContain('tag.match(/\\\\bsrc=["\']([^"\']+)["\']/i)');
-    expect(build).toContain('record.file === entryFile');
-    expect(build).toContain('entryRecord.imports ?? []');
+    expect(build).toContain('html.matchAll(/<script[^>]*>/gi)');
+    expect(build).toContain("tag.includes('type=\"module\"')");
+    expect(build).toContain("record.file === entryFile");
+    expect(build).toContain("entryRecord.imports ?? []");
     expect(build).toContain("Keep PDF, chart and spreadsheet dependencies behind dynamic imports.");
   });
 
