@@ -159,23 +159,46 @@ export default function BillingPage() {
   useEffect(() => {
     if (!previewInvoiceUrl) return;
     updatePreviewStatus("loading");
+
+    let settled = false;
+    const sendReadyPing = () => {
+      previewIframeRef.current?.contentWindow?.postMessage(
+        { type: "powerhub-public-invoice-parent-ready" },
+        window.location.origin,
+      );
+    };
+
+    // The iframe app may finish its React effects before this parent effect
+    // subscribes to messages. Repeat a same-origin readiness ping until the
+    // child acknowledges success/error, avoiding a lost one-shot postMessage.
+    const readyPing = window.setInterval(() => {
+      if (!settled) sendReadyPing();
+    }, 300);
+    sendReadyPing();
+
     const timeout = window.setTimeout(() => {
-      if (previewInvoiceStatusRef.current !== "loading") return;
+      if (settled || previewInvoiceStatusRef.current !== "loading") return;
+      settled = true;
+      window.clearInterval(readyPing);
       updatePreviewStatus("error");
       const startedAt = previewInvoiceStartedAt.current;
       console.warn("[PowerHub UI latency]", {
         operation: "invoices.showPreview",
         status: "timeout",
-        durationMs: startedAt === null ? 16_000 : Math.round(performance.now() - startedAt),
+        durationMs: startedAt === null ? 12_000 : Math.round(performance.now() - startedAt),
       });
-    }, 16_000);
+    }, 12_000);
 
     const handlePreviewMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.source !== previewIframeRef.current?.contentWindow) return;
       if (event.data?.type !== "powerhub-public-invoice-status") return;
       if (event.data.status !== "loaded" && event.data.status !== "error") return;
+      if (settled) return;
 
+      settled = true;
+      window.clearInterval(readyPing);
+      window.clearTimeout(timeout);
       updatePreviewStatus(event.data.status === "loaded" ? "ready" : "error");
       if (event.data.status === "loaded" && previewInvoiceStartedAt.current !== null) {
         const durationMs = Math.round(performance.now() - previewInvoiceStartedAt.current);
@@ -185,6 +208,8 @@ export default function BillingPage() {
 
     window.addEventListener("message", handlePreviewMessage);
     return () => {
+      settled = true;
+      window.clearInterval(readyPing);
       window.clearTimeout(timeout);
       window.removeEventListener("message", handlePreviewMessage);
     };
