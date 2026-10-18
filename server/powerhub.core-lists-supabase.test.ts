@@ -52,9 +52,42 @@ const state = vi.hoisted(() => {
         is: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => (row as Record<string, unknown>)[column] === value); return query; },
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
         order: () => query,
-        gte: () => query,
-        lte: () => query,
-        lt: () => query,
+        gte: (column: string, value: unknown) => {
+          const comparable = (item: unknown) => typeof item === "number" ? item : typeof item === "string" && /^\d{4}-\d{2}-\d{2}T/.test(item) ? Date.parse(item) : item;
+          const expected = comparable(value);
+          filteredRows = filteredRows.filter((row) => {
+            const record = row as Record<string, unknown>;
+            if (!(column in record)) return true;
+            const actual = comparable(record[column]);
+            if (actual == null) return false;
+            return typeof actual === "number" && typeof expected === "number" ? actual >= expected : String(actual) >= String(expected);
+          });
+          return query;
+        },
+        lte: (column: string, value: unknown) => {
+          const comparable = (item: unknown) => typeof item === "number" ? item : typeof item === "string" && /^\d{4}-\d{2}-\d{2}T/.test(item) ? Date.parse(item) : item;
+          const expected = comparable(value);
+          filteredRows = filteredRows.filter((row) => {
+            const record = row as Record<string, unknown>;
+            if (!(column in record)) return true;
+            const actual = comparable(record[column]);
+            if (actual == null) return false;
+            return typeof actual === "number" && typeof expected === "number" ? actual <= expected : String(actual) <= String(expected);
+          });
+          return query;
+        },
+        lt: (column: string, value: unknown) => {
+          const comparable = (item: unknown) => typeof item === "number" ? item : typeof item === "string" && /^\d{4}-\d{2}-\d{2}T/.test(item) ? Date.parse(item) : item;
+          const expected = comparable(value);
+          filteredRows = filteredRows.filter((row) => {
+            const record = row as Record<string, unknown>;
+            if (!(column in record)) return true;
+            const actual = comparable(record[column]);
+            if (actual == null) return false;
+            return typeof actual === "number" && typeof expected === "number" ? actual < expected : String(actual) < String(expected);
+          });
+          return query;
+        },
         not: () => query,
         range: (from: number, to: number) => { filteredRows = filteredRows.slice(from, to + 1); return query; },
         limit: (count: number) => { filteredRows = filteredRows.slice(0, count); return query; },
@@ -987,15 +1020,30 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     ]);
   });
 
-  it("يقبل فلاتر فترة المصروف وحساب الصرف ويرفض نطاق التاريخ المعكوس والتاريخ المستحيل", async () => {
+  it("يفلتر سجل المصروفات في Supabase بحسب الفترة والحساب والمستأجر والفرع", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.expenses.page({ siteId: 10, limit: 100, startDate: "2026-10-01", endDate: "2026-10-18", companyAccountId: 90 })).resolves.toMatchObject({ items: expect.any(Array) });
-    await expect(caller.expenses.page({ siteId: 10, limit: 100, startDate: "2026-10-19", endDate: "2026-10-18" })).rejects.toThrow();
-    await expect(caller.expenses.page({ siteId: 10, startDate: "2026-99-99", endDate: "2026-10-18" })).rejects.toThrow();
-    await expect(caller.expenses.filterAccounts({ siteId: 10 })).resolves.toEqual([{ id: 90, name: "كاش", accountType: "cash" }]);
-    const filterAccounts = await caller.expenses.filterAccounts({ siteId: 10 });
-    expect(filterAccounts[0]).not.toHaveProperty("balance");
-    expect(filterAccounts[0]).not.toHaveProperty("transactions");
+    const originalExpenses = state.tables.expenses;
+    state.tables.expenses = [
+      { id: 80, tenant_id: 20, site_id: 10, company_account_id: 90, generator_id: null, category: "fuel", description: "ضمن النطاق", amount: 15, occurred_at: "2026-10-03T10:00:00.000Z", reference_no: null, created_by_user_id: 1, created_at: "2026-10-03T10:00:00.000Z" },
+      { id: 82, tenant_id: 20, site_id: 10, company_account_id: 91, generator_id: null, category: "fuel", description: "حساب آخر", amount: 25, occurred_at: "2026-10-10T10:00:00.000Z", reference_no: null, created_by_user_id: 1, created_at: "2026-10-10T10:00:00.000Z" },
+      { id: 83, tenant_id: 20, site_id: 10, company_account_id: 90, generator_id: null, category: "fuel", description: "بعد الفترة", amount: 35, occurred_at: "2026-10-13T10:00:00.000Z", reference_no: null, created_by_user_id: 1, created_at: "2026-10-13T10:00:00.000Z" },
+      { id: 84, tenant_id: 99, site_id: 10, company_account_id: 90, generator_id: null, category: "fuel", description: "مستأجر آخر", amount: 45, occurred_at: "2026-10-05T10:00:00.000Z", reference_no: null, created_by_user_id: 1, created_at: "2026-10-05T10:00:00.000Z" },
+      { id: 85, tenant_id: 20, site_id: 11, company_account_id: 90, generator_id: null, category: "fuel", description: "فرع آخر", amount: 55, occurred_at: "2026-10-05T10:00:00.000Z", reference_no: null, created_by_user_id: 1, created_at: "2026-10-05T10:00:00.000Z" },
+    ];
+    try {
+      await expect(caller.expenses.page({ siteId: 10, limit: 100, startDate: "2026-10-03", endDate: "2026-10-12", companyAccountId: 90 })).resolves.toMatchObject({
+        items: [expect.objectContaining({ id: 80, tenantId: 20, siteId: 10, companyAccountId: 90 })],
+        hasNext: false,
+      });
+      await expect(caller.expenses.page({ siteId: 10, startDate: "2026-10-19", endDate: "2026-10-18" })).rejects.toThrow();
+      await expect(caller.expenses.page({ siteId: 10, startDate: "2026-99-99", endDate: "2026-10-18" })).rejects.toThrow();
+      await expect(caller.expenses.filterAccounts({ siteId: 10 })).resolves.toEqual([{ id: 90, name: "كاش", accountType: "cash" }]);
+      const filterAccounts = await caller.expenses.filterAccounts({ siteId: 10 });
+      expect(filterAccounts[0]).not.toHaveProperty("balance");
+      expect(filterAccounts[0]).not.toHaveProperty("transactions");
+    } finally {
+      state.tables.expenses = originalExpenses;
+    }
   });
 
   it("يسجل المصروف عبر Supabase مع حارس الفترة المالية", async () => {
