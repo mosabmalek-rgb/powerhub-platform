@@ -222,4 +222,67 @@ $function$;
 revoke all on function public.powerhub_get_public_payment_documentation_status(text) from public, anon, authenticated;
 grant execute on function public.powerhub_get_public_payment_documentation_status(text) to service_role;
 
+-- Submission only needs the current invoice scope and feature gate before uploading
+-- an optional receipt. Avoid loading account lists and invoice lines on that path.
+create or replace function public.powerhub_get_public_payment_documentation_target(p_token_hash text)
+returns jsonb
+language plpgsql
+security definer
+set search_path to ''
+as $function$
+declare
+  v_link public.invoice_share_links%rowtype;
+  v_invoice public.invoices%rowtype;
+  v_allowed boolean := false;
+begin
+  if coalesce(p_token_hash, '') !~ '^[0-9a-f]{64}
+ then
+    raise exception 'SHARE_LINK_NOT_FOUND' using errcode = 'P0001';
+  end if;
+
+  select *
+    into v_link
+  from public.invoice_share_links
+  where token_hash = p_token_hash;
+
+  if not found
+     or v_link.revoked_at is not null
+     or (v_link.expires_at is not null and v_link.expires_at <= now()) then
+    raise exception 'SHARE_LINK_NOT_FOUND' using errcode = 'P0001';
+  end if;
+
+  select invoice.*
+    into v_invoice
+  from public.invoices as invoice
+  join public.sites as site
+    on site.id = invoice.site_id
+   and site.tenant_id = invoice.tenant_id
+   and site.status = 'active'
+  where invoice.id = v_link.invoice_id
+    and invoice.tenant_id = v_link.tenant_id;
+
+  if not found then
+    raise exception 'SHARE_LINK_NOT_FOUND' using errcode = 'P0001';
+  end if;
+
+  select coalesce(access.allowed, false)
+    into v_allowed
+  from public.powerhub_payment_documentation_access(v_link.tenant_id) as access
+  limit 1;
+
+  return jsonb_build_object(
+    'siteId', v_invoice.site_id,
+    'paymentDocumentationAvailable', coalesce(v_allowed, false),
+    'invoice', jsonb_build_object(
+      'id', v_invoice.id,
+      'balanceDue', v_invoice.balance_due,
+      'status', v_invoice.status
+    )
+  );
+end;
+$function$;
+
+revoke all on function public.powerhub_get_public_payment_documentation_target(text) from public, anon, authenticated;
+grant execute on function public.powerhub_get_public_payment_documentation_target(text) to service_role;
+
 notify pgrst, 'reload schema';
