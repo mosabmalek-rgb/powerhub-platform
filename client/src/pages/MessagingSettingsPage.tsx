@@ -55,7 +55,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
   const [endDate, setEndDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
   const [type, setType] = useState<"all" | "invoice_issued" | "payment_reminder" | "payment_received" | "subscriber_reference" | "service_alert" | "manual" | "automatic">("all");
   const [channel, setChannel] = useState<"all" | "sms" | "whatsapp">("all");
-  const [status, setStatus] = useState<"all" | "pending" | "processing" | "submitted" | "failed" | "needs_review">("all");
+  const [status, setStatus] = useState<"all" | "pending" | "processing" | "submitted" | "delivered" | "read" | "failed" | "needs_review">("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const history = trpc.powerhub.unifiedMessaging.history.useQuery({
@@ -69,6 +69,10 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
   });
   const retryReceipt = trpc.powerhub.notifications.retryPaymentReceipt.useMutation({
     onSuccess: async () => { await history.refetch(); toast.success("تمت إعادة معالجة طلب إيصال الدفع."); },
+    onError: (error) => toast.error(error.message),
+  });
+  const retryGeneral = trpc.powerhub.notifications.retry.useMutation({
+    onSuccess: async () => { await history.refetch(); toast.success("تمت إعادة معالجة الرسالة."); },
     onError: (error) => toast.error(error.message),
   });
   const retrySmsBatch = trpc.powerhub.notifications.retryFailedSmsBatch.useMutation({
@@ -87,12 +91,13 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
   const data: any = history.data;
   const rows: any[] = Array.isArray(data?.items) ? data.items : [];
   const stats: any = data?.stats ?? {};
-  const busy = retryInvoice.isPending || retryReceipt.isPending || retrySmsBatch.isPending || resolveReview.isPending;
+  const busy = retryInvoice.isPending || retryReceipt.isPending || retryGeneral.isPending || retrySmsBatch.isPending || resolveReview.isPending;
   const retry = (row: any) => {
     if (row.status !== "failed") return;
     if (row.eventType === "invoice_issued" && row.invoiceId) retryInvoice.mutate({ siteId, notificationId: Number(row.id) });
     else if (row.eventType === "payment_received") retryReceipt.mutate({ siteId, notificationId: Number(row.id) });
-    else retrySmsBatch.mutate({ siteId, notificationIds: [Number(row.id)] });
+    else if (row.channel === "sms") retrySmsBatch.mutate({ siteId, notificationIds: [Number(row.id)] });
+    else retryGeneral.mutate({ siteId, notificationId: Number(row.id) });
   };
   const statusClass = (value: string) => ["submitted", "delivered", "read"].includes(value)
     ? "bg-emerald-400/10 text-emerald-300"
@@ -145,7 +150,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
           </select></label>
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">القناة</span><select value={channel} onChange={(e) => { setChannel(e.target.value as typeof channel); setPage(0); }} className={inputClass}><option value="all">كل القنوات</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option></select></label>
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">حالة الرسالة</span><select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(0); }} className={inputClass}>
-            <option value="all">كل الحالات</option><option value="pending">بانتظار المعالجة</option><option value="processing">قيد المعالجة</option><option value="submitted">مرسلة للمزود</option><option value="failed">فاشلة</option><option value="needs_review">تحتاج مراجعة</option>
+            <option value="all">كل الحالات</option><option value="pending">بانتظار المعالجة</option><option value="processing">قيد المعالجة</option><option value="submitted">مرسلة للمزود</option><option value="delivered">تم التسليم</option><option value="read">تمت القراءة</option><option value="failed">فاشلة</option><option value="needs_review">تحتاج مراجعة</option>
           </select></label>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -290,10 +295,11 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         return toast.error("وقت الجدولة المختار غير صالح أو غير موجود في المنطقة الزمنية المحددة.");
       }
     }
-    const selectedAutomationTemplateId = automationTemplateId ?? activeSmsTemplates[0]?.id;
-    if (!selectedAutomationTemplateId) return toast.error("احفظ قالب SMS نشطًا أولًا ثم اختره للأتمتة.");
-    const selectedAutomationTemplate = activeSmsTemplates.find((t: any) => t.id === selectedAutomationTemplateId);
-    if (selectedAutomationTemplate?.eventType && selectedAutomationTemplate.eventType !== automationEventType) {
+    const selectedAutomationTemplateId = automationTemplateId;
+    if (!selectedAutomationTemplateId) return toast.error("اختر قالب SMS نشطًا للأتمتة.");
+    const selectedAutomationTemplate = activeSmsTemplates.find((t: any) => Number(t.id) === Number(selectedAutomationTemplateId));
+    if (!selectedAutomationTemplate) return toast.error("القالب المختار غير نشط أو لم يعد متاحًا. حدّث القوالب واختر قالبًا نشطًا.");
+    if (selectedAutomationTemplate.eventType && selectedAutomationTemplate.eventType !== automationEventType) {
       return toast.error("نوع حدث القالب لا يطابق حدث الأتمتة. اختر قالبًا متوافقًا أو عدّل حدث القالب.");
     }
     saveAutomation.mutate({
@@ -301,7 +307,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
       name: automationName, eventType: automationEventType,
       sendType: scheduleType === "none" ? "automatic" : "scheduled",
       scheduleType, scheduleAnchorAt: derivedAnchor, timezone: automationTimezone, audience: {},
-      triggerConfig: eventType === "invoice_overdue"
+      triggerConfig: automationEventType === "invoice_overdue"
         ? { afterDueDays, ...(minBalance ? { minBalance: Number(minBalance) } : {}) }
         : {},
     });
@@ -335,7 +341,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
 
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-white/10 p-4">
-          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{templateId ? "تعديل القالب" : "قالب جديد"}</h3>{templateId ? <Button size="sm" variant="outline" onClick={() => { setTemplateId(null); setName(""); setBody(""); }}>قالب جديد</Button> : null}</div>
+          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{templateId ? "تعديل القالب" : "قالب جديد"}</h3>{templateId ? <Button type="button" size="sm" variant="outline" onClick={() => { setTemplateId(null); setName(""); setBody(""); setEventType("invoice_issued"); setInvoiceStyle("details"); }}>قالب جديد</Button> : null}</div>
           <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم القالب" />
           <select className={inputClass} value={eventType} onChange={(e) => setEventType(e.target.value as typeof eventType)}>
             <option value="invoice_issued">إرسال الفاتورة</option><option value="subscriber_created">الترحيب والرقم المرجعي</option><option value="invoice_overdue">تذكير بالسداد</option><option value="payment_received">إيصال الدفع</option><option value="service_alert">تنبيه تشغيلي</option>
@@ -349,14 +355,14 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         </div>
 
         <div className="space-y-3 rounded-xl border border-white/10 p-4">
-          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); setAutomationTemplateId(null); setAutomationEventType("subscriber_created"); setScheduleType("none"); setAnchor(""); setAfterDueDays(1); setMinBalance(""); }}>جديدة</Button> : null}</div>
+          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button type="button" size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); setAutomationTemplateId(null); setAutomationEventType("subscriber_created"); setScheduleType("none"); setAnchor(""); setAfterDueDays(1); setMinBalance(""); }}>جديدة</Button> : null}</div>
           <input className={inputClass} value={automationName} onChange={(e) => setAutomationName(e.target.value)} placeholder="اسم الأتمتة" />
-          <select className={inputClass} value={templateId ?? ""} onChange={(e) => setTemplateId(Number(e.target.value) || null)}><option value="">اختر القالب</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-          <select className={inputClass} value={eventType} onChange={(e) => setEventType(e.target.value as typeof eventType)}><option value="subscriber_created">مشترك جديد</option><option value="invoice_overdue">فاتورة متأخرة</option><option value="payment_received">استلام دفعة</option><option value="service_alert">تنبيه تشغيلي</option><option value="invoice_issued">إصدار فاتورة (المسار الأساسي)</option></select>
+          <Field label="قالب الأتمتة"><select aria-label="قالب الأتمتة" className={inputClass} value={automationTemplateId ?? ""} onChange={(e) => setAutomationTemplateId(Number(e.target.value) || null)}><option value="">اختر القالب</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
+          <Field label="حدث الأتمتة"><select aria-label="حدث الأتمتة" className={inputClass} value={automationEventType} onChange={(e) => setAutomationEventType(e.target.value as typeof automationEventType)}><option value="subscriber_created">مشترك جديد</option><option value="invoice_overdue">فاتورة متأخرة</option><option value="payment_received">استلام دفعة</option><option value="service_alert">تنبيه تشغيلي</option></select></Field>
           <select className={inputClass} value={scheduleType} onChange={(e) => setScheduleType(e.target.value as typeof scheduleType)}><option value="none">عند الحدث</option><option value="weekly">أسبوعي</option><option value="every_10_days">كل 10 أيام</option><option value="every_15_days">كل 15 يوماً</option><option value="monthly">شهري</option></select>
-          {eventType === "invoice_overdue" && scheduleType === "none" ? <div className="grid grid-cols-2 gap-2"><input type="number" min="0" max="90" className={inputClass} value={afterDueDays} onChange={(e) => setAfterDueDays(Number(e.target.value))} placeholder="بعد كم يوم" /><input type="number" min="0" className={inputClass} value={minBalance} onChange={(e) => setMinBalance(e.target.value)} placeholder="أقل رصيد" /></div> : null}
+          {eventType === "invoice_overdue" && scheduleType === "none" ? <div className="grid grid-cols-2 gap-2"><input aria-label="بعد كم يوم" type="number" min="0" max="90" className={inputClass} value={afterDueDays} onChange={(e) => setAfterDueDays(Number(e.target.value))} placeholder="بعد كم يوم" /><input aria-label="أقل رصيد" type="number" min="0" step="0.01" className={inputClass} value={minBalance} onChange={(e) => setMinBalance(e.target.value)} placeholder="أقل رصيد" /></div> : null}
           {scheduleType !== "none" ? <input type="datetime-local" className={inputClass} value={anchor} onChange={(e) => setAnchor(e.target.value)} /> : null}
-          <Button disabled={saveAutomation.isPending || !automationName.trim() || !(templateId ?? activeSmsTemplates[0]?.id) || (scheduleType !== "none" && !anchor)} onClick={submitAutomation}>{saveAutomation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الأتمتة</Button>
+          <Button type="button" disabled={saveAutomation.isPending || !automationName.trim() || !automationTemplateId || !activeSmsTemplates.some((t: any) => Number(t.id) === Number(automationTemplateId)) || (scheduleType !== "none" && !anchor)} onClick={submitAutomation}>{saveAutomation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الأتمتة</Button>
           <div className="space-y-2">{(automations.data ?? []).map((a: any) => <div key={a.id} className="rounded-lg border border-white/10 p-3"><button type="button" className="w-full text-right" onClick={() => loadAutomation(a.id)}><div className="font-medium text-white">{a.name}</div><div className="mt-1 text-xs text-slate-500">{a.eventType} · {a.sendType === "automatic" ? "عند الحدث" : a.scheduleType} · {a.enabled ? "مفعّل" : "متوقف"}</div></button><div className="mt-2 flex gap-2"><Button size="sm" variant="outline" disabled={setAutomationState.isPending} onClick={() => setAutomationState.mutate({siteId, automationId:a.id, enabled:!a.enabled, archived:false})}>{a.enabled ? "تعطيل" : "تفعيل"}</Button><Button size="sm" variant="outline" disabled={setAutomationState.isPending} onClick={() => setAutomationState.mutate({siteId, automationId:a.id, enabled:false, archived:true})}>أرشفة</Button></div></div>)}</div>
         </div>
       </div>
@@ -369,12 +375,12 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
           <Button type="button" variant="outline" onClick={toggleAll}>{filteredSubscribers.length && filteredSubscribers.every((s: any) => selectedSubscribers.includes(Number(s.id))) ? "إلغاء تحديد الظاهر" : "تحديد الظاهر"}</Button>
         </div>
         <div aria-live="polite" className={`rounded-xl border p-3 ${connectionReadiness.data?.ready ? "border-emerald-400/25 bg-emerald-400/[.05]" : "border-amber-400/25 bg-amber-400/[.05]"}`}>
-          <div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${connectionReadiness.data?.ready ? "bg-emerald-400" : "bg-amber-400"}`} /><strong className="text-sm text-white">{connectionReadiness.isLoading ? "جارٍ التحقق من جاهزية الربط…" : connectionReadiness.data?.label ?? "تعذر التحقق من جاهزية الربط"}</strong><Button type="button" size="sm" variant="outline" className="mr-auto" onClick={() => connectionReadiness.refetch()}>تحديث الحالة</Button></div>
+          <div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${connectionReadiness.data?.ready ? "bg-emerald-400" : "bg-amber-400"}`} /><strong className="text-sm text-white">{connectionReadiness.isLoading ? "جارٍ التحقق من جاهزية الربط…" : connectionReadiness.data?.label ?? "تعذر التحقق من جاهزية الربط"}</strong><Button type="button" size="sm" variant="outline" className="mr-auto" disabled={connectionReadiness.isFetching} onClick={() => connectionReadiness.refetch()}>تحديث الحالة</Button></div>
           <p className="mt-1 text-xs text-slate-400">{connectionReadiness.data?.detail ?? (connectionReadiness.error ? "تعذر قراءة حالة الربط؛ لا يمكن تأكيد الجاهزية." : "جارٍ تحميل حالة اتصال TweetSMS.")}</p>
         </div>
         <div className="rounded-lg border border-white/10 p-3 text-sm text-slate-300">تم تحديد <strong className="text-[#F5B800]">{selectedSubscribers.length}</strong> مشترك</div>
         <div className="max-h-72 overflow-auto rounded-lg border border-white/10">{filteredSubscribers.map((s: any) => <label key={s.id} className="flex items-center gap-3 border-b border-white/5 p-3 text-sm text-slate-200"><input type="checkbox" checked={selectedSubscribers.includes(Number(s.id))} onChange={() => setSelectedSubscribers((current) => current.includes(Number(s.id)) ? current.filter((id) => id !== Number(s.id)) : [...current,Number(s.id)].slice(0,500))} /><span>{s.fullName}</span><span className="mr-auto text-xs text-slate-500" dir="ltr">{s.subscriberNo}</span></label>)}</div>
-        <div className="flex justify-end"><Button disabled={sendManual.isPending || !manualTemplateId || !selectedSubscribers.length} onClick={submitManual}>{sendManual.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال الحملة</Button></div>
+        <div className="flex justify-end"><Button type="button" disabled={sendManual.isPending || !manualTemplateId || !selectedSubscribers.length || connectionReadiness.isLoading || connectionReadiness.isError || !connectionReadiness.data?.ready} onClick={submitManual}>{sendManual.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال الحملة</Button></div>
       </div>
     </CardContent>
   </Card>;
