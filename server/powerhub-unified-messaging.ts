@@ -7,7 +7,7 @@ import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase
 import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
-import { buildAutomaticOccurrenceKey, buildInvoiceOverdueOperationKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible } from "./unified-messaging-automation-policy";
+import { buildAutomaticOccurrenceKey, buildInvoiceOverdueOperationKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible, isLaterOverdueInvoiceCandidate } from "./unified-messaging-automation-policy";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
 const sendTypeSchema = z.enum(["manual", "automatic", "scheduled"]);
@@ -415,7 +415,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
               if (!isInvoiceOverdueEligible({ dueDate: invoice.due_date, balanceDue: invoice.balance_due, now, afterDueHours, minBalance })) continue;
               const key = Number(invoice.subscriber_id);
               const previous = invoiceMap.get(key);
-              if (!previous || new Date(invoice.due_date).getTime() < new Date(previous.due_date).getTime()) {
+              if (!previous || isLaterOverdueInvoiceCandidate({ dueDate: invoice.due_date, invoiceId: invoice.id }, { dueDate: previous.due_date, invoiceId: previous.id })) {
                 invoiceMap.set(key, invoice);
               }
             }
