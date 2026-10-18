@@ -2348,20 +2348,20 @@ export const powerhubRouter = router({
 
   paymentDocumentation: router({
     publicStatus: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
-      // A valid, unexpired share token is required before looking up the one
-      // invoice's pending submission. Return only the status needed by the invoice button.
-      const { data, error } = await supabaseAdmin().rpc("powerhub_get_shared_invoice_by_token_hash", {
+      // This RPC validates token hash, revocation, expiry, invoice, tenant and site
+      // without incrementing the public invoice view counter.
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_context", {
         p_token_hash: hashInvoiceShareToken(input.token),
       });
       if (error || !data || typeof data !== "object" || Array.isArray(data)) {
         const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
-        if (errorText.includes("SHARE_LINK_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
+        if (errorText.includes("SHARE_LINK_NOT_FOUND") || errorText.includes("INVOICE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالة توثيق الدفع." });
       }
-      const shared = data as { tenantId?: number | string; siteId?: number | string; invoice?: { id?: number | string } };
+      const shared = data as { tenantId?: number | string; siteId?: number | string; invoiceId?: number | string };
       const tenantId = Number(shared.tenantId);
       const siteId = Number(shared.siteId);
-      const invoiceId = Number(shared.invoice?.id);
+      const invoiceId = Number(shared.invoiceId);
       if (![tenantId, siteId, invoiceId].every((value) => Number.isSafeInteger(value) && value > 0)) {
         throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من نطاق الفاتورة المشتركة." });
       }
