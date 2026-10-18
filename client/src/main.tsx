@@ -6,7 +6,6 @@ import { createRoot } from "react-dom/client";
 import { lazy, Suspense } from "react";
 import superjson from "superjson";
 const App = lazy(() => import("./App"));
-const PublicInvoiceApp = lazy(() => import("./PublicInvoiceApp"));
 import { startLogin } from "./const";
 import "./index.css";
 
@@ -197,7 +196,7 @@ async function bootstrapOfflineState() {
 }
 function renderApp() {
   const app = isStandalonePublicInvoiceRoute()
-    ? <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-400">جارٍ تحميل الفاتورة…</div>}><PublicInvoiceApp /></Suspense>
+    ? <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-400">جارٍ تحميل الفاتورة…</div>}><App /></Suspense>
     : <Suspense fallback={<div className="grid min-h-screen place-items-center">جارٍ تهيئة الجلسة…</div>}><AuthProvider><App /></AuthProvider></Suspense>;
 
   createRoot(document.getElementById("root")!).render(
