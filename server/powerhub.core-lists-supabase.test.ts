@@ -987,6 +987,12 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     ]);
   });
 
+  it("يقبل فلاتر فترة المصروف وحساب الصرف ويرفض نطاق التاريخ المعكوس", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.expenses.page({ siteId: 10, limit: 100, startDate: "2026-10-01", endDate: "2026-10-18", companyAccountId: 90 })).resolves.toMatchObject({ items: expect.any(Array) });
+    await expect(caller.expenses.page({ siteId: 10, limit: 100, startDate: "2026-10-19", endDate: "2026-10-18" })).rejects.toThrow();
+  });
+
   it("يسجل المصروف عبر Supabase مع حارس الفترة المالية", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.expenses.create({ siteId: 10, companyAccountId: 90, category: "fuel", description: "وقود التشغيل", amount: 50, referenceNo: "EXP-1" })).resolves.toEqual({ id: 82, transactionId: 118 });
