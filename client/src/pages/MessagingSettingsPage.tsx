@@ -240,7 +240,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const [scheduleType, setScheduleType] = useState<"none"|"weekly"|"every_10_days"|"every_15_days"|"monthly">("none");
   const [anchor, setAnchor] = useState("");
   const [automationTimezone, setAutomationTimezone] = useState("Asia/Gaza");
-  const [afterDueDays, setAfterDueDays] = useState(1);
+  const [afterDueHours, setAfterDueHours] = useState(24);
   const [minBalance, setMinBalance] = useState("");
   const [manualTemplateId, setManualTemplateId] = useState<number | null>(null);
   const [manualSearch, setManualSearch] = useState("");
@@ -275,7 +275,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     const timezone = a.timezone || "Asia/Gaza";
     setAutomationTimezone(timezone);
     setAnchor(a.scheduleAnchorAt ? formatDateTimeLocalInTimeZone(a.scheduleAnchorAt, timezone) : "");
-    setAfterDueDays(Number(a.triggerConfig?.afterDueDays ?? 1));
+    setAfterDueHours(Number(a.triggerConfig?.afterDueHours ?? (Number(a.triggerConfig?.afterDueDays ?? 1) * 24)));
     setMinBalance(a.triggerConfig?.minBalance == null ? "" : String(a.triggerConfig.minBalance));
   };
 
@@ -308,7 +308,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
       sendType: scheduleType === "none" ? "automatic" : "scheduled",
       scheduleType, scheduleAnchorAt: derivedAnchor, timezone: automationTimezone, audience: {},
       triggerConfig: automationEventType === "invoice_overdue"
-        ? { afterDueDays, ...(minBalance ? { minBalance: Number(minBalance) } : {}) }
+        ? { afterDueHours, ...(minBalance.trim() ? { minBalance: Number(minBalance) } : {}) }
         : {},
     });
   };
@@ -355,12 +355,15 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         </div>
 
         <div className="space-y-3 rounded-xl border border-white/10 p-4">
-          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button type="button" size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); setAutomationTemplateId(null); setAutomationEventType("subscriber_created"); setScheduleType("none"); setAnchor(""); setAfterDueDays(1); setMinBalance(""); }}>جديدة</Button> : null}</div>
+          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button type="button" size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); setAutomationTemplateId(null); setAutomationEventType("subscriber_created"); setScheduleType("none"); setAnchor(""); setAfterDueHours(24); setMinBalance(""); }}>جديدة</Button> : null}</div>
           <input className={inputClass} value={automationName} onChange={(e) => setAutomationName(e.target.value)} placeholder="اسم الأتمتة" />
           <Field label="قالب الأتمتة"><select aria-label="قالب الأتمتة" className={inputClass} value={automationTemplateId ?? ""} onChange={(e) => setAutomationTemplateId(Number(e.target.value) || null)}><option value="">اختر القالب</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
           <Field label="حدث الأتمتة"><select aria-label="حدث الأتمتة" className={inputClass} value={automationEventType} onChange={(e) => setAutomationEventType(e.target.value as typeof automationEventType)}><option value="subscriber_created">مشترك جديد</option><option value="invoice_overdue">فاتورة متأخرة</option><option value="payment_received">استلام دفعة</option><option value="service_alert">تنبيه تشغيلي</option></select></Field>
           <select className={inputClass} value={scheduleType} onChange={(e) => setScheduleType(e.target.value as typeof scheduleType)}><option value="none">عند الحدث</option><option value="weekly">أسبوعي</option><option value="every_10_days">كل 10 أيام</option><option value="every_15_days">كل 15 يوماً</option><option value="monthly">شهري</option></select>
-          {eventType === "invoice_overdue" && scheduleType === "none" ? <div className="grid grid-cols-2 gap-2"><input aria-label="بعد كم يوم" type="number" min="0" max="90" className={inputClass} value={afterDueDays} onChange={(e) => setAfterDueDays(Number(e.target.value))} placeholder="بعد كم يوم" /><input aria-label="أقل رصيد" type="number" min="0" step="0.01" className={inputClass} value={minBalance} onChange={(e) => setMinBalance(e.target.value)} placeholder="أقل رصيد" /></div> : null}
+          {automationEventType === "invoice_overdue" ? <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="بعد كم ساعة من الاستحقاق"><input aria-label="بعد كم ساعة من الاستحقاق" type="number" min="0" max="2160" step="1" className={inputClass} value={afterDueHours} onChange={(e) => setAfterDueHours(Number(e.target.value))} placeholder="24" /><span className="mt-1 block text-[11px] leading-5 text-slate-500">تبدأ المهلة من تاريخ الاستحقاق المسجّل في الفاتورة، ولا يُرسل التذكير قبل انتهائها.</span></Field>
+            <Field label="أقل رصيد مستحق"><input aria-label="أقل رصيد مستحق" type="number" min="0" step="0.01" className={inputClass} value={minBalance} onChange={(e) => setMinBalance(e.target.value)} placeholder="اختياري" /><span className="mt-1 block text-[11px] leading-5 text-slate-500">يشترط أن يكون المتبقي في الفاتورة بهذا المبلغ أو أكثر. اتركه فارغًا لتجاهل الشرط.</span></Field>
+          </div> : null}
           {scheduleType !== "none" ? <input type="datetime-local" className={inputClass} value={anchor} onChange={(e) => setAnchor(e.target.value)} /> : null}
           <Button type="button" disabled={saveAutomation.isPending || !automationName.trim() || !automationTemplateId || !activeSmsTemplates.some((t: any) => Number(t.id) === Number(automationTemplateId)) || (scheduleType !== "none" && !anchor)} onClick={submitAutomation}>{saveAutomation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الأتمتة</Button>
           <div className="space-y-2">{(automations.data ?? []).map((a: any) => <div key={a.id} className="rounded-lg border border-white/10 p-3"><button type="button" className="w-full text-right" onClick={() => loadAutomation(a.id)}><div className="font-medium text-white">{a.name}</div><div className="mt-1 text-xs text-slate-500">{a.eventType} · {a.sendType === "automatic" ? "عند الحدث" : a.scheduleType} · {a.enabled ? "مفعّل" : "متوقف"}</div></button><div className="mt-2 flex gap-2"><Button size="sm" variant="outline" disabled={setAutomationState.isPending} onClick={() => setAutomationState.mutate({siteId, automationId:a.id, enabled:!a.enabled, archived:false})}>{a.enabled ? "تعطيل" : "تفعيل"}</Button><Button size="sm" variant="outline" disabled={setAutomationState.isPending} onClick={() => setAutomationState.mutate({siteId, automationId:a.id, enabled:false, archived:true})}>أرشفة</Button></div></div>)}</div>
