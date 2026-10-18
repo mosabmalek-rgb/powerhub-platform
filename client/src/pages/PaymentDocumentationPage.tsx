@@ -26,6 +26,46 @@ const accountTypeLabels: Record<string, string> = {
   wallet: "محفظة", bank_transfer: "تحويل بنكي", card: "بطاقة", other: "أخرى",
 };
 function accountTypeLabel(value: unknown) { const key = String(value ?? ""); return accountTypeLabels[key] ?? (key || "غير محدد"); }
+function formatPaymentDocumentationAmount(value: unknown) {
+  return new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
+}
+
+function InvoiceLineBreakdown({ lines }: { lines?: Array<{ id?: number; lineType?: string; description?: string; amount?: number | string }> }) {
+  const items = lines ?? [];
+  const visibleItems = items.filter((line) => {
+    const amount = Number(line.amount ?? 0);
+    const description = String(line.description ?? "")
+      .normalize("NFKD")
+      .replace(/\p{M}/gu, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const fractionalCarry =
+      /(?:كسر|كسور).{0,35}(?:مرحل|ترحيل)|(?:ترحيل|مرحل).{0,35}(?:كسر|كسور)|fraction[\s_-]*(?:carry|carried)/i.test(description);
+    const discount = line.lineType === "discount" || /خصم.{0,35}(?:كسر|كسور)|fraction[\s_-]*discount/i.test(description);
+    const hasDisplayedAmount = Number.isFinite(amount) && Math.round(Math.abs(amount) * 100) > 0;
+    // Hide unapplied fractional adjustments and values that round to zero at the displayed precision.
+    if (discount) return hasDisplayedAmount && amount > 0;
+    if (fractionalCarry) return hasDisplayedAmount;
+    return true;
+  });
+  return <section className="rounded-xl border border-white/10 bg-black/10 p-4" aria-label="تفاصيل الفاتورة وتسوياتها">
+    <h3 className="font-bold text-white">تفاصيل الفاتورة وتسوياتها</h3>
+    <p className="mt-1 text-xs text-slate-500">تظهر بنود الحد الأدنى وتسوية الكسور فقط عندما تنطبق فعلياً على الفاتورة.</p>
+    {visibleItems.length ? <div className="mt-3 divide-y divide-white/5">
+      {visibleItems.map((line, index) => {
+        const value = Number(line.amount ?? 0);
+        const description = String(line.description ?? "").normalize("NFKD").replace(/\p{M}/gu, "");
+        const isDiscount = line.lineType === "discount" || /خصم.{0,35}(?:كسر|كسور)|fraction[\s_-]*discount/i.test(description);
+        const displayed = isDiscount ? -Math.abs(value) : value;
+        const isCredit = isDiscount || displayed < 0;
+        return <div key={line.id ?? index} className="flex items-start justify-between gap-4 py-2 text-sm">
+          <span className={isCredit ? "leading-6 text-emerald-300" : "leading-6 text-slate-300"}>{line.description || "بند فاتورة"}</span>
+          <span className={isCredit ? "shrink-0 font-bold text-emerald-300" : "shrink-0 font-bold text-white"} dir="ltr">{displayed > 0 ? "+" : ""}{formatPaymentDocumentationAmount(displayed)} شيكل</span>
+        </div>;
+      })}
+    </div> : <p className="mt-3 text-sm text-slate-500">لا توجد بنود تسوية أو تفاصيل إضافية مسجلة لهذه الفاتورة.</p>}
+  </section>;
+}
 
 export default function PaymentDocumentationPage() {
   const { branchId, setBranchId } = useBranchFilter();
@@ -146,11 +186,12 @@ export default function PaymentDocumentationPage() {
       {!sub.invoices?.length&&<p className="text-sm text-slate-500">لا توجد فواتير لهذا المشترك.</p>}
     </CardContent></Card>)}
     {invoice&&<Card className="border-[#F5B800]/30 bg-[#F5B800]/[.035]"><CardHeader><CardTitle className="text-white">بطاقة توثيق الدفع — {invoice.invoice_no}</CardTitle></CardHeader><CardContent className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-3 text-sm"><div><span className="text-slate-500">المشترك</span><p className="text-white">{selected.full_name}</p></div><div><span className="text-slate-500">الرقم</span><p className="text-white">{selected.subscriber_no}</p></div><div><span className="text-slate-500">الرصيد وقت الطلب</span><p className="text-amber-400 font-bold">{invoice.balance_due}</p></div></div>
+      <div className="grid gap-4 md:grid-cols-3 text-sm"><div><span className="text-slate-500">المشترك</span><p className="text-white">{selected.full_name}</p></div><div><span className="text-slate-500">الرقم</span><p className="text-white">{selected.subscriber_no}</p></div><div><span className="text-slate-500">الرصيد وقت الطلب</span><p className="text-amber-400 font-bold">{formatPaymentDocumentationAmount(invoice.balance_due)} شيكل</p></div></div>
+      <InvoiceLineBreakdown lines={invoice.lines} />
       <div className="grid gap-4 md:grid-cols-2">
         <div><Label className="text-slate-300">مبلغ الدفع</Label><Input type="number" min="0.01" max={invoice.balance_due} value={amount} onChange={e=>setAmount(e.target.value)} className="mt-2 bg-white/[.03] text-white"/></div>
-        <div><Label className="text-slate-300">طريقة/نوع حساب التحويل</Label><select value={method} onChange={e=>{const next=e.target.value;setMethod(next);const destination=displayedAccounts.find((a:any)=>String(a.id)===accountId);if(destination&&next&&((next==="cash"&&destination.accountType!=="cash")||(next!=="cash"&&destination.accountType==="cash")))setAccountId("");}} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="">اختر طريقة الدفع</option>{methods.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>
         <div><Label className="text-slate-300">الحساب المستقبِل</Label><select value={accountId} onChange={e=>setAccountId(e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="">اختر الحساب المستقبِل</option>{displayedAccounts.filter((a:any)=>method==="cash"?a.accountType==="cash":method?a.accountType!=="cash":true).map((a:any)=><option key={a.id} value={a.id}>{a.name} — {accountTypeLabel(a.accountType)}{a.phoneNumber?` — ${a.phoneNumber}`:""}</option>)}</select>{selectedAccount&&<div className="mt-2 rounded-xl border border-white/10 bg-white/[.025] p-3 text-sm"><p className="font-semibold text-white">اسم الحساب: {selectedAccount.name}</p><p className="mt-1 text-slate-300">نوع الحساب المستقبِل: {accountTypeLabel(selectedAccount.accountType)}</p><p className="mt-1 text-slate-300">الرقم المرتبط بالحساب: {selectedAccount.phoneNumber || "لا يوجد رقم مسجل"}</p></div>}</div>
+        <div><Label className="text-slate-300">طريقة/نوع حساب التحويل</Label><select value={method} onChange={e=>{const next=e.target.value;setMethod(next);const destination=displayedAccounts.find((a:any)=>String(a.id)===accountId);if(destination&&next&&((next==="cash"&&destination.accountType!=="cash")||(next!=="cash"&&destination.accountType==="cash")))setAccountId("");}} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="">اختر طريقة الدفع</option>{methods.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>
         <div><Label className="text-slate-300">رقم الجوال المحوّل منه</Label><Input value={senderPhone} onChange={e=>setSenderPhone(e.target.value)} placeholder="اختياري" className="mt-2 bg-white/[.03] text-white"/></div>
         <div><Label className="text-slate-300">الرقم المرجعي للتحويل</Label><Input value={referenceNo} onChange={e=>setReferenceNo(e.target.value)} placeholder="اختياري" className="mt-2 bg-white/[.03] text-white"/></div>
         <div><Label className="text-slate-300">صورة التحويل</Label><Input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setFile(e.target.files?.[0]??null)} className="mt-2 text-slate-300"/></div>
@@ -234,12 +275,13 @@ function PublicPaymentDocumentationView({ token, loading, error, context, submit
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-white/8 bg-white/[.02] p-4"><p className="text-xs text-slate-500">المشترك</p><p className="mt-2 font-bold text-white">{subscriber?.fullName}</p><p className="mt-1 text-xs text-slate-500">#{subscriber?.subscriberNo}</p></div>
           <div className="rounded-xl border border-white/8 bg-white/[.02] p-4"><p className="text-xs text-slate-500">الفاتورة</p><p className="mt-2 font-bold text-[#F5B800]">{invoice?.invoiceNo}</p></div>
-          <div className="rounded-xl border border-white/8 bg-white/[.02] p-4"><p className="text-xs text-slate-500">الرصيد المستحق</p><p className="mt-2 text-xl font-extrabold text-[#F5B800]">{invoice?.balanceDue}</p></div>
+          <div className="rounded-xl border border-white/8 bg-white/[.02] p-4"><p className="text-xs text-slate-500">الرصيد المستحق</p><p className="mt-2 text-xl font-extrabold text-[#F5B800]">{formatPaymentDocumentationAmount(invoice?.balanceDue)} شيكل</p></div>
         </div>
+        <InvoiceLineBreakdown lines={context.lines} />
         <div className="grid gap-4 md:grid-cols-2">
           <div><Label className="text-slate-300">مبلغ الدفع</Label><Input type="number" min="0.01" max={invoice?.balanceDue} value={amount} onChange={e=>setAmount(e.target.value)} className="mt-2 bg-white/[.03] text-white"/></div>
-          <div><Label className="text-slate-300">طريقة/نوع حساب التحويل</Label><select value={method} onChange={e=>{const next=e.target.value;setMethod(next);const destination=accounts.find((a:any)=>String(a.id)===accountId);if(destination&&next&&((next==="cash"&&destination.accountType!=="cash")||(next!=="cash"&&destination.accountType==="cash")))setAccountId("");}} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="">اختر طريقة الدفع</option>{methods.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>
           <div><Label className="text-slate-300">الحساب المستقبِل</Label><select value={accountId} onChange={e=>setAccountId(e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="">اختر الحساب المستقبِل</option>{accounts.filter((a:any)=>method==="cash"?a.accountType==="cash":method?a.accountType!=="cash":true).map((a:any)=><option key={a.id} value={a.id}>{a.name} — {accountTypeLabel(a.accountType)}{a.phoneNumber?` — ${a.phoneNumber}`:""}</option>)}</select>{selectedAccount&&<div className="mt-2 rounded-xl border border-white/10 bg-white/[.025] p-3 text-sm"><p className="font-semibold text-white">اسم الحساب: {selectedAccount.name}</p><p className="mt-1 text-slate-300">نوع الحساب المستقبِل: {accountTypeLabel(selectedAccount.accountType)}</p><p className="mt-1 text-slate-300">الرقم المرتبط بالحساب: {selectedAccount.phoneNumber || "لا يوجد رقم مسجل"}</p></div>}</div>
+          <div><Label className="text-slate-300">طريقة/نوع حساب التحويل</Label><select value={method} onChange={e=>{const next=e.target.value;setMethod(next);const destination=accounts.find((a:any)=>String(a.id)===accountId);if(destination&&next&&((next==="cash"&&destination.accountType!=="cash")||(next!=="cash"&&destination.accountType==="cash")))setAccountId("");}} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="">اختر طريقة الدفع</option>{methods.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>
           <div><Label className="text-slate-300">رقم الجوال المحوّل منه</Label><Input value={senderPhone} onChange={e=>setSenderPhone(e.target.value)} disabled={method==="cash"} placeholder={method==="cash"?"غير مطلوب":"مطلوب للتحويل"} className="mt-2 bg-white/[.03] text-white"/></div>
           <div><Label className="text-slate-300">الرقم المرجعي للتحويل</Label><Input value={referenceNo} onChange={e=>setReferenceNo(e.target.value)} placeholder="اختياري" className="mt-2 bg-white/[.03] text-white"/></div>
           <div><Label className="text-slate-300">صورة التحويل</Label><Input type="file" accept="image/jpeg,image/png,image/webp" disabled={method==="cash"} onChange={e=>setFile(e.target.files?.[0]??null)} className="mt-2 text-slate-300"/><p className="mt-1 text-xs text-slate-500">{method==="cash"?"غير مطلوبة للدفع النقدي":"مطلوبة لعمليات التحويل."}</p></div>

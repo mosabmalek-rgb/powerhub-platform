@@ -2348,50 +2348,23 @@ export const powerhubRouter = router({
 
   paymentDocumentation: router({
     publicStatus: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
-      // This RPC validates token hash, revocation, expiry, invoice, tenant and site
-      // without incrementing the public invoice view counter.
-      const { data, error } = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_context", {
+      // This purpose-built RPC validates the token and reads pending status only.
+      // It deliberately avoids loading invoice accounts/details on a status refresh.
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_status", {
         p_token_hash: hashInvoiceShareToken(input.token),
       });
       if (error || !data || typeof data !== "object" || Array.isArray(data)) {
         const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
-        if (errorText.includes("SHARE_LINK_NOT_FOUND") || errorText.includes("INVOICE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
+        if (errorText.includes("SHARE_LINK_NOT_FOUND") || errorText.includes("INVOICE_NOT_FOUND")) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
+        }
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالة توثيق الدفع." });
       }
-      const shared = data as { siteId?: number | string; invoice?: { id?: number | string } };
-      const siteId = Number(shared.siteId);
-      const invoiceId = Number(shared.invoice?.id);
-      if (![siteId, invoiceId].every((value) => Number.isSafeInteger(value) && value > 0)) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من نطاق الفاتورة المشتركة." });
-      }
-      // Resolve tenant scope from the database after the share-token RPC has
-      // validated the link. Never trust tenant or invoice identifiers from input.
-      const { data: shareLink, error: shareLinkError } = await supabaseAdmin()
-        .from("invoice_share_links")
-        .select("tenant_id,invoice_id,revoked_at,expires_at")
-        .eq("token_hash", hashInvoiceShareToken(input.token))
-        .maybeSingle();
-      if (shareLinkError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق رابط الفاتورة." });
-      if (!shareLink || shareLink.revoked_at || (shareLink.expires_at && new Date(shareLink.expires_at).getTime() <= Date.now()) ||
-          Number(shareLink.invoice_id) !== invoiceId) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
-      }
-      const tenantId = Number(shareLink.tenant_id);
-      if (!Number.isSafeInteger(tenantId) || tenantId <= 0) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من نطاق الفاتورة المشتركة." });
-      }
-      const { data: pendingRequest, error: requestError } = await supabaseAdmin()
-        .from("payment_documentation_requests")
-        .select("submitted_at")
-        .eq("tenant_id", tenantId)
-        .eq("site_id", siteId)
-        .eq("invoice_id", invoiceId)
-        .eq("status", "pending")
-        .order("submitted_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (requestError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حالة طلب توثيق الدفع." });
-      return { hasPendingSubmission: Boolean(pendingRequest), submittedAt: pendingRequest?.submitted_at ?? null };
+      const status = data as { hasPendingSubmission?: boolean; submittedAt?: string | null };
+      return {
+        hasPendingSubmission: Boolean(status.hasPendingSubmission),
+        submittedAt: status.submittedAt ?? null,
+      };
     }),
     publicContext: publicProcedure.input(z.object({ token: z.string().min(16).max(200) })).query(async ({ input }) => {
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_context", { p_token_hash: hashInvoiceShareToken(input.token) });
@@ -2411,9 +2384,9 @@ export const powerhubRouter = router({
       receiptImageMime: z.enum(["image/jpeg","image/png","image/webp"]).optional(),
       clientOperationId: z.string().uuid(),
     })).mutation(async ({ input }) => {
-      const access = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_context", { p_token_hash: hashInvoiceShareToken(input.token) });
+      const access = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_target", { p_token_hash: hashInvoiceShareToken(input.token) });
       if (access.error || !access.data || typeof access.data !== "object" || Array.isArray(access.data)) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
-      const context = access.data as { paymentDocumentationAvailable?: boolean; siteId?: number; invoice?: { id: number; balanceDue: number; status: string }; subscriber?: { subscriberId?: number } };
+      const context = access.data as { paymentDocumentationAvailable?: boolean; siteId?: number; invoice?: { id: number; balanceDue: number; status: string } };
       if (!context.paymentDocumentationAvailable) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير متاحة لهذه الفاتورة." });
       if (!context.siteId || !context.invoice?.id) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من سياق الفاتورة." });
 
@@ -2498,7 +2471,37 @@ export const powerhubRouter = router({
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("subscriber_id", ids)
         .order("issue_date", { ascending: false }).limit(200);
       if (invoiceError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فواتير المشترك." });
-      return subscribers.map((subscriber) => ({ ...subscriber, invoices: (invoices ?? []).filter((invoice) => Number(invoice.subscriber_id) === Number(subscriber.id)) }));
+      const invoiceIds = Array.from(new Set((invoices ?? []).map((invoice) => Number(invoice.id))));
+      const invoiceLinesById = new Map<number, Array<{ id: number; lineType: string; description: string; amount: number; quantity: number; unitPrice: number; displayOrder: number }>>();
+      if (invoiceIds.length) {
+        const { data: invoiceLines, error: invoiceLinesError } = await admin.from("invoice_lines")
+          .select("id, invoice_id, line_type, description, amount, quantity, unit_price, display_order")
+          .eq("tenant_id", access.tenantId)
+          .in("invoice_id", invoiceIds)
+          .order("display_order", { ascending: true })
+          .order("id", { ascending: true });
+        if (invoiceLinesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل الفواتير وتسوياتها." });
+        for (const line of invoiceLines ?? []) {
+          const invoiceId = Number(line.invoice_id);
+          const items = invoiceLinesById.get(invoiceId) ?? [];
+          items.push({
+            id: Number(line.id),
+            lineType: String(line.line_type),
+            description: String(line.description),
+            amount: Number(line.amount),
+            quantity: Number(line.quantity),
+            unitPrice: Number(line.unit_price),
+            displayOrder: Number(line.display_order),
+          });
+          invoiceLinesById.set(invoiceId, items);
+        }
+      }
+      return subscribers.map((subscriber) => ({
+        ...subscriber,
+        invoices: (invoices ?? [])
+          .filter((invoice) => Number(invoice.subscriber_id) === Number(subscriber.id))
+          .map((invoice) => ({ ...invoice, lines: invoiceLinesById.get(Number(invoice.id)) ?? [] })),
+      }));
     }),
     list: protectedProcedure.input(siteScoped.extend({
       status: z.enum(["pending","approved","rejected","all"]).default("pending"),
