@@ -578,7 +578,7 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
           <Button type="submit" disabled={pending || accountsQuery.isLoading || accountsQuery.isError || !accounts.length} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError ? "تعذر تحميل حسابات الصرف" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : "حفظ المصروف"}</Button>
         </form>
       </SectionCard>
-      <ExpenseHistoryPanel history={history} canCorrect={false} />
+      <ExpenseHistoryPanel history={history} />
     </div>
   </div>;
 }
@@ -591,7 +591,7 @@ function ExpensesReadOnlyModule({ siteId, summary }: any) {
       <div className="rounded-xl border border-white/8 bg-[#111823] p-5"><p className="text-sm text-slate-400">التحصيل</p><p className="mt-3 font-display text-3xl font-extrabold text-emerald-400">{formatValue(summary?.financial.collected, 2)}</p></div>
       <div className="rounded-xl border border-[#F5B800]/20 bg-[#111823] p-5"><p className="text-sm text-slate-400">الربح التشغيلي</p><p className="mt-3 font-display text-3xl font-extrabold text-[#F5B800]">{formatValue(summary?.financial.operatingProfit, 2)}</p></div>
     </div>
-    <ExpenseHistoryPanel history={history} />
+    <ExpenseHistoryPanel history={history} canCorrect={false} />
   </div>;
 }
 
