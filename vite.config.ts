@@ -177,6 +177,8 @@ export default defineConfig({
       output: {
         manualChunks: {
           "report-spreadsheets": ["exceljs"],
+          "report-pdf": ["html2canvas", "jspdf"],
+          charts: ["recharts"],
         },
       },
     },
