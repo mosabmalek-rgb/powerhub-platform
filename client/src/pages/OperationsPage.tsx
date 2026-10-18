@@ -289,16 +289,53 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
   const [previewPayment, setPreviewPayment] = useState<{ url: string; paymentNo: string } | null>(null);
   const [paymentSearch, setPaymentSearch] = useState("");
   const [paymentProvider, setPaymentProvider] = useState("all");
+  const [paymentReceiverType, setPaymentReceiverType] = useState("all");
+  const [paymentReceiverAccountId, setPaymentReceiverAccountId] = useState("all");
+  const [paymentPeriod, setPaymentPeriod] = useState<"today" | "current_cycle" | "month_end" | "custom">("current_cycle");
   const [paymentStartDate, setPaymentStartDate] = useState("");
   const [paymentEndDate, setPaymentEndDate] = useState("");
+  const cycleBoundsQuery = trpc.powerhub.readingCycle.currentBounds.useQuery({ siteId }, { enabled: Boolean(siteId) });
+  const gazaDateKey = (value: unknown) => {
+    if (!value) return "";
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(String(value)));
+    const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+    return `${part("year")}-${part("month")}-${part("day")}`;
+  };
+  const todayKey = gazaDateKey(new Date());
+  const monthEndStart = `${todayKey.slice(0, 7)}-01`;
+  const effectivePaymentStart = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.startAt) : paymentPeriod === "month_end" ? monthEndStart : paymentStartDate;
+  const effectivePaymentEnd = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.endAt) : paymentPeriod === "month_end" ? todayKey : paymentEndDate;
   const initialSubscriberId = Number(new URLSearchParams(window.location.search).get("subscriberId") ?? 0);
   const [selectedSubscriberId, setSelectedSubscriberId] = useState<number>(initialSubscriberId);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
   const dateKey = (value: unknown) => value ? new Date(String(value)).toISOString().slice(0, 10) : "";
   const unpaidInvoicesForSubscriber = invoices.filter((x:any)=>Number(x.subscriberId)===selectedSubscriberId && Number(x.balanceDue)>0 && x.status!=="cancelled");
   useEffect(()=>{setSelectedInvoiceIds((ids)=>ids.filter((id)=>unpaidInvoicesForSubscriber.some((x:any)=>Number(x.id)===id)));},[selectedSubscriberId,invoices]);
-  const filteredPayments = payments.filter((entry: any) => { const payment = entry.payment; const query = paymentSearch.trim().toLowerCase(); const paidDate = dateKey(payment.paidAt); const matchesSearch = !query || [payment.transferFromAccount, payment.transferToAccount, payment.paymentNo, entry.subscriber?.fullName].some((value) => String(value ?? "").toLowerCase().includes(query)); const matchesProvider = paymentProvider === "all" || payment.paymentMethod === paymentProvider || payment.transferFromType === paymentProvider || payment.transferToType === paymentProvider; const matchesStart = !paymentStartDate || paidDate >= paymentStartDate; const matchesEnd = !paymentEndDate || paidDate <= paymentEndDate; return matchesSearch && matchesProvider && matchesStart && matchesEnd; });
-  const exportPaymentRows = filteredPayments.map((entry: any) => { const payment = entry.payment; return [payment.paymentNo, entry.subscriber?.fullName ?? "—", formatValue(payment.amount, 2), paymentMethodLabel[payment.paymentMethod] ?? payment.paymentMethod, payment.transferFromAccount ?? "—", paymentMethodLabel[payment.transferFromType] ?? payment.transferFromType ?? "—", payment.transferToAccount ?? "—", paymentMethodLabel[payment.transferToType] ?? payment.transferToType ?? "—", dateKey(payment.paidAt)]; });
+  const receiverTypes = Array.from(new Set(accounts.map((account: any) => String(account.accountType ?? "")).filter(Boolean)));
+  const receiverAccountsForType = accounts.filter((account: any) => paymentReceiverType === "all" || String(account.accountType) === paymentReceiverType);
+  useEffect(() => {
+    if (paymentReceiverAccountId !== "all" && !receiverAccountsForType.some((account: any) => String(account.id) === paymentReceiverAccountId)) setPaymentReceiverAccountId("all");
+  }, [paymentReceiverType, accounts]);
+  const filteredPayments = payments.filter((entry: any) => {
+    const payment = entry.payment;
+    const query = paymentSearch.trim().toLowerCase();
+    const paidDate = gazaDateKey(payment.paidAt);
+    const matchesSearch = !query || [payment.transferFromAccount, payment.transferToAccount, payment.paymentNo, entry.subscriber?.fullName].some((value) => String(value ?? "").toLowerCase().includes(query));
+    const matchesProvider = paymentProvider === "all" || payment.paymentMethod === paymentProvider || payment.transferFromType === paymentProvider || payment.transferToType === paymentProvider;
+    const matchesReceiverType = paymentReceiverType === "all" || payment.transferToType === paymentReceiverType;
+    const matchesReceiverAccount = paymentReceiverAccountId === "all" || (payment.transferToAccount && String(payment.transferToAccount) === String(accounts.find((account: any) => String(account.id) === paymentReceiverAccountId)?.phoneNumber ?? accounts.find((account: any) => String(account.id) === paymentReceiverAccountId)?.name));
+    const matchesStart = !effectivePaymentStart || paidDate >= effectivePaymentStart;
+    const matchesEnd = !effectivePaymentEnd || paidDate <= effectivePaymentEnd;
+    return matchesSearch && matchesProvider && matchesReceiverType && matchesReceiverAccount && matchesStart && matchesEnd;
+  });
+  const invoiceById = new Map(invoices.map((invoice: any) => [Number(invoice.id), invoice]));
+  const exportPaymentRows = filteredPayments.map((entry: any) => {
+    const payment = entry.payment;
+    const invoice = invoiceById.get(Number(payment.invoiceId));
+    const receiverType = paymentMethodLabel[payment.transferToType] ?? payment.transferToType ?? "—";
+    const receiverValue = payment.transferToAccount ?? "—";
+    return [payment.paymentNo, siteName, invoice?.billingPeriod ?? invoice?.cycleLabel ?? "—", entry.subscriber?.fullName ?? "—", formatValue(payment.amount, 2), paymentMethodLabel[payment.transferFromType] ?? payment.transferFromType ?? "نقدي", payment.transferFromAccount ?? "—", `${receiverValue} — ${receiverType}`, entry.invoiceNo ?? "—", gazaDateKey(payment.paidAt)];
+  });
   const exportPaymentsExcel = async () => { const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet("الدفعات", { views: [{ rightToLeft: true }] }); sheet.addRow(["الإيصال", "المشترك", "المبلغ", "طريقة الدفع", "الحساب المحوِّل", "نوعه", "الحساب المستقبِل", "نوعه", "التاريخ"]); exportPaymentRows.forEach((row: any[]) => sheet.addRow(row)); sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }; sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; sheet.columns = [{ width: 18 }, { width: 24 }, { width: 14 }, { width: 18 }, { width: 22 }, { width: 18 }, { width: 22 }, { width: 18 }, { width: 14 }]; const buffer = await workbook.xlsx.writeBuffer(); const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })); const link = document.createElement("a"); link.href = url; link.download = `powerhub-payments-${paymentStartDate || "all"}-${paymentEndDate || "all"}.xlsx`; link.click(); URL.revokeObjectURL(url); toast.success("تم تصدير الدفعات المفلترة إلى Excel."); };
   const exportPaymentsPdf = async () => { if (!exportPaymentRows.length) return toast.error("لا توجد دفعات لتصديرها."); const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; const paymentRowsHtml = exportPaymentRows.map((row: any[]) => ["<tr><td>", escapeHtml(row[0]), "</td><td>", escapeHtml(row[1]), "</td><td>", escapeHtml(row[2]), " شيكل</td><td>", escapeHtml(row[3]), "</td><td>", escapeHtml(row[4]), "</td><td>", escapeHtml(row[6]), "</td><td>", escapeHtml(row[8]), "</td></tr>"].join("")).join(""); root.innerHTML = `<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">PowerHub — تفاصيل الدفعات</h1><p>الفترة: ${escapeHtml(paymentStartDate || "كل الفترات")} — ${escapeHtml(paymentEndDate || "كل الفترات")}</p><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الإيصال</th><th>المشترك</th><th>المبلغ</th><th>الطريقة</th><th>المحوِّل</th><th>المستقبِل</th><th>التاريخ</th></tr></thead><tbody>${paymentRowsHtml}</tbody></table>`; document.body.appendChild(root); try{await downloadReportHtmlAsPdf(root,`دفعات-${paymentStartDate||"كل"}-${paymentEndDate||"الفترات"}.pdf`,{landscape:true,title:"تفاصيل الدفعات - PowerHub"});toast.success("تم تصدير الدفعات المفلترة إلى PDF.");}catch(error){toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF.");}finally{root.remove();} };
   return <div className="w-full min-w-0 space-y-6">
