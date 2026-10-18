@@ -176,6 +176,8 @@ export default function BillingPage() {
     }, 300);
     sendReadyPing();
 
+    // PublicInvoice gives its own bounded loading result at 16s. Keep the
+    // parent fallback later so a slow-but-live iframe can report that result.
     const timeout = window.setTimeout(() => {
       if (settled || previewInvoiceStatusRef.current !== "loading") return;
       settled = true;
@@ -185,9 +187,9 @@ export default function BillingPage() {
       console.warn("[PowerHub UI latency]", {
         operation: "invoices.showPreview",
         status: "timeout",
-        durationMs: startedAt === null ? 12_000 : Math.round(performance.now() - startedAt),
+        durationMs: startedAt === null ? 18_000 : Math.round(performance.now() - startedAt),
       });
-    }, 12_000);
+    }, 18_000);
 
     const handlePreviewMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
