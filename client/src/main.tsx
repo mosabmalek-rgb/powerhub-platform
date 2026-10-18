@@ -3,15 +3,14 @@ import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
+import { lazy, Suspense } from "react";
 import superjson from "superjson";
 import App from "./App";
-import { AuthProvider } from "@/_core/hooks/useAuth";
 import { startLogin } from "./const";
-import { getSupabaseAccessToken, getSupabaseSession, subscribeSupabaseAuthState } from "./lib/supabase";
-import { clearOfflineQueryCacheForUser, hydrateOfflineQueryCache, persistOfflineQuery } from "./lib/offline-query-cache";
 import { probePowerHubConnectivity } from "./lib/offline-connectivity";
-import { getPowerHubDeviceId, getValidOfflineAuthLease } from "./lib/offline-auth";
 import "./index.css";
+
+const AuthProvider = lazy(() => import("@/_core/hooks/useAuth").then((module) => ({ default: module.AuthProvider })));
 
 function isStandalonePublicInvoiceRoute(): boolean {
   return typeof window !== "undefined" && /^\/invoice\/[^/]+\/?$/.test(window.location.pathname);
@@ -68,7 +67,7 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   // A request can race the first Supabase auth event immediately after login.
   // Do not redirect on that transient 401; only redirect after a fresh session
   // read confirms that the browser is genuinely unauthenticated.
-  void getSupabaseSession().then((session) => {
+  void import("./lib/supabase").then(({ getSupabaseSession }) => getSupabaseSession()).then((session) => {
     if (session) return;
     if (window.location.pathname !== "/login") window.location.assign("/login");
   });
@@ -100,6 +99,10 @@ const trpcClient = trpc.createClient({
         // token in PostgreSQL. Avoid unrelated session and device-ID reads for
         // this route; all protected pages keep their normal headers.
         if (isStandalonePublicInvoiceRoute()) return {};
+        const [{ getSupabaseAccessToken }, { getPowerHubDeviceId }] = await Promise.all([
+          import("./lib/supabase"),
+          import("./lib/offline-auth"),
+        ]);
         const token = await getSupabaseAccessToken();
         const deviceId = await getPowerHubDeviceId().catch(() => null);
         return {
@@ -121,6 +124,17 @@ let activeOfflineUserId: string | null = null;
 
 async function bootstrapOfflineState() {
   try {
+    // Keep offline-cache and auth-storage code out of the initial public-invoice
+    // JavaScript bundle; only protected app routes need this module graph.
+    const [supabaseModule, offlineAuth, offlineCache] = await Promise.all([
+      import("./lib/supabase"),
+      import("./lib/offline-auth"),
+      import("./lib/offline-query-cache"),
+    ]);
+    const { getSupabaseSession, subscribeSupabaseAuthState } = supabaseModule;
+    const { getValidOfflineAuthLease } = offlineAuth;
+    const { clearOfflineQueryCacheForUser, hydrateOfflineQueryCache, persistOfflineQuery } = offlineCache;
+
     const session = await getSupabaseSession();
     if (session?.user.id) {
       activeOfflineUserId = session.user.id;
@@ -129,63 +143,62 @@ async function bootstrapOfflineState() {
       activeOfflineUserId = offlineLease?.userId ?? null;
     }
     if (activeOfflineUserId) await hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
-  } catch (error) {
-    console.warn("[PowerHub] Offline cache bootstrap skipped", error);
-  }
 
-  subscribeSupabaseAuthState((event, session) => {
-    const previousUserId = activeOfflineUserId;
-    const nextUserId = session?.user.id ?? null;
+    subscribeSupabaseAuthState((event, session) => {
+      const previousUserId = activeOfflineUserId;
+      const nextUserId = session?.user.id ?? null;
 
-    if (event === "SIGNED_OUT") {
-      let explicitLogout = false;
-      try {
-        explicitLogout = window.localStorage.getItem("powerhub:explicit-logout") === "1";
-      } catch {
-        // If storage is blocked, preserve the local cache; useAuth still revokes the lease.
-      }
+      if (event === "SIGNED_OUT") {
+        let explicitLogout = false;
+        try {
+          explicitLogout = window.localStorage.getItem("powerhub:explicit-logout") === "1";
+        } catch {
+          // If storage is blocked, preserve the local cache; useAuth still revokes the lease.
+        }
 
-      if (explicitLogout) {
-        queryClient.clear();
-        if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
-        activeOfflineUserId = null;
-        return;
-      }
-
-      // Supabase can emit SIGNED_OUT after a transient session loss. Preserve the
-      // lease-scoped cache and restore it instead of treating that event as user intent.
-      void getValidOfflineAuthLease().then(async (lease) => {
-        if (!lease) {
+        if (explicitLogout) {
+          queryClient.clear();
+          if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
           activeOfflineUserId = null;
           return;
         }
-        activeOfflineUserId = lease.userId;
-        await hydrateOfflineQueryCache(queryClient, lease.userId);
-      });
-      return;
-    }
 
-    // An initial null session can occur while offline. Keep the lease-scoped
-    // cache in that case; only switch/clear when a real account is established.
-    if (!nextUserId || nextUserId === previousUserId) return;
+        // Supabase can emit SIGNED_OUT after a transient session loss. Preserve the
+        // lease-scoped cache and restore it instead of treating that event as user intent.
+        void getValidOfflineAuthLease().then(async (lease) => {
+          if (!lease) {
+            activeOfflineUserId = null;
+            return;
+          }
+          activeOfflineUserId = lease.userId;
+          await hydrateOfflineQueryCache(queryClient, lease.userId);
+        });
+        return;
+      }
 
-    queryClient.clear();
-    if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
-    activeOfflineUserId = nextUserId;
-    void hydrateOfflineQueryCache(queryClient, nextUserId);
-  });
+      // An initial null session can occur while offline. Keep the lease-scoped
+      // cache in that case; only switch/clear when a real account is established.
+      if (!nextUserId || nextUserId === previousUserId) return;
 
-  queryClient.getQueryCache().subscribe((event) => {
-    if (!activeOfflineUserId) return;
-    if (event.type !== "updated" || event.action.type !== "success") return;
-    void persistOfflineQuery(event.query, activeOfflineUserId);
-  });
+      queryClient.clear();
+      if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
+      activeOfflineUserId = nextUserId;
+      void hydrateOfflineQueryCache(queryClient, nextUserId);
+    });
+
+    queryClient.getQueryCache().subscribe((event) => {
+      if (!activeOfflineUserId) return;
+      if (event.type !== "updated" || event.action.type !== "success") return;
+      void persistOfflineQuery(event.query, activeOfflineUserId);
+    });
+  } catch (error) {
+    console.warn("[PowerHub] Offline cache bootstrap skipped", error);
+  }
 }
-
 function renderApp() {
   const app = isStandalonePublicInvoiceRoute()
     ? <App />
-    : <AuthProvider><App /></AuthProvider>;
+    : <Suspense fallback={<div className="grid min-h-screen place-items-center">جارٍ تهيئة الجلسة…</div>}><AuthProvider><App /></AuthProvider></Suspense>;
 
   createRoot(document.getElementById("root")!).render(
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
