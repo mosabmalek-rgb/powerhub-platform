@@ -7,7 +7,7 @@ import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase
 import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
-import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
+import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible } from "./unified-messaging-automation-policy";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
 const sendTypeSchema = z.enum(["manual", "automatic", "scheduled"]);
@@ -398,6 +398,8 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       } else {
         const rows = [];
         let invoiceMap = new Map<number, any>();
+        const afterDueHours = Number(trigger.afterDueHours ?? (trigger.afterDueDays == null ? 0 : Number(trigger.afterDueDays) * 24));
+        const minBalance = trigger.minBalance == null ? null : Number(trigger.minBalance);
         if (eventType === "invoice_overdue") {
           const ids = subscribers.map((s: any) => Number(s.id));
           let lastInvoiceId = 0;
@@ -410,6 +412,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
             if (invoicesError) throw new Error("تعذر تحميل فواتير الأتمتة.");
             if (!invoices?.length) break;
             for (const invoice of invoices) {
+              if (!isInvoiceOverdueEligible({ dueDate: invoice.due_date, balanceDue: invoice.balance_due, now, afterDueHours, minBalance })) continue;
               const key = Number(invoice.subscriber_id);
               const previous = invoiceMap.get(key);
               if (!previous || new Date(invoice.due_date).getTime() < new Date(previous.due_date).getTime()) {
@@ -427,9 +430,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
         for (const subscriber of subscribers) {
           const invoice = eventType === "invoice_overdue" ? invoiceMap.get(Number(subscriber.id)) : null;
           if (eventType === "invoice_overdue") {
-            const afterDueDays = Number(trigger.afterDueDays ?? 0);
-            if (!invoice || (now.getTime() - new Date(invoice.due_date).getTime()) < afterDueDays * 86400000) { skipped++; continue; }
-            if (trigger.minBalance != null && Number(invoice.balance_due) < Number(trigger.minBalance)) { skipped++; continue; }
+            if (!invoice || !isInvoiceOverdueEligible({ dueDate: invoice.due_date, balanceDue: invoice.balance_due, now, afterDueHours, minBalance })) { skipped++; continue; }
           }
 
           const operationKey = eventType === "invoice_overdue"
@@ -988,7 +989,7 @@ export const powerhubUnifiedMessagingRouter = router({
     eventType:eventTypeSchema, sendType:sendTypeSchema, scheduleType:scheduleTypeSchema.default("none"), scheduleAnchorAt:z.date().optional(),
     timezone:z.string().trim().min(1).max(80).default("Asia/Gaza"),
     audience:z.object({subscriberIds:z.array(z.number().int().positive()).max(500).optional(),serviceStatus:z.enum(["active","suspended","disconnected"]).optional(),tags:z.array(z.string().trim().max(80)).max(50).optional()}).default({}),
-    triggerConfig:z.object({afterDueDays:z.number().int().min(0).max(90).optional(),minBalance:z.number().min(0).optional()}).default({}), enabled:z.boolean().default(true),
+    triggerConfig:z.object({afterDueHours:z.number().int().min(0).max(2160).optional(),afterDueDays:z.number().int().min(0).max(90).optional(),minBalance:z.number().min(0).optional()}).default({}), enabled:z.boolean().default(true),
   })).mutation(async ({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageMessaging");
     if(input.sendType==="manual") throw new TRPCError({code:"BAD_REQUEST",message:"الإرسال اليدوي لا يُحفظ كأتمتة؛ استخدم حملة يدوية."});
