@@ -451,6 +451,16 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("button", { name: "إلغاء تفعيل التوثيق" })).toBeDisabled();
   });
 
+  it("shows invoice due interval controls only in Settings and defaults legacy 14 days to 336 hours", () => {
+    mocks.activeRole = "owner";
+    mocks.location = "/settings";
+    render(<SettingsPage />);
+    expect(screen.getByText("مدة استحقاق الفاتورة")).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "مدة استحقاق الفاتورة" })).toHaveValue(14);
+    expect(screen.getByRole("combobox", { name: "وحدة استحقاق الفاتورة" })).toHaveValue("days");
+    expect(screen.getByText(/تُحفظ المدة بالساعات داخليًا/)).toBeInTheDocument();
+  });
+
   it("shows team administration to the owner", () => {
     mocks.activeRole = "owner";
     mocks.location = "/staff";
