@@ -144,6 +144,7 @@ type WorkspaceSiteSnapshot = {
   status: "active" | "inactive" | "archived";
   anomalyAlertPercent: number;
   invoiceDueDays: number;
+  invoiceDueHours: number;
   createdAt: Date;
 };
 
@@ -181,6 +182,7 @@ function readCachedWorkspaceSites(userId: number | undefined): WorkspaceSiteSnap
         status: site.status as WorkspaceSiteSnapshot["status"],
         anomalyAlertPercent: site.anomalyAlertPercent,
         invoiceDueDays: site.invoiceDueDays,
+        invoiceDueHours: typeof site.invoiceDueHours === "number" ? site.invoiceDueHours : site.invoiceDueDays * 24,
         createdAt,
       }];
     });
