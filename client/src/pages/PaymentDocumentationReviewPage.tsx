@@ -3,6 +3,7 @@ import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
@@ -82,6 +83,7 @@ export default function PaymentDocumentationReviewPage() {
     .map(row => ({ id: row.id, invoice_no_snapshot: row.invoiceNo, subscriber_name_snapshot: row.subscriberName, subscriber_no_snapshot: row.subscriberNo, payment_amount: row.paymentAmount, invoice_balance_snapshot: row.invoiceBalance, payment_method: row.paymentMethod, destination_account_id: row.destinationAccountId, submitted_at: row.submittedAt, status: row.status, consumption_kwh_snapshot: null, price_per_kwh_snapshot: null, invoice_total_snapshot: null, sender_phone: null, reference_no: null, reviewed_at: null, rejection_reason: null, receipt_image_key: null, destination_account_name: null, destination_account_type: null, destination_account_phone_number: null }));
   const [receiptUrls,setReceiptUrls]=useState<Record<number,string>>({});
   const [receiptLoadingId,setReceiptLoadingId]=useState<number|null>(null);
+  const [previewReceipt,setPreviewReceipt]=useState<{requestId:number;url:string}|null>(null);
   const utils=trpc.useUtils();
   const refreshAfterApproval = () => {
     const targetSiteId = siteId ?? 0;
@@ -104,20 +106,22 @@ export default function PaymentDocumentationReviewPage() {
       utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
     ]).catch(() => toast.warning("تم رفض الطلب، لكن تعذر تحديث بعض البيانات المعروضة."));
   };
-  const toggleReceipt = async (requestId:number) => {
-    if (receiptUrls[requestId]) {
-      setReceiptUrls(current=>{const next={...current};delete next[requestId];return next;});
-      return;
+  const openReceiptPreview = async (requestId: number) => {
+    let url = receiptUrls[requestId];
+    if (!url) {
+      setReceiptLoadingId(requestId);
+      try {
+        const result = await utils.powerhub.paymentDocumentation.receiptUrl.fetch({ siteId: siteId ?? 0, requestId });
+        url = result.url;
+        setReceiptUrls(current => ({ ...current, [requestId]: result.url }));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "تعذر فتح صورة التحويل.");
+        return;
+      } finally {
+        setReceiptLoadingId(null);
+      }
     }
-    setReceiptLoadingId(requestId);
-    try {
-      const result = await utils.powerhub.paymentDocumentation.receiptUrl.fetch({siteId:siteId??0,requestId});
-      setReceiptUrls(current=>({...current,[requestId]:result.url}));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر فتح صورة التحويل.");
-    } finally {
-      setReceiptLoadingId(null);
-    }
+    if (url) setPreviewReceipt({ requestId, url });
   };
   const approve=trpc.powerhub.paymentDocumentation.approve.useMutation({onSuccess:()=>{toast.success("تم اعتماد الدفع وربطه بالحركة المالية.");refreshAfterApproval();},onError:e=>toast.error(e.message)});
   const queueOfflineApprovals = async () => {
@@ -170,12 +174,12 @@ export default function PaymentDocumentationReviewPage() {
           <p className="mt-1 text-white font-semibold">{r.reviewed_at ? formatArabicDateTime(r.reviewed_at) : "لم تتم المراجعة بعد"}</p>
         </div>
       </div>
-      {r.receipt_image_key&&isOnline&&<div className="space-y-3"><Button variant="outline" disabled={receiptLoadingId===Number(r.id)} onClick={()=>void toggleReceipt(Number(r.id))}>{receiptLoadingId===Number(r.id)?<Loader2 className="ml-2 h-4 w-4 animate-spin"/>:<ExternalLink className="ml-2 h-4 w-4"/>}{receiptUrls[Number(r.id)]?"إخفاء صورة التحويل":"عرض صورة التحويل"}</Button>{receiptUrls[Number(r.id)]&&<div className="rounded-xl border border-white/10 bg-black/20 p-3"><img src={receiptUrls[Number(r.id)]} alt={`صورة تحويل طلب ${r.id}`} loading="lazy" className="mx-auto max-h-[560px] max-w-full rounded-lg object-contain"/><a className="mt-3 inline-block text-sm font-semibold text-amber-300 underline" href={receiptUrls[Number(r.id)]} target="_blank" rel="noopener noreferrer">فتح الصورة بالحجم الكامل</a></div>}</div>}
+      {r.receipt_image_key&&isOnline&&<div><Button variant="outline" disabled={receiptLoadingId===Number(r.id)} onClick={()=>void openReceiptPreview(Number(r.id))}>{receiptLoadingId===Number(r.id)?<Loader2 className="ml-2 h-4 w-4 animate-spin"/>:<ExternalLink className="ml-2 h-4 w-4"/>}عرض صورة التحويل</Button></div>}
       {r.status==="pending"&&canApprove&&<div className="flex flex-wrap gap-2 pt-2"><Button disabled={approve.isPending} onClick={()=>approve.mutate({siteId:siteId??0,requestId:Number(r.id)})}><CheckCircle2 className="ml-2 h-4 w-4"/>اعتماد الدفع</Button><Button variant="destructive" onClick={()=>setRejectId(Number(r.id))}><XCircle className="ml-2 h-4 w-4"/>رفض</Button></div>}
       {rejectId===Number(r.id)&&<div className="rounded-xl border border-red-500/20 p-4"><Textarea value={reason} onChange={e=>setReason(e.target.value)} placeholder="سبب الرفض" className="bg-white/[.03] text-white"/><div className="mt-3 flex gap-2"><Button variant="destructive" disabled={reject.isPending||reason.trim().length<2} onClick={()=>reject.mutate({siteId:siteId??0,requestId:Number(r.id),rejectionReason:reason.trim()})}>تأكيد الرفض</Button><Button variant="outline" onClick={()=>{setRejectId(null);setReason("");}}>إلغاء</Button></div></div>}
       {r.status==="rejected"&&r.rejection_reason&&<p className="rounded-xl bg-red-500/5 p-3 text-sm text-red-300">سبب الرفض: {r.rejection_reason}</p>}
     </CardContent></Card>)}
     </>}
-
+    <Dialog open={Boolean(previewReceipt)} onOpenChange={(open)=>!open&&setPreviewReceipt(null)}><DialogContent className="max-w-2xl border-white/10 bg-[#111823] text-white"><DialogHeader><DialogTitle>صورة إيصال توثيق الدفع <span className="text-xs text-slate-400">طلب #{previewReceipt?.requestId}</span></DialogTitle></DialogHeader>{previewReceipt?<img src={previewReceipt.url} alt={`صورة إيصال توثيق الدفع للطلب ${previewReceipt.requestId}`} className="mx-auto max-h-[70vh] w-full rounded-xl border border-white/10 object-contain"/>:null}</DialogContent></Dialog>
   </div></DashboardLayout>;
 }

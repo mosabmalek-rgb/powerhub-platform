@@ -557,6 +557,25 @@ export const powerhubRouter = router({
       const row = Array.isArray(data) ? data[0] : data;
       return { cycleType: row?.cycle_type ?? "MONTHLY", weeklyStartDay: Number(row?.weekly_start_day ?? 7), monthlyStartDay: Number(row?.monthly_start_day ?? 1), timezone: row?.timezone ?? "Asia/Gaza" };
     }),
+    currentBounds: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_cycle_for_reading", {
+        p_tenant_id: scope.tenantId,
+        p_site_id: input.siteId,
+        p_reading_at: new Date().toISOString(),
+      });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row?.cycle_start_at || !row?.cycle_end_at) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تحديد حدود دورة الفوترة الحالية لهذا الفرع." });
+      }
+      return {
+        cycleKey: String(row.cycle_key ?? ""),
+        cycleLabel: String(row.cycle_label ?? row.billing_period ?? ""),
+        billingPeriod: String(row.billing_period ?? row.cycle_key ?? ""),
+        startAt: String(row.cycle_start_at),
+        endAt: String(row.cycle_end_at),
+      };
+    }),
     save: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       cycleType: z.enum(["WEEKLY", "EVERY_10_DAYS", "EVERY_15_DAYS", "MONTHLY"]),
@@ -2880,6 +2899,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      paymentMethod: z.string().optional(),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
@@ -2889,7 +2909,7 @@ export const powerhubRouter = router({
         listSupabaseReportExpenses({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
       ]);
       const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
-      const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive);
+      const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive && (!input.paymentMethod || input.paymentMethod === "all" || payment.paymentMethod === input.paymentMethod));
       const collectorsIds = Array.from(new Set(completedPayments.flatMap(({ payment }) => payment.collectedByUserId === null ? [] : [payment.collectedByUserId])));
       const [collectorRows, subscriberRows] = await Promise.all([
         collectorsIds.length ? supabaseAdmin().from("users").select("id, name, email").in("id", collectorsIds) : Promise.resolve({ data: [], error: null }),
