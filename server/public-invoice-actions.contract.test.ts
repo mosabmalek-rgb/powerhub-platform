@@ -86,7 +86,12 @@ describe("public invoice and inquiry actions", () => {
     const viteConfig = read("vite.config.ts");
     expect(viteConfig).toContain('"report-pdf": ["html2canvas", "jspdf"]');
     expect(viteConfig).toContain('charts: ["recharts"]');
-    expect(viteConfig).toContain('invoice: path.resolve(PROJECT_ROOT, "client", "invoice.html")');
+    expect(viteConfig).toContain('const invoiceOnlyBuild = process.env.POWERHUB_INVOICE_ONLY === "1"');
+    expect(viteConfig).toContain("emptyOutDir: !invoiceOnlyBuild");
+    expect(viteConfig).toContain('? path.resolve(PROJECT_ROOT, "client", "invoice.html")');
+    const buildScript = read("scripts/build-production.mjs");
+    expect(buildScript).toContain('run(["exec", "vite", "build"], { POWERHUB_INVOICE_ONLY: "1" });');
+    expect(buildScript).toContain('path.join(outputDirectory, "invoice.html")');
     const config = JSON.parse(read("vercel.json")) as { rewrites: Array<{ source: string; destination: string }>; headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }> };
     const invoiceRewriteIndex = config.rewrites.findIndex((rewrite) => rewrite.source === "/invoice/:token" && rewrite.destination === "/invoice.html");
     const fallbackRewriteIndex = config.rewrites.findIndex((rewrite) => rewrite.source === "/(.*)");
