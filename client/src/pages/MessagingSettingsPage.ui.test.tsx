@@ -5,7 +5,7 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import MessagingSettingsPage from "./MessagingSettingsPage";
 
-const state = vi.hoisted(() => ({ mutate: vi.fn(), automationMutate: vi.fn(), policy: { configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "القنوات مفتوحة للتجربة" } }));
+const state = vi.hoisted(() => ({ mutate: vi.fn(), automationMutate: vi.fn(), readiness: true, policy: { configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "القنوات مفتوحة للتجربة" } }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: true, loading: false }) }));
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
@@ -16,13 +16,14 @@ vi.mock("@/lib/trpc", () => ({
       sites: { list: { useQuery: () => ({ data: [{ id: 3, name: "محطة الاختبار" }] }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) } },
       dashboard: { financialOverview: { useQuery: () => ({ data: { month: { invoiced: 100, collectionRate: 55 }, outstanding: { overdue: 25, partialInvoices: 2 }, topDebtors: [{ subscriber: "مشترك متأخر", subscriberId: 11, invoiceId: 24, invoiceNo: "INV-24", outstanding: 25, isOverdue: true, ageDays: 7 }] } }) } },
-      subscribers: { phoneReview: { useQuery: () => ({ data: [{ id: 11, fullName: "مشترك قديم", phone: "00970599000000", status: "ready", normalizedPhone: "+970599000000", reason: "يمكن توحيد الصيغة تلقائياً." }] }) }, applyPhoneNormalization: { useMutation: () => ({ mutate: state.mutate, isPending: false }) } },
+      siteBillingPolicy: { get: { useQuery: () => ({ data: { automaticFractionDiscountEnabled: true, fractionCarryEnabled: true } }) } },
+      subscribers: { list: { useQuery: () => ({ data: [{ id: 11, fullName: "مشترك الاختبار", subscriberNo: "SUB-11", phone: "+970599000000" }] }) }, phoneReview: { useQuery: () => ({ data: [{ id: 11, fullName: "مشترك قديم", phone: "00970599000000", status: "ready", normalizedPhone: "+970599000000", reason: "يمكن توحيد الصيغة تلقائياً." }] }) }, applyPhoneNormalization: { useMutation: () => ({ mutate: state.mutate, isPending: false }) } },
       unifiedMessaging: {
         templates: { useQuery: () => ({ data: [
           { id: 101, name: "قالب ترحيب", channel: "sms", isActive: true, eventType: "subscriber_created", body: "مرحباً {{subscriber_name}}" },
           { id: 102, name: "قالب تذكير", channel: "sms", isActive: true, eventType: "invoice_overdue", body: "تذكير {{invoice_no}}" },
         ] }) },
-        connectionReadiness: { useQuery: () => ({ data: { ready: true, label: "الربط فعال وجاهز", detail: "اختبار اتصال ناجح" }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) },
+        connectionReadiness: { useQuery: () => ({ data: { ready: state.readiness, label: state.readiness ? "الربط فعال وجاهز" : "الربط غير جاهز", detail: "حالة الاختبار" }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) },
         automations: { useQuery: () => ({ data: [] }) },
         history: { useQuery: () => ({ data: { items: [], total: 0, campaignCount: 0, stats: { total: 0, submitted: 0, failed: 0, pending: 0, processing: 0, needsReview: 0, campaigns: 0 }, timezone: "Asia/Gaza" }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) },
         campaign: { useQuery: () => ({ data: null }) },
@@ -31,6 +32,8 @@ vi.mock("@/lib/trpc", () => ({
         setAutomationState: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         sendManual: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         retryFailed: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
+        retryFailedSmsBatch: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
+        resolveSmsNeedsReview: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
       },
       messaging: {
         listConfigurations: { useQuery: () => ({ data: [{ channel: "whatsapp", provider: "meta_whatsapp_cloud", phoneNumberId: "123", templateName: "invoice_ready_ar", receiptTemplateName: "payment_receipt_ar", isActive: true }] }) },
@@ -57,7 +60,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-afterEach(() => { document.body.innerHTML = ""; state.mutate.mockReset(); state.automationMutate.mockReset(); state.policy = { configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "القنوات مفتوحة للتجربة" }; });
+afterEach(() => { document.body.innerHTML = ""; state.mutate.mockReset(); state.automationMutate.mockReset(); state.readiness = true; state.policy = { configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "القنوات مفتوحة للتجربة" }; });
 
 describe("owner invoice messaging settings", () => {
   it("shows admin-gated channels, editable templates, and the invoice delivery log", () => {
@@ -111,9 +114,13 @@ describe("owner invoice messaging settings", () => {
     }));
   });
 
-  it("does not submit a manual SMS campaign until TweetSMS readiness is confirmed", () => {
+  it("does not submit a manual SMS campaign when TweetSMS readiness is false", () => {
+    state.readiness = false;
     render(<MessagingSettingsPage />);
+    fireEvent.change(screen.getByRole("combobox", { name: "قالب SMS للحملة اليدوية" }), { target: { value: "101" } });
+    fireEvent.click(screen.getByText("مشترك الاختبار"));
     expect(screen.getByRole("button", { name: "إرسال الحملة" })).toBeDisabled();
+    expect(state.mutate).not.toHaveBeenCalled();
   });
 
   it("blocks provider setup until the platform administrator explicitly opens the policy", () => {
