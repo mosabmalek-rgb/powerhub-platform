@@ -2358,11 +2358,26 @@ export const powerhubRouter = router({
         if (errorText.includes("SHARE_LINK_NOT_FOUND") || errorText.includes("INVOICE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حالة توثيق الدفع." });
       }
-      const shared = data as { tenantId?: number | string; siteId?: number | string; invoiceId?: number | string };
-      const tenantId = Number(shared.tenantId);
+      const shared = data as { siteId?: number | string; invoice?: { id?: number | string } };
       const siteId = Number(shared.siteId);
-      const invoiceId = Number(shared.invoiceId);
-      if (![tenantId, siteId, invoiceId].every((value) => Number.isSafeInteger(value) && value > 0)) {
+      const invoiceId = Number(shared.invoice?.id);
+      if (![siteId, invoiceId].every((value) => Number.isSafeInteger(value) && value > 0)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من نطاق الفاتورة المشتركة." });
+      }
+      // Resolve tenant scope from the database after the share-token RPC has
+      // validated the link. Never trust tenant or invoice identifiers from input.
+      const { data: shareLink, error: shareLinkError } = await supabaseAdmin()
+        .from("invoice_share_links")
+        .select("tenant_id,site_id,invoice_id,revoked_at,expires_at")
+        .eq("token_hash", hashInvoiceShareToken(input.token))
+        .maybeSingle();
+      if (shareLinkError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق رابط الفاتورة." });
+      if (!shareLink || shareLink.revoked_at || (shareLink.expires_at && new Date(shareLink.expires_at).getTime() <= Date.now()) ||
+          Number(shareLink.site_id) !== siteId || Number(shareLink.invoice_id) !== invoiceId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
+      }
+      const tenantId = Number(shareLink.tenant_id);
+      if (!Number.isSafeInteger(tenantId) || tenantId <= 0) {
         throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من نطاق الفاتورة المشتركة." });
       }
       const { data: pendingRequest, error: requestError } = await supabaseAdmin()
