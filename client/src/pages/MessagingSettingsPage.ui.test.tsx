@@ -114,6 +114,18 @@ describe("owner invoice messaging settings", () => {
     }));
   });
 
+
+  it("submits a manual SMS campaign with the explicitly selected template and recipients when ready", () => {
+    state.readiness = true;
+    render(<MessagingSettingsPage />);
+    fireEvent.change(screen.getByRole("combobox", { name: "قالب SMS للحملة اليدوية" }), { target: { value: "101" } });
+    fireEvent.click(screen.getByLabelText(/مشترك الاختبار.*SUB-11/));
+    fireEvent.click(screen.getByRole("button", { name: "إرسال الحملة" }));
+    expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: 3, templateId: 101, subscriberIds: [11], operationId: expect.any(String),
+    }));
+  });
+
   it("does not submit a manual SMS campaign when TweetSMS readiness is false", () => {
     state.readiness = false;
     render(<MessagingSettingsPage />);
