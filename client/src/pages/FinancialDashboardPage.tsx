@@ -41,7 +41,8 @@ export default function FinancialDashboardPage() {
       setEndDate(end);
     }
   }, [preset, cycleBoundsQuery.data, startDate, endDate]);
-  const report = trpc.powerhub.reports.range.useQuery({ siteId, startDate, endDate, paymentMethod }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate && (preset !== "current_cycle" || Boolean(cycleBoundsQuery.data))) });
+  const cycleRangeReady = preset !== "current_cycle" || Boolean(cycleBoundsQuery.data && dateKey(cycleBoundsQuery.data.startAt) === startDate && dateKey(cycleBoundsQuery.data.endAt) === endDate);
+  const report = trpc.powerhub.reports.range.useQuery({ siteId, startDate, endDate, paymentMethod }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate && cycleRangeReady) });
   const branding = trpc.powerhub.reportBranding.get.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated) });
   const settlements = trpc.powerhub.settlements.list.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated) });
   const discounts = trpc.powerhub.siteBillingPolicy.discountSummary.useQuery({ siteId, startDate, endDate }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate) });
