@@ -27,7 +27,7 @@ function assertPublicInvoiceEntryDoesNotPreloadReportLibraries() {
   for (const tag of preloadTags) {
     const href = tag.match(/\bhref=["']([^"']+)["']/)?.[1];
     if (!href) continue;
-    const relativePath = href.replace(/^\\/+/, "").split("?")[0];
+    const relativePath = href.replace(/^\/+/, "").split("?")[0];
     const assetPath = path.resolve(outputDirectory, relativePath);
     if (!assetPath.startsWith(outputDirectory + path.sep)) {
       throw new Error(`Unexpected modulepreload path in built HTML: ${href}`);
