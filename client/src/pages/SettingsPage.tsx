@@ -237,6 +237,7 @@ function InvoiceDuePolicySection({ siteId }: { siteId: number }) {
       await Promise.all([
         utils.powerhub.sites.invoiceDuePolicy.get.invalidate({ siteId }),
         utils.powerhub.sites.list.invalidate(),
+        utils.powerhub.audit.list.invalidate(),
       ]);
       setUnit(result.invoiceDueHours >= 24 && result.invoiceDueHours % 24 === 0 ? "days" : "hours");
       setAmount(String(result.invoiceDueHours >= 24 && result.invoiceDueHours % 24 === 0
@@ -251,7 +252,7 @@ function InvoiceDuePolicySection({ siteId }: { siteId: number }) {
   return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
     <div className="mb-4">
       <h2 className="font-bold text-white">مدة استحقاق الفاتورة</h2>
-      <p className="mt-1 text-sm leading-6 text-slate-400">حدد المدة التي تضاف إلى وقت تسجيل القراءة لتحديد موعد استحقاق الفواتير الجديدة الصادرة آليًا. لا يغيّر هذا الإعداد موعد استحقاق الفواتير الموجودة.</p>
+      <p className="mt-1 text-sm leading-6 text-slate-400">حدد المدة التي تضاف إلى وقت القراءة لإصدار الفواتير الجديدة وتحديد موعد استحقاقها، سواء صدرت من المنصة أو بعد اعتماد القراءة الميدانية. لا يغيّر هذا الإعداد موعد استحقاق الفواتير الموجودة.</p>
     </div>
     {query.isLoading ? <p className="py-4 text-sm text-slate-500">جارٍ تحميل مدة الاستحقاق…</p>
       : query.isError ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-400/20 p-4 text-sm text-rose-200">
