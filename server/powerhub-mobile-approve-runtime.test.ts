@@ -79,6 +79,16 @@ describe("mobile approval Supabase runtime", () => {
     expect(state.notify).not.toHaveBeenCalled();
   });
 
+  it("uses the configured due-hours interval for field reading invoices without sending real SMS", async () => {
+    state.site.mockResolvedValue({ id: 10, tenantId: 20, invoiceDueDays: 1, invoiceDueHours: 18 });
+    const caller = testRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await caller.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false });
+    expect(state.approve).toHaveBeenCalledWith(expect.objectContaining({
+      dueDate: new Date("2026-08-16T04:00:00.000Z"),
+    }));
+    expect(state.notify).not.toHaveBeenCalled();
+  });
+
   it("passes the authenticated actor into notification dispatch for sendNow", async () => {
     const caller = testRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: true }))
