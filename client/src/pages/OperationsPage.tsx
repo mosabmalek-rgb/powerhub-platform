@@ -178,8 +178,11 @@ export default function OperationsPage({ section }: { section: Section }) {
       ],
     );
   }, onError: (e) => toast.error(e.message) });
-  const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: (result) => {
-    toast.success(result.status === "submitted" ? "تم إرسال إيصال SMS بنجاح." : "تعذر إرسال إيصال SMS؛ راجع سجل الإشعارات.");
+  const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: (result, variables) => {
+    const channelLabel = variables.channel === "whatsapp" ? "WhatsApp" : "SMS";
+    if (result.status === "submitted") toast.success(`قَبِل مزود ${channelLabel} طلب إرسال الإيصال؛ هذا لا يؤكد التسليم النهائي.`);
+    else if (result.status === "needs_review") toast.warning(`نتيجة إرسال ${channelLabel} غير مؤكدة؛ راجع سجل الرسائل قبل إعادة المحاولة.`);
+    else toast.error(`تعذر إرسال إيصال ${channelLabel}؛ راجع سجل الرسائل.`);
     refreshOperational([], [
       () => utils.powerhub.notifications.list.invalidate({ siteId: siteId ?? 0 }),
       () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
