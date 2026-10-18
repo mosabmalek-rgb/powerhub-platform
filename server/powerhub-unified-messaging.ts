@@ -398,7 +398,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       } else {
         const rows = [];
         let invoiceMap = new Map<number, any>();
-        const afterDueHours = Number(trigger.afterDueHours ?? (trigger.afterDueDays == null ? 0 : Number(trigger.afterDueDays) * 24));
+        const afterDueHours = Number(trigger.afterDueHours ?? (trigger.afterDueDays == null ? 24 : Number(trigger.afterDueDays) * 24));
         const minBalance = trigger.minBalance == null ? null : Number(trigger.minBalance);
         if (eventType === "invoice_overdue") {
           const ids = subscribers.map((s: any) => Number(s.id));
