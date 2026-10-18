@@ -21,24 +21,33 @@ function assertPublicInvoiceEntryDoesNotPreloadReportLibraries() {
   const html = fs.readFileSync(path.join(outputDirectory, "invoice.html"), "utf8");
   const manifestPath = path.join(outputDirectory, "invoice-manifest.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  const entryRecord = Object.entries(manifest).find(([key, value]) =>
-    (key === "invoice.html" || key === "client/invoice.html" || key.endsWith("/invoice.html") ||
-      value.src === "invoice.html" || value.src === "client/invoice.html") &&
-    value.isEntry === true
-  )?.[1];
-  if (!entryRecord || !Array.isArray(entryRecord.imports)) {
-    const entries = Object.entries(manifest).filter(([, value]) => value.isEntry).map(([key]) => key);
-    throw new Error(`Dedicated invoice build manifest is missing its HTML entry dependency graph. Entries found: ${entries.join(", ") || "none"}`);
+
+  // Resolve the actual JS entry referenced by invoice.html instead of relying
+  // on Vite's HTML-manifest key shape. The invoice-only build can name this key
+  // "invoice.html" while its emitted JS entry is a separate manifest record.
+  const moduleScripts = [...html.matchAll(/<script\\b[^>]*>/gi)]
+    .map(([tag]) => tag)
+    .filter((tag) => /\\btype=["']module["']/i.test(tag))
+    .map((tag) => tag.match(/\\bsrc=["']([^"']+)["']/i)?.[1])
+    .filter((src) => typeof src === "string");
+  if (!moduleScripts.length) {
+    throw new Error("Dedicated invoice HTML has no module script to inspect.");
+  }
+  const entryFile = moduleScripts[0].replace(/^\\//, "");
+  const entryRecord = Object.values(manifest).find((record) => record.file === entryFile);
+  if (!entryRecord) {
+    const emitted = Object.values(manifest).map((record) => record.file).filter(Boolean);
+    throw new Error(`Dedicated invoice JS entry is missing from its manifest. Entry: ${entryFile}; emitted files: ${emitted.join(", ")}`);
   }
 
-  // Only traverse static imports. Dynamic imports are deliberately excluded:
-  // report libraries must download only after the user clicks Download PDF.
+  // Traverse only static imports. Dynamic imports are intentionally excluded
+  // because they must execute only when the user clicks Download PDF.
   const visited = new Set();
-  const queue = [...entryRecord.imports];
+  const queue = [entryRecord.file, ...(entryRecord.imports ?? [])];
   const heavyPatterns = [
     ["PDF renderer", /(?:html2canvas|jspdf)/i],
-    ["charting library", /(?:recharts)/i],
-    ["spreadsheet library", /(?:exceljs)/i],
+    ["charting library", /(?:recharts|charts[-.])/i],
+    ["spreadsheet library", /(?:exceljs|report-spreadsheets)/i],
   ];
   const offending = [];
   while (queue.length) {
