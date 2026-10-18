@@ -2,7 +2,7 @@ import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { copyTextSafely } from "@/lib/clipboard";
-import { CreditCard, Download, FileText, Loader2, Share2 } from "lucide-react";
+import { CheckCircle2, CreditCard, Download, FileText, Loader2, Share2 } from "lucide-react";
 import { useRoute } from "wouter";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -15,6 +15,12 @@ export default function PublicInvoice() {
     { token },
     { enabled: token.length >= 16, retry: false, staleTime: 0 },
   );
+  const paymentStatusQuery = trpc.powerhub.paymentDocumentation.publicStatus.useQuery(
+    { token },
+    { enabled: token.length >= 16, retry: false, staleTime: 0, refetchOnMount: "always" },
+  );
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [invoiceElement, setInvoiceElement] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     if (invoiceQuery.isSuccess || invoiceQuery.isError || !invoiceQuery.isFetching || token.length < 16) {
@@ -79,7 +85,7 @@ export default function PublicInvoice() {
 
   return (
     <div className="min-h-screen bg-[#0D1117] px-4 py-10" dir="ltr">
-      <main dir="rtl" style={{ width: "100%", maxWidth: "768px", margin: "0 auto" }} className="overflow-hidden rounded-[28px] border border-white/10 bg-[#111823] shadow-2xl shadow-black/30">
+      <main ref={setInvoiceElement} dir="rtl" style={{ width: "100%", maxWidth: "768px", margin: "0 auto" }} className="overflow-hidden rounded-[28px] border border-white/10 bg-[#111823] shadow-2xl shadow-black/30">
         <header className="flex flex-col items-center gap-4 border-b border-white/10 px-6 py-7 text-center sm:px-10">
           {companyLogoUrl
             ? <img src={companyLogoUrl} alt={companyName ? `شعار ${companyName}` : "شعار الشركة"} className="h-[6.75rem] w-[21.6rem] max-w-full object-contain sm:h-[8.1rem] sm:w-[26.1rem]" />
@@ -108,10 +114,11 @@ export default function PublicInvoice() {
             {visibleLines.map((line) => <div className="flex items-center justify-between gap-4 border-b border-white/7 px-4 py-3 text-sm last:border-b-0" key={line.id}><span className="text-slate-300">{line.description}</span><span className={`shrink-0 font-display font-bold ${line.lineType === "discount" ? "text-emerald-300" : "text-white"}`}>{format(line.lineType === "discount" ? -Math.abs(Number(line.amount)) : Number(line.amount))} شيكل</span></div>)}
             {!visibleLines.length ? <p className="px-4 py-5 text-sm text-slate-400">لا توجد بنود مالية لعرضها.</p> : null}
           </div>
-          <div className="mt-9 grid gap-3 sm:grid-cols-2">
-            {paymentDocumentationAvailable && Number(invoice.balanceDue) > 0 && !["draft", "cancelled", "paid"].includes(String(invoice.status).toLowerCase()) ? <Button className="bg-emerald-500 font-bold text-white hover:bg-emerald-400" onClick={() => { window.location.href = `/payment-documentation/public/${encodeURIComponent(token)}`; }}><CreditCard className="ml-2 h-4 w-4" />توثيق الدفع</Button> : <div className="rounded-xl border border-white/10 bg-white/[.02] px-4 py-3 text-center text-sm text-slate-500">توثيق الدفع الإلكتروني غير متاح لهذه الفاتورة حالياً.</div>}
+          <div data-html2canvas-ignore="true" className="mt-9 grid gap-3 sm:grid-cols-2">
+            {paymentStatusQuery.isFetching || (!paymentStatusQuery.data && !paymentStatusQuery.isError) ? <Button disabled className="bg-white/5 font-bold text-slate-300"><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ التحقق من حالة التوثيق...</Button> : paymentStatusQuery.isError ? <Button variant="outline" className="border-rose-400/30 text-rose-200 hover:bg-rose-400/10" onClick={() => void paymentStatusQuery.refetch()}>تعذر التحقق من حالة التوثيق — أعد المحاولة</Button> : paymentStatusQuery.data?.hasPendingSubmission ? <Button disabled className="bg-amber-500/15 font-bold text-amber-200"><CheckCircle2 className="ml-2 h-4 w-4" />تم إرسال التوثيق — بانتظار المراجعة</Button> : paymentDocumentationAvailable && Number(invoice.balanceDue) > 0 && !["draft", "cancelled", "paid"].includes(String(invoice.status).toLowerCase()) ? <Button className="bg-emerald-500 font-bold text-white hover:bg-emerald-400" onClick={() => { window.location.href = `/payment-documentation/public/${encodeURIComponent(token)}`; }}><CreditCard className="ml-2 h-4 w-4" />توثيق الدفع</Button> : <div className="rounded-xl border border-white/10 bg-white/[.02] px-4 py-3 text-center text-sm text-slate-500">توثيق الدفع الإلكتروني غير متاح لهذه الفاتورة حالياً.</div>}
             <Button className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]" onClick={async () => { const copied = await copyTextSafely(window.location.href); copied ? toast.success("تم نسخ رابط الفاتورة.") : toast.error("تعذر نسخ الرابط. انسخه يدوياً."); }}><Share2 className="ml-2 h-4 w-4" />نسخ رابط الفاتورة</Button>
-            <Button variant="outline" className="border-white/15 text-white hover:bg-white/5 hover:text-white sm:col-span-2" onClick={() => window.print()}><Download className="ml-2 h-4 w-4" />طباعة الفاتورة</Button>
+            <Button variant="outline" disabled={downloadingPdf || !invoiceElement} className="border-white/15 text-white hover:bg-white/5 hover:text-white" onClick={async () => { if (!invoiceElement) return; setDownloadingPdf(true); try { const { downloadReportHtmlAsPdf } = await import("@/lib/report-pdf"); await downloadReportHtmlAsPdf(invoiceElement, `فاتورة-${invoice.invoiceNo}.pdf`, { title: `فاتورة كهرباء - ${invoice.invoiceNo}` }); toast.success("تم تحميل الفاتورة بصيغة PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر تحميل الفاتورة PDF."); } finally { setDownloadingPdf(false); } }}><Download className="ml-2 h-4 w-4" />{downloadingPdf ? "جارٍ تجهيز PDF..." : "تحميل PDF"}</Button>
+            <Button variant="outline" className="border-white/15 text-white hover:bg-white/5 hover:text-white" onClick={() => window.print()}><FileText className="ml-2 h-4 w-4" />طباعة الفاتورة</Button>
           </div>
         </section>
       </main>

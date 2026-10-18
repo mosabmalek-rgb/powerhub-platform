@@ -19,35 +19,64 @@ run(["exec", "vite", "build"], { POWERHUB_INVOICE_ONLY: "1" });
 function assertPublicInvoiceEntryDoesNotPreloadReportLibraries() {
   const outputDirectory = path.resolve("dist/public");
   const html = fs.readFileSync(path.join(outputDirectory, "invoice.html"), "utf8");
-  const entryScriptTags = [...html.matchAll(/<script\b[^>]*\btype="module"[^>]*>/g)].map(([tag]) => tag);
-  const preloadTags = [...html.matchAll(/<link\b[^>]*\brel="modulepreload"[^>]*>/g)].map(([tag]) => tag);
-  const initialAssetTags = [...entryScriptTags, ...preloadTags];
+  const manifestPath = path.join(outputDirectory, "invoice-manifest.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+
+  // Resolve the actual JS entry referenced by invoice.html instead of relying
+  // on Vite's HTML-manifest key shape. The invoice-only build can name this key
+  // "invoice.html" while its emitted JS entry is a separate manifest record.
+  const moduleScripts = [...html.matchAll(/<script[^>]*>/gi)]
+    .map(([tag]) => tag)
+    .filter((tag) => tag.includes('type="module"') || tag.includes("type='module'"))
+    .map((tag) => {
+      const doubleQuoteMarker = 'src="';
+      const singleQuoteMarker = "src='";
+      const marker = tag.includes(doubleQuoteMarker) ? doubleQuoteMarker : singleQuoteMarker;
+      const markerIndex = tag.indexOf(marker);
+      if (markerIndex < 0) return null;
+      const valueStart = markerIndex + marker.length;
+      const quote = marker === doubleQuoteMarker ? '"' : "'";
+      const valueEnd = tag.indexOf(quote, valueStart);
+      return valueEnd > valueStart ? tag.slice(valueStart, valueEnd) : null;
+    })
+    .filter((src) => typeof src === "string");
+  if (!moduleScripts.length) {
+    throw new Error("Dedicated invoice HTML has no module script to inspect.");
+  }
+  const entryFile = moduleScripts[0].startsWith("/") ? moduleScripts[0].slice(1) : moduleScripts[0];
+  const entryRecord = Object.values(manifest).find((record) => record.file === entryFile);
+  if (!entryRecord) {
+    const emitted = Object.values(manifest).map((record) => record.file).filter(Boolean);
+    throw new Error(`Dedicated invoice JS entry is missing from its manifest. Entry: ${entryFile}; emitted files: ${emitted.join(", ")}`);
+  }
+
+  // Traverse only static imports. Dynamic imports are intentionally excluded
+  // because they must execute only when the user clicks Download PDF.
+  const visited = new Set();
+  const queue = [entryRecord.file, ...(entryRecord.imports ?? [])];
   const heavyPatterns = [
-    ["PDF renderer", /\bhtml2canvas\b|\bjspdf\b|\bjsPDF\b/],
-    ["charting library", /\bResponsiveContainer\b|\bBarChart\b|\bAreaChart\b|\bCartesianGrid\b|\brecharts\b/],
-    ["spreadsheet library", /\bExcelJS\b|\bexceljs\b/],
+    ["PDF renderer", /(?:html2canvas|jspdf)/i],
+    ["charting library", /(?:recharts|charts[-.])/i],
+    ["spreadsheet library", /(?:exceljs|report-spreadsheets)/i],
   ];
   const offending = [];
-
-  for (const tag of initialAssetTags) {
-    const href = tag.match(/(?:src|href)="([^"]+)"/)?.[1];
-    if (!href) continue;
-    const relativePath = href.replace(/^\/+/, "").split("?")[0];
-    const assetPath = path.resolve(outputDirectory, relativePath);
-    if (!assetPath.startsWith(outputDirectory + path.sep)) {
-      throw new Error(`Unexpected modulepreload path in built HTML: ${href}`);
+  while (queue.length) {
+    const file = queue.shift();
+    if (!file || visited.has(file)) continue;
+    visited.add(file);
+    if (heavyPatterns.some(([, pattern]) => pattern.test(file))) {
+      offending.push(file);
+      continue;
     }
-    const asset = fs.readFileSync(assetPath, "utf8");
-    const matches = heavyPatterns.filter(([, pattern]) => pattern.test(asset)).map(([label]) => label);
-    if (matches.length) offending.push(`${href} (${matches.join(", ")})`);
+    const record = Object.values(manifest).find((item) => item.file === file);
+    if (record?.imports) queue.push(...record.imports);
   }
 
   if (offending.length) {
-    console.error("[build] Dedicated invoice entry eagerly preloads report-only JavaScript:", offending.join("; "));
-    console.error("[build] Keep PDF, chart and spreadsheet dependencies out of the dedicated invoice entry.");
+    console.error("[build] Dedicated invoice entry statically imports report-only JavaScript:", [...new Set(offending)].join("; "));
+    console.error("[build] Keep PDF, chart and spreadsheet dependencies behind dynamic imports.");
     process.exit(1);
   }
 }
-
 assertPublicInvoiceEntryDoesNotPreloadReportLibraries();
 run(["exec", "esbuild", "server/_core/index.ts", "--platform=node", "--packages=external", "--bundle", "--format=esm", "--outdir=dist"]);

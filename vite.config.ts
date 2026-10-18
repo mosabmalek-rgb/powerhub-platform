@@ -176,6 +176,7 @@ export default defineConfig({
     // The invoice entry is built separately into this directory with emptyOutDir=false,
     // so its module graph cannot inherit eager shared-chunk edges from the workspace app.
     emptyOutDir: !invoiceOnlyBuild,
+    manifest: invoiceOnlyBuild ? "invoice-manifest.json" : false,
     rollupOptions: {
       input: invoiceOnlyBuild
         ? path.resolve(PROJECT_ROOT, "client", "invoice.html")
