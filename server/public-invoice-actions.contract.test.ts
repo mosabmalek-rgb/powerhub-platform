@@ -56,8 +56,8 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("event.source !== previewIframeRef.current?.contentWindow");
     expect(billing).toContain("powerhub-public-invoice-parent-ready");
     expect(billing).toContain("window.setInterval(() =>");
-    expect(billing).toContain("}, 25_000);");
-    expect(billing).toContain("durationMs: startedAt === null ? 25_000");
+    expect(billing).toContain("}, 18_000);");
+    expect(billing).toContain("durationMs: startedAt === null ? 18_000");
     expect(publicInvoice).toContain("powerhub-public-invoice-parent-ready");
     expect(publicInvoice).toContain("event.source !== window.parent");
 
