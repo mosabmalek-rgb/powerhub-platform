@@ -124,7 +124,7 @@ describe("unified messaging runtime contract", () => {
   });
 
   it("processes subscriber-created and payment-received automations in minute windows", () => {
-    expect(automationPolicy).toContain('new Set(["subscriber_created", "payment_received"])');
+    expect(automationPolicy).toContain('new Set(["subscriber_created", "payment_received", "invoice_overdue"])');
     expect(runtime).toContain("buildAutomaticOccurrenceKey(eventType, now)");
     expect(runtime).toContain('.like("occurrence_key", `event:${eventType}:%`)');
     expect(runtime).toContain('query = query.gte("created_at", eventScanSince)');
