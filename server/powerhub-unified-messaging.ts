@@ -434,7 +434,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           }
 
           const operationKey = eventType === "invoice_overdue"
-            ? `automation:${automation.id}:invoice:${invoice.id}:${occ.occurrence_key}`
+            ? `automation:${automation.id}:invoice:${invoice.id}:${automation.send_type === "automatic" && automation.schedule_type === "none" ? "eligible" : occ.occurrence_key}`
             : eventType === "service_alert"
               ? `automation:${automation.id}:subscriber:${subscriber.id}:occurrence:${occ.occurrence_key}`
               : `automation:${automation.id}:subscriber:${subscriber.id}`;
