@@ -734,10 +734,10 @@ export async function listSupabaseExpenses(siteId: number) {
   }));
 }
 
-export async function listSupabaseExpensePage(siteId: number, input: { limit?: number; cursor?: string; startDate?: string; endDate?: string; companyAccountId?: number }): Promise<SupabaseHistoryPage<any>> {
+export async function listSupabaseExpensePage(siteId: number, input: { limit?: number; cursor?: string; startDate?: string; endDate?: string; companyAccountId?: number }, tenantId: number): Promise<SupabaseHistoryPage<any>> {
   const limit = historyLimit(input.limit);
   const cursor = decodeHistoryCursor(input.cursor);
-  let query = supabaseAdmin().from("expenses").select("id, tenant_id, site_id, generator_id, company_account_id, category, description, amount, occurred_at, reference_no, created_by_user_id, created_at").eq("site_id", siteId);
+  let query = supabaseAdmin().from("expenses").select("id, tenant_id, site_id, generator_id, company_account_id, category, description, amount, occurred_at, reference_no, created_by_user_id, created_at").eq("tenant_id", tenantId).eq("site_id", siteId);
   if (input.companyAccountId) query = query.eq("company_account_id", input.companyAccountId);
   if (input.startDate) query = query.gte("occurred_at", gazaDateBoundary(input.startDate).toISOString());
   if (input.endDate) query = query.lt("occurred_at", gazaDateBoundary(nextDateKey(input.endDate)).toISOString());
