@@ -208,7 +208,7 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
     if (policyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
     if (policy && !policy.is_allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
   }
-  return { role: access.role, permissions: access.permissions, tenantId: access.tenantId, usesPermissionOverride: access.usesPermissionOverride };
+  return { role: access.role, permissions: access.permissions, tenantId: access.tenantId, usesPermissionOverride: access.usesPermissionOverride, invoiceDueDays: access.invoiceDueDays, invoiceDueHours: access.invoiceDueHours };
 }
 
 export async function requireSupabaseSiteCapabilities(userId: number, siteId: number, capabilities: PowerCapability[]) {
