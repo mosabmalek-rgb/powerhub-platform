@@ -146,7 +146,7 @@ describe("public invoice and inquiry actions", () => {
     expect(server).toContain("publicStatus: publicProcedure.input");
     expect(server).toContain('rpc("powerhub_get_public_payment_documentation_status"');
     expect(server).toContain('rpc("powerhub_get_public_payment_documentation_context"');
-    expect(server).toContain('.from("invoice_share_links")');
+    expect(migration).toContain("from public.invoice_share_links");
     const statusStart = migration.indexOf("create or replace function public.powerhub_get_public_payment_documentation_status");
     const statusFunction = migration.slice(statusStart);
     expect(statusFunction).toContain("'hasPendingSubmission', v_has_pending");
