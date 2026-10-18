@@ -15,7 +15,7 @@ run(["exec", "vite", "build"]);
 
 function assertPublicInvoiceEntryDoesNotPreloadReportLibraries() {
   const outputDirectory = path.resolve("dist/public");
-  const html = fs.readFileSync(path.join(outputDirectory, "index.html"), "utf8");
+  const html = fs.readFileSync(path.join(outputDirectory, "invoice.html"), "utf8");
   const entryScriptTags = [...html.matchAll(/<script\b[^>]*\btype="module"[^>]*>/g)].map(([tag]) => tag);
   const preloadTags = [...html.matchAll(/<link\b[^>]*\brel="modulepreload"[^>]*>/g)].map(([tag]) => tag);
   const initialAssetTags = [...entryScriptTags, ...preloadTags];
@@ -40,8 +40,8 @@ function assertPublicInvoiceEntryDoesNotPreloadReportLibraries() {
   }
 
   if (offending.length) {
-    console.error("[build] Public invoice entry eagerly preloads report-only JavaScript:", offending.join("; "));
-    console.error("[build] Keep PDF, chart and spreadsheet dependencies inside lazy route chunks.");
+    console.error("[build] Dedicated invoice entry eagerly preloads report-only JavaScript:", offending.join("; "));
+    console.error("[build] Keep PDF, chart and spreadsheet dependencies out of the dedicated invoice entry.");
     process.exit(1);
   }
 }
