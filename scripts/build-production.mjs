@@ -25,15 +25,25 @@ function assertPublicInvoiceEntryDoesNotPreloadReportLibraries() {
   // Resolve the actual JS entry referenced by invoice.html instead of relying
   // on Vite's HTML-manifest key shape. The invoice-only build can name this key
   // "invoice.html" while its emitted JS entry is a separate manifest record.
-  const moduleScripts = [...html.matchAll(/<script\\b[^>]*>/gi)]
+  const moduleScripts = [...html.matchAll(/<script[^>]*>/gi)]
     .map(([tag]) => tag)
-    .filter((tag) => /\\btype=["']module["']/i.test(tag))
-    .map((tag) => tag.match(/\\bsrc=["']([^"']+)["']/i)?.[1])
+    .filter((tag) => tag.includes('type="module"') || tag.includes("type='module'"))
+    .map((tag) => {
+      const doubleQuoteMarker = 'src="';
+      const singleQuoteMarker = "src='";
+      const marker = tag.includes(doubleQuoteMarker) ? doubleQuoteMarker : singleQuoteMarker;
+      const markerIndex = tag.indexOf(marker);
+      if (markerIndex < 0) return null;
+      const valueStart = markerIndex + marker.length;
+      const quote = marker === doubleQuoteMarker ? '"' : "'";
+      const valueEnd = tag.indexOf(quote, valueStart);
+      return valueEnd > valueStart ? tag.slice(valueStart, valueEnd) : null;
+    })
     .filter((src) => typeof src === "string");
   if (!moduleScripts.length) {
     throw new Error("Dedicated invoice HTML has no module script to inspect.");
   }
-  const entryFile = moduleScripts[0].replace(/^\\//, "");
+  const entryFile = moduleScripts[0].startsWith("/") ? moduleScripts[0].slice(1) : moduleScripts[0];
   const entryRecord = Object.values(manifest).find((record) => record.file === entryFile);
   if (!entryRecord) {
     const emitted = Object.values(manifest).map((record) => record.file).filter(Boolean);
