@@ -235,8 +235,7 @@ declare
   v_invoice public.invoices%rowtype;
   v_allowed boolean := false;
 begin
-  if coalesce(p_token_hash, '') !~ '^[0-9a-f]{64}
- then
+  if coalesce(p_token_hash, '') = '' or length(p_token_hash) <> 64 or p_token_hash ~ '[^0-9a-f]' then
     raise exception 'SHARE_LINK_NOT_FOUND' using errcode = 'P0001';
   end if;
 
