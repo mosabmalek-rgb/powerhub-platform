@@ -137,6 +137,9 @@ describe("public invoice and inquiry actions", () => {
     expect(server).toContain('.from("payment_documentation_requests")');
     expect(server).toContain('.eq("status", "pending")');
     expect(server).toContain("hasPendingSubmission: Boolean(pendingRequest)");
+    expect(server).toContain('rpc("powerhub_get_public_payment_documentation_context"');
+    expect(server).toContain('.from("invoice_share_links")');
+    expect(invoice).toContain('await import("@/lib/report-pdf")');
     expect(invoice).toContain("powerhub.paymentDocumentation.publicStatus.useQuery");
     expect(invoice).toContain("paymentStatusQuery.data?.hasPendingSubmission");
     expect(invoice).toContain("تم إرسال التوثيق — بانتظار المراجعة");
