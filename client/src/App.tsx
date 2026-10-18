@@ -103,12 +103,13 @@ function Router() {
 }
 
 function App() {
+  const standalonePublicInvoice = typeof window !== "undefined" && /^\/invoice\/[^/]+\/?$/.test(window.location.pathname);
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light" switchable>
         <TooltipProvider>
           <Toaster />
-          <OfflineStatusBanner />
+          {!standalonePublicInvoice ? <OfflineStatusBanner /> : null}
           <Suspense fallback={<div className="grid min-h-screen place-items-center bg-background text-foreground">جارٍ تحميل الصفحة…</div>}><Router /></Suspense>
         </TooltipProvider>
       </ThemeProvider>
