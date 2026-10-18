@@ -49,6 +49,27 @@ describe("site billing minimum and fractional settlement contract", () => {
     expect(settings).toContain("نطاق الخصم ونطاق الترحيل متداخلان");
   });
 
+  it("uses one per-site invoice due interval in hours with legacy-day compatibility and an audit record", () => {
+    const migration = read("supabase/migrations/20261018170000_powerhub_invoice_due_interval_hours.sql");
+    const server = read("server/powerhub.ts");
+    const settings = read("client/src/pages/SettingsPage.tsx");
+    const branchPage = read("client/src/pages/BranchesPage.tsx");
+    expect(migration).toContain("invoice_due_hours integer");
+    expect(migration).toContain("sites_invoice_due_hours_range");
+    expect(migration).toContain("powerhub_save_site_invoice_due_hours");
+    expect(migration).toContain("site_invoice_due_policy");
+    expect(migration).toContain("powerhub_sync_invoice_due_interval");
+    expect(migration).toContain("new.invoice_due_days is distinct from old.invoice_due_days");
+    expect(migration).toContain("new.invoice_due_hours is distinct from old.invoice_due_hours");
+    expect(server).toContain("invoiceDuePolicy: router({");
+    expect(server).toContain("p_invoice_due_hours: input.invoiceDueHours");
+    expect(server).toContain("const dueHours = Math.max(1, Math.min(2160, Number(access.invoiceDueHours");
+    expect(settings).toContain("InvoiceDuePolicySection");
+    expect(settings).toContain("وحدة استحقاق الفاتورة");
+    expect(branchPage).toContain("مدة الاستحقاق تُدار من الإعدادات");
+    expect(branchPage).not.toContain('name="invoiceDueDays"');
+  });
+
   it("keeps manual collection discounts atomic, auditable, and bounded by remaining debt", () => {
     const migration = read("supabase/migrations/20261014140000_powerhub_manual_collection_discount.sql");
     const server = read("server/powerhub.ts");
