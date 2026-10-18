@@ -2213,12 +2213,12 @@ export const powerhubRouter = router({
       // The branch Settings policy is authoritative for every new invoice. Do not trust
       // a client-supplied due date (including an offline draft) to override it.
       const { data: reading, error: readingError } = await supabaseAdmin().from("meter_readings")
-        .select("id, reading_at, status")
+        .select("id, reading_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.readingId)
         .maybeSingle();
       if (readingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تاريخ القراءة لتحديد استحقاق الفاتورة." });
       if (!reading) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
-      if (reading.status !== "approved") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب اعتماد القراءة قبل إصدار فاتورتها." });
+      // The invoice RPC remains responsible for validating approval/version and transactional consistency.
       const dueHours = Math.max(1, Math.min(2160, Number(access.invoiceDueHours ?? ((access.invoiceDueDays ?? 14) * 24))));
       const dueDate = new Date(new Date(reading.reading_at).getTime() + dueHours * 60 * 60 * 1000);
       if (!Number.isFinite(dueDate.getTime())) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تاريخ القراءة غير صالح لتحديد استحقاق الفاتورة." });
