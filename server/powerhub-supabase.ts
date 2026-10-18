@@ -739,8 +739,8 @@ export async function listSupabaseExpensePage(siteId: number, input: { limit?: n
   const cursor = decodeHistoryCursor(input.cursor);
   let query = supabaseAdmin().from("expenses").select("id, tenant_id, site_id, generator_id, company_account_id, category, description, amount, occurred_at, reference_no, created_by_user_id, created_at").eq("site_id", siteId);
   if (input.companyAccountId) query = query.eq("company_account_id", input.companyAccountId);
-  if (input.startDate) query = query.gte("occurred_at", `${input.startDate}T00:00:00.000Z`);
-  if (input.endDate) { const endExclusive = new Date(`${input.endDate}T00:00:00.000Z`); endExclusive.setUTCDate(endExclusive.getUTCDate() + 1); query = query.lt("occurred_at", endExclusive.toISOString()); }
+  if (input.startDate) query = query.gte("occurred_at", gazaDateBoundary(input.startDate).toISOString());
+  if (input.endDate) query = query.lt("occurred_at", gazaDateBoundary(nextDateKey(input.endDate)).toISOString());
   if (cursor) query = query.or(`occurred_at.lt.${cursor.at},and(occurred_at.eq.${cursor.at},id.lt.${cursor.id})`);
   const { data, error } = await query.order("occurred_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة المصروفات من Supabase." });
