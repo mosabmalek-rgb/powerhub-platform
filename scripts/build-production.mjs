@@ -22,7 +22,8 @@ function assertPublicInvoiceEntryDoesNotPreloadReportLibraries() {
   const manifestPath = path.join(outputDirectory, "invoice-manifest.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   const entryRecord = Object.entries(manifest).find(([key, value]) =>
-    (key === "client/invoice.html" || key.endsWith("/invoice.html") || value.src === "client/invoice.html") &&
+    (key === "invoice.html" || key === "client/invoice.html" || key.endsWith("/invoice.html") ||
+      value.src === "invoice.html" || value.src === "client/invoice.html") &&
     value.isEntry === true
   )?.[1];
   if (!entryRecord || !Array.isArray(entryRecord.imports)) {
