@@ -91,22 +91,27 @@ $$;
 revoke execute on function public.powerhub_save_site_invoice_due_hours(bigint,bigint,bigint,integer) from public, anon, authenticated;
 grant execute on function public.powerhub_save_site_invoice_due_hours(bigint,bigint,bigint,integer) to service_role;
 
--- Keep the legacy day-based branch form compatible while hours remain authoritative.
-create or replace function public.powerhub_sync_legacy_invoice_due_days()
+-- Keep older day-based branch edits and the new hour-based settings in sync.
+-- If both values are supplied, the explicitly changed field determines the result.
+create or replace function public.powerhub_sync_invoice_due_interval()
 returns trigger
 language plpgsql
 set search_path = public, pg_temp
-as $$
+as $
 begin
   if new.invoice_due_days is distinct from old.invoice_due_days
      and new.invoice_due_hours is not distinct from old.invoice_due_hours then
     new.invoice_due_hours := greatest(1, least(2160, new.invoice_due_days * 24));
+  elsif new.invoice_due_hours is distinct from old.invoice_due_hours
+     and new.invoice_due_days is not distinct from old.invoice_due_days then
+    new.invoice_due_days := greatest(1, least(90, ceil(new.invoice_due_hours::numeric / 24)::integer));
   end if;
   return new;
 end;
-$$;
+$;
 
 drop trigger if exists powerhub_sync_legacy_invoice_due_days_trigger on public.sites;
-create trigger powerhub_sync_legacy_invoice_due_days_trigger
-before update of invoice_due_days on public.sites
-for each row execute function public.powerhub_sync_legacy_invoice_due_days();
+drop trigger if exists powerhub_sync_invoice_due_interval_trigger on public.sites;
+create trigger powerhub_sync_invoice_due_interval_trigger
+before update of invoice_due_days, invoice_due_hours on public.sites
+for each row execute function public.powerhub_sync_invoice_due_interval();
