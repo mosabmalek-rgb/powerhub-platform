@@ -143,9 +143,10 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("and lease_until>now()");
   });
 
-  it("paginates overdue invoices and chooses the oldest outstanding invoice per subscriber", () => {
+  it("paginates overdue invoices and chooses only the newest eligible invoice per subscriber", () => {
     expect(runtime).toContain('.gt("id", lastInvoiceId).order("id", { ascending: true }).limit(500)');
-    expect(runtime).toContain('new Date(invoice.due_date).getTime() < new Date(previous.due_date).getTime()');
+    expect(runtime).toContain("isLaterOverdueInvoiceCandidate");
+    expect(automationPolicy).toContain("export function isLaterOverdueInvoiceCandidate");
   });
 
   it("paginates enabled automations with a stable keyset cursor", () => {
