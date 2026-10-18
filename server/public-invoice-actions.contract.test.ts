@@ -480,7 +480,7 @@ describe("public invoice and inquiry actions", () => {
     expect(page).toContain("<InvoiceLineBreakdown lines={context.lines} />");
     expect(page).toContain("fractionalCarry");
     expect(page).toContain("line.lineType === \"discount\"");
-    expect(page).toContain("Math.abs(amount) > 0.0049");
+    expect(page).toContain("Math.round(Math.abs(amount) * 100) > 0");
     expect(page).toContain("الحساب المستقبِل");
     expect(page).toContain("طريقة/نوع حساب التحويل");
     const internalForm = page.slice(page.indexOf("بطاقة توثيق الدفع —"), page.indexOf("function PublicPaymentDocumentationView"));
