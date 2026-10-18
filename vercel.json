@@ -6,7 +6,8 @@
       "perf/phase1-latency-telemetry": false,
       "perf/profile-sync-stage-telemetry": false,
       "fix/public-invoice-load-timeout": false,
-      "fix/invoice-preview-handshake": false
+      "fix/invoice-preview-handshake": false,
+      "fix/public-invoice-route-asset-isolation": false
     }
   },
   "installCommand": "pnpm install --frozen-lockfile",
