@@ -5,7 +5,8 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import { lazy, Suspense } from "react";
 import superjson from "superjson";
-import App from "./App";
+const App = lazy(() => import("./App"));
+const PublicInvoice = lazy(() => import("./pages/PublicInvoice"));
 import { startLogin } from "./const";
 import "./index.css";
 
@@ -196,7 +197,7 @@ async function bootstrapOfflineState() {
 }
 function renderApp() {
   const app = isStandalonePublicInvoiceRoute()
-    ? <App />
+    ? <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-400">جارٍ تحميل الفاتورة…</div>}><PublicInvoice /></Suspense>
     : <Suspense fallback={<div className="grid min-h-screen place-items-center">جارٍ تهيئة الجلسة…</div>}><AuthProvider><App /></AuthProvider></Suspense>;
 
   createRoot(document.getElementById("root")!).render(
