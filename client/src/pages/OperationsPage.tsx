@@ -336,8 +336,49 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     const receiverValue = payment.transferToAccount ?? "—";
     return [payment.paymentNo, siteName, invoice?.billingPeriod ?? invoice?.cycleLabel ?? "—", entry.subscriber?.fullName ?? "—", formatValue(payment.amount, 2), paymentMethodLabel[payment.transferFromType] ?? payment.transferFromType ?? "نقدي", payment.transferFromAccount ?? "—", `${receiverValue} — ${receiverType}`, entry.invoiceNo ?? "—", gazaDateKey(payment.paidAt)];
   });
-  const exportPaymentsExcel = async () => { const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet("الدفعات", { views: [{ rightToLeft: true }] }); sheet.addRow(["الإيصال", "المشترك", "المبلغ", "طريقة الدفع", "الحساب المحوِّل", "نوعه", "الحساب المستقبِل", "نوعه", "التاريخ"]); exportPaymentRows.forEach((row: any[]) => sheet.addRow(row)); sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }; sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; sheet.columns = [{ width: 18 }, { width: 24 }, { width: 14 }, { width: 18 }, { width: 22 }, { width: 18 }, { width: 22 }, { width: 18 }, { width: 14 }]; const buffer = await workbook.xlsx.writeBuffer(); const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })); const link = document.createElement("a"); link.href = url; link.download = `powerhub-payments-${paymentStartDate || "all"}-${paymentEndDate || "all"}.xlsx`; link.click(); URL.revokeObjectURL(url); toast.success("تم تصدير الدفعات المفلترة إلى Excel."); };
-  const exportPaymentsPdf = async () => { if (!exportPaymentRows.length) return toast.error("لا توجد دفعات لتصديرها."); const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; const paymentRowsHtml = exportPaymentRows.map((row: any[]) => ["<tr><td>", escapeHtml(row[0]), "</td><td>", escapeHtml(row[1]), "</td><td>", escapeHtml(row[2]), " شيكل</td><td>", escapeHtml(row[3]), "</td><td>", escapeHtml(row[4]), "</td><td>", escapeHtml(row[6]), "</td><td>", escapeHtml(row[8]), "</td></tr>"].join("")).join(""); root.innerHTML = `<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">PowerHub — تفاصيل الدفعات</h1><p>الفترة: ${escapeHtml(paymentStartDate || "كل الفترات")} — ${escapeHtml(paymentEndDate || "كل الفترات")}</p><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الإيصال</th><th>المشترك</th><th>المبلغ</th><th>الطريقة</th><th>المحوِّل</th><th>المستقبِل</th><th>التاريخ</th></tr></thead><tbody>${paymentRowsHtml}</tbody></table>`; document.body.appendChild(root); try{await downloadReportHtmlAsPdf(root,`دفعات-${paymentStartDate||"كل"}-${paymentEndDate||"الفترات"}.pdf`,{landscape:true,title:"تفاصيل الدفعات - PowerHub"});toast.success("تم تصدير الدفعات المفلترة إلى PDF.");}catch(error){toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF.");}finally{root.remove();} };
+  const exportPaymentsExcel = async () => {
+    const { default: ExcelJS } = await loadExcelJS();
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "PowerHub";
+    const sheet = workbook.addWorksheet("الدفعات", { views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }] });
+    sheet.mergeCells("A1:J1");
+    sheet.getCell("A1").value = `PowerHub — تقرير الدفعات | ${siteName}`;
+    sheet.getCell("A1").font = { name: "Tahoma", size: 16, bold: true, color: { argb: "FFF5B800" } };
+    sheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
+    sheet.getCell("A1").alignment = { horizontal: "right", vertical: "middle" };
+    sheet.getRow(1).height = 34;
+    sheet.mergeCells("A2:J2");
+    sheet.getCell("A2").value = `الفترة: ${paymentPeriod === "today" ? "اليوم" : paymentPeriod === "current_cycle" ? (cycleBoundsQuery.data?.cycleLabel || "هذه الدورة") : paymentPeriod === "month_end" ? "من بداية الشهر حتى اليوم" : `${paymentStartDate || "—"} إلى ${paymentEndDate || "—"}`}`;
+    sheet.getCell("A2").font = { name: "Tahoma", size: 11, bold: true };
+    sheet.getCell("A2").alignment = { horizontal: "right", vertical: "middle", wrapText: true };
+    sheet.getRow(2).height = 26;
+    sheet.addRow(["الإيصال", "اسم المولد", "دورة الفوترة", "المشترك", "المبلغ", "نوع الحساب المحوَّل منه", "الحساب المحوِّل", "الحساب المستقبل", "الفاتورة", "التاريخ"]);
+    const header = sheet.getRow(3); header.height = 34;
+    header.eachCell((cell) => { cell.font = { name: "Tahoma", bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true }; cell.border = { top: {style:"thin",color:{argb:"FFCAD1DC"}}, bottom:{style:"thin",color:{argb:"FFCAD1DC"}}, left:{style:"thin",color:{argb:"FFCAD1DC"}}, right:{style:"thin",color:{argb:"FFCAD1DC"}} }; });
+    exportPaymentRows.forEach((row: any[]) => {
+      const added = sheet.addRow(row);
+      added.height = 30;
+      added.eachCell((cell, col) => { cell.font = { name: "Tahoma", size: 10 }; cell.alignment = { horizontal: col === 2 || col === 3 || col === 4 || col === 6 || col === 7 || col === 8 ? "right" : "center", vertical: "middle", wrapText: true }; cell.border = { bottom: { style: "thin", color: { argb: "FFE1E5EB" } } }; if (added.number % 2 === 0) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F6F8" } }; });
+    });
+    sheet.columns = [{ width: 20 }, { width: 25 }, { width: 24 }, { width: 25 }, { width: 14 }, { width: 25 }, { width: 24 }, { width: 30 }, { width: 20 }, { width: 16 }];
+    sheet.getColumn(5).numFmt = "#,##0.00";
+    sheet.autoFilter = { from: "A3", to: `J${Math.max(3, sheet.rowCount)}` };
+    const buffer = await workbook.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const link = document.createElement("a"); link.href = url; link.download = `powerhub-payments-${effectivePaymentStart || "all"}-${effectivePaymentEnd || "all"}.xlsx`; link.click(); URL.revokeObjectURL(url);
+    toast.success("تم تصدير الدفعات المفلترة إلى Excel.");
+  };
+  const exportPaymentsPdf = async () => {
+    if (!exportPaymentRows.length) return toast.error("لا توجد دفعات لتصديرها.");
+    const root = document.createElement("div"); root.dir = "rtl";
+    root.style.cssText = "position:fixed;left:-10000px;top:0;width:1400px;background:#fff;color:#101828;padding:36px;font-family:Tahoma,Arial,sans-serif";
+    const paymentRowsHtml = exportPaymentRows.map((row: any[]) => `<tr>${row.map((cell, index) => `<td style="padding:9px 7px;border:1px solid #d8dee8;vertical-align:top;overflow-wrap:anywhere;text-align:${[1,2,3,5,6,7].includes(index) ? "right" : "center"}">${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
+    root.innerHTML = `<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px;margin:0 0 12px">PowerHub — تفاصيل الدفعات</h1><p style="margin:0 0 18px;font-weight:bold">اسم المولد: ${escapeHtml(siteName)} | الفترة: ${escapeHtml(paymentPeriod === "today" ? "اليوم" : paymentPeriod === "current_cycle" ? (cycleBoundsQuery.data?.cycleLabel || "هذه الدورة") : paymentPeriod === "month_end" ? "من بداية الشهر حتى اليوم" : `${paymentStartDate || "—"} إلى ${paymentEndDate || "—"}`)}</p><table style="width:100%;border-collapse:collapse;table-layout:fixed;text-align:right;font-size:10px;line-height:1.6;overflow-wrap:anywhere"><thead><tr style="background:#0D1117;color:#fff">${["الإيصال","اسم المولد","دورة الفوترة","المشترك","المبلغ","نوع الحساب المحوَّل منه","الحساب المحوِّل","الحساب المستقبل","الفاتورة","التاريخ"].map(h=>`<th style="padding:10px 6px;border:1px solid #d8dee8;overflow-wrap:anywhere;vertical-align:middle">${h}</th>`).join("")}</tr></thead><tbody>${paymentRowsHtml}</tbody></table>`;
+    document.body.appendChild(root);
+    try { await downloadReportHtmlAsPdf(root, `دفعات-${effectivePaymentStart || "كل"}-${effectivePaymentEnd || "الفترات"}.pdf`, { landscape: true, title: "تفاصيل الدفعات - PowerHub" }); toast.success("تم تصدير الدفعات المفلترة إلى PDF."); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); }
+    finally { root.remove(); }
+  };
   return <div className="w-full min-w-0 space-y-6">
     <SectionCard title="تسجيل دفعة" className="w-full min-w-0">{canCollect ? <form className="space-y-4" onSubmit={async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); if (receiptFile && receiptFile.size > 7 * 1024 * 1024) return toast.error("يجب ألا تتجاوز صورة الإيصال 7 ميغابايت."); let receiptImageData: string | undefined; let receiptImageMime: "image/webp" | "image/jpeg" | undefined; try { if (receiptFile) { const prepared = await preparePaymentReceiptImage(receiptFile); receiptImageData = prepared.data; receiptImageMime = prepared.mime; } } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر تجهيز صورة الإيصال."); return; } const invoiceIds = selectedInvoiceIds.length ? selectedInvoiceIds : [Number(f.get("invoiceId"))].filter(Boolean);
     if (!invoiceIds.length) return toast.error("اختر فاتورة واحدة على الأقل للتحصيل.");
