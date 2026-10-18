@@ -130,6 +130,30 @@ describe("public invoice and inquiry actions", () => {
     }
   });
 
+  it("checks the pending public payment-documentation request before enabling the invoice action", () => {
+    const server = read("server/powerhub.ts");
+    const invoice = read("client/src/pages/PublicInvoice.tsx");
+    expect(server).toContain("publicStatus: publicProcedure.input");
+    expect(server).toContain('.from("payment_documentation_requests")');
+    expect(server).toContain('.eq("status", "pending")');
+    expect(server).toContain("hasPendingSubmission: Boolean(pendingRequest)");
+    expect(invoice).toContain("powerhub.paymentDocumentation.publicStatus.useQuery");
+    expect(invoice).toContain("paymentStatusQuery.data?.hasPendingSubmission");
+    expect(invoice).toContain("تم إرسال التوثيق — بانتظار المراجعة");
+    expect(invoice).toContain("downloadReportHtmlAsPdf(invoiceElement");
+    expect(invoice).toContain("تحميل PDF");
+  });
+
+  it("uses the receiver account type as the collection method and awaits expense creation before resetting the form", () => {
+    const operations = read("client/src/pages/OperationsPage.tsx");
+    expect(operations).toContain('name="method" value={selectedCompanyAccount?.accountType ?? ""}');
+    expect(operations).not.toContain('name="method" value={collectionMethod}');
+    expect(operations).toContain("onSubmit={addExpense.mutateAsync}");
+    expect(operations).toContain("await onSubmit({ siteId, generatorId:");
+    expect(operations).toContain("form.reset();");
+    expect(operations).toContain("جارٍ حفظ المصروف...");
+  });
+
   it("gates public inquiry payment documentation by entitlement and outstanding balance", () => {
     const server = read("server/powerhub.ts");
     const portal = read("client/src/pages/SubscriberPortalPage.tsx");
