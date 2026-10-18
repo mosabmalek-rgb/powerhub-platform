@@ -27,15 +27,29 @@ export default function PublicInvoice() {
     return () => window.clearTimeout(timeout);
   }, [invoiceQuery.isFetching, invoiceQuery.isSuccess, invoiceQuery.isError, token, loadingTimedOut]);
 
-  // The invoice may be shown inside the billing dialog. Let that parent know when
-  // data has loaded or failed; iframe onLoad only signals that index.html arrived.
+  // The invoice may be shown inside the billing dialog. A parent-ready handshake
+  // lets the child resend its current state if the original status post arrived
+  // before the parent's listener was mounted. Only same-origin parent messages
+  // from window.parent are accepted; the invoice token is never included.
   useEffect(() => {
     if (window.parent === window) return;
-    const status = invoiceQuery.isSuccess && invoiceQuery.data
-      ? "loaded"
-      : (invoiceQuery.isError || loadingTimedOut || token.length < 16 ? "error" : null);
-    if (!status) return;
-    window.parent.postMessage({ type: "powerhub-public-invoice-status", status }, window.location.origin);
+    const currentStatus = (): "loaded" | "error" | null => {
+      if (invoiceQuery.isSuccess && invoiceQuery.data) return "loaded";
+      if (invoiceQuery.isError || loadingTimedOut || token.length < 16) return "error";
+      return null;
+    };
+    const sendStatus = () => {
+      const status = currentStatus();
+      if (status) window.parent.postMessage({ type: "powerhub-public-invoice-status", status }, window.location.origin);
+    };
+    const handleParentReady = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== window.parent) return;
+      if (event.data?.type !== "powerhub-public-invoice-parent-ready") return;
+      sendStatus();
+    };
+    window.addEventListener("message", handleParentReady);
+    sendStatus();
+    return () => window.removeEventListener("message", handleParentReady);
   }, [invoiceQuery.isSuccess, invoiceQuery.isError, invoiceQuery.data, loadingTimedOut, token]);
 
   if (invoiceQuery.isLoading && !loadingTimedOut) {
