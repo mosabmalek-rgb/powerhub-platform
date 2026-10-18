@@ -544,16 +544,17 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("button", { name: "فتح جلسة تحصيل" })).toBeInTheDocument();
   });
 
-  it("shows receipt print, WhatsApp, and SMS actions for a partial payment", () => {
+  it("shows receipt print and SMS actions for a partial payment while declaring WhatsApp unavailable", () => {
     mocks.activeRole = "owner";
     mocks.invoices = [{ id: 50, invoiceNo: "INV-PARTIAL", billingPeriod: "2026-10", consumptionKwh: "5", totalAmount: "100", paidAmount: "40", balanceDue: "60", status: "partially_paid" } as any];
     mocks.payments = [{ payment: { id: 70, invoiceId: 50, paymentNo: "PAY-PARTIAL", amount: "40", paymentMethod: "cash", paidAt: new Date("2026-10-12") }, subscriber: { fullName: "مشترك اختبار", phone: "970599000000" }, invoiceNo: "INV-PARTIAL" }];
     render(<OperationsPage section="collections" />);
     expect(screen.getByRole("button", { name: "طباعة" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "WhatsApp" }));
-    expect(mocks.sendPaymentReceiptSms).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "whatsapp" });
+    expect(screen.getByText("إرسال إيصال WhatsApp غير متاح حاليًا")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "WhatsApp" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "SMS" }));
     expect(mocks.sendPaymentReceiptSms).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "sms" });
+    expect(mocks.sendPaymentReceiptSms).not.toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "whatsapp" });
   });
 
   it("lets an accountant create a public share link from an issued invoice in the invoice center", () => {
