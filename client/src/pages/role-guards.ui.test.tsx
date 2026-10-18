@@ -414,7 +414,7 @@ describe("role guards in administration UI", () => {
     mocks.activeRole = "collector";
     render(<OperationsPage section="expenses" />);
     expect(screen.queryByRole("button", { name: "حفظ المصروف" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "تصحيح", exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^تصحيح$/ })).not.toBeInTheDocument();
   });
 
   it("keeps the receiving company account inside the payment form without duplicate destination fields", () => {
