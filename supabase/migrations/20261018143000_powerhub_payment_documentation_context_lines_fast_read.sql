@@ -155,6 +155,9 @@ begin
 end;
 $function$;
 
+revoke all on function public.powerhub_get_public_payment_documentation_context(text) from public, anon, authenticated;
+grant execute on function public.powerhub_get_public_payment_documentation_context(text) to service_role;
+
 create or replace function public.powerhub_get_public_payment_documentation_status(p_token_hash text)
 returns jsonb
 language plpgsql
