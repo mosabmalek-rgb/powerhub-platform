@@ -42,9 +42,10 @@ function InvoiceLineBreakdown({ lines }: { lines?: Array<{ id?: number; lineType
     const fractionalCarry =
       /(?:كسر|كسور).{0,35}(?:مرحل|ترحيل)|(?:ترحيل|مرحل).{0,35}(?:كسر|كسور)|fraction[\s_-]*(?:carry|carried)/i.test(description);
     const discount = line.lineType === "discount" || /خصم.{0,35}(?:كسر|كسور)|fraction[\s_-]*discount/i.test(description);
+    const hasDisplayedAmount = Number.isFinite(amount) && Math.round(Math.abs(amount) * 100) > 0;
     // Hide unapplied fractional adjustments and values that round to zero at the displayed precision.
-    if (discount) return Number.isFinite(amount) && amount > 0.0049;
-    if (fractionalCarry) return Number.isFinite(amount) && Math.abs(amount) > 0.0049;
+    if (discount) return hasDisplayedAmount && amount > 0;
+    if (fractionalCarry) return hasDisplayedAmount;
     return true;
   });
   return <section className="rounded-xl border border-white/10 bg-black/10 p-4" aria-label="تفاصيل الفاتورة وتسوياتها">
