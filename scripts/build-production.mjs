@@ -16,16 +16,16 @@ run(["exec", "vite", "build"]);
 function assertPublicInvoiceEntryDoesNotPreloadReportLibraries() {
   const outputDirectory = path.resolve("dist/public");
   const html = fs.readFileSync(path.join(outputDirectory, "index.html"), "utf8");
-  const preloadTags = [...html.matchAll(/<link\\b[^>]*\\brel=["']modulepreload["'][^>]*>/g)].map(([tag]) => tag);
+  const preloadTags = [...html.matchAll(/<link\b[^>]*\brel=["']modulepreload["'][^>]*>/g)].map(([tag]) => tag);
   const heavyPatterns = [
-    ["PDF renderer", /\\bhtml2canvas\\b|\\bjspdf\\b|\\bjsPDF\\b/],
-    ["charting library", /\\bResponsiveContainer\\b|\\bBarChart\\b|\\bAreaChart\\b|\\bCartesianGrid\\b|\\brecharts\\b/],
-    ["spreadsheet library", /\\bExcelJS\\b|\\bexceljs\\b/],
+    ["PDF renderer", /\bhtml2canvas\b|\bjspdf\b|\bjsPDF\b/],
+    ["charting library", /\bResponsiveContainer\b|\bBarChart\b|\bAreaChart\b|\bCartesianGrid\b|\brecharts\b/],
+    ["spreadsheet library", /\bExcelJS\b|\bexceljs\b/],
   ];
   const offending = [];
 
   for (const tag of preloadTags) {
-    const href = tag.match(/\\bhref=["']([^"']+)["']/)?.[1];
+    const href = tag.match(/\bhref=["']([^"']+)["']/)?.[1];
     if (!href) continue;
     const relativePath = href.replace(/^\\/+/, "").split("?")[0];
     const assetPath = path.resolve(outputDirectory, relativePath);
