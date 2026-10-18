@@ -1607,9 +1607,45 @@ export const powerhubRouter = router({
       if(error || !Number((data as Array<{site_id:number}>|null)?.[0]?.site_id)) throw new TRPCError({code:error?.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":"BAD_REQUEST",message:"تعذر تحديث نسبة تنبيه الاستهلاك الشاذ."});
       return { success: true, anomalyAlertPercent: input.anomalyAlertPercent };
     }),
-    updateBranch: protectedProcedure.input(siteInput.pick({ name: true, city: true, address: true }).extend({ siteId: z.number().int().positive(), status: z.enum(["active", "inactive", "archived"]), invoiceDueDays: z.number().int().min(1).max(90) })).mutation(async ({ ctx, input }) => {
+    invoiceDuePolicy: router({
+      get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("invoice_due_hours, invoice_due_days")
+          .eq("tenant_id", access.tenantId).eq("id", input.siteId).maybeSingle();
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مدة استحقاق الفاتورة." });
+        if (!data) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة الحساب." });
+        const dueHours = Number(data.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(data.invoice_due_days ?? 14) * 24)));
+        return { invoiceDueHours: dueHours, invoiceDueDays: Number(data.invoice_due_days ?? Math.ceil(dueHours / 24)) };
+      }),
+      save: protectedProcedure.input(siteScoped.extend({ invoiceDueHours: z.number().int().min(1).max(2160) })).mutation(async ({ ctx, input }) => {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+        const { data, error } = await supabaseAdmin().rpc("powerhub_save_site_invoice_due_hours", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_invoice_due_hours: input.invoiceDueHours,
+        });
+        const row = Array.isArray(data) ? data[0] : data;
+        if (error || !Number(row?.invoice_due_hours)) {
+          const message = String(error?.message ?? "");
+          if (message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة الحساب." });
+          if (message.includes("INVALID_INVOICE_DUE_HOURS")) throw new TRPCError({ code: "BAD_REQUEST", message: "مدة الاستحقاق يجب أن تكون بين ساعة و90 يومًا." });
+          if (message.includes("INVOICE_DUE_POLICY_PERMISSION_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل مدة استحقاق الفاتورة." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ مدة استحقاق الفاتورة." });
+        }
+        const savedHours = Number(row.invoice_due_hours);
+        await supabaseAdmin().from("audit_logs").select("id").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("entity_type", "site_invoice_due_policy").limit(1);
+        return { success: true, invoiceDueHours: savedHours, invoiceDueDays: Math.ceil(savedHours / 24) };
+      }),
+    }),
+    updateBranch: protectedProcedure.input(siteInput.pick({ name: true, city: true, address: true }).extend({ siteId: z.number().int().positive(), status: z.enum(["active", "inactive", "archived"]), invoiceDueDays: z.number().int().min(1).max(90).optional() })).mutation(async ({ ctx, input }) => {
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
-      const {data,error}=await supabaseAdmin().rpc("powerhub_update_site",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_name:input.name,p_city:input.city??"",p_address:input.address??"",p_status:input.status,p_invoice_due_days:input.invoiceDueDays});
+      let invoiceDueDays = input.invoiceDueDays;
+      if (invoiceDueDays == null) {
+        const { data: current, error: currentError } = await supabaseAdmin().from("sites").select("invoice_due_days").eq("tenant_id", access.tenantId).eq("id", input.siteId).maybeSingle();
+        if (currentError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات الفرع قبل التحديث." });
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة الحساب." });
+        invoiceDueDays = Number(current.invoice_due_days ?? 14);
+      }
+      const {data,error}=await supabaseAdmin().rpc("powerhub_update_site",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_name:input.name,p_city:input.city??"",p_address:input.address??"",p_status:input.status,p_invoice_due_days:invoiceDueDays});
       if(error || !Number((data as Array<{site_id:number}>|null)?.[0]?.site_id)) throw new TRPCError({code:error?.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":"BAD_REQUEST",message:"تعذر تحديث بيانات الفرع."});
       return { success: true };
     }),
