@@ -58,8 +58,8 @@ export async function executeApproveAndIssueMobileReading(input: {
 
   const site = await measureSlowStage("mobileReadings.approveAndIssue", "load_site_settings", async () =>
     getSupabaseSite(input.siteId));
-  const dueDate = new Date(reading.reading_at);
-  dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, site.invoiceDueDays ?? 14)));
+  const dueHours = Math.max(1, Math.min(2160, Number(site.invoiceDueHours ?? ((site.invoiceDueDays ?? 14) * 24))));
+  const dueDate = new Date(new Date(reading.reading_at).getTime() + dueHours * 60 * 60 * 1000);
   const result = await measureSlowStage("mobileReadings.approveAndIssue", "atomic_approve_issue_rpc", async () =>
     approveAndIssueMobileReadingSupabase({
     tenantId: input.tenantId,
