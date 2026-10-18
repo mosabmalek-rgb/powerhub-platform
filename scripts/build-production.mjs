@@ -21,15 +21,19 @@ function assertPublicInvoiceEntryDoesNotPreloadReportLibraries() {
   const html = fs.readFileSync(path.join(outputDirectory, "invoice.html"), "utf8");
   const manifestPath = path.join(outputDirectory, "invoice-manifest.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  const entry = manifest["client/src/public-invoice-entry.tsx"] ?? manifest["client/src/public-invoice-entry.ts"];
-  if (!entry || !Array.isArray(entry.imports)) {
-    throw new Error("Dedicated invoice build manifest is missing its entry dependency graph.");
+  const entryRecord = Object.entries(manifest).find(([key, value]) =>
+    (key === "client/invoice.html" || key.endsWith("/invoice.html") || value.src === "client/invoice.html") &&
+    value.isEntry === true
+  )?.[1];
+  if (!entryRecord || !Array.isArray(entryRecord.imports)) {
+    const entries = Object.entries(manifest).filter(([, value]) => value.isEntry).map(([key]) => key);
+    throw new Error(`Dedicated invoice build manifest is missing its HTML entry dependency graph. Entries found: ${entries.join(", ") || "none"}`);
   }
 
   // Only traverse static imports. Dynamic imports are deliberately excluded:
   // report libraries must download only after the user clicks Download PDF.
   const visited = new Set();
-  const queue = [...entry.imports];
+  const queue = [...entryRecord.imports];
   const heavyPatterns = [
     ["PDF renderer", /(?:html2canvas|jspdf)/i],
     ["charting library", /(?:recharts)/i],
