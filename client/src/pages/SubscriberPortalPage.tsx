@@ -55,7 +55,7 @@ export default function SubscriberPortalPage() {
   const publicPaymentLink = trpc.powerhub.subscriberPortal.shareInvoice.useMutation({
     onSuccess: (result) => {
       const token = result.path.split("/").filter(Boolean).at(-1);
-      if (token) window.location.assign(`/payment-documentation/public/${encodeURIComponent(token)}`);
+      if (token) setLocation(`/payment-documentation/public/${encodeURIComponent(token)}`);
       else toast.error("تعذر فتح نموذج توثيق الدفع.");
     },
     onError: (error) => toast.error(error.message),
