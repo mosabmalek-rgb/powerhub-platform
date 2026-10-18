@@ -416,7 +416,7 @@ describe("role guards in administration UI", () => {
     expect(screen.getByText("خصم تلقائي لتسوية كسر الفاتورة")).toBeInTheDocument();
     expect(screen.getByText("تسوية الكسر المرحّل")).toBeInTheDocument();
     expect(screen.getByText("كسر مُرحّل إلى الفاتورة التالية")).toBeInTheDocument();
-    expect(screen.getByText(/٠٫٨٠ شيكل/)).toBeInTheDocument();
+    expect(screen.getByText(/0\.80\s*شيكل/)).toBeInTheDocument();
     const receiver = screen.getByText("الحساب المستقبِل");
     const method = screen.getByText("طريقة/نوع حساب التحويل");
     expect(receiver.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -435,7 +435,7 @@ describe("role guards in administration UI", () => {
     expect(screen.getByText("بنود الفاتورة")).toBeInTheDocument();
     expect(screen.getByText("تسوية الكسر المرحّل")).toBeInTheDocument();
     expect(screen.getByText("كسر مُرحّل إلى الفاتورة التالية")).toBeInTheDocument();
-    expect(screen.getByText(/٠٫٩٠ شيكل/)).toBeInTheDocument();
+    expect(screen.getByText(/0\.90\s*شيكل/)).toBeInTheDocument();
     expect(screen.queryByText("رسم ثابت")).not.toBeInTheDocument();
     expect(screen.queryByText("الضريبة")).not.toBeInTheDocument();
     expect(screen.queryByText("بند بلا قيمة")).not.toBeInTheDocument();
