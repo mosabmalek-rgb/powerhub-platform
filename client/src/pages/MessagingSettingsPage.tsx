@@ -150,7 +150,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
           </select></label>
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">القناة</span><select value={channel} onChange={(e) => { setChannel(e.target.value as typeof channel); setPage(0); }} className={inputClass}><option value="all">كل القنوات</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option></select></label>
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">حالة الرسالة</span><select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(0); }} className={inputClass}>
-            <option value="all">كل الحالات</option><option value="pending">بانتظار المعالجة</option><option value="processing">قيد المعالجة</option><option value="submitted">مرسلة للمزود</option><option value="delivered">تم التسليم</option><option value="read">تمت القراءة</option><option value="failed">فاشلة</option><option value="needs_review">تحتاج مراجعة</option>
+            <option value="all">كل الحالات</option><option value="pending">بانتظار المعالجة</option><option value="processing">قيد المعالجة</option><option value="submitted">مرسلة للمزود</option><option value="failed">فاشلة</option><option value="needs_review">تحتاج مراجعة</option>
           </select></label>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
