@@ -13,7 +13,9 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("إظهار الفاتورة");
     expect(billing).toContain("setPreviewInvoiceUrl");
     expect(billing).toContain("<iframe title=\"معاينة الفاتورة\"");
-    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)}");
+    expect(billing).toContain("<Dialog open={previewInvoiceOpen}");
+    expect(billing).toContain("setPreviewInvoiceOpen(true); updatePreviewStatus(\"loading\"); openInvoice.mutate");
+    expect(billing).toContain("جارٍ تجهيز رابط الفاتورة…");
     expect(billing).not.toContain("openWindowSafely(");
     expect(billing).toContain("window.location.origin");
     expect(billing).toContain("result.path");
@@ -110,7 +112,10 @@ describe("public invoice and inquiry actions", () => {
     const billing = read("client/src/pages/BillingPage.tsx");
     expect(billing).toContain("const [previewInvoiceUrl, setPreviewInvoiceUrl] = useState<string | null>(null)");
     expect(billing).toContain("setPreviewInvoiceUrl(`${window.location.origin}${result.path}`)");
-    expect(billing).toContain("<Dialog open={Boolean(previewInvoiceUrl)} onOpenChange={(open) => { if (!open) { setPreviewInvoiceUrl(null); updatePreviewStatus(\"loading\"); } }}>");
+    expect(billing).toContain("const [previewInvoiceOpen, setPreviewInvoiceOpen] = useState(false)");
+    expect(billing).toContain("<Dialog open={previewInvoiceOpen} onOpenChange={(open) => { setPreviewInvoiceOpen(open); if (!open) { setPreviewInvoiceUrl(null); updatePreviewStatus(\"loading\"); } }}>");
+    expect(billing).toContain("setPreviewInvoiceOpen(true); updatePreviewStatus(\"loading\"); openInvoice.mutate");
+    expect(billing).toContain("جارٍ تجهيز رابط الفاتورة…");
     expect(billing).toContain("<iframe title=\"معاينة الفاتورة\"");
     expect(billing).toContain("تظهر الفاتورة هنا فوق الصفحة الحالية");
   });
