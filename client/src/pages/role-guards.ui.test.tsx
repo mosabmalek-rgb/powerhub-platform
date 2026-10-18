@@ -123,7 +123,7 @@ vi.mock("@/lib/trpc", () => ({
         create: { useMutation: mocks.mutation }
       },
       dashboard: { summary: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.summary", input, options); return mocks.query({ financial: {} }); } }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.financialOverview", input, options); return mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }); } } },
-      paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false }), refetch: vi.fn() }) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
+      paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false, policy: "addon", packageCode: "growth", entitlementEnabled: false, adminStatus: "enabled", disabledByAdmin: false }), refetch: vi.fn() }) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
       audit: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("audit.list", input, options); return mocks.query([]); } } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, listScheduleRuns: { useQuery: () => mocks.query([]) }, smsQuota: { useQuery: () => mocks.query({ total: 0, used: 0, remaining: 0 }) }, smsDailyUsage: { useQuery: () => mocks.query({ points: [], total: 0, used: 0, remaining: 0 }) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation }, configureInvoiceAutoSend: { useMutation: mocks.mutation }, requestSmsPackage: { useMutation: mocks.mutation } },
@@ -377,6 +377,16 @@ describe("role guards in administration UI", () => {
     mocks.location = "/staff";
     render(<SettingsPage />);
     expect(screen.getByRole("button", { name: /حفظ الدور/ })).toBeInTheDocument();
+  });
+
+  it("reflects the effective payment-documentation state from the feature access query", () => {
+    mocks.activeRole = "owner";
+    mocks.location = "/settings";
+    render(<SettingsPage />);
+    expect(screen.getByText("فعالة فعلياً")).toBeInTheDocument();
+    expect(screen.getByText("إتاحة الحساب: متوقفة")).toBeInTheDocument();
+    expect(screen.getByText("إدارة المنصة: مفعّلة")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تفعيل التوثيق" })).toBeEnabled();
   });
 
   it("offers the separate field-app permission to the generator owner", () => {
