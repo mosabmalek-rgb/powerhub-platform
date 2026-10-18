@@ -151,6 +151,9 @@ describe("public invoice and inquiry actions", () => {
     expect(invoice).toContain('await import("@/lib/report-pdf")');
     expect(invoice).toContain("powerhub.paymentDocumentation.publicStatus.useQuery");
     expect(invoice).toContain("paymentStatusQuery.data?.hasPendingSubmission");
+    expect(invoice).toContain("paymentStatusQuery.isFetching");
+    expect(invoice).toContain("paymentStatusQuery.isError ?");
+    expect(invoice).toContain("paymentStatusQuery.refetch()");
     expect(invoice).toContain("تم إرسال التوثيق — بانتظار المراجعة");
     expect(invoice).toContain("downloadReportHtmlAsPdf(invoiceElement");
     expect(invoice).toContain("تحميل PDF");
