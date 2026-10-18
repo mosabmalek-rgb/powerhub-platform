@@ -13,6 +13,7 @@ import OperationsPage from "./OperationsPage";
 import SettingsPage from "./SettingsPage";
 import SubscriberPortalSettingsPage from "./SubscriberPortalSettingsPage";
 import PaymentDocumentationPage from "./PaymentDocumentationPage";
+import PublicInvoice from "./PublicInvoice";
 
 const mocks = vi.hoisted(() => {
   const queryCache = new Map<string, { data: unknown; isLoading: boolean; isFetching: boolean }>();
@@ -82,7 +83,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/ui/switch", () => ({ Switch: ({ checked, onCheckedChange, ...props }: { checked: boolean; onCheckedChange: (value: boolean) => void; [key: string]: unknown }) => <button type="button" aria-pressed={checked} onClick={() => onCheckedChange(!checked)} {...props} /> }));
 vi.mock("qrcode.react", () => ({ QRCodeCanvas: ({ value }: { value: string }) => <canvas aria-label="رمز QR للرابط" data-value={value} /> }));
-vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()], useRoute: (pattern: string) => pattern === "/payment-documentation/public/:token" && mocks.location.startsWith("/payment-documentation/public/") ? [true, { token: mocks.location.split("/").at(-1) }] : [false, undefined] }));
+vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()], useRoute: (pattern: string) => pattern === "/payment-documentation/public/:token" && mocks.location.startsWith("/payment-documentation/public/") ? [true, { token: mocks.location.split("/").at(-1) }] : pattern === "/invoice/:token" && mocks.location.startsWith("/invoice/") ? [true, { token: mocks.location.split("/").at(-1) }] : [false, undefined] }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
@@ -138,7 +139,7 @@ vi.mock("@/lib/trpc", () => ({
         create: { useMutation: mocks.mutation }
       },
       dashboard: { summary: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.summary", input, options); return mocks.query({ financial: {} }); } }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.financialOverview", input, options); return mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }); } } },
-      paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false, policy: "addon", packageCode: "growth", entitlementEnabled: false, adminStatus: "enabled", disabledByAdmin: false }), isError: mocks.paymentDocumentationAccessError, refetch: vi.fn(), error: mocks.paymentDocumentationAccessError ? new Error("status unavailable") : undefined }) }, publicContext: { useQuery: () => ({ ...mocks.query(mocks.publicPaymentContext), isLoading: false, isError: false, error: undefined }) }, publicSubmit: { useMutation: () => ({ ...mocks.mutation(), data: undefined }) }, searchSubscriber: { useQuery: () => mocks.query([]) }, availableAccounts: { useQuery: () => mocks.query(mocks.publicPaymentContext.accounts) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
+      paymentDocumentation: { publicStatus: { useQuery: () => ({ ...mocks.query({ hasPendingSubmission: false }), refetch: vi.fn() }) }, access: { useQuery: () => ({ ...mocks.query({ allowed: false, policy: "addon", packageCode: "growth", entitlementEnabled: false, adminStatus: "enabled", disabledByAdmin: false }), isError: mocks.paymentDocumentationAccessError, refetch: vi.fn(), error: mocks.paymentDocumentationAccessError ? new Error("status unavailable") : undefined }) }, publicContext: { useQuery: () => ({ ...mocks.query(mocks.publicPaymentContext), isLoading: false, isError: false, error: undefined }) }, publicSubmit: { useMutation: () => ({ ...mocks.mutation(), data: undefined }) }, searchSubscriber: { useQuery: () => mocks.query([]) }, availableAccounts: { useQuery: () => mocks.query(mocks.publicPaymentContext.accounts) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
       audit: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("audit.list", input, options); return mocks.query([]); } } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, listScheduleRuns: { useQuery: () => mocks.query([]) }, smsQuota: { useQuery: () => mocks.query({ total: 0, used: 0, remaining: 0 }) }, smsDailyUsage: { useQuery: () => mocks.query({ points: [], total: 0, used: 0, remaining: 0 }) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation }, configureInvoiceAutoSend: { useMutation: mocks.mutation }, requestSmsPackage: { useMutation: mocks.mutation } },
@@ -387,18 +388,24 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("button", { name: "تنزيل رمز QR" })).toBeInTheDocument();
   });
 
-  it("hides zero-value fractional discount and carry rows while retaining a minimum-consumption adjustment", () => {
+  it("hides every zero-value invoice row while keeping real minimum-consumption adjustments visible", () => {
     mocks.location = "/payment-documentation/public/test-share-token-00000001";
     mocks.publicPaymentContext.lines = [
       { id: 11, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 },
       { id: 12, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 },
       { id: 13, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0, displayOrder: 3 },
       { id: 14, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: 0.0049, displayOrder: 4 },
+      { id: 15, lineType: "fixed_fee", description: "رسم ثابت", amount: 0, displayOrder: 5 },
+      { id: 16, lineType: "tax", description: "الضريبة", amount: 0, displayOrder: 6 },
+      { id: 17, lineType: "other", description: "بند إضافي بلا قيمة", amount: 0, displayOrder: 7 },
     ];
     render(<PaymentDocumentationPage />);
     expect(screen.getByText("تسوية الحد الأدنى للاستهلاك")).toBeInTheDocument();
     expect(screen.queryByText("خصم تلقائي لتسوية كسر الفاتورة")).not.toBeInTheDocument();
     expect(screen.queryByText("كسر مُرحّل إلى الفاتورة التالية")).not.toBeInTheDocument();
+    expect(screen.queryByText("رسم ثابت")).not.toBeInTheDocument();
+    expect(screen.queryByText("الضريبة")).not.toBeInTheDocument();
+    expect(screen.queryByText("بند إضافي بلا قيمة")).not.toBeInTheDocument();
   });
 
   it("shows automatic fractional discounts, carried fractions, and minimum-consumption adjustments on payment documentation", () => {
@@ -407,10 +414,31 @@ describe("role guards in administration UI", () => {
     expect(screen.getByText("تفاصيل الفاتورة وتسوياتها")).toBeInTheDocument();
     expect(screen.getByText("تسوية الحد الأدنى للاستهلاك")).toBeInTheDocument();
     expect(screen.getByText("خصم تلقائي لتسوية كسر الفاتورة")).toBeInTheDocument();
+    expect(screen.getByText("تسوية الكسر المرحّل")).toBeInTheDocument();
     expect(screen.getByText("كسر مُرحّل إلى الفاتورة التالية")).toBeInTheDocument();
+    expect(screen.getByText(/٠٫٨٠ شيكل/)).toBeInTheDocument();
     const receiver = screen.getByText("الحساب المستقبِل");
     const method = screen.getByText("طريقة/نوع حساب التحويل");
     expect(receiver.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the carried-fraction effect on shared invoices and hides every zero-value line", () => {
+    mocks.location = "/invoice/test-share-token-00000001";
+    mocks.publicPaymentContext.lines = [
+      { id: 31, lineType: "energy", description: "استهلاك الكهرباء", amount: 126.9, displayOrder: 1 },
+      { id: 32, lineType: "fixed_fee", description: "رسم ثابت", amount: 0, displayOrder: 3 },
+      { id: 33, lineType: "tax", description: "الضريبة", amount: 0, displayOrder: 4 },
+      { id: 34, lineType: "other", description: "بند بلا قيمة", amount: 0, displayOrder: 5 },
+      { id: 35, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: -0.9, displayOrder: 8 },
+    ];
+    render(<PublicInvoice />);
+    expect(screen.getByText("بنود الفاتورة")).toBeInTheDocument();
+    expect(screen.getByText("تسوية الكسر المرحّل")).toBeInTheDocument();
+    expect(screen.getByText("كسر مُرحّل إلى الفاتورة التالية")).toBeInTheDocument();
+    expect(screen.getByText(/٠٫٩٠ شيكل/)).toBeInTheDocument();
+    expect(screen.queryByText("رسم ثابت")).not.toBeInTheDocument();
+    expect(screen.queryByText("الضريبة")).not.toBeInTheDocument();
+    expect(screen.queryByText("بند بلا قيمة")).not.toBeInTheDocument();
   });
 
   it("does not misrepresent or allow toggling payment documentation when its state cannot be checked", () => {
