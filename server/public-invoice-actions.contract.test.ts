@@ -64,7 +64,11 @@ describe("public invoice and inquiry actions", () => {
     const main = read("client/src/main.tsx");
     const app = read("client/src/App.tsx");
     expect(main).toContain('const App = lazy(() => import("./App"))');
-    expect(main).toContain('const PublicInvoice = lazy(() => import("./pages/PublicInvoice"))');
+    expect(main).toContain('const PublicInvoiceApp = lazy(() => import("./PublicInvoiceApp"))');
+    const publicInvoiceApp = read("client/src/PublicInvoiceApp.tsx");
+    expect(publicInvoiceApp).toContain('import PublicInvoice from "@/pages/PublicInvoice"');
+    expect(publicInvoiceApp).not.toContain('from "./App"');
+    expect(publicInvoiceApp).not.toContain('route-preload');
     expect(main).not.toContain('import App from "./App"');
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) return {};");
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) {");
