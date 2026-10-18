@@ -557,6 +557,25 @@ export const powerhubRouter = router({
       const row = Array.isArray(data) ? data[0] : data;
       return { cycleType: row?.cycle_type ?? "MONTHLY", weeklyStartDay: Number(row?.weekly_start_day ?? 7), monthlyStartDay: Number(row?.monthly_start_day ?? 1), timezone: row?.timezone ?? "Asia/Gaza" };
     }),
+    currentBounds: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_cycle_for_reading", {
+        p_tenant_id: scope.tenantId,
+        p_site_id: input.siteId,
+        p_reading_at: new Date().toISOString(),
+      });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row?.cycle_start_at || !row?.cycle_end_at) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تحديد حدود دورة الفوترة الحالية لهذا الفرع." });
+      }
+      return {
+        cycleKey: String(row.cycle_key ?? ""),
+        cycleLabel: String(row.cycle_label ?? row.billing_period ?? ""),
+        billingPeriod: String(row.billing_period ?? row.cycle_key ?? ""),
+        startAt: String(row.cycle_start_at),
+        endAt: String(row.cycle_end_at),
+      };
+    }),
     save: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       cycleType: z.enum(["WEEKLY", "EVERY_10_DAYS", "EVERY_15_DAYS", "MONTHLY"]),
