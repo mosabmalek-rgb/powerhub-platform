@@ -2803,6 +2803,27 @@ export const powerhubRouter = router({
   }),
 
   expenses: router({
+    filterAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const { data: links, error: linksError } = await supabaseAdmin()
+        .from("company_account_sites")
+        .select("account_id")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .limit(1000);
+      if (linksError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات فلتر المصروفات." });
+      const accountIds = Array.from(new Set((links ?? []).map((row) => Number(row.account_id)).filter((id) => Number.isInteger(id) && id > 0)));
+      if (!accountIds.length) return [];
+      const { data: accounts, error: accountsError } = await supabaseAdmin()
+        .from("company_accounts")
+        .select("id, name, account_type")
+        .eq("tenant_id", access.tenantId)
+        .eq("is_active", true)
+        .in("id", accountIds)
+        .order("id", { ascending: true });
+      if (accountsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء حسابات فلتر المصروفات." });
+      return (accounts ?? []).map((account) => ({ id: Number(account.id), name: account.name, accountType: account.account_type }));
+    }),
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       return listSupabaseExpenses(input.siteId);
