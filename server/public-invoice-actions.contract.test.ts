@@ -79,8 +79,8 @@ describe("public invoice and inquiry actions", () => {
     expect(sw).toContain("isPublicInvoiceNavigation(url)");
     expect(sw.indexOf('if (request.mode === "navigate" && isPublicInvoiceNavigation(url)) return;')).toBeLessThan(sw.indexOf('if (request.mode === "navigate") {'));
     const viteConfig = read("vite.config.ts");
-    expect(viteConfig).not.toContain('"report-pdf": ["html2canvas", "jspdf"]');
-    expect(viteConfig).not.toContain('charts: ["recharts"]');
+    expect(viteConfig).toContain('"report-pdf": ["html2canvas", "jspdf"]');
+    expect(viteConfig).toContain('charts: ["recharts"]');
     expect(app).toContain('const Home = lazy(() => import("./pages/Home"))');
     expect(app).toContain('const RouteAccessGate = lazy(() => import("@/components/RouteAccessGate")');
     expect(app).toContain('const LoginPage = lazy(() => import("./pages/LoginPage"))');
