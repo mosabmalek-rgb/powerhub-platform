@@ -93,6 +93,9 @@ describe("public invoice and inquiry actions", () => {
     expect(invoiceRewriteIndex).toBeGreaterThanOrEqual(0);
     expect(invoiceRewriteIndex).toBeLessThan(fallbackRewriteIndex);
     expect(config.headers.find((rule) => rule.source === "/invoice/:token")?.headers.find((header) => header.key === "Cache-Control")?.value).toBe("no-store, max-age=0");
+    expect(config.headers.find((rule) => rule.source === "/invoice.html")?.headers.find((header) => header.key === "X-Frame-Options")?.value).toBe("SAMEORIGIN");
+    expect(config.headers.find((rule) => rule.source === "/invoice.html")?.headers.find((header) => header.key === "Cache-Control")?.value).toBe("no-store, max-age=0");
+    expect(config.headers.find((rule) => rule.source === "/:path((?!invoice/)(?!invoice\\.html$).*)")).toBeDefined();
     expect(app).toContain('const Home = lazy(() => import("./pages/Home"))');
     expect(app).toContain('const RouteAccessGate = lazy(() => import("@/components/RouteAccessGate")');
     expect(app).toContain('const LoginPage = lazy(() => import("./pages/LoginPage"))');
