@@ -2368,12 +2368,12 @@ export const powerhubRouter = router({
       // validated the link. Never trust tenant or invoice identifiers from input.
       const { data: shareLink, error: shareLinkError } = await supabaseAdmin()
         .from("invoice_share_links")
-        .select("tenant_id,site_id,invoice_id,revoked_at,expires_at")
+        .select("tenant_id,invoice_id,revoked_at,expires_at")
         .eq("token_hash", hashInvoiceShareToken(input.token))
         .maybeSingle();
       if (shareLinkError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق رابط الفاتورة." });
       if (!shareLink || shareLink.revoked_at || (shareLink.expires_at && new Date(shareLink.expires_at).getTime() <= Date.now()) ||
-          Number(shareLink.site_id) !== siteId || Number(shareLink.invoice_id) !== invoiceId) {
+          Number(shareLink.invoice_id) !== invoiceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
       }
       const tenantId = Number(shareLink.tenant_id);
