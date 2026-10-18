@@ -275,6 +275,31 @@ describe("public invoice and inquiry actions", () => {
     expect(review).toContain("لا يمكن التحقق من مطابقة لقطة الطلبات لدورة القراءة الحالية دون اتصال");
   });
 
+  it("filters collections by canonical cycle, receiver account type/account, and exports readable destination columns", () => {
+    const operations = read("client/src/pages/OperationsPage.tsx");
+    const server = read("server/powerhub.ts");
+    expect(server).toContain("currentBounds: protectedProcedure.input(siteScoped)");
+    expect(server).toContain('admin.rpc("powerhub_cycle_for_reading"');
+    for (const label of ["اليوم", "هذه الدورة", "آخر الشهر", "مخصص", "نوع الحساب المستقبل", "الحساب المستقبل"]) {
+      expect(operations).toContain(label);
+    }
+    expect(operations).toContain("paymentReceiverType");
+    expect(operations).toContain("paymentReceiverAccountId");
+    expect(operations).toContain("اسم المولد");
+    expect(operations).toContain("دورة الفوترة");
+    expect(operations).toContain("نوع الحساب المحوَّل منه");
+    expect(operations).toContain("الحساب المستقبل");
+    expect(operations).toContain("wrapText: true");
+  });
+
+  it("opens payment-documentation receipts in a compact dialog instead of expanding each review card", () => {
+    const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
+    expect(review).toContain('import { Dialog, DialogContent, DialogHeader, DialogTitle }');
+    expect(review).toContain("openReceiptPreview");
+    expect(review).toContain('<Dialog open={Boolean(previewReceipt)}');
+    expect(review).toContain('className="mx-auto max-h-[70vh] w-full rounded-xl border border-white/10 object-contain"');
+  });
+
   it("keeps platform and tenant audit roles separate when the internal documentation request is submitted", () => {
     const restoreMigration = read("supabase/migrations/20261012191000_powerhub_payment_documentation_internal_submit_restore.sql");
     expect(restoreMigration).toContain("left join public.tenant_members m on m.user_id=u.id and m.tenant_id=p_tenant_id");
