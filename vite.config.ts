@@ -174,6 +174,10 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     rollupOptions: {
+      input: {
+        main: path.resolve(PROJECT_ROOT, "client", "index.html"),
+        invoice: path.resolve(PROJECT_ROOT, "client", "invoice.html"),
+      },
       output: {
         manualChunks: {
           "report-spreadsheets": ["exceljs"],
