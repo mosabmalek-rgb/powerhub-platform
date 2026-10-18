@@ -161,9 +161,9 @@ export default function PaymentDocumentationReviewPage() {
         <div><span className="text-slate-500">إجمالي الفاتورة</span><p className="text-white">{r.invoice_total_snapshot}</p></div>
         <div><span className="text-slate-500">الرصيد وقت الطلب</span><p className="text-amber-400 font-bold">{r.invoice_balance_snapshot}</p></div>
         <div><span className="text-slate-500">مبلغ الدفع</span><p className="text-white font-bold">{r.payment_amount}</p></div>
-        <div><span className="text-slate-500">طريقة/نوع حساب التحويل</span><p className="text-white">{formatPaymentMethod(r.payment_method)}</p></div>
+        <div><span className="text-slate-500">الحساب المحوَّل منه</span><p className="text-white">{r.sender_phone||"—"}</p><p className="mt-1 text-slate-300">طريقة التحويل: {formatPaymentMethod(r.payment_method)}</p></div>
         <div><span className="text-slate-500">الحساب المستقبِل</span><p className="font-semibold text-white">{r.destination_account_name||"—"}</p><p className="mt-1 text-slate-300">{formatAccountType(r.destination_account_type)} · {r.destination_account_phone_number||"لا يوجد رقم مسجل"}</p></div>
-        <div><span className="text-slate-500">جوال المحوّل</span><p className="text-white">{r.sender_phone||"—"}</p></div>
+        
         <div><span className="text-slate-500">المرجع</span><p className="text-white">{r.reference_no||"—"}</p></div>
         <div className="md:col-span-2">
           <span className="text-slate-500">تاريخ ووقت الإرسال</span>
