@@ -18,7 +18,7 @@ import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { invoiceStatusMeta, outstandingInvoices, summarizeOutstandingInvoices } from "@/lib/invoice-collection-presentation";
 import { can } from "@shared/powerhub-rbac";
-import { CheckCircle2, CircleAlert, ClipboardList, Eye, Fuel, Gauge, ImagePlus, Loader2, MessageCircle, Plus, Printer, ReceiptText, Send, ShieldCheck, UsersRound, WalletCards, Zap } from "lucide-react";
+import { CheckCircle2, CircleAlert, ClipboardList, Eye, Fuel, Gauge, ImagePlus, Loader2, Plus, Printer, ReceiptText, Send, ShieldCheck, UsersRound, WalletCards, Zap } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
