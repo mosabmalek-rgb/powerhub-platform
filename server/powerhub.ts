@@ -2899,6 +2899,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      paymentMethod: z.string().optional(),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
@@ -2908,7 +2909,7 @@ export const powerhubRouter = router({
         listSupabaseReportExpenses({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
       ]);
       const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
-      const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive);
+      const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive && (!input.paymentMethod || input.paymentMethod === "all" || payment.paymentMethod === input.paymentMethod));
       const collectorsIds = Array.from(new Set(completedPayments.flatMap(({ payment }) => payment.collectedByUserId === null ? [] : [payment.collectedByUserId])));
       const [collectorRows, subscriberRows] = await Promise.all([
         collectorsIds.length ? supabaseAdmin().from("users").select("id, name, email").in("id", collectorsIds) : Promise.resolve({ data: [], error: null }),
