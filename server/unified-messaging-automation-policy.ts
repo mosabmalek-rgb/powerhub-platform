@@ -39,3 +39,15 @@ export function isInvoiceOverdueEligible(input: {
   if (input.minBalance != null && (!Number.isFinite(input.minBalance) || balance < input.minBalance)) return false;
   return true;
 }
+
+
+/** Stable once-per-invoice key for unscheduled overdue reminders; scheduled runs
+ * retain the occurrence suffix so intentionally recurring reminders remain distinct. */
+export function buildInvoiceOverdueOperationKey(
+  automationId: number | string,
+  invoiceId: number | string,
+  occurrenceKey: string,
+  automaticUnscheduled: boolean,
+): string {
+  return `automation:${automationId}:invoice:${invoiceId}:${automaticUnscheduled ? "eligible" : occurrenceKey}`;
+}
