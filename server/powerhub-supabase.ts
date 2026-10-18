@@ -22,6 +22,7 @@ type SupabaseSite = {
   status: "active" | "inactive" | "archived";
   anomalyAlertPercent: number;
   invoiceDueDays: number;
+  invoiceDueHours: number;
   createdAt: Date;
 };
 
@@ -83,13 +84,13 @@ type SupabaseAccountTransaction = {
 
 export async function getSupabaseSite(siteId: number): Promise<SupabaseSite> {
   const { data, error } = await supabaseAdmin().from("sites")
-    .select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, created_at, tenants!inner(name)")
+    .select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)")
     .eq("id", siteId).maybeSingle();
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفرع من Supabase." });
   if (!data) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
   return {
     id: Number(data.id), tenantId: Number(data.tenant_id), tenantName: (data as any).tenants?.name ?? data.name, name: data.name, code: data.code, city: data.city, address: data.address,
-    status: data.status as SupabaseSite["status"], anomalyAlertPercent: data.anomaly_alert_percent, invoiceDueDays: data.invoice_due_days,
+    status: data.status as SupabaseSite["status"], anomalyAlertPercent: data.anomaly_alert_percent, invoiceDueDays: data.invoice_due_days, invoiceDueHours: Number(data.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(data.invoice_due_days ?? 14) * 24))),
     createdAt: new Date(data.created_at),
   };
 }
@@ -271,9 +272,9 @@ export async function requireSupabaseAllBranchesRole(userId: number, siteId: num
 export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmin: boolean): Promise<SupabaseSite[]> {
   const admin = supabaseAdmin();
   if (isPlatformAdmin) {
-    const { data, error } = await admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, created_at, tenants!inner(name)").order("created_at", { ascending: false });
+    const { data, error } = await admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").order("created_at", { ascending: false });
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفروع من Supabase." });
-    return (data ?? []).map((site) => ({ id: Number(site.id), tenantId: Number(site.tenant_id), tenantName: (site as any).tenants?.name ?? site.name, name: site.name, code: site.code, city: site.city, address: site.address, status: site.status as SupabaseSite["status"], anomalyAlertPercent: site.anomaly_alert_percent, invoiceDueDays: site.invoice_due_days, createdAt: new Date(site.created_at) }));
+    return (data ?? []).map((site) => ({ id: Number(site.id), tenantId: Number(site.tenant_id), tenantName: (site as any).tenants?.name ?? site.name, name: site.name, code: site.code, city: site.city, address: site.address, status: site.status as SupabaseSite["status"], anomalyAlertPercent: site.anomaly_alert_percent, invoiceDueDays: site.invoice_due_days, invoiceDueHours: Number(site.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(site.invoice_due_days ?? 14) * 24))), createdAt: new Date(site.created_at) }));
   }
   const { data: memberships, error: membershipsError } = await admin.from("tenant_members").select("tenant_id, role")
     .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active");
@@ -285,11 +286,11 @@ export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmi
   const assignedSiteIds = (profiles ?? []).map((profile) => profile.site_id).filter((id): id is number => id !== null).map(Number);
   const requestedIds = Array.from(new Set(assignedSiteIds));
   const [ownedResult, assignedResult] = await Promise.all([
-    ownerTenantIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, created_at, tenants!inner(name)").in("tenant_id", ownerTenantIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
-    requestedIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, created_at, tenants!inner(name)").in("id", requestedIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    ownerTenantIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").in("tenant_id", ownerTenantIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    requestedIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").in("id", requestedIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
   ]);
   if (ownedResult.error || assignedResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفروع المتاحة من Supabase." });
-  return Array.from(new Map([...(ownedResult.data ?? []), ...(assignedResult.data ?? [])].map((site) => [Number(site.id), ({ id: Number(site.id), tenantId: Number(site.tenant_id), tenantName: (site as any).tenants?.name ?? site.name, name: site.name, code: site.code, city: site.city, address: site.address, status: site.status as SupabaseSite["status"], anomalyAlertPercent: site.anomaly_alert_percent, invoiceDueDays: site.invoice_due_days, createdAt: new Date(site.created_at) })])).values());
+  return Array.from(new Map([...(ownedResult.data ?? []), ...(assignedResult.data ?? [])].map((site) => [Number(site.id), ({ id: Number(site.id), tenantId: Number(site.tenant_id), tenantName: (site as any).tenants?.name ?? site.name, name: site.name, code: site.code, city: site.city, address: site.address, status: site.status as SupabaseSite["status"], anomalyAlertPercent: site.anomaly_alert_percent, invoiceDueDays: site.invoice_due_days, invoiceDueHours: Number(site.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(site.invoice_due_days ?? 14) * 24))), createdAt: new Date(site.created_at) })])).values());
 }
 
 export async function listSupabaseSubscribers(siteId: number) {
