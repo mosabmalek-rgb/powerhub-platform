@@ -2210,9 +2210,21 @@ export const powerhubRouter = router({
       billingPeriod: z.string().regex(/^\d{4}-\d{2}$/), dueDate: z.date(), discountAmount: z.number().min(0).default(0), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+      // The branch Settings policy is authoritative for every new invoice. Do not trust
+      // a client-supplied due date (including an offline draft) to override it.
+      const { data: reading, error: readingError } = await supabaseAdmin().from("meter_readings")
+        .select("id, reading_at, status")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.readingId)
+        .maybeSingle();
+      if (readingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تاريخ القراءة لتحديد استحقاق الفاتورة." });
+      if (!reading) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
+      if (reading.status !== "approved") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب اعتماد القراءة قبل إصدار فاتورتها." });
+      const dueHours = Math.max(1, Math.min(2160, Number(access.invoiceDueHours ?? ((access.invoiceDueDays ?? 14) * 24))));
+      const dueDate = new Date(new Date(reading.reading_at).getTime() + dueHours * 60 * 60 * 1000);
+      if (!Number.isFinite(dueDate.getTime())) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تاريخ القراءة غير صالح لتحديد استحقاق الفاتورة." });
       const { data, error } = await supabaseAdmin().rpc("powerhub_issue_invoice_from_reading", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_tariff_id: input.tariffId,
-        p_billing_period: input.billingPeriod, p_due_date: input.dueDate.toISOString(), p_discount_amount: input.discountAmount, p_client_operation_id: input.clientOperationId ?? null,
+        p_billing_period: input.billingPeriod, p_due_date: dueDate.toISOString(), p_discount_amount: input.discountAmount, p_client_operation_id: input.clientOperationId ?? null,
       });
       if (!error && data?.[0]) {
         const row = data[0] as { invoice_id: number | string; invoice_no: string; total_amount: number | string };
