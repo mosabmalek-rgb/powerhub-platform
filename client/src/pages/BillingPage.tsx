@@ -187,9 +187,9 @@ export default function BillingPage() {
       console.warn("[PowerHub UI latency]", {
         operation: "invoices.showPreview",
         status: "timeout",
-        durationMs: startedAt === null ? 18_000 : Math.round(performance.now() - startedAt),
+        durationMs: startedAt === null ? 25_000 : Math.round(performance.now() - startedAt),
       });
-    }, 18_000);
+    }, 25_000);
 
     const handlePreviewMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
