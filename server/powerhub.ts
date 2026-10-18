@@ -2839,6 +2839,8 @@ export const powerhubRouter = router({
         };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (error?.code === "PGRST202" || /powerhub_create_expense_with_account.*schema cache|schema cache.*powerhub_create_expense_with_account/i.test(errorText)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "دالة تسجيل المصروفات غير متاحة في مخطط Supabase. تم تحديث إعدادات قاعدة البيانات؛ حدّث الصفحة وأعد المحاولة." });
+      if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة غير متاحة ضمن مساحة العمل الحالية." });
       if (errorText.includes("GENERATOR_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
       if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الصرف غير موجود أو غير نشط." });
       if (errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "حساب الصرف غير مرتبط بالفرع المحدد." });
