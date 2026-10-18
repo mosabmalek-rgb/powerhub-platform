@@ -11,6 +11,7 @@ import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 // =============================================================================
 
 const PROJECT_ROOT = import.meta.dirname;
+const invoiceOnlyBuild = process.env.POWERHUB_INVOICE_ONLY === "1";
 const LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
 const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; // 1MB per log file
 const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60% to avoid constant re-trimming
@@ -172,9 +173,14 @@ export default defineConfig({
   publicDir: path.resolve(import.meta.dirname, "client", "public"),
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
-    emptyOutDir: true,
+    // The invoice entry is built separately into this directory with emptyOutDir=false,
+    // so its module graph cannot inherit eager shared-chunk edges from the workspace app.
+    emptyOutDir: !invoiceOnlyBuild,
     rollupOptions: {
-      output: {
+      input: invoiceOnlyBuild
+        ? path.resolve(PROJECT_ROOT, "client", "invoice.html")
+        : path.resolve(PROJECT_ROOT, "client", "index.html"),
+      output: invoiceOnlyBuild ? {} : {
         manualChunks: {
           "report-spreadsheets": ["exceljs"],
           "report-pdf": ["html2canvas", "jspdf"],

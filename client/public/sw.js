@@ -1,11 +1,17 @@
-const SHELL_CACHE = "powerhub-shell-v6";
-const ASSET_CACHE = "powerhub-assets-v6";
+const SHELL_CACHE = "powerhub-shell-v7";
+const ASSET_CACHE = "powerhub-assets-v7";
 const CACHE_PREFIX = "powerhub-";
 const APP_SHELL = ["/", "/login", "/workspace", "/manifest.json"];
 const NAVIGATION_TIMEOUT_MS = 2_500;
 
 function isApiOrServiceWorker(url) {
   return url.pathname.startsWith("/api/") || url.pathname === "/sw.js";
+}
+
+function isPublicInvoiceNavigation(url) {
+  // Share tokens live in the path. Never cache token-bearing navigation HTML
+  // or return a stale shell for a shared invoice after a slow network fetch.
+  return /^\/invoice\/[^/]+\/?$/.test(url.pathname);
 }
 
 function isCacheableStaticAsset(url) {
@@ -55,6 +61,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin || isApiOrServiceWorker(url)) return;
   if (url.pathname.startsWith("/@") || url.pathname.includes("/node_modules/")) return;
+
+  // Let Vercel serve the current HTML directly. Public invoice URLs carry a
+  // share token in their pathname, so they must not enter Cache Storage.
+  if (request.mode === "navigate" && isPublicInvoiceNavigation(url)) return;
 
   if (request.mode === "navigate") {
     event.respondWith((async () => {
