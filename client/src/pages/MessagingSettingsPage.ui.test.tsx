@@ -118,7 +118,7 @@ describe("owner invoice messaging settings", () => {
     state.readiness = false;
     render(<MessagingSettingsPage />);
     fireEvent.change(screen.getByRole("combobox", { name: "قالب SMS للحملة اليدوية" }), { target: { value: "101" } });
-    fireEvent.click(screen.getByText("مشترك الاختبار"));
+    fireEvent.click(screen.getByLabelText(/مشترك الاختبار.*SUB-11/));
     expect(screen.getByRole("button", { name: "إرسال الحملة" })).toBeDisabled();
     expect(state.mutate).not.toHaveBeenCalled();
   });
