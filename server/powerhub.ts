@@ -1632,7 +1632,6 @@ export const powerhubRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ مدة استحقاق الفاتورة." });
         }
         const savedHours = Number(row.invoice_due_hours);
-        await supabaseAdmin().from("audit_logs").select("id").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("entity_type", "site_invoice_due_policy").limit(1);
         return { success: true, invoiceDueHours: savedHours, invoiceDueDays: Math.ceil(savedHours / 24) };
       }),
     }),
