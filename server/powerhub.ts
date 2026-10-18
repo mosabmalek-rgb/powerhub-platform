@@ -2803,13 +2803,34 @@ export const powerhubRouter = router({
   }),
 
   expenses: router({
+    filterAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const { data: links, error: linksError } = await supabaseAdmin()
+        .from("company_account_sites")
+        .select("account_id")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .limit(1000);
+      if (linksError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات فلتر المصروفات." });
+      const accountIds = Array.from(new Set((links ?? []).map((row) => Number(row.account_id)).filter((id) => Number.isInteger(id) && id > 0)));
+      if (!accountIds.length) return [];
+      const { data: accounts, error: accountsError } = await supabaseAdmin()
+        .from("company_accounts")
+        .select("id, name, account_type")
+        .eq("tenant_id", access.tenantId)
+        .eq("is_active", true)
+        .in("id", accountIds)
+        .order("id", { ascending: true });
+      if (accountsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء حسابات فلتر المصروفات." });
+      return (accounts ?? []).map((account) => ({ id: Number(account.id), name: account.name, accountType: account.account_type }));
+    }),
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       return listSupabaseExpenses(input.siteId);
     }),
-    page: protectedProcedure.input(siteScoped.extend({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().max(500).optional() })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
-      return listSupabaseExpensePage(input.siteId, input);
+    page: protectedProcedure.input(siteScoped.extend({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().max(500).optional(), startDate: paymentDocumentationDateKeySchema.optional(), endDate: paymentDocumentationDateKeySchema.optional(), companyAccountId: z.number().int().positive().optional() }).refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, { message: "تاريخ بداية الفترة يجب ألا يتجاوز نهايتها." })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      return listSupabaseExpensePage(input.siteId, input, access.tenantId);
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
@@ -2839,6 +2860,8 @@ export const powerhubRouter = router({
         };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (error?.code === "PGRST202" || /powerhub_create_expense_with_account.*schema cache|schema cache.*powerhub_create_expense_with_account/i.test(errorText)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "دالة تسجيل المصروفات غير متاحة في مخطط Supabase. تم تحديث إعدادات قاعدة البيانات؛ حدّث الصفحة وأعد المحاولة." });
+      if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة غير متاحة ضمن مساحة العمل الحالية." });
       if (errorText.includes("GENERATOR_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
       if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الصرف غير موجود أو غير نشط." });
       if (errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "حساب الصرف غير مرتبط بالفرع المحدد." });

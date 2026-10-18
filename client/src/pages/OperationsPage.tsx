@@ -114,11 +114,9 @@ export default function OperationsPage({ section }: { section: Section }) {
   const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsReadings });
   const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsInvoices });
   const paymentsQuery = trpc.powerhub.payments.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsPayments });
-  const expensesQuery = trpc.powerhub.expenses.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsExpenses });
   const readings = readingsQuery.data?.items ?? [];
   const invoices = invoicesQuery.data?.items ?? [];
   const payments = paymentsQuery.data?.items ?? [];
-  const expenses = expensesQuery.data?.items ?? [];
   const notificationsQuery = trpc.powerhub.notifications.list.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsNotifications });
   const auditQuery = trpc.powerhub.audit.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(canQuery && needsAudit) });
   const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: canQuery && needsSummary });
@@ -234,7 +232,7 @@ export default function OperationsPage({ section }: { section: Section }) {
     }
     addPayment.mutate(completePayload);
   };
-  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <>{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} expenses={expenses} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule expenses={expenses} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
+  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <>{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }
 
 function SubscribersOverview({ data, canManage }: { data: any[]; canManage: boolean }) {
@@ -441,10 +439,101 @@ function CollectorSessionsPanel({ siteId }: { siteId: number }) {
   return <div className={role === "collector" ? "grid gap-6 xl:grid-cols-[.78fr_1.22fr]" : "space-y-6"}>{role === "collector" ? <SectionCard title="جلسة المحصل الحالية">{current ? <form className="space-y-4" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); closeSession.mutate({ siteId, sessionId: current.id, declaredCash: Number(form.get("declaredCash")), notes: String(form.get("notes") || "") || undefined }); }}><div className="rounded-xl border border-emerald-400/15 bg-emerald-400/5 p-4"><p className="text-xs font-bold text-emerald-300">جلسة مفتوحة</p><p className="mt-2 text-sm text-slate-300">رصيد الافتتاح: <strong className="font-display text-white">{formatValue(current.openingCash, 2)}</strong></p><p className="mt-1 text-xs text-slate-500">لن تُحتسب دفعاتك النقدية في الإغلاق إلا ضمن هذه الجلسة.</p></div><Field label="النقد المسلم عند الإغلاق"><input required name="declaredCash" type="number" min="0" step="0.01" className={inputClass} dir="ltr" /></Field><Field label="ملاحظة الإغلاق"><input name="notes" className={inputClass} placeholder="اختياري" /></Field><Button disabled={closeSession.isPending} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إغلاق الجلسة</Button></form> : <form className="space-y-4" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); openSession.mutate({ siteId, openingCash: Number(form.get("openingCash") || 0), notes: String(form.get("notes") || "") || undefined }); }}><p className="text-sm leading-6 text-slate-400">افتح جلسة قبل تسجيل دفعاتك الميدانية؛ ستربط دفعاتك بهذه الجلسة تلقائياً.</p><Field label="رصيد الافتتاح النقدي"><input required name="openingCash" defaultValue="0" type="number" min="0" step="0.01" className={inputClass} dir="ltr" /></Field><Field label="ملاحظة الافتتاح"><input name="notes" className={inputClass} placeholder="اختياري" /></Field><Button disabled={openSession.isPending} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">فتح جلسة تحصيل</Button></form>}</SectionCard> : null}<SectionCard title={`سجل جلسات التحصيل (${sessions.length})`}>{sessions.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-sm"><thead className="text-right text-xs text-slate-500"><tr><th className="pb-3">المحصل</th><th className="pb-3">الافتتاح</th><th className="pb-3">المتوقع</th><th className="pb-3">المصرح</th><th className="pb-3">الفرق</th><th className="pb-3">الحالة</th></tr></thead><tbody>{sessions.map((row) => <tr className="border-t border-white/7" key={row.session.id}><td className="py-3 font-bold text-white">{row.collector.name || row.collector.email || `مستخدم #${row.collector.id}`}</td><td className="py-3">{formatValue(row.session.openingCash, 2)}</td><td className="py-3 text-[#F5B800]">{formatValue(row.session.expectedCash, 2)}</td><td className="py-3">{row.session.declaredCash === null ? "—" : formatValue(row.session.declaredCash, 2)}</td><td className="py-3">{row.session.varianceAmount === null ? "—" : <span className={Number(row.session.varianceAmount) === 0 ? "text-emerald-400" : "text-rose-300"}>{formatValue(row.session.varianceAmount, 2)}</span>}</td><td className="py-3"><Badge className={row.session.status === "open" ? "bg-sky-400/10 text-sky-300" : "bg-emerald-400/10 text-emerald-400"}>{row.session.status === "open" ? "مفتوحة" : "مغلقة"}</Badge></td></tr>)}</tbody></table></div> : <Empty text="لا توجد جلسات تحصيل مسجلة لهذه المحطة حتى الآن." />}</SectionCard></div>;
 }
 
-function ExpensesModule({ siteId, generators, expenses, summary, pending, onSubmit }: any) {
+type ExpensePeriod = "today" | "cycle" | "monthEnd" | "custom";
+
+function expenseDateKey(value: string | Date) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return part("year") + "-" + part("month") + "-" + part("day");
+}
+
+function useExpenseHistoryFilters(siteId: number, canManageExpenses: boolean, managedAccounts: any[] = []) {
+  const [expenseAccountFilter, setExpenseAccountFilter] = useState("");
+  const [period, setPeriod] = useState<ExpensePeriod>("cycle");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  // View-only account options expose names and types only, never balances or transaction history.
+  const readOnlyAccountsQuery = trpc.powerhub.expenses.filterAccounts.useQuery({ siteId }, { enabled: !canManageExpenses });
+  const accounts = canManageExpenses ? managedAccounts : readOnlyAccountsQuery.data ?? [];
+  const cycleBoundsQuery = trpc.powerhub.readingCycle.currentBounds.useQuery({ siteId }, { enabled: period === "cycle" });
+  const currentDate = expenseDateKey(new Date());
+  const year = Number(currentDate.slice(0, 4));
+  const month = Number(currentDate.slice(5, 7));
+  const firstOfMonth = String(year) + "-" + String(month).padStart(2, "0") + "-01";
+  const lastOfMonth = expenseDateKey(new Date(Date.UTC(year, month, 0, 12)));
+  const cycleStart = cycleBoundsQuery.data ? expenseDateKey(cycleBoundsQuery.data.startAt) : "";
+  const cycleEnd = cycleBoundsQuery.data ? expenseDateKey(cycleBoundsQuery.data.endAt) : "";
+  const startDate = period === "today" ? currentDate : period === "cycle" ? cycleStart : period === "monthEnd" ? firstOfMonth : period === "custom" ? customStart : undefined;
+  const endDate = period === "today" ? currentDate : period === "cycle" ? cycleEnd : period === "monthEnd" ? lastOfMonth : period === "custom" ? customEnd : undefined;
+  const customRangeValid = period !== "custom" || Boolean(customStart && customEnd && customStart <= customEnd);
+  const cycleRangeReady = period !== "cycle" || Boolean(cycleBoundsQuery.data && cycleStart && cycleEnd && cycleStart <= cycleEnd && !cycleBoundsQuery.isError);
+  const filtersReady = customRangeValid && cycleRangeReady;
+  const expenseQueryInput = {
+    siteId,
+    limit: 100,
+    ...(startDate && endDate && startDate <= endDate ? { startDate, endDate } : {}),
+    ...(expenseAccountFilter ? { companyAccountId: Number(expenseAccountFilter) } : {}),
+  };
+  const expensesQuery = trpc.powerhub.expenses.page.useQuery(expenseQueryInput, { enabled: filtersReady });
+  return {
+    period, setPeriod, expenseAccountFilter, setExpenseAccountFilter, customStart, setCustomStart, customEnd, setCustomEnd,
+    accounts, accountsLoading: !canManageExpenses && readOnlyAccountsQuery.isLoading,
+    accountsError: !canManageExpenses && readOnlyAccountsQuery.isError,
+    refetchAccounts: readOnlyAccountsQuery.refetch,
+    cycleBoundsQuery, cycleRangeReady, customRangeValid, filtersReady, expensesQuery,
+  };
+}
+
+function ExpenseHistoryPanel({ history, canCorrect = true }: { history: ReturnType<typeof useExpenseHistoryFilters>; canCorrect?: boolean }) {
+  const expenses = history.expensesQuery.data?.items ?? [];
+  return <SectionCard title={"سجل المصروفات (" + expenses.length + ")"}>
+    <div className="mb-4 grid gap-3 sm:grid-cols-2">
+      <Field label="الفترة الزمنية">
+        <select aria-label="فلتر فترة المصروفات" value={history.period} onChange={(event) => history.setPeriod(event.target.value as ExpensePeriod)} className={selectClass}>
+          <option value="today">اليوم</option>
+          <option value="cycle">هذه الدورة</option>
+          <option value="monthEnd">حتى آخر الشهر</option>
+          <option value="custom">مخصص</option>
+        </select>
+      </Field>
+      <Field label="الحساب المصروف منه">
+        <select aria-label="فلتر الحساب المصروف منه" value={history.expenseAccountFilter} onChange={(event) => history.setExpenseAccountFilter(event.target.value)} className={selectClass}>
+          <option value="">كل حسابات الصرف</option>
+          {history.accounts.map((account: any) => <option key={account.id} value={account.id}>{account.name} — {account.accountType ?? account.account_type ?? "حساب"}</option>)}
+        </select>
+      </Field>
+    </div>
+    {history.period === "custom" ? <div className="mb-4 grid gap-3 sm:grid-cols-2">
+      <Field label="من تاريخ"><input aria-label="بداية فترة المصروفات" type="date" value={history.customStart} max={history.customEnd || undefined} onChange={(event) => history.setCustomStart(event.target.value)} className={inputClass} /></Field>
+      <Field label="إلى تاريخ"><input aria-label="نهاية فترة المصروفات" type="date" value={history.customEnd} min={history.customStart || undefined} onChange={(event) => history.setCustomEnd(event.target.value)} className={inputClass} /></Field>
+    </div> : null}
+    {history.period === "custom" && !history.customRangeValid ? <p className="mb-3 text-sm text-amber-300">حدد تاريخ البداية والنهاية بصورة صحيحة لعرض المصروفات.</p> : null}
+    {history.accountsError ? <div className="mb-3 rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحميل خيارات حساب الصرف. <Button size="sm" variant="outline" onClick={() => void history.refetchAccounts()}>إعادة المحاولة</Button></div> : null}
+    {history.period === "cycle" && !history.cycleRangeReady && history.cycleBoundsQuery.isLoading ? <div className="mb-3 text-sm text-slate-400">جارٍ تحديد حدود دورة الفوترة...</div> : null}
+    {history.period === "cycle" && !history.cycleRangeReady && !history.cycleBoundsQuery.isLoading ? <div className="mb-3 rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحديد حدود دورة الفوترة. <Button size="sm" variant="outline" onClick={() => void history.cycleBoundsQuery.refetch()}>إعادة المحاولة</Button></div> : null}
+    {history.period === "custom" && !history.customRangeValid ? null
+      : history.period === "cycle" && !history.cycleRangeReady ? null
+      : history.expensesQuery.isLoading ? <div className="grid min-h-24 place-items-center"><Loader2 className="h-5 w-5 animate-spin text-[#F5B800]" /></div>
+      : history.expensesQuery.isError ? <div className="rounded-lg border border-rose-400/20 p-4 text-sm text-rose-200">تعذر تحميل سجل المصروفات. <Button size="sm" variant="outline" onClick={() => void history.expensesQuery.refetch()}>إعادة المحاولة</Button></div>
+      : expenses.length ? <div className="space-y-2">{expenses.map((x: any) => {
+        const account = history.accounts.find((item: any) => item.id === x.companyAccountId);
+        return <div key={x.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3">
+          <div className="min-w-0 flex-1"><p className="break-words font-bold text-white">{x.description}</p><p className="mt-1 text-xs leading-5 text-slate-400">{x.category} · {formatReportDate(x.occurredAt)} · الحساب المصروف منه: {account?.name ?? (x.companyAccountId ? "حساب #" + x.companyAccountId : "غير محدد")}</p></div>
+          <span className="whitespace-nowrap font-display font-bold text-[#F5B800]">{formatValue(x.amount, 2)}</span>
+          {canCorrect ? <Button size="sm" variant="ghost" className="text-orange-300 hover:bg-orange-400/10" onClick={() => window.location.assign("/financial-settlements?entityType=expense&entityId=" + x.id)}>تصحيح</Button> : null}
+        </div>;
+      })}</div> : <Empty text="لا توجد مصروفات ضمن الفترة والحساب المحددين." />}
+  </SectionCard>;
+}
+
+function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any) {
   const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId });
   const accounts = accountsQuery.data ?? [];
   const [accountId, setAccountId] = useState("");
+  const history = useExpenseHistoryFilters(siteId, true, accounts);
   const selectedAccount = accounts.find((account: any) => account.id === Number(accountId));
 
   return <div className="space-y-6">
@@ -489,20 +578,22 @@ function ExpensesModule({ siteId, generators, expenses, summary, pending, onSubm
           <Button type="submit" disabled={pending || accountsQuery.isLoading || accountsQuery.isError || !accounts.length} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError ? "تعذر تحميل حسابات الصرف" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : "حفظ المصروف"}</Button>
         </form>
       </SectionCard>
-      <SectionCard title={`سجل المصروفات (${expenses.length})`}>
-        {expenses.length ? <div className="space-y-2">{expenses.map((x: any) => {
-          const account = accounts.find((item: any) => item.id === x.companyAccountId);
-          return <div key={x.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3">
-            <div><p className="font-bold text-white">{x.description}</p><p className="mt-1 text-xs text-slate-500">{x.category} · {formatReportDate(x.occurredAt)} · حساب الصرف: {account?.name ?? "غير محدد"}</p></div>
-            <span className="font-display font-bold text-[#F5B800]">{formatValue(x.amount, 2)}</span>
-            <Button size="sm" variant="ghost" className="text-orange-300 hover:bg-orange-400/10" onClick={() => window.location.assign(`/financial-settlements?entityType=expense&entityId=${x.id}`)}>تصحيح</Button>
-          </div>;
-        })}</div> : <Empty text="لا توجد مصروفات مسجلة. أضف الوقود والصيانة والرواتب لاحتساب الربحية بدقة." />}
-      </SectionCard>
+      <ExpenseHistoryPanel history={history} />
     </div>
   </div>;
 }
-function ExpensesReadOnlyModule({ expenses, summary }: any) { return <div className="space-y-6"><div className="grid gap-4 sm:grid-cols-3"><div className="rounded-xl border border-white/8 bg-[#111823] p-5"><p className="text-sm text-slate-400">إجمالي المصروفات</p><p className="mt-3 font-display text-3xl font-extrabold text-white">{formatValue(summary?.financial.expenses, 2)}</p></div><div className="rounded-xl border border-white/8 bg-[#111823] p-5"><p className="text-sm text-slate-400">التحصيل</p><p className="mt-3 font-display text-3xl font-extrabold text-emerald-400">{formatValue(summary?.financial.collected, 2)}</p></div><div className="rounded-xl border border-[#F5B800]/20 bg-[#111823] p-5"><p className="text-sm text-slate-400">الربح التشغيلي</p><p className="mt-3 font-display text-3xl font-extrabold text-[#F5B800]">{formatValue(summary?.financial.operatingProfit, 2)}</p></div></div><SectionCard title={`سجل المصروفات (${expenses.length})`}>{expenses.length ? <div className="space-y-2">{expenses.map((x: any) => <div key={x.id} className="flex items-center justify-between rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3"><div><p className="font-bold text-white">{x.description}</p><p className="mt-1 text-xs text-slate-500">{x.category} · {formatReportDate(x.occurredAt)}</p></div><span className="font-display font-bold text-[#F5B800]">{formatValue(x.amount, 2)}</span><Button size="sm" variant="ghost" className="text-orange-300 hover:bg-orange-400/10" onClick={() => window.location.assign(`/financial-settlements?entityType=expense&entityId=${x.id}`)}>تصحيح</Button></div>)}</div> : <Empty text="لا توجد مصروفات مسجلة لهذه المحطة." />}</SectionCard></div>; }
+
+function ExpensesReadOnlyModule({ siteId, summary }: any) {
+  const history = useExpenseHistoryFilters(siteId, false);
+  return <div className="space-y-6">
+    <div className="grid gap-4 sm:grid-cols-3">
+      <div className="rounded-xl border border-white/8 bg-[#111823] p-5"><p className="text-sm text-slate-400">إجمالي المصروفات</p><p className="mt-3 font-display text-3xl font-extrabold text-white">{formatValue(summary?.financial.expenses, 2)}</p></div>
+      <div className="rounded-xl border border-white/8 bg-[#111823] p-5"><p className="text-sm text-slate-400">التحصيل</p><p className="mt-3 font-display text-3xl font-extrabold text-emerald-400">{formatValue(summary?.financial.collected, 2)}</p></div>
+      <div className="rounded-xl border border-[#F5B800]/20 bg-[#111823] p-5"><p className="text-sm text-slate-400">الربح التشغيلي</p><p className="mt-3 font-display text-3xl font-extrabold text-[#F5B800]">{formatValue(summary?.financial.operatingProfit, 2)}</p></div>
+    </div>
+    <ExpenseHistoryPanel history={history} canCorrect={false} />
+  </div>;
+}
 
 function ReportsModule({ summary }: { summary: any }) { return <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[{ label: "الاستهلاك المفوتر", value: `${formatValue(summary?.energyKwh, 3)} kWh` }, { label: "إجمالي الفوترة", value: formatValue(summary?.financial.invoiced, 2) }, { label: "الأرصدة المستحقة", value: formatValue(summary?.financial.outstanding, 2) }, { label: "الربح التشغيلي", value: formatValue(summary?.financial.operatingProfit, 2) }].map((x) => <div key={x.label} className="rounded-2xl border border-white/8 bg-[#111823] p-5"><p className="text-sm text-slate-400">{x.label}</p><p className="mt-4 font-display text-2xl font-extrabold text-white">{x.value}</p></div>)}</div>; }
 

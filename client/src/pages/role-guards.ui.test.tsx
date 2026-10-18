@@ -113,7 +113,15 @@ vi.mock("@/lib/trpc", () => ({
           }]),
         },
       },
-      expenses: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("expenses.page", input, options); return mocks.query({ items: [], hasNext: false, nextCursor: null }); } }, create: { useMutation: mocks.mutation } },
+      expenses: {
+        filterAccounts: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => {
+          mocks.recordQuery("expenses.filterAccounts", input, options);
+          return { ...mocks.query([{ id: 90, name: "كاش", accountType: "cash" }]), refetch: vi.fn() };
+        } },
+        list: { useQuery: () => mocks.query([]) },
+        page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("expenses.page", input, options); return { ...mocks.query({ items: [], hasNext: false, nextCursor: null }), refetch: vi.fn() }; } },
+        create: { useMutation: mocks.mutation }
+      },
       dashboard: { summary: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.summary", input, options); return mocks.query({ financial: {} }); } }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.financialOverview", input, options); return mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }); } } },
       paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false }), refetch: vi.fn() }) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
       audit: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("audit.list", input, options); return mocks.query([]); } } },
@@ -406,6 +414,7 @@ describe("role guards in administration UI", () => {
     mocks.activeRole = "collector";
     render(<OperationsPage section="expenses" />);
     expect(screen.queryByRole("button", { name: "حفظ المصروف" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^تصحيح$/ })).not.toBeInTheDocument();
   });
 
   it("keeps the receiving company account inside the payment form without duplicate destination fields", () => {
@@ -454,6 +463,52 @@ describe("role guards in administration UI", () => {
     render(<BillingPage />);
     fireEvent.click(screen.getByRole("button", { name: /نسخ رابط الفاتورة/ }));
     expect(mocks.createShareLink).toHaveBeenCalledWith({ siteId: 1, invoiceId: 44 });
+  });
+
+  it("filters expense history by Gaza billing period and paying company account", () => {
+    mocks.activeRole = "accountant";
+    render(<OperationsPage section="expenses" />);
+    const period = screen.getByLabelText("فلتر فترة المصروفات");
+    const account = screen.getByLabelText("فلتر الحساب المصروف منه");
+    expect(period).toHaveValue("cycle");
+    expect(account).toHaveValue("");
+    fireEvent.change(period, { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("بداية فترة المصروفات"), { target: { value: "2026-10-03" } });
+    fireEvent.change(screen.getByLabelText("نهاية فترة المصروفات"), { target: { value: "2026-10-12" } });
+    fireEvent.change(account, { target: { value: "90" } });
+    const expenseQueries = mocks.queryCalls.filter((call) => call.key === "expenses.page" && call.enabled === true);
+    expect(expenseQueries.at(-1)?.input).toMatchObject({
+      siteId: 1,
+      startDate: "2026-10-03",
+      endDate: "2026-10-12",
+      companyAccountId: 90,
+    });
+    expect(screen.getByRole("option", { name: "اليوم" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "هذه الدورة" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "حتى آخر الشهر" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "مخصص" })).toBeInTheDocument();
+  });
+
+  it("offers the same server-filtered expense history to read-only viewers", () => {
+    mocks.activeRole = "viewer";
+    render(<OperationsPage section="expenses" />);
+    const period = screen.getByLabelText("فلتر فترة المصروفات");
+    const account = screen.getByLabelText("فلتر الحساب المصروف منه");
+    expect(period).toHaveValue("cycle");
+    expect(screen.getByRole("option", { name: "كاش — cash" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "حفظ المصروف" })).not.toBeInTheDocument();
+    fireEvent.change(period, { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("بداية فترة المصروفات"), { target: { value: "2026-10-03" } });
+    fireEvent.change(screen.getByLabelText("نهاية فترة المصروفات"), { target: { value: "2026-10-12" } });
+    fireEvent.change(account, { target: { value: "90" } });
+    const expenseQueries = mocks.queryCalls.filter((call) => call.key === "expenses.page" && call.enabled === true);
+    expect(expenseQueries.at(-1)?.input).toMatchObject({
+      siteId: 1,
+      startDate: "2026-10-03",
+      endDate: "2026-10-12",
+      companyAccountId: 90,
+    });
+    expect(mocks.queryCalls.some((call) => call.key === "expenses.filterAccounts" && call.enabled === true)).toBe(true);
   });
 
   it("loads only queries required by each operational section", () => {
