@@ -2384,9 +2384,9 @@ export const powerhubRouter = router({
       receiptImageMime: z.enum(["image/jpeg","image/png","image/webp"]).optional(),
       clientOperationId: z.string().uuid(),
     })).mutation(async ({ input }) => {
-      const access = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_context", { p_token_hash: hashInvoiceShareToken(input.token) });
+      const access = await supabaseAdmin().rpc("powerhub_get_public_payment_documentation_target", { p_token_hash: hashInvoiceShareToken(input.token) });
       if (access.error || !access.data || typeof access.data !== "object" || Array.isArray(access.data)) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
-      const context = access.data as { paymentDocumentationAvailable?: boolean; siteId?: number; invoice?: { id: number; balanceDue: number; status: string }; subscriber?: { subscriberId?: number } };
+      const context = access.data as { paymentDocumentationAvailable?: boolean; siteId?: number; invoice?: { id: number; balanceDue: number; status: string } };
       if (!context.paymentDocumentationAvailable) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير متاحة لهذه الفاتورة." });
       if (!context.siteId || !context.invoice?.id) throw new TRPCError({ code: "NOT_FOUND", message: "تعذر التحقق من سياق الفاتورة." });
 
