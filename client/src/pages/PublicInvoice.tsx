@@ -77,10 +77,10 @@ export default function PublicInvoice() {
   const { invoice, subscriber, lines, paymentDocumentationAvailable, companyName, companyLogoUrl } = invoiceQuery.data;
   const format = (value: unknown, digits = 2) => new Intl.NumberFormat("ar", { maximumFractionDigits: digits }).format(Number(value ?? 0));
   const visibleLines = lines.filter((line) => {
-    const isZero = Math.abs(Number(line.amount ?? 0)) < 0.000001;
-    const isOptionalFee = /(?:رسم ثابت|الرسم الثابت|fixed[_ -]?fee)/i.test(String(line.description ?? ""));
-    const isTax = /(?:ضريبة|الضريبة|tax)/i.test(String(line.description ?? ""));
-    return !(isZero && (isOptionalFee || isTax));
+    const amount = Number(line.amount ?? 0);
+    // Keep every line type consistent with two-decimal display precision.
+    // Anything rendered as 0.00 is not a financial item to show.
+    return Number.isFinite(amount) && Math.round(Math.abs(amount) * 100) > 0;
   });
 
   return (
@@ -111,7 +111,23 @@ export default function PublicInvoice() {
           </div>
           <div className="mx-auto mt-5 max-w-3xl overflow-hidden rounded-2xl border border-white/8 text-right">
             <div className="border-b border-white/8 bg-white/[0.025] px-4 py-3 text-sm font-bold text-white">بنود الفاتورة</div>
-            {visibleLines.map((line) => <div className="flex items-center justify-between gap-4 border-b border-white/7 px-4 py-3 text-sm last:border-b-0" key={line.id}><span className="text-slate-300">{line.description}</span><span className={`shrink-0 font-display font-bold ${line.lineType === "discount" ? "text-emerald-300" : "text-white"}`}>{format(line.lineType === "discount" ? -Math.abs(Number(line.amount)) : Number(line.amount))} شيكل</span></div>)}
+            {visibleLines.map((line) => {
+              const value = Number(line.amount ?? 0);
+              const description = String(line.description ?? "").normalize("NFKD").replace(/\p{M}/gu, "");
+              const isDiscount = line.lineType === "discount" || /خصم.{0,35}(?:كسر|كسور)|fraction[\s_-]*discount/i.test(description);
+              const isFractionalCarry = /(?:كسر|كسور).{0,35}(?:مرحل|ترحيل)|(?:ترحيل|مرحل).{0,35}(?:كسر|كسور)|fraction[\s_-]*(?:carry|carried)/i.test(description);
+              const displayedAmount = isDiscount ? -Math.abs(value) : value;
+              const isCredit = isDiscount || isFractionalCarry || displayedAmount < 0;
+              const amountText = new Intl.NumberFormat("ar", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(displayedAmount);
+              return <div className={isFractionalCarry ? "flex items-start justify-between gap-4 border-b border-white/7 bg-emerald-500/5 px-4 py-3 text-sm last:border-b-0" : "flex items-start justify-between gap-4 border-b border-white/7 px-4 py-3 text-sm last:border-b-0"} key={line.id}>
+                <span className={isCredit ? "text-emerald-300" : "text-slate-300"}>
+                  {isFractionalCarry
+                    ? <span className="inline-flex flex-col gap-0.5"><span className="font-bold">تسوية الكسر المرحّل</span><span className="text-xs text-emerald-200/80">{line.description || "كسر مُرحّل إلى الفاتورة التالية"}</span></span>
+                    : line.description}
+                </span>
+                <span className={isCredit ? "shrink-0 font-display font-bold text-emerald-300" : "shrink-0 font-display font-bold text-white"} dir="ltr">{displayedAmount > 0 ? "+" : ""}{amountText} شيكل</span>
+              </div>;
+            })}
             {!visibleLines.length ? <p className="px-4 py-5 text-sm text-slate-400">لا توجد بنود مالية لعرضها.</p> : null}
           </div>
           <div data-html2canvas-ignore="true" className="mt-9 grid gap-3 sm:grid-cols-2">
