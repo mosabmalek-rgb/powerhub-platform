@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
+import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible } from "./unified-messaging-automation-policy";
 
 describe("automatic messaging occurrence policy", () => {
   it("creates separate scan occurrences each minute for subscriber and payment events", () => {
@@ -30,5 +30,45 @@ describe("automatic messaging occurrence policy", () => {
     expect(isIncrementalAutomaticEvent("payment_received")).toBe(true);
     expect(isIncrementalAutomaticEvent("invoice_overdue")).toBe(false);
     expect(isIncrementalAutomaticEvent("service_alert")).toBe(false);
+  });
+});
+
+
+describe("overdue invoice reminder hour eligibility", () => {
+  const dueDate = "2026-10-10T12:00:00.000Z";
+
+  it("does not qualify before the exact due-plus-hours boundary", () => {
+    expect(isInvoiceOverdueEligible({
+      dueDate, balanceDue: "50.00", now: new Date("2026-10-11T11:59:59.999Z"), afterDueHours: 24,
+    })).toBe(false);
+    expect(isInvoiceOverdueEligible({
+      dueDate, balanceDue: "50.00", now: new Date("2026-10-11T12:00:00.000Z"), afterDueHours: 24,
+    })).toBe(true);
+  });
+
+  it("uses elapsed time from the invoice due timestamp regardless of UTC offset notation", () => {
+    expect(isInvoiceOverdueEligible({
+      dueDate: "2026-10-10T15:00:00+03:00",
+      balanceDue: 50,
+      now: new Date("2026-10-11T12:00:00.000Z"),
+      afterDueHours: 24,
+    })).toBe(true);
+  });
+
+  it("applies the minimum to the current invoice balance and skips settled or below-threshold invoices", () => {
+    const args = { dueDate, now: new Date("2026-10-12T12:00:00.000Z"), afterDueHours: 24, minBalance: 25 };
+    expect(isInvoiceOverdueEligible({ ...args, balanceDue: 24.99 })).toBe(false);
+    expect(isInvoiceOverdueEligible({ ...args, balanceDue: 25 })).toBe(true);
+    expect(isInvoiceOverdueEligible({ ...args, balanceDue: 0 })).toBe(false);
+    expect(isInvoiceOverdueEligible({ ...args, balanceDue: null })).toBe(false);
+  });
+
+  it("rejects invalid dates and invalid delay configuration", () => {
+    expect(isInvoiceOverdueEligible({
+      dueDate: "not-a-date", balanceDue: 50, now: new Date("2026-10-12T12:00:00.000Z"), afterDueHours: 24,
+    })).toBe(false);
+    expect(isInvoiceOverdueEligible({
+      dueDate, balanceDue: 50, now: new Date("2026-10-12T12:00:00.000Z"), afterDueHours: -1,
+    })).toBe(false);
   });
 });
