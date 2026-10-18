@@ -32,13 +32,27 @@ function formatPaymentDocumentationAmount(value: unknown) {
 
 function InvoiceLineBreakdown({ lines }: { lines?: Array<{ id?: number; lineType?: string; description?: string; amount?: number | string }> }) {
   const items = lines ?? [];
+  const visibleItems = items.filter((line) => {
+    const amount = Number(line.amount ?? 0);
+    const description = String(line.description ?? "")
+      .normalize("NFKC")
+      .replace(/[\\u064B-\\u065F\\u0670]/g, "")
+      .replace(/\\s+/g, " ")
+      .trim();
+    const fractionalCarry = /(?:كسر|كسور).{0,35}(?:مرحل|ترحيل)|(?:ترحيل|مرحل).{0,35}(?:كسر|كسور)|fraction[\\s_-]*(?:carry|carried)/i.test(description);
+    const discount = line.lineType === "discount" || /خصم.{0,35}(?:كسر|كسور)|fraction[\\s_-]*discount/i.test(description);
+    // Never surface a zero-value fractional discount/carry as if it were applied.
+    if (discount) return Number.isFinite(amount) && amount > 0.0049;
+    if (fractionalCarry) return Number.isFinite(amount) && Math.abs(amount) > 0.0049;
+    return true;
+  });
   return <section className="rounded-xl border border-white/10 bg-black/10 p-4" aria-label="تفاصيل الفاتورة وتسوياتها">
     <h3 className="font-bold text-white">تفاصيل الفاتورة وتسوياتها</h3>
-    <p className="mt-1 text-xs text-slate-500">تشمل الحد الأدنى للاستهلاك، والخصم التلقائي، والكسور المرحلة متى انطبقت السياسة.</p>
-    {items.length ? <div className="mt-3 divide-y divide-white/5">
-      {items.map((line, index) => {
+    <p className="mt-1 text-xs text-slate-500">تظهر بنود الحد الأدنى وتسوية الكسور فقط عندما تنطبق فعلياً على الفاتورة.</p>
+    {visibleItems.length ? <div className="mt-3 divide-y divide-white/5">
+      {visibleItems.map((line, index) => {
         const value = Number(line.amount ?? 0);
-        const isDiscount = line.lineType === "discount";
+        const isDiscount = line.lineType === "discount" || /خصم.{0,35}(?:كسر|كسور)|fraction[\\s_-]*discount/i.test(String(line.description ?? ""));
         const displayed = isDiscount ? -Math.abs(value) : value;
         const isCredit = isDiscount || displayed < 0;
         return <div key={line.id ?? index} className="flex items-start justify-between gap-4 py-2 text-sm">
@@ -46,7 +60,7 @@ function InvoiceLineBreakdown({ lines }: { lines?: Array<{ id?: number; lineType
           <span className={isCredit ? "shrink-0 font-bold text-emerald-300" : "shrink-0 font-bold text-white"} dir="ltr">{displayed > 0 ? "+" : ""}{formatPaymentDocumentationAmount(displayed)} شيكل</span>
         </div>;
       })}
-    </div> : <p className="mt-3 text-sm text-slate-500">لا تتوفر تفاصيل البنود لهذه الفاتورة في النسخة المحلية. أعد الاتصال لتحديثها.</p>}
+    </div> : <p className="mt-3 text-sm text-slate-500">لا توجد بنود تسوية أو تفاصيل إضافية مسجلة لهذه الفاتورة.</p>}
   </section>;
 }
 
