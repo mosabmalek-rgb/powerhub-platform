@@ -7,7 +7,6 @@ import { lazy, Suspense } from "react";
 import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
-import { probePowerHubConnectivity } from "./lib/offline-connectivity";
 import "./index.css";
 
 const AuthProvider = lazy(() => import("@/_core/hooks/useAuth").then((module) => ({ default: module.AuthProvider })));
@@ -39,7 +38,7 @@ onlineManager.setEventListener((setOnline) => {
   }
   let disposed = false;
   const verify = () => {
-    void probePowerHubConnectivity().then((reachable) => {
+    void import("./lib/offline-connectivity").then(({ probePowerHubConnectivity }) => probePowerHubConnectivity()).then((reachable) => {
       if (!disposed) setOnline(reachable);
     });
   };
