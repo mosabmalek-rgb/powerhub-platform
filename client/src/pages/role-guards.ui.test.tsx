@@ -456,6 +456,30 @@ describe("role guards in administration UI", () => {
     expect(mocks.createShareLink).toHaveBeenCalledWith({ siteId: 1, invoiceId: 44 });
   });
 
+  it("filters expense history by Gaza billing period and paying company account", () => {
+    mocks.activeRole = "accountant";
+    render(<OperationsPage section="expenses" />);
+    const period = screen.getByLabelText("فلتر فترة المصروفات");
+    const account = screen.getByLabelText("فلتر الحساب المصروف منه");
+    expect(period).toHaveValue("cycle");
+    expect(account).toHaveValue("");
+    fireEvent.change(period, { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("بداية فترة المصروفات"), { target: { value: "2026-10-03" } });
+    fireEvent.change(screen.getByLabelText("نهاية فترة المصروفات"), { target: { value: "2026-10-12" } });
+    fireEvent.change(account, { target: { value: "90" } });
+    const expenseQueries = mocks.queryCalls.filter((call) => call.key === "expenses.page" && call.enabled === true);
+    expect(expenseQueries.at(-1)?.input).toMatchObject({
+      siteId: 1,
+      startDate: "2026-10-03",
+      endDate: "2026-10-12",
+      companyAccountId: 90,
+    });
+    expect(screen.getByRole("option", { name: "اليوم" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "هذه الدورة" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "حتى آخر الشهر" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "مخصص" })).toBeInTheDocument();
+  });
+
   it("loads only queries required by each operational section", () => {
     mocks.activeRole = "owner";
     const cases = [
