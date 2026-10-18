@@ -2055,8 +2055,8 @@ export const powerhubRouter = router({
         .maybeSingle();
       if (tariffLookupError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من التعرفة الفعالة قبل تسجيل القراءة." });
       if (!activeTariff) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة لهذا الفرع؛ أضف التعرفة قبل تسجيل القراءة حتى لا تُحفظ قراءة دون فاتورة." });
-      const dueDate = new Date(readingAt);
-      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, access.invoiceDueDays ?? 14)));
+      const dueHours = Math.max(1, Math.min(2160, Number(access.invoiceDueHours ?? ((access.invoiceDueDays ?? 14) * 24))));
+      const dueDate = new Date(readingAt.getTime() + dueHours * 60 * 60 * 1000);
       const billingPeriod = readingAt.toISOString().slice(0, 7);
       let imageKey: string | undefined;
       let imageHash: string | undefined;
