@@ -142,12 +142,15 @@ describe("public invoice and inquiry actions", () => {
   it("checks the pending public payment-documentation request before enabling the invoice action", () => {
     const server = read("server/powerhub.ts");
     const invoice = read("client/src/pages/PublicInvoice.tsx");
+    const migration = read("supabase/migrations/20261018143000_powerhub_payment_documentation_context_lines_fast_read.sql");
     expect(server).toContain("publicStatus: publicProcedure.input");
-    expect(server).toContain('.from("payment_documentation_requests")');
-    expect(server).toContain('.eq("status", "pending")');
-    expect(server).toContain("hasPendingSubmission: Boolean(pendingRequest)");
+    expect(server).toContain('rpc("powerhub_get_public_payment_documentation_status"');
     expect(server).toContain('rpc("powerhub_get_public_payment_documentation_context"');
     expect(server).toContain('.from("invoice_share_links")');
+    const statusStart = migration.indexOf("create or replace function public.powerhub_get_public_payment_documentation_status");
+    const statusFunction = migration.slice(statusStart);
+    expect(statusFunction).toContain("'hasPendingSubmission', v_has_pending");
+    expect(statusFunction).toContain("v_has_pending := found");
     expect(invoice).toContain('await import("@/lib/report-pdf")');
     expect(invoice).toContain("powerhub.paymentDocumentation.publicStatus.useQuery");
     expect(invoice).toContain("paymentStatusQuery.data?.hasPendingSubmission");
@@ -475,7 +478,9 @@ describe("public invoice and inquiry actions", () => {
 
     expect(page).toContain("<InvoiceLineBreakdown lines={invoice.lines} />");
     expect(page).toContain("<InvoiceLineBreakdown lines={context.lines} />");
-    expect(page).toContain("خصم تلقائي لتسوية كسر الفاتورة");
+    expect(page).toContain("fractionalCarry");
+    expect(page).toContain("line.lineType === \"discount\"");
+    expect(page).toContain("Math.abs(amount) > 0.0049");
     expect(page).toContain("الحساب المستقبِل");
     expect(page).toContain("طريقة/نوع حساب التحويل");
     const internalForm = page.slice(page.indexOf("بطاقة توثيق الدفع —"), page.indexOf("function PublicPaymentDocumentationView"));
