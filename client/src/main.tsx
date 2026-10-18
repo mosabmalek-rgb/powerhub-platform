@@ -13,6 +13,10 @@ import { probePowerHubConnectivity } from "./lib/offline-connectivity";
 import { getPowerHubDeviceId, getValidOfflineAuthLease } from "./lib/offline-auth";
 import "./index.css";
 
+function isStandalonePublicInvoiceRoute(): boolean {
+  return typeof window !== "undefined" && /^\/invoice\/[^/]+\/?$/.test(window.location.pathname);
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -27,6 +31,13 @@ const queryClient = new QueryClient({
 
 onlineManager.setEventListener((setOnline) => {
   if (typeof window === "undefined") return () => undefined;
+  // The public invoice query is authorized by its share token, not by an
+  // authenticated user's offline session. Do not let IndexedDB/health-probe
+  // startup pause the invoice query before it has even made its first request.
+  if (isStandalonePublicInvoiceRoute()) {
+    setOnline(true);
+    return () => undefined;
+  }
   let disposed = false;
   const verify = () => {
     void probePowerHubConnectivity().then((reachable) => {
@@ -85,6 +96,10 @@ const trpcClient = trpc.createClient({
       url: "/api/trpc",
       transformer: superjson,
       async headers() {
+        // A public invoice lookup is authenticated by its unguessable share
+        // token in PostgreSQL. Avoid unrelated session and device-ID reads for
+        // this route; all protected pages keep their normal headers.
+        if (isStandalonePublicInvoiceRoute()) return {};
         const token = await getSupabaseAccessToken();
         const deviceId = await getPowerHubDeviceId().catch(() => null);
         return {
@@ -168,18 +183,27 @@ async function bootstrapOfflineState() {
 }
 
 function renderApp() {
+  const app = isStandalonePublicInvoiceRoute()
+    ? <App />
+    : <AuthProvider><App /></AuthProvider>;
+
   createRoot(document.getElementById("root")!).render(
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
+        {app}
       </QueryClientProvider>
     </trpc.Provider>
   );
 }
 
-void bootstrapOfflineState().finally(renderApp);
+// Render public invoice links immediately. Offline/auth cache bootstrap is
+// unrelated to this public route and can wait several seconds on slow IndexedDB
+// or Supabase session reads. Protected app routes preserve the existing order.
+if (isStandalonePublicInvoiceRoute()) {
+  renderApp();
+} else {
+  void bootstrapOfflineState().finally(renderApp);
+}
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
