@@ -7,7 +7,7 @@ import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase
 import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
-import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible } from "./unified-messaging-automation-policy";
+import { buildAutomaticOccurrenceKey, buildInvoiceOverdueOperationKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible } from "./unified-messaging-automation-policy";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
 const sendTypeSchema = z.enum(["manual", "automatic", "scheduled"]);
@@ -434,7 +434,7 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
           }
 
           const operationKey = eventType === "invoice_overdue"
-            ? `automation:${automation.id}:invoice:${invoice.id}:${automation.send_type === "automatic" && automation.schedule_type === "none" ? "eligible" : occ.occurrence_key}`
+            ? buildInvoiceOverdueOperationKey(automation.id, invoice.id, occ.occurrence_key, automation.send_type === "automatic" && automation.schedule_type === "none")
             : eventType === "service_alert"
               ? `automation:${automation.id}:subscriber:${subscriber.id}:occurrence:${occ.occurrence_key}`
               : `automation:${automation.id}:subscriber:${subscriber.id}`;
