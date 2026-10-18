@@ -64,7 +64,12 @@ describe("public invoice and inquiry actions", () => {
     const main = read("client/src/main.tsx");
     const app = read("client/src/App.tsx");
     expect(main).toContain('const App = lazy(() => import("./App"))');
-    expect(main).toContain('const PublicInvoiceApp = lazy(() => import("./PublicInvoiceApp"))');
+    expect(main).not.toContain('import("./PublicInvoiceApp")');
+    const invoiceHtml = read("client/invoice.html");
+    const invoiceMain = read("client/src/invoice-main.tsx");
+    expect(invoiceHtml).toContain('src="/src/invoice-main.tsx"');
+    expect(invoiceMain).toContain('import PublicInvoiceApp from "./PublicInvoiceApp"');
+    expect(invoiceMain).not.toContain('from "./App"');
     const publicInvoiceApp = read("client/src/PublicInvoiceApp.tsx");
     expect(publicInvoiceApp).toContain('import PublicInvoice from "@/pages/PublicInvoice"');
     expect(publicInvoiceApp).not.toContain('from "./App"');
@@ -81,6 +86,13 @@ describe("public invoice and inquiry actions", () => {
     const viteConfig = read("vite.config.ts");
     expect(viteConfig).toContain('"report-pdf": ["html2canvas", "jspdf"]');
     expect(viteConfig).toContain('charts: ["recharts"]');
+    expect(viteConfig).toContain('invoice: path.resolve(PROJECT_ROOT, "client", "invoice.html")');
+    const config = JSON.parse(read("vercel.json")) as { rewrites: Array<{ source: string; destination: string }>; headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }> };
+    const invoiceRewriteIndex = config.rewrites.findIndex((rewrite) => rewrite.source === "/invoice/:token" && rewrite.destination === "/invoice.html");
+    const fallbackRewriteIndex = config.rewrites.findIndex((rewrite) => rewrite.source === "/(.*)");
+    expect(invoiceRewriteIndex).toBeGreaterThanOrEqual(0);
+    expect(invoiceRewriteIndex).toBeLessThan(fallbackRewriteIndex);
+    expect(config.headers.find((rule) => rule.source === "/invoice/:token")?.headers.find((header) => header.key === "Cache-Control")?.value).toBe("no-store, max-age=0");
     expect(app).toContain('const Home = lazy(() => import("./pages/Home"))');
     expect(app).toContain('const RouteAccessGate = lazy(() => import("@/components/RouteAccessGate")');
     expect(app).toContain('const LoginPage = lazy(() => import("./pages/LoginPage"))');
