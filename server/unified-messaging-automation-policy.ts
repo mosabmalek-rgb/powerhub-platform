@@ -41,6 +41,33 @@ export function isInvoiceOverdueEligible(input: {
 }
 
 
+/**
+ * Compares eligible overdue invoices for a single subscriber.
+ * Prefer the most recent due date; if timestamps tie, prefer the greater invoice id
+ * as a deterministic proxy for the invoice created later.
+ */
+export function isLaterOverdueInvoiceCandidate(
+  candidate: { dueDate: string | Date | null | undefined; invoiceId?: number | string | null },
+  previous: { dueDate: string | Date | null | undefined; invoiceId?: number | string | null },
+): boolean {
+  if (candidate.dueDate == null) return false;
+  const candidateDue = candidate.dueDate instanceof Date
+    ? candidate.dueDate.getTime()
+    : Date.parse(candidate.dueDate);
+  if (!Number.isFinite(candidateDue)) return false;
+  if (previous.dueDate == null) return true;
+  const previousDue = previous.dueDate instanceof Date
+    ? previous.dueDate.getTime()
+    : Date.parse(previous.dueDate);
+  if (!Number.isFinite(previousDue)) return true;
+  if (candidateDue !== previousDue) return candidateDue > previousDue;
+
+  const candidateId = Number(candidate.invoiceId ?? 0);
+  const previousId = Number(previous.invoiceId ?? 0);
+  return Number.isFinite(candidateId) && Number.isFinite(previousId) && candidateId > previousId;
+}
+
+
 /** Stable once-per-invoice key for unscheduled overdue reminders; scheduled runs
  * retain the occurrence suffix so intentionally recurring reminders remain distinct. */
 export function buildInvoiceOverdueOperationKey(
