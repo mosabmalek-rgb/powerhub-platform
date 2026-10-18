@@ -497,7 +497,9 @@ describe("public invoice and inquiry actions", () => {
     const statusRoute = server.slice(statusStart, contextStart);
     expect(statusRoute).toContain("powerhub_get_public_payment_documentation_status");
     expect(statusRoute).not.toContain("powerhub_get_public_payment_documentation_context");
-    expect(server.slice(server.indexOf("publicSubmit: publicProcedure"), server.indexOf("access: protectedProcedure", server.indexOf("publicSubmit: publicProcedure"))).toContain("powerhub_get_public_payment_documentation_target");
+    const publicSubmitStart = server.indexOf("publicSubmit: publicProcedure");
+    const publicSubmitEnd = server.indexOf("access: protectedProcedure", publicSubmitStart);
+    expect(server.slice(publicSubmitStart, publicSubmitEnd)).toContain("powerhub_get_public_payment_documentation_target");
     expect(migration).toContain("powerhub_get_public_payment_documentation_target(text)");
 
     const statusFunctionStart = migration.indexOf("create or replace function public.powerhub_get_public_payment_documentation_status");
