@@ -23,8 +23,9 @@ describe("escapeHtml", () => {
 
     expect(payroll).toContain("escapeHtml(run.period)");
     expect(payroll).toContain("escapeHtml(selectedRun?.period ?? period)");
-    expect(operations).toContain("escapeHtml(paymentStartDate || \"كل الفترات\")");
-    expect(operations).toContain("escapeHtml(paymentEndDate || \"كل الفترات\")");
+    expect(operations).toContain('escapeHtml(paymentPeriod === "today" ? "اليوم"');
+    expect(operations).toContain("escapeHtml(siteName)");
+    expect(operations).toContain("escapeHtml(cell)");
     expect(reports).not.toContain("${pdfRef.current.innerHTML}");
     expect(reports).toContain("pdfRef.current.cloneNode(true)");
   });
