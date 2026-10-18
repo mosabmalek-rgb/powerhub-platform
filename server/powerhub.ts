@@ -2034,7 +2034,7 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "تعذر إنشاء رابط آمن لصورة القراءة." });
       }
     }),
-    page: protectedProcedure.input(siteScoped.extend({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().max(500).optional() })).query(async ({ ctx, input }) => {
+    page: protectedProcedure.input(siteScoped.extend({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().max(500).optional(), startDate: z.string().date().optional(), endDate: z.string().date().optional(), companyAccountId: z.number().int().positive().optional() }).refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, { message: "تاريخ بداية الفترة يجب ألا يتجاوز نهايتها." })).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
       return listSupabaseReadingPage(input.siteId, input);
     }),
