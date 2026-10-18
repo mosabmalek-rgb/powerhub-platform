@@ -107,10 +107,14 @@ describe("owner invoice messaging settings", () => {
     fireEvent.change(automationName, { target: { value: "تذكير المتأخرات" } });
     fireEvent.change(screen.getByRole("combobox", { name: "قالب الأتمتة" }), { target: { value: "102" } });
     fireEvent.change(screen.getByRole("combobox", { name: "حدث الأتمتة" }), { target: { value: "invoice_overdue" } });
+    expect(screen.getByRole("spinbutton", { name: "بعد كم ساعة من الاستحقاق" })).toHaveValue(24);
+    expect(screen.getByRole("spinbutton", { name: "أقل رصيد مستحق" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("spinbutton", { name: "بعد كم ساعة من الاستحقاق" }), { target: { value: "36" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "أقل رصيد مستحق" }), { target: { value: "25" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الأتمتة" }));
     expect(state.automationMutate).toHaveBeenCalledWith(expect.objectContaining({
       siteId: 3, templateId: 102, name: "تذكير المتأخرات", eventType: "invoice_overdue",
-      sendType: "automatic", scheduleType: "none", triggerConfig: { afterDueDays: 1 },
+      sendType: "automatic", scheduleType: "none", triggerConfig: { afterDueHours: 36, minBalance: 25 },
     }));
   });
 
