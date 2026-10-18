@@ -303,8 +303,10 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
   };
   const todayKey = gazaDateKey(new Date());
   const monthEndStart = `${todayKey.slice(0, 7)}-01`;
+  const [todayYear, todayMonth] = todayKey.split("-").map(Number);
+  const monthEndKey = new Date(Date.UTC(todayYear, todayMonth, 0)).toISOString().slice(0, 10);
   const effectivePaymentStart = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.startAt) : paymentPeriod === "month_end" ? monthEndStart : paymentStartDate;
-  const effectivePaymentEnd = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.endAt) : paymentPeriod === "month_end" ? todayKey : paymentEndDate;
+  const effectivePaymentEnd = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.endAt) : paymentPeriod === "month_end" ? monthEndKey : paymentEndDate;
   const initialSubscriberId = Number(new URLSearchParams(window.location.search).get("subscriberId") ?? 0);
   const [selectedSubscriberId, setSelectedSubscriberId] = useState<number>(initialSubscriberId);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
