@@ -387,6 +387,20 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("button", { name: "تنزيل رمز QR" })).toBeInTheDocument();
   });
 
+  it("hides zero-value fractional discount and carry rows while retaining a minimum-consumption adjustment", () => {
+    mocks.location = "/payment-documentation/public/test-share-token-00000001";
+    mocks.publicPaymentContext.lines = [
+      { id: 11, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 },
+      { id: 12, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 },
+      { id: 13, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0, displayOrder: 3 },
+      { id: 14, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: 0, displayOrder: 4 },
+    ];
+    render(<PaymentDocumentationPage />);
+    expect(screen.getByText("تسوية الحد الأدنى للاستهلاك")).toBeInTheDocument();
+    expect(screen.queryByText("خصم تلقائي لتسوية كسر الفاتورة")).not.toBeInTheDocument();
+    expect(screen.queryByText("كسر مُرحّل إلى الفاتورة التالية")).not.toBeInTheDocument();
+  });
+
   it("shows automatic fractional discounts, carried fractions, and minimum-consumption adjustments on payment documentation", () => {
     mocks.location = "/payment-documentation/public/test-share-token-00000001";
     render(<PaymentDocumentationPage />);
