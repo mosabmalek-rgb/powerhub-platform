@@ -460,10 +460,13 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
     return `${part("year")}-${part("month")}-${part("day")}`;
   };
   const currentDate = dateKey(today);
-  const lastOfMonth = dateKey(new Date(Number(currentDate.slice(0, 4)), Number(currentDate.slice(5, 7)), 0));
+  const year = Number(currentDate.slice(0, 4));
+  const month = Number(currentDate.slice(5, 7));
+  const firstOfMonth = dateKey(new Date(Date.UTC(year, month - 1, 1, 12)));
+  const lastOfMonth = dateKey(new Date(Date.UTC(year, month, 0, 12)));
   const cycleStart = cycleBoundsQuery.data ? dateKey(cycleBoundsQuery.data.startAt) : "";
   const cycleEnd = cycleBoundsQuery.data ? dateKey(cycleBoundsQuery.data.endAt) : "";
-  const startDate = period === "today" ? currentDate : period === "cycle" ? cycleStart : period === "monthEnd" ? currentDate : period === "custom" ? customStart : undefined;
+  const startDate = period === "today" ? currentDate : period === "cycle" ? cycleStart : period === "monthEnd" ? firstOfMonth : period === "custom" ? customStart : undefined;
   const endDate = period === "today" ? currentDate : period === "cycle" ? cycleEnd : period === "monthEnd" ? lastOfMonth : period === "custom" ? customEnd : undefined;
   const expenseQueryInput = {
     siteId,
