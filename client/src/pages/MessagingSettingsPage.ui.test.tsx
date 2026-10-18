@@ -51,7 +51,7 @@ vi.mock("@/lib/trpc", () => ({
         requestSmsPackage: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
       },
       notifications: {
-        list: { useQuery: () => ({ data: [{ invoiceNo: "INV-01", subscriber: { fullName: "مشترك الاختبار" }, notification: { id: 8, channel: "whatsapp", recipient: "0790000000", status: "failed", attempts: 2, lastError: "رفض المزود", createdAt: new Date("2026-08-20") } }] }) },
+        list: { useQuery: () => ({ data: [{ invoiceNo: "INV-01", subscriber: { fullName: "مشترك الاختبار" }, notification: { id: 8, channel: "whatsapp", recipient: "0790000000", status: "failed", attempts: 2, lastError: "رفض المزود", createdAt: new Date("2026-08-20") } }, { invoiceNo: "INV-02", subscriber: { fullName: "مشترك الاختبار" }, notification: { id: 9, invoiceId: 25, channel: "sms", recipient: "+970599000000", status: "pending", attempts: 0, scheduledAt: new Date("2026-11-01T10:00:00Z"), createdAt: new Date("2026-10-18T10:00:00Z") } }] }) },
         retry: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         retryFailedInvoiceNotification: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
         retryPaymentReceipt: { useMutation: () => ({ mutate: state.mutate, isPending: false }) },
@@ -121,6 +121,12 @@ describe("owner invoice messaging settings", () => {
     fireEvent.click(screen.getByText("مشترك الاختبار"));
     expect(screen.getByRole("button", { name: "إرسال الحملة" })).toBeDisabled();
     expect(state.mutate).not.toHaveBeenCalled();
+  });
+
+
+  it("keeps future-scheduled invoice SMS disabled until its scheduled time", () => {
+    render(<MessagingSettingsPage />);
+    expect(screen.getByRole("button", { name: "بانتظار الموعد" })).toBeDisabled();
   });
 
   it("blocks provider setup until the platform administrator explicitly opens the policy", () => {
