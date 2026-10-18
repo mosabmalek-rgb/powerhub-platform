@@ -268,7 +268,7 @@ describe("public invoice and inquiry actions", () => {
       expect(review).toContain(label);
     }
     expect(server).toContain('period: z.enum(["current_cycle","today","specific_day","date_range","all_time"])');
-    expect(server).toContain('admin.rpc("powerhub_cycle_for_reading"');
+    expect(server).toContain('supabaseAdmin().rpc("powerhub_cycle_for_reading"');
     expect(server).toContain("paymentDocumentationGazaDateBoundary");
     expect(server).toContain('if (input.status !== "all") query = query.eq("status", input.status)');
     expect(review).toContain('if (period === "current_cycle") return false');
