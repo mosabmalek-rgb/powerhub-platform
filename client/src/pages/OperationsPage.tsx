@@ -455,14 +455,24 @@ function ExpensesModule({ siteId, generators, expenses, summary, pending, onSubm
     </div>
     <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr]">
       <SectionCard title="إضافة مصروف">
-        <form className="space-y-4" onSubmit={(e: FormEvent<HTMLFormElement>) => {
+        <form className="space-y-4" onSubmit={async (e: FormEvent<HTMLFormElement>) => {
           e.preventDefault();
-          const f = new FormData(e.currentTarget);
+          if (pending) return;
+          const form = e.currentTarget;
+          const f = new FormData(form);
           const selectedAccountId = Number(f.get("companyAccountId"));
-          if (!selectedAccountId) { toast.error("اختر حساب الصرف من حسابات الشركة."); return; }
-          onSubmit({ siteId, generatorId: f.get("generator") ? Number(f.get("generator")) : undefined, companyAccountId: selectedAccountId, category: String(f.get("category")), description: String(f.get("description")), amount: Number(f.get("amount")), referenceNo: String(f.get("reference") || "") || undefined });
-          setAccountId("");
-          e.currentTarget.reset();
+          const description = String(f.get("description") ?? "").trim();
+          const amount = Number(f.get("amount"));
+          if (!Number.isInteger(selectedAccountId) || selectedAccountId <= 0) { toast.error("اختر حساب الصرف من حسابات الشركة."); return; }
+          if (description.length < 2) { toast.error("اكتب وصفاً للمصروف من حرفين على الأقل."); return; }
+          if (!Number.isFinite(amount) || amount <= 0) { toast.error("أدخل مبلغ مصروف صحيحاً أكبر من صفر."); return; }
+          try {
+            await onSubmit({ siteId, generatorId: f.get("generator") ? Number(f.get("generator")) : undefined, companyAccountId: selectedAccountId, category: String(f.get("category")), description, amount, referenceNo: String(f.get("reference") || "").trim() || undefined });
+            form.reset();
+            setAccountId("");
+          } catch {
+            // Keep the form intact after a server error so the user can retry.
+          }
         }}>
           <Field label="حساب الصرف من حسابات الشركة">
             <select required name="companyAccountId" value={accountId} onChange={(event) => setAccountId(event.target.value)} className={selectClass}>
@@ -476,7 +486,7 @@ function ExpensesModule({ siteId, generators, expenses, summary, pending, onSubm
           <Field label="الوصف"><input required name="description" className={inputClass} placeholder="مثال: تعبئة ديزل" /></Field>
           <Field label="المبلغ"><input required name="amount" type="number" min="0.01" step="0.01" className={inputClass} dir="ltr" /></Field>
           <Field label="مرجع"><input name="reference" className={inputClass} placeholder="اختياري" /></Field>
-          <Button disabled={pending || accountsQuery.isLoading || !accounts.length} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{accountsQuery.isLoading ? "جاري تحميل الحسابات..." : !accounts.length ? "لا توجد حسابات متاحة للصرف" : "حفظ المصروف"}</Button>
+          <Button type="submit" disabled={pending || accountsQuery.isLoading || accountsQuery.isError || !accounts.length} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError ? "تعذر تحميل حسابات الصرف" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : "حفظ المصروف"}</Button>
         </form>
       </SectionCard>
       <SectionCard title={`سجل المصروفات (${expenses.length})`}>
