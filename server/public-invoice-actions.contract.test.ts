@@ -290,6 +290,15 @@ describe("public invoice and inquiry actions", () => {
     expect(operations).toContain("نوع الحساب المحوَّل منه");
     expect(operations).toContain("الحساب المستقبل");
     expect(operations).toContain("wrapText: true");
+    const finance = read("client/src/pages/FinancialDashboardPage.tsx");
+    expect(finance).toContain("readingCycle.currentBounds.useQuery");
+    expect(finance).toContain("REPORT_PAYMENT_METHOD_OPTIONS");
+    expect(finance).toContain('paymentMethod }, { enabled: Boolean(siteId && isAuthenticated');
+    expect(finance).toContain("هذه الدورة");
+    expect(finance).toContain("آخر الشهر");
+    expect(finance).toContain("مخصص");
+    expect(server).toContain("paymentMethod: z.string().optional()");
+    expect(server).toContain("payment.paymentMethod === input.paymentMethod");
   });
 
   it("opens payment-documentation receipts in a compact dialog instead of expanding each review card", () => {
