@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { BarChart3, CalendarRange, CircleDollarSign, Download, FileText, Loader2, Receipt, TrendingUp } from "lucide-react";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const format = (value: unknown) => Number(value ?? 0).toLocaleString("ar", { maximumFractionDigits: 2 });
@@ -32,6 +32,15 @@ export default function FinancialDashboardPage() {
   const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 29); return iso(d); });
   const [endDate, setEndDate] = useState(() => iso(new Date()));
   const cycleBoundsQuery = trpc.powerhub.readingCycle.currentBounds.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated) });
+  useEffect(() => {
+    if (preset !== "current_cycle" || !cycleBoundsQuery.data) return;
+    const start = dateKey(cycleBoundsQuery.data.startAt);
+    const end = dateKey(cycleBoundsQuery.data.endAt);
+    if (start && end && start <= end && (startDate !== start || endDate !== end)) {
+      setStartDate(start);
+      setEndDate(end);
+    }
+  }, [preset, cycleBoundsQuery.data, startDate, endDate]);
   const report = trpc.powerhub.reports.range.useQuery({ siteId, startDate, endDate, paymentMethod }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate && (preset !== "current_cycle" || Boolean(cycleBoundsQuery.data))) });
   const branding = trpc.powerhub.reportBranding.get.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated) });
   const settlements = trpc.powerhub.settlements.list.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated) });
@@ -103,7 +112,7 @@ export default function FinancialDashboardPage() {
     }
   };
   const exportCsv = () => { if (!data) return; const rows = [["المؤشر", "القيمة"], ["الفترة", `${startDate} إلى ${endDate}`], ["إجمالي الفوترة", data.summary.invoiced], ["إجمالي المحصل", data.summary.collected], ["إجمالي المصروفات", data.summary.expenseTotal], ["صافي التدفق التشغيلي", data.summary.operatingProfit], ["الأرصدة المستحقة", data.summary.outstanding], ["الطاقة بالكيلوواط", data.summary.energyKwh], ["نسبة التحصيل", `${collectionRate.toFixed(2)}%`], [], ["المحصل", "عدد العمليات", "المبلغ"], ...(data.collectors ?? []).map((item) => [item.name, item.count, item.amount])]; const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n"); const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `التقرير-المالي-${startDate}-${endDate}.csv`; anchor.click(); URL.revokeObjectURL(url); toast.success("تم تصدير التقرير المالي."); };
-  if (loading || report.isLoading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
+  if (loading || report.isLoading || (preset === "current_cycle" && cycleBoundsQuery.isLoading)) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><div className="p-8 text-center text-white">سجّل الدخول للوصول إلى لوحة المالية.</div></DashboardLayout>;
   return <DashboardLayout><main className="space-y-6 pb-12" dir="rtl"><header className="rounded-2xl border border-[#F5B800]/20 bg-[#111823] p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2 text-[#F5B800]"><BarChart3 className="h-5 w-5" /><span className="font-bold">الإدارة المالية</span></div><h1 className="mt-2 text-2xl font-extrabold text-white">لوحة الإحصاء المالي والتحصيل</h1><p className="mt-2 text-sm text-slate-400">ملخص التحصيل والمصروفات والديون وصافي التدفق التشغيلي للفترة المحددة.</p></div><div className="flex flex-wrap gap-2"><Button onClick={exportCsv} disabled={!data} variant="outline" className="border-white/15 text-white"><Download className="ml-2 h-4 w-4" />تصدير CSV</Button><Button onClick={exportAdminPdf} disabled={!data} variant="outline" className="border-[#F5B800]/40 text-[#F5B800]"><FileText className="ml-2 h-4 w-4" />تقرير مالي إداري</Button></div></div><div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <div className="flex flex-wrap items-center gap-2 xl:col-span-4"><CalendarRange className="h-4 w-4 text-slate-400" />{presets.map((item) => <Button key={item.id} size="sm" variant={preset === item.id ? "default" : "outline"} onClick={() => void applyPreset(item.id)} className={preset === item.id ? "bg-[#F5B800] text-[#0D1117]" : "border-white/15 text-white"}>{item.label}</Button>)}</div>
