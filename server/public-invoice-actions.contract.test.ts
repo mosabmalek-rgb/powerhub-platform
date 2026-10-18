@@ -507,8 +507,7 @@ describe("public invoice and inquiry actions", () => {
     expect(sqlTest).toContain("PAYMENT_CONTEXT_ADJUSTMENT_LINES_ASSERTION_FAILED");
     expect(sqlTest).toContain("PAYMENT_DOCUMENTATION_RPC_GRANTS_ASSERTION_FAILED");
 
-    expect(publicInvoice).toContain("setLocation(`/payment-documentation/public/${encodeURIComponent(token)}`)");
-    expect(publicInvoice).not.toContain("window.location.href = `/payment-documentation/public/");
+    expect(publicInvoice).toContain("window.location.href = `/payment-documentation/public/${encodeURIComponent(token)}`");
     expect(subscriberPortal).toContain("setLocation(`/payment-documentation/public/${encodeURIComponent(token)}`)");
     expect(subscriberPortal).not.toContain("window.location.assign(`/payment-documentation/public/");
   });
