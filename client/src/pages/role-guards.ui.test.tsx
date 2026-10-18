@@ -12,6 +12,7 @@ import NetworkDirectoryPage from "./NetworkDirectoryPage";
 import OperationsPage from "./OperationsPage";
 import SettingsPage from "./SettingsPage";
 import SubscriberPortalSettingsPage from "./SubscriberPortalSettingsPage";
+import PaymentDocumentationPage from "./PaymentDocumentationPage";
 
 const mocks = vi.hoisted(() => {
   const queryCache = new Map<string, { data: unknown; isLoading: boolean; isFetching: boolean }>();
@@ -32,6 +33,19 @@ const mocks = vi.hoisted(() => {
   bulkInvoiceSends: [] as any[],
   bulkInvoiceSendDetails: { items: [] as any[] },
   payments: [] as any[],
+  publicPaymentContext: {
+    siteId: 1,
+    paymentDocumentationAvailable: true,
+    invoice: { id: 551, invoiceNo: "INV-TEST-0551", billingPeriod: "2026-10", previousReading: 10, currentReading: 10.5, consumptionKwh: 0.5, pricePerKwh: 30, fixedFee: 0, taxAmount: 0, discountAmount: 0.4, totalAmount: 30, paidAmount: 0, balanceDue: 30, status: "issued" },
+    subscriber: { subscriberId: 21, fullName: "مشترك اختبار التوثيق", subscriberNo: "TEST-021" },
+    accounts: [{ id: 90, name: "حساب الاستلام", accountType: "jawwal_pay", phoneNumber: "0590000000" }],
+    lines: [
+      { id: 1, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 },
+      { id: 2, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 },
+      { id: 3, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0.4, displayOrder: 3 },
+      { id: 4, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: -0.8, displayOrder: 4 }
+    ]
+  },
   createShareLink: vi.fn(),
   createSubscriberMutate: vi.fn(),
   createGeneratorMutate: vi.fn(),
@@ -67,11 +81,11 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/ui/switch", () => ({ Switch: ({ checked, onCheckedChange, ...props }: { checked: boolean; onCheckedChange: (value: boolean) => void; [key: string]: unknown }) => <button type="button" aria-pressed={checked} onClick={() => onCheckedChange(!checked)} {...props} /> }));
 vi.mock("qrcode.react", () => ({ QRCodeCanvas: ({ value }: { value: string }) => <canvas aria-label="رمز QR للرابط" data-value={value} /> }));
-vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()] }));
+vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()], useRoute: (pattern: string) => pattern === "/payment-documentation/public/:token" && mocks.location.startsWith("/payment-documentation/public/") ? [true, { token: mocks.location.split("/").at(-1) }] : [false, undefined] }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() }, financialOverview: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, directoryPage: { invalidate: vi.fn(), prefetch: vi.fn().mockResolvedValue(undefined) }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, paymentDocumentation: { list: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() }, financialOverview: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, directoryPage: { invalidate: vi.fn(), prefetch: vi.fn().mockResolvedValue(undefined) }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
     powerhub: {
       sites: { list: { useQuery: () => mocks.query([mocks.site]) }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, anomalyAlert: { useQuery: () => mocks.query({ anomalyAlertPercent: 50 }) }, create: { useMutation: mocks.mutation }, updateAnomalyAlert: { useMutation: mocks.mutation } },
       siteBillingPolicy: { get: { useQuery: () => mocks.query({ automaticFractionDiscountEnabled: false, fractionCarryEnabled: false }) } },
@@ -81,7 +95,7 @@ vi.mock("@/lib/trpc", () => ({
       meters: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       readings: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("readings.page", input, options); return mocks.query({ items: [], hasNext: false, nextCursor: null }); } }, create: { useMutation: () => ({ mutate: mocks.createReadingMutate, mutateAsync: mocks.createReadingMutateAsync, isPending: false }) }, getImage: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } }, mobileSync: { approveAndIssue: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
-      invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("invoices.page", input, options); return mocks.query({ items: mocks.invoices, hasNext: false, nextCursor: null }); } }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
+      invoices: { list: { useQuery: () => mocks.query(mocks.invoices) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("invoices.page", input, options); return mocks.query({ items: mocks.invoices, hasNext: false, nextCursor: null }); } }, publicByToken: { useQuery: () => mocks.query({ siteId: 1, paymentDocumentationAvailable: true, invoice: mocks.publicPaymentContext.invoice, subscriber: mocks.publicPaymentContext.subscriber, lines: mocks.publicPaymentContext.lines }) }, createFromReading: { useMutation: mocks.mutation }, createShareLink: { useMutation: () => ({ mutate: mocks.createShareLink, isPending: false }) } },
       subscribers: {
         list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.list", input, options); return mocks.query(mocks.subscribers); } },
         directoryPage: { useQuery: (input: { page: number; pageSize: number; search?: string; subscriptionType?: string }, options?: { enabled?: boolean }) => {
@@ -123,7 +137,7 @@ vi.mock("@/lib/trpc", () => ({
         create: { useMutation: mocks.mutation }
       },
       dashboard: { summary: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.summary", input, options); return mocks.query({ financial: {} }); } }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.financialOverview", input, options); return mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }); } } },
-      paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false, policy: "addon", packageCode: "growth", entitlementEnabled: false, adminStatus: "enabled", disabledByAdmin: false }), refetch: vi.fn() }) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
+      paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false, policy: "addon", packageCode: "growth", entitlementEnabled: false, adminStatus: "enabled", disabledByAdmin: false }), refetch: vi.fn() }) }, publicContext: { useQuery: () => ({ ...mocks.query(mocks.publicPaymentContext), isLoading: false, isError: false, error: undefined }) }, publicSubmit: { useMutation: () => ({ ...mocks.mutation(), data: undefined }) }, searchSubscriber: { useQuery: () => mocks.query([]) }, availableAccounts: { useQuery: () => mocks.query(mocks.publicPaymentContext.accounts) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
       audit: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("audit.list", input, options); return mocks.query([]); } } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, listScheduleRuns: { useQuery: () => mocks.query([]) }, smsQuota: { useQuery: () => mocks.query({ total: 0, used: 0, remaining: 0 }) }, smsDailyUsage: { useQuery: () => mocks.query({ points: [], total: 0, used: 0, remaining: 0 }) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation }, configureInvoiceAutoSend: { useMutation: mocks.mutation }, requestSmsPackage: { useMutation: mocks.mutation } },
@@ -133,7 +147,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-afterEach(() => { cleanup(); mocks.queryCalls.length = 0; vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
+afterEach(() => { cleanup(); mocks.queryCalls.length = 0; vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.publicPaymentContext = { siteId: 1, paymentDocumentationAvailable: true, invoice: { id: 551, invoiceNo: "INV-TEST-0551", billingPeriod: "2026-10", previousReading: 10, currentReading: 10.5, consumptionKwh: 0.5, pricePerKwh: 30, fixedFee: 0, taxAmount: 0, discountAmount: 0.4, totalAmount: 30, paidAmount: 0, balanceDue: 30, status: "issued" }, subscriber: { subscriberId: 21, fullName: "مشترك اختبار التوثيق", subscriberNo: "TEST-021" }, accounts: [{ id: 90, name: "حساب الاستلام", accountType: "jawwal_pay", phoneNumber: "0590000000" }], lines: [{ id: 1, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 }, { id: 2, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 }, { id: 3, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0.4, displayOrder: 3 }, { id: 4, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: -0.8, displayOrder: 4 }] }; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("keeps invoice issuance automatic and hides manual issue controls from the viewer", () => {
@@ -370,6 +384,18 @@ describe("role guards in administration UI", () => {
     expect(screen.getByText(/انسخ الرابط ثم شاركه مع المشتركين/)).toBeInTheDocument();
     expect(screen.getByText("رمز QR للبوابة")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "تنزيل رمز QR" })).toBeInTheDocument();
+  });
+
+  it("shows automatic fractional discounts, carried fractions, and minimum-consumption adjustments on payment documentation", () => {
+    mocks.location = "/payment-documentation/public/test-share-token-00000001";
+    render(<PaymentDocumentationPage />);
+    expect(screen.getByText("تفاصيل الفاتورة وتسوياتها")).toBeInTheDocument();
+    expect(screen.getByText("تسوية الحد الأدنى للاستهلاك")).toBeInTheDocument();
+    expect(screen.getByText("خصم تلقائي لتسوية كسر الفاتورة")).toBeInTheDocument();
+    expect(screen.getByText("كسر مُرحّل إلى الفاتورة التالية")).toBeInTheDocument();
+    const receiver = screen.getByText("الحساب المستقبِل");
+    const method = screen.getByText("طريقة/نوع حساب التحويل");
+    expect(receiver.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows team administration to the owner", () => {
