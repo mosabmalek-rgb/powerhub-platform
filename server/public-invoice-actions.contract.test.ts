@@ -24,7 +24,7 @@ describe("public invoice and inquiry actions", () => {
       headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }>;
       functions: Record<string, { regions?: string[] }>;
     };
-    const general = config.headers.find((rule) => rule.source === "/:path((?!invoice/).*)");
+    const general = config.headers.find((rule) => rule.source === "/:path((?!invoice/)(?!invoice\\.html$).*)");
     const invoice = config.headers.find((rule) => rule.source === "/invoice/:token");
     expect(general?.headers.find((header) => header.key === "Content-Security-Policy")?.value).toContain("frame-ancestors 'none'");
     expect(general?.headers.find((header) => header.key === "X-Frame-Options")?.value).toBe("DENY");
