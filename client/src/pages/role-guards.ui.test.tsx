@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
   bulkInvoiceSends: [] as any[],
   bulkInvoiceSendDetails: { items: [] as any[] },
   payments: [] as any[],
+  paymentDocumentationAccessError: false,
   publicPaymentContext: {
     siteId: 1,
     paymentDocumentationAvailable: true,
@@ -137,7 +138,7 @@ vi.mock("@/lib/trpc", () => ({
         create: { useMutation: mocks.mutation }
       },
       dashboard: { summary: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.summary", input, options); return mocks.query({ financial: {} }); } }, allBranchesSummary: { useQuery: () => mocks.query({ branchCount: 1, financial: {} }) }, financialOverview: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("dashboard.financialOverview", input, options); return mocks.query({ outstanding: { total: 0, overdue: 0, partialInvoices: 0, accountCount: 0 }, topDebtors: [] }); } } },
-      paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false, policy: "addon", packageCode: "growth", entitlementEnabled: false, adminStatus: "enabled", disabledByAdmin: false }), refetch: vi.fn() }) }, publicContext: { useQuery: () => ({ ...mocks.query(mocks.publicPaymentContext), isLoading: false, isError: false, error: undefined }) }, publicSubmit: { useMutation: () => ({ ...mocks.mutation(), data: undefined }) }, searchSubscriber: { useQuery: () => mocks.query([]) }, availableAccounts: { useQuery: () => mocks.query(mocks.publicPaymentContext.accounts) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
+      paymentDocumentation: { access: { useQuery: () => ({ ...mocks.query({ allowed: false, policy: "addon", packageCode: "growth", entitlementEnabled: false, adminStatus: "enabled", disabledByAdmin: false }), isError: mocks.paymentDocumentationAccessError, refetch: vi.fn(), error: mocks.paymentDocumentationAccessError ? new Error("status unavailable") : undefined }) }, publicContext: { useQuery: () => ({ ...mocks.query(mocks.publicPaymentContext), isLoading: false, isError: false, error: undefined }) }, publicSubmit: { useMutation: () => ({ ...mocks.mutation(), data: undefined }) }, searchSubscriber: { useQuery: () => mocks.query([]) }, availableAccounts: { useQuery: () => mocks.query(mocks.publicPaymentContext.accounts) }, ownerFeature: { useMutation: mocks.mutation }, submit: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } },
       audit: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("audit.list", input, options); return mocks.query([]); } } },
       collectorSessions: { list: { useQuery: () => mocks.query([]) }, current: { useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }) }, open: { useMutation: mocks.mutation }, close: { useMutation: mocks.mutation } },
       messaging: { listConfigurations: { useQuery: () => mocks.query([]) }, listScheduleRuns: { useQuery: () => mocks.query([]) }, smsQuota: { useQuery: () => mocks.query({ total: 0, used: 0, remaining: 0 }) }, smsDailyUsage: { useQuery: () => mocks.query({ points: [], total: 0, used: 0, remaining: 0 }) }, deliveryPolicy: { useQuery: () => mocks.query({ configured: true, isEnabled: true, whatsappEnabled: true, smsEnabled: true, message: "" }) }, listInvoiceTemplates: { useQuery: () => mocks.query([]) }, listPaymentReceiptTemplates: { useQuery: () => mocks.query([]) }, saveConfiguration: { useMutation: mocks.mutation }, testConnection: { useMutation: mocks.mutation }, saveInvoiceTemplate: { useMutation: mocks.mutation }, savePaymentReceiptTemplate: { useMutation: mocks.mutation }, configureInvoiceAutoSend: { useMutation: mocks.mutation }, requestSmsPackage: { useMutation: mocks.mutation } },
@@ -147,7 +148,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-afterEach(() => { cleanup(); mocks.queryCalls.length = 0; vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.publicPaymentContext = { siteId: 1, paymentDocumentationAvailable: true, invoice: { id: 551, invoiceNo: "INV-TEST-0551", billingPeriod: "2026-10", previousReading: 10, currentReading: 10.5, consumptionKwh: 0.5, pricePerKwh: 30, fixedFee: 0, taxAmount: 0, discountAmount: 0.4, totalAmount: 30, paidAmount: 0, balanceDue: 30, status: "issued" }, subscriber: { subscriberId: 21, fullName: "مشترك اختبار التوثيق", subscriberNo: "TEST-021" }, accounts: [{ id: 90, name: "حساب الاستلام", accountType: "jawwal_pay", phoneNumber: "0590000000" }], lines: [{ id: 1, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 }, { id: 2, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 }, { id: 3, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0.4, displayOrder: 3 }, { id: 4, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: -0.8, displayOrder: 4 }] }; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
+afterEach(() => { cleanup(); mocks.queryCalls.length = 0; vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.paymentDocumentationAccessError = false; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.publicPaymentContext = { siteId: 1, paymentDocumentationAvailable: true, invoice: { id: 551, invoiceNo: "INV-TEST-0551", billingPeriod: "2026-10", previousReading: 10, currentReading: 10.5, consumptionKwh: 0.5, pricePerKwh: 30, fixedFee: 0, taxAmount: 0, discountAmount: 0.4, totalAmount: 30, paidAmount: 0, balanceDue: 30, status: "issued" }, subscriber: { subscriberId: 21, fullName: "مشترك اختبار التوثيق", subscriberNo: "TEST-021" }, accounts: [{ id: 90, name: "حساب الاستلام", accountType: "jawwal_pay", phoneNumber: "0590000000" }], lines: [{ id: 1, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 }, { id: 2, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 }, { id: 3, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0.4, displayOrder: 3 }, { id: 4, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: -0.8, displayOrder: 4 }] }; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("keeps invoice issuance automatic and hides manual issue controls from the viewer", () => {
@@ -396,6 +397,16 @@ describe("role guards in administration UI", () => {
     const receiver = screen.getByText("الحساب المستقبِل");
     const method = screen.getByText("طريقة/نوع حساب التحويل");
     expect(receiver.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("does not misrepresent or allow toggling payment documentation when its state cannot be checked", () => {
+    mocks.activeRole = "owner";
+    mocks.location = "/settings";
+    mocks.paymentDocumentationAccessError = true;
+    render(<SettingsPage />);
+    expect(screen.getByText("تعذر التحقق من الحالة")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تفعيل التوثيق" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "إلغاء تفعيل التوثيق" })).toBeDisabled();
   });
 
   it("shows team administration to the owner", () => {
