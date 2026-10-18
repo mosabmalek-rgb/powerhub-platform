@@ -1,4 +1,4 @@
-const incrementalAutomaticEvents = new Set(["subscriber_created", "payment_received"]);
+const incrementalAutomaticEvents = new Set(["subscriber_created", "payment_received", "invoice_overdue"]);
 
 export function isIncrementalAutomaticEvent(eventType: string): boolean {
   return incrementalAutomaticEvents.has(eventType);
@@ -6,8 +6,8 @@ export function isIncrementalAutomaticEvent(eventType: string): boolean {
 
 /**
  * Automatic event scans run in minute buckets for events that must be
- * processed promptly. Scheduled broadcasts and recurring reminders retain
- * their daily uniqueness window.
+ * processed promptly, including due-hour invoice reminder thresholds.
+ * Scheduled broadcasts and recurring reminders retain their daily uniqueness window.
  */
 export function buildAutomaticOccurrenceKey(eventType: string, now: Date): string {
   const bucket = isIncrementalAutomaticEvent(eventType)
