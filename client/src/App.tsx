@@ -110,7 +110,7 @@ function App() {
       <ThemeProvider defaultTheme="light" switchable>
         <TooltipProvider>
           <Toaster />
-          {!standalonePublicInvoice ? <OfflineStatusBanner /> : null}
+          {!standalonePublicInvoice ? <Suspense fallback={null}><OfflineStatusBanner /></Suspense> : null}
           <Suspense fallback={<div className="grid min-h-screen place-items-center bg-background text-foreground">جارٍ تحميل الصفحة…</div>}><Router /></Suspense>
         </TooltipProvider>
       </ThemeProvider>
