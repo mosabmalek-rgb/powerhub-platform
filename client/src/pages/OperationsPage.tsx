@@ -441,11 +441,34 @@ function CollectorSessionsPanel({ siteId }: { siteId: number }) {
   return <div className={role === "collector" ? "grid gap-6 xl:grid-cols-[.78fr_1.22fr]" : "space-y-6"}>{role === "collector" ? <SectionCard title="جلسة المحصل الحالية">{current ? <form className="space-y-4" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); closeSession.mutate({ siteId, sessionId: current.id, declaredCash: Number(form.get("declaredCash")), notes: String(form.get("notes") || "") || undefined }); }}><div className="rounded-xl border border-emerald-400/15 bg-emerald-400/5 p-4"><p className="text-xs font-bold text-emerald-300">جلسة مفتوحة</p><p className="mt-2 text-sm text-slate-300">رصيد الافتتاح: <strong className="font-display text-white">{formatValue(current.openingCash, 2)}</strong></p><p className="mt-1 text-xs text-slate-500">لن تُحتسب دفعاتك النقدية في الإغلاق إلا ضمن هذه الجلسة.</p></div><Field label="النقد المسلم عند الإغلاق"><input required name="declaredCash" type="number" min="0" step="0.01" className={inputClass} dir="ltr" /></Field><Field label="ملاحظة الإغلاق"><input name="notes" className={inputClass} placeholder="اختياري" /></Field><Button disabled={closeSession.isPending} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إغلاق الجلسة</Button></form> : <form className="space-y-4" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); openSession.mutate({ siteId, openingCash: Number(form.get("openingCash") || 0), notes: String(form.get("notes") || "") || undefined }); }}><p className="text-sm leading-6 text-slate-400">افتح جلسة قبل تسجيل دفعاتك الميدانية؛ ستربط دفعاتك بهذه الجلسة تلقائياً.</p><Field label="رصيد الافتتاح النقدي"><input required name="openingCash" defaultValue="0" type="number" min="0" step="0.01" className={inputClass} dir="ltr" /></Field><Field label="ملاحظة الافتتاح"><input name="notes" className={inputClass} placeholder="اختياري" /></Field><Button disabled={openSession.isPending} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">فتح جلسة تحصيل</Button></form>}</SectionCard> : null}<SectionCard title={`سجل جلسات التحصيل (${sessions.length})`}>{sessions.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-sm"><thead className="text-right text-xs text-slate-500"><tr><th className="pb-3">المحصل</th><th className="pb-3">الافتتاح</th><th className="pb-3">المتوقع</th><th className="pb-3">المصرح</th><th className="pb-3">الفرق</th><th className="pb-3">الحالة</th></tr></thead><tbody>{sessions.map((row) => <tr className="border-t border-white/7" key={row.session.id}><td className="py-3 font-bold text-white">{row.collector.name || row.collector.email || `مستخدم #${row.collector.id}`}</td><td className="py-3">{formatValue(row.session.openingCash, 2)}</td><td className="py-3 text-[#F5B800]">{formatValue(row.session.expectedCash, 2)}</td><td className="py-3">{row.session.declaredCash === null ? "—" : formatValue(row.session.declaredCash, 2)}</td><td className="py-3">{row.session.varianceAmount === null ? "—" : <span className={Number(row.session.varianceAmount) === 0 ? "text-emerald-400" : "text-rose-300"}>{formatValue(row.session.varianceAmount, 2)}</span>}</td><td className="py-3"><Badge className={row.session.status === "open" ? "bg-sky-400/10 text-sky-300" : "bg-emerald-400/10 text-emerald-400"}>{row.session.status === "open" ? "مفتوحة" : "مغلقة"}</Badge></td></tr>)}</tbody></table></div> : <Empty text="لا توجد جلسات تحصيل مسجلة لهذه المحطة حتى الآن." />}</SectionCard></div>;
 }
 
-function ExpensesModule({ siteId, generators, expenses, summary, pending, onSubmit }: any) {
+function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any) {
   const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId });
   const accounts = accountsQuery.data ?? [];
   const [accountId, setAccountId] = useState("");
+  const [period, setPeriod] = useState<"today" | "cycle" | "monthEnd" | "custom">("cycle");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
   const selectedAccount = accounts.find((account: any) => account.id === Number(accountId));
+  const today = new Date();
+  const localDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const currentDate = localDate(today);
+  const firstOfMonth = localDate(new Date(today.getFullYear(), today.getMonth(), 1));
+  const lastOfMonth = localDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+  const startDate = period === "today" ? currentDate : period === "cycle" ? firstOfMonth : period === "monthEnd" ? currentDate : period === "custom" ? customStart : undefined;
+  const endDate = period === "today" ? currentDate : period === "cycle" ? currentDate : period === "monthEnd" ? lastOfMonth : period === "custom" ? customEnd : undefined;
+  const expenseQueryInput = {
+    siteId,
+    limit: 100,
+    ...(startDate && endDate && startDate <= endDate ? { startDate, endDate } : {}),
+    ...(selectedAccount ? { companyAccountId: selectedAccount.id } : {}),
+  };
+  const expensesQuery = trpc.powerhub.expenses.page.useQuery(expenseQueryInput);
+  const expenses = expensesQuery.data?.items ?? [];
 
   return <div className="space-y-6">
     <div className="grid gap-4 sm:grid-cols-3">
@@ -490,14 +513,37 @@ function ExpensesModule({ siteId, generators, expenses, summary, pending, onSubm
         </form>
       </SectionCard>
       <SectionCard title={`سجل المصروفات (${expenses.length})`}>
-        {expenses.length ? <div className="space-y-2">{expenses.map((x: any) => {
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
+          <Field label="الفترة الزمنية">
+            <select value={period} onChange={(event) => setPeriod(event.target.value as typeof period)} className={selectClass}>
+              <option value="today">اليوم</option>
+              <option value="cycle">هذه الدورة</option>
+              <option value="monthEnd">حتى آخر الشهر</option>
+              <option value="custom">مخصص</option>
+            </select>
+          </Field>
+          <Field label="الحساب المصروف منه">
+            <select value={accountId} onChange={(event) => setAccountId(event.target.value)} className={selectClass}>
+              <option value="">كل حسابات الصرف</option>
+              {accounts.map((account: any) => <option key={account.id} value={account.id}>{account.name} — {account.accountType ?? account.account_type ?? "حساب"}</option>)}
+            </select>
+          </Field>
+        </div>
+        {period === "custom" ? <div className="mb-4 grid gap-3 sm:grid-cols-2">
+          <Field label="من تاريخ"><input type="date" value={customStart} max={customEnd || undefined} onChange={(event) => setCustomStart(event.target.value)} className={inputClass} /></Field>
+          <Field label="إلى تاريخ"><input type="date" value={customEnd} min={customStart || undefined} onChange={(event) => setCustomEnd(event.target.value)} className={inputClass} /></Field>
+        </div> : null}
+        {period === "custom" && (!customStart || !customEnd || customStart > customEnd) ? <p className="mb-3 text-sm text-amber-300">حدد تاريخ البداية والنهاية بصورة صحيحة لعرض المصروفات.</p> : null}
+        {expensesQuery.isLoading ? <div className="grid min-h-24 place-items-center"><Loader2 className="h-5 w-5 animate-spin text-[#F5B800]" /></div>
+          : expensesQuery.isError ? <div className="rounded-lg border border-rose-400/20 p-4 text-sm text-rose-200">تعذر تحميل سجل المصروفات. <Button size="sm" variant="outline" onClick={() => void expensesQuery.refetch()}>إعادة المحاولة</Button></div>
+          : expenses.length ? <div className="space-y-2">{expenses.map((x: any) => {
           const account = accounts.find((item: any) => item.id === x.companyAccountId);
-          return <div key={x.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3">
-            <div><p className="font-bold text-white">{x.description}</p><p className="mt-1 text-xs text-slate-500">{x.category} · {formatReportDate(x.occurredAt)} · حساب الصرف: {account?.name ?? "غير محدد"}</p></div>
-            <span className="font-display font-bold text-[#F5B800]">{formatValue(x.amount, 2)}</span>
+          return <div key={x.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3">
+            <div className="min-w-0 flex-1"><p className="break-words font-bold text-white">{x.description}</p><p className="mt-1 text-xs leading-5 text-slate-400">{x.category} · {formatReportDate(x.occurredAt)} · الحساب المصروف منه: {account?.name ?? "غير محدد"}</p></div>
+            <span className="whitespace-nowrap font-display font-bold text-[#F5B800]">{formatValue(x.amount, 2)}</span>
             <Button size="sm" variant="ghost" className="text-orange-300 hover:bg-orange-400/10" onClick={() => window.location.assign(`/financial-settlements?entityType=expense&entityId=${x.id}`)}>تصحيح</Button>
           </div>;
-        })}</div> : <Empty text="لا توجد مصروفات مسجلة. أضف الوقود والصيانة والرواتب لاحتساب الربحية بدقة." />}
+        })}</div> : <Empty text="لا توجد مصروفات ضمن الفترة والحساب المحددين." />}
       </SectionCard>
     </div>
   </div>;
