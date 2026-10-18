@@ -92,7 +92,11 @@ describe("site billing minimum and fractional settlement contract", () => {
     expect(migration).toContain("revoke all on function public.powerhub_get_shared_invoice_by_token_hash");
     expect(pdf).toContain('line.lineType === "discount"');
     expect(pdf).toContain("-Math.abs(Number(line.amount))");
-    expect(publicInvoice).toContain('line.lineType === "discount" ? -Math.abs(Number(line.amount)) : Number(line.amount)');
+    expect(publicInvoice).toContain('line.lineType === "discount"');
+    expect(publicInvoice).toContain("Math.round(Math.abs(amount) * 100) > 0");
+    expect(publicInvoice).toContain("const isFractionalCarry");
+    expect(publicInvoice).toContain("تسوية الكسر المرحّل");
+    expect(publicInvoice).toContain("minimumFractionDigits: 2");
   });
 
   it("types public invoice line categories for discount rendering", () => {

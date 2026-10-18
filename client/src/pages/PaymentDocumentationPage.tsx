@@ -34,36 +34,40 @@ function InvoiceLineBreakdown({ lines }: { lines?: Array<{ id?: number; lineType
   const items = lines ?? [];
   const visibleItems = items.filter((line) => {
     const amount = Number(line.amount ?? 0);
+    const hasDisplayedAmount = Number.isFinite(amount) && Math.round(Math.abs(amount) * 100) > 0;
+    if (!hasDisplayedAmount) return false;
+
     const description = String(line.description ?? "")
       .normalize("NFKD")
       .replace(/\p{M}/gu, "")
       .replace(/\s+/g, " ")
       .trim();
-    const fractionalCarry =
-      /(?:كسر|كسور).{0,35}(?:مرحل|ترحيل)|(?:ترحيل|مرحل).{0,35}(?:كسر|كسور)|fraction[\s_-]*(?:carry|carried)/i.test(description);
     const discount = line.lineType === "discount" || /خصم.{0,35}(?:كسر|كسور)|fraction[\s_-]*discount/i.test(description);
-    const hasDisplayedAmount = Number.isFinite(amount) && Math.round(Math.abs(amount) * 100) > 0;
-    // Hide unapplied fractional adjustments and values that round to zero at the displayed precision.
-    if (discount) return hasDisplayedAmount && amount > 0;
-    if (fractionalCarry) return hasDisplayedAmount;
-    return true;
+    return !discount || amount > 0;
   });
+
   return <section className="rounded-xl border border-white/10 bg-black/10 p-4" aria-label="تفاصيل الفاتورة وتسوياتها">
     <h3 className="font-bold text-white">تفاصيل الفاتورة وتسوياتها</h3>
-    <p className="mt-1 text-xs text-slate-500">تظهر بنود الحد الأدنى وتسوية الكسور فقط عندما تنطبق فعلياً على الفاتورة.</p>
+    <p className="mt-1 text-xs text-slate-500">تظهر البنود ذات القيمة الفعلية فقط، بما فيها أثر خصم الكسر أو تسوية الكسر المرحّل.</p>
     {visibleItems.length ? <div className="mt-3 divide-y divide-white/5">
       {visibleItems.map((line, index) => {
         const value = Number(line.amount ?? 0);
         const description = String(line.description ?? "").normalize("NFKD").replace(/\p{M}/gu, "");
         const isDiscount = line.lineType === "discount" || /خصم.{0,35}(?:كسر|كسور)|fraction[\s_-]*discount/i.test(description);
+        const isFractionalCarry = /(?:كسر|كسور).{0,35}(?:مرحل|ترحيل)|(?:ترحيل|مرحل).{0,35}(?:كسر|كسور)|fraction[\s_-]*(?:carry|carried)/i.test(description);
         const displayed = isDiscount ? -Math.abs(value) : value;
-        const isCredit = isDiscount || displayed < 0;
-        return <div key={line.id ?? index} className="flex items-start justify-between gap-4 py-2 text-sm">
-          <span className={isCredit ? "leading-6 text-emerald-300" : "leading-6 text-slate-300"}>{line.description || "بند فاتورة"}</span>
-          <span className={isCredit ? "shrink-0 font-bold text-emerald-300" : "shrink-0 font-bold text-white"} dir="ltr">{displayed > 0 ? "+" : ""}{formatPaymentDocumentationAmount(displayed)} شيكل</span>
+        const isCredit = isDiscount || isFractionalCarry || displayed < 0;
+        const formattedAmount = new Intl.NumberFormat("ar", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(displayed);
+        return <div key={line.id ?? index} className={isFractionalCarry ? "flex items-start justify-between gap-4 rounded-lg bg-emerald-500/5 px-2 py-2 text-sm" : "flex items-start justify-between gap-4 py-2 text-sm"}>
+          <span className={isCredit ? "leading-6 text-emerald-300" : "leading-6 text-slate-300"}>
+            {isFractionalCarry
+              ? <span className="inline-flex flex-col gap-0.5"><span className="font-bold">تسوية الكسر المرحّل</span><span className="text-xs text-emerald-200/80">{line.description || "كسر مُرحّل إلى الفاتورة التالية"}</span></span>
+              : line.description || "بند فاتورة"}
+          </span>
+          <span className={isCredit ? "shrink-0 font-bold text-emerald-300" : "shrink-0 font-bold text-white"} dir="ltr">{displayed > 0 ? "+" : ""}{formattedAmount} شيكل</span>
         </div>;
       })}
-    </div> : <p className="mt-3 text-sm text-slate-500">لا توجد بنود تسوية أو تفاصيل إضافية مسجلة لهذه الفاتورة.</p>}
+    </div> : <p className="mt-3 text-sm text-slate-500">لا توجد بنود مالية ذات قيمة لهذه الفاتورة.</p>}
   </section>;
 }
 

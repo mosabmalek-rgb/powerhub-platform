@@ -478,7 +478,7 @@ describe("public invoice and inquiry actions", () => {
 
     expect(page).toContain("<InvoiceLineBreakdown lines={invoice.lines} />");
     expect(page).toContain("<InvoiceLineBreakdown lines={context.lines} />");
-    expect(page).toContain("fractionalCarry");
+    expect(page).toContain("isFractionalCarry");
     expect(page).toContain("line.lineType === \"discount\"");
     expect(page).toContain("Math.round(Math.abs(amount) * 100) > 0");
     expect(page).toContain("الحساب المستقبِل");
