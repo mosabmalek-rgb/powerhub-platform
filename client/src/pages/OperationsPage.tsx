@@ -307,6 +307,7 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
   const monthEndKey = new Date(Date.UTC(todayYear, todayMonth, 0)).toISOString().slice(0, 10);
   const effectivePaymentStart = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.startAt) : paymentPeriod === "month_end" ? monthEndStart : paymentStartDate;
   const effectivePaymentEnd = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.endAt) : paymentPeriod === "month_end" ? monthEndKey : paymentEndDate;
+  const cycleFilterReady = paymentPeriod !== "current_cycle" || Boolean(cycleBoundsQuery.data && !cycleBoundsQuery.isError);
   const initialSubscriberId = Number(new URLSearchParams(window.location.search).get("subscriberId") ?? 0);
   const [selectedSubscriberId, setSelectedSubscriberId] = useState<number>(initialSubscriberId);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
@@ -319,6 +320,7 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     if (paymentReceiverAccountId !== "all" && !receiverAccountsForType.some((account: any) => String(account.id) === paymentReceiverAccountId)) setPaymentReceiverAccountId("all");
   }, [paymentReceiverType, accounts]);
   const filteredPayments = payments.filter((entry: any) => {
+    if (!cycleFilterReady) return false;
     const payment = entry.payment;
     const query = paymentSearch.trim().toLowerCase();
     const paidDate = gazaDateKey(payment.paidAt);
@@ -332,7 +334,7 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     const matchesEnd = !effectivePaymentEnd || paidDate <= effectivePaymentEnd;
     return matchesSearch && matchesProvider && matchesReceiverType && matchesReceiverAccount && matchesStart && matchesEnd;
   });
-  const invoiceById = new Map(invoices.map((invoice: any) => [Number(invoice.id), invoice]));
+  const invoiceById = new Map<number, any>(invoices.map((invoice: any) => [Number(invoice.id), invoice] as const));
   const exportPaymentRows = filteredPayments.map((entry: any) => {
     const payment = entry.payment;
     const invoice = invoiceById.get(Number(payment.invoiceId));
