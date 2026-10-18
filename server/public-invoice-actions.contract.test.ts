@@ -56,6 +56,8 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("event.source !== previewIframeRef.current?.contentWindow");
     expect(billing).toContain("powerhub-public-invoice-parent-ready");
     expect(billing).toContain("window.setInterval(() =>");
+    expect(billing).toContain("}, 18_000);");
+    expect(billing).toContain("durationMs: startedAt === null ? 18_000");
     expect(publicInvoice).toContain("powerhub-public-invoice-parent-ready");
     expect(publicInvoice).toContain("event.source !== window.parent");
 
@@ -64,6 +66,14 @@ describe("public invoice and inquiry actions", () => {
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) return {};");
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) {");
     expect(main).toContain("void bootstrapOfflineState().finally(renderApp)");
+    expect(main).toContain('register("/sw.js?v=7")');
+    const sw = read("client/public/sw.js");
+    expect(sw).toContain('const SHELL_CACHE = "powerhub-shell-v7"');
+    expect(sw).toContain("isPublicInvoiceNavigation(url)");
+    expect(sw.indexOf('if (request.mode === "navigate" && isPublicInvoiceNavigation(url)) return;')).toBeLessThan(sw.indexOf('if (request.mode === "navigate") {'));
+    const viteConfig = read("vite.config.ts");
+    expect(viteConfig).not.toContain('"report-pdf": ["html2canvas", "jspdf"]');
+    expect(viteConfig).not.toContain('charts: ["recharts"]');
     expect(app).toContain('const Home = lazy(() => import("./pages/Home"))');
     expect(app).toContain('const RouteAccessGate = lazy(() => import("@/components/RouteAccessGate")');
     expect(app).toContain('const LoginPage = lazy(() => import("./pages/LoginPage"))');
