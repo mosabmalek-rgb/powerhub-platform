@@ -383,7 +383,7 @@ describe("role guards in administration UI", () => {
     mocks.activeRole = "owner";
     mocks.location = "/settings";
     render(<SettingsPage />);
-    expect(screen.getByText("فعالة فعلياً")).toBeInTheDocument();
+    expect(screen.getByText("غير فعالة فعلياً")).toBeInTheDocument();
     expect(screen.getByText("إتاحة الحساب: متوقفة")).toBeInTheDocument();
     expect(screen.getByText("إدارة المنصة: مفعّلة")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "تفعيل التوثيق" })).toBeEnabled();
