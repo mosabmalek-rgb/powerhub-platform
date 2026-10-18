@@ -118,6 +118,7 @@ do $context_assert$
 declare
   v_context jsonb;
   v_status jsonb;
+  v_target jsonb;
   v_lines jsonb;
   v_view_count integer;
 begin
@@ -126,7 +127,10 @@ begin
      or not has_function_privilege('service_role','public.powerhub_get_public_payment_documentation_context(text)','EXECUTE')
      or has_function_privilege('anon','public.powerhub_get_public_payment_documentation_status(text)','EXECUTE')
      or has_function_privilege('authenticated','public.powerhub_get_public_payment_documentation_status(text)','EXECUTE')
-     or not has_function_privilege('service_role','public.powerhub_get_public_payment_documentation_status(text)','EXECUTE') then
+     or not has_function_privilege('service_role','public.powerhub_get_public_payment_documentation_status(text)','EXECUTE')
+     or has_function_privilege('anon','public.powerhub_get_public_payment_documentation_target(text)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_get_public_payment_documentation_target(text)','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_get_public_payment_documentation_target(text)','EXECUTE') then
     raise exception 'PAYMENT_DOCUMENTATION_RPC_GRANTS_ASSERTION_FAILED';
   end if;
   v_context := public.powerhub_get_public_payment_documentation_context(repeat('a',64));
@@ -147,6 +151,13 @@ begin
      or v_lines->3->>'description' <> 'كسر مُرحّل إلى الفاتورة التالية'
      or (v_lines->3->>'amount')::numeric <> -0.8 then
     raise exception 'PAYMENT_CONTEXT_ADJUSTMENT_LINES_ASSERTION_FAILED lines=%',v_lines;
+  end if;
+
+  v_target := public.powerhub_get_public_payment_documentation_target(repeat('a',64));
+  if v_target->>'paymentDocumentationAvailable' <> 'true'
+     or v_target#>>'{invoice,id}' <> '551'
+     or (v_target#>>'{invoice,balanceDue}')::numeric <> 30 then
+    raise exception 'PAYMENT_TARGET_PRECHECK_ASSERTION_FAILED target=%',v_target;
   end if;
 
   v_status := public.powerhub_get_public_payment_documentation_status(repeat('a',64));
