@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible } from "./unified-messaging-automation-policy";
+import { buildAutomaticOccurrenceKey, buildInvoiceOverdueOperationKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible } from "./unified-messaging-automation-policy";
 
 describe("automatic messaging occurrence policy", () => {
   it("creates separate scan occurrences each minute for subscriber and payment events", () => {
@@ -40,6 +40,22 @@ describe("automatic messaging occurrence policy", () => {
   });
 });
 
+
+describe("overdue invoice reminder idempotency", () => {
+  it("keeps unscheduled automatic reminders once per invoice across minute scans", () => {
+    expect(buildInvoiceOverdueOperationKey(8, 123, "event:invoice_overdue:100", true))
+      .toBe("automation:8:invoice:123:eligible");
+    expect(buildInvoiceOverdueOperationKey(8, 123, "event:invoice_overdue:101", true))
+      .toBe("automation:8:invoice:123:eligible");
+  });
+
+  it("keeps deliberately scheduled reminders distinct by occurrence", () => {
+    expect(buildInvoiceOverdueOperationKey(8, 123, "monthly:2026-10", false))
+      .toBe("automation:8:invoice:123:monthly:2026-10");
+    expect(buildInvoiceOverdueOperationKey(8, 123, "monthly:2026-11", false))
+      .not.toBe(buildInvoiceOverdueOperationKey(8, 123, "monthly:2026-10", false));
+  });
+});
 
 describe("overdue invoice reminder hour eligibility", () => {
   const dueDate = "2026-10-10T12:00:00.000Z";
