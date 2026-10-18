@@ -464,4 +464,53 @@ describe("public invoice and inquiry actions", () => {
     expect(auth).toContain("identityChanged");
   });
 
+  it("surfaces billing adjustments on payment documentation and keeps status reads lightweight", () => {
+    const page = read("client/src/pages/PaymentDocumentationPage.tsx");
+    const settings = read("client/src/pages/SettingsPage.tsx");
+    const server = read("server/powerhub.ts");
+    const migration = read("supabase/migrations/20261018143000_powerhub_payment_documentation_context_lines_fast_read.sql");
+    const sqlTest = read("supabase/tests/payment_documentation_context_lines_fast_read.sql");
+    const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
+    const subscriberPortal = read("client/src/pages/SubscriberPortalPage.tsx");
+
+    expect(page).toContain("<InvoiceLineBreakdown lines={invoice.lines} />");
+    expect(page).toContain("<InvoiceLineBreakdown lines={context.lines} />");
+    expect(page).toContain("خصم تلقائي لتسوية كسر الفاتورة");
+    expect(page).toContain("الحساب المستقبِل");
+    expect(page).toContain("طريقة/نوع حساب التحويل");
+    const internalForm = page.slice(page.indexOf("بطاقة توثيق الدفع —"), page.indexOf("function PublicPaymentDocumentationView"));
+    expect(internalForm.indexOf('Label className="text-slate-300">الحساب المستقبِل')).toBeLessThan(
+      internalForm.indexOf('Label className="text-slate-300">طريقة/نوع حساب التحويل'),
+    );
+    const publicForm = page.slice(page.indexOf("function PublicPaymentDocumentationView"));
+    expect(publicForm.indexOf('Label className="text-slate-300">الحساب المستقبِل')).toBeLessThan(
+      publicForm.indexOf('Label className="text-slate-300">طريقة/نوع حساب التحويل'),
+    );
+
+    expect(settings).toContain("entitlementEnabled");
+    expect(settings).toContain("adminStatus");
+    expect(settings).toContain("paymentDocumentationAccess.isError");
+    expect(settings).toContain("تعذر التحقق من الحالة");
+
+    const statusStart = server.indexOf("publicStatus: publicProcedure");
+    const contextStart = server.indexOf("publicContext: publicProcedure", statusStart);
+    const statusRoute = server.slice(statusStart, contextStart);
+    expect(statusRoute).toContain("powerhub_get_public_payment_documentation_status");
+    expect(statusRoute).not.toContain("powerhub_get_public_payment_documentation_context");
+
+    const statusFunctionStart = migration.indexOf("create or replace function public.powerhub_get_public_payment_documentation_status");
+    const statusFunction = migration.slice(statusFunctionStart);
+    expect(statusFunction.toLowerCase()).not.toContain("for update");
+    expect(statusFunction).toContain("payment_documentation_requests");
+    expect(migration).toContain("'lines', v_lines");
+    expect(migration).toContain("revoke all on function public.powerhub_get_public_payment_documentation_context(text) from public, anon, authenticated");
+    expect(sqlTest).toContain("PAYMENT_CONTEXT_ADJUSTMENT_LINES_ASSERTION_FAILED");
+    expect(sqlTest).toContain("PAYMENT_DOCUMENTATION_RPC_GRANTS_ASSERTION_FAILED");
+
+    expect(publicInvoice).toContain("setLocation(`/payment-documentation/public/${encodeURIComponent(token)}`)");
+    expect(publicInvoice).not.toContain("window.location.href = `/payment-documentation/public/");
+    expect(subscriberPortal).toContain("setLocation(`/payment-documentation/public/${encodeURIComponent(token)}`)");
+    expect(subscriberPortal).not.toContain("window.location.assign(`/payment-documentation/public/");
+  });
+
 });
