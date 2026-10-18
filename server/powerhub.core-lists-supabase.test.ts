@@ -1006,7 +1006,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يعتمد القراءة ويصدر فاتورتها عبر Supabase من دون MySQL أو عامل إرسال", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.approve({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false })).resolves.toEqual({ success: true });
-    await expect(caller.invoices.createFromReading({ siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08", dueDate: new Date("2026-08-16T00:00:00.000Z"), discountAmount: 0, clientOperationId: "44444444-4444-4444-8444-444444444444" }))
+    await expect(caller.invoices.createFromReading({ siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08", dueDate: new Date("2026-09-01T00:00:00.000Z"), discountAmount: 0, clientOperationId: "44444444-4444-4444-8444-444444444444" }))
       .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150 });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_approve_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1 }) }),
