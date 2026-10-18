@@ -35,6 +35,8 @@ as $$
 declare
   v_allowed boolean;
   v_before jsonb;
+  v_actor_platform_role text;
+  v_actor_tenant_role text;
 begin
   if p_invoice_due_hours is null or p_invoice_due_hours < 1 or p_invoice_due_hours > 2160 then
     raise exception 'INVALID_INVOICE_DUE_HOURS' using errcode = 'P0001';
@@ -66,6 +68,15 @@ begin
     raise exception 'INVOICE_DUE_POLICY_PERMISSION_REQUIRED' using errcode = 'P0001';
   end if;
 
+  select u.platform_role into v_actor_platform_role
+  from public.users u
+  where u.id = p_user_id and u.account_status = 'active';
+
+  select m.role into v_actor_tenant_role
+  from public.tenant_members m
+  where m.tenant_id = p_tenant_id and m.user_id = p_user_id
+    and m.is_active and m.membership_status = 'active';
+
   select to_jsonb(s) into v_before
   from public.sites s
   where s.id = p_site_id and s.tenant_id = p_tenant_id
@@ -80,7 +91,7 @@ begin
   insert into public.audit_logs(
     tenant_id, site_id, user_id, actor_tenant_role, entity_type, entity_id, action, before_data, after_data
   ) values (
-    p_tenant_id, p_site_id, p_user_id, 'owner', 'site_invoice_due_policy', p_site_id::text, 'configure',
+    p_tenant_id, p_site_id, p_user_id, v_actor_platform_role, v_actor_tenant_role, 'site_invoice_due_policy', p_site_id::text, 'configure',
     v_before, jsonb_build_object('invoiceDueHours', p_invoice_due_hours)
   );
 
