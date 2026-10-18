@@ -53,6 +53,7 @@ const state = vi.hoisted(() => {
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
         order: () => query,
         gte: (column: string, value: unknown) => {
+          if (table !== "expenses") return query;
           const comparable = (item: unknown) => typeof item === "number" ? item : typeof item === "string" && /^\d{4}-\d{2}-\d{2}T/.test(item) ? Date.parse(item) : item;
           const expected = comparable(value);
           filteredRows = filteredRows.filter((row) => {
@@ -65,6 +66,7 @@ const state = vi.hoisted(() => {
           return query;
         },
         lte: (column: string, value: unknown) => {
+          if (table !== "expenses") return query;
           const comparable = (item: unknown) => typeof item === "number" ? item : typeof item === "string" && /^\d{4}-\d{2}-\d{2}T/.test(item) ? Date.parse(item) : item;
           const expected = comparable(value);
           filteredRows = filteredRows.filter((row) => {
@@ -77,6 +79,7 @@ const state = vi.hoisted(() => {
           return query;
         },
         lt: (column: string, value: unknown) => {
+          if (table !== "expenses") return query;
           const comparable = (item: unknown) => typeof item === "number" ? item : typeof item === "string" && /^\d{4}-\d{2}-\d{2}T/.test(item) ? Date.parse(item) : item;
           const expected = comparable(value);
           filteredRows = filteredRows.filter((row) => {
