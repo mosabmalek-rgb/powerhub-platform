@@ -121,6 +121,14 @@ declare
   v_lines jsonb;
   v_view_count integer;
 begin
+  if has_function_privilege('anon','public.powerhub_get_public_payment_documentation_context(text)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_get_public_payment_documentation_context(text)','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_get_public_payment_documentation_context(text)','EXECUTE')
+     or has_function_privilege('anon','public.powerhub_get_public_payment_documentation_status(text)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_get_public_payment_documentation_status(text)','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_get_public_payment_documentation_status(text)','EXECUTE') then
+    raise exception 'PAYMENT_DOCUMENTATION_RPC_GRANTS_ASSERTION_FAILED';
+  end if;
   v_context := public.powerhub_get_public_payment_documentation_context(repeat('a',64));
   if v_context->>'paymentDocumentationAvailable' <> 'true' then
     raise exception 'PAYMENT_CONTEXT_FEATURE_GATE_ASSERTION_FAILED';
