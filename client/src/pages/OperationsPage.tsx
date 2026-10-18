@@ -487,7 +487,7 @@ function useExpenseHistoryFilters(siteId: number, canManageExpenses: boolean, ma
   };
 }
 
-function ExpenseHistoryPanel({ history }: { history: ReturnType<typeof useExpenseHistoryFilters> }) {
+function ExpenseHistoryPanel({ history, canCorrect = true }: { history: ReturnType<typeof useExpenseHistoryFilters>; canCorrect?: boolean }) {
   const expenses = history.expensesQuery.data?.items ?? [];
   return <SectionCard title={"سجل المصروفات (" + expenses.length + ")"}>
     <div className="mb-4 grid gap-3 sm:grid-cols-2">
@@ -523,7 +523,7 @@ function ExpenseHistoryPanel({ history }: { history: ReturnType<typeof useExpens
         return <div key={x.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3">
           <div className="min-w-0 flex-1"><p className="break-words font-bold text-white">{x.description}</p><p className="mt-1 text-xs leading-5 text-slate-400">{x.category} · {formatReportDate(x.occurredAt)} · الحساب المصروف منه: {account?.name ?? (x.companyAccountId ? "حساب #" + x.companyAccountId : "غير محدد")}</p></div>
           <span className="whitespace-nowrap font-display font-bold text-[#F5B800]">{formatValue(x.amount, 2)}</span>
-          <Button size="sm" variant="ghost" className="text-orange-300 hover:bg-orange-400/10" onClick={() => window.location.assign("/financial-settlements?entityType=expense&entityId=" + x.id)}>تصحيح</Button>
+          {canCorrect ? <Button size="sm" variant="ghost" className="text-orange-300 hover:bg-orange-400/10" onClick={() => window.location.assign("/financial-settlements?entityType=expense&entityId=" + x.id)}>تصحيح</Button> : null}
         </div>;
       })}</div> : <Empty text="لا توجد مصروفات ضمن الفترة والحساب المحددين." />}
   </SectionCard>;
@@ -578,7 +578,7 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
           <Button type="submit" disabled={pending || accountsQuery.isLoading || accountsQuery.isError || !accounts.length} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError ? "تعذر تحميل حسابات الصرف" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : "حفظ المصروف"}</Button>
         </form>
       </SectionCard>
-      <ExpenseHistoryPanel history={history} />
+      <ExpenseHistoryPanel history={history} canCorrect={false} />
     </div>
   </div>;
 }
