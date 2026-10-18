@@ -89,7 +89,7 @@ begin
   where id = p_site_id and tenant_id = p_tenant_id;
 
   insert into public.audit_logs(
-    tenant_id, site_id, user_id, actor_tenant_role, entity_type, entity_id, action, before_data, after_data
+    tenant_id, site_id, user_id, actor_platform_role, actor_tenant_role, entity_type, entity_id, action, before_data, after_data
   ) values (
     p_tenant_id, p_site_id, p_user_id, v_actor_platform_role, v_actor_tenant_role, 'site_invoice_due_policy', p_site_id::text, 'configure',
     v_before, jsonb_build_object('invoiceDueHours', p_invoice_due_hours)
@@ -108,7 +108,7 @@ create or replace function public.powerhub_sync_invoice_due_interval()
 returns trigger
 language plpgsql
 set search_path = public, pg_temp
-as $
+as $sync$
 begin
   if new.invoice_due_days is distinct from old.invoice_due_days
      and new.invoice_due_hours is not distinct from old.invoice_due_hours then
@@ -119,7 +119,7 @@ begin
   end if;
   return new;
 end;
-$;
+$sync$;
 
 drop trigger if exists powerhub_sync_legacy_invoice_due_days_trigger on public.sites;
 drop trigger if exists powerhub_sync_invoice_due_interval_trigger on public.sites;
