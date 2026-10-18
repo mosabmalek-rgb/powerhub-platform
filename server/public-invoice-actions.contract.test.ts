@@ -54,6 +54,19 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain('previewInvoiceStatus === "error"');
     expect(billing).toContain("إعادة المحاولة");
     expect(billing).toContain("event.source !== previewIframeRef.current?.contentWindow");
+    expect(billing).toContain("powerhub-public-invoice-parent-ready");
+    expect(billing).toContain("window.setInterval(() =>");
+    expect(publicInvoice).toContain("powerhub-public-invoice-parent-ready");
+    expect(publicInvoice).toContain("event.source !== window.parent");
+
+    const main = read("client/src/main.tsx");
+    const app = read("client/src/App.tsx");
+    expect(main).toContain("if (isStandalonePublicInvoiceRoute()) return {};");
+    expect(main).toContain("if (isStandalonePublicInvoiceRoute()) {");
+    expect(main).toContain("void bootstrapOfflineState().finally(renderApp)");
+    expect(app).toContain('const Home = lazy(() => import("./pages/Home"))');
+    expect(app).toContain('const RouteAccessGate = lazy(() => import("@/components/RouteAccessGate")');
+    expect(app).toContain('const LoginPage = lazy(() => import("./pages/LoginPage"))');
   });
 
   it("opens invoice preview as an overlay dialog without navigating away or opening a new tab", () => {
