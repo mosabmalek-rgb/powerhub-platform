@@ -106,21 +106,6 @@ export default function PaymentDocumentationReviewPage() {
       utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
     ]).catch(() => toast.warning("تم رفض الطلب، لكن تعذر تحديث بعض البيانات المعروضة."));
   };
-  const toggleReceipt = async (requestId:number) => {
-    if (receiptUrls[requestId]) {
-      setReceiptUrls(current=>{const next={...current};delete next[requestId];return next;});
-      return;
-    }
-    setReceiptLoadingId(requestId);
-    try {
-      const result = await utils.powerhub.paymentDocumentation.receiptUrl.fetch({siteId:siteId??0,requestId});
-      setReceiptUrls(current=>({...current,[requestId]:result.url}));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر فتح صورة التحويل.");
-    } finally {
-      setReceiptLoadingId(null);
-    }
-  };
   const openReceiptPreview = async (requestId: number) => {
     let url = receiptUrls[requestId];
     if (!url) {
