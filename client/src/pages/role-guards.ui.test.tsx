@@ -393,7 +393,7 @@ describe("role guards in administration UI", () => {
       { id: 11, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 },
       { id: 12, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 },
       { id: 13, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0, displayOrder: 3 },
-      { id: 14, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: 0, displayOrder: 4 },
+      { id: 14, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: 0.004, displayOrder: 4 },
     ];
     render(<PaymentDocumentationPage />);
     expect(screen.getByText("تسوية الحد الأدنى للاستهلاك")).toBeInTheDocument();
