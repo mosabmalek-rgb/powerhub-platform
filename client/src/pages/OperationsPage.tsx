@@ -114,7 +114,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   const readingsQuery = trpc.powerhub.readings.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsReadings });
   const invoicesQuery = trpc.powerhub.invoices.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsInvoices });
   const paymentsQuery = trpc.powerhub.payments.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsPayments });
-  const expensesQuery = trpc.powerhub.expenses.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsExpenses });
+  const expensesQuery = trpc.powerhub.expenses.page.useQuery({ siteId: siteId ?? 0, limit: 100 }, { enabled: canQuery && needsExpenses && !canManageExpenses });
   const readings = readingsQuery.data?.items ?? [];
   const invoices = invoicesQuery.data?.items ?? [];
   const payments = paymentsQuery.data?.items ?? [];
@@ -234,7 +234,7 @@ export default function OperationsPage({ section }: { section: Section }) {
     }
     addPayment.mutate(completePayload);
   };
-  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <>{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} expenses={expenses} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule expenses={expenses} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
+  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <>{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule expenses={expenses} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }
 
 function SubscribersOverview({ data, canManage }: { data: any[]; canManage: boolean }) {
@@ -442,26 +442,29 @@ function CollectorSessionsPanel({ siteId }: { siteId: number }) {
 }
 
 function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any) {
-  const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId });
-  const accounts = accountsQuery.data ?? [];
   const [accountId, setAccountId] = useState("");
   const [expenseAccountFilter, setExpenseAccountFilter] = useState("");
   const [period, setPeriod] = useState<"today" | "cycle" | "monthEnd" | "custom">("cycle");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId });
+  const accounts = accountsQuery.data ?? [];
+  const cycleBoundsQuery = trpc.powerhub.readingCycle.currentBounds.useQuery({ siteId }, { enabled: period === "cycle" });
   const selectedAccount = accounts.find((account: any) => account.id === Number(accountId));
   const today = new Date();
-  const localDate = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
+  const dateKey = (value: string | Date) => {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+    const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+    return `${part("year")}-${part("month")}-${part("day")}`;
   };
-  const currentDate = localDate(today);
-  const firstOfMonth = localDate(new Date(today.getFullYear(), today.getMonth(), 1));
-  const lastOfMonth = localDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
-  const startDate = period === "today" ? currentDate : period === "cycle" ? firstOfMonth : period === "monthEnd" ? currentDate : period === "custom" ? customStart : undefined;
-  const endDate = period === "today" ? currentDate : period === "cycle" ? currentDate : period === "monthEnd" ? lastOfMonth : period === "custom" ? customEnd : undefined;
+  const currentDate = dateKey(today);
+  const lastOfMonth = dateKey(new Date(Number(currentDate.slice(0, 4)), Number(currentDate.slice(5, 7)), 0));
+  const cycleStart = cycleBoundsQuery.data ? dateKey(cycleBoundsQuery.data.startAt) : "";
+  const cycleEnd = cycleBoundsQuery.data ? dateKey(cycleBoundsQuery.data.endAt) : "";
+  const startDate = period === "today" ? currentDate : period === "cycle" ? cycleStart : period === "monthEnd" ? currentDate : period === "custom" ? customStart : undefined;
+  const endDate = period === "today" ? currentDate : period === "cycle" ? cycleEnd : period === "monthEnd" ? lastOfMonth : period === "custom" ? customEnd : undefined;
   const expenseQueryInput = {
     siteId,
     limit: 100,
@@ -469,7 +472,9 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
     ...(expenseAccountFilter ? { companyAccountId: Number(expenseAccountFilter) } : {}),
   };
   const customRangeValid = period !== "custom" || Boolean(customStart && customEnd && customStart <= customEnd);
-  const expensesQuery = trpc.powerhub.expenses.page.useQuery(expenseQueryInput, { enabled: customRangeValid });
+  const cycleRangeReady = period !== "cycle" || Boolean(cycleBoundsQuery.data && cycleStart && cycleEnd && cycleStart <= cycleEnd && !cycleBoundsQuery.isError);
+  const filtersReady = customRangeValid && cycleRangeReady;
+  const expensesQuery = trpc.powerhub.expenses.page.useQuery(expenseQueryInput, { enabled: filtersReady });
   const expenses = expensesQuery.data?.items ?? [];
 
   return <div className="space-y-6">
@@ -536,6 +541,7 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
           <Field label="إلى تاريخ"><input type="date" value={customEnd} min={customStart || undefined} onChange={(event) => setCustomEnd(event.target.value)} className={inputClass} /></Field>
         </div> : null}
         {period === "custom" && (!customStart || !customEnd || customStart > customEnd) ? <p className="mb-3 text-sm text-amber-300">حدد تاريخ البداية والنهاية بصورة صحيحة لعرض المصروفات.</p> : null}
+        {period === "cycle" && cycleBoundsQuery.isError ? <div className="mb-3 rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحديد حدود دورة الفوترة. <Button size="sm" variant="outline" onClick={() => void cycleBoundsQuery.refetch()}>إعادة المحاولة</Button></div> : null}
         {expensesQuery.isLoading ? <div className="grid min-h-24 place-items-center"><Loader2 className="h-5 w-5 animate-spin text-[#F5B800]" /></div>
           : expensesQuery.isError ? <div className="rounded-lg border border-rose-400/20 p-4 text-sm text-rose-200">تعذر تحميل سجل المصروفات. <Button size="sm" variant="outline" onClick={() => void expensesQuery.refetch()}>إعادة المحاولة</Button></div>
           : expenses.length ? <div className="space-y-2">{expenses.map((x: any) => {
