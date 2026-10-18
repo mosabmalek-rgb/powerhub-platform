@@ -135,7 +135,7 @@ describe("public invoice and inquiry actions", () => {
     expect(build).toContain('html.matchAll(/<script\\\\b[^>]*>/gi)');
     expect(build).toContain('tag.match(/\\\\bsrc=["\']([^"\']+)["\']/i)');
     expect(build).toContain('record.file === entryFile');
-    expect(build).toContain('record.imports ?? []');
+    expect(build).toContain('entryRecord.imports ?? []');
     expect(build).toContain("Keep PDF, chart and spreadsheet dependencies behind dynamic imports.");
   });
 
