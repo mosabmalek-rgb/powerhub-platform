@@ -100,6 +100,7 @@ type ResolvedSupabaseSiteAccess = {
   permissions: PowerCapability[];
   tenantId: number;
   invoiceDueDays: number;
+  invoiceDueHours: number;
   usesPermissionOverride: boolean;
   isPlatformAdmin: boolean;
 };
@@ -136,7 +137,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   const platformAdmin = isActivePlatformAdmin({ role: user.role, platformRole: user.platform_role, accountStatus: user.account_status });
   if (platformAdmin) {
     reportSlowAccess("platform_admin");
-    return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, usesPermissionOverride: false, isPlatformAdmin: true };
+    return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, usesPermissionOverride: false, isPlatformAdmin: true };
   }
 
   // Membership and subscription are independent checks once the site's tenant is known.
@@ -154,7 +155,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
 
   if (membership.role === "owner") {
     reportSlowAccess("owner");
-    return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, usesPermissionOverride: false, isPlatformAdmin: false };
+    return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, usesPermissionOverride: false, isPlatformAdmin: false };
   }
 
   const staffProfilesStartedAt = performance.now();
@@ -182,7 +183,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
     permissions = asPermissions(customRole?.permissions);
   }
   reportSlowAccess("staff");
-  return { role, permissions, usesPermissionOverride, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, isPlatformAdmin: false };
+  return { role, permissions, usesPermissionOverride, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, isPlatformAdmin: false };
 }
 
 export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; usesPermissionOverride: boolean }> {
