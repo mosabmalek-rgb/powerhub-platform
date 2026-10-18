@@ -445,6 +445,7 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
   const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId });
   const accounts = accountsQuery.data ?? [];
   const [accountId, setAccountId] = useState("");
+  const [expenseAccountFilter, setExpenseAccountFilter] = useState("");
   const [period, setPeriod] = useState<"today" | "cycle" | "monthEnd" | "custom">("cycle");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -465,9 +466,10 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
     siteId,
     limit: 100,
     ...(startDate && endDate && startDate <= endDate ? { startDate, endDate } : {}),
-    ...(selectedAccount ? { companyAccountId: selectedAccount.id } : {}),
+    ...(expenseAccountFilter ? { companyAccountId: Number(expenseAccountFilter) } : {}),
   };
-  const expensesQuery = trpc.powerhub.expenses.page.useQuery(expenseQueryInput);
+  const customRangeValid = period !== "custom" || Boolean(customStart && customEnd && customStart <= customEnd);
+  const expensesQuery = trpc.powerhub.expenses.page.useQuery(expenseQueryInput, { enabled: customRangeValid });
   const expenses = expensesQuery.data?.items ?? [];
 
   return <div className="space-y-6">
@@ -523,7 +525,7 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
             </select>
           </Field>
           <Field label="الحساب المصروف منه">
-            <select value={accountId} onChange={(event) => setAccountId(event.target.value)} className={selectClass}>
+            <select value={expenseAccountFilter} onChange={(event) => setExpenseAccountFilter(event.target.value)} className={selectClass}>
               <option value="">كل حسابات الصرف</option>
               {accounts.map((account: any) => <option key={account.id} value={account.id}>{account.name} — {account.accountType ?? account.account_type ?? "حساب"}</option>)}
             </select>
