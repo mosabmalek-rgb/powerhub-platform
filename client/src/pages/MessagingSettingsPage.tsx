@@ -231,8 +231,8 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const sendManualFreeText = trpc.powerhub.unifiedMessaging.sendManualFreeText.useMutation({
     onSuccess: (result) => {
       if (result.status === "submitted" || result.status === "delivered") toast.success("تم إرسال الرسالة اليدوية إلى مزود SMS.");
-      else if (result.queued || result.status === "processing") toast.info("تم تجهيز الرسالة اليدوية؛ راجع سجل الرسائل لتأكيد النتيجة.");
       else if (result.status === "failed" || result.status === "needs_review") toast.warning(result.error || "تعذر تأكيد إرسال الرسالة؛ راجع سجل الرسائل قبل إعادة المحاولة.");
+      else if (result.queued || result.status === "processing") toast.info("تم تجهيز الرسالة اليدوية؛ راجع سجل الرسائل لتأكيد النتيجة.");
       else toast.info(result.error || "تمت معالجة طلب الرسالة اليدوية دون تأكيد الإرسال.");
       if (result.status !== "processing") setManualFreeOperationId(crypto.randomUUID());
       void utils.powerhub.unifiedMessaging.history.invalidate();
