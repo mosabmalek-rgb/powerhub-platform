@@ -87,7 +87,7 @@ begin
  update public.platform_sms_plans set name=coalesce(nullif(trim(p_name),''),name),
   description=case when p_description is null then description else nullif(trim(p_description),'') end,
   included_messages=coalesce(p_messages,included_messages),price_amount=coalesce(p_price,price_amount),
-  currency=coalesce(upper(trim(p_currency)),currency),is_active=coalesce(p_is_active,is_active),updated_at=now()
+  currency=coalesce(upper(trim(p_currency)),currency),is_active=coalesce(p_is_active,public.platform_sms_plans.is_active),updated_at=now()
  where platform_sms_plans.id=p_id returning * into v_row;
  if not found then return; end if;
  insert into public.platform_security_events(event_type,severity,status,title,details,metadata,created_by_user_id)
