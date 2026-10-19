@@ -220,6 +220,16 @@ begin
   from public.powerhub_admin_confirm_sms_recharge(1,v_id,'manual_confirmed',80,null,null,null);
   if not v_replayed then raise exception 'REPEATED_CONFIRMATION_NOT_IDEMPOTENT'; end if;
 
+  -- Simulate a retry after the original response was lost and an administrator
+  -- already confirmed the request. The original ledger row/state must be returned.
+  select ledger_id,status into v_retry_id,v_status
+  from public.powerhub_admin_create_sms_recharge_request(
+    1,10,100,'إعادة المحاولة بعد الحسم','10000000-0000-0000-0000-000000000001'::uuid
+  );
+  if v_retry_id<>v_id or v_status<>'manual_confirmed' then
+    raise exception 'FINALIZED_IDEMPOTENT_REQUEST_REPLAY_FAILED';
+  end if;
+
   v_caught:=false;
   begin
     perform * from public.powerhub_admin_confirm_sms_recharge(1,v_id,'failed',0,null,null,'تعارض اختبار');
