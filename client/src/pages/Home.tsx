@@ -30,99 +30,32 @@ function QuotaLoadErrorCard({ labels, onRetry }: { labels: string[]; onRetry: ()
   return <Card role="alert" className="border-rose-400/25 bg-[#111823] shadow-panel"><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-rose-200">تعذر تحميل بيانات بعض الحصص</h2><p className="mt-1 text-sm leading-6 text-slate-300">تعذر تحميل: {labels.join("، ")}. لم نفترض أن أي حصة صفر أو أنها مستنفدة.</p></div><Button type="button" variant="outline" onClick={() => { void onRetry(); }} className="border-white/15 text-white hover:bg-white/5 hover:text-white">إعادة المحاولة</Button></CardContent></Card>;
 }
 
-function SmsQuotaDashboardCard({
-  quota, loading, onOpen, addonRequests = [], canRequestAddon = false, requestingAddon = false,
-  onRequestAddon, packageRequest, packageRequestLoading = false, packageRequestError = false,
-  requestingPackage = false, hiddenPackageRequest = false, onDismissPackageRequest = () => {},
-  onRetryPackageRequest, onRequestPackage,
-}: {
-  quota: any;
-  loading: boolean;
-  onOpen: () => void;
-  addonRequests?: any[];
-  canRequestAddon?: boolean;
-  requestingAddon?: boolean;
-  onRequestAddon?: (messages: number) => void;
-  packageRequest?: any;
-  packageRequestLoading?: boolean;
-  packageRequestError?: boolean;
-  requestingPackage?: boolean;
-  hiddenPackageRequest?: boolean;
-  onDismissPackageRequest?: () => void;
-  onRetryPackageRequest?: () => unknown;
-  onRequestPackage?: (messages: number, note?: string) => void;
+function SmsQuotaDashboardCard({quota,loading,packages=[],packageRequest,packageRequestLoading=false,packageRequestError=false,requestingPackage=false,onRetryPackageRequest,onRequestPackage,onOpen}:{
+ quota:any;loading:boolean;packages?:any[];packageRequest?:any;packageRequestLoading?:boolean;packageRequestError?:boolean;requestingPackage?:boolean;
+ onRetryPackageRequest?:()=>unknown;onRequestPackage?:(packageId:number,note?:string)=>void;onOpen:()=>void;
 }) {
-  if (loading) return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="h-40 animate-pulse p-5"><div className="h-4 w-48 rounded bg-white/10" /><div className="mt-6 h-9 w-28 rounded bg-white/10" /><div className="mt-5 h-2 w-full rounded bg-white/5" /></CardContent></Card>;
-
-  const total = Number(quota?.total ?? 0);
-  const used = Number(quota?.used ?? 0);
-  const remaining = Number(quota?.remaining ?? 0);
-  const percent = total > 0 ? Math.min(100, (used / total) * 100) : 0;
-  const unavailable = !quota?.configured || !quota?.isActive;
-  const exhausted = total > 0 && remaining <= 0;
-  const warning = unavailable || exhausted || percent >= 80;
-  const packageRequestPending = packageRequest?.status === "pending" || packageRequest?.status === "reviewing";
-  const canRequestPackage = total > 0 && !unavailable && (exhausted || percent >= 80);
-  const progress = unavailable || exhausted ? "bg-rose-400" : percent >= 80 ? "bg-amber-300" : "bg-emerald-400";
-  const state = !quota?.configured ? "حساب TweetSMS غير مهيأ" : !quota?.isActive ? "إرسال SMS موقوف" : exhausted ? "الرصيد مستنفد" : percent >= 80 ? "الرصيد يقترب من النفاد" : "رصيد الرسائل متاح";
-  const stateTone = warning ? exhausted || unavailable ? "text-rose-300" : "text-amber-200" : "text-emerald-300";
-  const activeSms = addonRequests.filter((r: any) => r.addonCode === "sms" && r.status === "approved" && (!r.endsAt || new Date(r.endsAt) > new Date()));
-  const activeSmsTotal = activeSms.reduce((sum: number, r: any) => sum + Number(r.quantity || 0), 0);
-
-  return <Card className={`${warning ? "border-amber-300/25" : "border-emerald-400/20"} bg-[#111823] shadow-panel`}>
-    <CardContent className="p-5 sm:p-6">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/[.04] ${stateTone}`}><MessageSquareText className="h-5 w-5" /></span>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-bold text-white">رصيد رسائل SMS</h2>
-              <Badge className={warning ? "bg-amber-300/10 text-amber-200" : "bg-emerald-400/10 text-emerald-300"}>{state}</Badge>
-            </div>
-            <p className="mt-1 text-sm text-slate-400">الحصة الشهرية للفرع المحدد، من دون كشف مفتاح API أو بيانات الربط.</p>
-            <p className="mt-2 text-xs text-slate-500">المرسل: <strong className="font-bold text-slate-300" dir="ltr">{quota?.senderName || "غير مهيأ"}</strong></p>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-3 text-center sm:min-w-[330px]">
-          <div className="rounded-xl border border-white/8 bg-white/[.02] px-3 py-3"><p className="text-[11px] text-slate-500">المتبقي</p><p className="mt-1 font-display text-2xl font-extrabold text-white">{number(remaining)}</p></div>
-          <div className="rounded-xl border border-white/8 bg-white/[.02] px-3 py-3"><p className="text-[11px] text-slate-500">المستخدم</p><p className="mt-1 font-display text-2xl font-extrabold text-slate-200">{number(used)}</p></div>
-          <div className="rounded-xl border border-white/8 bg-white/[.02] px-3 py-3"><p className="text-[11px] text-slate-500">الإجمالي</p><p className="mt-1 font-display text-2xl font-extrabold text-[#F5B800]">{number(total)}</p></div>
-        </div>
-      </div>
-      <div className="mt-5">
-        <div className="flex items-center justify-between text-xs"><span className="text-slate-500">استهلاك الحصة الشهرية</span><span className="font-bold text-slate-300">{number(percent)}%</span></div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/30"><div className={`h-full rounded-full transition-[width] duration-300 ${progress}`} style={{ width: `${percent}%` }} /></div>
-      </div>
-
-      <div className="mt-5 rounded-xl border border-white/8 bg-white/[.018] p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><p className="font-bold text-white">إضافة SMS مع الاشتراك</p><p className="mt-1 text-xs text-slate-500">إضافة تتجدد مع الاشتراك عند اختيار التجديد، وليست حزمة مؤقتة.</p></div>
-          <span className="text-xs text-slate-500">{activeSmsTotal ? `الإضافي الفعال: ${activeSmsTotal.toLocaleString("ar-EG")} رسالة` : "لا توجد إضافة SMS فعالة"}</span>
-        </div>
-        {canRequestAddon && <div className="mt-3 flex flex-wrap gap-2">{[500, 1000, 5000, 10000].map((amount) => <Button key={amount} type="button" variant="outline" disabled={Boolean(requestingAddon)} onClick={() => onRequestAddon?.(amount)} className="border-white/15 text-white hover:bg-white/5 hover:text-[#F5B800]">طلب +{number(amount)} رسالة كإضافة متجددة</Button>)}</div>}
-      </div>
-
-      {canRequestPackage && !hiddenPackageRequest && <div className={`mt-4 rounded-xl border p-4 ${exhausted ? "border-rose-400/25 bg-rose-400/[.045]" : "border-amber-300/25 bg-amber-300/[.035]"}`}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><p className="font-bold text-white">تحتاج إلى رصيد رسائل إضافي؟</p><p className="mt-1 text-xs leading-5 text-slate-400">يمكنك طلب حزمة مؤقتة للمراجعة. هذا الطلب منفصل عن إضافة SMS التي تتجدد مع الاشتراك.</p></div>
-          <button type="button" onClick={onDismissPackageRequest} className="text-xs text-slate-400 underline-offset-4 hover:text-white hover:underline">إخفاء مؤقت</button>
-        </div>
-        {packageRequestError ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-rose-200">تعذر التحقق من حالة طلب الحزمة الحالي. أعد المحاولة قبل إرسال طلب جديد.</p><Button type="button" variant="outline" onClick={() => { void onRetryPackageRequest?.(); }} className="border-rose-300/30 text-rose-100 hover:bg-rose-300/10">إعادة التحقق من الطلب</Button></div> : packageRequestLoading ? <p className="mt-3 text-sm text-slate-400">جارٍ التحقق من الطلب السابق...</p> : packageRequestPending ? <p className="mt-3 text-sm font-bold text-amber-200">لديك طلب حزمة قيد المراجعة: {number(packageRequest.requestedMessages)} رسالة. لن نرسل طلبًا آخر قبل انتهاء المراجعة.</p> : packageRequest?.status === "approved" ? <p className="mt-3 text-sm font-bold text-emerald-300">تم اعتماد آخر طلب وإضافة {number(packageRequest.approvedMessages)} رسالة إلى الرصيد.</p> : packageRequest?.status === "rejected" ? <p className="mt-3 text-sm font-bold text-rose-300">رُفض آخر طلب. يمكنك إرسال طلب جديد.</p> : null}
-        <div className="mt-3 flex flex-wrap gap-2">
-          {[1000, 5000, 10000].map((amount) => <Button key={amount} type="button" variant="outline" aria-label={`طلب حزمة ${amount} رسالة`} disabled={packageRequestLoading || packageRequestError || requestingPackage || packageRequestPending} onClick={() => onRequestPackage?.(amount)} className="border-white/15 text-white hover:bg-white/5 hover:text-[#F5B800]">{number(amount)} رسالة</Button>)}
-        </div>
-        <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const messages = Number(form.get("messages")); if (messages > 0) onRequestPackage?.(messages); }}>
-          <input required name="messages" type="number" min="1" max="100000000" placeholder="عدد الرسائل" aria-label="عدد الرسائل المطلوبة" disabled={packageRequestLoading || packageRequestError || requestingPackage || packageRequestPending} className="h-10 min-w-0 flex-1 rounded-xl border border-white/15 bg-black/20 px-3 text-sm text-white outline-none focus:border-[#F5B800] disabled:opacity-50" dir="ltr" />
-          <Button type="submit" disabled={packageRequestLoading || packageRequestError || requestingPackage || packageRequestPending} className={exhausted ? "bg-rose-300 font-bold text-[#0D1117] hover:bg-rose-200" : "bg-amber-200 font-bold text-[#0D1117] hover:bg-amber-100"}>{packageRequestPending ? "الطلب قيد المراجعة" : requestingPackage ? "جارٍ إرسال الطلب…" : "طلب حزمة"}</Button>
-        </form>
-      </div>}
-
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <p className={`text-xs ${stateTone}`}>{quota?.lastError || (unavailable ? "راجع آدمن PowerHub لإكمال أو تفعيل إعداد الرسائل." : "الحالة معروضة للاستخدام اليومي.")}</p>
-        <button type="button" onClick={onOpen} className="text-sm font-bold text-[#F5B800] transition hover:text-[#ffd23f]">تفاصيل الرسائل والإشعارات <ChevronLeft className="mr-1 inline h-4 w-4" /></button>
-      </div>
-    </CardContent>
-  </Card>;
+ const [selectedPackageId,setSelectedPackageId]=useState("");
+ if(loading)return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="h-40 animate-pulse p-5"><div className="h-4 w-48 rounded bg-white/10"/><div className="mt-6 h-9 w-28 rounded bg-white/10"/><div className="mt-5 h-2 w-full rounded bg-white/5"/></CardContent></Card>;
+ const total=Number(quota?.total??0),used=Number(quota?.used??0),remaining=Number(quota?.remaining??0);
+ const providerLimit=Number(quota?.providerMonthlyLimit??0),providerUsed=Number(quota?.providerMonthlyUsed??0);
+ const percent=total>0?Math.min(100,used/total*100):0;
+ const unavailable=!quota?.configured||!quota?.isActive,exhausted=total>0&&remaining<=0,warning=unavailable||exhausted||percent>=80;
+ const pending=["pending","reviewing"].includes(String(packageRequest?.status??""))||packageRequest?.ledgerStatus==="pending";
+ const tone=warning?exhausted||unavailable?"text-rose-300":"text-amber-200":"text-emerald-300";
+ const state=!quota?.configured?"حساب TweetSMS غير مهيأ":!quota?.isActive?"الإرسال غير مفعل":total<=0?"لا يوجد رصيد مشحون":exhausted?"الرصيد مستنفد":percent>=80?"الرصيد يقترب من النفاد":"رصيد الرسائل متاح";
+ const selectedId=selectedPackageId||String(packages[0]?.id??"");
+ const price=(pkg:any)=>Number(pkg?.price??0)>0?`${number(pkg.price,2)} ${pkg.currency==="ILS"?"₪":pkg.currency}`:"السعر يحدده الإدارة";
+ return <Card className={`${warning?"border-amber-300/25":"border-emerald-400/20"} bg-[#111823] shadow-panel`}><CardContent className="p-5 sm:p-6">
+  <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/[.04] ${tone}`}><MessageSquareText className="h-5 w-5"/></span><div><div className="flex flex-wrap items-center gap-2"><h2 className="font-bold text-white">محفظة رسائل SMS</h2><Badge className={warning?"bg-amber-300/10 text-amber-200":"bg-emerald-400/10 text-emerald-300"}>{state}</Badge></div><p className="mt-1 text-sm leading-6 text-slate-400">رصيد مدفوع دائم لا تنتهي صلاحيته ولا يتجدد شهرياً. يُحتسب الاستهلاك بمقاطع الرسائل.</p><p className="mt-2 text-xs text-slate-500">المرسل: <strong className="font-bold text-slate-300" dir="ltr">{quota?.senderName||"غير مهيأ"}</strong></p></div></div>
+   <div className="grid grid-cols-3 gap-3 text-center sm:min-w-[330px]"><div className="rounded-xl border border-white/8 bg-white/[.02] px-3 py-3"><p className="text-[11px] text-slate-500">المتبقي</p><p className="mt-1 font-display text-2xl font-extrabold text-white">{number(remaining)}</p></div><div className="rounded-xl border border-white/8 bg-white/[.02] px-3 py-3"><p className="text-[11px] text-slate-500">المستهلك (مقاطع)</p><p className="mt-1 font-display text-2xl font-extrabold text-slate-200">{number(used)}</p></div><div className="rounded-xl border border-white/8 bg-white/[.02] px-3 py-3"><p className="text-[11px] text-slate-500">إجمالي المشحون</p><p className="mt-1 font-display text-2xl font-extrabold text-[#F5B800]">{number(total)}</p></div></div></div>
+  <div className="mt-5"><div className="flex items-center justify-between text-xs"><span className="text-slate-500">استهلاك المحفظة الدائمة</span><span className="font-bold text-slate-300">{number(percent)}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-black/30"><div className={`h-full rounded-full ${exhausted?"bg-rose-400":percent>=80?"bg-amber-300":"bg-emerald-400"}`} style={{width:`${percent}%`}}/></div></div>
+  <div className="mt-4 rounded-xl border border-sky-300/15 bg-sky-300/[.035] p-4"><p className="font-bold text-white">حد مزود الرسائل الشهري</p><p className="mt-1 text-xs leading-5 text-slate-400">هذا الحد منفصل عن الرصيد المدفوع ولا يغيّر مدة صلاحية المحفظة.</p><p className="mt-2 text-sm font-bold text-sky-200">{providerLimit>0?`${number(providerUsed)} مستخدم من ${number(providerLimit)} مقطع، والمتبقي ${number(Math.max(0,providerLimit-providerUsed))}`:"لا يوجد حد شهري رقمي مضبوط لدى المزود."}</p></div>
+  <div className="mt-4 rounded-xl border border-white/8 bg-white/[.018] p-4"><h3 className="font-bold text-white">شراء حزمة رسائل مستقلة</h3><p className="mt-1 text-xs leading-5 text-slate-400">اختر حزمة محددة من إدارة المنصة. لا يضاف الرصيد إلا بعد مراجعة الطلب وشحنه.</p>
+   {packageRequestError?<div className="mt-3 flex items-center justify-between gap-3"><p className="text-sm text-rose-200">تعذر التحقق من الطلب السابق؛ أعد المحاولة قبل طلب جديد.</p><Button type="button" variant="outline" onClick={()=>{void onRetryPackageRequest?.();}}>إعادة المحاولة</Button></div>:packageRequestLoading?<p className="mt-3 text-sm text-slate-400">جارٍ التحقق من حالة الطلب…</p>:pending?<p className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/[.04] p-3 text-sm font-bold text-amber-200">لديك طلب بانتظار المراجعة: {number(packageRequest?.requestedMessages)} رسالة. لن يتاح طلب آخر حتى حسمه.</p>:packageRequest?.status==="approved"?<p className="mt-3 text-sm font-bold text-emerald-300">تم اعتماد الطلب؛ راجع إجمالي الرصيد المشحون أعلاه.</p>:packageRequest?.status==="rejected"?<p className="mt-3 text-sm font-bold text-rose-300">رُفض آخر طلب؛ يمكنك اختيار حزمة أخرى.</p>:packageRequest?.status==="cancelled"?<p className="mt-3 text-sm text-slate-400">أُلغي آخر طلب؛ يمكنك اختيار حزمة أخرى.</p>:null}
+   <div className="mt-3 flex flex-col gap-2 sm:flex-row"><select aria-label="حزمة رصيد SMS" value={selectedId} onChange={e=>setSelectedPackageId(e.target.value)} disabled={!packages.length||pending||packageRequestLoading||packageRequestError||requestingPackage} className="h-10 min-w-0 flex-1 rounded-xl border border-white/15 bg-[#0D1117] px-3 text-sm text-white disabled:opacity-50">{!packages.length&&<option value="">لا توجد حزم مفعلة حالياً</option>}{packages.map((pkg:any)=><option key={pkg.id} value={String(pkg.id)}>{pkg.name} — {number(pkg.messages)} رسالة — {price(pkg)}</option>)}</select><Button type="button" disabled={!packages.length||!selectedId||pending||packageRequestLoading||packageRequestError||requestingPackage} onClick={()=>onRequestPackage?.(Number(selectedId))} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{requestingPackage?"جارٍ إرسال الطلب…":"طلب هذه الحزمة"}</Button></div>
+  </div>
+  <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className={`text-xs ${tone}`}>{quota?.lastError||(unavailable?"راجع إدارة PowerHub لتفعيل الإرسال.":"المحفظة وحد مزود الخدمة معروضان بشكل منفصل.")}</p><button type="button" onClick={onOpen} className="text-sm font-bold text-[#F5B800] hover:text-[#ffd23f]">تفاصيل الرسائل والإشعارات <ChevronLeft className="mr-1 inline h-4 w-4"/></button></div>
+ </CardContent></Card>;
 }
 
 function BranchQuotaDashboardCard({ policy, loading, onOpen }: { policy: any; loading: boolean; onOpen: () => void }) { if (loading) return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="h-32 animate-pulse p-5" /></Card>; const limit = Number(policy?.maxBranches ?? 1); const current = Number(policy?.currentCount ?? 0); const remaining = Number(policy?.remaining ?? 0); const percent = limit ? Math.min(100, Math.round(current / limit * 100)) : 100; const exhausted = remaining <= 0; const warning = exhausted || percent >= 80; const tone = exhausted ? "rose" : warning ? "amber" : "sky"; return <Card className={`${warning ? "border-amber-400/25" : "border-sky-400/20"} bg-[#111823] shadow-panel`}><CardContent className="p-5"><div className="flex items-start justify-between gap-4"><div><p className="font-bold text-white">استهلاك حصة الأفرع</p><p className="mt-1 text-sm text-slate-400">{policy?.isEnabled ? exhausted ? "بلغت الحد الأقصى للأفرع المتاحة." : `يمكنك إنشاء ${number(remaining)} فرع إضافي.` : "ميزة الأفرع الإضافية غير مفعلة في باقتك."}</p></div><Badge className={tone === "rose" ? "bg-rose-400/10 text-rose-300" : tone === "amber" ? "bg-amber-400/10 text-amber-200" : "bg-sky-400/10 text-sky-300"}>{percent}%</Badge></div><div className="mt-4"><div className="flex justify-between text-xs text-slate-500"><span>{number(current)} من {number(limit)} فرع</span><button type="button" onClick={onOpen} className="font-bold text-[#F5B800] hover:underline">إدارة الأفرع</button></div><div role="progressbar" aria-label="استهلاك حصة الأفرع" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} className="mt-2 h-2 overflow-hidden rounded-full bg-black/30"><div className={`${tone === "rose" ? "bg-rose-400" : tone === "amber" ? "bg-amber-300" : "bg-sky-400"} h-full rounded-full transition-[width] duration-300`} style={{ width: `${percent}%` }} /></div></div></CardContent></Card>; }
@@ -164,11 +97,11 @@ export function WorkspaceHome() {
   const packageCodes = (packageCatalogQuery.data?.packages ?? []).filter((pkg: any) => pkg.active !== false).map((pkg: any) => String(pkg.code));
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
+  const smsCreditPackagesQuery = trpc.powerhub.messaging.smsCreditPackages.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), staleTime: 60_000 });
   const branchPolicyQuery = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
   const subaccountQuotaQuery = trpc.powerhub.staff.allowedSubaccountRoles.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
   const smsPackageRequestQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), refetchInterval: 15000 });
-  const [hiddenSmsAlertKey, setHiddenSmsAlertKey] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("powerhub.sms-alert-hidden"));
-  const requestSmsPackage = trpc.powerhub.messaging.requestSmsPackage.useMutation({ onSuccess: async () => { setHiddenSmsAlertKey(null); window.localStorage.removeItem("powerhub.sms-alert-hidden"); await smsPackageRequestQuery.refetch(); toast.success("تم إرسال طلب حزمة الرسائل للمراجعة."); }, onError: (error) => toast.error(error.message) });
+  const requestSmsPackage = trpc.powerhub.messaging.requestSmsPackage.useMutation({ onSuccess: async () => { await Promise.all([smsPackageRequestQuery.refetch(), smsQuotaQuery.refetch()]); toast.success("تم إرسال طلب الحزمة للمراجعة."); }, onError: (error) => toast.error(error.message) });
   // Most owners have a single branch; skip the cross-branch permission query unless it can affect the UI.
   const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword) });
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
@@ -249,7 +182,7 @@ export function WorkspaceHome() {
     <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={financialOverviewQuery.isError} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError} loading={financialOverviewQuery.isLoading || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading : summaryQuery.isLoading)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
     {failedQuotaLabels.length > 0 ? <QuotaLoadErrorCard labels={failedQuotaLabels} onRetry={retryFailedQuotaQueries} /> : null}
-    {accessQuery.data?.role === "owner" && !smsQuotaQuery.isError ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} addonRequests={addonRequestsQuery.data ?? []} canRequestAddon onRequestAddon={(messages) => requestAddon.mutate({ siteId: siteId!, addonCode: "sms", quantity: messages })} requestingAddon={requestAddon.isPending} packageRequest={smsPackageRequestQuery.data} packageRequestLoading={smsPackageRequestQuery.isLoading} packageRequestError={smsPackageRequestQuery.isError} requestingPackage={requestSmsPackage.isPending} hiddenPackageRequest={Boolean(smsAlertKey && hiddenSmsAlertKey === smsAlertKey)} onDismissPackageRequest={() => { if (smsAlertKey) { setHiddenSmsAlertKey(smsAlertKey); window.localStorage.setItem("powerhub.sms-alert-hidden", smsAlertKey); } }} onRetryPackageRequest={() => smsPackageRequestQuery.refetch()} onRequestPackage={(messages, note) => requestSmsPackage.mutate({ siteId: siteId!, requestedMessages: messages, note })} onOpen={() => setLocation("/notifications")} /> : null}
+    {accessQuery.data?.role === "owner" && !smsQuotaQuery.isError ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} packages={smsCreditPackagesQuery.data ?? []} packageRequest={smsPackageRequestQuery.data} packageRequestLoading={smsPackageRequestQuery.isLoading} packageRequestError={smsPackageRequestQuery.isError} requestingPackage={requestSmsPackage.isPending} onRetryPackageRequest={() => smsPackageRequestQuery.refetch()} onRequestPackage={(packageId, note) => requestSmsPackage.mutate({ siteId: siteId!, packageId, note })} onOpen={() => setLocation("/notifications")} /> : null}
     {!subscriberQuotaQuery.isError ? <SubscriberQuotaDashboardCard packageCodes={packageCodes} quota={subscriberQuotaQuery.data} upgradeRequest={upgradeRequestQuery.data ? { ...upgradeRequestQuery.data, requestedPackageCode: upgradeRequestQuery.data.requestedPackageCode } : null} addonRequests={addonRequestsQuery.data ?? []} canRequestUpgrade={accessQuery.data?.role === "owner"} requesting={requestUpgrade.isPending} requestingAddon={requestAddon.isPending} onRequestUpgrade={(requestedPackageCode) => requestUpgrade.mutate({ siteId: siteId!, requestedPackageCode })} onRequestAddon={() => requestAddon.mutate({ siteId: siteId!, addonCode: "subscribers50", quantity: 1 })} /> : null}
     {accessQuery.data?.role === "owner" && !branchPolicyQuery.isError ? <BranchQuotaDashboardCard policy={branchPolicyQuery.data} loading={branchPolicyQuery.isLoading} onOpen={() => setLocation("/branches")} /> : null}
     {accessQuery.data?.role === "owner" && !subaccountQuotaQuery.isError ? <TeamQuotaDashboardCard subaccountQuota={subaccountQuotaQuery.data} loading={subaccountQuotaQuery.isLoading} /> : null}
