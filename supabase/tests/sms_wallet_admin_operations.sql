@@ -513,10 +513,34 @@ do $test_claim_balance_guards$
 declare
   v_no_credit_id bigint;
   v_provider_limited_id bigint;
+  v_unsubscribed_id bigint;
   v_claim_id bigint;
   v_segments integer;
   v_caught boolean;
+  v_total bigint;
 begin
+  -- A previously credited wallet remains readable without an active subscription,
+  -- but it must not authorize sending when subscription eligibility is absent.
+  insert into public.subscribers(id,tenant_id,site_id,full_name,phone)
+  values(1301,13,131,'مشترك بلا اشتراك نشط','+970599000013');
+  insert into public.notification_messages(
+    tenant_id,subscriber_id,channel,event_type,status,payload,recipient
+  ) values(13,1301,'sms','invoice_issued','pending','{"renderedText":"inactive-subscription-test"}'::jsonb,'+970599000013')
+  returning id into v_unsubscribed_id;
+
+  select total_messages into v_total from public.powerhub_get_sms_quota(13);
+  if v_total<>70 then raise exception 'WALLET_BALANCE_HIDDEN_WITHOUT_ACTIVE_SUBSCRIPTION'; end if;
+  v_caught:=false;
+  begin
+    perform * from public.powerhub_claim_sms_notification(1,v_unsubscribed_id);
+  exception when others then
+    if sqlerrm='SMS_FEATURE_DISABLED' then v_caught:=true; else raise; end if;
+  end;
+  if not v_caught then raise exception 'SMS_SENT_WITHOUT_ACTIVE_SUBSCRIPTION'; end if;
+  if (select status from public.notification_messages where id=v_unsubscribed_id)<>'pending' then
+    raise exception 'INACTIVE_SUBSCRIPTION_CLAIM_MUTATED_MESSAGE';
+  end if;
+
   -- All provider credentials are fake values in this disposable database. This
   -- invokes the SQL queue-claim RPC only; no provider/network call is performed.
   insert into public.tenant_subscriptions(tenant_id,package_code,status,ends_at,created_at)
