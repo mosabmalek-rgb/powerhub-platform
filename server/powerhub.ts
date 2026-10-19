@@ -2761,7 +2761,12 @@ export const powerhubRouter = router({
           invoiceNo: String(receiptContext.invoice_no ?? ""),
           balanceDue: Number(receiptContext.balance_due ?? 0),
         };
-        const renderedText = renderPaymentReceiptTemplate(receiptContext.template_body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
+        const { data: billingPolicy, error: billingPolicyError } = await supabaseAdmin().from("site_billing_policies")
+          .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
+        if (billingPolicyError) throw new Error("تعذر تحميل سياسة تسوية الكسور لتنسيق مبلغ الإيصال.");
+        const settlementDisplayEnabled = Boolean(billingPolicy?.automatic_fraction_discount_enabled || billingPolicy?.fraction_carry_enabled);
+        const renderedText = renderPaymentReceiptTemplate(receiptContext.template_body ?? defaultPaymentReceiptSmsTemplate, receipt, settlementDisplayEnabled) || renderPaymentReceiptMessage(receipt, settlementDisplayEnabled);
         await measureSlowStage("paymentDocumentation.approve", "queue_receipt_notification", async () =>
           supabaseAdmin().rpc("powerhub_queue_payment_sms", {
             p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId,
@@ -3552,8 +3557,13 @@ export const powerhubRouter = router({
       if (invoiceError || !invoice || subscriberError || !subscriber?.phone) throw new TRPCError({ code: "NOT_FOUND", message: "لا تتوفر فاتورة ومشترك برقم هاتف ضمن الفرع المحدد." });
       let recipient: string;
       try { recipient = normalizeInternationalPhone(subscriber.phone); } catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." }); }
+      const { data: billingPolicy, error: billingPolicyError } = await admin.from("site_billing_policies")
+        .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
+        .eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (billingPolicyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة تسوية الكسور لتنسيق مبلغ الإيصال." });
+      const settlementDisplayEnabled = Boolean(billingPolicy?.automatic_fraction_discount_enabled || billingPolicy?.fraction_carry_enabled);
       const receipt = { subscriberName: subscriber.full_name, paymentNo: String(payment.payment_no), paymentAmount: Number(payment.amount), invoiceNo: String(invoice.invoice_no), balanceDue: Number(invoice.balance_due) };
-      const renderedText = renderPaymentReceiptTemplate(template?.body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
+      const renderedText = renderPaymentReceiptTemplate(template?.body ?? defaultPaymentReceiptSmsTemplate, receipt, settlementDisplayEnabled) || renderPaymentReceiptMessage(receipt, settlementDisplayEnabled);
       const { data: queueRows, error: queueError } = await admin.rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_event_type: "payment_received", p_invoice_id: Number(invoice.id), p_payment_id: Number(payment.id), p_operation_key: `payment_receipt:${payment.id}`, p_rendered_text: renderedText });
       if (queueError || !(queueRows as Array<{ notification_id: number }> | null)?.[0]) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تجهيز إيصال التحصيل عبر SMS." });
       const notificationId = Number((queueRows as Array<{ notification_id: number }>)[0].notification_id);
