@@ -155,7 +155,10 @@ export default function OperationsPage({ section }: { section: Section }) {
     refreshOperational(
       [() => utils.powerhub.readings.page.invalidate({ siteId: siteId ?? 0, limit: 100 })],
       [
+        // Reading creation issues an invoice. Refresh the active site's collection list and
+        // the reading workflow list without polling or invalidating unrelated sites.
         () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
+        () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 200 }),
         () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
         () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
       ],
