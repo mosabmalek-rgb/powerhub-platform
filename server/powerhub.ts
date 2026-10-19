@@ -602,78 +602,148 @@ export const powerhubRouter = router({
     const fallback = {
       currency: "ILS",
       version: 1,
+      showPlans: true,
       packages: [
-        { code: "basic", name: "الناشئة", price: 123, serviceNet: 72, smsCost: 51, includedMessages: 600, includedSubscribers: 150, subscribersLimitMode: "maximum", platformUsers: 2, fieldUsers: 1, branches: 1, active: true },
-        { code: "advanced", name: "النمو", price: 234, serviceNet: 132, smsCost: 102, includedMessages: 1200, includedSubscribers: 300, subscribersLimitMode: "maximum", platformUsers: 2, fieldUsers: 2, branches: 1, active: true },
-        { code: "professional", name: "الاحتراف", price: 345, serviceNet: 175, smsCost: 170, includedMessages: 2000, includedSubscribers: 500, subscribersLimitMode: "maximum", platformUsers: 3, fieldUsers: 3, branches: 1, active: true },
-        { code: "business", name: "الأعمال", price: 456, serviceNet: 201, smsCost: 255, includedMessages: 3000, includedSubscribers: 750, subscribersLimitMode: "maximum", platformUsers: 3, fieldUsers: 4, branches: 1, active: true },
-        { code: "vip", name: "الذهبية / VIP", price: 567, serviceNet: 227, smsCost: 340, includedMessages: 4000, includedSubscribers: 900, subscribersLimitMode: "minimum", platformUsers: 4, fieldUsers: 4, branches: 2, active: true },
+        { code: "basic", name: "الناشئة", price: 123, includedSubscribers: 150, subscribersLimitMode: "maximum", platformUsers: 2, fieldUsers: 1, branches: 1, active: true },
+        { code: "advanced", name: "النمو", price: 234, includedSubscribers: 300, subscribersLimitMode: "maximum", platformUsers: 2, fieldUsers: 2, branches: 1, active: true },
+        { code: "professional", name: "الاحتراف", price: 345, includedSubscribers: 500, subscribersLimitMode: "maximum", platformUsers: 3, fieldUsers: 3, branches: 1, active: true },
+        { code: "business", name: "الأعمال", price: 456, includedSubscribers: 750, subscribersLimitMode: "maximum", platformUsers: 3, fieldUsers: 4, branches: 1, active: true },
+        { code: "vip", name: "الذهبية / VIP", price: 567, includedSubscribers: 900, subscribersLimitMode: "minimum", platformUsers: 4, fieldUsers: 4, branches: 2, active: true },
       ],
       addons: {},
-      smsAddons: [],
     };
-    const { data, error } = await supabaseAdmin().from("platform_settings").select("is_enabled,value,message").eq("setting_key", "subscription_package_catalog").maybeSingle();
-    if (error || !data?.is_enabled || !data.value || typeof data.value !== "object" || Array.isArray(data.value)) return fallback;
-    const value = data.value as Record<string, unknown>;
-    const packages = Array.isArray(value.packages) ? value.packages.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && item.active !== false && typeof item.name === "string" && typeof item.price === "number")) : [];
-    return { currency: typeof value.currency === "string" ? value.currency : fallback.currency, version: Number(value.version ?? 1), message: data.message ?? null, packages: packages.length ? packages : fallback.packages, addons: value.addons ?? fallback.addons, smsAddons: value.smsAddons ?? fallback.smsAddons };
+    const admin = supabaseAdmin();
+    const [catalogResult, visibilityResult] = await Promise.all([
+      admin.from("platform_settings").select("is_enabled,value,message").eq("setting_key", "subscription_package_catalog").maybeSingle(),
+      admin.from("platform_settings").select("is_enabled,value").eq("setting_key", "public_plan_visibility").maybeSingle(),
+    ]);
+    const visibilityValue = visibilityResult.data?.value && typeof visibilityResult.data.value === "object" && !Array.isArray(visibilityResult.data.value)
+      ? visibilityResult.data.value as Record<string, unknown>
+      : {};
+    const showPlans = visibilityResult.data?.is_enabled === false ? true : visibilityValue.showPlans !== false;
+    const catalog = catalogResult.data;
+    if (catalogResult.error || !catalog?.is_enabled || !catalog.value || typeof catalog.value !== "object" || Array.isArray(catalog.value)) {
+      return { ...fallback, showPlans };
+    }
+    const value = catalog.value as Record<string, unknown>;
+    const rawPackages = Array.isArray(value.packages) ? value.packages.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && item.active !== false && typeof item.name === "string" && typeof item.price === "number")) : [];
+    const packages = (rawPackages.length ? rawPackages : fallback.packages).map((item) => {
+      const safe = { ...item };
+      delete safe.includedMessages;
+      delete safe.smsCost;
+      if (safe.features && typeof safe.features === "object" && !Array.isArray(safe.features)) {
+        const features = { ...(safe.features as Record<string, unknown>) };
+        delete features.sms;
+        safe.features = features;
+      }
+      return safe;
+    });
+    return {
+      currency: typeof value.currency === "string" ? value.currency : fallback.currency,
+      version: Number(value.version ?? 1),
+      message: catalog.message ?? null,
+      showPlans,
+      packages,
+      addons: value.addons ?? fallback.addons,
+    };
   }),
   messaging: router({
     smsQuota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");
-      const monthStart = new Date();
-      monthStart.setUTCDate(1);
-      monthStart.setUTCHours(0, 0, 0, 0);
+      const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
       const admin = supabaseAdmin();
-      const [accountResult, usageResult, quotaResult] = await Promise.all([
+      const [accountResult, providerMonthResult, walletResult] = await Promise.all([
         admin.from("tenant_tweetsms_accounts").select("sender_name, monthly_limit, is_active, credential_ciphertext, last_error").eq("tenant_id", scope.tenantId).maybeSingle(),
         admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
-        admin.rpc("powerhub_effective_tenant_quota", { p_tenant_id: scope.tenantId, p_resource: "sms" }),
+        admin.rpc("powerhub_get_sms_quota", { p_tenant_id: scope.tenantId }),
       ]);
-      if (accountResult.error || usageResult.error || quotaResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حصة الرسائل من Supabase." });
+      if (accountResult.error || providerMonthResult.error || walletResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل رصيد الرسائل من Supabase." });
       const account = accountResult.data;
-      const included = Number(account?.monthly_limit ?? 0);
-      const total = Number(Array.isArray(quotaResult.data) ? quotaResult.data[0] : quotaResult.data ?? included);
-      const additional = Math.max(0, total - included);
-      const used = (usageResult.data ?? []).reduce((sum, message) => sum + Math.max(1, Number(message.segment_count ?? 1)), 0);
-      return { plan: "tweetsms", planName: "TweetSMS", senderName: account?.sender_name ?? null, isActive: account?.is_active ?? false, configured: Boolean(account?.credential_ciphertext), lastError: account?.last_error ?? null, included, additional, total, used, remaining: Math.max(0, total - used) };
+      const wallet = (Array.isArray(walletResult.data) ? walletResult.data[0] : walletResult.data) as Record<string, unknown> | null;
+      const total = Number(wallet?.total_messages ?? 0);
+      const used = Number(wallet?.used_segments ?? 0);
+      const providerMonthlyUsed = (providerMonthResult.data ?? []).reduce((sum, message) => sum + Math.max(1, Number(message.segment_count ?? 1)), 0);
+      return {
+        plan: "sms-wallet", planName: "رصيد SMS الدائم", senderName: account?.sender_name ?? null,
+        isActive: account?.is_active ?? false, configured: Boolean(account?.credential_ciphertext),
+        lastError: account?.last_error ?? null, included: 0, additional: total, total, used,
+        remaining: Number(wallet?.remaining_messages ?? Math.max(0, total - used)),
+        providerMonthlyLimit: Number(account?.monthly_limit ?? 0), providerMonthlyUsed,
+        providerMonthlyRemaining: Math.max(0, Number(account?.monthly_limit ?? 0) - providerMonthlyUsed),
+      };
     }),
     smsDailyUsage: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "manageMessaging");
       const fourteenDaysAgo = new Date(); fourteenDaysAgo.setUTCDate(fourteenDaysAgo.getUTCDate() - 13); fourteenDaysAgo.setUTCHours(0, 0, 0, 0);
       const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
       const admin = supabaseAdmin();
-      const [accountResult, messagesResult, monthUsageResult] = await Promise.all([
+      const [accountResult, messagesResult, providerMonthResult, walletResult] = await Promise.all([
         admin.from("tenant_tweetsms_accounts").select("monthly_limit").eq("tenant_id", scope.tenantId).maybeSingle(),
         admin.from("notification_messages").select("created_at, status, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", fourteenDaysAgo.toISOString()),
         admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
+        admin.rpc("powerhub_get_sms_quota", { p_tenant_id: scope.tenantId }),
       ]);
-      if (accountResult.error || messagesResult.error || monthUsageResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استخدام الرسائل من Supabase." });
+      if (accountResult.error || messagesResult.error || providerMonthResult.error || walletResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استخدام الرسائل من Supabase." });
       const messages = messagesResult.data ?? [];
-      const daily = new Map<string, number>(); for (const message of messages) { if (!["processing", "submitted", "delivered", "read", "needs_review"].includes(message.status)) continue; const key = new Date(message.created_at).toISOString().slice(0, 10); daily.set(key, (daily.get(key) ?? 0) + Math.max(1, Number(message.segment_count ?? 1))); }
-      const today = new Date(); const points = Array.from({ length: 14 }, (_, index) => { const date = new Date(today); date.setDate(today.getDate() - (13 - index)); const key = date.toISOString().slice(0, 10); return { date: key, count: daily.get(key) ?? 0 }; });
-      const included = Number(accountResult.data?.monthly_limit ?? 0); const additional = 0; const total = included; const used = (monthUsageResult.data ?? []).reduce((sum, message) => sum + Math.max(1, Number(message.segment_count ?? 1)), 0);
-      return { points, included, additional, total, used, remaining: Math.max(0, total - used) };
+      const eligibleStatuses = ["processing", "submitted", "delivered", "read", "needs_review"];
+      const daily = new Map<string, number>();
+      for (const message of messages) {
+        if (!eligibleStatuses.includes(message.status)) continue;
+        const key = new Date(message.created_at).toISOString().slice(0, 10);
+        daily.set(key, (daily.get(key) ?? 0) + Math.max(1, Number(message.segment_count ?? 1)));
+      }
+      const today = new Date();
+      const points = Array.from({ length: 14 }, (_, index) => {
+        const date = new Date(today); date.setDate(today.getDate() - (13 - index));
+        const key = date.toISOString().slice(0, 10);
+        return { date: key, count: daily.get(key) ?? 0 };
+      });
+      const wallet = (Array.isArray(walletResult.data) ? walletResult.data[0] : walletResult.data) as Record<string, unknown> | null;
+      const total = Number(wallet?.total_messages ?? 0);
+      const used = Number(wallet?.used_segments ?? 0);
+      const providerMonthlyUsed = (providerMonthResult.data ?? []).reduce((sum, message) => sum + Math.max(1, Number(message.segment_count ?? 1)), 0);
+      const providerMonthlyLimit = Number(accountResult.data?.monthly_limit ?? 0);
+      return { points, included: 0, additional: total, total, used, remaining: Number(wallet?.remaining_messages ?? Math.max(0, total - used)), providerMonthlyLimit, providerMonthlyUsed, providerMonthlyRemaining: Math.max(0, providerMonthlyLimit - providerMonthlyUsed) };
+    }),
+    smsCreditPackages: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
+      const { data, error } = await supabaseAdmin().from("platform_sms_plans")
+        .select("id, code, name, description, included_messages, price_amount, currency, is_active")
+        .eq("is_active", true).gt("included_messages", 0).order("included_messages", { ascending: true });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل باقات رصيد SMS." });
+      return (data ?? []).map((plan) => ({ id: Number(plan.id), code: plan.code, name: plan.name, description: plan.description, messages: Number(plan.included_messages), price: Number(plan.price_amount ?? 0), currency: plan.currency ?? "ILS" }));
     }),
     currentSmsPackageRequest: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
       const { data, error } = await supabaseAdmin().from("sms_package_requests")
-        .select("id, status, requested_messages, approved_messages, note, created_at, reviewed_at")
+        .select("id, sms_plan_id, status, requested_messages, requested_price, currency, approved_messages, note, created_at, reviewed_at")
         .eq("tenant_id", scope.tenantId).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل طلب حزمة الرسائل من Supabase." });
-      return data ? { id: Number(data.id), status: data.status, requestedMessages: data.requested_messages, approvedMessages: data.approved_messages, note: data.note, createdAt: new Date(data.created_at), reviewedAt: data.reviewed_at ? new Date(data.reviewed_at) : null } : null;
+      if (!data) return null;
+      const [{ data: plan }, { data: ledger }] = await Promise.all([
+        data.sms_plan_id ? supabaseAdmin().from("platform_sms_plans").select("name").eq("id", data.sms_plan_id).maybeSingle() : Promise.resolve({ data: null }),
+        supabaseAdmin().from("tenant_sms_recharge_ledger").select("status, credited_messages, confirmed_at").eq("request_id", data.id).maybeSingle(),
+      ]);
+      return {
+        id: Number(data.id), packageId: data.sms_plan_id ? Number(data.sms_plan_id) : null, packageName: plan?.name ?? null,
+        status: data.status, ledgerStatus: ledger?.status ?? null, requestedMessages: Number(data.requested_messages),
+        approvedMessages: Number(data.approved_messages ?? ledger?.credited_messages ?? 0), requestedPrice: Number(data.requested_price ?? 0),
+        currency: data.currency ?? "ILS", note: data.note, createdAt: new Date(data.created_at), reviewedAt: data.reviewed_at ? new Date(data.reviewed_at) : null,
+      };
     }),
-    requestSmsPackage: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestedMessages: z.number().int().min(1).max(100000000), note: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+    requestSmsPackage: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), packageId: z.number().int().positive(), note: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageMessaging");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_request_sms_package", {
-        p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_requested_messages: input.requestedMessages, p_note: input.note ?? null,
+      const { data, error } = await supabaseAdmin().rpc("powerhub_request_sms_package_plan", {
+        p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_sms_plan_id: input.packageId, p_note: input.note ?? null,
       });
       if (error) {
-        if (error.message.includes("SMS_PACKAGE_REQUEST_PENDING")) throw new TRPCError({ code: "CONFLICT", message: "لديك طلب حزمة قيد المراجعة بالفعل." });
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء طلب حزمة الرسائل في Supabase." });
+        if (error.message.includes("SMS_PACKAGE_REQUEST_PENDING")) throw new TRPCError({ code: "CONFLICT", message: "لديك طلب شحن قيد المراجعة بالفعل." });
+        if (error.message.includes("SMS_SUBSCRIPTION_REQUIRED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يلزم وجود اشتراك نشط قبل طلب رصيد رسائل." });
+        if (error.message.includes("SMS_PLAN_NOT_AVAILABLE")) throw new TRPCError({ code: "NOT_FOUND", message: "باقة الرصيد غير متاحة حاليًا." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء طلب رصيد SMS في Supabase." });
       }
       const request = data?.[0];
-      if (!request) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة طلب الحزمة نتيجة صالحة." });
+      if (!request) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تُعد دالة طلب رصيد الرسائل نتيجة صالحة." });
       return { id: Number(request.request_id), status: "pending" as const };
     }),
     listConfigurations: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
