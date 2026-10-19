@@ -274,8 +274,12 @@ as $function$
       else coalesce(pp.limit_mode, 'inherit')
     end as effective_limit_mode,
     coalesce(c.status, 'inherit') as control_status
-  from package_policy pp
-  full join control c on true;
+  -- SMS uses the prepaid wallet even for a newly configured subscription
+  -- package that has no legacy package_feature_policies row. Anchor the result
+  -- so missing package/control rows do not make the feature policy disappear.
+  from (select 1) as anchor
+  left join package_policy pp on true
+  left join control c on true;
 $function$;
 ;
 revoke all on function public.powerhub_resolve_tenant_feature_policy(bigint,text) from public,anon,authenticated;
