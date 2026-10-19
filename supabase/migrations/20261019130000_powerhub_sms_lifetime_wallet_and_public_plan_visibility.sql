@@ -536,7 +536,7 @@ begin
  select ts.id into v_subscription_id from public.tenant_subscriptions ts where ts.tenant_id=p_tenant_id
   and ts.status in('trial','active') and (ts.ends_at is null or ts.ends_at>now()) order by ts.created_at desc,ts.id desc limit 1;
  if v_subscription_id is null then raise exception 'SMS_SUBSCRIPTION_REQUIRED' using errcode='P0001'; end if;
- perform pg_advisory_xact_lock(p_tenant_id,62291);
+ perform pg_advisory_xact_lock(hashtextextended('powerhub_sms_package_request:'||p_tenant_id::text,62291));
  if exists(select 1 from public.sms_package_requests r where r.tenant_id=p_tenant_id and r.status='pending') then raise exception 'SMS_PACKAGE_REQUEST_PENDING' using errcode='P0001'; end if;
  select * into v_plan from public.platform_sms_plans p where p.id=p_sms_plan_id and p.is_active for share;
  if not found then raise exception 'SMS_PLAN_NOT_AVAILABLE' using errcode='P0001'; end if;
