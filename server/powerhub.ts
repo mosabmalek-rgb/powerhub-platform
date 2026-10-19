@@ -628,7 +628,7 @@ export const powerhubRouter = router({
     const value = catalog.value as Record<string, unknown>;
     const rawPackages = Array.isArray(value.packages) ? value.packages.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && item.active !== false && typeof item.name === "string" && typeof item.price === "number")) : [];
     const packages = (rawPackages.length ? rawPackages : fallback.packages).map((item) => {
-      const safe = { ...item };
+      const safe: Record<string, unknown> = { ...item };
       delete safe.includedMessages;
       delete safe.smsCost;
       if (safe.features && typeof safe.features === "object" && !Array.isArray(safe.features)) {
