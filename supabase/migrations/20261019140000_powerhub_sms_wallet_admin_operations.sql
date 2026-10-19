@@ -53,7 +53,7 @@ begin
  if exists(select 1 from public.platform_sms_plans p where lower(p.code)=lower(trim(p_code))) then
   raise exception 'DUPLICATE_CODE' using errcode='23505'; end if;
  insert into public.platform_sms_plans(code,name,description,included_messages,price_amount,currency,is_active,created_at,updated_at)
- values(lower(trim(p_code)),trim(p_name),nullif(trim(coalesce(p_description,'')),''),p_messages,p_price,upper(p_currency),coalesce(p_is_active,true),now(),now())
+ values(lower(trim(p_code)),trim(p_name),nullif(trim(coalesce(p_description,'')),''),p_messages,p_price,upper(trim(p_currency)),coalesce(p_is_active,true),now(),now())
  returning * into v_row;
  insert into public.platform_security_events(event_type,severity,status,title,details,metadata,created_by_user_id)
  values('security_change','info','success','إنشاء حزمة رصيد SMS','تم إنشاء حزمة رسائل مستقلة من لوحة إدارة المنصة.',
@@ -79,10 +79,11 @@ begin
  if v_role is null then raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501'; end if;
  if p_messages is not null and (p_messages<1 or p_messages>100000000) then raise exception 'INVALID_SMS_PACKAGE_QUANTITY' using errcode='22023'; end if;
  if p_price is not null and p_price<0 then raise exception 'INVALID_SMS_PACKAGE_PRICE' using errcode='22023'; end if;
+ if p_currency is not null and length(trim(p_currency))<>3 then raise exception 'INVALID_SMS_PACKAGE_CURRENCY' using errcode='22023'; end if;
  update public.platform_sms_plans set name=coalesce(nullif(trim(p_name),''),name),
   description=case when p_description is null then description else nullif(trim(p_description),'') end,
   included_messages=coalesce(p_messages,included_messages),price_amount=coalesce(p_price,price_amount),
-  currency=coalesce(upper(p_currency),currency),is_active=coalesce(p_is_active,is_active),updated_at=now()
+  currency=coalesce(upper(trim(p_currency)),currency),is_active=coalesce(p_is_active,is_active),updated_at=now()
  where platform_sms_plans.id=p_id returning * into v_row;
  if not found then return; end if;
  insert into public.platform_security_events(event_type,severity,status,title,details,metadata,created_by_user_id)
@@ -150,6 +151,11 @@ begin
 
   if not found then
     raise exception 'SMS_RECHARGE_NOT_FOUND' using errcode='P0002';
+  end if;
+
+  if p_status in ('provider_confirmed','manual_confirmed')
+     and p_credited_messages>v_row.requested_messages then
+    raise exception 'SMS_RECHARGE_CREDIT_EXCEEDS_REQUEST' using errcode='22023';
   end if;
 
   if v_row.status in ('provider_confirmed','manual_confirmed','failed','cancelled') then
