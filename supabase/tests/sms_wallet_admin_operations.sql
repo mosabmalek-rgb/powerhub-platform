@@ -594,8 +594,16 @@ begin
   select notification_id,attempt_number into v_claim_id,v_segments
   from public.powerhub_claim_sms_notification(1,v_legacy_first_id);
   if v_claim_id<>v_legacy_first_id then raise exception 'LEGACY_FIRST_MESSAGE_NOT_CLAIMED'; end if;
-  perform public.powerhub_mark_sms_provider_request_started(1,v_legacy_first_id,v_segments);
-  perform * from public.powerhub_finish_sms_notification(1,v_legacy_first_id,v_segments,true,'fake-provider-id','');
+  -- The disposable fixture has the claim RPC but intentionally does not import
+  -- the worker lifecycle migrations. Mark the claimed row as provider-started and
+  -- submitted directly; no external provider is called.
+  update public.notification_messages
+  set provider_request_started_at=now(),status='submitted',updated_at=now()
+  where id=v_legacy_first_id and status='processing' and attempts=v_segments;
+  if not found then raise exception 'LEGACY_FIRST_MESSAGE_NOT_MARKED_SUBMITTED'; end if;
+  update public.tenant_tweetsms_accounts
+  set sms_dispatch_lease_notification_id=null,sms_dispatch_lease_until=null
+  where tenant_id=15 and sms_dispatch_lease_notification_id=v_legacy_first_id;
 
   insert into public.notification_messages(
     tenant_id,subscriber_id,channel,event_type,status,payload,recipient,created_at
