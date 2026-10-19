@@ -651,9 +651,9 @@ export const powerhubRouter = router({
       fieldUsers: packageNumber(item, "fieldUsers"),
       branches: packageNumber(item, "branches"),
       active: item.active !== false,
-      logoPolicy: ["not_included", "addon", "included"].includes(String(item.logoPolicy)) ? item.logoPolicy : "not_included",
+      logoPolicy: ["not_included", "addon", "included"].includes(String(item.logoPolicy)) ? String(item.logoPolicy) : "not_included",
       logoAddonPrice: packageNumber(item, "logoAddonPrice"),
-      paymentDocumentationPolicy: ["not_included", "addon", "included"].includes(String(item.paymentDocumentationPolicy)) ? item.paymentDocumentationPolicy : "addon",
+      paymentDocumentationPolicy: ["not_included", "addon", "included"].includes(String(item.paymentDocumentationPolicy)) ? String(item.paymentDocumentationPolicy) : "addon",
       paymentDocumentationAddonPrice: packageNumber(item, "paymentDocumentationAddonPrice"),
     }));
     return {
