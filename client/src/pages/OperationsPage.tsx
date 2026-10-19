@@ -18,8 +18,8 @@ import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { invoiceStatusMeta, outstandingInvoices, summarizeOutstandingInvoices } from "@/lib/invoice-collection-presentation";
 import { can } from "@shared/powerhub-rbac";
-import { CheckCircle2, CircleAlert, ClipboardList, Eye, Fuel, Gauge, ImagePlus, Loader2, Plus, Printer, ReceiptText, Send, ShieldCheck, UsersRound, WalletCards, Zap } from "lucide-react";
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, ClipboardList, Eye, Fuel, Gauge, ImagePlus, Loader2, Plus, Printer, ReceiptText, Send, ShieldCheck, UsersRound, WalletCards, Zap } from "lucide-react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type Section = "subscribers" | "generators" | "readings" | "invoices" | "collections" | "expenses" | "reports" | "notifications" | "audit";
@@ -50,8 +50,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="block text-right"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>;
 }
 
-function SectionCard({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
-  return <Card className={cn("border-white/8 bg-[#111823] shadow-panel", className)}><CardContent className="p-0"><div className="border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">{title}</h2></div><div className="p-5">{children}</div></CardContent></Card>;
+function SectionCard({ title, children, className, collapsed, onToggleCollapse }: { title: string; children: ReactNode; className?: string; collapsed?: boolean; onToggleCollapse?: () => void }) {
+  return <Card className={cn("border-white/8 bg-[#111823] shadow-panel", className)}><CardContent className="p-0"><div className="flex items-center justify-between gap-3 border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">{title}</h2>{onToggleCollapse && <Button type="button" size="sm" variant="ghost" aria-expanded={!collapsed} onClick={onToggleCollapse} className="shrink-0 text-[#F5B800]">{collapsed ? <><ChevronDown className="ml-1 h-4 w-4" />فتح البطاقة</> : <><ChevronUp className="ml-1 h-4 w-4" />طي البطاقة</>}</Button>}</div>{!collapsed && <div className="p-5">{children}</div>}</CardContent></Card>;
 }
 
 function Empty({ text }: { text: string }) {
@@ -162,7 +162,6 @@ export default function OperationsPage({ section }: { section: Section }) {
     );
   }, onError: (e) => toast.error(e.message) });
   const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: () => {
-    toast.success("تم تسجيل الدفعة.");
     refreshOperational(
       [
         () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
@@ -177,7 +176,7 @@ export default function OperationsPage({ section }: { section: Section }) {
         () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
       ],
     );
-  }, onError: (e) => toast.error(e.message) });
+  } });
   const sendPaymentReceipt = trpc.powerhub.notifications.sendPaymentReceiptSms.useMutation({ onSuccess: (result, variables) => {
     const channelLabel = variables.channel === "whatsapp" ? "WhatsApp" : "SMS";
     if (result.status === "submitted") toast.success(`قَبِل مزود ${channelLabel} طلب إرسال الإيصال؛ هذا لا يؤكد التسليم النهائي.`);
@@ -224,16 +223,15 @@ export default function OperationsPage({ section }: { section: Section }) {
 
   const submitPayment = async (payload: Parameters<typeof addPayment.mutate>[0]) => {
     const companyAccountId = Number(payload.companyAccountId);
-    if (!Number.isInteger(companyAccountId) || companyAccountId <= 0) return toast.error("اختر الحساب المستقبِل من حسابات الشركة قبل تسجيل التحصيل.");
+    if (!Number.isInteger(companyAccountId) || companyAccountId <= 0) throw new Error("اختر الحساب المستقبِل من حسابات الشركة قبل تسجيل التحصيل.");
     const completePayload = payload;
     if (typeof navigator !== "undefined" && !navigator.onLine) {
-      if (Number(completePayload.manualDiscountAmount ?? 0) > 0) return toast.error("لا يمكن اعتماد الخصم اليدوي دون اتصال؛ اتصل بالإنترنت ثم أعد تسجيل التحصيل حتى لا تضيع التسوية من المسودة.");
-      if (!user?.id) return toast.error("تعذر معرفة المستخدم الحالي لحفظ مسودة التحصيل.");
-      try { await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "payment_create", payload: { subscriberId: completePayload.subscriberId, invoiceId: completePayload.invoiceId, paymentNo: completePayload.paymentNo, amount: completePayload.amount, paymentMethod: completePayload.paymentMethod ?? "cash", companyAccountId: completePayload.companyAccountId, transferFromAccount: completePayload.transferFromAccount, transferFromType: completePayload.transferFromType, referenceNo: completePayload.referenceNo, receiptImageData: completePayload.receiptImageData, receiptImageMime: completePayload.receiptImageMime } }); toast.success("حُفظ التحصيل وصورة الإيصال محلياً كمسودة معلقة؛ لن يتغير رصيد الفاتورة ولن يصدر إيصال رسمي حتى يوافق الخادم على المزامنة."); }
-      catch (error) { toast.error(error instanceof Error ? error.message : "تعذر حفظ مسودة التحصيل."); }
-      return;
+      if (Number(completePayload.manualDiscountAmount ?? 0) > 0) throw new Error("لا يمكن اعتماد الخصم اليدوي دون اتصال؛ اتصل بالإنترنت ثم أعد تسجيل التحصيل حتى لا تضيع التسوية من المسودة.");
+      if (!user?.id) throw new Error("تعذر معرفة المستخدم الحالي لحفظ مسودة التحصيل.");
+      await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "payment_create", payload: { subscriberId: completePayload.subscriberId, invoiceId: completePayload.invoiceId, paymentNo: completePayload.paymentNo, amount: completePayload.amount, paymentMethod: completePayload.paymentMethod ?? "cash", companyAccountId: completePayload.companyAccountId, transferFromAccount: completePayload.transferFromAccount, transferFromType: completePayload.transferFromType, referenceNo: completePayload.referenceNo, receiptImageData: completePayload.receiptImageData, receiptImageMime: completePayload.receiptImageMime } });
+      return { queued: true };
     }
-    addPayment.mutate(completePayload);
+    await addPayment.mutateAsync(completePayload);
   };
   return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <>{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }
@@ -310,9 +308,24 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
   const initialSubscriberId = Number(new URLSearchParams(window.location.search).get("subscriberId") ?? 0);
   const [selectedSubscriberId, setSelectedSubscriberId] = useState<number>(initialSubscriberId);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
+  const [subscriberSearch, setSubscriberSearch] = useState("");
+  const [collectionFormOpen, setCollectionFormOpen] = useState(false);
+  const [collectionAmount, setCollectionAmount] = useState("");
+  const [paymentNo, setPaymentNo] = useState(() => `PAY-${Date.now()}`);
+  const collectionFormRef = useRef<HTMLFormElement>(null);
   const dateKey = (value: unknown) => value ? new Date(String(value)).toISOString().slice(0, 10) : "";
-  const unpaidInvoicesForSubscriber = invoices.filter((x:any)=>Number(x.subscriberId)===selectedSubscriberId && Number(x.balanceDue)>0 && x.status!=="cancelled");
-  useEffect(()=>{setSelectedInvoiceIds((ids)=>ids.filter((id)=>unpaidInvoicesForSubscriber.some((x:any)=>Number(x.id)===id)));},[selectedSubscriberId,invoices]);
+  const unpaidInvoicesForSubscriber = useMemo(() => invoices.filter((x:any)=>Number(x.subscriberId)===selectedSubscriberId && Number(x.balanceDue)>0 && x.status!=="cancelled"), [invoices, selectedSubscriberId]);
+  useEffect(()=>{setSelectedInvoiceIds((ids)=>ids.filter((id)=>unpaidInvoicesForSubscriber.some((x:any)=>Number(x.id)===id)));},[selectedSubscriberId,unpaidInvoicesForSubscriber]);
+  const selectedInvoicesDue = selectedInvoiceIds.reduce((sum,id)=>sum+Number(unpaidInvoicesForSubscriber.find((x:any)=>Number(x.id)===id)?.balanceDue??0),0);
+  useEffect(()=>{setCollectionAmount(selectedInvoiceIds.length ? selectedInvoicesDue.toFixed(2) : "");},[selectedInvoiceIds, selectedInvoicesDue]);
+  const searchedSubscribers = useMemo(() => {
+    const query = normalizeSubscriberSearch(subscriberSearch);
+    if (!query) return subscribers;
+    return subscribers.filter((subscriber: any) => [subscriber.fullName, subscriber.phone, subscriber.subscriberNo].some((value) => normalizeSubscriberSearch(value).includes(query)));
+  }, [subscribers, subscriberSearch]);
+  const resetCollectionForm = (form: HTMLFormElement | null = collectionFormRef.current) => {
+    form?.reset(); setReceiptFile(null); setSubscriberSearch(""); setSelectedSubscriberId(0); setSelectedInvoiceIds([]); setCollectionAmount(""); setPaymentNo(`PAY-${Date.now()}`);
+  };
   const receiverTypes = Array.from(new Set(accounts.map((account: any) => String(account.accountType ?? "")).filter(Boolean)));
   const receiverAccountsForType = accounts.filter((account: any) => paymentReceiverType === "all" || String(account.accountType) === paymentReceiverType);
   useEffect(() => {
@@ -385,23 +398,63 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     finally { root.remove(); }
   };
   return <div className="w-full min-w-0 space-y-6">
-    <SectionCard title="تسجيل دفعة" className="w-full min-w-0">{canCollect ? <form className="space-y-4" onSubmit={async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); if (receiptFile && receiptFile.size > 7 * 1024 * 1024) return toast.error("يجب ألا تتجاوز صورة الإيصال 7 ميغابايت."); let receiptImageData: string | undefined; let receiptImageMime: "image/webp" | "image/jpeg" | undefined; try { if (receiptFile) { const prepared = await preparePaymentReceiptImage(receiptFile); receiptImageData = prepared.data; receiptImageMime = prepared.mime; } } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر تجهيز صورة الإيصال."); return; } const invoiceIds = selectedInvoiceIds.length ? selectedInvoiceIds : [Number(f.get("invoiceId"))].filter(Boolean);
-    if (!invoiceIds.length) return toast.error("اختر فاتورة واحدة على الأقل للتحصيل.");
-    const requestedAmount = Number(f.get("amount"));
-    const manualDiscountAmount = Number(f.get("manualDiscountAmount") || 0);
-    const manualDiscountReason = String(f.get("manualDiscountReason") || "").trim();
-    if (manualDiscountAmount > 0 && invoiceIds.length !== 1) return toast.error("الخصم اليدوي متاح عند تحصيل فاتورة واحدة في العملية؛ اختر فاتورة واحدة أولًا.");
-    if (manualDiscountAmount > 0 && manualDiscountReason.length < 3) return toast.error("اكتب سببًا واضحًا للخصم اليدوي لا يقل عن 3 أحرف.");
-    if (invoiceIds.length > 1) {
-      const totalDue = invoiceIds.reduce((sum,id)=>sum+Number(unpaidInvoicesForSubscriber.find((x:any)=>Number(x.id)===id)?.balanceDue??0),0);
-      if (Math.abs(requestedAmount-totalDue)>0.01) return toast.error("عند تحديد عدة فواتير يجب أن يساوي المبلغ إجمالي أرصدة الفواتير المحددة.");
-    }
-    for (const invoiceId of invoiceIds) {
-      const due = Number(unpaidInvoicesForSubscriber.find((x:any)=>Number(x.id)===invoiceId)?.balanceDue??0);
-      const amount = invoiceIds.length===1 ? requestedAmount : due;
-      if (amount<=0 || amount+(invoiceIds.length===1 ? manualDiscountAmount : 0)-due>0.01) return toast.error("مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق لإحدى الفواتير.");
-      await onSubmit({ siteId, subscriberId: Number(f.get("subscriberId")), invoiceId, paymentNo: invoiceIds.length===1 ? String(f.get("paymentNo")) : String(f.get("paymentNo"))+"-"+invoiceId, amount, paymentMethod: String(f.get("method")), companyAccountId: Number(companyAccountId), transferFromAccount: String(f.get("transferFromAccount") || "") || undefined, transferFromType: String(f.get("transferFromType") || "") || undefined, referenceNo: String(f.get("reference") || "") || undefined, receiptImageData, receiptImageMime, manualDiscountAmount: invoiceIds.length===1 ? manualDiscountAmount : 0, manualDiscountReason: invoiceIds.length===1 ? manualDiscountReason || undefined : undefined, clientOperationId: crypto.randomUUID() }); }
-    setReceiptFile(null); setSelectedInvoiceIds([]); e.currentTarget.reset(); }}><div className="rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-3">
+    <SectionCard title="تسجيل دفعة" className="w-full min-w-0" collapsed={!collectionFormOpen} onToggleCollapse={() => setCollectionFormOpen((open) => !open)}>{canCollect ? <form ref={collectionFormRef} className="space-y-4" onSubmit={async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const formElement = e.currentTarget;
+      const f = new FormData(formElement);
+      if (receiptFile && receiptFile.size > 7 * 1024 * 1024) return toast.error("يجب ألا تتجاوز صورة الإيصال 7 ميغابايت.");
+      let receiptImageData: string | undefined;
+      let receiptImageMime: "image/webp" | "image/jpeg" | undefined;
+      try {
+        if (receiptFile) { const prepared = await preparePaymentReceiptImage(receiptFile); receiptImageData = prepared.data; receiptImageMime = prepared.mime; }
+      } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر تجهيز صورة الإيصال."); return; }
+      const invoiceIds = selectedInvoiceIds.length ? [...selectedInvoiceIds] : [Number(f.get("invoiceId"))].filter(Boolean);
+      if (!invoiceIds.length) return toast.error("اختر فاتورة واحدة على الأقل للتحصيل.");
+      const subscriberId = Number(f.get("subscriberId"));
+      if (!subscriberId || subscriberId !== selectedSubscriberId) return toast.error("اختر المشترك من القائمة قبل تسجيل التحصيل.");
+      const requestedAmount = Number(f.get("amount"));
+      const manualDiscountAmount = Number(f.get("manualDiscountAmount") || 0);
+      const manualDiscountReason = String(f.get("manualDiscountReason") || "").trim();
+      if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) return toast.error("أدخل مبلغ تحصيل أكبر من صفر.");
+      if (manualDiscountAmount > 0 && invoiceIds.length !== 1) return toast.error("الخصم اليدوي متاح عند تحصيل فاتورة واحدة في العملية؛ اختر فاتورة واحدة أولًا.");
+      if (manualDiscountAmount > 0 && manualDiscountReason.length < 3) return toast.error("اكتب سببًا واضحًا للخصم اليدوي لا يقل عن 3 أحرف.");
+      const dueById = new Map(unpaidInvoicesForSubscriber.map((invoice: any) => [Number(invoice.id), Number(invoice.balanceDue)]));
+      if (invoiceIds.some((invoiceId) => !dueById.has(invoiceId))) return toast.error("تغيرت أهلية إحدى الفواتير للتحصيل. حدّث البيانات ثم اختر الفواتير المؤهلة مجددًا.");
+      if (invoiceIds.length > 1) {
+        const totalDue = invoiceIds.reduce((sum,id)=>sum+(dueById.get(id) ?? 0),0);
+        if (Math.abs(requestedAmount-totalDue)>0.01) return toast.error("عند تحديد عدة فواتير يجب أن يساوي المبلغ إجمالي أرصدة الفواتير المحددة.");
+      }
+      for (const invoiceId of invoiceIds) {
+        const due = dueById.get(invoiceId) ?? 0;
+        const amount = invoiceIds.length===1 ? requestedAmount : due;
+        if (amount<=0 || amount+(invoiceIds.length===1 ? manualDiscountAmount : 0)-due>0.01) return toast.error("مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق لإحدى الفواتير.");
+      }
+      const completedInvoiceIds: number[] = [];
+      const queuedInvoiceIds: number[] = [];
+      try {
+        for (const invoiceId of invoiceIds) {
+          const due = dueById.get(invoiceId) ?? 0;
+          const amount = invoiceIds.length===1 ? requestedAmount : due;
+          const result = await onSubmit({ siteId, subscriberId, invoiceId, paymentNo: invoiceIds.length===1 ? String(f.get("paymentNo")) : String(f.get("paymentNo"))+"-"+invoiceId, amount, paymentMethod: String(f.get("method")), companyAccountId: Number(companyAccountId), transferFromAccount: String(f.get("transferFromAccount") || "") || undefined, transferFromType: String(f.get("transferFromType") || "") || undefined, referenceNo: String(f.get("reference") || "") || undefined, receiptImageData, receiptImageMime, manualDiscountAmount: invoiceIds.length===1 ? manualDiscountAmount : 0, manualDiscountReason: invoiceIds.length===1 ? manualDiscountReason || undefined : undefined, clientOperationId: crypto.randomUUID() });
+          completedInvoiceIds.push(invoiceId);
+          if (result && typeof result === "object" && "queued" in result && result.queued) queuedInvoiceIds.push(invoiceId);
+        }
+      } catch (error) {
+        if (completedInvoiceIds.length) {
+          setSelectedInvoiceIds((ids) => ids.filter((id) => !completedInvoiceIds.includes(id)));
+          toast.error(queuedInvoiceIds.length === completedInvoiceIds.length
+            ? `تم حفظ ${completedInvoiceIds.length} فاتورة كمسودات تحصيل محلية؛ تعذر حفظ بقية الفواتير. بقيت الفواتير غير المكتملة محددة.`
+            : `نجح تسجيل ${completedInvoiceIds.length} من ${invoiceIds.length} فاتورة. لم يُمسح النموذج؛ أُزيلت الفواتير الناجحة من التحديد لتجنب تكرارها، وبقيت الفواتير غير المكتملة محددة.`);
+        } else {
+          toast.error(error instanceof Error ? error.message : "تعذر تسجيل التحصيل. لم تُمسح بيانات النموذج.");
+        }
+        return;
+      }
+      const allQueued = queuedInvoiceIds.length === completedInvoiceIds.length;
+      resetCollectionForm(formElement);
+      if (allQueued) toast.success("حُفظ التحصيل كمسودة محلية؛ لن يتغير رصيد الفاتورة قبل قبول الخادم للمزامنة.");
+      else toast.success("تم تسجيل التحصيل بنجاح، وتم إفراغ النموذج.");
+    }}><div className="rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-3">
       <Field label="الحساب المستقبِل للتحصيل">
         <select aria-label="الحساب المستقبِل للتحصيل" name="companyAccountId" required value={companyAccountId} disabled={accountsQuery.isLoading || accountsQuery.isError || accounts.length === 0} onChange={(event) => {
           setCompanyAccountId(event.target.value);
@@ -412,7 +465,7 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
       </Field>
       {accountsQuery.isLoading ? <p className="mt-2 text-xs text-slate-400">جارٍ تحميل حسابات الشركة…</p> : accountsQuery.isError ? <p role="alert" className="mt-2 text-xs text-rose-200">تعذر تحميل حسابات الشركة. لا يمكن تسجيل التحصيل قبل نجاح التحميل.</p> : !accounts.length ? <p className="mt-2 text-xs text-rose-200">لا توجد حسابات مالية فعالة مرتبطة بهذه المحطة. أضف حسابًا من إدارة حسابات الشركة أولًا.</p> : selectedCompanyAccount?.accountType === "other" ? <p className="mt-2 text-xs text-rose-200">نوع هذا الحساب غير مدعوم كطريقة تحصيل؛ اختر حسابًا نقديًا أو إلكترونيًا مدعومًا.</p> : selectedCompanyAccount ? <p className="mt-2 text-xs text-amber-100">سيُسجل التحصيل في حساب <strong>{selectedCompanyAccount.name}</strong>.</p> : <p className="mt-2 text-xs text-slate-400">اختيار الحساب إلزامي؛ سيظهر الرصيد والحركة على الحساب الذي تحدده.</p>}
     </div>
-    <Field label="المشترك"><select required name="subscriberId" value={selectedSubscriberId || ""} onChange={(event)=>setSelectedSubscriberId(Number(event.target.value)||0)} className={selectClass}><option value="">اختر المشترك</option>{subscribers.map((x: any) => <option key={x.id} value={x.id}>{x.fullName}</option>)}</select></Field><div><label className="text-xs text-slate-400">الفواتير غير المسددة</label><div className="mt-1 rounded-xl border border-white/10 bg-white/[.02] p-3">{selectedSubscriberId && unpaidInvoicesForSubscriber.length?<><div className="mb-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{selectedInvoiceIds.length} محددة من {unpaidInvoicesForSubscriber.length}</span><Button type="button" size="sm" variant="ghost" onClick={()=>setSelectedInvoiceIds(selectedInvoiceIds.length===unpaidInvoicesForSubscriber.length?[]:unpaidInvoicesForSubscriber.map((x:any)=>Number(x.id)))} className="text-[#F5B800]">{selectedInvoiceIds.length===unpaidInvoicesForSubscriber.length?"إلغاء تحديد الكل":"تحديد الكل"}</Button></div><div className="max-h-48 space-y-1 overflow-auto">{unpaidInvoicesForSubscriber.map((x:any)=><label key={x.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[.03]"><input type="checkbox" checked={selectedInvoiceIds.includes(Number(x.id))} onChange={()=>setSelectedInvoiceIds((ids)=>ids.includes(Number(x.id))?ids.filter((id)=>id!==Number(x.id)):[...ids,Number(x.id)])} className="accent-[#F5B800]" /><span className="flex-1 text-sm text-white" dir="ltr">{x.invoiceNo}</span><span className="text-xs text-rose-300">{formatValue(x.balanceDue,2)}</span></label>)}</div></>:<p className="py-3 text-xs text-slate-500">{selectedSubscriberId?"لا توجد فواتير غير مسددة لهذا المشترك.":"اختر المشترك أولاً."}</p>}</div></div><Field label="رقم الإيصال"><input required name="paymentNo" defaultValue={`PAY-${Date.now()}`} className={inputClass} dir="ltr" /></Field><Field label="المبلغ"><input required name="amount" type="number" min="0.01" step="0.01" className={inputClass} dir="ltr" /></Field>{canDiscount ? <div className="grid gap-3 rounded-xl border border-white/8 p-3 sm:grid-cols-2"><Field label="خصم يدوي (اختياري)"><input name="manualDiscountAmount" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} dir="ltr" /><span className="mt-1 block text-[11px] leading-5 text-slate-500">يقلل رصيد الفاتورة ولا يُحتسب مبلغًا نقديًا محصّلًا. لا يتجاوز الرصيد المتبقي.</span></Field><Field label="سبب الخصم (إلزامي عند إدخال خصم)"><input name="manualDiscountReason" maxLength={300} className={inputClass} placeholder="مثال: تسوية متفق عليها" /></Field></div> : null}<input type="hidden" name="method" value={selectedCompanyAccount?.accountType ?? ""} />{selectedCompanyAccount && selectedCompanyAccount.accountType !== "cash" && <div className="grid gap-3 rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-3 sm:grid-cols-2"><div className="sm:col-span-2 text-xs leading-6 text-amber-200">نوع الحساب المستقبِل المحدد: <strong>{paymentMethodLabel[selectedCompanyAccount.accountType] ?? selectedCompanyAccount.accountType}</strong>. أدخل الحساب الذي جاءت منه الدفعة ونوعه.</div><Field label="الحساب المحوِّل منه"><input required name="transferFromAccount" className={inputClass} dir="ltr" placeholder="+97059xxxxxxx" /></Field><Field label="نوع الحساب المحوِّل"><select required name="transferFromType" className={selectClass}><option value="">اختر النوع</option><option value="jawwal_pay">جوال Pay</option><option value="palpay">PalPay</option><option value="bank_of_palestine">بنك فلسطين</option></select></Field></div>}<Field label="مرجع العملية"><input name="reference" className={inputClass} placeholder="رقم التحويل أو العملية — اختياري" /></Field><div><input id="payment-receipt-image" type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => setReceiptFile(event.target.files?.[0] ?? null)} /><label htmlFor="payment-receipt-image" className="flex cursor-pointer items-center justify-between rounded-xl border border-dashed border-white/15 bg-white/[.015] p-3 transition hover:border-[#F5B800]/50"><span className="flex items-center gap-2 text-sm text-slate-300"><ImagePlus className="h-4 w-4 text-[#F5B800]" />{receiptFile ? receiptFile.name : "إرفاق صورة إيصال الدفع (اختياري)"}</span><span className="text-xs text-slate-500">JPG · PNG · WebP · حتى 7MB — تُضغط تلقائيًا قبل الرفع</span></label></div><Button disabled={pending || !subscribers.length || !companyAccountId || accountsQuery.isLoading || accountsQuery.isError || selectedCompanyAccount?.accountType === "other"} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تسجيل الدفعة</Button><p className="text-xs leading-5 text-amber-100">دون اتصال: تُحفظ الدفعة وصورة الإيصال محلياً ضمن مسودة محكومة بالمستخدم، ولا تُرفع الصورة ولا يتغير الرصيد ولا يصدر إيصال رسمي قبل قبول الخادم للمزامنة.</p></form> : <Empty text="دورك يتيح مراجعة التحصيلات فقط؛ تسجيل الدفعات متاح للمالك والمدير والمحاسب والمحصل." />}</SectionCard>
+    <Field label="بحث المشترك"><input aria-label="بحث المشترك للتحصيل" value={subscriberSearch} onChange={(event) => { setSubscriberSearch(event.target.value); setSelectedSubscriberId(0); setSelectedInvoiceIds([]); setCollectionAmount(""); }} className={inputClass} placeholder="الاسم أو رقم الجوال أو الرقم المرجعي" autoComplete="off" /></Field><Field label="المشترك"><select required name="subscriberId" value={selectedSubscriberId || ""} onChange={(event)=>{setSelectedSubscriberId(Number(event.target.value)||0); setSubscriberSearch(""); setSelectedInvoiceIds([]); setCollectionAmount("");}} className={selectClass}><option value="">اختر المشترك من القائمة</option>{searchedSubscribers.map((x: any) => <option key={x.id} value={x.id}>{x.fullName} — {x.phone ?? "بدون هاتف"} — {x.subscriberNo ?? ""}</option>)}</select></Field><div><label className="text-xs text-slate-400">الفواتير غير المسددة</label><div className="mt-1 rounded-xl border border-white/10 bg-white/[.02] p-3">{selectedSubscriberId && unpaidInvoicesForSubscriber.length?<><div className="mb-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{selectedInvoiceIds.length} محددة من {unpaidInvoicesForSubscriber.length}</span><Button type="button" size="sm" variant="ghost" onClick={()=>setSelectedInvoiceIds(selectedInvoiceIds.length===unpaidInvoicesForSubscriber.length?[]:unpaidInvoicesForSubscriber.map((x:any)=>Number(x.id)))} className="text-[#F5B800]">{selectedInvoiceIds.length===unpaidInvoicesForSubscriber.length?"إلغاء تحديد الكل":"تحديد الكل"}</Button></div><div className="max-h-48 space-y-1 overflow-auto">{unpaidInvoicesForSubscriber.map((x:any)=><label key={x.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[.03]"><input type="checkbox" checked={selectedInvoiceIds.includes(Number(x.id))} onChange={()=>setSelectedInvoiceIds((ids)=>ids.includes(Number(x.id))?ids.filter((id)=>id!==Number(x.id)):[...ids,Number(x.id)])} className="accent-[#F5B800]" /><span className="flex-1 text-sm text-white" dir="ltr">{x.invoiceNo}</span><span className="text-xs text-rose-300">{formatValue(x.balanceDue,2)}</span></label>)}</div></>:<p className="py-3 text-xs text-slate-500">{selectedSubscriberId?"لا توجد فواتير غير مسددة لهذا المشترك.":"اختر المشترك أولاً."}</p>}</div></div><Field label="رقم الإيصال"><input required name="paymentNo" value={paymentNo} onChange={(event) => setPaymentNo(event.target.value)} className={inputClass} dir="ltr" /></Field><Field label="المبلغ"><input required name="amount" type="number" min="0.01" step="0.01" value={collectionAmount} onChange={(event) => setCollectionAmount(event.target.value)} className={inputClass} dir="ltr" /></Field>{canDiscount ? <div className="grid gap-3 rounded-xl border border-white/8 p-3 sm:grid-cols-2"><Field label="خصم يدوي (اختياري)"><input name="manualDiscountAmount" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} dir="ltr" /><span className="mt-1 block text-[11px] leading-5 text-slate-500">يقلل رصيد الفاتورة ولا يُحتسب مبلغًا نقديًا محصّلًا. لا يتجاوز الرصيد المتبقي.</span></Field><Field label="سبب الخصم (إلزامي عند إدخال خصم)"><input name="manualDiscountReason" maxLength={300} className={inputClass} placeholder="مثال: تسوية متفق عليها" /></Field></div> : null}<input type="hidden" name="method" value={selectedCompanyAccount?.accountType ?? ""} />{selectedCompanyAccount && selectedCompanyAccount.accountType !== "cash" && <div className="grid gap-3 rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-3 sm:grid-cols-2"><div className="sm:col-span-2 text-xs leading-6 text-amber-200">نوع الحساب المستقبِل المحدد: <strong>{paymentMethodLabel[selectedCompanyAccount.accountType] ?? selectedCompanyAccount.accountType}</strong>. أدخل الحساب الذي جاءت منه الدفعة ونوعه.</div><Field label="الحساب المحوِّل منه"><input required name="transferFromAccount" className={inputClass} dir="ltr" placeholder="+97059xxxxxxx" /></Field><Field label="نوع الحساب المحوِّل"><select required name="transferFromType" className={selectClass}><option value="">اختر النوع</option><option value="jawwal_pay">جوال Pay</option><option value="palpay">PalPay</option><option value="bank_of_palestine">بنك فلسطين</option></select></Field></div>}<Field label="مرجع العملية"><input name="reference" className={inputClass} placeholder="رقم التحويل أو العملية — اختياري" /></Field><div><input id="payment-receipt-image" type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => setReceiptFile(event.target.files?.[0] ?? null)} /><label htmlFor="payment-receipt-image" className="flex cursor-pointer items-center justify-between rounded-xl border border-dashed border-white/15 bg-white/[.015] p-3 transition hover:border-[#F5B800]/50"><span className="flex items-center gap-2 text-sm text-slate-300"><ImagePlus className="h-4 w-4 text-[#F5B800]" />{receiptFile ? receiptFile.name : "إرفاق صورة إيصال الدفع (اختياري)"}</span><span className="text-xs text-slate-500">JPG · PNG · WebP · حتى 7MB — تُضغط تلقائيًا قبل الرفع</span></label></div><div className="grid gap-2 sm:grid-cols-2"><Button type="button" variant="outline" onClick={() => resetCollectionForm()} className="border-white/10 text-slate-300">إفراغ الحقول</Button><Button type="submit" disabled={pending || !subscribers.length || !companyAccountId || accountsQuery.isLoading || accountsQuery.isError || selectedCompanyAccount?.accountType === "other"} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تسجيل الدفعة</Button></div><p className="text-xs leading-5 text-amber-100">دون اتصال: تُحفظ الدفعة وصورة الإيصال محلياً ضمن مسودة محكومة بالمستخدم، ولا تُرفع الصورة ولا يتغير الرصيد ولا يصدر إيصال رسمي قبل قبول الخادم للمزامنة.</p></form> : <Empty text="دورك يتيح مراجعة التحصيلات فقط؛ تسجيل الدفعات متاح للمالك والمدير والمحاسب والمحصل." />}</SectionCard>
     <SectionCard title={`الدفعات (${filteredPayments.length} من ${payments.length})`} className="w-full min-w-0"><div className="mb-4 grid gap-3 rounded-xl border border-white/8 bg-white/[.018] p-3 sm:grid-cols-2 xl:grid-cols-4">
       <label className="text-xs text-slate-400">بحث برقم الحساب أو الإيصال<input aria-label="بحث دفعات برقم الحساب" value={paymentSearch} onChange={(event) => setPaymentSearch(event.target.value)} className={`${inputClass} mt-1 w-full`} placeholder="رقم الحساب المحوِّل أو المستقبِل" /></label>
       <label className="text-xs text-slate-400">الفترة الزمنية<select aria-label="الفترة الزمنية للدفعات" value={paymentPeriod} onChange={(event) => setPaymentPeriod(event.target.value as typeof paymentPeriod)} className={`${inputClass} mt-1 w-full`}><option value="today">اليوم</option><option value="current_cycle">هذه الدورة</option><option value="month_end">آخر الشهر</option><option value="custom">مخصص</option></select></label>
