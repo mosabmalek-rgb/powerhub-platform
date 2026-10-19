@@ -199,6 +199,60 @@ insert into public.notification_messages(tenant_id,subscriber_id,channel,event_t
 -- Then apply the real admin/recharge RPC migration over the same schema.
 \ir ../migrations/20261019140000_powerhub_sms_wallet_admin_operations.sql
 
+do $test_migration_cutover$
+declare
+  v_total bigint;
+  v_used bigint;
+  v_remaining bigint;
+  v_policy record;
+  v_catalog jsonb;
+begin
+  if not exists (
+    select 1 from public.platform_settings
+    where setting_key='public_plan_visibility' and is_enabled=true and value->>'showPlans'='true'
+  ) then raise exception 'PUBLIC_PLAN_VISIBILITY_DEFAULT_MISSING'; end if;
+
+  select value into v_catalog from public.platform_settings where setting_key='subscription_package_catalog';
+  if v_catalog ? 'smsAddons' then raise exception 'LEGACY_SMS_ADDONS_REMAIN_IN_SUBSCRIPTION_CATALOG'; end if;
+  if exists (
+    select 1 from jsonb_array_elements(v_catalog->'packages') p
+    where p ? 'includedMessages' or p ? 'smsCost'
+       or (jsonb_typeof(p->'features')='object' and (p->'features') ? 'sms')
+  ) then raise exception 'SMS_FIELDS_REMAIN_IN_SUBSCRIPTION_PACKAGE'; end if;
+
+  if not exists (
+    select 1 from public.tenant_sms_recharge_ledger
+    where request_id=900 and status='manual_confirmed'
+      and requested_messages=70 and credited_messages=70 and confirmed_at is not null
+  ) then raise exception 'APPROVED_LINKED_PENDING_LEDGER_NOT_REPAIRED'; end if;
+  if not exists (
+    select 1 from public.tenant_sms_recharge_ledger
+    where request_id=901 and status='manual_confirmed'
+      and requested_messages=50 and credited_messages=50 and confirmed_at is not null
+  ) then raise exception 'APPROVED_LEGACY_REQUEST_NOT_BACKFILLED'; end if;
+
+  select total_messages,used_segments,remaining_messages
+    into v_total,v_used,v_remaining
+  from public.powerhub_get_sms_quota(13);
+  if v_total<>70 or v_used<>0 or v_remaining<>70 then
+    raise exception 'LEGACY_WALLET_QUOTA_WRONG: total %, used %, remaining %',v_total,v_used,v_remaining;
+  end if;
+
+  select * into v_policy from public.powerhub_resolve_tenant_feature_policy(10,'sms');
+  if not coalesce(v_policy.eligible,false) or not coalesce(v_policy.enabled,false)
+     or v_policy.effective_limit_mode<>'wallet' then
+    raise exception 'SMS_WALLET_FEATURE_POLICY_NOT_ENABLED';
+  end if;
+
+  -- The synthetic pre-cutover notification must not spend newly funded credit.
+  select total_messages,used_segments,remaining_messages into v_total,v_used,v_remaining
+  from public.powerhub_get_sms_quota(10);
+  if v_total<>0 or v_used<>0 or v_remaining<>0 then
+    raise exception 'PRE_CUTOVER_SMS_CONSUMED_NEW_WALLET_CREDIT';
+  end if;
+end
+$test_migration_cutover$;
+
 do $test_package_catalog$
 declare
   v_plan_id bigint;
