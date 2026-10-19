@@ -7,6 +7,7 @@ const walletMigration = read("supabase/migrations/20261019130000_powerhub_sms_li
 const adminWalletMigration = read("supabase/migrations/20261019140000_powerhub_sms_wallet_admin_operations.sql");
 const rechargeHardeningMigration = read("supabase/migrations/20261001005000_powerhub_sms_recharge_ledger_hardening.sql");
 const runtime = read("server/admin-runtime.ts");
+const powerhub = read("server/powerhub.ts");
 const home = read("client/src/pages/Home.tsx");
 const messagingPage = read("client/src/pages/MessagingSettingsPage.tsx");
 const subscriptionEditor = read("client/src/pages/AdminAdvancedWorkspace.tsx");
@@ -85,6 +86,21 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(adminLayout).toContain('id: "smsWallet"');
     expect(subscriptionEditor).toContain("rechargeIdempotencyKey");
     expect(subscriptionEditor).toContain("crypto.randomUUID()");
+  });
+
+  it("only returns allow-listed public subscription fields and does not resurrect disabled plans", () => {
+    const start = powerhub.indexOf("publicPackageCatalog: publicProcedure.query");
+    const end = powerhub.indexOf("smsQuota: protectedProcedure", start);
+    const publicCatalog = powerhub.slice(start, end);
+    expect(publicCatalog).toContain("const packageSource: Array<Record<string, unknown>>");
+    expect(publicCatalog).toContain(": fallback.packages");
+    expect(publicCatalog).toContain("A configured, intentionally empty/all-disabled catalog stays empty.");
+    expect(publicCatalog).toContain("addons: {}");
+    expect(publicCatalog).not.toContain("{ ...item }");
+    expect(publicCatalog).not.toContain("message: catalog.message");
+    expect(publicCatalog).not.toContain("grossProfit");
+    expect(publicCatalog).not.toContain("serviceNet");
+    expect(publicCatalog).not.toContain("originalPrice");
   });
 
   it("guards public-plan visibility with server settings and preserves other landing-page sections", () => {
