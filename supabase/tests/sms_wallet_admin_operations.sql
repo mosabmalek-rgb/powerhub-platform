@@ -536,6 +536,14 @@ begin
   -- but it must not authorize sending when subscription eligibility is absent.
   insert into public.subscribers(id,tenant_id,site_id,full_name,phone)
   values(1301,13,131,'مشترك بلا اشتراك نشط','+970599000013');
+
+  -- Give this negative eligibility test a fully configured fake provider account,
+  -- so it reaches the intended subscription guard instead of failing earlier on
+  -- missing provider configuration. No network call is made by the claim RPC.
+  insert into public.tenant_tweetsms_accounts(
+    tenant_id,monthly_limit,is_active,api_endpoint,credential_ciphertext,credential_iv,sender_name
+  ) values(13,100,true,'https://invalid.example.test/sms','fake-ciphertext','fake-iv','TEST');
+
   insert into public.notification_messages(
     tenant_id,subscriber_id,channel,event_type,status,payload,recipient
   ) values(13,1301,'sms','invoice_issued','pending','{"renderedText":"inactive-subscription-test"}'::jsonb,'+970599000013')
