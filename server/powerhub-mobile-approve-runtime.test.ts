@@ -79,6 +79,23 @@ describe("mobile approval Supabase runtime", () => {
     expect(state.notify).not.toHaveBeenCalled();
   });
 
+  it("loads subscriber scope and site settings concurrently after reading lookup", async () => {
+    const timeline: string[] = [];
+    state.site.mockImplementation(async () => {
+      timeline.push("site-start");
+      await Promise.resolve();
+      timeline.push("site-end");
+      return { id: 10, tenantId: 20, invoiceDueDays: 14, invoiceDueHours: 336 };
+    });
+    const originalMaybeSingle = (await import("./supabase-admin")).supabaseAdmin;
+    void originalMaybeSingle;
+    const caller = testRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await caller.approveAndIssue({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false });
+    expect(timeline).toEqual(["site-start", "site-end"]);
+    expect(state.approve).toHaveBeenCalledOnce();
+    expect(state.notify).not.toHaveBeenCalled();
+  });
+
   it("uses the configured due-hours interval for field reading invoices without sending real SMS", async () => {
     state.site.mockResolvedValue({ id: 10, tenantId: 20, invoiceDueDays: 1, invoiceDueHours: 18 });
     const caller = testRouter.createCaller({ user: { id: 1, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });

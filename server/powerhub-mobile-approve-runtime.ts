@@ -46,18 +46,22 @@ export async function executeApproveAndIssueMobileReading(input: {
   if (readingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل القراءة من Supabase." });
   if (!reading) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
 
-  const subscriberResult = await measureSlowStage("mobileReadings.approveAndIssue", "validate_subscriber_scope", async () =>
-    admin.from("subscribers")
-      .select("id")
-      .eq("tenant_id", input.tenantId)
-      .eq("site_id", input.siteId)
-      .eq("id", reading.subscriber_id)
-      .maybeSingle());
+  // These are independent preflight reads after the reading identifies its subscriber.
+  // Run them together to avoid serial network latency while keeping the atomic RPC as
+  // the final authority for scope, version, tariff, and financial-period checks.
+  const [subscriberResult, site] = await Promise.all([
+    measureSlowStage("mobileReadings.approveAndIssue", "validate_subscriber_scope", async () =>
+      admin.from("subscribers")
+        .select("id")
+        .eq("tenant_id", input.tenantId)
+        .eq("site_id", input.siteId)
+        .eq("id", reading.subscriber_id)
+        .maybeSingle()),
+    measureSlowStage("mobileReadings.approveAndIssue", "load_site_settings", async () =>
+      getSupabaseSite(input.siteId)),
+  ]);
   if (subscriberResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق المشترك في Supabase." });
   if (!subscriberResult.data) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
-
-  const site = await measureSlowStage("mobileReadings.approveAndIssue", "load_site_settings", async () =>
-    getSupabaseSite(input.siteId));
   const dueHours = Math.max(1, Math.min(2160, Number(site.invoiceDueHours ?? ((site.invoiceDueDays ?? 14) * 24))));
   const dueDate = new Date(new Date(reading.reading_at).getTime() + dueHours * 60 * 60 * 1000);
   const result = await measureSlowStage("mobileReadings.approveAndIssue", "atomic_approve_issue_rpc", async () =>
