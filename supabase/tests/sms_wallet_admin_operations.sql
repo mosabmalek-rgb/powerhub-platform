@@ -360,6 +360,9 @@ declare
   v_credit integer;
   v_replayed boolean;
   v_caught boolean;
+  v_total bigint;
+  v_used bigint;
+  v_remaining bigint;
 begin
   select ledger_id into v_id
   from public.powerhub_admin_create_sms_recharge_request(1,10,100,'اختبار شحن', '10000000-0000-0000-0000-000000000001'::uuid);
@@ -433,6 +436,14 @@ begin
   end if;
   if (select count(*) from public.audit_logs where tenant_id=10)<>2 then
     raise exception 'RECHARGE_REQUEST_OR_CONFIRM_AUDIT_MISSING';
+  end if;
+
+  insert into public.notification_messages(tenant_id,subscriber_id,channel,event_type,status,segment_count,created_at,payload,recipient)
+  values(10,1001,'sms','invoice_issued','delivered',4,now(),'{"renderedText":"مقاطع مستهلكة بعد التفعيل"}'::jsonb,'+970599000001');
+  select total_messages,used_segments,remaining_messages into v_total,v_used,v_remaining
+  from public.powerhub_get_sms_quota(10);
+  if v_total<>80 or v_used<>4 or v_remaining<>76 then
+    raise exception 'WALLET_QUOTA_DID_NOT_EXCLUDE_HISTORY_OR_COUNT_CURRENT_USAGE: total %, used %, remaining %',v_total,v_used,v_remaining;
   end if;
 end
 $test_pending_and_idempotency$;
