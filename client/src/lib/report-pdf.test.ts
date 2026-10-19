@@ -37,7 +37,7 @@ describe("PDF table layout", () => {
     expect(source).toContain('report.querySelectorAll<HTMLElement>("th, td")');
     expect(source).toContain('cell.style.border = "1px solid #9CA8B7"');
     expect(source).toContain('cell.style.padding = "9px 11px"');
-    expect(source).toContain('cell.style.borderCollapse = "collapse"');
+    expect(source).toContain('table.style.borderCollapse = "collapse"');
     expect(source).toContain("element.cloneNode(true)");
     expect(source).toContain("host.remove()");
   });
