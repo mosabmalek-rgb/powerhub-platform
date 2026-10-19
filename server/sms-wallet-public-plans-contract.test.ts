@@ -20,7 +20,7 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(walletMigration).toContain("select t.id,now() from public.tenants t");
     expect(walletMigration).toContain("after insert on public.tenant_subscriptions");
     expect(walletMigration).toContain("values(new.tenant_id,coalesce(new.created_at,now())) on conflict(tenant_id) do nothing");
-    expect(walletMigration).toContain("m.created_at>=coalesce(w.accounting_started_at,now())");
+    expect(walletMigration).toContain("coalesce(m.provider_request_started_at,m.created_at)>=coalesce(w.accounting_started_at,now())");
   });
 
   it("preserves approved permanent credit and repairs a linked pending ledger record in place", () => {
