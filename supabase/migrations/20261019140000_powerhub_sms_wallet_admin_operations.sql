@@ -1,0 +1,293 @@
+-- Admin-only SMS wallet operations. All credits are created pending and require a second, explicit confirmation.
+create or replace function public.powerhub_admin_create_sms_recharge_request(
+ p_actor_user_id bigint,p_tenant_id bigint,p_messages integer,p_note text,p_idempotency_key uuid
+)
+returns table(ledger_id bigint,tenant_id bigint,status text)
+language plpgsql security definer set search_path=public,pg_temp
+as $function$
+declare v_role text;v_row public.tenant_sms_recharge_ledger%rowtype;v_site_id bigint;
+begin
+ select u.platform_role into v_role from public.users u where u.id=p_actor_user_id and u.role='admin'
+  and u.account_status='active' and u.platform_role in('platform_owner','platform_admin','finance_admin');
+ if v_role is null then raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501'; end if;
+ if p_tenant_id is null or p_messages is null or p_messages<1 or p_messages>100000000 or p_idempotency_key is null then
+  raise exception 'INVALID_SMS_RECHARGE_REQUEST' using errcode='22023'; end if;
+ perform 1 from public.tenants t where t.id=p_tenant_id for update;
+ if not found then raise exception 'TENANT_NOT_FOUND' using errcode='P0002'; end if;
+ select * into v_row from public.tenant_sms_recharge_ledger l where l.idempotency_key=p_idempotency_key for update;
+ if found then
+  if v_row.tenant_id<>p_tenant_id or v_row.requested_messages<>p_messages then
+   raise exception 'IDEMPOTENCY_KEY_REUSED' using errcode='23505';
+  end if;
+  -- The same key is a replay even if the original request has since been finalized.
+  -- Return the existing state instead of creating another ledger row or failing retry.
+  return query select v_row.id,v_row.tenant_id,v_row.status;
+  return;
+ end if;
+ if exists(select 1 from public.tenant_sms_recharge_ledger l where l.tenant_id=p_tenant_id and l.status='pending') then
+  raise exception 'SMS_RECHARGE_REQUEST_PENDING' using errcode='55000';
+ end if;
+ select s.id into v_site_id from public.sites s where s.tenant_id=p_tenant_id and s.status<>'archived' order by s.id limit 1;
+ if v_site_id is null then raise exception 'SITE_NOT_FOUND' using errcode='P0002'; end if;
+ insert into public.tenant_sms_recharge_ledger(tenant_id,request_id,provider_mode,status,requested_messages,credited_messages,
+  idempotency_key,requested_by_user_id,note)
+ values(p_tenant_id,null,'manual','pending',p_messages,0,p_idempotency_key,p_actor_user_id,nullif(trim(coalesce(p_note,'')),'')) returning * into v_row;
+ insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data,metadata)
+ values(p_tenant_id,v_site_id,p_actor_user_id,v_role,'tenant_sms_recharge_ledger',v_row.id::text,'sms_wallet_credit_requested',
+  jsonb_build_object('requestedMessages',p_messages,'status','pending'),jsonb_build_object('note',nullif(trim(coalesce(p_note,'')),'')));
+ return query select v_row.id,v_row.tenant_id,v_row.status;
+end;
+$function$;
+revoke all on function public.powerhub_admin_create_sms_recharge_request(bigint,bigint,integer,text,uuid) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_create_sms_recharge_request(bigint,bigint,integer,text,uuid) to service_role;
+
+create or replace function public.powerhub_admin_create_sms_credit_package(
+ p_actor_user_id bigint,p_code text,p_name text,p_description text,p_messages integer,p_price numeric,p_currency text,p_is_active boolean
+)
+returns table(id bigint,name text)
+language plpgsql security definer set search_path=public,pg_temp
+as $function$
+declare v_role text;v_row public.platform_sms_plans%rowtype;
+begin
+ select u.platform_role into v_role from public.users u where u.id=p_actor_user_id and u.role='admin'
+  and u.account_status='active' and u.platform_role in('platform_owner','platform_admin');
+ if v_role is null then raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501'; end if;
+ if p_code is null or trim(p_code)='' or p_name is null or trim(p_name)='' or p_messages is null or p_messages<1 or p_messages>100000000
+  or p_price is null or p_price<0 or p_currency is null or length(trim(p_currency))<>3 then raise exception 'INVALID_SMS_PACKAGE' using errcode='22023'; end if;
+ if exists(select 1 from public.platform_sms_plans p where lower(p.code)=lower(trim(p_code))) then
+  raise exception 'DUPLICATE_CODE' using errcode='23505'; end if;
+ insert into public.platform_sms_plans(code,name,description,included_messages,price_amount,currency,is_active,created_at,updated_at)
+ values(lower(trim(p_code)),trim(p_name),nullif(trim(coalesce(p_description,'')),''),p_messages,p_price,upper(trim(p_currency)),coalesce(p_is_active,true),now(),now())
+ returning * into v_row;
+ insert into public.platform_security_events(event_type,severity,status,title,details,metadata,created_by_user_id)
+ values('security_change','info','success','إنشاء حزمة رصيد SMS','تم إنشاء حزمة رسائل مستقلة من لوحة إدارة المنصة.',
+  jsonb_build_object('action','sms_credit_package_created','planId',v_row.id,'code',v_row.code,'messages',v_row.included_messages,
+   'price',v_row.price_amount,'currency',v_row.currency,'active',v_row.is_active),p_actor_user_id);
+ return query select v_row.id,v_row.name;
+end;
+$function$;
+revoke all on function public.powerhub_admin_create_sms_credit_package(bigint,text,text,text,integer,numeric,text,boolean) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_create_sms_credit_package(bigint,text,text,text,integer,numeric,text,boolean) to service_role;
+
+create or replace function public.powerhub_admin_update_sms_credit_package(
+ p_actor_user_id bigint,p_id bigint,p_name text default null,p_description text default null,p_messages integer default null,
+ p_price numeric default null,p_currency text default null,p_is_active boolean default null
+)
+returns table(id bigint,is_active boolean)
+language plpgsql security definer set search_path=public,pg_temp
+as $function$
+declare v_role text;v_row public.platform_sms_plans%rowtype;
+begin
+ select u.platform_role into v_role from public.users u where u.id=p_actor_user_id and u.role='admin'
+  and u.account_status='active' and u.platform_role in('platform_owner','platform_admin');
+ if v_role is null then raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501'; end if;
+ if p_messages is not null and (p_messages<1 or p_messages>100000000) then raise exception 'INVALID_SMS_PACKAGE_QUANTITY' using errcode='22023'; end if;
+ if p_price is not null and p_price<0 then raise exception 'INVALID_SMS_PACKAGE_PRICE' using errcode='22023'; end if;
+ if p_currency is not null and length(trim(p_currency))<>3 then raise exception 'INVALID_SMS_PACKAGE_CURRENCY' using errcode='22023'; end if;
+ update public.platform_sms_plans set name=coalesce(nullif(trim(p_name),''),name),
+  description=case when p_description is null then description else nullif(trim(p_description),'') end,
+  included_messages=coalesce(p_messages,included_messages),price_amount=coalesce(p_price,price_amount),
+  currency=coalesce(upper(trim(p_currency)),currency),is_active=coalesce(p_is_active,public.platform_sms_plans.is_active),updated_at=now()
+ where platform_sms_plans.id=p_id returning * into v_row;
+ if not found then return; end if;
+ insert into public.platform_security_events(event_type,severity,status,title,details,metadata,created_by_user_id)
+ values('security_change','info','success','تعديل حزمة رصيد SMS','تم تحديث حزمة رسائل مستقلة من لوحة إدارة المنصة.',
+  jsonb_build_object('action','sms_credit_package_updated','planId',v_row.id,'messages',v_row.included_messages,
+   'price',v_row.price_amount,'currency',v_row.currency,'active',v_row.is_active),p_actor_user_id);
+ return query select v_row.id,v_row.is_active;
+end;
+$function$;
+revoke all on function public.powerhub_admin_update_sms_credit_package(bigint,bigint,text,text,integer,numeric,text,boolean) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_update_sms_credit_package(bigint,bigint,text,text,integer,numeric,text,boolean) to service_role;
+
+
+-- Keep the server-side recharge confirmation idempotent and always provide a
+-- valid site_id for audit_logs, whose schema requires both tenant_id and site_id.
+create or replace function public.powerhub_admin_confirm_sms_recharge(
+  p_actor_user_id bigint,
+  p_ledger_id bigint,
+  p_status text,
+  p_credited_messages integer,
+  p_provider_reference text default null,
+  p_provider_balance numeric default null,
+  p_failure_reason text default null
+)
+returns table(
+  success boolean,
+  status text,
+  credited_messages integer,
+  replayed boolean
+)
+language plpgsql
+security definer
+set search_path='public','pg_temp'
+as $function$
+declare
+  v_role text;
+  v_row public.tenant_sms_recharge_ledger%rowtype;
+  v_site_id bigint;
+  v_request_id bigint;
+begin
+  select u.platform_role
+    into v_role
+  from public.users u
+  where u.id=p_actor_user_id
+    and u.role='admin'
+    and u.account_status='active'
+    and u.platform_role in ('platform_owner','platform_admin','finance_admin');
+
+  if v_role is null then
+    raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501';
+  end if;
+
+  if p_status not in ('provider_confirmed','manual_confirmed','failed','cancelled') then
+    raise exception 'INVALID_SMS_RECHARGE_STATUS' using errcode='22023';
+  end if;
+
+  if p_credited_messages < 0 then
+    raise exception 'INVALID_SMS_RECHARGE_CREDIT' using errcode='22023';
+  end if;
+
+  -- Use the same lock order as package-request review: request first,
+  -- linked ledger second. This avoids a request<->ledger deadlock when these
+  -- two administrative actions race.
+  select l.request_id
+    into v_request_id
+  from public.tenant_sms_recharge_ledger l
+  where l.id=p_ledger_id;
+
+  if not found then
+    raise exception 'SMS_RECHARGE_NOT_FOUND' using errcode='P0002';
+  end if;
+
+  if v_request_id is not null then
+    perform 1
+    from public.sms_package_requests r
+    where r.id=v_request_id
+    for update;
+  end if;
+
+  select *
+    into v_row
+  from public.tenant_sms_recharge_ledger l
+  where l.id=p_ledger_id
+  for update;
+
+  if not found then
+    raise exception 'SMS_RECHARGE_NOT_FOUND' using errcode='P0002';
+  end if;
+
+  if p_status in ('provider_confirmed','manual_confirmed')
+     and p_credited_messages>v_row.requested_messages then
+    raise exception 'SMS_RECHARGE_CREDIT_EXCEEDS_REQUEST' using errcode='22023';
+  end if;
+
+  if v_row.status in ('provider_confirmed','manual_confirmed','failed','cancelled') then
+    if v_row.status=p_status
+       and v_row.credited_messages=p_credited_messages then
+      return query
+      select true,v_row.status,v_row.credited_messages,true;
+      return;
+    end if;
+
+    raise exception 'SMS_RECHARGE_ALREADY_FINALIZED' using errcode='55000';
+  end if;
+
+  if p_status in ('provider_confirmed','manual_confirmed')
+     and p_credited_messages < 1 then
+    raise exception 'SMS_RECHARGE_CREDIT_REQUIRED' using errcode='22023';
+  end if;
+
+  update public.tenant_sms_recharge_ledger l
+  set status=p_status,
+      credited_messages=case
+        when p_status in ('provider_confirmed','manual_confirmed')
+          then p_credited_messages
+        else 0
+      end,
+      provider_reference=nullif(trim(coalesce(p_provider_reference,'')),''),
+      provider_balance=p_provider_balance,
+      processed_by_user_id=p_actor_user_id,
+      confirmed_at=case
+        when p_status in ('provider_confirmed','manual_confirmed')
+          then now()
+        else null
+      end,
+      failure_reason=nullif(trim(coalesce(p_failure_reason,'')),''),
+      updated_at=now()
+  where l.id=p_ledger_id
+  returning l.* into v_row;
+
+  update public.sms_package_requests r
+  set status=case
+        when p_status in ('provider_confirmed','manual_confirmed') then 'approved'
+        when p_status='cancelled' then 'cancelled'
+        else 'rejected'
+      end,
+      approved_messages=case
+        when p_status in ('provider_confirmed','manual_confirmed')
+          then p_credited_messages
+        else 0
+      end,
+      reviewed_by_user_id=p_actor_user_id,
+      reviewed_at=now(),
+      updated_at=now()
+  where r.id=v_row.request_id;
+
+  -- audit_logs.site_id is NOT NULL. Prefer an active site, but keep
+  -- recharge confirmation auditable even if all of the tenant's sites are archived.
+  select s.id
+    into v_site_id
+  from public.sites s
+  where s.tenant_id=v_row.tenant_id
+  order by (s.status<>'archived') desc, s.id
+  limit 1;
+
+  if v_site_id is null then
+    raise exception 'SITE_NOT_FOUND' using errcode='P0002';
+  end if;
+
+  insert into public.audit_logs(
+    tenant_id,
+    site_id,
+    user_id,
+    actor_platform_role,
+    entity_type,
+    entity_id,
+    action,
+    after_data,
+    metadata
+  )
+  values(
+    v_row.tenant_id,
+    v_site_id,
+    p_actor_user_id,
+    v_role,
+    'tenant_sms_recharge_ledger',
+    v_row.id::text,
+    case
+      when p_status in ('provider_confirmed','manual_confirmed')
+        then 'sms_recharge_confirmed'
+      else 'sms_recharge_finalized'
+    end,
+    jsonb_build_object(
+      'status',v_row.status,
+      'creditedMessages',v_row.credited_messages,
+      'providerMode',v_row.provider_mode,
+      'providerReference',v_row.provider_reference,
+      'providerBalance',v_row.provider_balance
+    ),
+    jsonb_build_object(
+      'requestId',v_row.request_id,
+      'failureReason',v_row.failure_reason
+    )
+  );
+
+  return query
+  select true,v_row.status,v_row.credited_messages,false;
+end;
+$function$;
+
+
+revoke all on function public.powerhub_admin_confirm_sms_recharge(bigint,bigint,text,integer,text,numeric,text) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_confirm_sms_recharge(bigint,bigint,text,integer,text,numeric,text) to service_role;

@@ -81,6 +81,8 @@ export default function MarketingLandingPage() {
   const whatsappNumber = String(contact.data?.whatsappNumber ?? "").replace(/\\D/g, "");
   const contactOnWhatsapp = () => { if (whatsappNumber) window.open(`https://wa.me/${whatsappNumber}`, "_blank", "noopener,noreferrer"); else document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" }); };
   const catalog = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000, retry: 1 });
+  // Fail open to the published default if the setting has not loaded yet.
+  const showPlans = catalog.data?.showPlans !== false;
   const plans = catalog.data?.packages?.map((pkg, index) => ({
     name: String(pkg.name),
     description: `حل ${String(pkg.name)} لإدارة مشروع بيع الكهرباء بالكيلوواط.`,
@@ -95,7 +97,6 @@ export default function MarketingLandingPage() {
       `${Number(pkg.platformUsers ?? 0)} مستخدمو منصة`,
       `${Number(pkg.fieldUsers ?? 0)} مستخدمون ميدانيون`,
       `${Number(pkg.branches ?? 0)} فرع${Number(pkg.branches ?? 0) === 1 ? "" : "ان"}`,
-      `${Number(pkg.includedMessages ?? 0).toLocaleString("ar")} رسالة SMS`,
     ],
     action: index === 1 ? "اختر الباقة" : "ابدأ بمساحتك",
     price: Number(pkg.price),
@@ -115,7 +116,7 @@ export default function MarketingLandingPage() {
           <nav className="hidden items-center gap-7 text-sm font-bold text-slate-300 xl:flex">
             <a href="#features" className="transition hover:text-[#F5B800]">المميزات</a>
             <a href="#how-it-works" className="transition hover:text-[#F5B800]">كيف تعمل</a>
-            <a href="#plans" className="transition hover:text-[#F5B800]">الباقات</a>
+            {showPlans ? <a href="#plans" className="transition hover:text-[#F5B800]">الباقات</a> : null}
             <a href="#contact" className="transition hover:text-[#F5B800]">تواصل</a>
           </nav>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
@@ -186,21 +187,21 @@ export default function MarketingLandingPage() {
         </div>
       </section>
 
-      <section id="plans" className="border-y border-white/8 bg-[#111823]/55 py-20 sm:py-24">
+      {showPlans ? <section id="plans" className="border-y border-white/8 bg-[#111823]/55 py-20 sm:py-24">
         <div className="container">
           <SectionTitle eyebrow="نطاقات مرنة" title="باقة تناسب حجم تشغيلك" description="تُضبط خطة الاشتراك وفق عدد المحطات والمولدات ومتطلبات التشغيل؛ لا تعرض هذه الصفحة سعراً ثابتاً قبل تحديد نطاق العمل." />
           <div className="mx-auto mt-12 grid max-w-6xl gap-5 lg:grid-cols-3">
             {plans.map((plan) => <article key={plan.name} className={`relative rounded-3xl border p-6 ${plan.accent}`}>{plan.highlighted && <Badge className="absolute -top-3 right-6 bg-[#F5B800] px-3 py-1 text-[#0D1117] hover:bg-[#F5B800]">للعمليات النشطة</Badge>}<h3 className="text-2xl font-extrabold text-white">{plan.name}</h3><p className="mt-3 min-h-12 text-sm leading-6 text-slate-400">{plan.description}</p><p className="mt-4 text-3xl font-black text-[#F5B800]" dir="ltr">{Number(plan.price).toLocaleString("ar-IQ")} <span className="text-sm">{plan.currency === "ILS" ? "₪" : plan.currency}</span><span className="mr-1 text-xs font-normal text-slate-400">شهرياً</span></p><div className="my-6 h-px bg-white/8" /><ul className="space-y-3">{plan.items.map((item) => <li key={item} className="flex items-start gap-2 text-sm text-slate-200"><Check className="mt-0.5 h-4 w-4 shrink-0 text-[#F5B800]" />{item}</li>)}</ul><Button onClick={contactOnWhatsapp} variant={plan.highlighted ? "default" : "outline"} className={plan.highlighted ? "mt-8 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#FFD45A]" : "mt-8 w-full border-white/15 bg-white/[0.02] font-bold text-white hover:bg-white/8 hover:text-white"}>{plan.action}</Button></article>)}
           </div>
         </div>
-      </section>
+      </section> : null}
 
       <section id="contact" className="container py-20 sm:py-28">
         <div className="relative overflow-hidden rounded-[32px] border border-[#F5B800]/20 bg-gradient-to-l from-[#1c2229] to-[#111823] px-6 py-12 text-center sm:px-12"><div className="absolute left-0 top-0 h-56 w-56 rounded-full bg-[#F5B800]/10 blur-3xl" /><MessageSquareText className="relative mx-auto h-7 w-7 text-[#F5B800]" /><h2 className="relative mt-5 text-3xl font-extrabold text-white sm:text-4xl">راقب، أدر، واحسب بثقة.</h2><p className="relative mx-auto mt-4 max-w-2xl text-base leading-8 text-slate-300">ابدأ مساحة PowerHub لتجعل كل قراءة وفاتورة ودفعة جزءاً من دورة تشغيل واضحة وقابلة للمراجعة.</p><Button size="lg" onClick={contactOnWhatsapp} className="relative mt-8 bg-[#F5B800] px-7 font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">تواصل مع المنصة <ArrowLeft className="mr-2 h-5 w-5" /></Button></div>
       </section>
 
       <footer className="border-t border-white/8 bg-[#090d12]">
-        <div className="container flex flex-col gap-5 py-8 text-center sm:flex-row sm:items-center sm:justify-between sm:text-right"><button type="button" onClick={() => setLocation("/")} className="mx-auto rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4 focus-visible:ring-offset-[#090d12] sm:mx-0" aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub"><PowerHubLogo /></button><p className="text-sm text-slate-500">PowerHub — إدارة الطاقة بذكاء.</p><div className="flex justify-center gap-5 text-sm font-bold text-slate-400"><a href="#features" className="hover:text-[#F5B800]">المميزات</a><a href="#plans" className="hover:text-[#F5B800]">الباقات</a><button onClick={startLogin} className="hover:text-[#F5B800]">تسجيل الدخول</button></div></div>
+        <div className="container flex flex-col gap-5 py-8 text-center sm:flex-row sm:items-center sm:justify-between sm:text-right"><button type="button" onClick={() => setLocation("/")} className="mx-auto rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4 focus-visible:ring-offset-[#090d12] sm:mx-0" aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub"><PowerHubLogo /></button><p className="text-sm text-slate-500">PowerHub — إدارة الطاقة بذكاء.</p><div className="flex justify-center gap-5 text-sm font-bold text-slate-400"><a href="#features" className="hover:text-[#F5B800]">المميزات</a>{showPlans ? <a href="#plans" className="hover:text-[#F5B800]">الباقات</a> : null}<button onClick={startLogin} className="hover:text-[#F5B800]">تسجيل الدخول</button></div></div>
       </footer>
     </main>
   );
