@@ -238,7 +238,8 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
       if (name === "powerhub_queue_payment_sms") return resolved([{ notification_id: 90, queued: true }]);
       if (name === "powerhub_close_collector_session") return resolved([{ expected_cash: 10, variance_amount: 0 }]);
-      if (name === "powerhub_request_sms_package") return resolved([{ request_id: 98, request_status: "pending" }]);
+      if (name === "powerhub_get_sms_quota") return resolved([{ total_messages: 1000, used_segments: 2, remaining_messages: 998, subscription_id: 108, sms_plan_id: null, plan_code: "basic", plan_name: "الناشئة", base_messages: 0, additional_messages: 1000 }]);
+      if (name === "powerhub_request_sms_package_plan") return resolved([{ request_id: 98, request_status: "pending", already_requested: false }]);
       if (name === "powerhub_save_custom_permission_role") return resolved([{ role_id: 122, mutation: "create" }]);
       if (name === "powerhub_delete_custom_permission_role") return resolved([{ role_id: 122 }]);
       if (name === "powerhub_update_staff_profile_permissions") return resolved([{ profile_id: 120, target_user_id: 2 }]);
@@ -757,8 +758,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("ينشئ طلب حزمة SMS عبر دالة Supabase الذرية دون MySQL أو مزود خارجي", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.messaging.requestSmsPackage({ siteId: 10, requestedMessages: 1000, note: "طلب اختبار" })).resolves.toEqual({ id: 98, status: "pending" });
-    expect(state.rpcCalls).toContainEqual({ name: "powerhub_request_sms_package", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_requested_messages: 1000 }) });
+    await expect(caller.messaging.requestSmsPackage({ siteId: 10, packageId: 501, note: "طلب اختبار" })).resolves.toEqual({ id: 98, status: "pending" });
+    expect(state.rpcCalls).toContainEqual({ name: "powerhub_request_sms_package_plan", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_sms_plan_id: 501, p_note: "طلب اختبار" }) });
   });
 
   it("يعرض إعدادات الرسائل والقوالب وسجل الجدولة من Supabase دون Heartbeat أو MySQL", async () => {
