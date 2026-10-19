@@ -5,6 +5,7 @@ import path from "node:path";
 const root = process.cwd();
 const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messaging.ts"), "utf8");
 const manualFreeSmsMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261019090000_powerhub_free_manual_sms.sql"), "utf8");
+const manualSmsHistoryScopeMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261019120000_powerhub_manual_sms_history_scope.sql"), "utf8");
 const invoiceLinksMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223156_powerhub_invoice_message_links.sql"), "utf8");
 const readingVariablesMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014180000_powerhub_invoice_reading_message_variables.sql"), "utf8");
 const manualReadingGuardMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014190000_powerhub_manual_campaign_reading_token_guard.sql"), "utf8");
@@ -366,6 +367,17 @@ describe("unified messaging runtime contract", () => {
     expect(campaignRefreshFixMigration).toContain("campaign.completed_at,now()");
     expect(campaignRefreshFixMigration).toContain("where campaign.id=p_campaign_id");
     expect(campaignRefreshFixMigration).toContain("revoke execute on function public.powerhub_refresh_message_campaign(bigint,bigint,bigint) from public,anon,authenticated");
+  });
+
+  it("keeps the optimized history RPC optional and makes its site-scope patch idempotent", () => {
+    expect(manualSmsHistoryScopeMigration).toContain("to_regprocedure(");
+    expect(manualSmsHistoryScopeMigration).toContain("if v_function_oid is null then");
+    expect(manualSmsHistoryScopeMigration).toContain("Optional powerhub_unified_messaging_history RPC is absent");
+    expect(manualSmsHistoryScopeMigration).toContain("information_schema.columns");
+    expect(manualSmsHistoryScopeMigration).toContain("notification_messages.site_id is absent");
+    expect(manualSmsHistoryScopeMigration).toContain("and (m.site_id is null or m.site_id = p_site_id)");
+    expect(manualSmsHistoryScopeMigration).toContain("UNIFIED_MESSAGE_HISTORY_DIRECT_SITE_SCOPE_PATCH_FAILED");
+    expect(manualSmsHistoryScopeMigration).toContain("already has direct-site scoping; nothing to patch");
   });
 
   it("resumes only pending rows on an idempotent manual campaign replay", () => {
