@@ -70,6 +70,16 @@ describe("site billing minimum and fractional settlement contract", () => {
     expect(branchPage).not.toContain('name="invoiceDueDays"');
   });
 
+  it("validates policy-aware SMS amounts through the shared formatter from the earlier migration", () => {
+    const formatterMigration = read("supabase/migrations/20261016110000_powerhub_policy_aware_message_amount_display.sql");
+    const migration = read("supabase/migrations/20261019110000_powerhub_policy_aware_sms_amounts.sql");
+    expect(formatterMigration).toContain("create or replace function public.powerhub_format_message_amount(");
+    expect(migration).toContain("POLICY_AWARE_SMS_AMOUNT_HELPER_VALIDATION_FAILED");
+    expect(migration).toContain("position('powerhub_format_message_amount' in v_definition) = 0");
+    expect(migration).toContain("trunc(p_amount, 0)");
+    expect(migration).toContain("round(p_amount, 1)");
+  });
+
   it("keeps manual collection discounts atomic, auditable, and bounded by remaining debt", () => {
     const migration = read("supabase/migrations/20261014140000_powerhub_manual_collection_discount.sql");
     const server = read("server/powerhub.ts");

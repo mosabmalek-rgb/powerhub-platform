@@ -64,13 +64,32 @@ begin
 end;
 $migration$;
 
--- Fail the migration rather than silently retaining stale three-decimal or fixed one-decimal rendering.
+-- Validate the shared formatter as well as its callers. The earlier
+-- 20261016110000 migration rewrites these callers to use the helper, so the
+-- policy columns and trunc() intentionally live in the helper definition, not
+-- necessarily in each caller's pg_get_functiondef() text.
 do $validation$
 declare
   v_definition text;
+  v_helper_definition text;
   v_name text;
   v_args integer;
 begin
+  select pg_get_functiondef(p.oid) into v_helper_definition
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'powerhub_format_message_amount'
+    and p.pronargs = 3;
+
+  if v_helper_definition is null
+     or position('automatic_fraction_discount_enabled' in v_helper_definition) = 0
+     or position('fraction_carry_enabled' in v_helper_definition) = 0
+     or position('trunc(p_amount, 0)' in v_helper_definition) = 0
+     or position('round(p_amount, 1)' in v_helper_definition) = 0 then
+    raise exception 'POLICY_AWARE_SMS_AMOUNT_HELPER_VALIDATION_FAILED';
+  end if;
+
   for v_name, v_args in
     select * from (values
       ('powerhub_queue_invoice_sms_after_issue', 0),
@@ -79,12 +98,19 @@ begin
     ) as expected(name, args)
   loop
     select pg_get_functiondef(p.oid) into v_definition
-    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = v_name and p.pronargs = v_args;
+
     if v_definition is null
-       or position('automatic_fraction_discount_enabled' in v_definition) = 0
-       or position('fraction_carry_enabled' in v_definition) = 0
-       or position('trunc(' in v_definition) = 0 then
+       or (
+         position('powerhub_format_message_amount' in v_definition) = 0
+         and (
+           position('automatic_fraction_discount_enabled' in v_definition) = 0
+           or position('fraction_carry_enabled' in v_definition) = 0
+           or position('trunc(' in v_definition) = 0
+         )
+       ) then
       raise exception 'POLICY_AWARE_SMS_AMOUNT_VALIDATION_FAILED for %', v_name;
     end if;
   end loop;
