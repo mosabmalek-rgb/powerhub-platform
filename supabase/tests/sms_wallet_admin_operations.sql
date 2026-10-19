@@ -480,9 +480,16 @@ begin
   end;
   if not v_caught then raise exception 'NON_ADMIN_CREATED_MANUAL_RECHARGE'; end if;
 
-  -- Finance admins may review wallet summaries, matching their recharge
-  -- create/confirm permissions, while regular users remain denied.
-  perform * from public.powerhub_admin_sms_wallet_summaries(2);
+  -- Keep database summary access aligned with the server route guard:
+  -- only active platform owners/admins may read global wallet summaries.
+  v_caught:=false;
+  begin
+    perform * from public.powerhub_admin_sms_wallet_summaries(2);
+  exception when others then
+    if sqlerrm='FORBIDDEN_PLATFORM_ROLE' then v_caught:=true; else raise; end if;
+  end;
+  if not v_caught then raise exception 'FINANCE_ADMIN_READ_SMS_WALLET_SUMMARIES'; end if;
+  perform * from public.powerhub_admin_sms_wallet_summaries(1);
   v_caught:=false;
   begin
     perform * from public.powerhub_admin_sms_wallet_summaries(3);
