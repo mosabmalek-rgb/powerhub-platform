@@ -495,6 +495,7 @@ describe("role guards in administration UI", () => {
 
   it("hides payment entry from the viewer in the operational collections view", () => {
     render(<OperationsPage section="collections" />);
+    fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     expect(screen.getByText(/دورك يتيح مراجعة التحصيلات فقط/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /تسجيل الدفعة/ })).not.toBeInTheDocument();
   });
