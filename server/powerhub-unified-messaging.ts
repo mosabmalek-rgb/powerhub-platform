@@ -4,7 +4,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
-import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
+import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
 import { buildAutomaticOccurrenceKey, buildInvoiceOverdueOperationKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible, isLaterOverdueInvoiceCandidate } from "./unified-messaging-automation-policy";
