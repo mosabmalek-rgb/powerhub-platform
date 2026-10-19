@@ -418,7 +418,7 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
       if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) return toast.error("أدخل مبلغ تحصيل أكبر من صفر.");
       if (manualDiscountAmount > 0 && invoiceIds.length !== 1) return toast.error("الخصم اليدوي متاح عند تحصيل فاتورة واحدة في العملية؛ اختر فاتورة واحدة أولًا.");
       if (manualDiscountAmount > 0 && manualDiscountReason.length < 3) return toast.error("اكتب سببًا واضحًا للخصم اليدوي لا يقل عن 3 أحرف.");
-      const dueById = new Map(unpaidInvoicesForSubscriber.map((invoice: any) => [Number(invoice.id), Number(invoice.balanceDue)]));
+      const dueById = new Map<number, number>(unpaidInvoicesForSubscriber.map((invoice: any) => [Number(invoice.id), Number(invoice.balanceDue)] as const));
       if (invoiceIds.some((invoiceId) => !dueById.has(invoiceId))) return toast.error("تغيرت أهلية إحدى الفواتير للتحصيل. حدّث البيانات ثم اختر الفواتير المؤهلة مجددًا.");
       if (invoiceIds.length > 1) {
         const totalDue = invoiceIds.reduce((sum,id)=>sum+(dueById.get(id) ?? 0),0);
