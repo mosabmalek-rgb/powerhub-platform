@@ -2571,21 +2571,30 @@ export const powerhubRouter = router({
       }
     })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
-      await requirePaymentDocumentationFeature(access.tenantId);
       const admin = supabaseAdmin();
+      // Entitlement and current-cycle bounds are independent reads; overlap them so
+      // opening the review tab doesn't pay two sequential database round trips.
+      const cyclePromise = input.period === "current_cycle"
+        ? measureSlowStage("paymentDocumentation.list", "cycle_bounds", async () =>
+            admin.rpc("powerhub_cycle_for_reading", {
+              p_tenant_id: access.tenantId,
+              p_site_id: input.siteId,
+              p_reading_at: new Date().toISOString(),
+            }))
+        : Promise.resolve(null);
+      const [, cycle] = await Promise.all([
+        measureSlowStage("paymentDocumentation.list", "feature_entitlement", async () =>
+          requirePaymentDocumentationFeature(access.tenantId)),
+        cyclePromise,
+      ]);
       let query = admin.from("payment_documentation_requests")
         .select("id, tenant_id, site_id, subscriber_id, invoice_id, destination_account_id, invoice_no_snapshot, subscriber_name_snapshot, subscriber_no_snapshot, billing_period_snapshot, previous_reading_snapshot, current_reading_snapshot, consumption_kwh_snapshot, price_per_kwh_snapshot, consumption_value_snapshot, invoice_total_snapshot, invoice_balance_snapshot, payment_amount, payment_method, sender_phone, reference_no, receipt_image_key, receipt_image_hash, status, rejection_reason, submitted_by_user_id, reviewed_by_user_id, reviewed_at, payment_id, submitted_at, created_at, updated_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("submitted_at", { ascending: false }).limit(200);
       if (input.status !== "all") query = query.eq("status", input.status);
 
       if (input.period === "current_cycle") {
-        const cycle = await admin.rpc("powerhub_cycle_for_reading", {
-          p_tenant_id: access.tenantId,
-          p_site_id: input.siteId,
-          p_reading_at: new Date().toISOString(),
-        });
-        const cycleRow = Array.isArray(cycle.data) ? cycle.data[0] : null;
-        if (cycle.error || !cycleRow?.cycle_start_at || !cycleRow?.cycle_end_at) {
+        const cycleRow = Array.isArray(cycle?.data) ? cycle.data[0] : null;
+        if (cycle?.error || !cycleRow?.cycle_start_at || !cycleRow?.cycle_end_at) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تحديد دورة القراءة الحالية لهذا الفرع." });
         }
         query = query.gte("submitted_at", String(cycleRow.cycle_start_at)).lte("submitted_at", String(cycleRow.cycle_end_at));
@@ -2606,15 +2615,21 @@ export const powerhubRouter = router({
       if (!rows.length) return rows;
       const accountIds = Array.from(new Set(rows.map((row) => Number(row.destination_account_id)).filter((id) => Number.isInteger(id) && id > 0)));
       if (!accountIds.length) return rows;
-      const { data: accounts, error: accountError } = await admin.from("company_accounts")
-        .select("id, name, account_type, phone_number")
-        .eq("tenant_id", access.tenantId)
-        .in("id", accountIds);
+      const [accountsResult, linksResult] = await Promise.all([
+        measureSlowStage("paymentDocumentation.list", "destination_accounts", async () =>
+          admin.from("company_accounts")
+            .select("id, name, account_type, phone_number")
+            .eq("tenant_id", access.tenantId)
+            .in("id", accountIds)),
+        measureSlowStage("paymentDocumentation.list", "destination_account_site_scope", async () =>
+          admin.from("company_account_sites")
+            .select("account_id, site_id")
+            .eq("tenant_id", access.tenantId)
+            .in("account_id", accountIds)),
+      ]);
+      const { data: accounts, error: accountError } = accountsResult;
       if (accountError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الحسابات المستقبلة لطلبات التوثيق." });
-      const { data: accountLinks, error: linksError } = await admin.from("company_account_sites")
-        .select("account_id, site_id")
-        .eq("tenant_id", access.tenantId)
-        .in("account_id", accountIds);
+      const { data: accountLinks, error: linksError } = linksResult;
       if (linksError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق حسابات الاستقبال." });
       const linksByAccount = new Map<number, number[]>();
       for (const link of accountLinks ?? []) {
@@ -2738,44 +2753,61 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد طلب توثيق الدفع." });
       }
       const paymentId = Number((data[0] as { payment_id: number | string }).payment_id);
-      // One scoped SQL read replaces the payment lookup plus three follow-up reads.
-      // Notification work remains best-effort and never reverses a successful approval.
-      const { data: contextRows, error: contextError } = await measureSlowStage("paymentDocumentation.approve", "receipt_context_rpc", async () =>
-        supabaseAdmin().rpc("powerhub_payment_receipt_context", {
-          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_payment_id: paymentId,
-        }));
-      const receiptContext = Array.isArray(contextRows) ? contextRows[0] as {
-        invoice_id?: number | string | null;
-        payment_no?: string | null;
-        payment_amount?: number | string | null;
-        invoice_no?: string | null;
-        balance_due?: number | string | null;
-        subscriber_name?: string | null;
-        subscriber_phone?: string | null;
-        template_body?: string | null;
-      } | undefined : undefined;
-      if (contextError || !receiptContext?.invoice_id || !receiptContext.subscriber_phone) return { paymentId };
+      // Approval is the financial source of truth. Receipt preparation and SMS queuing
+      // are secondary, best-effort work and must never turn a successful approval into a
+      // misleading failed button state. Read receipt context and display policy in parallel.
       try {
-        const receipt = {
-          subscriberName: String(receiptContext.subscriber_name ?? ""),
-          paymentNo: String(receiptContext.payment_no ?? ""),
-          paymentAmount: Number(receiptContext.payment_amount ?? 0),
-          invoiceNo: String(receiptContext.invoice_no ?? ""),
-          balanceDue: Number(receiptContext.balance_due ?? 0),
-        };
-        const { data: billingPolicy, error: billingPolicyError } = await supabaseAdmin().from("site_billing_policies")
-          .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
-          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
-        if (billingPolicyError) throw new Error("تعذر تحميل سياسة تسوية الكسور لتنسيق مبلغ الإيصال.");
-        const settlementDisplayEnabled = Boolean(billingPolicy?.automatic_fraction_discount_enabled || billingPolicy?.fraction_carry_enabled);
-        const renderedText = renderPaymentReceiptTemplate(receiptContext.template_body ?? defaultPaymentReceiptSmsTemplate, receipt, settlementDisplayEnabled) || renderPaymentReceiptMessage(receipt, settlementDisplayEnabled);
-        await measureSlowStage("paymentDocumentation.approve", "queue_receipt_notification", async () =>
-          supabaseAdmin().rpc("powerhub_queue_payment_sms", {
-            p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId,
-            p_event_type: "payment_received", p_invoice_id: Number(receiptContext.invoice_id),
-            p_payment_id: paymentId, p_operation_key: `payment_receipt:${paymentId}`, p_rendered_text: renderedText,
-          }));
-      } catch { /* approval remains authoritative; SMS is a secondary notification path */ }
+        const [contextResult, billingPolicyResult] = await Promise.all([
+          measureSlowStage("paymentDocumentation.approve", "receipt_context_rpc", async () =>
+            supabaseAdmin().rpc("powerhub_payment_receipt_context", {
+              p_tenant_id: access.tenantId, p_site_id: input.siteId, p_payment_id: paymentId,
+            })),
+          measureSlowStage("paymentDocumentation.approve", "receipt_billing_policy", async () =>
+            supabaseAdmin().from("site_billing_policies")
+              .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
+              .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle()),
+        ]);
+        const { data: contextRows, error: contextError } = contextResult;
+        const receiptContext = Array.isArray(contextRows) ? contextRows[0] as {
+          invoice_id?: number | string | null;
+          payment_no?: string | null;
+          payment_amount?: number | string | null;
+          invoice_no?: string | null;
+          balance_due?: number | string | null;
+          subscriber_name?: string | null;
+          subscriber_phone?: string | null;
+          template_body?: string | null;
+        } | undefined : undefined;
+        if (contextError) {
+          console.warn("[PowerHub payment receipt] context lookup failed after approval", { code: contextError.code ?? "unknown" });
+        } else if (receiptContext?.invoice_id && receiptContext.subscriber_phone) {
+          const { data: billingPolicy, error: billingPolicyError } = billingPolicyResult;
+          if (billingPolicyError) {
+            console.warn("[PowerHub payment receipt] billing policy lookup failed after approval", { code: billingPolicyError.code ?? "unknown" });
+          } else {
+            const receipt = {
+              subscriberName: String(receiptContext.subscriber_name ?? ""),
+              paymentNo: String(receiptContext.payment_no ?? ""),
+              paymentAmount: Number(receiptContext.payment_amount ?? 0),
+              invoiceNo: String(receiptContext.invoice_no ?? ""),
+              balanceDue: Number(receiptContext.balance_due ?? 0),
+            };
+            const settlementDisplayEnabled = Boolean(billingPolicy?.automatic_fraction_discount_enabled || billingPolicy?.fraction_carry_enabled);
+            const renderedText = renderPaymentReceiptTemplate(receiptContext.template_body ?? defaultPaymentReceiptSmsTemplate, receipt, settlementDisplayEnabled) || renderPaymentReceiptMessage(receipt, settlementDisplayEnabled);
+            const { error: queueError } = await measureSlowStage("paymentDocumentation.approve", "queue_receipt_notification", async () =>
+              supabaseAdmin().rpc("powerhub_queue_payment_sms", {
+                p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId,
+                p_event_type: "payment_received", p_invoice_id: Number(receiptContext.invoice_id),
+                p_payment_id: paymentId, p_operation_key: `payment_receipt:${paymentId}`, p_rendered_text: renderedText,
+              }));
+            if (queueError) console.warn("[PowerHub payment receipt] queue failed after approval", { code: queueError.code ?? "unknown" });
+          }
+        }
+      } catch (secondaryError) {
+        console.warn("[PowerHub payment receipt] secondary notification processing failed after approval", {
+          errorName: secondaryError instanceof Error ? secondaryError.name : "unknown",
+        });
+      }
       return { paymentId };
     }),
     receiptUrl: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).query(async ({ ctx, input }) => {
