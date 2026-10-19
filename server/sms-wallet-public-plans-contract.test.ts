@@ -46,9 +46,12 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(adminWalletMigration).toContain("INVALID_SMS_PACKAGE_CURRENCY");
     expect(adminWalletMigration).toContain("Use the same lock order as package-request review");
     expect(adminWalletMigration).toContain("perform 1");
-    expect(adminWalletMigration.indexOf("from public.sms_package_requests r")).toBeLessThan(
-      adminWalletMigration.lastIndexOf("from public.tenant_sms_recharge_ledger l\n  where l.id=p_ledger_id\n  for update"),
-    );
+    const confirmStart = adminWalletMigration.indexOf("create or replace function public.powerhub_admin_confirm_sms_recharge");
+    const confirmBody = adminWalletMigration.slice(confirmStart);
+    const requestLock = confirmBody.indexOf("from public.sms_package_requests r");
+    const ledgerLock = confirmBody.indexOf("from public.tenant_sms_recharge_ledger l\n  where l.id=p_ledger_id\n  for update");
+    expect(requestLock).toBeGreaterThanOrEqual(0);
+    expect(ledgerLock).toBeGreaterThan(requestLock);
     expect(rechargeHardeningMigration).toContain("for update");
     expect(rechargeHardeningMigration).toContain("SMS_RECHARGE_ALREADY_FINALIZED");
     expect(rechargeHardeningMigration).toContain("revoke all on function public.powerhub_admin_confirm_sms_recharge");
