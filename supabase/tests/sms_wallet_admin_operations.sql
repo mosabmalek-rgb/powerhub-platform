@@ -262,7 +262,7 @@ declare
   v_active boolean;
 begin
   select id into v_plan_id
-    from public.powerhub_admin_create_sms_credit_package(1,'sms-test-1500','حزمة اختبار 1500','اختبار',1500,12,' ils ',true);
+    from public.powerhub_admin_create_sms_credit_package(1,'sms-test-package','حزمة اختبار 1000','اختبار',1000,12,' ils ',true);
   select price_amount,currency,included_messages,is_active into v_price,v_currency,v_qty,v_active
     from public.platform_sms_plans where id=v_plan_id;
   if v_price<>12 or v_currency<>'ILS' or v_qty<>1000 or not v_active then
@@ -305,7 +305,7 @@ declare
   v_price numeric;
   v_total bigint;
 begin
-  select id into v_plan_id from public.platform_sms_plans where code='sms-test-1500';
+  select id into v_plan_id from public.platform_sms_plans where code='sms-test-package';
   if v_plan_id is null then raise exception 'TEST_SMS_PACKAGE_NOT_FOUND'; end if;
 
   select request_id into v_request_id
