@@ -372,6 +372,12 @@ describe("unified messaging runtime contract", () => {
     expect(ui).toContain("إرسال يدوي");
     expect(ui).toContain("تحديد الظاهر");
     expect(ui).toContain("إرسال الحملة");
+    expect(ui).toContain("إرسال SMS يدوي حر");
+    expect(ui).toContain("إدخال رقم هاتف يدوي");
+    expect(ui).toContain("sendManualFreeText");
+    expect(runtime).toContain("sendManualFreeText: protectedProcedure");
+    expect(runtime).toContain("powerhub_prepare_manual_free_sms");
+    expect(runtime).toContain("normalizeInternationalPhone");
     expect(ui).toContain("crypto.randomUUID()");
     expect(ui).toContain("failed");
     expect(ui).toContain("تقدير للنص الحالي");
