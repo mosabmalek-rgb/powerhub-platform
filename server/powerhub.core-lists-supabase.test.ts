@@ -318,12 +318,25 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يجهز تذكير السداد وإيصال التحصيل عبر طابور SMS الذري دون مزود حي", async () => {
+    state.tables.powerhub_message_templates = [{ id: 200, tenant_id: 20, channel: "sms", event_type: "invoice_overdue", is_active: true, body: "تذكير {{balance_due}} · الرصيد الإجمالي {{total_balance}}" }];
+    state.tables.site_billing_policies = [{ tenant_id: 20, site_id: 10, automatic_fraction_discount_enabled: true, fraction_carry_enabled: false }];
     notificationWorker.processById.mockResolvedValue({ status: "submitted" });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.notifications.sendPaymentReminderSms({ siteId: 10, invoiceId: 70 })).resolves.toMatchObject({ notificationIds: [90], status: "submitted", channels: ["sms"] });
     await expect(caller.notifications.sendPaymentReceiptSms({ siteId: 10, paymentId: 81, channel: "sms" })).resolves.toMatchObject({ notificationId: 90, status: "submitted", channel: "sms" });
-    expect(state.rpcCalls.filter((call) => call.name === "powerhub_queue_payment_sms")).toHaveLength(2);
+    const paymentSmsCalls = state.rpcCalls.filter((call) => call.name === "powerhub_queue_payment_sms");
+    expect(paymentSmsCalls).toHaveLength(2);
+    expect(paymentSmsCalls[0].args).toMatchObject({ p_rendered_text: "تذكير 75 · الرصيد الإجمالي 75" });
     expect(notificationWorker.processById).toHaveBeenCalledWith(90, 1);
+  });
+
+  it("يرفض تذكير السداد عند غياب قالب نشط بدلاً من إرسال قالب افتراضي", async () => {
+    state.tables.powerhub_message_templates = [];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.notifications.sendPaymentReminderSms({ siteId: 10, invoiceId: 70 }))
+      .rejects.toMatchObject({ message: "لا يتوفر قالب للتذكير بالسداد أعده في مركز الرسائل." });
+    expect(state.rpcCalls.filter((call) => call.name === "powerhub_queue_payment_sms")).toHaveLength(0);
+    expect(notificationWorker.processById).not.toHaveBeenCalled();
   });
 
   it("يعيد شعار بوابة الاستعلامات في theme وlookup عند وجود logo_key", async () => {
