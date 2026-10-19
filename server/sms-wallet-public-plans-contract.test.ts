@@ -38,6 +38,8 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(adminWalletMigration).not.toContain("insert into public.audit_logs(user_id,actor_platform_role,entity_type,entity_id,action,after_data)");
     expect(adminWalletMigration).toContain("powerhub_admin_confirm_sms_recharge");
     expect(adminWalletMigration).toContain("order by (s.status<>'archived') desc, s.id");
+    expect(adminWalletMigration).toContain("SMS_RECHARGE_CREDIT_EXCEEDS_REQUEST");
+    expect(adminWalletMigration).toContain("INVALID_SMS_PACKAGE_CURRENCY");
     expect(rechargeHardeningMigration).toContain("for update");
     expect(rechargeHardeningMigration).toContain("SMS_RECHARGE_ALREADY_FINALIZED");
     expect(rechargeHardeningMigration).toContain("revoke all on function public.powerhub_admin_confirm_sms_recharge");
