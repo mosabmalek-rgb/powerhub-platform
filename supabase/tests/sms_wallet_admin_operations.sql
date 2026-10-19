@@ -514,6 +514,8 @@ declare
   v_no_credit_id bigint;
   v_provider_limited_id bigint;
   v_unsubscribed_id bigint;
+  v_legacy_first_id bigint;
+  v_legacy_second_id bigint;
   v_claim_id bigint;
   v_segments integer;
   v_caught boolean;
@@ -574,6 +576,41 @@ begin
   if not v_caught then raise exception 'SMS_WITHOUT_WALLET_CREDIT_WAS_CLAIMED'; end if;
   if (select status from public.notification_messages where id=v_no_credit_id)<>'pending' then
     raise exception 'FAILED_NO_CREDIT_CLAIM_MUTATED_MESSAGE';
+  end if;
+
+  -- Old queued messages are excluded until an actual provider request starts.
+  -- Once one is sent, provider_request_started_at must charge the wallet even
+  -- when created_at predates the accounting cutover.
+  insert into public.tenant_sms_recharge_ledger(
+    tenant_id,provider_mode,status,requested_messages,credited_messages,idempotency_key,
+    requested_by_user_id,processed_by_user_id,confirmed_at,note
+  ) values(15,'manual','manual_confirmed',1,1,'30000000-0000-0000-0000-000000000001'::uuid,1,1,now(),'رصيد اختبار الرسالة القديمة');
+
+  insert into public.notification_messages(
+    tenant_id,subscriber_id,channel,event_type,status,payload,recipient,created_at
+  ) values(15,1501,'sms','invoice_issued','pending','{"renderedText":"legacy-first"}'::jsonb,'+970599000015','2026-09-01T00:00:00Z')
+  returning id into v_legacy_first_id;
+
+  select notification_id,attempt_number into v_claim_id,v_segments
+  from public.powerhub_claim_sms_notification(1,v_legacy_first_id);
+  if v_claim_id<>v_legacy_first_id then raise exception 'LEGACY_FIRST_MESSAGE_NOT_CLAIMED'; end if;
+  perform public.powerhub_mark_sms_provider_request_started(1,v_legacy_first_id,v_segments);
+  perform * from public.powerhub_finish_sms_notification(1,v_legacy_first_id,v_segments,true,'fake-provider-id','');
+
+  insert into public.notification_messages(
+    tenant_id,subscriber_id,channel,event_type,status,payload,recipient,created_at
+  ) values(15,1501,'sms','invoice_issued','pending','{"renderedText":"legacy-second"}'::jsonb,'+970599000015','2026-09-02T00:00:00Z')
+  returning id into v_legacy_second_id;
+
+  v_caught:=false;
+  begin
+    perform * from public.powerhub_claim_sms_notification(1,v_legacy_second_id);
+  exception when others then
+    if sqlerrm='SMS_WALLET_BALANCE_EXCEEDED' then v_caught:=true; else raise; end if;
+  end;
+  if not v_caught then raise exception 'LEGACY_QUEUED_MESSAGE_BYPASSED_WALLET_AFTER_CUTOVER'; end if;
+  if (select status from public.notification_messages where id=v_legacy_second_id)<>'pending' then
+    raise exception 'LEGACY_WALLET_REJECTION_MUTATED_MESSAGE';
   end if;
 
   insert into public.notification_messages(
