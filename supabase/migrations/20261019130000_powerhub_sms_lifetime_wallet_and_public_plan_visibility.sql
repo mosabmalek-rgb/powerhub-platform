@@ -506,7 +506,7 @@ language plpgsql security definer set search_path=public,pg_temp
 as $function$
 begin
  if not exists(select 1 from public.users u where u.id=p_actor_user_id and u.role='admin'
-  and u.account_status='active' and u.platform_role in('platform_owner','platform_admin')) then
+  and u.account_status='active' and u.platform_role in('platform_owner','platform_admin','finance_admin')) then
   raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501';
  end if;
  return query
