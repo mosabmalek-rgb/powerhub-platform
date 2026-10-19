@@ -1065,6 +1065,10 @@ export const powerhubUnifiedMessagingRouter = router({
       const {data:existing,error:existingError}=await supabaseAdmin().from("notification_messages")
         .select("id,status,last_error").eq("tenant_id",access.tenantId).eq("id",notificationId).maybeSingle();
       if(existingError||!existing) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل نتيجة الإرسال السابق."});
+      if(existing.status==="pending") {
+        const resumed=await processNotificationById(notificationId,ctx.user.id);
+        return {notificationId,recipient,...resumed,replayed:true,queued:false};
+      }
       return {notificationId,recipient,status:existing.status,error:existing.last_error??null,replayed:true,queued:false};
     }
     const dispatch=await processNotificationById(notificationId,ctx.user.id);
