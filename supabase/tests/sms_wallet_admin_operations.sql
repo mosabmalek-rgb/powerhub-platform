@@ -284,33 +284,7 @@ $test_rejection_and_privileges$;
 -- Exercise the wallet accounting cutover rule: pre-existing tenants are seeded
 -- at activation time; a new tenant uses the first subscription's created_at,
 -- and later subscriptions must never reset that first timestamp.
-create table public.tenant_sms_wallets (
-  tenant_id bigint primary key references public.tenants(id) on delete cascade,
-  accounting_started_at timestamptz not null default now(),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-insert into public.tenant_sms_wallets(tenant_id,accounting_started_at)
-select id,clock_timestamp() from public.tenants
-on conflict(tenant_id) do nothing;
-
-create or replace function public.powerhub_initialize_sms_wallet_accounting()
-returns trigger
-language plpgsql
-security definer
-set search_path=public,pg_temp
-as $function$
-begin
-  insert into public.tenant_sms_wallets(tenant_id,accounting_started_at)
-  values(new.tenant_id,coalesce(new.created_at,now()))
-  on conflict(tenant_id) do nothing;
-  return new;
-end;
-$function$;
-drop trigger if exists powerhub_initialize_sms_wallet_accounting on public.tenant_subscriptions;
-create trigger powerhub_initialize_sms_wallet_accounting
-after insert on public.tenant_subscriptions
-for each row execute function public.powerhub_initialize_sms_wallet_accounting();
+ir _sms_wallet_accounting_cutover_extracted.sql
 
 insert into public.tenants(id,name,created_at) values(20,'مولد جديد','2026-09-01T00:00:00Z');
 insert into public.tenant_subscriptions(tenant_id,created_at) values(20,'2026-09-10T00:00:00Z');
