@@ -334,7 +334,7 @@ begin
   end if;
 
   select status,approved_messages,replayed into v_status,v_credit,v_replayed
-  from public.powerhub_admin_review_sms_package_request(1,v_request_id,'approved',1200,'تم اعتماد كمية جزئية');
+  from public.powerhub_admin_review_sms_package_request_v2(1,v_request_id,'approved',1200,'تم اعتماد كمية جزئية');
   if v_status<>'approved' or v_credit<>1200 or v_replayed then
     raise exception 'CUSTOMER_PACKAGE_APPROVAL_RESULT_WRONG';
   end if;
@@ -342,7 +342,7 @@ begin
   if v_total<>1200 then raise exception 'CUSTOMER_PACKAGE_CREDIT_NOT_IN_WALLET'; end if;
 
   select replayed into v_replayed
-  from public.powerhub_admin_review_sms_package_request(1,v_request_id,'approved',1200,'إعادة محاولة');
+  from public.powerhub_admin_review_sms_package_request_v2(1,v_request_id,'approved',1200,'إعادة محاولة');
   if not v_replayed then raise exception 'CUSTOMER_PACKAGE_APPROVAL_REPLAY_NOT_IDEMPOTENT'; end if;
   select total_messages into v_total from public.powerhub_get_sms_quota(11);
   if v_total<>1200 then raise exception 'CUSTOMER_PACKAGE_APPROVAL_REPLAY_DOUBLE_CREDITED'; end if;
@@ -350,7 +350,7 @@ begin
   select request_id into v_second_request_id
   from public.powerhub_request_sms_package_plan(11,111,3,v_plan_id,'طلب مرفوض');
   select status,approved_messages,replayed into v_status,v_credit,v_replayed
-  from public.powerhub_admin_review_sms_package_request(1,v_second_request_id,'rejected',0,'رفض تجريبي');
+  from public.powerhub_admin_review_sms_package_request_v2(1,v_second_request_id,'rejected',0,'رفض تجريبي');
   if v_status<>'rejected' or v_credit<>0 or v_replayed then
     raise exception 'CUSTOMER_PACKAGE_REJECTION_RESULT_WRONG';
   end if;

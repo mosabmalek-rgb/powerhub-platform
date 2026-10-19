@@ -328,7 +328,7 @@ $function$;
 revoke all on function public.powerhub_get_sms_quota(bigint,timestamptz) from public,anon,authenticated;
 grant execute on function public.powerhub_get_sms_quota(bigint,timestamptz) to service_role;
 
-create or replace function public.powerhub_admin_review_sms_package_request(
+create or replace function public.powerhub_admin_review_sms_package_request_v2(
   p_actor_user_id bigint,
   p_request_id bigint,
   p_status text,
@@ -493,8 +493,8 @@ begin
 end;
 $function$;
 ;
-revoke all on function public.powerhub_admin_review_sms_package_request(bigint,bigint,text,integer,text) from public,anon,authenticated;
-grant execute on function public.powerhub_admin_review_sms_package_request(bigint,bigint,text,integer,text) to service_role;
+revoke all on function public.powerhub_admin_review_sms_package_request_v2(bigint,bigint,text,integer,text) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_review_sms_package_request_v2(bigint,bigint,text,integer,text) to service_role;
 
 -- Deliberately no one-step SMS credit grant RPC is installed.
 -- Manual recharges must use powerhub_admin_create_sms_recharge_request followed

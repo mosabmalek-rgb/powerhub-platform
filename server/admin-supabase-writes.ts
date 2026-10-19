@@ -185,7 +185,7 @@ export async function reviewSmsPackageRequest(input: {
   approvedMessages: number;
   note?: string;
 }) {
-  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_review_sms_package_request", {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_review_sms_package_request_v2", {
     p_actor_user_id: input.actorUserId,
     p_request_id: input.requestId,
     p_status: input.status,
