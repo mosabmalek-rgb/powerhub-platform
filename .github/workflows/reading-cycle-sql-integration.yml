@@ -114,16 +114,5 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          source = Path("supabase/migrations/20261019130000_powerhub_sms_lifetime_wallet_and_public_plan_visibility.sql").read_text()
-          start = source.index("-- Freeze wallet usage accounting at cutover")
-          end = source.index("insert into public.tenant_sms_recharge_ledger(", start)
-          extracted = source[start:end]
-          if "powerhub_initialize_sms_wallet_accounting" not in extracted or "after insert on public.tenant_subscriptions" not in extracted:
-              raise SystemExit("SMS wallet accounting migration block could not be extracted safely")
-          Path("supabase/tests/_sms_wallet_accounting_cutover_extracted.sql").write_text(extracted)
-          PY
           createdb --host 127.0.0.1 --port 5432 --username postgres sms_wallet_admin_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname sms_wallet_admin_test --set ON_ERROR_STOP=1 --file supabase/tests/sms_wallet_admin_operations.sql
