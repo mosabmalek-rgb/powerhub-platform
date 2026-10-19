@@ -411,6 +411,45 @@ describe("public invoice and inquiry actions", () => {
     expect(payloadMigration).toContain("grant execute on function public.powerhub_get_shared_invoice_by_token_hash(text)");
   });
 
+  it("parallelizes independent payment-documentation list reads without bypassing access or site scope", () => {
+    const server = read("server/powerhub.ts");
+    const listStart = server.indexOf('    list: protectedProcedure.input(siteScoped.extend({', server.indexOf("paymentDocumentation: router({"));
+    const listEnd = server.indexOf("    availableAccounts:", listStart);
+    const list = server.slice(listStart, listEnd);
+
+    expect(list).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation")');
+    expect(list).toContain('Promise.all([');
+    expect(list).toContain('requirePaymentDocumentationFeature(access.tenantId)');
+    expect(list).toContain('rpc("powerhub_cycle_for_reading"');
+    expect(list).toContain('eq("tenant_id", access.tenantId).eq("site_id", input.siteId)');
+    expect(list).toContain('destination_accounts');
+    expect(list).toContain('destination_account_site_scope');
+    expect(list).toContain('Promise.all([\n        measureSlowStage("paymentDocumentation.list", "destination_accounts"');
+    expect(list).toContain('measureSlowStage("paymentDocumentation.list", "destination_account_site_scope"');
+  });
+
+  it("keeps approval authoritative while parallelizing secondary receipt work and reporting enqueue failures", () => {
+    const server = read("server/powerhub.ts");
+    const approvalStart = server.indexOf('    approve: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() }))');
+    const approvalEnd = server.indexOf("    receiptUrl:", approvalStart);
+    const approval = server.slice(approvalStart, approvalEnd);
+    const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
+
+    expect(approval).toContain('rpc("powerhub_approve_payment_documentation"');
+    expect(approval).toContain('Promise.all([');
+    expect(approval).toContain('"receipt_context_rpc"');
+    expect(approval).toContain('"receipt_billing_policy"');
+    expect(approval).toContain('rpc("powerhub_queue_payment_sms"');
+    expect(approval).toContain('queue failed after approval');
+    expect(approval).toContain('secondary notification processing failed after approval');
+    expect(approval.indexOf('rpc("powerhub_approve_payment_documentation"')).toBeLessThan(
+      approval.indexOf('"receipt_context_rpc"'),
+    );
+    expect(review).toContain('approve.variables?.requestId');
+    expect(review).toContain("جارٍ اعتماد الدفع…");
+    expect(review).toContain("disabled={reject.isPending||(approve.isPending&&Number(approve.variables?.requestId)===Number(r.id))}");
+  });
+
   it("uses one scoped read for payment receipt context after atomic payment-documentation approval", () => {
     const server = read("server/powerhub.ts");
     const migration = read("supabase/migrations/20261015110000_powerhub_payment_receipt_context.sql");
