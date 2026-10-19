@@ -78,6 +78,8 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(subscriptionEditor).toContain("تأكيد الشحن");
     expect(adminConsole).toContain('tab === "smsWallet"');
     expect(adminLayout).toContain('id: "smsWallet"');
+    expect(subscriptionEditor).toContain("rechargeIdempotencyKey");
+    expect(subscriptionEditor).toContain("crypto.randomUUID()");
   });
 
   it("guards public-plan visibility with server settings and preserves other landing-page sections", () => {
