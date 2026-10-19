@@ -52,7 +52,7 @@ vi.mock("@/lib/trpc", () => ({
       companyAccounts: { list: { useQuery: () => ({ data: [], isLoading: false, isError: state.companyAccountsError, refetch: state.refetchCompanyAccounts }) } },
       subscribers: { quota: { useQuery: () => ({ data: state.subscriberQuota, isLoading: false, isError: false, refetch: vi.fn() }) } },
       staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) }, allowedSubaccountRoles: { useQuery: () => ({ data: { limit: 5, currentCount: 2, fieldUserLimit: 2, fieldUserCount: 1 }, isLoading: false, isError: state.subaccountQuotaError, refetch: state.refetchSubaccountQuota }) } },
-      messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed), senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null }, isLoading: false, isError: state.smsQuotaError, refetch: state.refetchSmsQuota }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false, isError: state.smsPackageRequestError, refetch: state.refetchSmsPackageRequest }) }, requestSmsPackage: { useMutation: () => ({ mutate: state.requestSmsPackage, isPending: false }) } },
+      messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed), senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null, providerMonthlyLimit: 2000, providerMonthlyUsed: 90 }, isLoading: false, isError: state.smsQuotaError, refetch: state.refetchSmsQuota }) }, smsCreditPackages: { useQuery: () => ({ data: [{ id: 11, code: "sms-1000", name: "حزمة 1000 رسالة", messages: 1000, price: 0, currency: "ILS" }], isLoading: false, isError: false }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false, isError: state.smsPackageRequestError, refetch: state.refetchSmsPackageRequest }) }, requestSmsPackage: { useMutation: () => ({ mutate: state.requestSmsPackage, isPending: false }) } },
       subscription: { ownerRenewalStatus: { useQuery: () => ({ data: { isOwner: false, subscription: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, currentUpgradeRequest: { useQuery: () => ({ data: null }) }, currentAddonRequests: { useQuery: () => ({ data: [] }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) }, requestAddon: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
     },
   },
@@ -131,21 +131,21 @@ describe("إشعارات حدود الاشتراك في لوحة المالك", 
     expect(toast.warning).not.toHaveBeenCalled();
   });
 
-  it("يتيح طلب حزمة SMS من داخل بطاقة الحصة دون تكرار بطاقة التنبيه", () => {
+  it("يطلب صاحب المولد حزمة من الكتالوج عبر معرّف الحزمة دون إدخال كمية حرة", () => {
     state.smsUsed = 450;
     render(<WorkspaceHome />);
-    expect(screen.getByText("تحتاج إلى رصيد رسائل إضافي؟")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "طلب حزمة 1000 رسالة" }));
-    expect(state.requestSmsPackage).toHaveBeenCalledWith({ siteId: 1, requestedMessages: 1000, note: undefined });
+    expect(screen.getByText("شراء حزمة رسائل مستقلة")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "طلب هذه الحزمة" }));
+    expect(state.requestSmsPackage).toHaveBeenCalledWith({ siteId: 1, packageId: 11, note: undefined });
   });
 
-  it("يعرض إعادة محاولة لطلب SMS إذا تعذر تحميل حالة الحزمة ويمنع الطلب قبل التحقق", () => {
+  it("يعرض إعادة المحاولة ويمنع طلب حزمة أخرى إذا تعذر تحميل حالة الطلب", () => {
     state.smsUsed = 450;
     state.smsPackageRequestError = true;
     render(<WorkspaceHome />);
-    expect(screen.getByText("تعذر التحقق من حالة طلب الحزمة الحالي. أعد المحاولة قبل إرسال طلب جديد.")).toBeInTheDocument();
-    expect(screen.getByRole("spinbutton", { name: "عدد الرسائل المطلوبة" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "إعادة التحقق من الطلب" }));
+    expect(screen.getByText("تعذر التحقق من الطلب السابق؛ أعد المحاولة قبل طلب جديد.")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "حزمة رصيد SMS" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(state.refetchSmsPackageRequest).toHaveBeenCalledTimes(1);
     expect(state.requestSmsPackage).not.toHaveBeenCalled();
   });
@@ -165,12 +165,14 @@ describe("إشعارات حدود الاشتراك في لوحة المالك", 
 });
 
 describe("بطاقة رصيد SMS في لوحة المالك", () => {
-  it("تعرض المتبقي والمستخدم والإجمالي واسم المرسل للحصة الحالية", () => {
+  it("تعرض الرصيد الدائم والمستهلك وحد مزود الرسائل بشكل منفصل", () => {
     render(<WorkspaceHome />);
-    expect(screen.getByText("رصيد رسائل SMS")).toBeInTheDocument();
+    expect(screen.getByText("محفظة رسائل SMS")).toBeInTheDocument();
     expect(screen.getByText("PowerHub")).toBeInTheDocument();
     expect(screen.getByText(/رصيد الرسائل متاح/)).toBeInTheDocument();
-    expect(screen.getByText(/الحصة الشهرية للفرع المحدد/)).toBeInTheDocument();
+    expect(screen.getByText(/رصيد مدفوع دائم لا تنتهي صلاحيته/)).toBeInTheDocument();
+    expect(screen.getByText("حد مزود الرسائل الشهري")).toBeInTheDocument();
+    expect(screen.queryByText(/الحصة الشهرية للفرع المحدد/)).not.toBeInTheDocument();
   });
 
   it("لا يعرض أرصدة حسابات الشركة كصفر عند فشل التحميل ويوفر إعادة المحاولة", () => {
