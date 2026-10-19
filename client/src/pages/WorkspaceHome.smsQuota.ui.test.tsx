@@ -126,8 +126,9 @@ describe("إشعارات حدود الاشتراك في لوحة المالك", 
     render(<WorkspaceHome />);
     expect(screen.getByText("استهلكت 85% من الحد المسموح. اقتربت من الحد الأقصى.")).toBeInTheDocument();
     expect(screen.getByText("بلغت الحد الأقصى للأفرع المتاحة.")).toBeInTheDocument();
-    expect(screen.getByText("تحتاج إلى رصيد رسائل إضافي؟")).toBeInTheDocument();
-    expect(screen.getAllByText("رصيد رسائل SMS", { exact: true })).toHaveLength(1);
+    expect(screen.getByText("محفظة رسائل SMS")).toBeInTheDocument();
+    expect(screen.getByText("حد مزود الرسائل الشهري")).toBeInTheDocument();
+    expect(screen.queryByText("تحتاج إلى رصيد رسائل إضافي؟")).not.toBeInTheDocument();
     expect(toast.warning).not.toHaveBeenCalled();
   });
 
@@ -212,6 +213,6 @@ describe("بطاقة رصيد SMS في لوحة المالك", () => {
     state.configured = false;
     render(<WorkspaceHome />);
     expect(screen.getByText("حساب TweetSMS غير مهيأ")).toBeInTheDocument();
-    expect(screen.getByText(/لا تظهر مفاتيح API|من دون كشف مفتاح API/)).toBeInTheDocument();
+    expect(screen.queryByText(/credential_ciphertext|credential_iv|api_endpoint|مفتاح API/i)).not.toBeInTheDocument();
   });
 });
