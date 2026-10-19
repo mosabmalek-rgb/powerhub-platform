@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => {
   const inserts: Array<{ table: string; values: unknown }> = [];
   const updates: Array<{ table: string; values: unknown }> = [];
+  const orderCalls: Array<{ table: string; column: string; options: unknown }> = [];
   const rpcCalls: Array<{ name: string; args: unknown }> = [];
   const site = { id: 10, tenant_id: 20, name: "الفرع الرئيسي", code: "MAIN", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, invoice_due_hours: 336, created_at: "2026-08-01T00:00:00.000Z" };
   const subscriber = { id: 30, tenant_id: 20, site_id: 10, subscriber_no: "MAIN-001", client_operation_id: null, full_name: "مشترك الاختبار", phone: "+970595000000", whatsapp_number: null, address: null, subscription_type: "residential", service_status: "active", archived_at: null, purge_after_at: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" };
@@ -52,7 +53,7 @@ const state = vi.hoisted(() => {
         or: (expression: string) => { const match = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/); if (match) { const siteId = Number(match[1]); filteredRows = filteredRows.filter((row) => { const siteValue = (row as Record<string, unknown>).site_id; return siteValue === siteId || siteValue === null; }); } return query; },
         is: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => (row as Record<string, unknown>)[column] === value); return query; },
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
-        order: () => query,
+        order: (column: string, options?: unknown) => { orderCalls.push({ table, column, options }); return query; },
         gte: (column: string, value: unknown) => {
           if (table !== "expenses") return query;
           const comparable = (item: unknown) => typeof item === "number" ? item : typeof item === "string" && /^\d{4}-\d{2}-\d{2}T/.test(item) ? Date.parse(item) : item;
@@ -247,7 +248,7 @@ const state = vi.hoisted(() => {
     },
   };
   const defaultRpc = client.rpc;
-  return { client, tables, inserts, updates, rpcCalls, defaultRpc };
+  return { client, tables, inserts, updates, orderCalls, rpcCalls, defaultRpc };
 });
 
 const notificationWorker = vi.hoisted(() => ({ processQueue: vi.fn(), processById: vi.fn() }));
@@ -281,6 +282,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.tables.platform_settings = [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }];
     state.inserts.splice(0);
     state.updates.splice(0);
+    state.orderCalls.splice(0);
     state.rpcCalls.splice(0);
     notificationWorker.processQueue.mockReset();
     notificationWorker.processById.mockReset();
@@ -304,6 +306,10 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.invoices.list({ siteId: 10 })).resolves.toMatchObject([{ id: 70, invoiceNo: "MAIN-202608-0001", totalAmount: "100", issueDate: expect.any(Date) }]);
     await expect(caller.payments.list({ siteId: 10 })).resolves.toMatchObject([{ payment: { id: 81, amount: "25", paidAt: expect.any(Date), receiptImageUrl: null }, subscriber: { id: 30 }, invoiceNo: "MAIN-202608-0001" }]);
     await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90, balance: 125, linkedSites: [{ siteId: 10, siteName: "الفرع الرئيسي" }], transactions: [{ id: 91, occurredAt: expect.any(Date) }] }]);
+    expect(state.orderCalls.filter((call) => call.table === "account_transactions").slice(-2)).toEqual([
+      { table: "account_transactions", column: "occurred_at", options: { ascending: false } },
+      { table: "account_transactions", column: "id", options: { ascending: false } },
+    ]);
     await expect(caller.expenses.list({ siteId: 10 })).resolves.toMatchObject([{ id: 80, category: "fuel", amount: "15", occurredAt: expect.any(Date) }]);
     await expect(caller.dashboard.summary({ siteId: 10 })).resolves.toEqual({ subscribers: 1, generators: { active: 1, maintenance: 0 }, financial: { invoiced: 100, collected: 25, outstanding: 75, expenses: 15, operatingProfit: 10 }, energyKwh: 10, failedNotifications: 1 });
   });

@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards, Eye, EyeOff } from "lucide-react";
+import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, ChevronDown, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards, Eye, EyeOff } from "lucide-react";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { type ElementType, useMemo, useRef, useState } from "react";
@@ -28,7 +28,25 @@ const accountTheme: Record<string, { card: string; icon: ElementType; badge: str
   other: { card: "border-amber-300/40 bg-amber-500/40", icon: WalletCards, badge: "bg-amber-950/45 text-amber-50", shortLabel: "حساب" },
 };
 
+const movementLabels: Record<string, string> = {
+  collection: "تحصيل",
+  deposit: "إيداع",
+  withdrawal: "سحب",
+  transfer_in: "تحويل وارد",
+  transfer_out: "تحويل صادر",
+};
+
+const isOutgoingMovement = (type: string) => type === "withdrawal" || type === "transfer_out";
+const isIncomingMovement = (type: string) => type === "collection" || type === "deposit" || type === "transfer_in";
+const movementSign = (type: string, amount: number) => isOutgoingMovement(type) ? -amount : isIncomingMovement(type) ? amount : 0;
+
 const money = (value: number) => value.toLocaleString("ar", { maximumFractionDigits: 2 });
+
+const dateKeyInGaza = (value: Date | string) => {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "00";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
 
 type PendingAccountAction = {
   kind: "withdrawal" | "transfer";
@@ -45,11 +63,13 @@ export default function CompanyAccountsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [transactionTypeFilter, setTransactionTypeFilter] = useState("");
+  const [transactionSearch, setTransactionSearch] = useState("");
   const [movementFromDate, setMovementFromDate] = useState("");
   const [movementToDate, setMovementToDate] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
   const transactionsRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  const [managementExpanded, setManagementExpanded] = useState(false);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [accountType, setAccountType] = useState("cash");
@@ -94,32 +114,56 @@ export default function CompanyAccountsPage() {
   const selectedAccount = rows.find((account) => account.id === selected);
   const total = rows.reduce((sum, row) => sum + Number(row.balance), 0);
   const transactionRows = selectedAccount?.transactions.filter((row) => {
-    const date = new Date(row.occurredAt).toISOString().slice(0, 10);
-    return (!transactionTypeFilter || row.transactionType === transactionTypeFilter) && (!movementFromDate || date >= movementFromDate) && (!movementToDate || date <= movementToDate);
+    const date = dateKeyInGaza(row.occurredAt);
+    const relatedAccountName = row.relatedAccountId
+      ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? `حساب #${row.relatedAccountId}`
+      : "";
+    const query = transactionSearch.trim().toLowerCase();
+    const searchable = `${row.description} ${row.transactionType} ${movementLabels[row.transactionType] ?? row.transactionType} ${row.id} ${row.referenceNo ?? ""} ${row.relatedPaymentId ?? ""} ${relatedAccountName} ${date}`.toLowerCase();
+    const matchesSearch = !query || searchable.includes(query);
+    return matchesSearch && (!transactionTypeFilter || row.transactionType === transactionTypeFilter) && (!movementFromDate || date >= movementFromDate) && (!movementToDate || date <= movementToDate);
   }) ?? [];
+  const transactionSummary = transactionRows.reduce((summary, row) => {
+    const amount = Number(row.amount) || 0;
+    if (isOutgoingMovement(row.transactionType)) summary.outgoing += amount;
+    else if (isIncomingMovement(row.transactionType)) summary.incoming += amount;
+    return summary;
+  }, { incoming: 0, outgoing: 0 });
+  const transactionNet = transactionSummary.incoming - transactionSummary.outgoing;
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(transactionRows.length / pageSize));
   const visibleTransactions = transactionRows.slice((transactionPage - 1) * pageSize, transactionPage * pageSize);
-  const balanceTimeline = useMemo(() => {
-    if (!selectedAccount) return [];
-    let running = Number(selectedAccount.openingBalance ?? 0);
-    const rows = [{ label: "الرصيد الافتتاحي", balance: running }];
-    [...selectedAccount.transactions].reverse().forEach((row) => {
-      running += row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? -Number(row.amount) : Number(row.amount);
-      rows.push({ label: new Date(row.occurredAt).toLocaleDateString("ar", { month: "short", day: "numeric" }), balance: running });
-    });
-    return rows;
-  }, [selectedAccount]);
-  const cumulativeById = (() => {
-    if (!selectedAccount) return new Map<number, number>();
-    let running = Number(selectedAccount.openingBalance ?? 0);
+  const balanceAfterById = useMemo(() => {
     const result = new Map<number, number>();
-    [...selectedAccount.transactions].reverse().forEach((row) => {
-      running += row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? -Number(row.amount) : Number(row.amount);
+    if (!selectedAccount || fromDate || toDate) return result;
+    let running = Number(selectedAccount.balance);
+    for (const row of selectedAccount.transactions) {
       result.set(row.id, running);
-    });
+      running -= movementSign(row.transactionType, Number(row.amount) || 0);
+    }
     return result;
-  })();
+  }, [selectedAccount, fromDate, toDate]);
+
+  const balanceTimeline = useMemo(() => {
+    if (!selectedAccount || fromDate || toDate) return [];
+    const dateFiltered = selectedAccount.transactions.filter((row) => {
+      const date = dateKeyInGaza(row.occurredAt);
+      return (!movementFromDate || date >= movementFromDate) && (!movementToDate || date <= movementToDate);
+    });
+    if (!dateFiltered.length) return [{ label: "الرصيد الحالي", balance: Number(selectedAccount.balance) }];
+    const chronological = [...dateFiltered].reverse();
+    const oldest = chronological[0];
+    let running = (balanceAfterById.get(oldest.id) ?? Number(selectedAccount.balance)) - movementSign(oldest.transactionType, Number(oldest.amount) || 0);
+    const timeline = [{ label: "قبل أول حركة", balance: running }];
+    for (const row of chronological) {
+      running += movementSign(row.transactionType, Number(row.amount) || 0);
+      timeline.push({
+        label: new Date(row.occurredAt).toLocaleDateString("ar", { timeZone: "Asia/Gaza", month: "short", day: "numeric" }),
+        balance: running,
+      });
+    }
+    return timeline;
+  }, [selectedAccount, fromDate, toDate, movementFromDate, movementToDate, balanceAfterById]);
 
   if (loading || accounts.isLoading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><div className="p-8 text-center text-white">سجّل الدخول للوصول إلى حسابات الشركة.</div></DashboardLayout>;
@@ -133,6 +177,7 @@ export default function CompanyAccountsPage() {
     setNewPhone(account.phoneNumber ?? "");
     setTransactionPage(1);
     setTransactionTypeFilter("");
+    setTransactionSearch("");
     setMovementFromDate("");
     setMovementToDate("");
     setMode("deposit");
@@ -221,12 +266,33 @@ export default function CompanyAccountsPage() {
     const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("حركات الحساب");
     sheet.columns = [
-      { header: "الوصف", key: "description", width: 34 },
-      { header: "النوع", key: "type", width: 18 },
-      { header: "المبلغ", key: "amount", width: 16 },
-      { header: "التاريخ", key: "date", width: 24 },
+      { header: "التاريخ والوقت", key: "date", width: 24 },
+      { header: "رقم الحركة", key: "id", width: 14 },
+      { header: "المرجع", key: "reference", width: 20 },
+      { header: "البيان", key: "description", width: 36 },
+      { header: "نوع الحركة", key: "type", width: 18 },
+      { header: "الحساب المقابل", key: "counterpart", width: 24 },
+      { header: "وارد", key: "incoming", width: 16 },
+      { header: "صادر", key: "outgoing", width: 16 },
+      { header: "الرصيد بعد الحركة", key: "balance", width: 20 },
     ];
-    transactionRows.forEach((row) => sheet.addRow({ description: row.description, type: row.transactionType, amount: Number(row.amount), date: new Date(row.occurredAt).toLocaleString("ar") }));
+    transactionRows.forEach((row) => {
+      const amount = Number(row.amount) || 0;
+      const counterpart = row.relatedAccountId
+        ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? `حساب #${row.relatedAccountId}`
+        : row.relatedPaymentId ? `دفعة #${row.relatedPaymentId}` : "—";
+      sheet.addRow({
+        date: new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" }),
+        id: row.id,
+        reference: row.referenceNo ?? "—",
+        description: row.description,
+        type: movementLabels[row.transactionType] ?? row.transactionType,
+        counterpart,
+        incoming: isIncomingMovement(row.transactionType) ? amount : null,
+        outgoing: isOutgoingMovement(row.transactionType) ? amount : null,
+        balance: balanceAfterById.get(row.id) ?? null,
+      });
+    });
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
@@ -294,32 +360,145 @@ export default function CompanyAccountsPage() {
         {selectedAccount && <Card className="border-white/10 bg-[#111823] print:hidden"><CardContent className="flex flex-wrap items-end gap-3 p-4"><div className="min-w-52"><p className="font-bold text-white">تصفية كشف الحركات</p><p className="mt-1 text-xs text-slate-500">تنطبق الفلاتر على السجل والمخطط وملفي Excel وPDF.</p></div><label className="grid gap-1 text-xs text-slate-300"><span>من تاريخ</span><Input dir="ltr" type="date" value={movementFromDate} max={movementToDate || undefined} onChange={(event) => { setMovementFromDate(event.target.value); setTransactionPage(1); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><label className="grid gap-1 text-xs text-slate-300"><span>إلى تاريخ</span><Input dir="ltr" type="date" value={movementToDate} min={movementFromDate || undefined} onChange={(event) => { setMovementToDate(event.target.value); setTransactionPage(1); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><Button size="sm" variant="outline" onClick={() => { setMovementFromDate(""); setMovementToDate(""); setTransactionTypeFilter(""); setTransactionPage(1); }} className="border-white/15 text-white">مسح فلاتر الحركات</Button></CardContent></Card>}
 
         {selectedAccount && (
-          <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr] print:hidden">
-            <Card className="border-white/10 bg-[#111823]"><CardContent className="space-y-4 p-5">
-              <div><h2 className="font-bold text-white">إدارة حساب {selectedAccount.name}</h2><p className="mt-1 text-sm font-semibold text-[#F5B800]">الرصيد المتاح للسحب أو التحويل: {money(Number(selectedAccount.balance))} ش</p></div>
-              <div className="grid gap-2 rounded-xl border border-white/10 p-3 sm:grid-cols-[1fr_auto]"><label className="grid gap-1 text-xs text-slate-300"><span>الرصيد الافتتاحي (شيكل)</span><Input dir="ltr" type="number" min="0" step="0.01" value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} className="border-white/10 bg-[#0D1117] text-white" /></label><Button className="self-end bg-[#F5B800] font-bold text-[#0D1117]" onClick={saveOpeningBalance} disabled={updateOpeningBalance.isPending}>حفظ الرصيد</Button></div>
-              <div className="flex gap-2"><Input dir="ltr" value={newPhone} onChange={(event) => setNewPhone(event.target.value)} placeholder="رقم الجوال المرتبط بالحساب" className="border-white/10 bg-[#0D1117] text-white" /><Button onClick={() => updatePhone.mutate({ siteId, accountId: selectedAccount.id, phoneNumber: newPhone })} disabled={updatePhone.isPending} variant="outline" className="border-[#F5B800]/40 text-[#F5B800]">حفظ الجوال</Button></div>
-              <div className="rounded-xl border border-white/10 p-3"><p className="mb-2 text-sm font-bold text-white">الفروع المرتبطة</p><div className="flex flex-wrap gap-2">{(sites.data ?? []).map((site) => <label key={site.id} className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={selectedSites.includes(site.id)} onChange={(event) => setSelectedSites((current) => event.target.checked ? [...current, site.id] : current.filter((id) => id !== site.id))} />{site.name}</label>)}</div><Button className="mt-3 bg-[#F5B800] font-bold text-[#0D1117]" onClick={() => updateSites.mutate({ siteId, accountId: selectedAccount.id, siteIds: selectedSites.length ? selectedSites : [siteId] })} disabled={updateSites.isPending}>حفظ الفروع المرتبطة</Button></div>
-              <div className="rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.03] p-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-white">الظهور في توثيق الدفع</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">يتحكم هذا الخيار في ظهور الحساب ضمن حسابات الاستلام المتاحة في توثيق الدفع.</p>
+          <div className="space-y-5 print:hidden">
+            <Card className="border-white/10 bg-[#111823]">
+              <CardContent className="p-0">
+                <button
+                  type="button"
+                  aria-expanded={managementExpanded}
+                  aria-controls="company-account-management-fields"
+                  onClick={() => setManagementExpanded((expanded) => !expanded)}
+                  className="flex w-full items-center justify-between gap-4 rounded-xl p-5 text-right transition hover:bg-white/[.025]"
+                >
+                  <div className="min-w-0">
+                    <h2 className="font-bold text-white">إدارة حساب {selectedAccount.name}</h2>
+                    <p className="mt-1 text-sm font-semibold text-[#F5B800]">الرصيد المتاح للسحب أو التحويل: {money(Number(selectedAccount.balance))} ش</p>
+                    <p className="mt-1 text-xs text-slate-500">تعديل إعدادات الحساب وتسجيل حركة مالية</p>
                   </div>
-                  <Button type="button" size="sm" variant="outline" onClick={togglePaymentDocumentation} disabled={updatePaymentDocumentationVisibility.isPending} className="border-white/15 text-white">
-                    {selectedAccount.allowPaymentDocumentation ? <Eye className="ml-2 h-4 w-4 text-emerald-300" /> : <EyeOff className="ml-2 h-4 w-4 text-slate-400" />}
-                    {selectedAccount.allowPaymentDocumentation ? "ظاهر في توثيق الدفع" : "مخفي من توثيق الدفع"}
-                  </Button>
-                </div>
-              </div>
-              <div className="rounded-xl border border-white/10 p-3"><p className="mb-3 text-sm font-bold text-white">حركة مالية جديدة</p><div className="grid grid-cols-3 gap-2"><Button onClick={() => setMode("deposit")} variant={mode === "deposit" ? "default" : "outline"} className={mode === "deposit" ? "bg-emerald-600 text-white" : "border-white/10 text-white"}><ArrowDownToLine className="ml-1 h-4 w-4" />إيداع</Button><Button onClick={() => setMode("withdrawal")} variant={mode === "withdrawal" ? "default" : "outline"} className={mode === "withdrawal" ? "bg-rose-700 text-white" : "border-white/10 text-white"}><ArrowUpFromLine className="ml-1 h-4 w-4" />سحب</Button><Button onClick={() => setMode("transfer")} variant={mode === "transfer" ? "default" : "outline"} className={mode === "transfer" ? "bg-sky-700 text-white" : "border-white/10 text-white"}><ArrowLeftRight className="ml-1 h-4 w-4" />تحويل</Button></div>
-                {mode === "withdrawal" && <p className="mt-3 rounded-lg bg-rose-950/35 px-3 py-2 text-xs text-rose-100">سيُسجل السحب في كشف الحساب وسجل التدقيق، ولا يمكن أن يتجاوز الرصيد المتاح.</p>}
-                {mode === "transfer" && <select value={target} onChange={(event) => setTarget(event.target.value)} className="mt-3 h-10 w-full rounded-xl border border-white/10 bg-[#0D1117] px-3 text-sm text-white"><option value="">الحساب المستقبِل</option>{rows.filter((row) => row.id !== selectedAccount.id).map((row) => <option value={row.id} key={row.id}>{row.name}</option>)}</select>}
-                <div className="mt-3 grid gap-2"><Input dir="ltr" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="المبلغ بالشيكل" className="border-white/10 bg-[#0D1117] text-white" /><Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="وصف الحركة، مثال: سحب مصروف تشغيلي" className="border-white/10 bg-[#0D1117] text-white" /><Button onClick={submitMovement} disabled={movement.isPending || transfer.isPending} className="w-full bg-[#F5B800] font-bold text-[#0D1117]">{mode === "withdrawal" ? "تسجيل السحب" : mode === "transfer" ? "تنفيذ التحويل" : "تسجيل الإيداع"}</Button></div>
-              </div>
-            </CardContent></Card>
+                  <ChevronDown className={`h-5 w-5 shrink-0 text-slate-300 transition-transform ${managementExpanded ? "rotate-180" : ""}`} />
+                </button>
+                {managementExpanded && (
+                  <div id="company-account-management-fields" className="space-y-4 border-t border-white/10 p-5">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-12">
+                      <div className="rounded-xl border border-white/10 p-3 2xl:col-span-3">
+                        <label className="grid gap-2 text-xs text-slate-300">
+                          <span>الرصيد الافتتاحي (شيكل)</span>
+                          <Input dir="ltr" type="number" min="0" step="0.01" value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} className="border-white/10 bg-[#0D1117] text-white" />
+                        </label>
+                        <Button className="mt-2 w-full bg-[#F5B800] font-bold text-[#0D1117]" onClick={saveOpeningBalance} disabled={updateOpeningBalance.isPending}>
+                          {updateOpeningBalance.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الرصيد
+                        </Button>
+                      </div>
 
-            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-bold text-white">سجل الحركات الكامل</h2><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!transactionRows.length} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">Excel</Button><Button size="sm" variant="outline" disabled={!transactionRows.length} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">PDF</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); setTransactionPage(1); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div><div className="mt-4 h-52 rounded-xl border border-white/8 bg-white/[.015] p-3"><p className="mb-2 text-xs font-bold text-slate-300">تطور الرصيد بمرور الوقت</p><ResponsiveContainer width="100%" height="88%"><AreaChart data={balanceTimeline} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}><defs><linearGradient id="accountBalanceFill" x1="0" x2="0" y1="0" y2="1"><stop offset="5%" stopColor="#F5B800" stopOpacity={0.35} /><stop offset="95%" stopColor="#F5B800" stopOpacity={0.03} /></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.08)" vertical={false} /><XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={44} /><Tooltip formatter={(value) => [`${money(Number(value))} ش`, "الرصيد"]} contentStyle={{ background: "#111823", border: "1px solid rgba(255,255,255,.12)", borderRadius: 10, color: "#fff" }} /><Area type="monotone" dataKey="balance" stroke="#F5B800" strokeWidth={2} fill="url(#accountBalanceFill)" /></AreaChart></ResponsiveContainer></div><div className="mt-4 space-y-2">{transactionRows.length ? visibleTransactions.map((row) => <div className="flex items-center justify-between rounded-xl border border-white/8 px-3 py-3 text-sm" key={row.id}><div><p className="font-bold text-white">{row.description}</p><p className="mt-1 text-xs text-slate-500">{new Date(row.occurredAt).toLocaleString("ar")} · الرصيد التراكمي: {money(Number(cumulativeById.get(row.id) ?? 0))} ش</p></div><span className={row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? "text-rose-300" : "text-emerald-300"}>{row.transactionType === "withdrawal" || row.transactionType === "transfer_out" ? "−" : "+"}{money(Number(row.amount))}</span></div>) : <p className="py-10 text-center text-sm text-slate-500">لا توجد حركات مسجلة بعد.</p>}</div>{transactionRows.length > 0 && <div className="mt-4 flex items-center justify-between text-xs text-slate-400"><span>صفحة {transactionPage} من {pageCount} · {transactionRows.length} حركة</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={transactionPage === 1} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))} className="border-white/10 text-white">السابق</Button><Button size="sm" variant="outline" disabled={transactionPage === pageCount} onClick={() => setTransactionPage((page) => Math.min(pageCount, page + 1))} className="border-white/10 text-white">التالي</Button></div></div>}</CardContent></Card>
+                      <div className="rounded-xl border border-white/10 p-3 2xl:col-span-3">
+                        <label className="grid gap-2 text-xs text-slate-300">
+                          <span>رقم الجوال المرتبط بالحساب</span>
+                          <Input dir="ltr" value={newPhone} onChange={(event) => setNewPhone(event.target.value)} placeholder="رقم الجوال المرتبط بالحساب" className="border-white/10 bg-[#0D1117] text-white" />
+                        </label>
+                        <Button onClick={() => updatePhone.mutate({ siteId, accountId: selectedAccount.id, phoneNumber: newPhone })} disabled={updatePhone.isPending} variant="outline" className="mt-2 w-full border-[#F5B800]/40 text-[#F5B800]">
+                          {updatePhone.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الجوال
+                        </Button>
+                      </div>
+
+                      <div className="rounded-xl border border-white/10 p-3 2xl:col-span-4">
+                        <p className="mb-2 text-sm font-bold text-white">الفروع المرتبطة</p>
+                        <div className="flex flex-wrap gap-x-4 gap-y-2">
+                          {(sites.data ?? []).map((site) => (
+                            <label key={site.id} className="flex items-center gap-2 text-sm text-slate-300">
+                              <input type="checkbox" checked={selectedSites.includes(site.id)} onChange={(event) => setSelectedSites((current) => event.target.checked ? [...current, site.id] : current.filter((id) => id !== site.id))} />
+                              {site.name}
+                            </label>
+                          ))}
+                        </div>
+                        <Button className="mt-3 w-full bg-[#F5B800] font-bold text-[#0D1117]" onClick={() => updateSites.mutate({ siteId, accountId: selectedAccount.id, siteIds: selectedSites.length ? selectedSites : [siteId] })} disabled={updateSites.isPending}>
+                          {updateSites.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الفروع المرتبطة
+                        </Button>
+                      </div>
+
+                      <div className="rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.03] p-3 2xl:col-span-2">
+                        <p className="text-sm font-bold text-white">الظهور في توثيق الدفع</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">إتاحة الحساب ضمن خيارات الاستلام في توثيق الدفع.</p>
+                        <Button type="button" size="sm" variant="outline" onClick={togglePaymentDocumentation} disabled={updatePaymentDocumentationVisibility.isPending} className="mt-3 w-full border-white/15 text-white">
+                          {updatePaymentDocumentationVisibility.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : selectedAccount.allowPaymentDocumentation ? <Eye className="ml-2 h-4 w-4 text-emerald-300" /> : <EyeOff className="ml-2 h-4 w-4 text-slate-400" />}
+                          {selectedAccount.allowPaymentDocumentation ? "ظاهر" : "مخفي"}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 p-4">
+                      <p className="mb-3 text-sm font-bold text-white">حركة مالية جديدة</p>
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="grid min-w-[260px] flex-[2_1_260px] gap-2 sm:grid-cols-3">
+                          <Button onClick={() => setMode("deposit")} variant={mode === "deposit" ? "default" : "outline"} className={mode === "deposit" ? "bg-emerald-600 text-white" : "border-white/10 text-white"}><ArrowDownToLine className="ml-1 h-4 w-4" />إيداع</Button>
+                          <Button onClick={() => setMode("withdrawal")} variant={mode === "withdrawal" ? "default" : "outline"} className={mode === "withdrawal" ? "bg-rose-700 text-white" : "border-white/10 text-white"}><ArrowUpFromLine className="ml-1 h-4 w-4" />سحب</Button>
+                          <Button onClick={() => setMode("transfer")} variant={mode === "transfer" ? "default" : "outline"} className={mode === "transfer" ? "bg-sky-700 text-white" : "border-white/10 text-white"}><ArrowLeftRight className="ml-1 h-4 w-4" />تحويل</Button>
+                        </div>
+                        {mode === "transfer" && <label className="grid min-w-[190px] flex-[1_1_190px] gap-1 text-xs text-slate-300"><span>الحساب المستقبِل</span><select value={target} onChange={(event) => setTarget(event.target.value)} className="h-10 w-full rounded-xl border border-white/10 bg-[#0D1117] px-3 text-sm text-white"><option value="">اختر الحساب المستقبِل</option>{rows.filter((row) => row.id !== selectedAccount.id).map((row) => <option value={row.id} key={row.id}>{row.name}</option>)}</select></label>}
+                        <label className="grid min-w-[150px] flex-[1_1_150px] gap-1 text-xs text-slate-300"><span>المبلغ (شيكل)</span><Input dir="ltr" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" className="border-white/10 bg-[#0D1117] text-white" /></label>
+                        <label className="grid min-w-[220px] flex-[3_1_260px] gap-1 text-xs text-slate-300"><span>وصف الحركة</span><Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="مثال: سحب مصروف تشغيلي" className="border-white/10 bg-[#0D1117] text-white" /></label>
+                        <Button onClick={submitMovement} disabled={movement.isPending || transfer.isPending} className="min-w-[150px] flex-1 bg-[#F5B800] font-bold text-[#0D1117]">
+                          {movement.isPending || transfer.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}
+                          {mode === "withdrawal" ? "تسجيل السحب" : mode === "transfer" ? "تنفيذ التحويل" : "تسجيل الإيداع"}
+                        </Button>
+                      </div>
+                      {mode === "withdrawal" && <p className="mt-3 rounded-lg bg-rose-950/35 px-3 py-2 text-xs text-rose-100">سيُسجل السحب في كشف الحساب وسجل التدقيق، ولا يمكن أن يتجاوز الرصيد المتاح.</p>}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card ref={transactionsRef} className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات الكامل</h2><p className="mt-1 text-xs text-slate-500">ابحث وفلتر الحركات؛ الملخص أدناه يتبع النتائج المعروضة والفترة المختارة.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!transactionRows.length} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">Excel</Button><Button size="sm" variant="outline" disabled={!transactionRows.length} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">PDF</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); setTransactionPage(1); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
+<div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+<label className="grid gap-1 text-xs text-slate-400"><span>بحث بالوصف أو رقم الحركة أو التاريخ</span><Input value={transactionSearch} onChange={(event) => { setTransactionSearch(event.target.value); setTransactionPage(1); }} placeholder="ابحث في الحركات…" className="border-white/10 bg-[#0D1117] text-white" /></label>
+<label className="grid gap-1 text-xs text-slate-400"><span>من تاريخ</span><Input type="date" dir="ltr" value={movementFromDate} onChange={(event) => { setMovementFromDate(event.target.value); setTransactionPage(1); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
+<label className="grid gap-1 text-xs text-slate-400"><span>إلى تاريخ</span><Input type="date" dir="ltr" value={movementToDate} onChange={(event) => { setMovementToDate(event.target.value); setTransactionPage(1); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
+<div className="flex items-end"><Button size="sm" variant="outline" onClick={() => { setTransactionSearch(""); setTransactionTypeFilter(""); setMovementFromDate(""); setMovementToDate(""); setTransactionPage(1); }} className="border-white/10 text-white">مسح فلاتر الحركات</Button></div>
+</div>
+<div className="mt-3 grid gap-2 sm:grid-cols-3">
+<div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[.06] p-3"><p className="text-xs text-slate-400">إجمالي الوارد</p><p className="mt-1 font-bold text-emerald-300">{money(transactionSummary.incoming)} ش</p></div>
+<div className="rounded-xl border border-rose-500/20 bg-rose-500/[.06] p-3"><p className="text-xs text-slate-400">إجمالي الصادر</p><p className="mt-1 font-bold text-rose-300">{money(transactionSummary.outgoing)} ش</p></div>
+<div className="rounded-xl border border-white/10 bg-white/[.025] p-3"><p className="text-xs text-slate-400">صافي حركة الفترة</p><p className={`mt-1 font-bold ${transactionNet < 0 ? "text-rose-300" : "text-white"}`}>{money(transactionNet)} ش</p></div>
+</div>{!fromDate && !toDate ? <div className="mt-4 h-52 rounded-xl border border-white/8 bg-white/[.015] p-3"><p className="mb-2 text-xs font-bold text-slate-300">تطور الرصيد بمرور الوقت</p><ResponsiveContainer width="100%" height="88%"><AreaChart data={balanceTimeline} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}><defs><linearGradient id="accountBalanceFill" x1="0" x2="0" y1="0" y2="1"><stop offset="5%" stopColor="#F5B800" stopOpacity={0.35} /><stop offset="95%" stopColor="#F5B800" stopOpacity={0.03} /></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.08)" vertical={false} /><XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={44} /><Tooltip formatter={(value) => [`${money(Number(value))} ش`, "الرصيد"]} contentStyle={{ background: "#111823", border: "1px solid rgba(255,255,255,.12)", borderRadius: 10, color: "#fff" }} /><Area type="monotone" dataKey="balance" stroke="#F5B800" strokeWidth={2} fill="url(#accountBalanceFill)" /></AreaChart></ResponsiveContainer></div> : <p className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[.04] p-3 text-xs text-amber-100">تم تحديد فترة على شريط الفلاتر العام؛ أُخفي المخطط والرصيد بعد الحركة لتجنب عرض رصيد تراكمي غير دقيق خارج نطاق النتائج.</p>}<div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+<table className="w-full min-w-[1120px] border-collapse text-right text-sm">
+<thead className="bg-white/[.04] text-xs text-slate-300"><tr>
+<th className="px-3 py-3 font-semibold">التاريخ والوقت</th>
+<th className="px-3 py-3 font-semibold">رقم الحركة</th>
+<th className="px-3 py-3 font-semibold">المرجع</th>
+<th className="px-3 py-3 font-semibold">البيان</th>
+<th className="px-3 py-3 font-semibold">نوع الحركة</th>
+<th className="px-3 py-3 font-semibold">الحساب المقابل</th>
+<th className="px-3 py-3 text-left font-semibold">وارد</th>
+<th className="px-3 py-3 text-left font-semibold">صادر</th>
+<th className="px-3 py-3 text-left font-semibold">الرصيد بعد الحركة</th>
+</tr></thead>
+<tbody className="divide-y divide-white/8">
+{visibleTransactions.map((row) => {
+  const amount = Number(row.amount) || 0;
+  const outgoing = isOutgoingMovement(row.transactionType);
+  const incoming = isIncomingMovement(row.transactionType);
+  const counterpart = row.relatedAccountId
+    ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? `حساب #${row.relatedAccountId}`
+    : row.relatedPaymentId ? `دفعة #${row.relatedPaymentId}` : "—";
+  const runningBalance = balanceAfterById.get(row.id);
+  return <tr key={row.id} className="transition hover:bg-white/[.025]">
+    <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-400">{new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" })}</td>
+    <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-300">#{row.id}</td>
+    <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-300">{row.referenceNo ?? "—"}</td>
+    <td className="min-w-[220px] px-3 py-3 font-medium text-white">{row.description}</td>
+    <td className="whitespace-nowrap px-3 py-3"><span className={`rounded-md px-2 py-1 text-xs ${outgoing ? "bg-rose-500/10 text-rose-300" : incoming ? "bg-emerald-500/10 text-emerald-300" : "bg-slate-500/10 text-slate-300"}`}>{movementLabels[row.transactionType] ?? row.transactionType}</span></td>
+    <td className="px-3 py-3 text-xs text-slate-300">{counterpart}</td>
+    <td className="whitespace-nowrap px-3 py-3 text-left font-semibold tabular-nums text-emerald-300">{incoming ? money(amount) : "—"}</td>
+    <td className="whitespace-nowrap px-3 py-3 text-left font-semibold tabular-nums text-rose-300">{outgoing ? money(amount) : "—"}</td>
+    <td className="whitespace-nowrap px-3 py-3 text-left font-semibold tabular-nums text-white" title={runningBalance === undefined ? "لا يُحتسب رصيد كل حركة عند تحديد نطاق تاريخ علوي لأن النتائج لا تحتوي الحركات خارج النطاق." : undefined}>{runningBalance === undefined ? "—" : money(runningBalance)}</td>
+  </tr>;
+})}
+{!visibleTransactions.length && <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">لا توجد حركات تطابق الفلاتر المحددة.</td></tr>}
+</tbody>
+</table>
+</div>
+<p className="mt-2 text-xs text-slate-500">ملخص الوارد والصادر محسوب للحركات المطابقة التي تم تحميلها. الرصيد بعد الحركة يعتمد على الرصيد الحالي وترتيب الحركات؛ عند تحديد نطاق تاريخ علوي لا يُعرض رصيد حركة غير موثوق.</p>
+{transactionRows.length > 0 && <div className="mt-4 flex items-center justify-between text-xs text-slate-400"><span>الحركات المطابقة: {transactionRows.length} · صفحة {transactionPage} من {pageCount} · يعرض 10 في الصفحة</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={transactionPage === 1} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))} className="border-white/10 text-white">السابق</Button><Button size="sm" variant="outline" disabled={transactionPage === pageCount} onClick={() => setTransactionPage((page) => Math.min(pageCount, page + 1))} className="border-white/10 text-white">التالي</Button></div></div>}</CardContent></Card>
           </div>
         )}
         <Dialog open={Boolean(pendingAction)} onOpenChange={(open) => !open && setPendingAction(null)}><DialogContent className="border-white/10 bg-[#111823] text-white"><DialogHeader><DialogTitle>{pendingAction?.kind === "withdrawal" ? "تأكيد عملية السحب" : "تأكيد التحويل بين الحسابات"}</DialogTitle></DialogHeader><div className="space-y-3 text-sm"><p className="text-slate-300">الحساب المصدر: <strong className="text-white">{selectedAccount?.name}</strong></p><p className="text-slate-300">المبلغ: <strong className="text-[#F5B800]">{money(pendingAction?.amount ?? 0)} ش</strong></p>{pendingAction?.kind === "transfer" ? <p className="text-slate-300">الحساب المستقبِل: <strong className="text-white">{rows.find((row) => row.id === pendingAction.targetAccountId)?.name ?? "—"}</strong></p> : null}<p className="rounded-lg bg-amber-400/10 p-3 text-xs leading-6 text-amber-100">سيُسجل الإجراء في كشف الحساب وسجل التدقيق. راجع البيانات قبل التأكيد.</p></div><DialogFooter><Button variant="outline" onClick={() => setPendingAction(null)} className="border-white/15 text-white">إلغاء</Button><Button onClick={confirmPendingAction} disabled={movement.isPending || transfer.isPending} className="bg-[#F5B800] font-bold text-[#0D1117]">تأكيد التنفيذ</Button></DialogFooter></DialogContent></Dialog>
