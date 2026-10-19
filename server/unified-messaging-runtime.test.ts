@@ -204,6 +204,7 @@ describe("unified messaging runtime contract", () => {
     expect(manualFreeSmsMigration).toContain("select n.* into v_existing");
     expect(manualFreeSmsMigration).toContain("OPERATION_ID_REUSED_WITH_DIFFERENT_MESSAGE");
     expect(manualFreeSmsMigration).toContain("on conflict (tenant_id, operation_key) do nothing");
+    expect(manualFreeSmsMigration).toContain("public.powerhub_mark_sms_needs_review(bigint,bigint,integer,text,text)'::regprocedure");
   });
 
   it("supports automation lifecycle and replay-safe execution", () => {

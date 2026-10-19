@@ -16,7 +16,7 @@ declare
   v_signatures regprocedure[] := array[
     'public.powerhub_claim_sms_notification(bigint,bigint)'::regprocedure,
     'public.powerhub_mark_sms_provider_request_started(bigint,bigint,integer)'::regprocedure,
-    'public.powerhub_mark_sms_needs_review(bigint,bigint,integer,text)'::regprocedure,
+    'public.powerhub_mark_sms_needs_review(bigint,bigint,integer,text,text)'::regprocedure,
     'public.powerhub_finish_sms_notification(bigint,bigint,integer,boolean,text,text)'::regprocedure,
     'public.powerhub_resolve_sms_needs_review(bigint,bigint,text,text)'::regprocedure
   ];
