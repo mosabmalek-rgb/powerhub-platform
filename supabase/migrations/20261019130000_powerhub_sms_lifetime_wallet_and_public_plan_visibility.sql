@@ -88,7 +88,7 @@ set value=jsonb_set((s.value-'smsAddons'),'{packages}',
  updated_at=now()
 where s.setting_key='subscription_package_catalog' and jsonb_typeof(s.value->'packages')='array';
 
-update public.package_feature_policies set policy='addon',default_limit=0,limit_mode='fixed',policy_source='standalone_sms_wallet' where feature_key='sms';
+update public.package_feature_policies set policy='addon',default_limit=0,limit_mode='fixed',source='manual' where feature_key='sms';
 
 insert into public.platform_settings(setting_key,is_enabled,value,message)
 values('public_plan_visibility',true,'{"showPlans":true}'::jsonb,'التحكم الإداري في عرض باقات الاشتراك على الصفحة الرئيسية.')

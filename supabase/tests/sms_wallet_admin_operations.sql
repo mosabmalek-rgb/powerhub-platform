@@ -120,7 +120,7 @@ create table public.platform_settings (
 create table public.feature_catalog (feature_key text primary key,is_active boolean not null default true);
 create table public.package_feature_policies (
   package_code text not null,feature_key text not null,policy text not null,
-  default_limit integer,limit_mode text,policy_source text,
+  default_limit integer,limit_mode text,source text,
   primary key(package_code,feature_key)
 );
 create table public.tenant_feature_controls (
@@ -178,7 +178,7 @@ insert into public.platform_settings(setting_key,is_enabled,value) values
  ('subscription_package_catalog',true,
   '{"currency":"ILS","version":1,"packages":[{"code":"basic","name":"الناشئة","includedMessages":600,"smsCost":50,"features":{"sms":true,"expenses":true}}],"smsAddons":[{"messages":1000,"price":12},{"messages":2000,"price":20}]}'::jsonb);
 insert into public.feature_catalog(feature_key,is_active) values('sms',true),('expenses',true);
-insert into public.package_feature_policies(package_code,feature_key,policy,default_limit,limit_mode,policy_source)
+insert into public.package_feature_policies(package_code,feature_key,policy,default_limit,limit_mode,source)
  values('basic','sms','included',600,'fixed','subscription'),('basic','expenses','included',null,'unlimited','subscription');
 insert into public.tenant_members(tenant_id,user_id,role,is_active,membership_status)
  values(11,3,'owner',true,'active');
