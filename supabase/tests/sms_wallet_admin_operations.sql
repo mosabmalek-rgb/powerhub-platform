@@ -293,6 +293,64 @@ begin
 end
 $test_package_catalog$;
 
+do $test_customer_package_request$
+declare
+  v_plan_id bigint;
+  v_request_id bigint;
+  v_second_request_id bigint;
+  v_status text;
+  v_credit integer;
+  v_replayed boolean;
+  v_price numeric;
+  v_total bigint;
+begin
+  select id into v_plan_id from public.platform_sms_plans where code='sms-test-1500';
+  if v_plan_id is null then raise exception 'TEST_SMS_PACKAGE_NOT_FOUND'; end if;
+
+  select request_id into v_request_id
+  from public.powerhub_request_sms_package_plan(11,111,3,v_plan_id,'طلب حزمة تجريبي');
+  select r.status,r.requested_price,l.status,l.credited_messages
+    into v_status,v_price, v_status,v_credit
+  from public.sms_package_requests r
+  join public.tenant_sms_recharge_ledger l on l.request_id=r.id
+  where r.id=v_request_id;
+  if v_status<>'pending' or v_credit<>0 then
+    raise exception 'CUSTOMER_PACKAGE_REQUEST_CREDITED_BEFORE_REVIEW';
+  end if;
+  if (select requested_price from public.sms_package_requests where id=v_request_id)<>12 then
+    raise exception 'CUSTOMER_PACKAGE_PRICE_SNAPSHOT_WRONG';
+  end if;
+
+  select status,approved_messages,replayed into v_status,v_credit,v_replayed
+  from public.powerhub_admin_review_sms_package_request(1,v_request_id,'approved',1200,'تم اعتماد كمية جزئية');
+  if v_status<>'approved' or v_credit<>1200 or v_replayed then
+    raise exception 'CUSTOMER_PACKAGE_APPROVAL_RESULT_WRONG';
+  end if;
+  select total_messages into v_total from public.powerhub_get_sms_quota(11);
+  if v_total<>1200 then raise exception 'CUSTOMER_PACKAGE_CREDIT_NOT_IN_WALLET'; end if;
+
+  select replayed into v_replayed
+  from public.powerhub_admin_review_sms_package_request(1,v_request_id,'approved',1200,'إعادة محاولة');
+  if not v_replayed then raise exception 'CUSTOMER_PACKAGE_APPROVAL_REPLAY_NOT_IDEMPOTENT'; end if;
+  select total_messages into v_total from public.powerhub_get_sms_quota(11);
+  if v_total<>1200 then raise exception 'CUSTOMER_PACKAGE_APPROVAL_REPLAY_DOUBLE_CREDITED'; end if;
+
+  select request_id into v_second_request_id
+  from public.powerhub_request_sms_package_plan(11,111,3,v_plan_id,'طلب مرفوض');
+  select status,approved_messages,replayed into v_status,v_credit,v_replayed
+  from public.powerhub_admin_review_sms_package_request(1,v_second_request_id,'rejected',0,'رفض تجريبي');
+  if v_status<>'rejected' or v_credit<>0 or v_replayed then
+    raise exception 'CUSTOMER_PACKAGE_REJECTION_RESULT_WRONG';
+  end if;
+  if (select credited_messages from public.tenant_sms_recharge_ledger where request_id=v_second_request_id)<>0 then
+    raise exception 'REJECTED_CUSTOMER_PACKAGE_ADDED_CREDIT';
+  end if;
+  select total_messages into v_total from public.powerhub_get_sms_quota(11);
+  if v_total<>1200 then raise exception 'REJECTED_CUSTOMER_PACKAGE_CHANGED_WALLET'; end if;
+end
+$test_customer_package_request$;
+
+
 do $test_pending_and_idempotency$
 declare
   v_id bigint;
