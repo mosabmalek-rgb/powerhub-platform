@@ -626,25 +626,43 @@ export const powerhubRouter = router({
       return { ...fallback, showPlans };
     }
     const value = catalog.value as Record<string, unknown>;
-    const rawPackages = Array.isArray(value.packages) ? value.packages.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && item.active !== false && typeof item.name === "string" && typeof item.price === "number")) : [];
-    const packages = (rawPackages.length ? rawPackages : fallback.packages).map((item) => {
-      const safe: Record<string, unknown> = { ...item };
-      delete safe.includedMessages;
-      delete safe.smsCost;
-      if (safe.features && typeof safe.features === "object" && !Array.isArray(safe.features)) {
-        const features = { ...(safe.features as Record<string, unknown>) };
-        delete features.sms;
-        safe.features = features;
-      }
-      return safe;
-    });
+    const packageSource: Array<Record<string, unknown>> = Array.isArray(value.packages)
+      ? value.packages.filter((item): item is Record<string, unknown> => Boolean(
+          item && typeof item === "object" && !Array.isArray(item)
+          && typeof item.code === "string" && typeof item.name === "string"
+          && typeof item.price === "number" && Number.isFinite(item.price)
+          && item.active !== false
+        ))
+      : fallback.packages;
+    const packageNumber = (item: Record<string, unknown>, key: string): number => {
+      const value = item[key];
+      return typeof value === "number" && Number.isFinite(value) ? value : 0;
+    };
+    // This is a public procedure: explicitly allow-list display fields rather
+    // than spreading the private catalog (which may contain margin/cost data).
+    // A configured, intentionally empty/all-disabled catalog stays empty.
+    const packages = packageSource.map((item) => ({
+      code: String(item.code),
+      name: String(item.name),
+      price: packageNumber(item, "price"),
+      includedSubscribers: packageNumber(item, "includedSubscribers"),
+      subscribersLimitMode: item.subscribersLimitMode === "minimum" ? "minimum" : "maximum",
+      platformUsers: packageNumber(item, "platformUsers"),
+      fieldUsers: packageNumber(item, "fieldUsers"),
+      branches: packageNumber(item, "branches"),
+      active: item.active !== false,
+      logoPolicy: ["not_included", "addon", "included"].includes(String(item.logoPolicy)) ? item.logoPolicy : "not_included",
+      logoAddonPrice: packageNumber(item, "logoAddonPrice"),
+      paymentDocumentationPolicy: ["not_included", "addon", "included"].includes(String(item.paymentDocumentationPolicy)) ? item.paymentDocumentationPolicy : "addon",
+      paymentDocumentationAddonPrice: packageNumber(item, "paymentDocumentationAddonPrice"),
+    }));
     return {
       currency: typeof value.currency === "string" ? value.currency : fallback.currency,
       version: Number(value.version ?? 1),
       message: catalog.message ?? null,
       showPlans,
       packages,
-      addons: value.addons ?? fallback.addons,
+      addons: {},
     };
   }),
   messaging: router({
