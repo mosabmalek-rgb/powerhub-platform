@@ -697,7 +697,7 @@ async function loadUnifiedMessageHistoryFromTables(
   }
 
   const messageColumns = [
-    "id", "tenant_id", "invoice_id", "subscriber_id", "channel", "event_type", "recipient", "status",
+    "id", "tenant_id", "site_id", "invoice_id", "subscriber_id", "channel", "event_type", "recipient", "status",
     "provider_message_id", "payload", "attempts", "last_error", "created_at", "updated_at", "scheduled_at",
     "send_type", "schedule_type", "operation_key", "template_id", "automation_id",
   ].join(", ");
@@ -786,6 +786,7 @@ async function loadUnifiedMessageHistoryFromTables(
     )) continue;
 
     // Fail closed if a referenced entity is missing, belongs to another tenant, or points at another site.
+    if (message.site_id != null && Number(message.site_id) !== siteId) continue;
     if (message.subscriber_id != null && (!subscriber || Number(subscriber.tenant_id) !== tenantId)) continue;
     if (message.invoice_id != null && (!invoice || Number(invoice.tenant_id) !== tenantId)) continue;
     if (message.automation_id != null && (!automation || Number(automation.tenant_id) !== tenantId)) continue;
@@ -795,7 +796,8 @@ async function loadUnifiedMessageHistoryFromTables(
     if (campaign && Number(campaign.site_id) !== siteId) continue;
     if (automation?.site_id != null && Number(automation.site_id) !== siteId) continue;
 
-    const inSite = Number(subscriber?.site_id) === siteId
+    const inSite = Number(message.site_id) === siteId
+      || Number(subscriber?.site_id) === siteId
       || Number(invoice?.site_id) === siteId
       || Number(campaign?.site_id) === siteId
       || Number(automation?.site_id) === siteId;
