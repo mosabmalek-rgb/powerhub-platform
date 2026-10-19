@@ -16,9 +16,13 @@ begin
  if not found then raise exception 'TENANT_NOT_FOUND' using errcode='P0002'; end if;
  select * into v_row from public.tenant_sms_recharge_ledger l where l.idempotency_key=p_idempotency_key for update;
  if found then
-  if v_row.tenant_id<>p_tenant_id or v_row.requested_messages<>p_messages or v_row.status<>'pending' then
-   raise exception 'IDEMPOTENCY_KEY_REUSED' using errcode='23505'; end if;
-  return query select v_row.id,v_row.tenant_id,v_row.status; return;
+  if v_row.tenant_id<>p_tenant_id or v_row.requested_messages<>p_messages then
+   raise exception 'IDEMPOTENCY_KEY_REUSED' using errcode='23505';
+  end if;
+  -- The same key is a replay even if the original request has since been finalized.
+  -- Return the existing state instead of creating another ledger row or failing retry.
+  return query select v_row.id,v_row.tenant_id,v_row.status;
+  return;
  end if;
  if exists(select 1 from public.tenant_sms_recharge_ledger l where l.tenant_id=p_tenant_id and l.status='pending') then
   raise exception 'SMS_RECHARGE_REQUEST_PENDING' using errcode='55000';
