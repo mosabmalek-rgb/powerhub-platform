@@ -126,6 +126,7 @@ declare
   v_role text;
   v_row public.tenant_sms_recharge_ledger%rowtype;
   v_site_id bigint;
+  v_request_id bigint;
 begin
   select u.platform_role
     into v_role
@@ -145,6 +146,25 @@ begin
 
   if p_credited_messages < 0 then
     raise exception 'INVALID_SMS_RECHARGE_CREDIT' using errcode='22023';
+  end if;
+
+  -- Use the same lock order as package-request review: request first,
+  -- linked ledger second. This avoids a request<->ledger deadlock when these
+  -- two administrative actions race.
+  select l.request_id
+    into v_request_id
+  from public.tenant_sms_recharge_ledger l
+  where l.id=p_ledger_id;
+
+  if not found then
+    raise exception 'SMS_RECHARGE_NOT_FOUND' using errcode='P0002';
+  end if;
+
+  if v_request_id is not null then
+    perform 1
+    from public.sms_package_requests r
+    where r.id=v_request_id
+    for update;
   end if;
 
   select *
