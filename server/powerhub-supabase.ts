@@ -1000,7 +1000,7 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
     admin.from("sites").select("id, name").eq("tenant_id", input.tenantId),
     accountIds.length ? admin.from("account_transactions").select("id, tenant_id, account_id, transaction_type, amount, description, reference_no, related_payment_id, related_account_id, created_by_user_id, occurred_at, created_at")
       .eq("tenant_id", input.tenantId).in("account_id", accountIds)
-      .gte("occurred_at", input.from?.toISOString() ?? "1970-01-01T00:00:00.000Z").lte("occurred_at", input.to?.toISOString() ?? "9999-12-31T23:59:59.999Z").order("occurred_at", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
+      .gte("occurred_at", input.from?.toISOString() ?? "1970-01-01T00:00:00.000Z").lte("occurred_at", input.to?.toISOString() ?? "9999-12-31T23:59:59.999Z").order("occurred_at", { ascending: false }).order("id", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
     accountIds.length ? admin.rpc("powerhub_company_account_balance_rollup", { p_tenant_id: input.tenantId, p_account_ids: accountIds }) : Promise.resolve({ data: [], error: null }),
   ]);
   if (siteLinksResult.error || sitesResult.error || transactionsResult.error || balancesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حركات أو أرصدة حسابات الشركة من Supabase." });
