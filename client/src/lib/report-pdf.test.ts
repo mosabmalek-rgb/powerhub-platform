@@ -30,3 +30,15 @@ describe("escapeHtml", () => {
     expect(reports).toContain("pdfRef.current.cloneNode(true)");
   });
 });
+
+describe("PDF table layout", () => {
+  it("adds a visible four-sided border and readable padding to every header and data cell", () => {
+    const source = readFileSync(resolve(process.cwd(), "client/src/lib/report-pdf.ts"), "utf8");
+    expect(source).toContain('report.querySelectorAll<HTMLElement>("th, td")');
+    expect(source).toContain('cell.style.border = "1px solid #9CA8B7"');
+    expect(source).toContain('cell.style.padding = "9px 11px"');
+    expect(source).toContain('cell.style.borderCollapse = "collapse"');
+    expect(source).toContain("element.cloneNode(true)");
+    expect(source).toContain("host.remove()");
+  });
+});
