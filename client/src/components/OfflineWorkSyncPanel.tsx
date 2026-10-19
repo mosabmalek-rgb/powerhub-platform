@@ -34,7 +34,16 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const submitPaymentDocumentation = trpc.powerhub.paymentDocumentation.submit.useMutation();
   const approvePaymentDocumentation = trpc.powerhub.paymentDocumentation.approve.useMutation();
 
-  const refresh = async () => Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.subscribers.directoryPage.invalidate(), utils.powerhub.subscribers.quota.invalidate(), utils.powerhub.generators.list.invalidate(), utils.powerhub.invoices.list.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]);
+  const refresh = async () => Promise.all([
+    utils.powerhub.subscribers.list.invalidate({ siteId }),
+    utils.powerhub.subscribers.directoryPage.invalidate({ siteId }),
+    utils.powerhub.subscribers.quota.invalidate({ siteId }),
+    utils.powerhub.generators.list.invalidate({ siteId }),
+    utils.powerhub.invoices.list.invalidate({ siteId }),
+    utils.powerhub.payments.list.invalidate({ siteId }),
+    utils.powerhub.dashboard.summary.invalidate({ siteId }),
+    utils.powerhub.audit.list.invalidate({ siteId }),
+  ]);
 
   const buildMetadata = async (pendingItems: QueuedOfflineWork[]) => {
     const stored = await listSyncMetadata({ userId, siteId });
@@ -132,6 +141,17 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
       }
       await refresh();
+      const successfulInvoiceIssues = results.filter((result) =>
+        result.item.kind === "invoice_issue" &&
+        (result.outcome === "applied" || result.outcome === "already_applied"),
+      );
+      // Refresh the active site's invoice pages only after successful invoice sync; no polling.
+      if (successfulInvoiceIssues.length > 0) {
+        await Promise.all([
+          utils.powerhub.invoices.page.invalidate({ siteId, limit: 100 }),
+          utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 }),
+        ]);
+      }
       const successfulSubscriberChanges = results.filter((result) =>
         (result.item.kind === "subscriber_create" || result.item.kind === "subscriber_update") &&
         (result.outcome === "applied" || result.outcome === "already_applied"),
