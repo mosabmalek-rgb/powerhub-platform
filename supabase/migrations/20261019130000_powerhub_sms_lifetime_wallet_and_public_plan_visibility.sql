@@ -251,9 +251,13 @@ as $function$
     pp.package_code,
     coalesce(pp.policy, 'not_included') as package_policy,
     coalesce((select is_active from feature), false)
+      and (p_feature_key <> 'sms' or exists(select 1 from subscription))
       and (p_feature_key='sms' or coalesce(pp.policy in ('included','addon'), false)) as eligible,
     case
       when coalesce((select is_active from feature), false) = false then false
+      -- Keep prepaid balance visible without a subscription, but never let a
+      -- tenant control override authorize dispatch after subscription expiry.
+      when p_feature_key='sms' and not exists(select 1 from subscription) then false
       when p_feature_key <> 'sms' and coalesce(pp.policy in ('included','addon'), false) = false then false
       when coalesce(c.status, 'inherit') = 'enabled' then true
       when coalesce(c.status, 'inherit') = 'disabled' then false
