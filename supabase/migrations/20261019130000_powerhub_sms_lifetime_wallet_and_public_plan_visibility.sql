@@ -484,44 +484,9 @@ $function$;
 revoke all on function public.powerhub_admin_review_sms_package_request(bigint,bigint,text,integer,text) from public,anon,authenticated;
 grant execute on function public.powerhub_admin_review_sms_package_request(bigint,bigint,text,integer,text) to service_role;
 
-create or replace function public.powerhub_admin_grant_sms_wallet_credit(p_actor_user_id bigint,p_tenant_id bigint,p_messages integer,p_note text,p_idempotency_key uuid)
-returns table(success boolean,tenant_id bigint,ledger_id bigint,credited_messages integer,total_credited bigint,replayed boolean)
-language plpgsql security definer set search_path=public,pg_temp
-as $function$
-declare v_row public.tenant_sms_recharge_ledger%rowtype;v_total bigint;v_site_id bigint;v_role text;
-begin
- select u.platform_role into v_role from public.users u where u.id=p_actor_user_id and u.role='admin'
-  and u.account_status='active' and u.platform_role in('platform_owner','platform_admin');
- if v_role is null then raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501'; end if;
- if p_tenant_id is null or p_tenant_id<=0 then raise exception 'INVALID_TENANT' using errcode='22023'; end if;
- if p_messages is null or p_messages<1 or p_messages>100000000 then raise exception 'INVALID_SMS_CREDIT' using errcode='22023'; end if;
- if p_idempotency_key is null then raise exception 'IDEMPOTENCY_KEY_REQUIRED' using errcode='22023'; end if;
- perform 1 from public.tenants t where t.id=p_tenant_id for update;
- if not found then raise exception 'TENANT_NOT_FOUND' using errcode='P0002'; end if;
- select * into v_row from public.tenant_sms_recharge_ledger l where l.idempotency_key=p_idempotency_key for update;
- if found then
-  if v_row.tenant_id<>p_tenant_id or v_row.requested_messages<>p_messages or v_row.request_id is not null then raise exception 'IDEMPOTENCY_KEY_REUSED' using errcode='23505'; end if;
-  select coalesce(sum(l.credited_messages),0)::bigint into v_total from public.tenant_sms_recharge_ledger l
-   where l.tenant_id=p_tenant_id and l.status in('provider_confirmed','manual_confirmed') and l.confirmed_at is not null;
-  return query select true,p_tenant_id,v_row.id,v_row.credited_messages,v_total,true;return;
- end if;
- select s.id into v_site_id from public.sites s where s.tenant_id=p_tenant_id and s.status<>'archived' order by s.id limit 1;
- insert into public.tenant_sms_recharge_ledger(tenant_id,request_id,provider_mode,status,requested_messages,credited_messages,
-  idempotency_key,requested_by_user_id,processed_by_user_id,confirmed_at,note)
- values(p_tenant_id,null,'manual','manual_confirmed',p_messages,p_messages,p_idempotency_key,p_actor_user_id,p_actor_user_id,now(),
-  nullif(trim(coalesce(p_note,'')),'')) returning * into v_row;
- select coalesce(sum(l.credited_messages),0)::bigint into v_total from public.tenant_sms_recharge_ledger l
-  where l.tenant_id=p_tenant_id and l.status in('provider_confirmed','manual_confirmed') and l.confirmed_at is not null;
- insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data,metadata)
- values(p_tenant_id,v_site_id,p_actor_user_id,v_role,'tenant_sms_recharge_ledger',v_row.id::text,'sms_wallet_credit_granted',
-  jsonb_build_object('creditedMessages',p_messages,'totalCredited',v_total,'status','manual_confirmed'),
-  jsonb_build_object('note',nullif(trim(coalesce(p_note,'')),''),'idempotencyKey',p_idempotency_key));
- return query select true,p_tenant_id,v_row.id,p_messages,v_total,false;
-end;
-$function$;
-revoke all on function public.powerhub_admin_grant_sms_wallet_credit(bigint,bigint,integer,text,uuid) from public,anon,authenticated;
-grant execute on function public.powerhub_admin_grant_sms_wallet_credit(bigint,bigint,integer,text,uuid) to service_role;
-
+-- Deliberately no one-step SMS credit grant RPC is installed.
+-- Manual recharges must use powerhub_admin_create_sms_recharge_request followed
+-- by powerhub_admin_confirm_sms_recharge so the pending state is auditable.
 create or replace function public.powerhub_admin_sms_wallet_summaries(p_actor_user_id bigint)
 returns table(tenant_id bigint,tenant_name text,company_name text,owner_name text,total_credited bigint,used_segments bigint,
  remaining_messages bigint,provider_monthly_limit integer,provider_monthly_used bigint,last_recharge_at timestamptz)
