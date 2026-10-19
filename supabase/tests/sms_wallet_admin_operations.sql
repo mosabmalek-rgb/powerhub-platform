@@ -544,6 +544,11 @@ begin
     tenant_id,monthly_limit,is_active,api_endpoint,credential_ciphertext,credential_iv,sender_name
   ) values(13,100,true,'https://invalid.example.test/sms','fake-ciphertext','fake-iv','TEST');
 
+  -- An explicit tenant-level enable must never override the active-subscription
+  -- requirement for SMS dispatch.
+  insert into public.tenant_feature_controls(tenant_id,feature_key,status,limit_mode,manual_limit)
+  values(13,'sms','enabled','manual',1000);
+
   insert into public.notification_messages(
     tenant_id,subscriber_id,channel,event_type,status,payload,recipient
   ) values(13,1301,'sms','invoice_issued','pending','{"renderedText":"inactive-subscription-test"}'::jsonb,'+970599000013')
