@@ -521,6 +521,7 @@ describe("role guards in administration UI", () => {
   it("keeps the receiving company account inside the payment form without duplicate destination fields", () => {
     mocks.activeRole = "owner";
     render(<OperationsPage section="collections" />);
+    fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     const form = screen.getByRole("button", { name: "تسجيل الدفعة" }).closest("form");
     expect(form).not.toBeNull();
     const destination = screen.getByRole("combobox", { name: "الحساب المستقبِل للتحصيل" });
