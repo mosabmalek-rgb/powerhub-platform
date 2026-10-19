@@ -9,7 +9,8 @@ import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
-import { defaultInvoiceMessageTemplates, defaultPaymentReminderSmsTemplate, renderInvoiceMessageTemplate } from "./invoice-message-template";
+import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
+import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
 import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
 import { normalizeInternationalPhone, phoneSearchVariants } from "../shared/phone";
@@ -475,7 +476,9 @@ export const powerhubRouter = router({
   unifiedMessaging: powerhubUnifiedMessagingRouter,
   siteBillingPolicy: router({
     get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      // Read-only policy fields are needed to keep message previews consistent for messaging managers;
+      // mutation of billing policy remains owner-only below.
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_site_billing_policy", { p_tenant_id: scope.tenantId, p_site_id: input.siteId });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحد الأدنى والتسويات." });
       const row = Array.isArray(data) ? data[0] : data;
@@ -1607,9 +1610,44 @@ export const powerhubRouter = router({
       if(error || !Number((data as Array<{site_id:number}>|null)?.[0]?.site_id)) throw new TRPCError({code:error?.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":"BAD_REQUEST",message:"تعذر تحديث نسبة تنبيه الاستهلاك الشاذ."});
       return { success: true, anomalyAlertPercent: input.anomalyAlertPercent };
     }),
-    updateBranch: protectedProcedure.input(siteInput.pick({ name: true, city: true, address: true }).extend({ siteId: z.number().int().positive(), status: z.enum(["active", "inactive", "archived"]), invoiceDueDays: z.number().int().min(1).max(90) })).mutation(async ({ ctx, input }) => {
+    invoiceDuePolicy: router({
+      get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("invoice_due_hours, invoice_due_days")
+          .eq("tenant_id", access.tenantId).eq("id", input.siteId).maybeSingle();
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مدة استحقاق الفاتورة." });
+        if (!data) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة الحساب." });
+        const dueHours = Number(data.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(data.invoice_due_days ?? 14) * 24)));
+        return { invoiceDueHours: dueHours, invoiceDueDays: Number(data.invoice_due_days ?? Math.ceil(dueHours / 24)) };
+      }),
+      save: protectedProcedure.input(siteScoped.extend({ invoiceDueHours: z.number().int().min(1).max(2160) })).mutation(async ({ ctx, input }) => {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+        const { data, error } = await supabaseAdmin().rpc("powerhub_save_site_invoice_due_hours", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_invoice_due_hours: input.invoiceDueHours,
+        });
+        const row = Array.isArray(data) ? data[0] : data;
+        if (error || !Number(row?.invoice_due_hours)) {
+          const message = String(error?.message ?? "");
+          if (message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة الحساب." });
+          if (message.includes("INVALID_INVOICE_DUE_HOURS")) throw new TRPCError({ code: "BAD_REQUEST", message: "مدة الاستحقاق يجب أن تكون بين ساعة و90 يومًا." });
+          if (message.includes("INVOICE_DUE_POLICY_PERMISSION_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل مدة استحقاق الفاتورة." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ مدة استحقاق الفاتورة." });
+        }
+        const savedHours = Number(row.invoice_due_hours);
+        return { success: true, invoiceDueHours: savedHours, invoiceDueDays: Math.ceil(savedHours / 24) };
+      }),
+    }),
+    updateBranch: protectedProcedure.input(siteInput.pick({ name: true, city: true, address: true }).extend({ siteId: z.number().int().positive(), status: z.enum(["active", "inactive", "archived"]), invoiceDueDays: z.number().int().min(1).max(90).optional() })).mutation(async ({ ctx, input }) => {
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
-      const {data,error}=await supabaseAdmin().rpc("powerhub_update_site",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_name:input.name,p_city:input.city??"",p_address:input.address??"",p_status:input.status,p_invoice_due_days:input.invoiceDueDays});
+      let invoiceDueDays = input.invoiceDueDays;
+      if (invoiceDueDays == null) {
+        const { data: current, error: currentError } = await supabaseAdmin().from("sites").select("invoice_due_days").eq("tenant_id", access.tenantId).eq("id", input.siteId).maybeSingle();
+        if (currentError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات الفرع قبل التحديث." });
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة الحساب." });
+        invoiceDueDays = Number(current.invoice_due_days ?? 14);
+      }
+      const {data,error}=await supabaseAdmin().rpc("powerhub_update_site",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_name:input.name,p_city:input.city??"",p_address:input.address??"",p_status:input.status,p_invoice_due_days:invoiceDueDays});
       if(error || !Number((data as Array<{site_id:number}>|null)?.[0]?.site_id)) throw new TRPCError({code:error?.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":"BAD_REQUEST",message:"تعذر تحديث بيانات الفرع."});
       return { success: true };
     }),
@@ -2055,8 +2093,8 @@ export const powerhubRouter = router({
         .maybeSingle();
       if (tariffLookupError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من التعرفة الفعالة قبل تسجيل القراءة." });
       if (!activeTariff) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة لهذا الفرع؛ أضف التعرفة قبل تسجيل القراءة حتى لا تُحفظ قراءة دون فاتورة." });
-      const dueDate = new Date(readingAt);
-      dueDate.setDate(dueDate.getDate() + Math.max(1, Math.min(90, access.invoiceDueDays ?? 14)));
+      const dueHours = Math.max(1, Math.min(2160, Number(access.invoiceDueHours ?? ((access.invoiceDueDays ?? 14) * 24))));
+      const dueDate = new Date(readingAt.getTime() + dueHours * 60 * 60 * 1000);
       const billingPeriod = readingAt.toISOString().slice(0, 7);
       let imageKey: string | undefined;
       let imageHash: string | undefined;
@@ -2175,9 +2213,21 @@ export const powerhubRouter = router({
       billingPeriod: z.string().regex(/^\d{4}-\d{2}$/), dueDate: z.date(), discountAmount: z.number().min(0).default(0), clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "issueInvoices");
+      // The branch Settings policy is authoritative for every new invoice. Do not trust
+      // a client-supplied due date (including an offline draft) to override it.
+      const { data: reading, error: readingError } = await supabaseAdmin().from("meter_readings")
+        .select("id, reading_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.readingId)
+        .maybeSingle();
+      if (readingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تاريخ القراءة لتحديد استحقاق الفاتورة." });
+      if (!reading) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة غير موجودة ضمن الفرع المحدد." });
+      // The invoice RPC remains responsible for validating approval/version and transactional consistency.
+      const dueHours = Math.max(1, Math.min(2160, Number(access.invoiceDueHours ?? ((access.invoiceDueDays ?? 14) * 24))));
+      const dueDate = new Date(new Date(reading.reading_at).getTime() + dueHours * 60 * 60 * 1000);
+      if (!Number.isFinite(dueDate.getTime())) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تاريخ القراءة غير صالح لتحديد استحقاق الفاتورة." });
       const { data, error } = await supabaseAdmin().rpc("powerhub_issue_invoice_from_reading", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_reading_id: input.readingId, p_tariff_id: input.tariffId,
-        p_billing_period: input.billingPeriod, p_due_date: input.dueDate.toISOString(), p_discount_amount: input.discountAmount, p_client_operation_id: input.clientOperationId ?? null,
+        p_billing_period: input.billingPeriod, p_due_date: dueDate.toISOString(), p_discount_amount: input.discountAmount, p_client_operation_id: input.clientOperationId ?? null,
       });
       if (!error && data?.[0]) {
         const row = data[0] as { invoice_id: number | string; invoice_no: string; total_amount: number | string };
@@ -2713,7 +2763,12 @@ export const powerhubRouter = router({
           invoiceNo: String(receiptContext.invoice_no ?? ""),
           balanceDue: Number(receiptContext.balance_due ?? 0),
         };
-        const renderedText = renderPaymentReceiptTemplate(receiptContext.template_body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
+        const { data: billingPolicy, error: billingPolicyError } = await supabaseAdmin().from("site_billing_policies")
+          .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle();
+        if (billingPolicyError) throw new Error("تعذر تحميل سياسة تسوية الكسور لتنسيق مبلغ الإيصال.");
+        const settlementDisplayEnabled = Boolean(billingPolicy?.automatic_fraction_discount_enabled || billingPolicy?.fraction_carry_enabled);
+        const renderedText = renderPaymentReceiptTemplate(receiptContext.template_body ?? defaultPaymentReceiptSmsTemplate, receipt, settlementDisplayEnabled) || renderPaymentReceiptMessage(receipt, settlementDisplayEnabled);
         await measureSlowStage("paymentDocumentation.approve", "queue_receipt_notification", async () =>
           supabaseAdmin().rpc("powerhub_queue_payment_sms", {
             p_user_id: ctx.user.id, p_tenant_id: access.tenantId, p_site_id: input.siteId,
@@ -3429,24 +3484,62 @@ export const powerhubRouter = router({
     sendPaymentReminderSms: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), invoiceId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageMessaging");
       const admin = supabaseAdmin();
-      const { data: invoice, error: invoiceError } = await admin.from("invoices").select("id, subscriber_id, invoice_no, billing_period, total_amount, balance_due, due_date, status").eq("id", input.invoiceId).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      const { data: invoice, error: invoiceError } = await admin.from("invoices")
+        .select("id, subscriber_id, invoice_no, billing_period, total_amount, balance_due, due_date, status, previous_reading, current_reading, consumption_kwh")
+        .eq("id", input.invoiceId).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
       if (invoiceError || !invoice) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة لا تتبع للفرع المحدد." });
-      const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id, full_name, subscriber_no, phone").eq("id", Number(invoice.subscriber_id)).eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (["draft", "cancelled", "paid"].includes(String(invoice.status)) || Number(invoice.balance_due ?? 0) <= 0) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن تذكير المشترك بهذه الفاتورة؛ لا يوجد مبلغ مستحق غير مدفوع." });
+      }
+      const { data: subscriber, error: subscriberError } = await admin.from("subscribers")
+        .select("id, full_name, subscriber_no, phone").eq("id", Number(invoice.subscriber_id))
+        .eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
       if (subscriberError || !subscriber?.phone) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يوجد رقم هاتف صالح للمشترك ضمن الفرع المحدد." });
       let recipient: string;
-      try { recipient = normalizeInternationalPhone(subscriber.phone); } catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." }); }
-      const { data: template } = await admin.from("powerhub_message_templates").select("body").eq("tenant_id", scope.tenantId).eq("channel", "sms").eq("event_type", "invoice_overdue").eq("is_active", true).order("updated_at", { ascending: false }).limit(1).maybeSingle();
-      const reminderTemplate = template?.body ?? defaultPaymentReminderSmsTemplate;
+      try { recipient = normalizeInternationalPhone(subscriber.phone); }
+      catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." }); }
+
+      const { data: template, error: templateError } = await admin.from("powerhub_message_templates")
+        .select("id,body").eq("tenant_id", scope.tenantId).eq("channel", "sms")
+        .eq("event_type", "invoice_overdue").eq("is_active", true)
+        .order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      if (templateError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قالب التذكير بالسداد من مركز الرسائل." });
+      if (!template?.body?.trim()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يتوفر قالب للتذكير بالسداد أعده في مركز الرسائل." });
+
+      const { data: policy, error: policyError } = await admin.from("site_billing_policies")
+        .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
+        .eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (policyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة تسوية الكسور لتنسيق مبلغ التذكير." });
+      const settlementDisplayEnabled = Boolean(policy?.automatic_fraction_discount_enabled || policy?.fraction_carry_enabled);
+
+      const { data: outstandingInvoices, error: outstandingError } = await admin.from("invoices")
+        .select("balance_due").eq("tenant_id", scope.tenantId).eq("site_id", input.siteId)
+        .eq("subscriber_id", Number(subscriber.id)).in("status", ["issued", "partially_paid", "overdue"]).gt("balance_due", 0);
+      if (outstandingError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حساب الرصيد الإجمالي للمشترك." });
+      const totalBalanceMinor = (outstandingInvoices ?? []).reduce((sum: bigint, row: any) => sum + decimalAmountToMinorUnits(String(row.balance_due ?? "0")), 0n);
+      const totalBalance = formatPolicyAwareMessageAmount(minorUnitsToAmountString(totalBalanceMinor), settlementDisplayEnabled);
       const values = {
-        subscriber_name: subscriber.full_name ?? "", subscriber_no: String(subscriber.subscriber_no ?? ""),
-        invoice_no: String(invoice.invoice_no), billing_period: String(invoice.billing_period),
-        total_amount: String(invoice.total_amount), balance_due: String(invoice.balance_due),
-        due_date: String(invoice.due_date ?? ""), invoice_link: reminderTemplate.includes("{{invoice_link}}") ? "{{invoice_link}}" : "",
-        portal_link: reminderTemplate.includes("{{portal_link}}") ? "{{portal_link}}" : "",
+        subscriber_name: subscriber.full_name ?? "",
+        subscriber_no: String(subscriber.subscriber_no ?? ""),
+        invoice_no: String(invoice.invoice_no),
+        billing_period: String(invoice.billing_period),
+        total_amount: formatPolicyAwareMessageAmount(String(invoice.total_amount ?? "0"), settlementDisplayEnabled),
+        balance_due: formatPolicyAwareMessageAmount(String(invoice.balance_due ?? "0"), settlementDisplayEnabled),
+        previous_reading: invoice.previous_reading == null ? "" : String(invoice.previous_reading),
+        current_reading: invoice.current_reading == null ? "" : String(invoice.current_reading),
+        consumption_kwh: invoice.consumption_kwh == null ? "" : String(invoice.consumption_kwh),
+        total_balance: totalBalance,
+        due_date: String(invoice.due_date ?? ""),
+        invoice_link: template.body.includes("{{invoice_link}}") ? "{{invoice_link}}" : "",
+        portal_link: template.body.includes("{{portal_link}}") ? "{{portal_link}}" : "",
       };
-      const renderedText = renderInvoiceMessageTemplate(reminderTemplate, values);
+      const renderedText = renderInvoiceMessageTemplate(template.body, values, settlementDisplayEnabled);
       const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-      const { data: queueRows, error: queueError } = await admin.rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_event_type: "payment_reminder", p_invoice_id: Number(invoice.id), p_payment_id: null, p_operation_key: `payment_reminder:${invoice.id}:${localDate}`, p_rendered_text: renderedText });
+      const { data: queueRows, error: queueError } = await admin.rpc("powerhub_queue_payment_sms", {
+        p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId,
+        p_event_type: "payment_reminder", p_invoice_id: Number(invoice.id), p_payment_id: null,
+        p_operation_key: `payment_reminder:${invoice.id}:${localDate}`, p_rendered_text: renderedText,
+      });
       if (queueError || !(queueRows as Array<{ notification_id: number }> | null)?.[0]) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تجهيز تذكير SMS للفواتير المستحقة." });
       const notificationId = Number((queueRows as Array<{ notification_id: number }>)[0].notification_id);
       const dispatch = await processNotificationById(notificationId, ctx.user.id);
@@ -3466,8 +3559,13 @@ export const powerhubRouter = router({
       if (invoiceError || !invoice || subscriberError || !subscriber?.phone) throw new TRPCError({ code: "NOT_FOUND", message: "لا تتوفر فاتورة ومشترك برقم هاتف ضمن الفرع المحدد." });
       let recipient: string;
       try { recipient = normalizeInternationalPhone(subscriber.phone); } catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? `عدّل رقم هاتف المشترك قبل الإرسال. ${error.message}` : "عدّل رقم هاتف المشترك إلى صيغة دولية قبل الإرسال." }); }
+      const { data: billingPolicy, error: billingPolicyError } = await admin.from("site_billing_policies")
+        .select("automatic_fraction_discount_enabled,fraction_carry_enabled")
+        .eq("tenant_id", scope.tenantId).eq("site_id", input.siteId).maybeSingle();
+      if (billingPolicyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة تسوية الكسور لتنسيق مبلغ الإيصال." });
+      const settlementDisplayEnabled = Boolean(billingPolicy?.automatic_fraction_discount_enabled || billingPolicy?.fraction_carry_enabled);
       const receipt = { subscriberName: subscriber.full_name, paymentNo: String(payment.payment_no), paymentAmount: Number(payment.amount), invoiceNo: String(invoice.invoice_no), balanceDue: Number(invoice.balance_due) };
-      const renderedText = renderPaymentReceiptTemplate(template?.body ?? defaultPaymentReceiptSmsTemplate, receipt) || renderPaymentReceiptMessage(receipt);
+      const renderedText = renderPaymentReceiptTemplate(template?.body ?? defaultPaymentReceiptSmsTemplate, receipt, settlementDisplayEnabled) || renderPaymentReceiptMessage(receipt, settlementDisplayEnabled);
       const { data: queueRows, error: queueError } = await admin.rpc("powerhub_queue_payment_sms", { p_user_id: ctx.user.id, p_tenant_id: scope.tenantId, p_site_id: input.siteId, p_event_type: "payment_received", p_invoice_id: Number(invoice.id), p_payment_id: Number(payment.id), p_operation_key: `payment_receipt:${payment.id}`, p_rendered_text: renderedText });
       if (queueError || !(queueRows as Array<{ notification_id: number }> | null)?.[0]) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تجهيز إيصال التحصيل عبر SMS." });
       const notificationId = Number((queueRows as Array<{ notification_id: number }>)[0].notification_id);

@@ -4,10 +4,11 @@ import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { requireSupabaseSiteRole, writeSupabaseAudit } from "./powerhub-supabase";
-import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationQueueForTenant } from "./notification-worker";
+import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
 import { renderAutomationTemplate } from "./unified-messaging-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
-import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
+import { buildAutomaticOccurrenceKey, buildInvoiceOverdueOperationKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible, isLaterOverdueInvoiceCandidate } from "./unified-messaging-automation-policy";
+import { normalizeInternationalPhone } from "../shared/phone";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
 const sendTypeSchema = z.enum(["manual", "automatic", "scheduled"]);
@@ -398,6 +399,8 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
       } else {
         const rows = [];
         let invoiceMap = new Map<number, any>();
+        const afterDueHours = Number(trigger.afterDueHours ?? (trigger.afterDueDays == null ? 24 : Number(trigger.afterDueDays) * 24));
+        const minBalance = trigger.minBalance == null ? null : Number(trigger.minBalance);
         if (eventType === "invoice_overdue") {
           const ids = subscribers.map((s: any) => Number(s.id));
           let lastInvoiceId = 0;
@@ -410,9 +413,10 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
             if (invoicesError) throw new Error("تعذر تحميل فواتير الأتمتة.");
             if (!invoices?.length) break;
             for (const invoice of invoices) {
+              if (!isInvoiceOverdueEligible({ dueDate: invoice.due_date, balanceDue: invoice.balance_due, now, afterDueHours, minBalance })) continue;
               const key = Number(invoice.subscriber_id);
               const previous = invoiceMap.get(key);
-              if (!previous || new Date(invoice.due_date).getTime() < new Date(previous.due_date).getTime()) {
+              if (!previous || isLaterOverdueInvoiceCandidate({ dueDate: invoice.due_date, invoiceId: invoice.id }, { dueDate: previous.due_date, invoiceId: previous.id })) {
                 invoiceMap.set(key, invoice);
               }
             }
@@ -427,13 +431,11 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
         for (const subscriber of subscribers) {
           const invoice = eventType === "invoice_overdue" ? invoiceMap.get(Number(subscriber.id)) : null;
           if (eventType === "invoice_overdue") {
-            const afterDueDays = Number(trigger.afterDueDays ?? 0);
-            if (!invoice || (now.getTime() - new Date(invoice.due_date).getTime()) < afterDueDays * 86400000) { skipped++; continue; }
-            if (trigger.minBalance != null && Number(invoice.balance_due) < Number(trigger.minBalance)) { skipped++; continue; }
+            if (!invoice || !isInvoiceOverdueEligible({ dueDate: invoice.due_date, balanceDue: invoice.balance_due, now, afterDueHours, minBalance })) { skipped++; continue; }
           }
 
           const operationKey = eventType === "invoice_overdue"
-            ? `automation:${automation.id}:invoice:${invoice.id}:${occ.occurrence_key}`
+            ? buildInvoiceOverdueOperationKey(automation.id, invoice.id, occ.occurrence_key, automation.send_type === "automatic" && automation.schedule_type === "none")
             : eventType === "service_alert"
               ? `automation:${automation.id}:subscriber:${subscriber.id}:occurrence:${occ.occurrence_key}`
               : `automation:${automation.id}:subscriber:${subscriber.id}`;
@@ -695,7 +697,7 @@ async function loadUnifiedMessageHistoryFromTables(
   }
 
   const messageColumns = [
-    "id", "tenant_id", "invoice_id", "subscriber_id", "channel", "event_type", "recipient", "status",
+    "id", "tenant_id", "site_id", "invoice_id", "subscriber_id", "channel", "event_type", "recipient", "status",
     "provider_message_id", "payload", "attempts", "last_error", "created_at", "updated_at", "scheduled_at",
     "send_type", "schedule_type", "operation_key", "template_id", "automation_id",
   ].join(", ");
@@ -784,6 +786,7 @@ async function loadUnifiedMessageHistoryFromTables(
     )) continue;
 
     // Fail closed if a referenced entity is missing, belongs to another tenant, or points at another site.
+    if (message.site_id != null && Number(message.site_id) !== siteId) continue;
     if (message.subscriber_id != null && (!subscriber || Number(subscriber.tenant_id) !== tenantId)) continue;
     if (message.invoice_id != null && (!invoice || Number(invoice.tenant_id) !== tenantId)) continue;
     if (message.automation_id != null && (!automation || Number(automation.tenant_id) !== tenantId)) continue;
@@ -793,7 +796,8 @@ async function loadUnifiedMessageHistoryFromTables(
     if (campaign && Number(campaign.site_id) !== siteId) continue;
     if (automation?.site_id != null && Number(automation.site_id) !== siteId) continue;
 
-    const inSite = Number(subscriber?.site_id) === siteId
+    const inSite = Number(message.site_id) === siteId
+      || Number(subscriber?.site_id) === siteId
       || Number(invoice?.site_id) === siteId
       || Number(campaign?.site_id) === siteId
       || Number(automation?.site_id) === siteId;
@@ -988,7 +992,7 @@ export const powerhubUnifiedMessagingRouter = router({
     eventType:eventTypeSchema, sendType:sendTypeSchema, scheduleType:scheduleTypeSchema.default("none"), scheduleAnchorAt:z.date().optional(),
     timezone:z.string().trim().min(1).max(80).default("Asia/Gaza"),
     audience:z.object({subscriberIds:z.array(z.number().int().positive()).max(500).optional(),serviceStatus:z.enum(["active","suspended","disconnected"]).optional(),tags:z.array(z.string().trim().max(80)).max(50).optional()}).default({}),
-    triggerConfig:z.object({afterDueDays:z.number().int().min(0).max(90).optional(),minBalance:z.number().min(0).optional()}).default({}), enabled:z.boolean().default(true),
+    triggerConfig:z.object({afterDueHours:z.number().int().min(0).max(2160).optional(),afterDueDays:z.number().int().min(0).max(90).optional(),minBalance:z.number().min(0).optional()}).default({}), enabled:z.boolean().default(true),
   })).mutation(async ({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageMessaging");
     if(input.sendType==="manual") throw new TRPCError({code:"BAD_REQUEST",message:"الإرسال اليدوي لا يُحفظ كأتمتة؛ استخدم حملة يدوية."});
@@ -1011,6 +1015,64 @@ export const powerhubUnifiedMessagingRouter = router({
     if(error||!data?.[0]) throw new TRPCError({code:"BAD_REQUEST",message:"تعذر تغيير حالة الأتمتة."});
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_automation",entityId:String(input.automationId),action:input.archived?"archive":input.enabled?"enable":"disable",afterData:{enabled:input.enabled,archived:Boolean(data[0].archived_at)}});
     return {id:Number(data[0].id),enabled:Boolean(data[0].enabled),archived:Boolean(data[0].archived_at)};
+  }),
+
+  sendManualFreeText: protectedProcedure.input(z.object({
+    siteId:z.number().int().positive(),
+    recipientMode:z.enum(["subscriber","phone"]),
+    subscriberId:z.number().int().positive().nullable(),
+    phone:z.string().trim().max(80).default(""),
+    message:z.string().trim().min(1).max(2000),
+    operationId:z.string().uuid(),
+  })).mutation(async({ctx,input})=>{
+    const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageMessaging");
+    if(input.recipientMode==="subscriber"&&!input.subscriberId) throw new TRPCError({code:"BAD_REQUEST",message:"اختر المشترك المراد إرسال الرسالة إليه."});
+    if(input.recipientMode==="phone"&&input.subscriberId!==null) throw new TRPCError({code:"BAD_REQUEST",message:"أدخل رقم الهاتف فقط أو اختر مشتركاً، وليس كليهما."});
+    let recipient=input.phone.trim();
+    let subscriberId:number|null=null;
+    if(input.recipientMode==="subscriber"){
+      const {data:subscriber,error}=await supabaseAdmin().from("subscribers")
+        .select("id,phone").eq("id",input.subscriberId!).eq("tenant_id",access.tenantId).eq("site_id",input.siteId).is("archived_at",null).maybeSingle();
+      if(error||!subscriber) throw new TRPCError({code:"NOT_FOUND",message:"المشترك غير موجود ضمن الفرع المحدد."});
+      if(!subscriber.phone) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا يوجد رقم هاتف مسجل لهذا المشترك."});
+      recipient=String(subscriber.phone); subscriberId=Number(subscriber.id);
+    }
+    try { recipient = normalizeInternationalPhone(recipient); }
+    catch(error) { throw new TRPCError({code:"BAD_REQUEST",message:error instanceof Error?error.message:"أدخل رقم هاتف بصيغة دولية صحيحة."}); }
+    const {data:policy,error:policyError}=await supabaseAdmin().from("platform_settings").select("is_enabled,value").eq("setting_key","invoice_delivery_channels").maybeSingle();
+    if(policyError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من تفعيل قناة SMS."});
+    if(!policy?.is_enabled||(policy.value as any)?.smsEnabled===false) throw new TRPCError({code:"PRECONDITION_FAILED",message:"قناة SMS غير مفعلة حالياً."});
+    const {data:account,error:accountError}=await supabaseAdmin().from("tenant_tweetsms_accounts")
+      .select("is_active,api_endpoint,credential_ciphertext,credential_iv,sender_name")
+      .eq("tenant_id",access.tenantId).maybeSingle();
+    if(accountError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من ربط TweetSMS."});
+    if(!account||!account.is_active||![account.api_endpoint,account.credential_ciphertext,account.credential_iv,account.sender_name].every((v:any)=>typeof v==="string"&&v.trim()))
+      throw new TRPCError({code:"PRECONDITION_FAILED",message:"ربط TweetSMS غير جاهز؛ لم تُرسل الرسالة."});
+    const {data:queued,error}=await supabaseAdmin().rpc("powerhub_prepare_manual_free_sms",{
+      p_tenant_id:access.tenantId,p_site_id:input.siteId,p_subscriber_id:subscriberId,
+      p_recipient:recipient,p_rendered_text:input.message.trim(),p_operation_id:input.operationId,p_actor_user_id:ctx.user.id,
+    });
+    if(error) {
+      const code=String(error.message??"");
+      if(code.includes("SMS_CHANNEL_DISABLED")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"قناة SMS غير مفعلة حالياً."});
+      if(code.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({code:"NOT_FOUND",message:"المشترك غير موجود ضمن الفرع المحدد."});
+      throw new TRPCError({code:"PRECONDITION_FAILED",message:"تعذر تجهيز الرسالة اليدوية؛ راجع بيانات الإرسال وحاول مجدداً."});
+    }
+    const row=Array.isArray(queued)?queued[0]:queued;
+    const notificationId=Number(row?.notification_id);
+    if(!Number.isSafeInteger(notificationId)||notificationId<1) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم يُنشأ سجل الرسالة في طابور SMS."});
+    if(row?.queued===false) {
+      const {data:existing,error:existingError}=await supabaseAdmin().from("notification_messages")
+        .select("id,status,last_error").eq("tenant_id",access.tenantId).eq("id",notificationId).maybeSingle();
+      if(existingError||!existing) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل نتيجة الإرسال السابق."});
+      if(existing.status==="pending") {
+        const resumed=await processNotificationById(notificationId,ctx.user.id);
+        return {notificationId,recipient,...resumed,replayed:true,queued:false};
+      }
+      return {notificationId,recipient,status:existing.status,error:existing.last_error??null,replayed:true,queued:false};
+    }
+    const dispatch=await processNotificationById(notificationId,ctx.user.id);
+    return {notificationId,recipient,...dispatch,replayed:false,queued:true};
   }),
 
   sendManual: protectedProcedure.input(z.object({

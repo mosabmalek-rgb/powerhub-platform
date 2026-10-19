@@ -10,7 +10,7 @@ import { can } from "@shared/powerhub-rbac";
 import { segmentArabicSms } from "@shared/sms-segmentation";
 import { MESSAGE_SCHEDULE_TIME_ZONE, buildMonthlyScheduleAnchor, buildWeeklyScheduleAnchor } from "@/lib/messaging-schedule";
 import { formatDateTimeLocalInTimeZone, parseDateTimeLocalInTimeZone } from "@/lib/zoned-date-time";
-import { previewMessageTemplate } from "@/lib/message-template-preview";
+import { formatPreviewAmount, previewMessageTemplate } from "@/lib/message-template-preview";
 import { BellRing, CircleAlert, Eye, FileText, KeyRound, Loader2, LockKeyhole, MessageSquareText, RotateCcw, ShieldCheck, WalletCards } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -55,7 +55,7 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
   const [endDate, setEndDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
   const [type, setType] = useState<"all" | "invoice_issued" | "payment_reminder" | "payment_received" | "subscriber_reference" | "service_alert" | "manual" | "automatic">("all");
   const [channel, setChannel] = useState<"all" | "sms" | "whatsapp">("all");
-  const [status, setStatus] = useState<"all" | "pending" | "processing" | "submitted" | "failed" | "needs_review">("all");
+  const [status, setStatus] = useState<"all" | "pending" | "processing" | "submitted" | "delivered" | "read" | "failed" | "needs_review">("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const history = trpc.powerhub.unifiedMessaging.history.useQuery({
@@ -69,6 +69,10 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
   });
   const retryReceipt = trpc.powerhub.notifications.retryPaymentReceipt.useMutation({
     onSuccess: async () => { await history.refetch(); toast.success("تمت إعادة معالجة طلب إيصال الدفع."); },
+    onError: (error) => toast.error(error.message),
+  });
+  const retryGeneral = trpc.powerhub.notifications.retry.useMutation({
+    onSuccess: async () => { await history.refetch(); toast.success("تمت إعادة معالجة الرسالة."); },
     onError: (error) => toast.error(error.message),
   });
   const retrySmsBatch = trpc.powerhub.notifications.retryFailedSmsBatch.useMutation({
@@ -87,12 +91,13 @@ function UnifiedMessageHistory({ siteId }: { siteId: number }) {
   const data: any = history.data;
   const rows: any[] = Array.isArray(data?.items) ? data.items : [];
   const stats: any = data?.stats ?? {};
-  const busy = retryInvoice.isPending || retryReceipt.isPending || retrySmsBatch.isPending || resolveReview.isPending;
+  const busy = retryInvoice.isPending || retryReceipt.isPending || retryGeneral.isPending || retrySmsBatch.isPending || resolveReview.isPending;
   const retry = (row: any) => {
     if (row.status !== "failed") return;
     if (row.eventType === "invoice_issued" && row.invoiceId) retryInvoice.mutate({ siteId, notificationId: Number(row.id) });
     else if (row.eventType === "payment_received") retryReceipt.mutate({ siteId, notificationId: Number(row.id) });
-    else retrySmsBatch.mutate({ siteId, notificationIds: [Number(row.id)] });
+    else if (row.channel === "sms") retrySmsBatch.mutate({ siteId, notificationIds: [Number(row.id)] });
+    else retryGeneral.mutate({ siteId, notificationId: Number(row.id) });
   };
   const statusClass = (value: string) => ["submitted", "delivered", "read"].includes(value)
     ? "bg-emerald-400/10 text-emerald-300"
@@ -223,6 +228,19 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     onError: (e) => toast.error(e.message),
   });
 
+  const sendManualFreeText = trpc.powerhub.unifiedMessaging.sendManualFreeText.useMutation({
+    onSuccess: (result) => {
+      if (result.status === "submitted" || result.status === "delivered") toast.success("تم إرسال الرسالة اليدوية إلى مزود SMS.");
+      else if (result.status === "failed" || result.status === "needs_review") toast.warning(result.error || "تعذر تأكيد إرسال الرسالة؛ راجع سجل الرسائل قبل إعادة المحاولة.");
+      else if (result.queued || result.status === "processing") toast.info("تم تجهيز الرسالة اليدوية؛ راجع سجل الرسائل لتأكيد النتيجة.");
+      else toast.info(result.error || "تمت معالجة طلب الرسالة اليدوية دون تأكيد الإرسال.");
+      if (result.status !== "processing") setManualFreeOperationId(crypto.randomUUID());
+      void utils.powerhub.unifiedMessaging.history.invalidate();
+      void utils.powerhub.unifiedMessaging.campaign.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const [templateId, setTemplateId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
@@ -235,12 +253,17 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const [scheduleType, setScheduleType] = useState<"none"|"weekly"|"every_10_days"|"every_15_days"|"monthly">("none");
   const [anchor, setAnchor] = useState("");
   const [automationTimezone, setAutomationTimezone] = useState("Asia/Gaza");
-  const [afterDueDays, setAfterDueDays] = useState(1);
+  const [afterDueHours, setAfterDueHours] = useState(24);
   const [minBalance, setMinBalance] = useState("");
   const [manualTemplateId, setManualTemplateId] = useState<number | null>(null);
   const [manualSearch, setManualSearch] = useState("");
   const [selectedSubscribers, setSelectedSubscribers] = useState<number[]>([]);
   const [manualOperationId, setManualOperationId] = useState(() => crypto.randomUUID());
+  const [manualFreeMode, setManualFreeMode] = useState<"subscriber" | "phone">("subscriber");
+  const [manualFreeSubscriberId, setManualFreeSubscriberId] = useState<number | null>(null);
+  const [manualFreePhone, setManualFreePhone] = useState("");
+  const [manualFreeMessage, setManualFreeMessage] = useState("");
+  const [manualFreeOperationId, setManualFreeOperationId] = useState(() => crypto.randomUUID());
   const [lastManualResult, setLastManualResult] = useState<null | { campaignId: number; operationId: string; replayed: boolean; requested: number; submitted: number; failed: number; skipped: number; pending?: number; processing?: number; needsReview: number; reviewPersistenceFailed: number; issues?: string[] }>(null);
 
   const activeSmsTemplates = (templates.data ?? []).filter((t: any) => t.channel === "sms" && t.isActive);
@@ -270,7 +293,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     const timezone = a.timezone || "Asia/Gaza";
     setAutomationTimezone(timezone);
     setAnchor(a.scheduleAnchorAt ? formatDateTimeLocalInTimeZone(a.scheduleAnchorAt, timezone) : "");
-    setAfterDueDays(Number(a.triggerConfig?.afterDueDays ?? 1));
+    setAfterDueHours(Number(a.triggerConfig?.afterDueHours ?? (Number(a.triggerConfig?.afterDueDays ?? 1) * 24)));
     setMinBalance(a.triggerConfig?.minBalance == null ? "" : String(a.triggerConfig.minBalance));
   };
 
@@ -290,10 +313,11 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         return toast.error("وقت الجدولة المختار غير صالح أو غير موجود في المنطقة الزمنية المحددة.");
       }
     }
-    const selectedAutomationTemplateId = automationTemplateId ?? activeSmsTemplates[0]?.id;
-    if (!selectedAutomationTemplateId) return toast.error("احفظ قالب SMS نشطًا أولًا ثم اختره للأتمتة.");
-    const selectedAutomationTemplate = activeSmsTemplates.find((t: any) => t.id === selectedAutomationTemplateId);
-    if (selectedAutomationTemplate?.eventType && selectedAutomationTemplate.eventType !== automationEventType) {
+    const selectedAutomationTemplateId = automationTemplateId;
+    if (!selectedAutomationTemplateId) return toast.error("اختر قالب SMS نشطًا للأتمتة.");
+    const selectedAutomationTemplate = activeSmsTemplates.find((t: any) => Number(t.id) === Number(selectedAutomationTemplateId));
+    if (!selectedAutomationTemplate) return toast.error("القالب المختار غير نشط أو لم يعد متاحًا. حدّث القوالب واختر قالبًا نشطًا.");
+    if (selectedAutomationTemplate.eventType && selectedAutomationTemplate.eventType !== automationEventType) {
       return toast.error("نوع حدث القالب لا يطابق حدث الأتمتة. اختر قالبًا متوافقًا أو عدّل حدث القالب.");
     }
     saveAutomation.mutate({
@@ -301,8 +325,8 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
       name: automationName, eventType: automationEventType,
       sendType: scheduleType === "none" ? "automatic" : "scheduled",
       scheduleType, scheduleAnchorAt: derivedAnchor, timezone: automationTimezone, audience: {},
-      triggerConfig: eventType === "invoice_overdue"
-        ? { afterDueDays, ...(minBalance ? { minBalance: Number(minBalance) } : {}) }
+      triggerConfig: automationEventType === "invoice_overdue"
+        ? { afterDueHours, ...(minBalance.trim() ? { minBalance: Number(minBalance) } : {}) }
         : {},
     });
   };
@@ -317,6 +341,20 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     if (!manualTemplateId) return toast.error("اختر قالب SMS صالحاً.");
     if (!selectedSubscribers.length) return toast.error("حدد مشتركاً واحداً على الأقل.");
     sendManual.mutate({ siteId, templateId: manualTemplateId, subscriberIds: selectedSubscribers, operationId: manualOperationId });
+  };
+
+  const submitManualFreeText = () => {
+    if (!manualFreeMessage.trim()) return toast.error("اكتب نص الرسالة أولاً.");
+    if (manualFreeMode === "subscriber" && !manualFreeSubscriberId) return toast.error("اختر المشترك المراد إرسال الرسالة إليه.");
+    if (manualFreeMode === "phone" && !manualFreePhone.trim()) return toast.error("أدخل رقم الهاتف المراد إرسال الرسالة إليه.");
+    sendManualFreeText.mutate({
+      siteId,
+      recipientMode: manualFreeMode,
+      subscriberId: manualFreeMode === "subscriber" ? manualFreeSubscriberId : null,
+      phone: manualFreeMode === "phone" ? manualFreePhone.trim() : "",
+      message: manualFreeMessage.trim(),
+      operationId: manualFreeOperationId,
+    });
   };
 
   return <Card className="border-[#F5B800]/20 bg-[#F5B800]/[.025]">
@@ -335,7 +373,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
 
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-white/10 p-4">
-          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{templateId ? "تعديل القالب" : "قالب جديد"}</h3>{templateId ? <Button size="sm" variant="outline" onClick={() => { setTemplateId(null); setName(""); setBody(""); }}>قالب جديد</Button> : null}</div>
+          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{templateId ? "تعديل القالب" : "قالب جديد"}</h3>{templateId ? <Button type="button" size="sm" variant="outline" onClick={() => { setTemplateId(null); setName(""); setBody(""); setEventType("invoice_issued"); setInvoiceStyle("details"); }}>قالب جديد</Button> : null}</div>
           <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم القالب" />
           <select className={inputClass} value={eventType} onChange={(e) => setEventType(e.target.value as typeof eventType)}>
             <option value="invoice_issued">إرسال الفاتورة</option><option value="subscriber_created">الترحيب والرقم المرجعي</option><option value="invoice_overdue">تذكير بالسداد</option><option value="payment_received">إيصال الدفع</option><option value="service_alert">تنبيه تشغيلي</option>
@@ -349,14 +387,17 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         </div>
 
         <div className="space-y-3 rounded-xl border border-white/10 p-4">
-          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); setAutomationTemplateId(null); setAutomationEventType("subscriber_created"); setScheduleType("none"); setAnchor(""); setAfterDueDays(1); setMinBalance(""); }}>جديدة</Button> : null}</div>
+          <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button type="button" size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); setAutomationTemplateId(null); setAutomationEventType("subscriber_created"); setScheduleType("none"); setAnchor(""); setAfterDueHours(24); setMinBalance(""); }}>جديدة</Button> : null}</div>
           <input className={inputClass} value={automationName} onChange={(e) => setAutomationName(e.target.value)} placeholder="اسم الأتمتة" />
-          <select className={inputClass} value={templateId ?? ""} onChange={(e) => setTemplateId(Number(e.target.value) || null)}><option value="">اختر القالب</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-          <select className={inputClass} value={eventType} onChange={(e) => setEventType(e.target.value as typeof eventType)}><option value="subscriber_created">مشترك جديد</option><option value="invoice_overdue">فاتورة متأخرة</option><option value="payment_received">استلام دفعة</option><option value="service_alert">تنبيه تشغيلي</option><option value="invoice_issued">إصدار فاتورة (المسار الأساسي)</option></select>
+          <Field label="قالب الأتمتة"><select aria-label="قالب الأتمتة" className={inputClass} value={automationTemplateId ?? ""} onChange={(e) => setAutomationTemplateId(Number(e.target.value) || null)}><option value="">اختر القالب</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
+          <Field label="حدث الأتمتة"><select aria-label="حدث الأتمتة" className={inputClass} value={automationEventType} onChange={(e) => setAutomationEventType(e.target.value as typeof automationEventType)}><option value="subscriber_created">مشترك جديد</option><option value="invoice_overdue">فاتورة متأخرة</option><option value="payment_received">استلام دفعة</option><option value="service_alert">تنبيه تشغيلي</option></select></Field>
           <select className={inputClass} value={scheduleType} onChange={(e) => setScheduleType(e.target.value as typeof scheduleType)}><option value="none">عند الحدث</option><option value="weekly">أسبوعي</option><option value="every_10_days">كل 10 أيام</option><option value="every_15_days">كل 15 يوماً</option><option value="monthly">شهري</option></select>
-          {eventType === "invoice_overdue" && scheduleType === "none" ? <div className="grid grid-cols-2 gap-2"><input type="number" min="0" max="90" className={inputClass} value={afterDueDays} onChange={(e) => setAfterDueDays(Number(e.target.value))} placeholder="بعد كم يوم" /><input type="number" min="0" className={inputClass} value={minBalance} onChange={(e) => setMinBalance(e.target.value)} placeholder="أقل رصيد" /></div> : null}
+          {automationEventType === "invoice_overdue" ? <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="بعد كم ساعة من الاستحقاق"><input aria-label="بعد كم ساعة من الاستحقاق" type="number" min="0" max="2160" step="1" className={inputClass} value={afterDueHours} onChange={(e) => setAfterDueHours(Number(e.target.value))} placeholder="24" /><span className="mt-1 block text-[11px] leading-5 text-slate-500">تبدأ المهلة من تاريخ الاستحقاق المسجّل في الفاتورة، ولا يُرسل التذكير قبل انتهائها.</span></Field>
+            <Field label="أقل رصيد مستحق"><input aria-label="أقل رصيد مستحق" type="number" min="0" step="0.01" className={inputClass} value={minBalance} onChange={(e) => setMinBalance(e.target.value)} placeholder="اختياري" /><span className="mt-1 block text-[11px] leading-5 text-slate-500">يشترط أن يكون المتبقي في الفاتورة بهذا المبلغ أو أكثر. اتركه فارغًا لتجاهل الشرط.</span></Field>
+          </div> : null}
           {scheduleType !== "none" ? <input type="datetime-local" className={inputClass} value={anchor} onChange={(e) => setAnchor(e.target.value)} /> : null}
-          <Button disabled={saveAutomation.isPending || !automationName.trim() || !(templateId ?? activeSmsTemplates[0]?.id) || (scheduleType !== "none" && !anchor)} onClick={submitAutomation}>{saveAutomation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الأتمتة</Button>
+          <Button type="button" disabled={saveAutomation.isPending || !automationName.trim() || !automationTemplateId || !activeSmsTemplates.some((t: any) => Number(t.id) === Number(automationTemplateId)) || (scheduleType !== "none" && !anchor)} onClick={submitAutomation}>{saveAutomation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الأتمتة</Button>
           <div className="space-y-2">{(automations.data ?? []).map((a: any) => <div key={a.id} className="rounded-lg border border-white/10 p-3"><button type="button" className="w-full text-right" onClick={() => loadAutomation(a.id)}><div className="font-medium text-white">{a.name}</div><div className="mt-1 text-xs text-slate-500">{a.eventType} · {a.sendType === "automatic" ? "عند الحدث" : a.scheduleType} · {a.enabled ? "مفعّل" : "متوقف"}</div></button><div className="mt-2 flex gap-2"><Button size="sm" variant="outline" disabled={setAutomationState.isPending} onClick={() => setAutomationState.mutate({siteId, automationId:a.id, enabled:!a.enabled, archived:false})}>{a.enabled ? "تعطيل" : "تفعيل"}</Button><Button size="sm" variant="outline" disabled={setAutomationState.isPending} onClick={() => setAutomationState.mutate({siteId, automationId:a.id, enabled:false, archived:true})}>أرشفة</Button></div></div>)}</div>
         </div>
       </div>
@@ -364,17 +405,51 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
       <div className="space-y-3 rounded-xl border border-emerald-400/15 p-4">
         <div><h3 className="font-bold text-white">إرسال يدوي</h3><p className="mt-1 text-xs text-slate-500">اختيار المشتركين يتم من الفرع الحالي فقط. الحد الأقصى 500 مستلم للحملة، وإعادة الطلب بنفس operationId لا تنشئ رسائل ثانية.</p></div>
         <div className="grid gap-3 md:grid-cols-3">
-          <select className={inputClass} value={manualTemplateId ?? ""} onChange={(e) => setManualTemplateId(Number(e.target.value) || null)}><option value="">اختر قالب SMS</option>{manualSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+          <select aria-label="قالب SMS للحملة اليدوية" className={inputClass} value={manualTemplateId ?? ""} onChange={(e) => setManualTemplateId(Number(e.target.value) || null)}><option value="">اختر قالب SMS</option>{manualSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
           <input className={inputClass} value={manualSearch} onChange={(e) => setManualSearch(e.target.value)} placeholder="بحث بالاسم أو الرقم أو الهاتف" />
           <Button type="button" variant="outline" onClick={toggleAll}>{filteredSubscribers.length && filteredSubscribers.every((s: any) => selectedSubscribers.includes(Number(s.id))) ? "إلغاء تحديد الظاهر" : "تحديد الظاهر"}</Button>
         </div>
         <div aria-live="polite" className={`rounded-xl border p-3 ${connectionReadiness.data?.ready ? "border-emerald-400/25 bg-emerald-400/[.05]" : "border-amber-400/25 bg-amber-400/[.05]"}`}>
-          <div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${connectionReadiness.data?.ready ? "bg-emerald-400" : "bg-amber-400"}`} /><strong className="text-sm text-white">{connectionReadiness.isLoading ? "جارٍ التحقق من جاهزية الربط…" : connectionReadiness.data?.label ?? "تعذر التحقق من جاهزية الربط"}</strong><Button type="button" size="sm" variant="outline" className="mr-auto" onClick={() => connectionReadiness.refetch()}>تحديث الحالة</Button></div>
+          <div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${connectionReadiness.data?.ready ? "bg-emerald-400" : "bg-amber-400"}`} /><strong className="text-sm text-white">{connectionReadiness.isLoading ? "جارٍ التحقق من جاهزية الربط…" : connectionReadiness.data?.label ?? "تعذر التحقق من جاهزية الربط"}</strong><Button type="button" size="sm" variant="outline" className="mr-auto" disabled={connectionReadiness.isFetching} onClick={() => connectionReadiness.refetch()}>تحديث الحالة</Button></div>
           <p className="mt-1 text-xs text-slate-400">{connectionReadiness.data?.detail ?? (connectionReadiness.error ? "تعذر قراءة حالة الربط؛ لا يمكن تأكيد الجاهزية." : "جارٍ تحميل حالة اتصال TweetSMS.")}</p>
         </div>
         <div className="rounded-lg border border-white/10 p-3 text-sm text-slate-300">تم تحديد <strong className="text-[#F5B800]">{selectedSubscribers.length}</strong> مشترك</div>
         <div className="max-h-72 overflow-auto rounded-lg border border-white/10">{filteredSubscribers.map((s: any) => <label key={s.id} className="flex items-center gap-3 border-b border-white/5 p-3 text-sm text-slate-200"><input type="checkbox" checked={selectedSubscribers.includes(Number(s.id))} onChange={() => setSelectedSubscribers((current) => current.includes(Number(s.id)) ? current.filter((id) => id !== Number(s.id)) : [...current,Number(s.id)].slice(0,500))} /><span>{s.fullName}</span><span className="mr-auto text-xs text-slate-500" dir="ltr">{s.subscriberNo}</span></label>)}</div>
-        <div className="flex justify-end"><Button disabled={sendManual.isPending || !manualTemplateId || !selectedSubscribers.length} onClick={submitManual}>{sendManual.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال الحملة</Button></div>
+        <div className="flex justify-end"><Button type="button" disabled={sendManual.isPending || !manualTemplateId || !selectedSubscribers.length || connectionReadiness.isLoading || connectionReadiness.isError || !connectionReadiness.data?.ready} onClick={submitManual}>{sendManual.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال الحملة</Button></div>
+      </div>
+
+      <div className="space-y-4 rounded-xl border border-sky-400/20 bg-sky-400/[.025] p-4">
+        <div>
+          <h3 className="font-bold text-white">إرسال SMS يدوي حر</h3>
+          <p className="mt-1 text-xs leading-6 text-slate-400">أرسل نصاً تكتبه بنفسك إلى رقم هاتف أو إلى مشترك من هذا الفرع. تُسجّل الرسالة في الطابور وسجل التدقيق وتخضع لصلاحيات الربط وحصة الرسائل.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="المستلم">
+            <select className={inputClass} value={manualFreeMode} onChange={(e) => setManualFreeMode(e.target.value as "subscriber" | "phone")}>
+              <option value="subscriber">اختيار مشترك موجود</option>
+              <option value="phone">إدخال رقم هاتف يدوي</option>
+            </select>
+          </Field>
+          {manualFreeMode === "subscriber" ? <Field label="المشترك">
+            <select className={inputClass} value={manualFreeSubscriberId ?? ""} onChange={(e) => setManualFreeSubscriberId(Number(e.target.value) || null)}>
+              <option value="">اختر مشتركاً من الفرع الحالي</option>
+              {(subscribers.data ?? []).filter((s: any) => s.phone && !s.archivedAt).map((s: any) => <option key={s.id} value={s.id}>{s.fullName} · {s.subscriberNo} · {s.phone}</option>)}
+            </select>
+          </Field> : <Field label="رقم الهاتف بصيغة دولية">
+            <input className={inputClass} dir="ltr" inputMode="tel" autoComplete="tel" value={manualFreePhone} onChange={(e) => setManualFreePhone(e.target.value)} placeholder="+97059xxxxxxx" />
+          </Field>}
+        </div>
+        <Field label="نص الرسالة">
+          <textarea className={inputClass + " min-h-32 py-2"} value={manualFreeMessage} onChange={(e) => setManualFreeMessage(e.target.value)} maxLength={2000} placeholder="اكتب نص SMS الذي تريد إرساله..." />
+        </Field>
+        <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-300">
+          {(() => { const sms = segmentArabicSms(manualFreeMessage); return <><strong>{sms.characterCount} حرفاً · {sms.segmentCount} رسالة SMS تقديرية</strong><p className="mt-1 text-slate-500">يُحتسب العدد على النص المكتوب، وقد يختلف حسب قواعد المزود.</p></>; })()}
+        </div>
+        <div className="flex justify-end">
+          <Button type="button" disabled={sendManualFreeText.isPending || !manualFreeMessage.trim() || connectionReadiness.isLoading || connectionReadiness.isError || !connectionReadiness.data?.ready || (manualFreeMode === "subscriber" ? !manualFreeSubscriberId : !manualFreePhone.trim())} onClick={submitManualFreeText}>
+            {sendManualFreeText.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال SMS
+          </Button>
+        </div>
       </div>
     </CardContent>
   </Card>;
@@ -457,7 +532,8 @@ function AutoSendPolicyCard({ config, siteId }: { config: any; siteId: number })
     if (mode === "monthly") return buildMonthlyScheduleAnchor(cycleMonthDay, cycleTime, new Date(), MESSAGE_SCHEDULE_TIME_ZONE);
     return anchor ? parseDateTimeLocalInTimeZone(anchor, MESSAGE_SCHEDULE_TIME_ZONE).toISOString() : undefined;
   };
-  const save = trpc.powerhub.messaging.configureInvoiceAutoSend.useMutation({ onSuccess: () => toast.success("تم حفظ دورة إرسال رسائل الفواتير."), onError: (e) => toast.error(e.message) });
+  const utils = trpc.useUtils();
+  const save = trpc.powerhub.messaging.configureInvoiceAutoSend.useMutation({ onSuccess: async () => { await Promise.all([utils.powerhub.messaging.listConfigurations.invalidate(), utils.powerhub.messaging.listScheduleRuns.invalidate()]); toast.success("تم حفظ دورة إرسال رسائل الفواتير وتحديث الطابور."); }, onError: (e) => toast.error(e.message) });
   const submit = () => {
     let computedAnchor: string | undefined;
     try { computedAnchor = buildAnchor(); } catch (error) { return toast.error(error instanceof Error ? error.message : "تعذر حساب بداية دورة الإرسال."); }
@@ -479,7 +555,7 @@ function ChannelForm({ title, channel, existing, pending, onSubmit, siteId }: { 
   const [result, setResult] = useState<{ ok: boolean; mode: "live" | "configuration"; message: string } | null>(null);
   const testConnection = trpc.powerhub.messaging.testConnection.useMutation({ onSuccess: (data) => setResult(data), onError: (error) => setResult({ ok: false, mode: "live", message: error.message }) });
   const payload = () => { const data = new FormData(formRef.current!); return { siteId, channel, provider: String(data.get("provider")), phoneNumberId: String(data.get("phoneNumberId") || "") || undefined, credential: String(data.get("credential")) }; };
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); onSubmit({ ...payload(), senderId: String(data.get("senderId") || "") || undefined, templateName: String(data.get("templateName") || "") || undefined, receiptTemplateName: String(data.get("receiptTemplateName") || "") || undefined, subscriberReferenceTemplateName: String(data.get("subscriberReferenceTemplateName") || "") || undefined, webhookVerifyToken: String(data.get("webhookVerifyToken") || "") || undefined, webhookAppSecret: String(data.get("webhookAppSecret") || "") || undefined, isActive: true }); event.currentTarget.reset(); setResult(null); };
+  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); onSubmit({ ...payload(), senderId: String(data.get("senderId") || "") || undefined, templateName: String(data.get("templateName") || "") || undefined, receiptTemplateName: String(data.get("receiptTemplateName") || "") || undefined, subscriberReferenceTemplateName: String(data.get("subscriberReferenceTemplateName") || "") || undefined, webhookVerifyToken: String(data.get("webhookVerifyToken") || "") || undefined, webhookAppSecret: String(data.get("webhookAppSecret") || "") || undefined, isActive: true }); setResult(null); };
   const resultClass = result?.ok ? "border-emerald-400/30 bg-emerald-400/[.07] text-emerald-200" : result?.mode === "configuration" ? "border-amber-400/30 bg-amber-400/[.07] text-amber-200" : "border-rose-400/30 bg-rose-400/[.07] text-rose-200";
   return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-center gap-2"><KeyRound className="h-4 w-4 text-[#F5B800]" /><h2 className="font-bold text-white">{title}</h2></div><p className="mt-2 text-xs text-slate-500">اختبار الاتصال لا يحفظ المفتاح؛ تُشفر بيانات API فقط بعد الضغط على الحفظ.</p><form ref={formRef} className="mt-5 space-y-4" onSubmit={submit}>{channel === "whatsapp" ? <><Field label="المزود"><input required name="provider" defaultValue={existing?.provider ?? "meta_whatsapp_cloud"} className={inputClass} /></Field><Field label="Phone Number ID"><input required name="phoneNumberId" defaultValue={existing?.phoneNumberId ?? ""} className={inputClass} dir="ltr" /></Field><Field label="اسم قالب فاتورة Meta المعتمد"><input name="templateName" defaultValue={existing?.templateName ?? "invoice_ready_ar"} className={inputClass} dir="ltr" /></Field><Field label="اسم قالب إيصال الدفع المعتمد"><input name="receiptTemplateName" defaultValue={existing?.receiptTemplateName ?? "payment_receipt_ar"} className={inputClass} dir="ltr" /></Field><Field label="اسم قالب رسالة الرقم المرجعي"><input name="subscriberReferenceTemplateName" defaultValue={existing?.subscriberReferenceTemplateName ?? "subscriber_reference_ar"} className={inputClass} dir="ltr" /></Field><p className="-mt-2 text-xs leading-5 text-slate-500">يجب أن يحتوي قالب رسالة الرقم المرجعي في Meta على ثلاثة متغيرات بالترتيب: الاسم، الرقم المرجعي، رابط البوابة. أما قالب الإيصال فيحتوي: الاسم، رقم الإيصال، المبلغ، الفاتورة، الرصيد.</p><Field label="Webhook Verify Token"><input name="webhookVerifyToken" type="password" minLength={16} className={inputClass} dir="ltr" /></Field><Field label="Meta App Secret"><input name="webhookAppSecret" type="password" minLength={16} className={inputClass} dir="ltr" /></Field></> : <SmsProviderFields existing={existing} />}<Field label={channel === "whatsapp" ? "Access Token" : "رمز API للمزود"}><input required name="credential" type="password" autoComplete="new-password" className={inputClass} placeholder="يُفحص مؤقتاً ولا يظهر بعد الحفظ" /></Field><div className="grid gap-3 sm:grid-cols-2"><Button type="button" disabled={testConnection.isPending} onClick={() => { if (!formRef.current?.reportValidity()) return; setResult({ ok: false, mode: "configuration", message: "جاري فحص بيانات الاعتماد والاتصال بالمزود… لا تُحفظ البيانات أثناء الاختبار." }); testConnection.mutate(payload()); }} variant="outline" className="border-white/15 text-white hover:bg-white/5 hover:text-white">{testConnection.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="ml-2 h-4 w-4" />}{testConnection.isPending ? "جاري اختبار الاتصال…" : "اختبار الاتصال"}</Button><Button disabled={pending} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]"><ShieldCheck className="ml-2 h-4 w-4" />حفظ إعداد {channel === "whatsapp" ? "WhatsApp" : "SMS"}</Button></div>{result ? <div className={`rounded-xl border p-3 text-sm leading-6 ${resultClass}`} role="status"><strong>{result.ok ? "نجح اختبار الاتصال." : testConnection.isPending ? "جاري التحقق…" : "لم ينجح اختبار الاتصال."}</strong><span className="mr-1">{result.message}</span></div> : null}</form></CardContent></Card>;
 }
@@ -500,7 +576,7 @@ function TemplateEditor({ channel, template, pending, onSubmit, siteId, settleme
 </div><form className="mt-4 space-y-3" onSubmit={(e: FormEvent<HTMLFormElement>) => { e.preventDefault(); onSubmit({ siteId, channel, body, isActive: (new FormData(e.currentTarget).get("isActive") === "on") }); }}><textarea ref={textareaRef} required name="body" value={body} onChange={(e) => setBody(e.target.value)} className="min-h-36 w-full rounded-xl border border-white/10 bg-white/[.025] p-3 text-sm leading-7 text-white outline-none focus:border-[#F5B800]/70" />{channel === "sms" ? <div className={`rounded-xl border px-3 py-2 text-xs ${sms.segmentCount > 1 ? "border-amber-400/25 bg-amber-400/[.06] text-amber-200" : "border-emerald-400/20 bg-emerald-400/[.04] text-emerald-200"}`}><strong>{sms.characterCount} حرفاً · {sms.segmentCount} رسالة SMS</strong><span className="mr-2 text-slate-400">النص العربي يُحسب Unicode: حتى 70 حرفاً للرسالة الواحدة و67 لكل جزء إضافي.</span></div> : null}<div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm text-slate-400"><input defaultChecked={template?.isActive ?? true} name="isActive" type="checkbox" className="accent-[#F5B800]" />استخدام هذا القالب عند إصدار الفاتورة</label><p className="text-xs leading-6 text-slate-500">المعاينة أدناه تتحدث تلقائياً ولا ترسل أي رسالة.</p></div><div className="rounded-xl border border-[#F5B800]/25 bg-[#F5B800]/[.05] p-4"><p className="text-xs font-bold text-[#F5B800]">معاينة حية للرسالة النهائية</p><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white">{previewMessageTemplate(body, settlementEnabled)}</p><p className="mt-3 text-[11px] text-slate-500">تستخدم المعاينة بيانات افتراضية للمشترك والفاتورة قبل الحفظ أو الإرسال.</p></div><Button disabled={pending} className="w-full bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ قالب {channel === "whatsapp" ? "WhatsApp" : "SMS"}</Button></form></CardContent></Card>; }
 const receiptVariables = ["{{subscriber_name}}", "{{payment_no}}", "{{payment_amount}}", "{{invoice_no}}", "{{balance_due}}"];
 const defaultReceiptSmsTemplate = "مرحباً {{subscriber_name}}، تم استلام دفعة بقيمة {{payment_amount}} عن فاتورتك رقم {{invoice_no}}. رقم الإيصال: {{payment_no}}. الرصيد المتبقي: {{balance_due}}.";
-const formatReceiptPreviewAmount = (value: string, settlementEnabled: boolean) => { const amount = Number(value.replace(/,/g, "")); return Number.isFinite(amount) ? new Intl.NumberFormat("en-US", settlementEnabled ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(settlementEnabled ? Math.trunc(amount) : amount) : value; };
+const formatReceiptPreviewAmount = (value: string, settlementEnabled: boolean) => formatPreviewAmount(value, settlementEnabled);
 const previewReceiptTemplate = (body: string, settlementEnabled: boolean) => { const values: Record<string, string> = { subscriber_name: "أحمد علي", payment_no: "PAY-2026-0012", payment_amount: formatReceiptPreviewAmount("40.45", settlementEnabled), invoice_no: "INV-2026-00125", balance_due: formatReceiptPreviewAmount("52.26", settlementEnabled) }; return body.replace(/{{\s*(subscriber_name|payment_no|payment_amount|invoice_no|balance_due)\s*}}/g, (_, key) => values[key] ?? ""); };
 function PaymentReceiptSmsEditor({ template, pending, onSubmit, siteId, settlementEnabled }: { template: any; pending: boolean; onSubmit: (input: any) => void; siteId: number; settlementEnabled: boolean }) { const [body, setBody] = useState(template?.body ?? defaultReceiptSmsTemplate); const [preview, setPreview] = useState(false); useEffect(() => setBody(template?.body ?? defaultReceiptSmsTemplate), [template?.body]); const sms = segmentArabicSms(body); return <Card className="border-emerald-400/15 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-emerald-300" /><h2 className="font-bold text-white">قالب إيصال الدفع عبر SMS</h2></div><p className="mt-2 text-xs leading-6 text-slate-500">يرسل إلى رقم المشترك الدولي المسجل عند اختيار SMS من إيصال الدفعة الجزئية.</p><div className="mt-3 flex flex-wrap gap-2">{receiptVariables.map((item) => <code className="rounded bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-200" key={item}>{item}</code>)}</div><form className="mt-4 space-y-3" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); onSubmit({ siteId, body, isActive: new FormData(event.currentTarget).get("isActive") === "on" }); }}><textarea required value={body} onChange={(event) => setBody(event.target.value)} className="min-h-36 w-full rounded-xl border border-white/10 bg-white/[.025] p-3 text-sm leading-7 text-white outline-none focus:border-emerald-400/70" /><div aria-live="polite" className={`rounded-xl border px-3 py-2 text-xs ${sms.segmentCount > 1 ? "border-amber-400/25 bg-amber-400/[.06] text-amber-200" : "border-emerald-400/20 bg-emerald-400/[.04] text-emerald-200"}`}><strong>{sms.characterCount} حرفاً · {sms.segmentCount} رسالة SMS</strong><p className="mt-1 text-slate-400">تقدير للنص الحالي: حتى 70 حرفاً للرسالة الواحدة و67 حرفاً لكل جزء إضافي. قد يتغير العدد بعد استبدال المتغيرات بقيمها الفعلية.</p></div><div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm text-slate-400"><input defaultChecked={template?.isActive ?? true} name="isActive" type="checkbox" className="accent-emerald-400" />استخدام هذا القالب عند إرسال الإيصال</label><Button type="button" variant="outline" onClick={() => setPreview((value) => !value)} className="border-white/15 text-white hover:bg-white/5 hover:text-white"><Eye className="ml-2 h-4 w-4" />معاينة الرسالة</Button></div>{preview ? <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/[.05] p-4"><p className="text-xs font-bold text-emerald-300">معاينة إيصال SMS</p><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white">{previewReceiptTemplate(body, settlementEnabled)}</p></div> : null}<Button disabled={pending} className="w-full bg-emerald-400 text-[#0D1117] hover:bg-emerald-300">حفظ قالب إيصال SMS</Button></form></CardContent></Card>; }
 function InvoiceSmsQueue({ rows, config, siteId }: { rows: any[]; config: any; siteId: number }) {
@@ -512,12 +588,12 @@ function InvoiceSmsQueue({ rows, config, siteId }: { rows: any[]; config: any; s
   const due = pending.filter((r) => !r.notification.scheduledAt || new Date(r.notification.scheduledAt).getTime() <= now);
   const nextAt = pending.map((r) => r.notification.scheduledAt ? new Date(r.notification.scheduledAt).getTime() : Infinity).filter(Number.isFinite).sort((a,b)=>a-b)[0];
   const sendNow = trpc.powerhub.notifications.sendBulkInvoiceSms.useMutation({
-    onSuccess: async () => { await utils.powerhub.notifications.list.invalidate(); toast.success("تمت معالجة طلب الإرسال دون إنشاء رسائل مكررة."); },
+    onSuccess: async (result: any) => { await utils.powerhub.notifications.list.invalidate(); toast.info(`نتيجة معالجة الطابور: ${result?.submitted ?? 0} أُرسلت للمزود، ${result?.failed ?? 0} فاشلة، ${result?.skipped ?? 0} متجاوزة${Number(result?.needsReview ?? 0) ? `، ${result.needsReview} تحتاج مراجعة` : ""}.`); },
     onError: (e) => toast.error(e.message),
     onSettled: () => { setSendingId(null); setSendingAll(false); },
   });
   const sendDue = trpc.powerhub.notifications.sendDeferredInvoices.useMutation({
-    onSuccess: async () => { await utils.powerhub.notifications.list.invalidate(); toast.success("تمت معالجة الرسائل المستحقة فقط دون إرسال رسائل مجدولة للمستقبل."); },
+    onSuccess: async (result: any) => { await utils.powerhub.notifications.list.invalidate(); toast.info(`نتيجة الرسائل المستحقة: ${result?.submitted ?? 0} أُرسلت للمزود، ${result?.failed ?? 0} فاشلة، ${result?.skipped ?? 0} متجاوزة${Number(result?.needsReview ?? 0) ? `، ${result.needsReview} تحتاج مراجعة` : ""}. الرسائل المستقبلية لم تُرسل.`); },
     onError: (e) => toast.error(e.message),
     onSettled: () => { setSendingId(null); setSendingAll(false); },
   });
@@ -527,7 +603,7 @@ function InvoiceSmsQueue({ rows, config, siteId }: { rows: any[]; config: any; s
   return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="font-bold text-white">طابور انتظار رسائل الفواتير</h2><p className="mt-1 text-xs leading-6 text-slate-500">الفواتير التي أُصدرت ودخلت الطابور ولم تُرسل بعد. الرسائل المجدولة تبقى هنا حتى موعد دورة الإرسال.</p></div><div className="flex flex-wrap gap-2"><Badge className="bg-[#F5B800]/10 text-[#F5B800]">{pending.length} منتظرة</Badge><Badge className="bg-emerald-400/10 text-emerald-300">{due.length} مستحقة الآن</Badge><Button type="button" size="sm" onClick={dispatchDue} disabled={!due.length || sendingAll || sendingId !== null || sendDue.isPending}>{sendingAll ? "جارٍ الإرسال..." : "إرسال المستحقة الآن"}</Button></div></div>
     <div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/8 p-3"><p className="text-xs text-slate-500">الدورة</p><p className="mt-1 font-bold text-white">{({immediate:"فور الإصدار",weekly:"كل أسبوع",every_10_days:"كل 10 أيام",every_15_days:"كل 15 يومًا",monthly:"كل شهر"} as any)[config?.scheduleMode ?? "immediate"]}</p></div><div className="rounded-xl border border-white/8 p-3"><p className="text-xs text-slate-500">موعد الدفعة القادمة</p><p className="mt-1 font-bold text-white">{nextAt ? fmt(nextAt) : "لا توجد رسائل مجدولة"}</p></div><div className="rounded-xl border border-white/8 p-3"><p className="text-xs text-slate-500">الفواتير في الطابور</p><p className="mt-1 font-bold text-white">{pending.length}</p></div></div>
-    <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[900px] text-right text-sm"><thead className="border-b border-white/8 text-xs text-slate-500"><tr><th className="px-3 py-3">المشترك</th><th className="px-3 py-3">الفاتورة</th><th className="px-3 py-3">تاريخ الإصدار</th><th className="px-3 py-3">موعد الإرسال</th><th className="px-3 py-3">الحالة</th><th className="px-3 py-3">إجراء</th></tr></thead><tbody>{pending.slice(0,100).map((r:any)=><tr key={r.notification.id} className="border-b border-white/[.06]"><td className="px-3 py-3 font-bold text-white">{r.subscriber.fullName}</td><td className="px-3 py-3 text-slate-300">{r.invoiceNo ?? "—"}</td><td className="px-3 py-3 text-slate-400">{fmt(new Date(r.notification.createdAt).getTime())}</td><td className="px-3 py-3 text-slate-400">{r.notification.scheduledAt ? fmt(new Date(r.notification.scheduledAt).getTime()) : "الآن"}</td><td className="px-3 py-3"><Badge className={r.notification.scheduledAt && new Date(r.notification.scheduledAt).getTime() > now ? "bg-amber-400/10 text-amber-200" : "bg-emerald-400/10 text-emerald-300"}>{r.notification.scheduledAt && new Date(r.notification.scheduledAt).getTime() > now ? "بانتظار الموعد" : "مستحقة للإرسال"}</Badge></td><td className="px-3 py-3"><Button type="button" size="sm" variant="outline" onClick={()=>dispatchOne(r)} disabled={sendingAll || sendingId !== null}>{sendingId === r.notification.id ? "جارٍ..." : "إرسال الآن"}</Button></td></tr>)}{!pending.length ? <tr><td colSpan={6} className="px-3 py-10 text-center text-sm text-slate-500">لا توجد رسائل فواتير في طابور الانتظار حاليًا.</td></tr> : null}</tbody></table></div>
+    <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[900px] text-right text-sm"><thead className="border-b border-white/8 text-xs text-slate-500"><tr><th className="px-3 py-3">المشترك</th><th className="px-3 py-3">الفاتورة</th><th className="px-3 py-3">تاريخ الإصدار</th><th className="px-3 py-3">موعد الإرسال</th><th className="px-3 py-3">الحالة</th><th className="px-3 py-3">إجراء</th></tr></thead><tbody>{pending.slice(0,100).map((r:any)=><tr key={r.notification.id} className="border-b border-white/[.06]"><td className="px-3 py-3 font-bold text-white">{r.subscriber.fullName}</td><td className="px-3 py-3 text-slate-300">{r.invoiceNo ?? "—"}</td><td className="px-3 py-3 text-slate-400">{fmt(new Date(r.notification.createdAt).getTime())}</td><td className="px-3 py-3 text-slate-400">{r.notification.scheduledAt ? fmt(new Date(r.notification.scheduledAt).getTime()) : "الآن"}</td><td className="px-3 py-3"><Badge className={r.notification.scheduledAt && new Date(r.notification.scheduledAt).getTime() > now ? "bg-amber-400/10 text-amber-200" : "bg-emerald-400/10 text-emerald-300"}>{r.notification.scheduledAt && new Date(r.notification.scheduledAt).getTime() > now ? "بانتظار الموعد" : "مستحقة للإرسال"}</Badge></td><td className="px-3 py-3"><Button type="button" size="sm" variant="outline" onClick={()=>dispatchOne(r)} disabled={sendingAll || sendingId !== null || Boolean(r.notification.scheduledAt && new Date(r.notification.scheduledAt).getTime() > now)}>{sendingId === r.notification.id ? "جارٍ..." : r.notification.scheduledAt && new Date(r.notification.scheduledAt).getTime() > now ? "بانتظار الموعد" : "إرسال الآن"}</Button></td></tr>)}{!pending.length ? <tr><td colSpan={6} className="px-3 py-10 text-center text-sm text-slate-500">لا توجد رسائل فواتير في طابور الانتظار حاليًا.</td></tr> : null}</tbody></table></div>
     {pending.length > 100 ? <p className="mt-3 text-xs text-slate-500">يُعرض أول 100 عنصر فقط في الواجهة؛ الطابور الكامل محفوظ في النظام.</p> : null}
   </CardContent></Card>;
 }

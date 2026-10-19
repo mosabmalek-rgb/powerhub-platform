@@ -87,9 +87,9 @@ vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()], useRout
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, paymentDocumentation: { list: { invalidate: vi.fn() } }, siteBillingPolicy: { get: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() }, financialOverview: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, directoryPage: { invalidate: vi.fn(), prefetch: vi.fn().mockResolvedValue(undefined) }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() }, invoiceDuePolicy: { get: { invalidate: vi.fn() } } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, paymentDocumentation: { list: { invalidate: vi.fn() } }, siteBillingPolicy: { get: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() }, financialOverview: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, directoryPage: { invalidate: vi.fn(), prefetch: vi.fn().mockResolvedValue(undefined) }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
     powerhub: {
-      sites: { list: { useQuery: () => mocks.query([mocks.site]) }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, anomalyAlert: { useQuery: () => mocks.query({ anomalyAlertPercent: 50 }) }, create: { useMutation: mocks.mutation }, updateAnomalyAlert: { useMutation: mocks.mutation } },
+      sites: { list: { useQuery: () => mocks.query([mocks.site]) }, invoiceDuePolicy: { get: { useQuery: () => mocks.query({ invoiceDueHours: 336, invoiceDueDays: 14 }) }, save: { useMutation: mocks.mutation } }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, anomalyAlert: { useQuery: () => mocks.query({ anomalyAlertPercent: 50 }) }, create: { useMutation: mocks.mutation }, updateAnomalyAlert: { useMutation: mocks.mutation } },
       siteBillingPolicy: { get: { useQuery: () => mocks.query({ automaticFractionDiscountEnabled: false, fractionCarryEnabled: false }) }, save: { useMutation: mocks.mutation } },
       reportBranding: { get: { useQuery: () => mocks.query({ companyName: "PowerHub", logoUrl: null }) }, update: { useMutation: mocks.mutation } },
       readingCycle: { get: { useQuery: () => mocks.query({ cycleType: "MONTHLY", weeklyStartDay: 7, monthlyStartDay: 1 }) }, currentBounds: { useQuery: () => mocks.query({ cycleKey: "2026-10", cycleLabel: "أكتوبر 2026", billingPeriod: "2026-10", startAt: "2026-10-01T00:00:00.000Z", endAt: "2026-10-31T23:59:59.999Z" }) }, save: { useMutation: mocks.mutation } },
@@ -451,6 +451,16 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("button", { name: "إلغاء تفعيل التوثيق" })).toBeDisabled();
   });
 
+  it("shows invoice due interval controls only in Settings and defaults legacy 14 days to 336 hours", () => {
+    mocks.activeRole = "owner";
+    mocks.location = "/settings";
+    render(<SettingsPage />);
+    expect(screen.getByText("مدة استحقاق الفاتورة")).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "مدة استحقاق الفاتورة" })).toHaveValue(14);
+    expect(screen.getByRole("combobox", { name: "وحدة استحقاق الفاتورة" })).toHaveValue("days");
+    expect(screen.getByText(/تُحفظ المدة بالساعات داخليًا/)).toBeInTheDocument();
+  });
+
   it("shows team administration to the owner", () => {
     mocks.activeRole = "owner";
     mocks.location = "/staff";
@@ -534,16 +544,17 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("button", { name: "فتح جلسة تحصيل" })).toBeInTheDocument();
   });
 
-  it("shows receipt print, WhatsApp, and SMS actions for a partial payment", () => {
+  it("shows receipt print and SMS actions for a partial payment while declaring WhatsApp unavailable", () => {
     mocks.activeRole = "owner";
     mocks.invoices = [{ id: 50, invoiceNo: "INV-PARTIAL", billingPeriod: "2026-10", consumptionKwh: "5", totalAmount: "100", paidAmount: "40", balanceDue: "60", status: "partially_paid" } as any];
     mocks.payments = [{ payment: { id: 70, invoiceId: 50, paymentNo: "PAY-PARTIAL", amount: "40", paymentMethod: "cash", paidAt: new Date("2026-10-12") }, subscriber: { fullName: "مشترك اختبار", phone: "970599000000" }, invoiceNo: "INV-PARTIAL" }];
     render(<OperationsPage section="collections" />);
     expect(screen.getByRole("button", { name: "طباعة" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "WhatsApp" }));
-    expect(mocks.sendPaymentReceiptSms).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "whatsapp" });
+    expect(screen.getByText("إرسال إيصال WhatsApp غير متاح حاليًا")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "WhatsApp" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "SMS" }));
     expect(mocks.sendPaymentReceiptSms).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "sms" });
+    expect(mocks.sendPaymentReceiptSms).not.toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "whatsapp" });
   });
 
   it("lets an accountant create a public share link from an issued invoice in the invoice center", () => {

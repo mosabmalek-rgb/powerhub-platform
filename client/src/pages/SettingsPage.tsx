@@ -214,6 +214,82 @@ function TariffSettingsSection({ siteId }: { siteId: number }) {
   </div>;
 }
 
+function InvoiceDuePolicySection({ siteId }: { siteId: number }) {
+  const utils = trpc.useUtils();
+  const query = trpc.powerhub.sites.invoiceDuePolicy.get.useQuery({ siteId });
+  const [unit, setUnit] = useState<"hours" | "days">("days");
+  const [amount, setAmount] = useState("14");
+
+  useEffect(() => {
+    if (!query.data) return;
+    const hours = Number(query.data.invoiceDueHours);
+    if (Number.isInteger(hours) && hours >= 24 && hours % 24 === 0 && hours / 24 <= 90) {
+      setUnit("days");
+      setAmount(String(hours / 24));
+    } else {
+      setUnit("hours");
+      setAmount(String(hours));
+    }
+  }, [query.data]);
+
+  const save = trpc.powerhub.sites.invoiceDuePolicy.save.useMutation({
+    onSuccess: async (result) => {
+      await Promise.all([
+        utils.powerhub.sites.invoiceDuePolicy.get.invalidate({ siteId }),
+        utils.powerhub.sites.list.invalidate(),
+        utils.powerhub.audit.list.invalidate(),
+      ]);
+      setUnit(result.invoiceDueHours >= 24 && result.invoiceDueHours % 24 === 0 ? "days" : "hours");
+      setAmount(String(result.invoiceDueHours >= 24 && result.invoiceDueHours % 24 === 0
+        ? result.invoiceDueHours / 24
+        : result.invoiceDueHours));
+      toast.success("تم حفظ مدة استحقاق الفاتورة لهذا الفرع.");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const selectClass = inputClass + " mt-1";
+  return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <div className="mb-4">
+      <h2 className="font-bold text-white">مدة استحقاق الفاتورة</h2>
+      <p className="mt-1 text-sm leading-6 text-slate-400">حدد المدة التي تضاف إلى وقت القراءة لإصدار الفواتير الجديدة وتحديد موعد استحقاقها، سواء صدرت من المنصة أو بعد اعتماد القراءة الميدانية. لا يغيّر هذا الإعداد موعد استحقاق الفواتير الموجودة.</p>
+    </div>
+    {query.isLoading ? <p className="py-4 text-sm text-slate-500">جارٍ تحميل مدة الاستحقاق…</p>
+      : query.isError ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-400/20 p-4 text-sm text-rose-200">
+        <span>تعذر تحميل مدة استحقاق الفاتورة. أعد المحاولة قبل الحفظ.</span>
+        <Button type="button" variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()} className="border-white/15 text-white">{query.isFetching ? "جارٍ التحقق…" : "إعادة المحاولة"}</Button>
+      </div>
+      : <form className="grid gap-4 sm:grid-cols-[1fr_180px_auto] sm:items-end" onSubmit={(event) => {
+        event.preventDefault();
+        const value = Number(amount);
+        if (!Number.isInteger(value) || value < 1) {
+          toast.error("أدخل عددًا صحيحًا لا يقل عن 1.");
+          return;
+        }
+        const invoiceDueHours = value * (unit === "days" ? 24 : 1);
+        if (invoiceDueHours > 2160) {
+          toast.error("الحد الأقصى لمدة الاستحقاق هو 90 يومًا (2160 ساعة).");
+          return;
+        }
+        save.mutate({ siteId, invoiceDueHours });
+      }}>
+        <label className="block text-xs text-slate-400">مدة الاستحقاق
+          <input aria-label="مدة استحقاق الفاتورة" required type="number" min="1" max={unit === "days" ? 90 : 2160} step="1" value={amount} onChange={(event) => setAmount(event.target.value)} className={selectClass} dir="ltr" />
+        </label>
+        <label className="block text-xs text-slate-400">الوحدة
+          <select aria-label="وحدة استحقاق الفاتورة" value={unit} onChange={(event) => setUnit(event.target.value as typeof unit)} className={selectClass}>
+            <option value="hours">ساعة</option>
+            <option value="days">يوم</option>
+          </select>
+        </label>
+        <Button type="submit" disabled={save.isPending || query.isFetching} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">
+          {save.isPending ? "جارٍ الحفظ…" : "حفظ مدة الاستحقاق"}
+        </Button>
+      </form>}
+    <p className="mt-3 text-[11px] leading-5 text-slate-500">تُحفظ المدة بالساعات داخليًا لضبط الوقت بدقة، مع تحديث حقل الأيام القديم تلقائيًا للتوافق. المدة المسموحة من ساعة واحدة حتى 90 يومًا.</p>
+  </CardContent></Card>;
+}
+
 function SiteBillingPolicySection({ siteId }: { siteId: number }) {
   const utils = trpc.useUtils();
   const query = trpc.powerhub.siteBillingPolicy.get.useQuery({ siteId });
@@ -377,6 +453,7 @@ export default function SettingsPage() {
   <Button variant="outline" disabled={paymentDocumentationAccess.isLoading || paymentDocumentationAccess.isError || !paymentDocumentationAccess.data || setPaymentDocumentation.isPending || paymentDocumentationAccess.data.policy === "not_included" || paymentDocumentationAccess.data.disabledByAdmin === true || paymentDocumentationAccess.data.allowed !== true} onClick={() => setPaymentDocumentation.mutate({ siteId: siteId!, isEnabled: false })} className="border-rose-400/40 text-rose-300 hover:bg-rose-400/10 hover:text-rose-200">{setPaymentDocumentation.isPending ? "جارٍ الحفظ…" : "إلغاء تفعيل التوثيق"}</Button>
 </div></div></CardContent></Card>}
     {!isSubaccountsRoute && accessQuery.data?.role === "owner" && siteId ? <ReadingCycleSettingsSection siteId={siteId} /> : null}
+    {!isSubaccountsRoute && accessQuery.data?.role === "owner" && siteId ? <InvoiceDuePolicySection siteId={siteId} /> : null}
     {!isSubaccountsRoute && accessQuery.data?.role === "owner" && siteId ? <SiteBillingPolicySection siteId={siteId} /> : null}
     {!isSubaccountsRoute && siteId && can(accessQuery.data?.role, "manageTariffs") ? <TariffSettingsSection siteId={siteId} /> : null}
     {!isSubaccountsRoute && canManageTeam && <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-bold text-white">هوية الشركة في التقارير</h2><p className="mt-2 text-sm leading-6 text-slate-400">أضف اسم الشركة وشعارها ليظهرا في التقارير الإدارية وملفات PDF.</p></div>{brandingQuery.data?.logoUrl && <img src={brandingQuery.data.logoUrl} alt="شعار الشركة" className="h-16 max-w-40 rounded-lg border border-white/10 bg-white object-contain p-2" />}</div><div className="mt-4 grid gap-4 md:grid-cols-2"><input value={companyName} onChange={e=>setCompanyName(e.target.value)} className={inputClass} placeholder="اسم الشركة / المولدات..." /><label className="flex h-10 cursor-pointer items-center rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-slate-300"><span className="truncate">{logoData ? "تم اختيار شعار جديد" : "اختر شعار الشركة"}</span><input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={e=>{const file=e.target.files?.[0]; if(!file)return; if(file.size>3*1024*1024)return toast.error("يجب ألا يتجاوز الشعار 3 ميغابايت."); const reader=new FileReader(); reader.onload=()=>{const value=String(reader.result); setLogoData(value.split(",")[1] ?? null); setLogoMime(file.type as typeof logoMime);}; reader.readAsDataURL(file);}} /></label></div><Button onClick={saveBranding} disabled={updateBranding.isPending} className="mt-4 bg-[#F5B800] font-bold text-[#0D1117]">{updateBranding.isPending ? "جارٍ الحفظ…" : "حفظ بيانات الشركة"}</Button></CardContent></Card>}

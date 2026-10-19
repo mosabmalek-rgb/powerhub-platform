@@ -1,7 +1,7 @@
 const previewValues: Record<string, string> = {
   subscriber_name: "أحمد علي", subscriber_no: "SUB-00125", invoice_no: "INV-2026-00125",
-  billing_period: "آب 2026", total_amount: "33,000.825", balance_due: "18,000.456", due_date: "31 آب 2026",
-  previous_reading: "12,450", current_reading: "12,785", consumption_kwh: "335", total_balance: "42,500.678",
+  billing_period: "آب 2026", total_amount: "33,000.82", balance_due: "18,000.45", due_date: "31 آب 2026",
+  previous_reading: "12,450", current_reading: "12,785", consumption_kwh: "335", total_balance: "42,500.67",
   invoice_link: "https://powerhub.example/invoice/INV-2026-00125", portal_link: "https://powerhub.example/portal?g=MAIN",
 };
 

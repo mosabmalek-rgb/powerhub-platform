@@ -4,7 +4,7 @@ const state = vi.hoisted(() => {
   const inserts: Array<{ table: string; values: unknown }> = [];
   const updates: Array<{ table: string; values: unknown }> = [];
   const rpcCalls: Array<{ name: string; args: unknown }> = [];
-  const site = { id: 10, tenant_id: 20, name: "الفرع الرئيسي", code: "MAIN", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
+  const site = { id: 10, tenant_id: 20, name: "الفرع الرئيسي", code: "MAIN", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, invoice_due_hours: 336, created_at: "2026-08-01T00:00:00.000Z" };
   const subscriber = { id: 30, tenant_id: 20, site_id: 10, subscriber_no: "MAIN-001", client_operation_id: null, full_name: "مشترك الاختبار", phone: "+970595000000", whatsapp_number: null, address: null, subscription_type: "residential", service_status: "active", archived_at: null, purge_after_at: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" };
   const tables: Record<string, unknown[]> = {
     sites: [site], subscribers: [subscriber],
@@ -48,6 +48,7 @@ const state = vi.hoisted(() => {
         select: () => query,
         eq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] === value); return query; },
         in: (column: string, values: unknown[]) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || values.includes((row as Record<string, unknown>)[column])); return query; },
+        gt: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => { const record = row as Record<string, unknown>; return !(column in record) || (record[column] != null && Number(record[column]) > Number(value)); }); return query; },
         or: (expression: string) => { const match = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/); if (match) { const siteId = Number(match[1]); filteredRows = filteredRows.filter((row) => { const siteValue = (row as Record<string, unknown>).site_id; return siteValue === siteId || siteValue === null; }); } return query; },
         is: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => (row as Record<string, unknown>)[column] === value); return query; },
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
@@ -227,6 +228,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_financial_settlement") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_set_financial_settlement_status") return resolved([{ settlement_id: 97 }]);
       if (name === "powerhub_exceptional_locked_edit") return resolved([{ before_data: { id: 82, description: "وصف سابق" }, after_data: { id: 82, description: "وصف مصحح" } }]);
+      if (name === "powerhub_save_site_invoice_due_hours") return resolved([{ invoice_due_hours: Number((args as Record<string, unknown>).p_invoice_due_hours) }]);
       if (["powerhub_update_site_anomaly", "powerhub_update_site"].includes(name)) return resolved([{ site_id: 10 }]);
       if (name === "powerhub_create_site") return resolved([{ site_id: 11 }]);
       if (["powerhub_update_company_account_phone", "powerhub_update_company_account_opening_balance", "powerhub_update_company_account_sites"].includes(name)) return resolved([{ account_id: 92 }]);
@@ -317,12 +319,25 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يجهز تذكير السداد وإيصال التحصيل عبر طابور SMS الذري دون مزود حي", async () => {
+    state.tables.powerhub_message_templates = [{ id: 200, tenant_id: 20, channel: "sms", event_type: "invoice_overdue", is_active: true, body: "تذكير {{balance_due}} · الرصيد الإجمالي {{total_balance}}" }];
+    state.tables.site_billing_policies = [{ tenant_id: 20, site_id: 10, automatic_fraction_discount_enabled: true, fraction_carry_enabled: false }];
     notificationWorker.processById.mockResolvedValue({ status: "submitted" });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.notifications.sendPaymentReminderSms({ siteId: 10, invoiceId: 70 })).resolves.toMatchObject({ notificationIds: [90], status: "submitted", channels: ["sms"] });
     await expect(caller.notifications.sendPaymentReceiptSms({ siteId: 10, paymentId: 81, channel: "sms" })).resolves.toMatchObject({ notificationId: 90, status: "submitted", channel: "sms" });
-    expect(state.rpcCalls.filter((call) => call.name === "powerhub_queue_payment_sms")).toHaveLength(2);
+    const paymentSmsCalls = state.rpcCalls.filter((call) => call.name === "powerhub_queue_payment_sms");
+    expect(paymentSmsCalls).toHaveLength(2);
+    expect(paymentSmsCalls[0].args).toMatchObject({ p_rendered_text: "تذكير 75 · الرصيد الإجمالي 75" });
     expect(notificationWorker.processById).toHaveBeenCalledWith(90, 1);
+  });
+
+  it("يرفض تذكير السداد عند غياب قالب نشط بدلاً من إرسال قالب افتراضي", async () => {
+    state.tables.powerhub_message_templates = [];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.notifications.sendPaymentReminderSms({ siteId: 10, invoiceId: 70 }))
+      .rejects.toMatchObject({ message: "لا يتوفر قالب للتذكير بالسداد أعده في مركز الرسائل." });
+    expect(state.rpcCalls.filter((call) => call.name === "powerhub_queue_payment_sms")).toHaveLength(0);
+    expect(notificationWorker.processById).not.toHaveBeenCalled();
   });
 
   it("يعيد شعار بوابة الاستعلامات في theme وlookup عند وجود logo_key", async () => {
@@ -1005,11 +1020,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يعتمد القراءة ويصدر فاتورتها عبر Supabase من دون MySQL أو عامل إرسال", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.approve({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false })).resolves.toEqual({ success: true });
-    await expect(caller.invoices.createFromReading({ siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08", dueDate: new Date("2026-08-16T00:00:00.000Z"), discountAmount: 0, clientOperationId: "44444444-4444-4444-8444-444444444444" }))
+    await expect(caller.invoices.createFromReading({ siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08", dueDate: new Date("2026-09-01T00:00:00.000Z"), discountAmount: 0, clientOperationId: "44444444-4444-4444-8444-444444444444" }))
       .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150 });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_approve_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1 }) }),
-      expect.objectContaining({ name: "powerhub_issue_invoice_from_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_tariff_id: 40, p_billing_period: "2026-08" }) }),
+      expect.objectContaining({ name: "powerhub_issue_invoice_from_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_tariff_id: 40, p_billing_period: "2026-08", p_due_date: "2026-08-16T00:00:00.000Z" }) }),
     ]);
     expect(state.inserts.some((entry) => entry.table === "notification_messages")).toBe(false);
   });
@@ -1235,6 +1250,19 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       name: "powerhub_company_account_balance_rollup",
       args: { p_tenant_id: 20, p_account_ids: [90] },
     });
+  });
+
+  it("loads and saves the authoritative invoice due interval in hours from Settings", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.sites.invoiceDuePolicy.get({ siteId: 10 }))
+      .resolves.toEqual({ invoiceDueHours: 336, invoiceDueDays: 14 });
+    await expect(caller.sites.invoiceDuePolicy.save({ siteId: 10, invoiceDueHours: 18 }))
+      .resolves.toEqual({ success: true, invoiceDueHours: 18, invoiceDueDays: 1 });
+    expect(state.rpcCalls).toContainEqual(expect.objectContaining({
+      name: "powerhub_save_site_invoice_due_hours",
+      args: { p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_invoice_due_hours: 18 },
+    }));
+    expect(state.rpcCalls.some((call) => call.name === "powerhub_update_site")).toBe(false);
   });
 
   it("يعرض حصة المشتركين من Supabase دون MySQL", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAutomaticOccurrenceKey, isIncrementalAutomaticEvent } from "./unified-messaging-automation-policy";
+import { buildAutomaticOccurrenceKey, buildInvoiceOverdueOperationKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible, isLaterOverdueInvoiceCandidate } from "./unified-messaging-automation-policy";
 
 describe("automatic messaging occurrence policy", () => {
   it("creates separate scan occurrences each minute for subscriber and payment events", () => {
@@ -18,17 +18,116 @@ describe("automatic messaging occurrence policy", () => {
       .toBe("event:payment_received:" + bucket);
   });
 
-  it("keeps recurring reminders and service alerts unique by day", () => {
+  it("keeps service alerts unique by day", () => {
     expect(buildAutomaticOccurrenceKey("service_alert", new Date("2026-10-09T02:00:00.000Z")))
       .toBe(buildAutomaticOccurrenceKey("service_alert", new Date("2026-10-09T23:00:00.000Z")));
-    expect(buildAutomaticOccurrenceKey("invoice_overdue", new Date("2026-10-09T23:00:00.000Z")))
-      .toBe("event:invoice_overdue:2026-10-09");
+  });
+
+  it("scans overdue invoices each minute so an elapsed-hour threshold is not delayed to tomorrow", () => {
+    const beforeBoundary = new Date("2026-10-09T12:00:59.000Z");
+    const afterBoundary = new Date("2026-10-09T12:01:00.000Z");
+    expect(buildAutomaticOccurrenceKey("invoice_overdue", beforeBoundary))
+      .toBe("event:invoice_overdue:" + String(Math.floor(beforeBoundary.getTime() / 60_000)));
+    expect(buildAutomaticOccurrenceKey("invoice_overdue", afterBoundary))
+      .not.toBe(buildAutomaticOccurrenceKey("invoice_overdue", beforeBoundary));
   });
 
   it("only classifies event scans that must discover records throughout the day as incremental", () => {
     expect(isIncrementalAutomaticEvent("subscriber_created")).toBe(true);
     expect(isIncrementalAutomaticEvent("payment_received")).toBe(true);
-    expect(isIncrementalAutomaticEvent("invoice_overdue")).toBe(false);
+    expect(isIncrementalAutomaticEvent("invoice_overdue")).toBe(true);
     expect(isIncrementalAutomaticEvent("service_alert")).toBe(false);
+  });
+});
+
+
+describe("overdue invoice reminder idempotency", () => {
+  it("keeps unscheduled automatic reminders once per invoice across minute scans", () => {
+    expect(buildInvoiceOverdueOperationKey(8, 123, "event:invoice_overdue:100", true))
+      .toBe("automation:8:invoice:123:eligible");
+    expect(buildInvoiceOverdueOperationKey(8, 123, "event:invoice_overdue:101", true))
+      .toBe("automation:8:invoice:123:eligible");
+  });
+
+  it("keeps deliberately scheduled reminders distinct by occurrence", () => {
+    expect(buildInvoiceOverdueOperationKey(8, 123, "monthly:2026-10", false))
+      .toBe("automation:8:invoice:123:monthly:2026-10");
+    expect(buildInvoiceOverdueOperationKey(8, 123, "monthly:2026-11", false))
+      .not.toBe(buildInvoiceOverdueOperationKey(8, 123, "monthly:2026-10", false));
+  });
+});
+
+describe("overdue invoice reminder hour eligibility", () => {
+  const dueDate = "2026-10-10T12:00:00.000Z";
+
+  it("does not qualify before the exact due-plus-hours boundary", () => {
+    expect(isInvoiceOverdueEligible({
+      dueDate, balanceDue: "50.00", now: new Date("2026-10-11T11:59:59.999Z"), afterDueHours: 24,
+    })).toBe(false);
+    expect(isInvoiceOverdueEligible({
+      dueDate, balanceDue: "50.00", now: new Date("2026-10-11T12:00:00.000Z"), afterDueHours: 24,
+    })).toBe(true);
+  });
+
+  it("uses elapsed time from the invoice due timestamp regardless of UTC offset notation", () => {
+    expect(isInvoiceOverdueEligible({
+      dueDate: "2026-10-10T15:00:00+03:00",
+      balanceDue: 50,
+      now: new Date("2026-10-11T12:00:00.000Z"),
+      afterDueHours: 24,
+    })).toBe(true);
+  });
+
+  it("applies the minimum to the current invoice balance and skips settled or below-threshold invoices", () => {
+    const args = { dueDate, now: new Date("2026-10-12T12:00:00.000Z"), afterDueHours: 24, minBalance: 25 };
+    expect(isInvoiceOverdueEligible({ ...args, balanceDue: 24.99 })).toBe(false);
+    expect(isInvoiceOverdueEligible({ ...args, balanceDue: 25 })).toBe(true);
+    expect(isInvoiceOverdueEligible({ ...args, balanceDue: 0 })).toBe(false);
+    expect(isInvoiceOverdueEligible({ ...args, balanceDue: null })).toBe(false);
+  });
+
+  it("rejects invalid dates and invalid delay configuration", () => {
+    expect(isInvoiceOverdueEligible({
+      dueDate: "not-a-date", balanceDue: 50, now: new Date("2026-10-12T12:00:00.000Z"), afterDueHours: 24,
+    })).toBe(false);
+    expect(isInvoiceOverdueEligible({
+      dueDate, balanceDue: 50, now: new Date("2026-10-12T12:00:00.000Z"), afterDueHours: -1,
+    })).toBe(false);
+  });
+});
+
+
+describe("latest eligible overdue invoice selection", () => {
+  it("prefers the newest due invoice over unpaid invoices from previous cycles", () => {
+    expect(isLaterOverdueInvoiceCandidate(
+      { dueDate: "2026-10-10T12:00:00.000Z", invoiceId: 102 },
+      { dueDate: "2026-09-10T12:00:00.000Z", invoiceId: 91 },
+    )).toBe(true);
+    expect(isLaterOverdueInvoiceCandidate(
+      { dueDate: "2026-09-10T12:00:00.000Z", invoiceId: 91 },
+      { dueDate: "2026-10-10T12:00:00.000Z", invoiceId: 102 },
+    )).toBe(false);
+  });
+
+  it("uses the greater invoice id when eligible invoices have the same due timestamp", () => {
+    expect(isLaterOverdueInvoiceCandidate(
+      { dueDate: "2026-10-10T12:00:00.000Z", invoiceId: 102 },
+      { dueDate: "2026-10-10T12:00:00.000Z", invoiceId: 101 },
+    )).toBe(true);
+    expect(isLaterOverdueInvoiceCandidate(
+      { dueDate: "2026-10-10T12:00:00.000Z", invoiceId: 100 },
+      { dueDate: "2026-10-10T12:00:00.000Z", invoiceId: 101 },
+    )).toBe(false);
+  });
+
+  it("fails closed for an invalid candidate timestamp and accepts one over an invalid existing timestamp", () => {
+    expect(isLaterOverdueInvoiceCandidate(
+      { dueDate: "invalid-date", invoiceId: 102 },
+      { dueDate: "2026-09-10T12:00:00.000Z", invoiceId: 91 },
+    )).toBe(false);
+    expect(isLaterOverdueInvoiceCandidate(
+      { dueDate: "2026-10-10T12:00:00.000Z", invoiceId: 102 },
+      { dueDate: "invalid-date", invoiceId: 91 },
+    )).toBe(true);
   });
 });

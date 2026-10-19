@@ -4,6 +4,7 @@ import path from "node:path";
 
 const root = process.cwd();
 const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messaging.ts"), "utf8");
+const manualFreeSmsMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261019090000_powerhub_free_manual_sms.sql"), "utf8");
 const invoiceLinksMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223156_powerhub_invoice_message_links.sql"), "utf8");
 const readingVariablesMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014180000_powerhub_invoice_reading_message_variables.sql"), "utf8");
 const manualReadingGuardMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014190000_powerhub_manual_campaign_reading_token_guard.sql"), "utf8");
@@ -124,7 +125,7 @@ describe("unified messaging runtime contract", () => {
   });
 
   it("processes subscriber-created and payment-received automations in minute windows", () => {
-    expect(automationPolicy).toContain('new Set(["subscriber_created", "payment_received"])');
+    expect(automationPolicy).toContain('new Set(["subscriber_created", "payment_received", "invoice_overdue"])');
     expect(runtime).toContain("buildAutomaticOccurrenceKey(eventType, now)");
     expect(runtime).toContain('.like("occurrence_key", `event:${eventType}:%`)');
     expect(runtime).toContain('query = query.gte("created_at", eventScanSince)');
@@ -143,9 +144,10 @@ describe("unified messaging runtime contract", () => {
     expect(migration).toContain("and lease_until>now()");
   });
 
-  it("paginates overdue invoices and chooses the oldest outstanding invoice per subscriber", () => {
+  it("paginates overdue invoices and chooses only the newest eligible invoice per subscriber", () => {
     expect(runtime).toContain('.gt("id", lastInvoiceId).order("id", { ascending: true }).limit(500)');
-    expect(runtime).toContain('new Date(invoice.due_date).getTime() < new Date(previous.due_date).getTime()');
+    expect(runtime).toContain("isLaterOverdueInvoiceCandidate");
+    expect(automationPolicy).toContain("export function isLaterOverdueInvoiceCandidate");
   });
 
   it("paginates enabled automations with a stable keyset cursor", () => {
@@ -194,6 +196,15 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain('eventType === "service_alert"');
     expect(runtime).toContain(':occurrence:${occ.occurrence_key}');
     expect(runtime).toContain('automation:${automation.id}:subscriber:${subscriber.id}');
+  });
+
+  it("validates existing and concurrent manual-free SMS operation replays against full message identity", () => {
+    expect(manualFreeSmsMigration.split("v_existing.subscriber_id is distinct from p_subscriber_id").length - 1).toBe(2);
+    expect(manualFreeSmsMigration.split("v_existing.payload->>'manualFreeText' is distinct from 'true'").length - 1).toBe(2);
+    expect(manualFreeSmsMigration).toContain("select n.* into v_existing");
+    expect(manualFreeSmsMigration).toContain("OPERATION_ID_REUSED_WITH_DIFFERENT_MESSAGE");
+    expect(manualFreeSmsMigration).toContain("on conflict (tenant_id, operation_key) do nothing");
+    expect(manualFreeSmsMigration).toContain("public.powerhub_mark_sms_needs_review(bigint,bigint,integer,text,text)'::regprocedure");
   });
 
   it("supports automation lifecycle and replay-safe execution", () => {
@@ -371,6 +382,12 @@ describe("unified messaging runtime contract", () => {
     expect(ui).toContain("إرسال يدوي");
     expect(ui).toContain("تحديد الظاهر");
     expect(ui).toContain("إرسال الحملة");
+    expect(ui).toContain("إرسال SMS يدوي حر");
+    expect(ui).toContain("إدخال رقم هاتف يدوي");
+    expect(ui).toContain("sendManualFreeText");
+    expect(runtime).toContain("sendManualFreeText: protectedProcedure");
+    expect(runtime).toContain("powerhub_prepare_manual_free_sms");
+    expect(runtime).toContain("normalizeInternationalPhone");
     expect(ui).toContain("crypto.randomUUID()");
     expect(ui).toContain("failed");
     expect(ui).toContain("تقدير للنص الحالي");
