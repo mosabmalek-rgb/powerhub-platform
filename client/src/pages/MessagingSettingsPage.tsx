@@ -10,7 +10,7 @@ import { can } from "@shared/powerhub-rbac";
 import { segmentArabicSms } from "@shared/sms-segmentation";
 import { MESSAGE_SCHEDULE_TIME_ZONE, buildMonthlyScheduleAnchor, buildWeeklyScheduleAnchor } from "@/lib/messaging-schedule";
 import { formatDateTimeLocalInTimeZone, parseDateTimeLocalInTimeZone } from "@/lib/zoned-date-time";
-import { previewMessageTemplate } from "@/lib/message-template-preview";
+import { formatPreviewAmount, previewMessageTemplate } from "@/lib/message-template-preview";
 import { BellRing, CircleAlert, Eye, FileText, KeyRound, Loader2, LockKeyhole, MessageSquareText, RotateCcw, ShieldCheck, WalletCards } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -228,6 +228,19 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     onError: (e) => toast.error(e.message),
   });
 
+  const sendManualFreeText = trpc.powerhub.unifiedMessaging.sendManualFreeText.useMutation({
+    onSuccess: (result) => {
+      if (result.status === "submitted" || result.status === "delivered") toast.success("تم إرسال الرسالة اليدوية إلى مزود SMS.");
+      else if (result.queued || result.status === "processing") toast.info("تم تجهيز الرسالة اليدوية؛ راجع سجل الرسائل لتأكيد النتيجة.");
+      else if (result.status === "failed" || result.status === "needs_review") toast.warning(result.error || "تعذر تأكيد إرسال الرسالة؛ راجع سجل الرسائل قبل إعادة المحاولة.");
+      else toast.info(result.error || "تمت معالجة طلب الرسالة اليدوية دون تأكيد الإرسال.");
+      if (result.status !== "processing") setManualFreeOperationId(crypto.randomUUID());
+      void utils.powerhub.unifiedMessaging.history.invalidate();
+      void utils.powerhub.unifiedMessaging.campaign.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const [templateId, setTemplateId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
@@ -246,6 +259,11 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const [manualSearch, setManualSearch] = useState("");
   const [selectedSubscribers, setSelectedSubscribers] = useState<number[]>([]);
   const [manualOperationId, setManualOperationId] = useState(() => crypto.randomUUID());
+  const [manualFreeMode, setManualFreeMode] = useState<"subscriber" | "phone">("subscriber");
+  const [manualFreeSubscriberId, setManualFreeSubscriberId] = useState<number | null>(null);
+  const [manualFreePhone, setManualFreePhone] = useState("");
+  const [manualFreeMessage, setManualFreeMessage] = useState("");
+  const [manualFreeOperationId, setManualFreeOperationId] = useState(() => crypto.randomUUID());
   const [lastManualResult, setLastManualResult] = useState<null | { campaignId: number; operationId: string; replayed: boolean; requested: number; submitted: number; failed: number; skipped: number; pending?: number; processing?: number; needsReview: number; reviewPersistenceFailed: number; issues?: string[] }>(null);
 
   const activeSmsTemplates = (templates.data ?? []).filter((t: any) => t.channel === "sms" && t.isActive);
@@ -325,6 +343,20 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     sendManual.mutate({ siteId, templateId: manualTemplateId, subscriberIds: selectedSubscribers, operationId: manualOperationId });
   };
 
+  const submitManualFreeText = () => {
+    if (!manualFreeMessage.trim()) return toast.error("اكتب نص الرسالة أولاً.");
+    if (manualFreeMode === "subscriber" && !manualFreeSubscriberId) return toast.error("اختر المشترك المراد إرسال الرسالة إليه.");
+    if (manualFreeMode === "phone" && !manualFreePhone.trim()) return toast.error("أدخل رقم الهاتف المراد إرسال الرسالة إليه.");
+    sendManualFreeText.mutate({
+      siteId,
+      recipientMode: manualFreeMode,
+      subscriberId: manualFreeMode === "subscriber" ? manualFreeSubscriberId : null,
+      phone: manualFreeMode === "phone" ? manualFreePhone.trim() : "",
+      message: manualFreeMessage.trim(),
+      operationId: manualFreeOperationId,
+    });
+  };
+
   return <Card className="border-[#F5B800]/20 bg-[#F5B800]/[.025]">
     <CardContent className="space-y-6 p-5">
       <div>
@@ -384,6 +416,40 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
         <div className="rounded-lg border border-white/10 p-3 text-sm text-slate-300">تم تحديد <strong className="text-[#F5B800]">{selectedSubscribers.length}</strong> مشترك</div>
         <div className="max-h-72 overflow-auto rounded-lg border border-white/10">{filteredSubscribers.map((s: any) => <label key={s.id} className="flex items-center gap-3 border-b border-white/5 p-3 text-sm text-slate-200"><input type="checkbox" checked={selectedSubscribers.includes(Number(s.id))} onChange={() => setSelectedSubscribers((current) => current.includes(Number(s.id)) ? current.filter((id) => id !== Number(s.id)) : [...current,Number(s.id)].slice(0,500))} /><span>{s.fullName}</span><span className="mr-auto text-xs text-slate-500" dir="ltr">{s.subscriberNo}</span></label>)}</div>
         <div className="flex justify-end"><Button type="button" disabled={sendManual.isPending || !manualTemplateId || !selectedSubscribers.length || connectionReadiness.isLoading || connectionReadiness.isError || !connectionReadiness.data?.ready} onClick={submitManual}>{sendManual.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال الحملة</Button></div>
+      </div>
+
+      <div className="space-y-4 rounded-xl border border-sky-400/20 bg-sky-400/[.025] p-4">
+        <div>
+          <h3 className="font-bold text-white">إرسال SMS يدوي حر</h3>
+          <p className="mt-1 text-xs leading-6 text-slate-400">أرسل نصاً تكتبه بنفسك إلى رقم هاتف أو إلى مشترك من هذا الفرع. تُسجّل الرسالة في الطابور وسجل التدقيق وتخضع لصلاحيات الربط وحصة الرسائل.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="المستلم">
+            <select className={inputClass} value={manualFreeMode} onChange={(e) => setManualFreeMode(e.target.value as "subscriber" | "phone")}>
+              <option value="subscriber">اختيار مشترك موجود</option>
+              <option value="phone">إدخال رقم هاتف يدوي</option>
+            </select>
+          </Field>
+          {manualFreeMode === "subscriber" ? <Field label="المشترك">
+            <select className={inputClass} value={manualFreeSubscriberId ?? ""} onChange={(e) => setManualFreeSubscriberId(Number(e.target.value) || null)}>
+              <option value="">اختر مشتركاً من الفرع الحالي</option>
+              {(subscribers.data ?? []).filter((s: any) => s.phone && !s.archivedAt).map((s: any) => <option key={s.id} value={s.id}>{s.fullName} · {s.subscriberNo} · {s.phone}</option>)}
+            </select>
+          </Field> : <Field label="رقم الهاتف بصيغة دولية">
+            <input className={inputClass} dir="ltr" inputMode="tel" autoComplete="tel" value={manualFreePhone} onChange={(e) => setManualFreePhone(e.target.value)} placeholder="+97059xxxxxxx" />
+          </Field>}
+        </div>
+        <Field label="نص الرسالة">
+          <textarea className={inputClass + " min-h-32 py-2"} value={manualFreeMessage} onChange={(e) => setManualFreeMessage(e.target.value)} maxLength={2000} placeholder="اكتب نص SMS الذي تريد إرساله..." />
+        </Field>
+        <div className="rounded-lg border border-white/10 p-3 text-xs text-slate-300">
+          {(() => { const sms = segmentArabicSms(manualFreeMessage); return <><strong>{sms.characterCount} حرفاً · {sms.segmentCount} رسالة SMS تقديرية</strong><p className="mt-1 text-slate-500">يُحتسب العدد على النص المكتوب، وقد يختلف حسب قواعد المزود.</p></>; })()}
+        </div>
+        <div className="flex justify-end">
+          <Button type="button" disabled={sendManualFreeText.isPending || !manualFreeMessage.trim() || connectionReadiness.isLoading || connectionReadiness.isError || !connectionReadiness.data?.ready || (manualFreeMode === "subscriber" ? !manualFreeSubscriberId : !manualFreePhone.trim())} onClick={submitManualFreeText}>
+            {sendManualFreeText.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}إرسال SMS
+          </Button>
+        </div>
       </div>
     </CardContent>
   </Card>;
@@ -510,7 +576,7 @@ function TemplateEditor({ channel, template, pending, onSubmit, siteId, settleme
 </div><form className="mt-4 space-y-3" onSubmit={(e: FormEvent<HTMLFormElement>) => { e.preventDefault(); onSubmit({ siteId, channel, body, isActive: (new FormData(e.currentTarget).get("isActive") === "on") }); }}><textarea ref={textareaRef} required name="body" value={body} onChange={(e) => setBody(e.target.value)} className="min-h-36 w-full rounded-xl border border-white/10 bg-white/[.025] p-3 text-sm leading-7 text-white outline-none focus:border-[#F5B800]/70" />{channel === "sms" ? <div className={`rounded-xl border px-3 py-2 text-xs ${sms.segmentCount > 1 ? "border-amber-400/25 bg-amber-400/[.06] text-amber-200" : "border-emerald-400/20 bg-emerald-400/[.04] text-emerald-200"}`}><strong>{sms.characterCount} حرفاً · {sms.segmentCount} رسالة SMS</strong><span className="mr-2 text-slate-400">النص العربي يُحسب Unicode: حتى 70 حرفاً للرسالة الواحدة و67 لكل جزء إضافي.</span></div> : null}<div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm text-slate-400"><input defaultChecked={template?.isActive ?? true} name="isActive" type="checkbox" className="accent-[#F5B800]" />استخدام هذا القالب عند إصدار الفاتورة</label><p className="text-xs leading-6 text-slate-500">المعاينة أدناه تتحدث تلقائياً ولا ترسل أي رسالة.</p></div><div className="rounded-xl border border-[#F5B800]/25 bg-[#F5B800]/[.05] p-4"><p className="text-xs font-bold text-[#F5B800]">معاينة حية للرسالة النهائية</p><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white">{previewMessageTemplate(body, settlementEnabled)}</p><p className="mt-3 text-[11px] text-slate-500">تستخدم المعاينة بيانات افتراضية للمشترك والفاتورة قبل الحفظ أو الإرسال.</p></div><Button disabled={pending} className="w-full bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ قالب {channel === "whatsapp" ? "WhatsApp" : "SMS"}</Button></form></CardContent></Card>; }
 const receiptVariables = ["{{subscriber_name}}", "{{payment_no}}", "{{payment_amount}}", "{{invoice_no}}", "{{balance_due}}"];
 const defaultReceiptSmsTemplate = "مرحباً {{subscriber_name}}، تم استلام دفعة بقيمة {{payment_amount}} عن فاتورتك رقم {{invoice_no}}. رقم الإيصال: {{payment_no}}. الرصيد المتبقي: {{balance_due}}.";
-const formatReceiptPreviewAmount = (value: string, settlementEnabled: boolean) => { const amount = Number(value.replace(/,/g, "")); return Number.isFinite(amount) ? new Intl.NumberFormat("en-US", settlementEnabled ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(settlementEnabled ? Math.trunc(amount) : amount) : value; };
+const formatReceiptPreviewAmount = (value: string, settlementEnabled: boolean) => formatPreviewAmount(value, settlementEnabled);
 const previewReceiptTemplate = (body: string, settlementEnabled: boolean) => { const values: Record<string, string> = { subscriber_name: "أحمد علي", payment_no: "PAY-2026-0012", payment_amount: formatReceiptPreviewAmount("40.45", settlementEnabled), invoice_no: "INV-2026-00125", balance_due: formatReceiptPreviewAmount("52.26", settlementEnabled) }; return body.replace(/{{\s*(subscriber_name|payment_no|payment_amount|invoice_no|balance_due)\s*}}/g, (_, key) => values[key] ?? ""); };
 function PaymentReceiptSmsEditor({ template, pending, onSubmit, siteId, settlementEnabled }: { template: any; pending: boolean; onSubmit: (input: any) => void; siteId: number; settlementEnabled: boolean }) { const [body, setBody] = useState(template?.body ?? defaultReceiptSmsTemplate); const [preview, setPreview] = useState(false); useEffect(() => setBody(template?.body ?? defaultReceiptSmsTemplate), [template?.body]); const sms = segmentArabicSms(body); return <Card className="border-emerald-400/15 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-emerald-300" /><h2 className="font-bold text-white">قالب إيصال الدفع عبر SMS</h2></div><p className="mt-2 text-xs leading-6 text-slate-500">يرسل إلى رقم المشترك الدولي المسجل عند اختيار SMS من إيصال الدفعة الجزئية.</p><div className="mt-3 flex flex-wrap gap-2">{receiptVariables.map((item) => <code className="rounded bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-200" key={item}>{item}</code>)}</div><form className="mt-4 space-y-3" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); onSubmit({ siteId, body, isActive: new FormData(event.currentTarget).get("isActive") === "on" }); }}><textarea required value={body} onChange={(event) => setBody(event.target.value)} className="min-h-36 w-full rounded-xl border border-white/10 bg-white/[.025] p-3 text-sm leading-7 text-white outline-none focus:border-emerald-400/70" /><div aria-live="polite" className={`rounded-xl border px-3 py-2 text-xs ${sms.segmentCount > 1 ? "border-amber-400/25 bg-amber-400/[.06] text-amber-200" : "border-emerald-400/20 bg-emerald-400/[.04] text-emerald-200"}`}><strong>{sms.characterCount} حرفاً · {sms.segmentCount} رسالة SMS</strong><p className="mt-1 text-slate-400">تقدير للنص الحالي: حتى 70 حرفاً للرسالة الواحدة و67 حرفاً لكل جزء إضافي. قد يتغير العدد بعد استبدال المتغيرات بقيمها الفعلية.</p></div><div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm text-slate-400"><input defaultChecked={template?.isActive ?? true} name="isActive" type="checkbox" className="accent-emerald-400" />استخدام هذا القالب عند إرسال الإيصال</label><Button type="button" variant="outline" onClick={() => setPreview((value) => !value)} className="border-white/15 text-white hover:bg-white/5 hover:text-white"><Eye className="ml-2 h-4 w-4" />معاينة الرسالة</Button></div>{preview ? <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/[.05] p-4"><p className="text-xs font-bold text-emerald-300">معاينة إيصال SMS</p><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white">{previewReceiptTemplate(body, settlementEnabled)}</p></div> : null}<Button disabled={pending} className="w-full bg-emerald-400 text-[#0D1117] hover:bg-emerald-300">حفظ قالب إيصال SMS</Button></form></CardContent></Card>; }
 function InvoiceSmsQueue({ rows, config, siteId }: { rows: any[]; config: any; siteId: number }) {
