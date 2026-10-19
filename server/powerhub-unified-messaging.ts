@@ -8,6 +8,7 @@ import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, ef
 import { renderAutomationTemplate } from "./unified-messaging-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
 import { buildAutomaticOccurrenceKey, buildInvoiceOverdueOperationKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible, isLaterOverdueInvoiceCandidate } from "./unified-messaging-automation-policy";
+import { normalizeInternationalPhone } from "../shared/phone";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
 const sendTypeSchema = z.enum(["manual", "automatic", "scheduled"]);
