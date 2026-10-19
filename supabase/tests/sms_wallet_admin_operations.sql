@@ -244,6 +244,16 @@ begin
     raise exception 'SMS_WALLET_FEATURE_POLICY_NOT_ENABLED';
   end if;
 
+  -- A newly configured package may not yet have legacy feature-policy rows.
+  -- SMS remains a standalone wallet and must still resolve to one policy row.
+  insert into public.tenant_subscriptions(tenant_id,package_code,status,ends_at,created_at)
+  values(21,'custom-no-sms-policy','active',now()+interval '30 days',now());
+  select * into v_policy from public.powerhub_resolve_tenant_feature_policy(21,'sms');
+  if not coalesce(v_policy.eligible,false) or not coalesce(v_policy.enabled,false)
+     or v_policy.effective_limit_mode<>'wallet' then
+    raise exception 'CUSTOM_PACKAGE_SMS_WALLET_POLICY_MISSING';
+  end if;
+
   -- The synthetic pre-cutover notification must not spend newly funded credit.
   select total_messages,used_segments,remaining_messages into v_total,v_used,v_remaining
   from public.powerhub_get_sms_quota(10);
