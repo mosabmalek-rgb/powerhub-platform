@@ -33,6 +33,8 @@ begin
         'case when exists (select 1 from public.site_billing_policies as policy where policy.tenant_id = new.tenant_id and policy.site_id = new.site_id and (policy.automatic_fraction_discount_enabled or policy.fraction_carry_enabled)) then trunc(new.balance_due)::text else round(new.balance_due, 1)::text end');
       v_patched := replace(v_patched, 'round(sum(i.balance_due), 1)::text',
         'case when exists (select 1 from public.site_billing_policies as policy where policy.tenant_id = new.tenant_id and policy.site_id = new.site_id and (policy.automatic_fraction_discount_enabled or policy.fraction_carry_enabled)) then trunc(sum(i.balance_due))::text else round(sum(i.balance_due), 1)::text end');
+      v_patched := replace(v_patched, '),''0.0'')',
+        '),case when exists (select 1 from public.site_billing_policies as policy where policy.tenant_id = new.tenant_id and policy.site_id = new.site_id and (policy.automatic_fraction_discount_enabled or policy.fraction_carry_enabled)) then ''0'' else ''0.0'' end)');
     elsif v_record.proname = 'powerhub_queue_selected_invoice_sms' then
       v_tenant_expr := 'v_invoice.tenant_id';
       v_site_expr := 'v_invoice.site_id';
@@ -42,6 +44,8 @@ begin
         'case when exists (select 1 from public.site_billing_policies as policy where policy.tenant_id = v_invoice.tenant_id and policy.site_id = v_invoice.site_id and (policy.automatic_fraction_discount_enabled or policy.fraction_carry_enabled)) then trunc(v_invoice.balance_due)::text else round(v_invoice.balance_due, 1)::text end');
       v_patched := replace(v_patched, 'round(sum(i.balance_due), 1)::text',
         'case when exists (select 1 from public.site_billing_policies as policy where policy.tenant_id = v_invoice.tenant_id and policy.site_id = v_invoice.site_id and (policy.automatic_fraction_discount_enabled or policy.fraction_carry_enabled)) then trunc(sum(i.balance_due))::text else round(sum(i.balance_due), 1)::text end');
+      v_patched := replace(v_patched, '),''0.0'')',
+        '),case when exists (select 1 from public.site_billing_policies as policy where policy.tenant_id = v_invoice.tenant_id and policy.site_id = v_invoice.site_id and (policy.automatic_fraction_discount_enabled or policy.fraction_carry_enabled)) then ''0'' else ''0.0'' end)');
     else
       v_tenant_expr := 'p_tenant_id';
       v_site_expr := 'p_site_id';
@@ -49,6 +53,8 @@ begin
         'case when exists (select 1 from public.site_billing_policies as policy where policy.tenant_id = p_tenant_id and policy.site_id = p_site_id and (policy.automatic_fraction_discount_enabled or policy.fraction_carry_enabled)) then trunc(v_total_amount)::text else round(v_total_amount, 1)::text end');
       v_patched := replace(v_patched, 'round(sum(i.balance_due), 1)::text',
         'case when exists (select 1 from public.site_billing_policies as policy where policy.tenant_id = p_tenant_id and policy.site_id = p_site_id and (policy.automatic_fraction_discount_enabled or policy.fraction_carry_enabled)) then trunc(sum(i.balance_due))::text else round(sum(i.balance_due), 1)::text end');
+      v_patched := replace(v_patched, '),''0.0'')',
+        '),case when exists (select 1 from public.site_billing_policies as policy where policy.tenant_id = p_tenant_id and policy.site_id = p_site_id and (policy.automatic_fraction_discount_enabled or policy.fraction_carry_enabled)) then ''0'' else ''0.0'' end)');
     end if;
 
     if v_patched <> v_definition then
