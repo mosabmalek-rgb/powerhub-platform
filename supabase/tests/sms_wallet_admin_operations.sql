@@ -508,4 +508,76 @@ begin
 end
 $test_wallet_start$;
 
+
+do $test_claim_balance_guards$
+declare
+  v_no_credit_id bigint;
+  v_provider_limited_id bigint;
+  v_claim_id bigint;
+  v_segments integer;
+  v_caught boolean;
+begin
+  -- All provider credentials are fake values in this disposable database. This
+  -- invokes the SQL queue-claim RPC only; no provider/network call is performed.
+  insert into public.tenant_subscriptions(tenant_id,package_code,status,ends_at,created_at)
+  values(15,'basic','active',now()+interval '30 days',now());
+
+  insert into public.subscribers(id,tenant_id,site_id,full_name,phone)
+  values(1501,15,151,'مشترك بلا رصيد','+970599000015');
+
+  insert into public.tenant_tweetsms_accounts(
+    tenant_id,monthly_limit,is_active,api_endpoint,credential_ciphertext,credential_iv,sender_name
+  ) values
+    (10,4,true,'https://invalid.example.test/sms','fake-ciphertext','fake-iv','TEST'),
+    (15,100,true,'https://invalid.example.test/sms','fake-ciphertext','fake-iv','TEST')
+  on conflict(tenant_id) do update set
+    monthly_limit=excluded.monthly_limit,is_active=excluded.is_active,
+    api_endpoint=excluded.api_endpoint,credential_ciphertext=excluded.credential_ciphertext,
+    credential_iv=excluded.credential_iv,sender_name=excluded.sender_name,
+    sms_dispatch_lease_notification_id=null,sms_dispatch_lease_until=null;
+
+  insert into public.notification_messages(
+    tenant_id,subscriber_id,channel,event_type,status,payload,recipient
+  ) values(15,1501,'sms','invoice_issued','pending','{"renderedText":"no-credit-test"}'::jsonb,'+970599000015')
+  returning id into v_no_credit_id;
+
+  v_caught:=false;
+  begin
+    perform * from public.powerhub_claim_sms_notification(1,v_no_credit_id);
+  exception when others then
+    if sqlerrm='SMS_WALLET_BALANCE_EXCEEDED' then v_caught:=true; else raise; end if;
+  end;
+  if not v_caught then raise exception 'SMS_WITHOUT_WALLET_CREDIT_WAS_CLAIMED'; end if;
+  if (select status from public.notification_messages where id=v_no_credit_id)<>'pending' then
+    raise exception 'FAILED_NO_CREDIT_CLAIM_MUTATED_MESSAGE';
+  end if;
+
+  insert into public.notification_messages(
+    tenant_id,subscriber_id,channel,event_type,status,payload,recipient
+  ) values(10,1001,'sms','invoice_issued','pending','{"renderedText":"provider-limit-test"}'::jsonb,'+970599000001')
+  returning id into v_provider_limited_id;
+
+  v_caught:=false;
+  begin
+    perform * from public.powerhub_claim_sms_notification(1,v_provider_limited_id);
+  exception when others then
+    if sqlerrm='SMS_PROVIDER_MONTHLY_LIMIT_EXCEEDED' then v_caught:=true; else raise; end if;
+  end;
+  if not v_caught then raise exception 'SMS_PROVIDER_MONTHLY_LIMIT_WAS_BYPASSED'; end if;
+  if (select status from public.notification_messages where id=v_provider_limited_id)<>'pending' then
+    raise exception 'FAILED_PROVIDER_LIMIT_CLAIM_MUTATED_MESSAGE';
+  end if;
+
+  update public.tenant_tweetsms_accounts set monthly_limit=100 where tenant_id=10;
+  select notification_id,segment_count into v_claim_id,v_segments
+  from public.powerhub_claim_sms_notification(1,v_provider_limited_id);
+  if v_claim_id<>v_provider_limited_id or v_segments<>1 then
+    raise exception 'VALID_WALLET_CLAIM_RESULT_WRONG';
+  end if;
+  if (select status from public.notification_messages where id=v_provider_limited_id)<>'processing' then
+    raise exception 'VALID_SMS_CLAIM_DID_NOT_MARK_PROCESSING';
+  end if;
+end
+$test_claim_balance_guards$;
+
 \echo 'SMS wallet admin operations PostgreSQL integration assertions passed'
