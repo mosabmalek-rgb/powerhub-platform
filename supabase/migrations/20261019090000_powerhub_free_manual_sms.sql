@@ -78,6 +78,11 @@ begin
   where n.tenant_id = p_tenant_id and n.operation_key = v_operation_key;
   if found then
     if v_existing.site_id is distinct from p_site_id
+       or v_existing.subscriber_id is distinct from p_subscriber_id
+       or v_existing.channel is distinct from 'sms'
+       or v_existing.event_type is distinct from 'manual'
+       or v_existing.send_type is distinct from 'manual'
+       or v_existing.payload->>'manualFreeText' is distinct from 'true'
        or v_existing.recipient is distinct from v_recipient
        or coalesce(v_existing.payload->>'renderedText', '') is distinct from v_text then
       raise exception 'OPERATION_ID_REUSED_WITH_DIFFERENT_MESSAGE' using errcode = 'P0001';
@@ -102,10 +107,25 @@ begin
   returning id into notification_id;
 
   if notification_id is null then
-    select n.id into notification_id
+    -- A concurrent request may win the unique operation-key insert after our
+    -- first lookup. Revalidate its complete message identity before treating
+    -- that row as an idempotent replay; otherwise two different requests that
+    -- reuse an operation ID could return or dispatch each other's message.
+    select n.* into v_existing
     from public.notification_messages n
     where n.tenant_id = p_tenant_id and n.operation_key = v_operation_key;
-    if notification_id is null then raise exception 'SMS_QUEUE_INSERT_FAILED' using errcode = 'P0001'; end if;
+    if not found then raise exception 'SMS_QUEUE_INSERT_FAILED' using errcode = 'P0001'; end if;
+    if v_existing.site_id is distinct from p_site_id
+       or v_existing.subscriber_id is distinct from p_subscriber_id
+       or v_existing.channel is distinct from 'sms'
+       or v_existing.event_type is distinct from 'manual'
+       or v_existing.send_type is distinct from 'manual'
+       or v_existing.payload->>'manualFreeText' is distinct from 'true'
+       or v_existing.recipient is distinct from v_recipient
+       or coalesce(v_existing.payload->>'renderedText', '') is distinct from v_text then
+      raise exception 'OPERATION_ID_REUSED_WITH_DIFFERENT_MESSAGE' using errcode = 'P0001';
+    end if;
+    notification_id := v_existing.id;
     queued := false;
     return next;
     return;

@@ -4,6 +4,7 @@ import path from "node:path";
 
 const root = process.cwd();
 const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messaging.ts"), "utf8");
+const manualFreeSmsMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261019090000_powerhub_free_manual_sms.sql"), "utf8");
 const invoiceLinksMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223156_powerhub_invoice_message_links.sql"), "utf8");
 const readingVariablesMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014180000_powerhub_invoice_reading_message_variables.sql"), "utf8");
 const manualReadingGuardMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014190000_powerhub_manual_campaign_reading_token_guard.sql"), "utf8");
@@ -195,6 +196,14 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain('eventType === "service_alert"');
     expect(runtime).toContain(':occurrence:${occ.occurrence_key}');
     expect(runtime).toContain('automation:${automation.id}:subscriber:${subscriber.id}');
+  });
+
+  it("validates existing and concurrent manual-free SMS operation replays against full message identity", () => {
+    expect(manualFreeSmsMigration.split("v_existing.subscriber_id is distinct from p_subscriber_id").length - 1).toBe(2);
+    expect(manualFreeSmsMigration.split("v_existing.payload->>'manualFreeText' is distinct from 'true'").length - 1).toBe(2);
+    expect(manualFreeSmsMigration).toContain("select n.* into v_existing");
+    expect(manualFreeSmsMigration).toContain("OPERATION_ID_REUSED_WITH_DIFFERENT_MESSAGE");
+    expect(manualFreeSmsMigration).toContain("on conflict (tenant_id, operation_key) do nothing");
   });
 
   it("supports automation lifecycle and replay-safe execution", () => {
