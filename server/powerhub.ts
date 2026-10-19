@@ -671,7 +671,7 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       const [accountResult, providerMonthResult, walletResult] = await Promise.all([
         admin.from("tenant_tweetsms_accounts").select("sender_name, monthly_limit, is_active, credential_ciphertext, last_error").eq("tenant_id", scope.tenantId).maybeSingle(),
-        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
+        admin.from("notification_messages").select("id, created_at, provider_request_started_at, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").or(`created_at.gte.${monthStart.toISOString()},provider_request_started_at.gte.${monthStart.toISOString()}`).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
         admin.rpc("powerhub_get_sms_quota", { p_tenant_id: scope.tenantId }),
       ]);
       if (accountResult.error || providerMonthResult.error || walletResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل رصيد الرسائل من Supabase." });
@@ -679,7 +679,7 @@ export const powerhubRouter = router({
       const wallet = (Array.isArray(walletResult.data) ? walletResult.data[0] : walletResult.data) as Record<string, unknown> | null;
       const total = Number(wallet?.total_messages ?? 0);
       const used = Number(wallet?.used_segments ?? 0);
-      const providerMonthlyUsed = (providerMonthResult.data ?? []).reduce((sum, message) => sum + Math.max(1, Number(message.segment_count ?? 1)), 0);
+      const providerMonthlyUsed = (providerMonthResult.data ?? []).reduce((sum, message) => { const effectiveAt = message.provider_request_started_at ?? message.created_at; return new Date(effectiveAt) >= monthStart ? sum + Math.max(1, Number(message.segment_count ?? 1)) : sum; }, 0);
       return {
         plan: "sms-wallet", planName: "رصيد SMS الدائم", senderName: account?.sender_name ?? null,
         isActive: account?.is_active ?? false, configured: Boolean(account?.credential_ciphertext),
@@ -696,8 +696,8 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       const [accountResult, messagesResult, providerMonthResult, walletResult] = await Promise.all([
         admin.from("tenant_tweetsms_accounts").select("monthly_limit").eq("tenant_id", scope.tenantId).maybeSingle(),
-        admin.from("notification_messages").select("created_at, status, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", fourteenDaysAgo.toISOString()),
-        admin.from("notification_messages").select("id, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").gte("created_at", monthStart.toISOString()).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
+        admin.from("notification_messages").select("created_at, provider_request_started_at, status, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").or(`created_at.gte.${fourteenDaysAgo.toISOString()},provider_request_started_at.gte.${fourteenDaysAgo.toISOString()}`),
+        admin.from("notification_messages").select("id, created_at, provider_request_started_at, segment_count").eq("tenant_id", scope.tenantId).eq("channel", "sms").or(`created_at.gte.${monthStart.toISOString()},provider_request_started_at.gte.${monthStart.toISOString()}`).in("status", ["processing", "submitted", "delivered", "read", "needs_review"]),
         admin.rpc("powerhub_get_sms_quota", { p_tenant_id: scope.tenantId }),
       ]);
       if (accountResult.error || messagesResult.error || providerMonthResult.error || walletResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استخدام الرسائل من Supabase." });
@@ -706,7 +706,9 @@ export const powerhubRouter = router({
       const daily = new Map<string, number>();
       for (const message of messages) {
         if (!eligibleStatuses.includes(message.status)) continue;
-        const key = new Date(message.created_at).toISOString().slice(0, 10);
+        const effectiveAt = message.provider_request_started_at ?? message.created_at;
+        if (new Date(effectiveAt) < fourteenDaysAgo) continue;
+        const key = new Date(effectiveAt).toISOString().slice(0, 10);
         daily.set(key, (daily.get(key) ?? 0) + Math.max(1, Number(message.segment_count ?? 1)));
       }
       const today = new Date();
@@ -718,7 +720,7 @@ export const powerhubRouter = router({
       const wallet = (Array.isArray(walletResult.data) ? walletResult.data[0] : walletResult.data) as Record<string, unknown> | null;
       const total = Number(wallet?.total_messages ?? 0);
       const used = Number(wallet?.used_segments ?? 0);
-      const providerMonthlyUsed = (providerMonthResult.data ?? []).reduce((sum, message) => sum + Math.max(1, Number(message.segment_count ?? 1)), 0);
+      const providerMonthlyUsed = (providerMonthResult.data ?? []).reduce((sum, message) => { const effectiveAt = message.provider_request_started_at ?? message.created_at; return new Date(effectiveAt) >= monthStart ? sum + Math.max(1, Number(message.segment_count ?? 1)) : sum; }, 0);
       const providerMonthlyLimit = Number(accountResult.data?.monthly_limit ?? 0);
       return { points, included: 0, additional: total, total, used, remaining: Number(wallet?.remaining_messages ?? Math.max(0, total - used)), providerMonthlyLimit, providerMonthlyUsed, providerMonthlyRemaining: Math.max(0, providerMonthlyLimit - providerMonthlyUsed) };
     }),
