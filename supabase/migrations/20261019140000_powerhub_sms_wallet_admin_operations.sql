@@ -20,6 +20,9 @@ begin
    raise exception 'IDEMPOTENCY_KEY_REUSED' using errcode='23505'; end if;
   return query select v_row.id,v_row.tenant_id,v_row.status; return;
  end if;
+ if exists(select 1 from public.tenant_sms_recharge_ledger l where l.tenant_id=p_tenant_id and l.status='pending') then
+  raise exception 'SMS_RECHARGE_REQUEST_PENDING' using errcode='55000';
+ end if;
  select s.id into v_site_id from public.sites s where s.tenant_id=p_tenant_id and s.status<>'archived' order by s.id limit 1;
  insert into public.tenant_sms_recharge_ledger(tenant_id,request_id,provider_mode,status,requested_messages,credited_messages,
   idempotency_key,requested_by_user_id,note)
@@ -44,8 +47,8 @@ begin
  select u.platform_role into v_role from public.users u where u.id=p_actor_user_id and u.role='admin'
   and u.account_status='active' and u.platform_role in('platform_owner','platform_admin');
  if v_role is null then raise exception 'FORBIDDEN_PLATFORM_ROLE' using errcode='42501'; end if;
- if p_code is null or trim(p_code)='' or p_name is null or trim(p_name)='' or p_messages<1 or p_messages>100000000
-  or p_price<0 or length(p_currency)<>3 then raise exception 'INVALID_SMS_PACKAGE' using errcode='22023'; end if;
+ if p_code is null or trim(p_code)='' or p_name is null or trim(p_name)='' or p_messages is null or p_messages<1 or p_messages>100000000
+  or p_price is null or p_price<0 or p_currency is null or length(trim(p_currency))<>3 then raise exception 'INVALID_SMS_PACKAGE' using errcode='22023'; end if;
  if exists(select 1 from public.platform_sms_plans p where lower(p.code)=lower(trim(p_code))) then
   raise exception 'DUPLICATE_CODE' using errcode='23505'; end if;
  insert into public.platform_sms_plans(code,name,description,included_messages,price_amount,currency,is_active,created_at,updated_at)

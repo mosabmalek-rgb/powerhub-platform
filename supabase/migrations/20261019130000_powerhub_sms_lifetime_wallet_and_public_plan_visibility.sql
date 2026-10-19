@@ -6,6 +6,40 @@ alter table public.sms_package_requests add column if not exists sms_plan_id big
  add column if not exists requested_price numeric(12,2) not null default 0,
  add column if not exists currency text not null default 'ILS';
 
+-- Freeze wallet usage accounting at cutover so historical/test SMS does not
+-- silently consume newly funded wallet credit.
+create table if not exists public.tenant_sms_wallets (
+ tenant_id bigint primary key references public.tenants(id) on delete cascade,
+ accounting_started_at timestamptz not null default now(),
+ created_at timestamptz not null default now(),
+ updated_at timestamptz not null default now()
+);
+alter table public.tenant_sms_wallets enable row level security;
+revoke all on table public.tenant_sms_wallets from public,anon,authenticated;
+grant all on table public.tenant_sms_wallets to service_role;
+
+insert into public.tenant_sms_wallets(tenant_id,accounting_started_at)
+select t.id,now() from public.tenants t
+on conflict(tenant_id) do nothing;
+
+create or replace function public.powerhub_initialize_sms_wallet_accounting()
+returns trigger
+language plpgsql
+security definer
+set search_path=public,pg_temp
+as $function$
+begin
+ insert into public.tenant_sms_wallets(tenant_id,accounting_started_at)
+ values(new.id,now()) on conflict(tenant_id) do nothing;
+ return new;
+end;
+$function$;
+revoke all on function public.powerhub_initialize_sms_wallet_accounting() from public,anon,authenticated;
+drop trigger if exists powerhub_initialize_sms_wallet_accounting on public.tenants;
+create trigger powerhub_initialize_sms_wallet_accounting
+ after insert on public.tenants
+ for each row execute function public.powerhub_initialize_sms_wallet_accounting();
+
 insert into public.tenant_sms_recharge_ledger(tenant_id,request_id,provider_mode,status,requested_messages,credited_messages,
  idempotency_key,requested_by_user_id,processed_by_user_id,confirmed_at,note,created_at,updated_at)
 select r.tenant_id,r.id,'manual','manual_confirmed',greatest(r.requested_messages,coalesce(r.approved_messages,0)),r.approved_messages,
@@ -13,6 +47,22 @@ select r.tenant_id,r.id,'manual','manual_confirmed',greatest(r.requested_message
  nullif(trim(coalesce(r.note,'')),''),coalesce(r.reviewed_at,r.created_at),now()
 from public.sms_package_requests r where r.status='approved' and coalesce(r.approved_messages,0)>0
  and not exists(select 1 from public.tenant_sms_recharge_ledger l where l.request_id=r.id);
+
+-- Repair a legacy state where an approved purchase already has a linked ledger
+-- row but that row is still pending. Update the same row; never duplicate credit.
+update public.tenant_sms_recharge_ledger l
+set status='manual_confirmed',
+    requested_messages=greatest(l.requested_messages,r.approved_messages),
+    credited_messages=r.approved_messages,
+    processed_by_user_id=coalesce(r.reviewed_by_user_id,l.processed_by_user_id),
+    confirmed_at=coalesce(r.reviewed_at,r.updated_at,r.created_at,now()),
+    failure_reason=null,
+    updated_at=now()
+from public.sms_package_requests r
+where l.request_id=r.id
+  and r.status='approved'
+  and coalesce(r.approved_messages,0)>0
+  and l.status='pending';
 
 insert into public.platform_sms_plans(code,name,description,included_messages,price_amount,currency,is_active,created_at,updated_at)
 select 'sms-'||((item->>'messages')::integer)::text,'حزمة '||((item->>'messages')::integer)::text||' رسالة',
@@ -188,13 +238,6 @@ as $function$
       and l.tenant_id=p_tenant_id
       and l.status in ('provider_confirmed','manual_confirmed')
       and l.confirmed_at is not null
-      and (l.request_id is null or exists (
-        select 1
-        from public.sms_package_requests r
-        join public.tenant_subscriptions ts on ts.id=r.subscription_id
-        where r.id=l.request_id
-          and ts.ends_at>now()
-      ))
   )
   select
     p_feature_key,
@@ -239,8 +282,9 @@ returns table(subscription_id bigint,sms_plan_id bigint,plan_code text,plan_name
 language sql security definer set search_path='public','pg_temp'
 as $function$
 with subscription as (
- select ts.id,ts.sms_plan_id,lower(btrim(ts.package_code)) package_code from public.tenant_subscriptions ts
- where ts.tenant_id=p_tenant_id order by ts.created_at desc,ts.id desc limit 1
+ select ts.id,ts.sms_plan_id,lower(btrim(ts.package_code)) package_code
+ from public.tenant_subscriptions ts where ts.tenant_id=p_tenant_id
+ order by ts.created_at desc,ts.id desc limit 1
 ),
 pkg as (
  select s.id subscription_id,s.sms_plan_id,s.package_code,coalesce(p->>'name',s.package_code) plan_name
@@ -252,11 +296,19 @@ credits as (
  where l.tenant_id=p_tenant_id and l.status in('provider_confirmed','manual_confirmed') and l.confirmed_at is not null
 ),
 usage as (
- select coalesce(sum(greatest(coalesce(m.segment_count,1),1)),0)::bigint used from public.notification_messages m
- where m.tenant_id=p_tenant_id and m.channel='sms' and m.status in('processing','submitted','delivered','read','needs_review')
+ select coalesce(sum(greatest(coalesce(m.segment_count,1),1)),0)::bigint used
+ from public.notification_messages m
+ left join public.tenant_sms_wallets w on w.tenant_id=m.tenant_id
+ where m.tenant_id=p_tenant_id
+  and m.created_at>=coalesce(w.accounting_started_at,now())
+  and m.channel='sms' and m.status in('processing','submitted','delivered','read','needs_review')
 )
 select pkg.subscription_id,pkg.sms_plan_id,pkg.package_code,pkg.plan_name,0::bigint,credits.total,credits.total,usage.used,
- greatest(credits.total-usage.used,0) from pkg cross join credits cross join usage;
+ greatest(credits.total-usage.used,0)
+from (select 1) anchor
+left join pkg on true
+cross join credits
+cross join usage;
 $function$;
 revoke all on function public.powerhub_get_sms_quota(bigint,timestamptz) from public,anon,authenticated;
 grant execute on function public.powerhub_get_sms_quota(bigint,timestamptz) to service_role;
@@ -482,7 +534,10 @@ begin
   from public.tenant_sms_recharge_ledger l where l.status in('provider_confirmed','manual_confirmed') and l.confirmed_at is not null group by l.tenant_id
  ), all_usage as (
   select m.tenant_id,coalesce(sum(greatest(coalesce(m.segment_count,1),1)),0)::bigint used
-  from public.notification_messages m where m.channel='sms' and m.status in('processing','submitted','delivered','read','needs_review') group by m.tenant_id
+  from public.notification_messages m
+  left join public.tenant_sms_wallets w on w.tenant_id=m.tenant_id
+  where m.channel='sms' and m.created_at>=coalesce(w.accounting_started_at,now())
+   and m.status in('processing','submitted','delivered','read','needs_review') group by m.tenant_id
  ), month_usage as (
   select m.tenant_id,coalesce(sum(greatest(coalesce(m.segment_count,1),1)),0)::bigint used
   from public.notification_messages m where m.channel='sms' and m.created_at>=date_trunc('month',now())
@@ -655,7 +710,9 @@ begin
 
   select coalesce(sum(greatest(coalesce(messages.segment_count,1),1)),0)::integer into v_used_wallet_segments
   from public.notification_messages messages
+  left join public.tenant_sms_wallets sms_wallet on sms_wallet.tenant_id=messages.tenant_id
   where messages.tenant_id=v_message.tenant_id and messages.channel='sms' and messages.id<>v_message.id
+   and messages.created_at>=coalesce(sms_wallet.accounting_started_at,now())
    and messages.status in('processing','submitted','delivered','read','needs_review');
   select coalesce(sum(greatest(coalesce(messages.segment_count,1),1)),0)::integer into v_used_segments
   from public.notification_messages messages
