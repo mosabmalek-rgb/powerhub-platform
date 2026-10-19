@@ -166,7 +166,8 @@ insert into public.tenants(id,name) values
   (12,'مولد بلا فرع'),
   (13,'مولد سجل معتمد قديم'),
   (14,'مولد سجل معتمد بلا حركة'),
-  (15,'مولد دون رصيد');
+  (15,'مولد دون رصيد'),
+  (21,'مولد اختبار باقة مخصصة');
 insert into public.sites(id,tenant_id,status) values
   (101,10,'active'),
   (111,11,'active'),
