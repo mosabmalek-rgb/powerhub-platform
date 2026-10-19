@@ -48,6 +48,7 @@ const state = vi.hoisted(() => {
         select: () => query,
         eq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] === value); return query; },
         in: (column: string, values: unknown[]) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || values.includes((row as Record<string, unknown>)[column])); return query; },
+        gt: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => { const record = row as Record<string, unknown>; return !(column in record) || (record[column] != null && Number(record[column]) > Number(value)); }); return query; },
         or: (expression: string) => { const match = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/); if (match) { const siteId = Number(match[1]); filteredRows = filteredRows.filter((row) => { const siteValue = (row as Record<string, unknown>).site_id; return siteValue === siteId || siteValue === null; }); } return query; },
         is: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => (row as Record<string, unknown>)[column] === value); return query; },
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
