@@ -22,7 +22,7 @@ begin
     select pg_get_functiondef(v_signature) into v_definition;
     v_updated := regexp_replace(
       v_definition,
-      'select[[:space:]]+site_id[[:space:]]+into[[:space:]]+v_site_id[[:space:]]+from[[:space:]]+public[.]subscribers[[:space:]]+where[[:space:]]+id[[:space:]]*=[[:space:]]*v_message[.]subscriber_id[[:space:]]+and[[:space:]]+tenant_id[[:space:]]*=[[:space:]]*v_message[.]tenant_id[[:space:]]*;',
+      'select[[:space:]]+(subscriber[.])?site_id[[:space:]]+into[[:space:]]+v_site_id[[:space:]]+from[[:space:]]+public[.]subscribers([[:space:]]+as[[:space:]]+subscriber)?[[:space:]]+where[[:space:]]+(subscriber[.])?id[[:space:]]*=[[:space:]]*v_message[.]subscriber_id[[:space:]]+and[[:space:]]+(subscriber[.])?tenant_id[[:space:]]*=[[:space:]]*v_message[.]tenant_id[[:space:]]*;',
       'select coalesce(v_message.site_id, (select subscriber.site_id from public.subscribers as subscriber where subscriber.id = v_message.subscriber_id and subscriber.tenant_id = v_message.tenant_id)) into v_site_id;',
       'gi'
     );
