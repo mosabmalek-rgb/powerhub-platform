@@ -500,9 +500,10 @@ describe("role guards in administration UI", () => {
     expect(screen.queryByRole("button", { name: /تسجيل الدفعة/ })).not.toBeInTheDocument();
   });
 
-  it("shows payment entry to the collector", () => {
+  it("shows payment entry to the collector after opening the collapsed collection card", () => {
     mocks.activeRole = "collector";
     render(<OperationsPage section="collections" />);
+    fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     expect(screen.getByRole("button", { name: /تسجيل الدفعة/ })).toBeInTheDocument();
   });
 
