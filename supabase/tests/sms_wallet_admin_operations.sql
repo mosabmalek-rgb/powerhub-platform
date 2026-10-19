@@ -165,12 +165,14 @@ insert into public.tenants(id,name) values
   (11,'مولد اختبار رفض'),
   (12,'مولد بلا فرع'),
   (13,'مولد سجل معتمد قديم'),
-  (14,'مولد سجل معتمد بلا حركة');
+  (14,'مولد سجل معتمد بلا حركة'),
+  (15,'مولد دون رصيد');
 insert into public.sites(id,tenant_id,status) values
   (101,10,'active'),
   (111,11,'active'),
   (131,13,'active'),
-  (141,14,'active');
+  (141,14,'active'),
+  (151,15,'active');
 insert into public.platform_settings(setting_key,is_enabled,value) values
  ('subscription_package_catalog',true,
   '{"currency":"ILS","version":1,"packages":[{"code":"basic","name":"الناشئة","includedMessages":600,"smsCost":50,"features":{"sms":true,"expenses":true}}],"smsAddons":[{"messages":1000,"price":12},{"messages":2000,"price":20}]}'::jsonb);
@@ -206,7 +208,7 @@ declare
   v_active boolean;
 begin
   select id into v_plan_id
-    from public.powerhub_admin_create_sms_credit_package(1,'sms-1000','حزمة 1000','اختبار',1000,12,' ils ',true);
+    from public.powerhub_admin_create_sms_credit_package(1,'sms-test-1500','حزمة اختبار 1500','اختبار',1500,12,' ils ',true);
   select price_amount,currency,included_messages,is_active into v_price,v_currency,v_qty,v_active
     from public.platform_sms_plans where id=v_plan_id;
   if v_price<>12 or v_currency<>'ILS' or v_qty<>1000 or not v_active then
