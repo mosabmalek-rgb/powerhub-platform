@@ -46,7 +46,7 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(adminWalletMigration).toContain("Use the same lock order as package-request review");
     expect(adminWalletMigration).toContain("perform 1");
     expect(adminWalletMigration.indexOf("from public.sms_package_requests r")).toBeLessThan(
-      adminWalletMigration.lastIndexOf("from public.tenant_sms_recharge_ledger l\\n  where l.id=p_ledger_id\\n  for update"),
+      adminWalletMigration.lastIndexOf("from public.tenant_sms_recharge_ledger l\n  where l.id=p_ledger_id\n  for update"),
     );
     expect(rechargeHardeningMigration).toContain("for update");
     expect(rechargeHardeningMigration).toContain("SMS_RECHARGE_ALREADY_FINALIZED");
