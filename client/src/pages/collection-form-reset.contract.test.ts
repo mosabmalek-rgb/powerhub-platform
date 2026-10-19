@@ -33,6 +33,22 @@ describe("collection and entry form reset contracts", () => {
     expect(directory).toContain('إفراغ الحقول');
   });
 
+  it("refreshes invoice pages only after successful invoice creation/sync and scopes cache updates to the active site", () => {
+    const operations = read("client/src/pages/OperationsPage.tsx");
+    expect(operations).toContain('utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 100 })');
+    expect(operations).toContain('utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 200 })');
+
+    const meterReadings = read("client/src/pages/MeterReadingsPage.tsx");
+    expect(meterReadings).toContain('utils.powerhub.invoices.page.invalidate({ siteId: refreshSiteId, limit: 100 })');
+    expect(meterReadings).toContain('utils.powerhub.invoices.page.invalidate({ siteId: refreshSiteId, limit: 200 })');
+
+    const offlineSync = read("client/src/components/OfflineWorkSyncPanel.tsx");
+    expect(offlineSync).toContain('const successfulInvoiceIssues = results.filter');
+    expect(offlineSync).toContain('if (successfulInvoiceIssues.length > 0)');
+    expect(offlineSync).toContain('utils.powerhub.invoices.page.invalidate({ siteId, limit: 100 })');
+    expect(offlineSync).toContain('utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 })');
+  });
+
   it("preserves the two-decimal reading validation and clears the reading form after success", () => {
     const readings = read("client/src/components/ReadingWorkflowPanel.tsx");
     expect(readings).toContain('/^\\d+(\\.\\d{1,2})?$/');
