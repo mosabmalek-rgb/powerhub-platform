@@ -476,7 +476,9 @@ export const powerhubRouter = router({
   unifiedMessaging: powerhubUnifiedMessagingRouter,
   siteBillingPolicy: router({
     get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"]);
+      // Read-only policy fields are needed to keep message previews consistent for messaging managers;
+      // mutation of billing policy remains owner-only below.
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_site_billing_policy", { p_tenant_id: scope.tenantId, p_site_id: input.siteId });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سياسة الحد الأدنى والتسويات." });
       const row = Array.isArray(data) ? data[0] : data;
