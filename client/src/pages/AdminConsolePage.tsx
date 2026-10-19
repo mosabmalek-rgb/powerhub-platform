@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { AdvancedDashboard, ComplaintsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OperationalMonitoringPanel, OwnerLifecyclePanel, OwnerUsagePriorityFiltersPanel, OwnerUsageQuickActionsPanel, OwnerUsageReportPanel, PlatformControlPanel, PlatformRolePoliciesPanel, SubscriptionPackageCatalogPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
+import { AdvancedDashboard, ComplaintsPanel, GeneratorDirectorySearch, GeneratorInspector, InvoiceDeliverySettingsPanel, OperationalMonitoringPanel, OwnerLifecyclePanel, OwnerUsagePriorityFiltersPanel, OwnerUsageQuickActionsPanel, OwnerUsageReportPanel, PlatformControlPanel, PlatformRolePoliciesPanel, PublicPlanVisibilityPanel, SmsWalletAdministrationPanel, SubscriptionPackageCatalogPanel, SubscriptionUpgradeRequestsPanel } from "./AdminAdvancedWorkspace";
 import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import PlatformTweetSmsReport from "./PlatformTweetSmsReport";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
@@ -22,7 +22,7 @@ import { useLocation } from "wouter";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS, loadPdfDependencies } from "@/lib/lazy-report-deps";
 
-type Tab = "overview" | "generators" | "ownerSubscription" | "subscriptionRequests" | "users" | "supportChat" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "complaints" | "notifications" | "announcements" | "security" | "settings";
+type Tab = "overview" | "generators" | "ownerSubscription" | "subscriptionRequests" | "users" | "supportChat" | "finance" | "reports" | "invoiceDelivery" | "tweetSms" | "tweetSmsReport" | "smsWallet" | "complaints" | "notifications" | "announcements" | "security" | "settings";
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const formatNumber = (value: unknown) => new Intl.NumberFormat("ar").format(Number(value ?? 0));
 const formatDate = (value: Date | string | null | undefined) => value ? formatReportDate(value) : "—";
@@ -104,10 +104,11 @@ export default function AdminConsolePage() {
     {tab === "invoiceDelivery" && <InvoiceDeliverySettingsPanel />}
     {tab === "tweetSms" && <TweetSmsAccountsCenter accounts={tweetSmsAccounts.data ?? []} savePending={saveTweetSmsAccount.isPending} testPending={testTweetSmsAccount.isPending} onSave={saveTweetSmsAccount.mutate} onTest={testTweetSmsAccount.mutate} />}
     {tab === "tweetSmsReport" && <PlatformTweetSmsReport />}
+    {tab === "smsWallet" && <SmsWalletAdministrationPanel />}
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
     {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
-    {tab === "settings" && <><PlatformControlPanel /><SubscriptionPackageCatalogPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
+    {tab === "settings" && <><PlatformControlPanel /><PublicPlanVisibilityPanel /><SubscriptionPackageCatalogPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
   </main></PlatformAdminLayout>;
 }
 
