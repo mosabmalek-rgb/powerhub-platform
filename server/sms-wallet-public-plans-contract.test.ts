@@ -92,6 +92,7 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(subscriptionEditor).toContain("export function PublicPlanVisibilityPanel");
     expect(landing).toContain("catalog.data?.showPlans !== false");
     expect(landing).toContain('{showPlans ? <a href="#plans"');
+    expect(landing).toContain('{showPlans ? <a href="#plans" className="hover:text-[#F5B800]">الباقات</a> : null}');
     expect(landing).toContain('{showPlans ? <section id="plans"');
     expect(landing).toContain('<section id="contact"');
     expect(landing).not.toContain("رسالة SMS");
