@@ -33,8 +33,11 @@ describe("SMS permanent wallet and public plan visibility", () => {
   it("requires explicit, idempotent server-side recharge confirmation", () => {
     expect(adminWalletMigration).toContain("powerhub_admin_create_sms_recharge_request");
     expect(adminWalletMigration).toContain("SMS_RECHARGE_REQUEST_PENDING");
-    expect(adminWalletMigration).toContain("p_idempotency_key");
-    expect(rechargeHardeningMigration).toContain("powerhub_admin_confirm_sms_recharge");
+    expect(adminWalletMigration).toContain("if v_site_id is null then raise exception 'SITE_NOT_FOUND'");
+    expect(adminWalletMigration).toContain("insert into public.platform_security_events");
+    expect(adminWalletMigration).not.toContain("insert into public.audit_logs(user_id,actor_platform_role,entity_type,entity_id,action,after_data)");
+    expect(adminWalletMigration).toContain("powerhub_admin_confirm_sms_recharge");
+    expect(adminWalletMigration).toContain("order by (s.status<>'archived') desc, s.id");
     expect(rechargeHardeningMigration).toContain("for update");
     expect(rechargeHardeningMigration).toContain("SMS_RECHARGE_ALREADY_FINALIZED");
     expect(rechargeHardeningMigration).toContain("revoke all on function public.powerhub_admin_confirm_sms_recharge");
