@@ -435,6 +435,7 @@ begin
     end if;
     update public.tenant_sms_recharge_ledger
     set status=case when p_status='approved' then 'manual_confirmed' else 'failed' end,
+        requested_messages=case when p_status='approved' then greatest(requested_messages,p_approved_messages) else requested_messages end,
         credited_messages=case when p_status='approved' then p_approved_messages else 0 end,
         processed_by_user_id=p_actor_user_id,confirmed_at=case when p_status='approved' then now() else null end,
         failure_reason=case when p_status='rejected' then coalesce(nullif(trim(p_note),''),'تم رفض طلب الحزمة من إدارة المنصة.') else null end,
