@@ -28,6 +28,9 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(walletMigration).toContain("and l.status='pending'");
     expect(walletMigration).toContain("set status='manual_confirmed'");
     expect(walletMigration).toContain("and l.confirmed_at is not null");
+    expect(walletMigration).not.toContain("powerhub_admin_grant_sms_wallet_credit");
+    expect(adminWalletMigration).toContain("powerhub_admin_create_sms_recharge_request");
+    expect(adminWalletMigration).toContain("powerhub_admin_confirm_sms_recharge");
   });
 
   it("requires explicit, idempotent server-side recharge confirmation", () => {
