@@ -144,8 +144,6 @@ export function WorkspaceHome() {
     : financialOverviewQuery.isLoading ? "…" : ratio(value);
   const activeSubscribers = overview?.branchSummaries.reduce((sum, branch) => sum + branch.activeSubscribers, 0) ?? 0;
   const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
-  const smsAlertKey = smsQuotaQuery.data ? `${smsQuotaQuery.data.total}:${smsQuotaQuery.data.used}:${smsQuotaQuery.data.remaining}` : null;
-  useEffect(() => { if (smsAlertKey && hiddenSmsAlertKey && hiddenSmsAlertKey !== smsAlertKey) { setHiddenSmsAlertKey(null); window.localStorage.removeItem("powerhub.sms-alert-hidden"); } }, [hiddenSmsAlertKey, smsAlertKey]);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) { setLocation("/login"); return; }
