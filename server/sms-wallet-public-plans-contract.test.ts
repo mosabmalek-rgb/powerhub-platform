@@ -91,6 +91,8 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(subscriptionEditor).toContain("crypto.randomUUID()");
     expect(subscriptionEditor).toContain("JSON.stringify({tenantId:owner,messages:amount,note:reason})");
     expect(subscriptionEditor).toContain("rechargeRequestFingerprint===fingerprint&&rechargeIdempotencyKey");
+    expect(subscriptionEditor).toContain('result.replayed?"كان الشحن مؤكداً مسبقاً؛ لم تتم إضافة الرصيد مرة أخرى.":"تم تأكيد الشحن وتحديث المحفظة."');
+    expect(subscriptionEditor).not.toContain("confirmRecharge.mutate({ledgerId:row.id,creditedMessages:qty,note:row.note??undefined})");
   });
 
   it("only returns allow-listed public subscription fields and does not resurrect disabled plans", () => {
