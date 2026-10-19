@@ -29,15 +29,19 @@ security definer
 set search_path=public,pg_temp
 as $function$
 begin
+ -- Existing tenants are seeded at cutover time above; new tenants start accounting
+ -- from creation of their first subscription. ON CONFLICT preserves that first date
+ -- across renewals, plan changes, and later subscription rows.
  insert into public.tenant_sms_wallets(tenant_id,accounting_started_at)
- values(new.id,now()) on conflict(tenant_id) do nothing;
+ values(new.tenant_id,coalesce(new.created_at,now())) on conflict(tenant_id) do nothing;
  return new;
 end;
 $function$;
 revoke all on function public.powerhub_initialize_sms_wallet_accounting() from public,anon,authenticated;
 drop trigger if exists powerhub_initialize_sms_wallet_accounting on public.tenants;
+drop trigger if exists powerhub_initialize_sms_wallet_accounting on public.tenant_subscriptions;
 create trigger powerhub_initialize_sms_wallet_accounting
- after insert on public.tenants
+ after insert on public.tenant_subscriptions
  for each row execute function public.powerhub_initialize_sms_wallet_accounting();
 
 insert into public.tenant_sms_recharge_ledger(tenant_id,request_id,provider_mode,status,requested_messages,credited_messages,
