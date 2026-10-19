@@ -1014,6 +1014,60 @@ export const powerhubUnifiedMessagingRouter = router({
     return {id:Number(data[0].id),enabled:Boolean(data[0].enabled),archived:Boolean(data[0].archived_at)};
   }),
 
+  sendManualFreeText: protectedProcedure.input(z.object({
+    siteId:z.number().int().positive(),
+    recipientMode:z.enum(["subscriber","phone"]),
+    subscriberId:z.number().int().positive().nullable(),
+    phone:z.string().trim().max(80).default(""),
+    message:z.string().trim().min(1).max(2000),
+    operationId:z.string().uuid(),
+  })).mutation(async({ctx,input})=>{
+    const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageMessaging");
+    if(input.recipientMode==="subscriber"&&!input.subscriberId) throw new TRPCError({code:"BAD_REQUEST",message:"اختر المشترك المراد إرسال الرسالة إليه."});
+    if(input.recipientMode==="phone"&&input.subscriberId!==null) throw new TRPCError({code:"BAD_REQUEST",message:"أدخل رقم الهاتف فقط أو اختر مشتركاً، وليس كليهما."});
+    let recipient=input.phone.trim();
+    let subscriberId:number|null=null;
+    if(input.recipientMode==="subscriber"){
+      const {data:subscriber,error}=await supabaseAdmin().from("subscribers")
+        .select("id,phone").eq("id",input.subscriberId!).eq("tenant_id",access.tenantId).eq("site_id",input.siteId).is("archived_at",null).maybeSingle();
+      if(error||!subscriber) throw new TRPCError({code:"NOT_FOUND",message:"المشترك غير موجود ضمن الفرع المحدد."});
+      if(!subscriber.phone) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا يوجد رقم هاتف مسجل لهذا المشترك."});
+      recipient=String(subscriber.phone); subscriberId=Number(subscriber.id);
+    }
+    try { recipient = normalizeInternationalPhone(recipient); }
+    catch(error) { throw new TRPCError({code:"BAD_REQUEST",message:error instanceof Error?error.message:"أدخل رقم هاتف بصيغة دولية صحيحة."}); }
+    const {data:policy,error:policyError}=await supabaseAdmin().from("platform_settings").select("is_enabled,value").eq("setting_key","invoice_delivery_channels").maybeSingle();
+    if(policyError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من تفعيل قناة SMS."});
+    if(!policy?.is_enabled||(policy.value as any)?.smsEnabled===false) throw new TRPCError({code:"PRECONDITION_FAILED",message:"قناة SMS غير مفعلة حالياً."});
+    const {data:account,error:accountError}=await supabaseAdmin().from("tenant_tweetsms_accounts")
+      .select("is_active,api_endpoint,credential_ciphertext,credential_iv,sender_name")
+      .eq("tenant_id",access.tenantId).maybeSingle();
+    if(accountError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من ربط TweetSMS."});
+    if(!account||!account.is_active||![account.api_endpoint,account.credential_ciphertext,account.credential_iv,account.sender_name].every((v:any)=>typeof v==="string"&&v.trim()))
+      throw new TRPCError({code:"PRECONDITION_FAILED",message:"ربط TweetSMS غير جاهز؛ لم تُرسل الرسالة."});
+    const {data:queued,error}=await supabaseAdmin().rpc("powerhub_prepare_manual_free_sms",{
+      p_tenant_id:access.tenantId,p_site_id:input.siteId,p_subscriber_id:subscriberId,
+      p_recipient:recipient,p_rendered_text:input.message.trim(),p_operation_id:input.operationId,p_actor_user_id:ctx.user.id,
+    });
+    if(error) {
+      const code=String(error.message??"");
+      if(code.includes("SMS_CHANNEL_DISABLED")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"قناة SMS غير مفعلة حالياً."});
+      if(code.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({code:"NOT_FOUND",message:"المشترك غير موجود ضمن الفرع المحدد."});
+      throw new TRPCError({code:"PRECONDITION_FAILED",message:"تعذر تجهيز الرسالة اليدوية؛ راجع بيانات الإرسال وحاول مجدداً."});
+    }
+    const row=Array.isArray(queued)?queued[0]:queued;
+    const notificationId=Number(row?.notification_id);
+    if(!Number.isSafeInteger(notificationId)||notificationId<1) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم يُنشأ سجل الرسالة في طابور SMS."});
+    if(row?.queued===false) {
+      const {data:existing,error:existingError}=await supabaseAdmin().from("notification_messages")
+        .select("id,status,last_error").eq("tenant_id",access.tenantId).eq("id",notificationId).maybeSingle();
+      if(existingError||!existing) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل نتيجة الإرسال السابق."});
+      return {notificationId,recipient,status:existing.status,error:existing.last_error??null,replayed:true,queued:false};
+    }
+    const dispatch=await processNotificationById(notificationId,ctx.user.id);
+    return {notificationId,recipient,...dispatch,replayed:false,queued:true};
+  }),
+
   sendManual: protectedProcedure.input(z.object({
     siteId:z.number().int().positive(),templateId:z.number().int().positive(),subscriberIds:z.array(z.number().int().positive()).min(1).max(500),operationId:z.string().uuid(),
   })).mutation(async({ctx,input})=>{
