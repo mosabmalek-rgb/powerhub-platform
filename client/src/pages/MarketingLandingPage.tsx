@@ -97,7 +97,6 @@ export default function MarketingLandingPage() {
       `${Number(pkg.platformUsers ?? 0)} مستخدمو منصة`,
       `${Number(pkg.fieldUsers ?? 0)} مستخدمون ميدانيون`,
       `${Number(pkg.branches ?? 0)} فرع${Number(pkg.branches ?? 0) === 1 ? "" : "ان"}`,
-      "الرسائل القصيرة تُشترى برصيد مستقل",
     ],
     action: index === 1 ? "اختر الباقة" : "ابدأ بمساحتك",
     price: Number(pkg.price),
