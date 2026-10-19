@@ -359,7 +359,6 @@ $test_rejection_and_privileges$;
 -- Exercise the wallet accounting cutover rule: pre-existing tenants are seeded
 -- at activation time; a new tenant uses the first subscription's created_at,
 -- and later subscriptions must never reset that first timestamp.
-\ir _sms_wallet_accounting_cutover_extracted.sql
 
 insert into public.tenants(id,name,created_at) values(20,'مولد جديد','2026-09-01T00:00:00Z');
 insert into public.tenant_subscriptions(tenant_id,created_at) values(20,'2026-09-10T00:00:00Z');
