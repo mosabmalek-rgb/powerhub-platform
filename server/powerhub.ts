@@ -659,7 +659,6 @@ export const powerhubRouter = router({
     return {
       currency: typeof value.currency === "string" ? value.currency : fallback.currency,
       version: Number(value.version ?? 1),
-      message: catalog.message ?? null,
       showPlans,
       packages,
       addons: {},
