@@ -299,6 +299,7 @@ declare
   v_request_id bigint;
   v_second_request_id bigint;
   v_status text;
+  v_ledger_status text;
   v_credit integer;
   v_replayed boolean;
   v_price numeric;
@@ -310,11 +311,11 @@ begin
   select request_id into v_request_id
   from public.powerhub_request_sms_package_plan(11,111,3,v_plan_id,'طلب حزمة تجريبي');
   select r.status,r.requested_price,l.status,l.credited_messages
-    into v_status,v_price, v_status,v_credit
+    into v_status,v_price,v_ledger_status,v_credit
   from public.sms_package_requests r
   join public.tenant_sms_recharge_ledger l on l.request_id=r.id
   where r.id=v_request_id;
-  if v_status<>'pending' or v_credit<>0 then
+  if v_status<>'pending' or v_ledger_status<>'pending' or v_credit<>0 then
     raise exception 'CUSTOMER_PACKAGE_REQUEST_CREDITED_BEFORE_REVIEW';
   end if;
   if (select requested_price from public.sms_package_requests where id=v_request_id)<>12 then
