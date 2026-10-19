@@ -7,7 +7,10 @@ alter table public.sms_package_requests add column if not exists sms_plan_id big
  add column if not exists currency text not null default 'ILS';
 
 -- Freeze wallet usage accounting at cutover so historical/test SMS does not
--- silently consume newly funded wallet credit.
+-- silently consume newly funded wallet credit. For a queued legacy message that is
+-- actually dispatched after cutover, count the provider-request start timestamp.
+-- This keeps historical deliveries excluded without letting old pending rows bypass
+-- the prepaid wallet or the provider-monthly limit when they are sent later.
 create table if not exists public.tenant_sms_wallets (
  tenant_id bigint primary key references public.tenants(id) on delete cascade,
  accounting_started_at timestamptz not null default now(),
@@ -304,7 +307,7 @@ usage as (
  from public.notification_messages m
  left join public.tenant_sms_wallets w on w.tenant_id=m.tenant_id
  where m.tenant_id=p_tenant_id
-  and m.created_at>=coalesce(w.accounting_started_at,now())
+  and coalesce(m.provider_request_started_at,m.created_at)>=coalesce(w.accounting_started_at,now())
   and m.channel='sms' and m.status in('processing','submitted','delivered','read','needs_review')
 )
 select pkg.subscription_id,pkg.sms_plan_id,pkg.package_code,pkg.plan_name,0::bigint,credits.total,credits.total,usage.used,
@@ -506,11 +509,11 @@ begin
   select m.tenant_id,coalesce(sum(greatest(coalesce(m.segment_count,1),1)),0)::bigint used
   from public.notification_messages m
   left join public.tenant_sms_wallets w on w.tenant_id=m.tenant_id
-  where m.channel='sms' and m.created_at>=coalesce(w.accounting_started_at,now())
+  where m.channel='sms' and coalesce(m.provider_request_started_at,m.created_at)>=coalesce(w.accounting_started_at,now())
    and m.status in('processing','submitted','delivered','read','needs_review') group by m.tenant_id
  ), month_usage as (
   select m.tenant_id,coalesce(sum(greatest(coalesce(m.segment_count,1),1)),0)::bigint used
-  from public.notification_messages m where m.channel='sms' and m.created_at>=date_trunc('month',now())
+  from public.notification_messages m where m.channel='sms' and coalesce(m.provider_request_started_at,m.created_at)>=date_trunc('month',now())
    and m.status in('processing','submitted','delivered','read','needs_review') group by m.tenant_id
  )
  select t.id,t.name,coalesce(op.company_name,t.name),op.full_name,coalesce(c.total,0),coalesce(u.used,0),
@@ -682,12 +685,12 @@ begin
   from public.notification_messages messages
   left join public.tenant_sms_wallets sms_wallet on sms_wallet.tenant_id=messages.tenant_id
   where messages.tenant_id=v_message.tenant_id and messages.channel='sms' and messages.id<>v_message.id
-   and messages.created_at>=coalesce(sms_wallet.accounting_started_at,now())
+   and coalesce(messages.provider_request_started_at,messages.created_at)>=coalesce(sms_wallet.accounting_started_at,now())
    and messages.status in('processing','submitted','delivered','read','needs_review');
   select coalesce(sum(greatest(coalesce(messages.segment_count,1),1)),0)::integer into v_used_segments
   from public.notification_messages messages
   where messages.tenant_id=v_message.tenant_id and messages.channel='sms' and messages.id<>v_message.id
-   and messages.created_at>=date_trunc('month',now())
+   and coalesce(messages.provider_request_started_at,messages.created_at)>=date_trunc('month',now())
    and messages.status in('processing','submitted','delivered','read','needs_review');
   if v_feature_policy.effective_limit is null or v_used_wallet_segments+v_segment_count>v_feature_policy.effective_limit then
    raise exception 'SMS_WALLET_BALANCE_EXCEEDED' using errcode='P0001';
