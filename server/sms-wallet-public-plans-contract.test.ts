@@ -86,6 +86,8 @@ describe("SMS permanent wallet and public plan visibility", () => {
     expect(adminLayout).toContain('id: "smsWallet"');
     expect(subscriptionEditor).toContain("rechargeIdempotencyKey");
     expect(subscriptionEditor).toContain("crypto.randomUUID()");
+    expect(subscriptionEditor).toContain("JSON.stringify({tenantId:owner,messages:amount,note:reason})");
+    expect(subscriptionEditor).toContain("rechargeRequestFingerprint===fingerprint&&rechargeIdempotencyKey");
   });
 
   it("only returns allow-listed public subscription fields and does not resurrect disabled plans", () => {
