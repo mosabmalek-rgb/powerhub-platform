@@ -1,6 +1,7 @@
 import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { ThemeSelector } from "@/components/ThemeSelector";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import {
   BellRing,
   Building2,
@@ -114,7 +115,7 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
           </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <ThemeSelector compact />
-            <button type="button" aria-label="تنبيهات المنصة" onClick={() => navigate("notifications")} className="relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-slate-300 transition hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]"><BellRing className="h-4 w-4" /><span className="absolute left-2 top-2 h-1.5 w-1.5 rounded-full bg-rose-400" /></button>
+            <NotificationCenter userId={Number(user?.id ?? 0)} />
             <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-2.5 py-1.5 sm:flex"><span className="grid h-7 w-7 place-items-center rounded-lg bg-[#F5B800]/15 text-xs font-black text-[#F5B800]">{initials}</span><div className="max-w-32"><p className="truncate text-xs font-bold text-white">{user?.name ?? "مشرف المنصة"}</p><p className="text-[10px] text-slate-500">مشرف منصة</p></div></div>
             <button type="button" aria-label="تسجيل الخروج" onClick={() => void logout()} className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-slate-400 transition hover:border-rose-400/35 hover:bg-rose-400/10 hover:text-rose-300"><LogOut className="h-4 w-4" /></button>
           </div>
