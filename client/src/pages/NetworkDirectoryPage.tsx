@@ -379,7 +379,7 @@ function SubscriberDebtorWorkspace({
       ? "دفعة جزئية"
       : row.isOverdue
         ? "متأخر"
-        : "مستحق لاحقاً";
+        : "مستحق";
   const statusFilterLabel = status === "all" ? "كل الفواتير ذات الرصيد" : status === "overdue" ? "متأخر عن الاستحقاق" : status === "partial" ? "دفعة جزئية" : "لم يتجاوز الاستحقاق";
   const sortLabel = sort === "priority" ? "الأولوية" : sort === "balance" ? "أعلى رصيد" : "أقدم دين";
   const format = (value: unknown) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
@@ -468,8 +468,8 @@ function SubscriberDebtorWorkspace({
   const focusHeader = initialScope === "all" ? "بحث ومتابعة متأخرات جميع الأفرع" : "بحث ومتابعة المتأخرات";
   const totalOpenCount = periodMetricsQuery.data?.outstandingInvoices?.length ?? 0;
   const columnWidths = initialScope === "all"
-    ? ["10%", "15%", "10%", "10%", "11%", "11%", "10%", "12%", "11%"]
-    : ["16%", "11%", "11%", "12%", "12%", "11%", "13%", "14%"];
+    ? ["10%", "20%", "9%", "9%", "10%", "11%", "10%", "11%", "10%"]
+    : ["20%", "10%", "10%", "12%", "13%", "13%", "12%", "10%"];
 
   return (
     <section id="subscriber-arrears" className="scroll-mt-6 space-y-4">
@@ -541,25 +541,25 @@ function SubscriberDebtorWorkspace({
                       <div className="flex min-w-0 items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="break-words font-bold leading-6 text-white">{row.subscriber ?? "مشترك غير محدد"}</p>
-                          <p className="mt-1 break-all font-display text-xs text-slate-400" dir="ltr">{row.subscriberNo ?? "—"}</p>
-                          {initialScope === "all" ? <p className="mt-1 break-words text-xs text-slate-500">{row.siteName ?? "—"}</p> : null}
+                          <p className="mt-1 break-all font-display text-sm text-slate-400" dir="ltr">{row.subscriberNo ?? "—"}</p>
+                          {initialScope === "all" ? <p className="mt-1 break-words text-sm text-slate-500">{row.siteName ?? "—"}</p> : null}
                         </div>
-                        <Badge className={row.isOverdue ? "shrink-0 bg-rose-400/10 text-rose-300" : row.partialInvoices ? "shrink-0 bg-amber-400/10 text-amber-200" : "shrink-0 bg-sky-400/10 text-sky-200"}>{statusLabel(row)}</Badge>
+                        <Badge className={row.isOverdue ? "shrink-0 bg-rose-400/10 text-sm text-rose-300" : row.partialInvoices ? "shrink-0 bg-amber-400/10 text-amber-200 text-sm" : "shrink-0 bg-sky-400/10 text-sky-200 text-sm"}>{statusLabel(row)}</Badge>
                       </div>
                       <div className="mt-4 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 text-sm">
-                        <div className="min-w-0"><p className="text-xs text-slate-500">الرصيد المتبقي</p><p className="mt-1 break-words font-bold tabular-nums text-rose-200">{format(row.outstanding)}</p></div>
-                        <div className="min-w-0"><p className="text-xs text-slate-500">تاريخ الاستحقاق</p><p className="mt-1 text-slate-300">{formatDate(row.dueDate)}</p></div>
-                        <div className="min-w-0"><p className="text-xs text-slate-500">رقم الفاتورة</p><p className="mt-1 break-all font-display text-xs text-[#F5B800]" dir="ltr">{row.invoiceNo ?? "—"}</p></div>
-                        <div className="min-w-0"><p className="text-xs text-slate-500">تاريخ الفاتورة</p><p className="mt-1 text-slate-300">{formatDate(row.issueDate)}</p></div>
+                        <div className="min-w-0"><p className="text-sm text-slate-500">الرصيد المتبقي</p><p className="mt-1 break-words font-bold tabular-nums text-rose-200">{format(row.outstanding)}</p></div>
+                        <div className="min-w-0"><p className="text-sm text-slate-500">تاريخ الاستحقاق</p><p className="mt-1 text-slate-300">{formatDate(row.dueDate)}</p></div>
+                        <div className="min-w-0"><p className="text-sm text-slate-500">رقم الفاتورة</p><p className="mt-1 break-all font-display text-sm text-[#F5B800]" dir="ltr">{row.invoiceNo ?? "—"}</p></div>
+                        <div className="min-w-0"><p className="text-sm text-slate-500">تاريخ الفاتورة</p><p className="mt-1 text-slate-300">{formatDate(row.issueDate)}</p></div>
                       </div>
-                      {canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="mt-3 h-7 min-h-0 w-full px-2 py-1 text-[11px] bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : null}
+                      {canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="mt-3 h-9 min-h-0 w-full px-2 py-1 text-sm bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : null}
                     </article>
                   ))}
                 </div>
                 <div className="hidden overflow-hidden rounded-xl border border-white/8 xl:block">
-              <table className="w-full table-fixed border-collapse text-[11px] leading-4">
+              <table className="w-full table-fixed border-collapse text-sm leading-5">
                 <colgroup>{columnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
-                <thead className="bg-white/[.025] text-right text-[11px] leading-4 text-slate-400">
+                <thead className="bg-white/[.025] text-right text-sm leading-5 text-slate-400">
                   <tr>
                     {initialScope === "all" ? <th className="px-2 py-2">الفرع</th> : null}
                     <th className="px-2 py-2">المشترك</th>
@@ -576,13 +576,13 @@ function SubscriberDebtorWorkspace({
                   {rows.map((row: any) => (
                     <tr className="border-t border-white/7 align-middle" key={`${row.siteId}-${row.invoiceId}`}>
                       {initialScope === "all" ? <td className="break-words px-2 py-2 text-[11px] leading-4 text-slate-300">{row.siteName ?? "—"}</td> : null}
-                      <td className="break-words px-2 py-2 font-bold leading-4 text-white">{row.subscriber ?? "مشترك غير محدد"}</td>
+                      <td className="min-w-0 break-words px-2 py-2 text-sm font-bold leading-5 text-white [overflow-wrap:anywhere]">{row.subscriber ?? "مشترك غير محدد"}</td>
                       <td className="whitespace-nowrap px-1 py-2 text-center font-mono text-[11px] tabular-nums text-slate-300" dir="ltr">{row.subscriberNo ?? "—"}</td>
                       <td className="whitespace-nowrap px-1 py-2 text-center font-mono text-[11px] tabular-nums text-[#F5B800]" dir="ltr">{row.invoiceNo ?? "—"}</td>
                       <td className="whitespace-nowrap px-1 py-2 text-center text-[10px] text-slate-300">{formatDate(row.issueDate)}</td>
                       <td className="whitespace-nowrap px-1 py-2 text-center font-bold tabular-nums text-rose-200">{format(row.outstanding)}</td>
                       <td className="whitespace-nowrap px-1 py-2 text-center text-[10px] text-slate-300">{formatDate(row.dueDate)}</td>
-                      <td className="break-words px-1 py-2"><Badge className={row.isOverdue ? "max-w-full whitespace-normal bg-rose-400/10 text-rose-300" : row.partialInvoices ? "max-w-full whitespace-normal bg-amber-400/10 text-amber-200" : "max-w-full whitespace-normal bg-sky-400/10 text-sky-200"}>{statusLabel(row)}</Badge></td>
+                      <td className="break-words px-1 py-2"><Badge className={row.isOverdue ? "max-w-full whitespace-normal bg-rose-400/10 text-rose-300 text-sm" : row.partialInvoices ? "max-w-full whitespace-normal bg-amber-400/10 text-amber-200 text-sm" : "max-w-full whitespace-normal bg-sky-400/10 text-sky-200 text-sm"}>{statusLabel(row)}</Badge></td>
                       <td className="px-1 py-2 text-center">{canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="h-6 min-h-0 w-full min-w-0 whitespace-normal break-words bg-[#F5B800] px-1 py-0 text-[11px] leading-3 text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : "—"}</td>
                     </tr>
                   ))}
