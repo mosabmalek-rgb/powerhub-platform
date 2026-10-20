@@ -495,13 +495,15 @@ describe("role guards in administration UI", () => {
 
   it("hides payment entry from the viewer in the operational collections view", () => {
     render(<OperationsPage section="collections" />);
+    fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     expect(screen.getByText(/دورك يتيح مراجعة التحصيلات فقط/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /تسجيل الدفعة/ })).not.toBeInTheDocument();
   });
 
-  it("shows payment entry to the collector", () => {
+  it("shows payment entry to the collector after opening the collapsed collection card", () => {
     mocks.activeRole = "collector";
     render(<OperationsPage section="collections" />);
+    fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     expect(screen.getByRole("button", { name: /تسجيل الدفعة/ })).toBeInTheDocument();
   });
 
@@ -519,6 +521,7 @@ describe("role guards in administration UI", () => {
   it("keeps the receiving company account inside the payment form without duplicate destination fields", () => {
     mocks.activeRole = "owner";
     render(<OperationsPage section="collections" />);
+    fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     const form = screen.getByRole("button", { name: "تسجيل الدفعة" }).closest("form");
     expect(form).not.toBeNull();
     const destination = screen.getByRole("combobox", { name: "الحساب المستقبِل للتحصيل" });

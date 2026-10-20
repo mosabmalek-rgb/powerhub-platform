@@ -52,7 +52,7 @@ if (existsSync(pagesDir)) {
       run(pageVitestArgs.concat([roleGuardsPath, "-t", name]), 120_000);
     }
   }
-  for (const entry of ["client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx", "client/src/pages/QuickActionsPage.ui.test.tsx", "client/src/pages/WorkspaceHome.smsQuota.ui.test.tsx"]) {
+  for (const entry of ["client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx", "client/src/pages/QuickActionsPage.ui.test.tsx", "client/src/pages/WorkspaceHome.smsQuota.ui.test.tsx", "client/src/pages/collection-form-reset.contract.test.ts"]) {
     if (existsSync(entry)) run(pageVitestArgs.concat([entry]));
   }
 }

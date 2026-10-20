@@ -83,7 +83,20 @@ export default function MeterReadingsPage() {
     }
   }, [siteId, user?.id]);
   useEffect(() => { void loadQueuedReadings(); }, [loadQueuedReadings]);
-  const refresh = async () => { await Promise.all([utils.powerhub.subscribers.list.invalidate(), utils.powerhub.readings.page.invalidate(), utils.powerhub.invoices.page.invalidate(), utils.powerhub.dashboard.summary.invalidate(), utils.powerhub.audit.list.invalidate()]); await loadQueuedReadings(); };
+  const refresh = async () => {
+    const refreshSiteId = siteId ?? 0;
+    await Promise.all([
+      utils.powerhub.subscribers.list.invalidate({ siteId: refreshSiteId }),
+      utils.powerhub.readings.page.invalidate({ siteId: refreshSiteId, limit: 200 }),
+      // Refresh the list used by collection entry as well as the 200-row reading workflow view.
+      // Site-scoped invalidation avoids refetching invoice lists for unrelated branches.
+      utils.powerhub.invoices.page.invalidate({ siteId: refreshSiteId, limit: 100 }),
+      utils.powerhub.invoices.page.invalidate({ siteId: refreshSiteId, limit: 200 }),
+      utils.powerhub.dashboard.summary.invalidate({ siteId: refreshSiteId }),
+      utils.powerhub.audit.list.invalidate({ siteId: refreshSiteId }),
+    ]);
+    await loadQueuedReadings();
+  };
   const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: () => { void refresh(); }, onError: (error) => toast.error(error.message) });
   const readingImage = trpc.powerhub.readings.getImage.useMutation({ onSuccess: (result) => setSelectedReadingImage(result.url), onError: (error) => toast.error(error.message) });
   const sendPendingSms = trpc.powerhub.notifications.sendPendingSms.useMutation({ onSuccess: async (result) => { await utils.powerhub.notifications.list.invalidate(); toast.success("تم تجهيز " + result.submitted + " رسالة للإرسال."); }, onError: (error) => toast.error(error.message) });
