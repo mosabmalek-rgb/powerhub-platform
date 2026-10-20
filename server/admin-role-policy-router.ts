@@ -132,7 +132,7 @@ export const adminRolePolicyRouter = router({
       });
       const message = error?.message?.trim() ?? "";
       if (message.includes("PLATFORM_ADMIN_REQUIRED")) throw new TRPCError({ code: "FORBIDDEN", message: "دور المنصة الحالي لا يملك هذه الصلاحية." });
-      if (message.includes("INVALID_CAPABILITY") || message.includes("STAFF_PROFILE_NOT_FOUND")) throw new TRPCError({ code: "BAD_REQUEST", message: "الحساب أو الصلاحية المحددة غير صالحة." });
+      if (message.includes("INVALID_CAPABILITY") || message.includes("STAFF_PROFILE_NOT_FOUND") || message.includes("OWNER_PERMISSION_OVERRIDE_NOT_SUPPORTED")) throw new TRPCError({ code: "BAD_REQUEST", message: "الحساب أو الصلاحية المحددة غير صالحة للتخصيص الفردي." });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ استثناء صلاحيات المستخدم." });
       const row = Array.isArray(data) ? data[0] : null;
       if (!row?.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تؤكد قاعدة البيانات حفظ استثناء الصلاحية." });
