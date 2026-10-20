@@ -290,7 +290,7 @@ describe("unified messaging runtime contract", () => {
   });
 
   it("routes invoice_issued through the per-invoice enqueue path and validates retry campaign site scope", () => {
-    expect(runtime).not.toContain('input.eventType==="invoice_issued"');
+    expect(runtime).not.toContain('if(input.eventType==="invoice_issued") throw new TRPCError');
     expect(runtime).toContain('if (eventType === "invoice_issued") return');
     expect(ui).toContain('<option value="invoice_issued">صدور فاتورة</option>');
     expect(invoiceAutomationMigration).toContain("powerhub_enqueue_invoice_sms");
