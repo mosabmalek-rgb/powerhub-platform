@@ -1008,6 +1008,12 @@ export const powerhubUnifiedMessagingRouter = router({
     if(error) throw new TRPCError({code:"BAD_REQUEST",message:"تعذر حفظ أتمتة المراسلة."});
     const id=Number(Array.isArray(data)?data[0]?.powerhub_unified_messaging_upsert_automation_v2??data[0]?.id:data);
     if(!id) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات معرف الأتمتة."});
+    if(input.eventType==="invoice_issued") {
+      const {error:rescheduleError}=await supabaseAdmin().rpc("powerhub_reschedule_invoice_issued_automation",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_automation_id:id,
+      });
+      if(rescheduleError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تم حفظ أتمتة الفواتير لكن تعذر تحديث توقيت الرسائل المعلقة."});
+    }
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_automation",entityId:String(id),action:input.id?"update":"create",afterData:{id,name:input.name,eventType:input.eventType,sendType:input.sendType,scheduleType:input.scheduleType,enabled:input.enabled}});
     return {id};
   }),
