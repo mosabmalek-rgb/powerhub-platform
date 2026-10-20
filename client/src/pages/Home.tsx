@@ -131,8 +131,11 @@ export function WorkspaceHome() {
     scope: selectedScope,
     startDate: dashboardPeriod.startDate,
     endDate: dashboardPeriod.endDate,
+    includeDetails: false,
   }, {
     enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword && dashboardPeriod.isReady),
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
   });
   const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
