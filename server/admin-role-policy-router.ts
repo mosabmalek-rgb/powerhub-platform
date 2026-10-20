@@ -19,6 +19,19 @@ const capabilitySchema = z.enum([
   "manageTeam",
   "manageMessaging",
   "viewAudit",
+  "viewInventory",
+  "manageInventoryItems",
+  "manageSuppliers",
+  "createPurchases",
+  "approvePurchases",
+  "receiveInventory",
+  "manageSupplierPayments",
+  "viewSupplierLedger",
+  "issueInventory",
+  "adjustInventory",
+  "manageFuelAndConsumption",
+  "manageMaintenance",
+  "viewInventoryReports",
 ]);
 
 export const adminRolePolicyRouter = router({
