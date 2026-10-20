@@ -34,7 +34,7 @@ import { preloadRoute, preloadWorkspaceRoutes } from "@/lib/route-preload";
 import type { PowerCapability, PowerRole } from "@shared/powerhub-rbac";
 import { tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
 import { PowerHubLogo } from "./PowerHubLogo";
-import { subscribeToChatNotifications } from "@/lib/chatReceipts";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -387,37 +387,9 @@ function DashboardLayoutContent({
   const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
   const isMobile = useIsMobile();
   const approvedSmsRequest = smsApprovalQuery.data?.status === "approved" ? smsApprovalQuery.data : null;
-  const announcementsQuery = trpc.platformAnnouncements.inbox.list.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 60000 });
 
-  useEffect(() => {
-    if (!user?.id) return;
-    let audioContext: AudioContext | null = null;
-    const playAlert = () => {
-      try {
-        const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!AudioCtx) return;
-        audioContext ??= new AudioCtx();
-        const osc = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        osc.frequency.value = 880; gain.gain.value = 0.045;
-        osc.connect(gain); gain.connect(audioContext.destination);
-        osc.start(); osc.stop(audioContext.currentTime + 0.12);
-      } catch { /* browser may block audio until interaction */ }
-    };
-    const unsubscribe = subscribeToChatNotifications(user.id, (event) => {
-      playAlert();
-      toast.info("لديك رسالة أو تحديث جديد في الدردشة والدعم.", { duration: 4000 });
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("PowerHub — الدردشة والدعم", { body: "لديك رسالة أو تحديث جديد." });
-      }
-    });
-    return () => {
-      unsubscribe();
-      void audioContext?.close();
-    };
-  }, [user?.id]);
-  const unreadAnnouncements = (announcementsQuery.data ?? []).filter((item) => !item.readAt).length;
-  const latestAnnouncements = (announcementsQuery.data ?? []).slice(0, 5);
+
+
   useEffect(() => { if (approvedSmsRequest && String(approvedSmsRequest.id) !== dismissedSmsApprovalId) toast.success(`تم اعتماد حزمة الرسائل وإضافة ${Number(approvedSmsRequest.approvedMessages ?? 0).toLocaleString("ar")} رسالة إلى رصيدك.`); }, [approvedSmsRequest, dismissedSmsApprovalId]);
 
   useEffect(() => {
@@ -633,21 +605,8 @@ function DashboardLayoutContent({
                 </div>
               </div>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button type="button" aria-label="فتح الإشعارات" className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 hover:bg-white/5 hover:text-white">
-                  <BellRing className="h-4 w-4" />
-                  {unreadAnnouncements > 0 ? <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-rose-500 px-1 text-[9px] font-extrabold leading-4 text-white">{unreadAnnouncements > 99 ? "99+" : unreadAnnouncements}</span> : null}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80 border-white/10 bg-[#1b222c] text-white">
-                <div className="flex items-center justify-between border-b border-white/8 px-3 py-2"><span className="font-bold">الإشعارات</span><span className="text-xs text-slate-500">{unreadAnnouncements} غير مقروء</span></div>
-                {latestAnnouncements.length ? latestAnnouncements.map((item) => <DropdownMenuItem key={item.id} onClick={() => setLocation("/announcements")} className="cursor-pointer items-start gap-2 whitespace-normal py-3 focus:bg-white/5">
-                  <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate font-bold">{item.title}</span>{!item.readAt ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#F5B800]" /> : null}</div><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{item.body}</p></div>
-                </DropdownMenuItem>) : <div className="px-4 py-6 text-center text-xs text-slate-500">لا توجد إشعارات جديدة.</div>}
-                <button type="button" onClick={() => setLocation("/announcements")} className="w-full border-t border-white/8 px-3 py-3 text-center text-xs font-bold text-[#ffbf00] hover:bg-white/5">عرض جميع الإشعارات</button>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {user?.id ? <NotificationCenter userId={user.id} /> : null}
+
             <button
               type="button"
               onClick={() => {
