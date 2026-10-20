@@ -8,11 +8,15 @@ import { BulkSubscriberImport } from "@/components/BulkSubscriberImport";
 import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { parseDashboardKpiPeriod, useDashboardKpiPeriod, type DashboardKpiPeriodInitial } from "@/hooks/useDashboardKpiPeriod";
+import { DashboardKpiPeriodFilter } from "@/components/DashboardKpiPeriodFilter";
+import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
+import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { trpc } from "@/lib/trpc";
 import { filterAndSortDebtors, filterDebtorsByQuery } from "@/lib/debtor-search";
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { can } from "@shared/powerhub-rbac";
-import { Bolt, CircleAlert, Clock3, Copy, FileBarChart2, Loader2, Pencil, Plus, RefreshCw, UsersRound, WalletCards } from "lucide-react";
+import { Bolt, CircleAlert, Clock3, Copy, FileBarChart2, FileSpreadsheet, FileText, Loader2, Pencil, Plus, RefreshCw, UsersRound, WalletCards } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -34,6 +38,21 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const utils = trpc.useUtils();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
+  const routeSearchParams = useMemo(() => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search), []);
+  const initialDebtorPeriod = useMemo(() => parseDashboardKpiPeriod(routeSearchParams.toString()), [routeSearchParams]);
+  const initialDebtorScope = routeSearchParams.get("debtorScope") === "all" ? "all" as const : "branch" as const;
+  const rawDebtorStatus = routeSearchParams.get("debtorStatus");
+  const initialDebtorStatus = rawDebtorStatus === "overdue" || rawDebtorStatus === "partial" || rawDebtorStatus === "upcoming" ? rawDebtorStatus : "all";
+  const focusDebtorCard = routeSearchParams.get("debtorFocus") === "1";
+  const requestedSiteId = Number(routeSearchParams.get("siteId"));
+  const [routeBranchApplied, setRouteBranchApplied] = useState(false);
+  useEffect(() => {
+    if (routeBranchApplied || !sitesQuery.data?.length) return;
+    setRouteBranchApplied(true);
+    if (Number.isInteger(requestedSiteId) && requestedSiteId > 0 && sitesQuery.data.some((site) => site.id === requestedSiteId) && siteId !== requestedSiteId) {
+      setSiteId(requestedSiteId);
+    }
+  }, [routeBranchApplied, requestedSiteId, setSiteId, siteId, sitesQuery.data]);
   const [editing, setEditing] = useState<any>(null);
   const [subscriberFormResetKey, setSubscriberFormResetKey] = useState(0);
   const [subscriberSearch, setSubscriberSearch] = useState("");
@@ -313,7 +332,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
       <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل {title}</h2><span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">{kind === "subscribers" ? `${visibleData.length ? (currentSubscriberPage - 1) * SUBSCRIBER_PAGE_SIZE + 1 : 0}–${Math.min(currentSubscriberPage * SUBSCRIBER_PAGE_SIZE, totalSubscriberResults)} من ${totalSubscriberResults} نتيجة` : `${visibleData.length} من ${data.length} سجل`}</span></div><div className="p-5">{kind === "subscribers" ? <div className="mb-4 grid gap-3 sm:grid-cols-2"><label className="block text-xs text-slate-400"><span className="mb-1 block">بحث ذكي وسريع</span><input aria-label="بحث ذكي في سجل المشتركين" list={`subscriber-autocomplete-${siteId}`} value={subscriberSearch} onChange={(event) => setSubscriberSearch(event.target.value)} placeholder="اسم المشترك أو الرقم المرجعي أو الهاتف…" className={inputClass} /><datalist id={`subscriber-autocomplete-${siteId}`}>{data.slice(0,200).flatMap((row) => [<option key={`name-${row.id}`} value={row.fullName}/>,<option key={`number-${row.id}`} value={row.subscriberNo}/>,<option key={`phone-${row.id}`} value={row.phone}/>])}</datalist></label><label className="block text-xs text-slate-400"><span className="mb-1 block">نوع المشترك</span><select aria-label="فلتر نوع المشترك" value={subscriberTypeFilter} onChange={(event) => { setSubscriberTypeFilter(event.target.value as SubscriberTypeFilter); setSubscriberPage(1); }} className={inputClass}><option value="all">كل الأنواع</option><option value="residential">سكني</option><option value="commercial">تجاري</option><option value="institution">مؤسسات</option><option value="mosque">مساجد</option></select></label></div> : null}{pageData.length ? <div className="space-y-2">{pageData.map((item) => <RecordRow key={item.id} kind={kind} item={item} canEdit={canEdit} onEdit={() => { setEditing(item); setAddCardCollapsed(false); }} onOpenStatement={kind === "subscribers" && siteId ? () => setLocation(`/subscriber-statement/${item.id}?siteId=${siteId}`) : undefined} />)}</div> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">{kind === "subscribers" && (searchTerm || subscriberTypeFilter !== "all") ? "لا توجد نتائج مطابقة للبحث أو نوع المشترك المحدد." : `لا توجد سجلات في ${activeSite?.name}.`} {canEdit && !searchTerm && subscriberTypeFilter === "all" ? "استخدم النموذج لإضافة أول سجل." : ""}</div>}{kind === "subscribers" && totalSubscriberResults > SUBSCRIBER_PAGE_SIZE ? <nav aria-label="صفحات سجل المشتركين" className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4"><span className="text-xs text-slate-400">عرض 20 مشتركاً كحد أقصى في الصفحة</span><div className="flex items-center gap-2"><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage(1)} className="border-white/10 text-slate-200">الأولى</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage((page) => Math.max(1, page - 1))} className="border-white/10 text-slate-200">السابق</Button><span aria-live="polite" className="min-w-24 text-center text-xs text-slate-300">صفحة {currentSubscriberPage} من {totalSubscriberPages}</span><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage((page) => Math.min(totalSubscriberPages, page + 1))} className="border-white/10 text-slate-200">التالي</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage(totalSubscriberPages)} className="border-white/10 text-slate-200">الأخيرة</Button></div></nav> : null}</div></CardContent></Card>
     </div>
     {kind === "generators" && canEdit && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}
-    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { refresh("create"); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace overview={financialOverviewQuery.data} siteId={siteId!} canRemind={can(role, "manageMessaging")} /></> : null}
+    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { refresh("create"); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace siteId={siteId!} canRemind={can(role, "manageMessaging")} initialPeriod={initialDebtorPeriod} initialScope={initialDebtorScope} initialStatus={initialDebtorStatus} autoFocus={focusDebtorCard} /></> : null}
   </div></DashboardLayout>;
 }
 
@@ -321,15 +340,253 @@ function SubscriberPortalGuide() {
   return <Card className="border-sky-400/20 bg-sky-400/[.045] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-sky-100">إرشاد بوابة الاستعلامات للمشترك</p><p className="mt-1 text-sm leading-6 text-slate-300">بعد إنشاء المشترك، استخدم زر <strong className="text-sky-100">نسخ الرقم المرجعي</strong> في بطاقته أدناه ثم شاركه معه. يفتح رابط بوابة المولد ويدخل الرقم المرجعي مع رقم هاتفه الدولي المسجل لعرض فواتيره واستهلاكه.</p></div><div className="shrink-0 rounded-xl border border-sky-300/20 bg-[#0D1117]/40 px-3 py-2 text-center text-xs text-sky-100"><span className="block font-bold">مفتاح البحث</span><span className="mt-1 block" dir="ltr">Reference No. + Phone</span></div></CardContent></Card>;
 }
 
-function SubscriberDebtorWorkspace({ overview, siteId, canRemind }: { overview: any; siteId: number; canRemind: boolean }) {
+function SubscriberDebtorWorkspace({
+  siteId,
+  canRemind,
+  initialPeriod,
+  initialScope,
+  initialStatus,
+  autoFocus = false,
+}: {
+  siteId: number;
+  canRemind: boolean;
+  initialPeriod: DashboardKpiPeriodInitial;
+  initialScope: "branch" | "all";
+  initialStatus: "all" | "overdue" | "partial" | "upcoming";
+  autoFocus?: boolean;
+}) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<"all" | "overdue" | "partial" | "upcoming">("all");
+  const [status, setStatus] = useState<"all" | "overdue" | "partial" | "upcoming">(initialStatus);
   const [sort, setSort] = useState<"priority" | "balance" | "age">("priority");
-  const reminder = trpc.powerhub.notifications.sendPaymentReminderSms.useMutation({ onSuccess: (result) => toast.success(result.status === "submitted" ? "تم إرسال تذكير SMS إلى المشترك." : "وُضع تذكير SMS في الطابور؛ راجع سجل الإشعارات."), onError: (error) => toast.error(error.message) });
-  const rows = filterAndSortDebtors(overview?.outstandingInvoices ?? [], query, status, sort);
-  const statusLabel = (row: any) => row.isOverdue && row.partialInvoices ? "متأخر · دفعة جزئية" : row.partialInvoices ? "دفعة جزئية" : row.isOverdue ? "متأخر" : "مستحق لاحقاً";
+  const period = useDashboardKpiPeriod(siteId, initialPeriod);
+  const periodMetricsQuery = trpc.powerhub.dashboard.periodMetrics.useQuery({
+    siteId,
+    scope: initialScope,
+    startDate: period.startDate,
+    endDate: period.endDate,
+  }, { enabled: Boolean(siteId && period.isReady) });
+  const reminder = trpc.powerhub.notifications.sendPaymentReminderSms.useMutation({
+    onSuccess: (result) => toast.success(result.status === "submitted" ? "تم إرسال تذكير SMS إلى المشترك." : "وُضع تذكير SMS في الطابور؛ راجع سجل الإشعارات."),
+    onError: (error) => toast.error(error.message),
+  });
+  const exportReportRef = useRef<HTMLDivElement>(null);
+  const didAutoFocus = useRef(false);
+  const rows = filterAndSortDebtors(periodMetricsQuery.data?.outstandingInvoices ?? [], query, status, sort);
+  const statusLabel = (row: any) => row.isOverdue && row.partialInvoices
+    ? "متأخر · دفعة جزئية"
+    : row.partialInvoices
+      ? "دفعة جزئية"
+      : row.isOverdue
+        ? "متأخر"
+        : "مستحق لاحقاً";
+  const statusFilterLabel = status === "all" ? "كل الفواتير ذات الرصيد" : status === "overdue" ? "متأخر عن الاستحقاق" : status === "partial" ? "دفعة جزئية" : "لم يتجاوز الاستحقاق";
+  const sortLabel = sort === "priority" ? "الأولوية" : sort === "balance" ? "أعلى رصيد" : "أقدم دين";
   const format = (value: unknown) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
-  return <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between"><div><h2 className="font-bold text-white">بحث ومتابعة المتأخرات</h2><p className="mt-1 text-xs leading-5 text-slate-500">يعرض كل فاتورة لها رصيد متبقٍ في الفرع، وليس أعلى عشرة مشتركين فقط. اختر الحالة ثم أرسل التذكير للفاتورة المحددة.</p></div><div className="grid w-full gap-2 sm:grid-cols-3 xl:max-w-3xl"><input aria-label="بحث المتأخرات" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="اسم المشترك أو الرقم المرجعي أو رقم الفاتورة" className={inputClass} dir="auto" /><select aria-label="حالة المتأخرات" value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className={inputClass}><option className="bg-[#111823]" value="all">كل الفواتير ذات الرصيد</option><option className="bg-[#111823]" value="overdue">متأخر عن الاستحقاق</option><option className="bg-[#111823]" value="partial">دفعة جزئية</option><option className="bg-[#111823]" value="upcoming">لم يتجاوز الاستحقاق</option></select><select aria-label="ترتيب المتأخرات" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className={inputClass}><option className="bg-[#111823]" value="priority">ترتيب الأولوية</option><option className="bg-[#111823]" value="balance">أعلى رصيد متبقٍ</option><option className="bg-[#111823]" value="age">أقدم عمر دين</option></select></div></div><div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"><span>{rows.length} فاتورة تطابق الفلتر</span><span>إجمالي الفواتير المفتوحة: {(overview?.outstandingInvoices ?? []).length}</span></div><div className="mt-4 overflow-x-auto">{rows.length ? <table className="w-full min-w-[900px] text-sm"><thead className="text-right text-xs text-slate-500"><tr><th className="pb-3">المشترك</th><th className="pb-3">الرقم المرجعي</th><th className="pb-3">رقم الفاتورة</th><th className="pb-3">الرصيد المتبقي</th><th className="pb-3">تاريخ الاستحقاق</th><th className="pb-3">عمر الدين</th><th className="pb-3">الحالة</th><th className="pb-3">الإجراء</th></tr></thead><tbody>{rows.map((row: any) => <tr className="border-t border-white/7" key={row.invoiceId}><td className="py-3 font-bold text-white">{row.subscriber}</td><td className="py-3 font-display text-xs text-slate-300" dir="ltr">{row.subscriberNo ?? "—"}</td><td className="py-3 font-display text-xs text-[#F5B800]" dir="ltr">{row.invoiceNo ?? "—"}</td><td className="py-3 font-bold text-rose-200">{format(row.outstanding)}</td><td className="py-3 text-slate-300">{row.dueDate ? new Date(row.dueDate).toLocaleDateString("ar") : "—"}</td><td className="py-3 text-slate-300">{row.isOverdue ? `${format(row.ageDays)} يوم` : "—"}</td><td className="py-3"><Badge className={row.isOverdue ? "bg-rose-400/10 text-rose-300" : row.partialInvoices ? "bg-amber-400/10 text-amber-200" : "bg-sky-400/10 text-sky-200"}>{statusLabel(row)}</Badge></td><td className="py-3">{canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId, invoiceId: row.invoiceId })} className="bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : "—"}</td></tr>)}</tbody></table> : <p className="rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-slate-500">{query.trim() || status !== "all" ? "لا توجد فواتير تطابق البحث أو الحالة المحددة في الفرع الحالي." : "لا توجد فواتير بأرصدة مفتوحة في الفرع الحالي."}</p>}</div>{!canRemind ? <p className="mt-4 text-xs leading-5 text-slate-500">يظهر زر التذكير للمالك أو المدير أو المحاسب المخول بإدارة المراسلات فقط.</p> : null}</CardContent></Card>;
+  const formatDate = (value: unknown) => value ? new Date(String(value)).toLocaleDateString("ar-PS", { timeZone: "Asia/Gaza" }) : "—";
+
+  useEffect(() => {
+    if (!autoFocus || didAutoFocus.current || !period.isReady || (!periodMetricsQuery.data && !periodMetricsQuery.isError)) return;
+    didAutoFocus.current = true;
+    window.requestAnimationFrame(() => {
+      document.getElementById("subscriber-arrears")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [autoFocus, period.isReady, periodMetricsQuery.data, periodMetricsQuery.isError]);
+
+  const exportRows = rows.map((row: any) => ({
+    branch: row.siteName ?? "—",
+    subscriber: row.subscriber ?? "مشترك غير محدد",
+    subscriberNo: row.subscriberNo ?? "—",
+    invoiceNo: row.invoiceNo ?? "—",
+    issueDate: formatDate(row.issueDate),
+    outstanding: Number(row.outstanding ?? 0),
+    dueDate: formatDate(row.dueDate),
+    age: row.isOverdue ? Number(row.ageDays ?? 0) : 0,
+    status: statusLabel(row),
+  }));
+  const exportTitle = initialScope === "all" ? "متأخرات جميع الأفرع" : "متأخرات المشتركين";
+  const reportColumns = initialScope === "all"
+    ? ["الفرع", "المشترك", "الرقم المرجعي", "رقم الفاتورة", "تاريخ الفاتورة", "الرصيد المتبقي (شيكل)", "تاريخ الاستحقاق", "عمر التأخير (يوم)", "الحالة"]
+    : ["المشترك", "الرقم المرجعي", "رقم الفاتورة", "تاريخ الفاتورة", "الرصيد المتبقي (شيكل)", "تاريخ الاستحقاق", "عمر التأخير (يوم)", "الحالة"];
+  const valuesForRow = (row: typeof exportRows[number]) => initialScope === "all"
+    ? [row.branch, row.subscriber, row.subscriberNo, row.invoiceNo, row.issueDate, row.outstanding, row.dueDate, row.age || "—", row.status]
+    : [row.subscriber, row.subscriberNo, row.invoiceNo, row.issueDate, row.outstanding, row.dueDate, row.age || "—", row.status];
+
+  const downloadExcel = async () => {
+    if (!periodMetricsQuery.data || !exportRows.length) return toast.error("لا توجد نتائج مطابقة لتصديرها.");
+    try {
+      const { default: ExcelJS } = await loadExcelJS();
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "PowerHub";
+      workbook.created = new Date();
+      const sheet = workbook.addWorksheet("المتأخرات", { views: [{ rightToLeft: true }] });
+      sheet.addRow([exportTitle]);
+      sheet.addRow(["الفترة", `${period.startDate} إلى ${period.endDate}`]);
+      sheet.addRow(["الحالة", statusFilterLabel, "الترتيب", sortLabel]);
+      sheet.addRow([]);
+      sheet.addRow(reportColumns);
+      exportRows.forEach((row) => sheet.addRow(valuesForRow(row)));
+      sheet.columns = (initialScope === "all"
+        ? [22, 28, 18, 18, 16, 22, 16, 18, 24]
+        : [30, 18, 18, 16, 22, 16, 18, 24]
+      ).map((width) => ({ width }));
+      [1, 5].forEach((rowNumber) => {
+        const row = sheet.getRow(rowNumber);
+        row.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
+        row.height = rowNumber === 1 ? 30 : 26;
+      });
+      for (let rowNumber = 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
+        sheet.getRow(rowNumber).alignment = { vertical: "middle", horizontal: "right", wrapText: true };
+      }
+      sheet.views = [{ state: "frozen", ySplit: 5, rightToLeft: true }];
+      const buffer = await workbook.xlsx.writeBuffer();
+      const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `powerhub-arrears-${period.startDate}-to-${period.endDate}.xlsx`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success("تم تصدير متأخرات الفترة المحددة إلى Excel.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تجهيز ملف Excel للمتأخرات.");
+    }
+  };
+
+  const downloadPdf = async () => {
+    if (!periodMetricsQuery.data || !exportRows.length || !exportReportRef.current) return toast.error("لا توجد نتائج مطابقة لتصديرها.");
+    try {
+      await downloadReportHtmlAsPdf(exportReportRef.current, `متأخرات-${period.startDate}-إلى-${period.endDate}.pdf`, {
+        landscape: true,
+        title: `${exportTitle} — ${period.startDate} إلى ${period.endDate}`,
+      });
+      toast.success("تم تصدير متأخرات الفترة المحددة إلى PDF.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر إنشاء PDF للمتأخرات.");
+    }
+  };
+
+  const focusHeader = initialScope === "all" ? "بحث ومتابعة متأخرات جميع الأفرع" : "بحث ومتابعة المتأخرات";
+  const totalOpenCount = periodMetricsQuery.data?.outstandingInvoices?.length ?? 0;
+  const columnWidths = initialScope === "all"
+    ? ["140px", "200px", "120px", "140px", "125px", "155px", "135px", "125px", "145px", "150px"]
+    : ["220px", "140px", "160px", "130px", "175px", "140px", "135px", "155px", "160px"];
+
+  return (
+    <section id="subscriber-arrears" className="scroll-mt-6 space-y-4">
+      <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel">
+        <CardContent className="p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h2 className="font-bold text-white">{focusHeader}</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                يعرض الرصيد المفتوح على الفواتير الصادرة خلال الفترة المحددة. قيمة المتأخرات تحسب فقط الأرصدة التي تجاوزت تاريخ الاستحقاق، بينما يمكنك عرض الفواتير الجزئية أو المستحقة لاحقاً.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => void downloadPdf()} disabled={!periodMetricsQuery.data || rows.length === 0} className="border-rose-400/30 text-rose-200 hover:bg-rose-400/10">
+                <FileText className="ml-2 h-4 w-4" /> PDF
+              </Button>
+              <Button type="button" variant="outline" onClick={() => void downloadExcel()} disabled={!periodMetricsQuery.data || rows.length === 0} className="border-emerald-400/30 text-emerald-200 hover:bg-emerald-400/10">
+                <FileSpreadsheet className="ml-2 h-4 w-4" /> Excel
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <DashboardKpiPeriodFilter
+        value={period.preset}
+        onChange={period.setPreset}
+        startDate={period.startDate}
+        endDate={period.endDate}
+        onStartDateChange={period.setStartDate}
+        onEndDateChange={period.setEndDate}
+        disabled={period.isLoading}
+        error={period.isError || periodMetricsQuery.isError}
+        onRetry={() => { period.retry(); void periodMetricsQuery.refetch(); }}
+      />
+      <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel">
+        <CardContent className="p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <h3 className="font-bold text-white">تفاصيل الفواتير ذات الرصيد</h3>
+              <p className="mt-1 text-xs text-slate-500">الفترة: {period.startDate} — {period.endDate} · الحالة: {statusFilterLabel}</p>
+            </div>
+            <div className="grid w-full gap-2 sm:grid-cols-3 xl:max-w-3xl">
+              <input aria-label="بحث المتأخرات" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="اسم المشترك أو الرقم المرجعي أو رقم الفاتورة" className={inputClass} dir="auto" />
+              <select aria-label="حالة المتأخرات" value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className={inputClass}>
+                <option className="bg-[#111823]" value="all">كل الفواتير ذات الرصيد</option>
+                <option className="bg-[#111823]" value="overdue">متأخر عن الاستحقاق</option>
+                <option className="bg-[#111823]" value="partial">دفعة جزئية</option>
+                <option className="bg-[#111823]" value="upcoming">لم يتجاوز الاستحقاق</option>
+              </select>
+              <select aria-label="ترتيب المتأخرات" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className={inputClass}>
+                <option className="bg-[#111823]" value="priority">ترتيب الأولوية</option>
+                <option className="bg-[#111823]" value="balance">أعلى رصيد متبقٍ</option>
+                <option className="bg-[#111823]" value="age">أقدم عمر دين</option>
+              </select>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+            <span>{periodMetricsQuery.isLoading || !period.isReady ? "جارٍ تحميل النتائج…" : periodMetricsQuery.isError ? "تعذر تحميل فواتير الفترة؛ أعد المحاولة." : `${rows.length} فاتورة تطابق الفلتر الحالي`}</span>
+            <span>إجمالي الفواتير ذات الرصيد في الفترة: {totalOpenCount}</span>
+          </div>
+          <div className="mt-4 overflow-x-auto rounded-xl border border-white/8">
+            {periodMetricsQuery.isError ? (
+              <p role="alert" className="px-4 py-8 text-center text-sm text-rose-200">تعذر تحميل المتأخرات للفترة المحددة. استخدم «إعادة المحاولة» في بطاقة الفلتر.</p>
+            ) : rows.length ? (
+              <table className="w-full min-w-max table-fixed border-collapse text-sm">
+                <colgroup>{columnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                <thead className="bg-white/[.025] text-right text-xs text-slate-400">
+                  <tr>
+                    {initialScope === "all" ? <th className="px-3 py-3">الفرع</th> : null}
+                    <th className="px-3 py-3">المشترك</th>
+                    <th className="px-3 py-3">الرقم المرجعي</th>
+                    <th className="px-3 py-3">رقم الفاتورة</th>
+                    <th className="px-3 py-3">تاريخ الفاتورة</th>
+                    <th className="px-3 py-3">الرصيد المتبقي</th>
+                    <th className="px-3 py-3">تاريخ الاستحقاق</th>
+                    <th className="px-3 py-3">عمر التأخير</th>
+                    <th className="px-3 py-3">الحالة</th>
+                    <th className="px-3 py-3">الإجراء</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row: any) => (
+                    <tr className="border-t border-white/7 align-middle" key={`${row.siteId}-${row.invoiceId}`}>
+                      {initialScope === "all" ? <td className="break-words px-3 py-3 text-xs leading-5 text-slate-300">{row.siteName ?? "—"}</td> : null}
+                      <td className="break-words px-3 py-3 font-bold leading-5 text-white">{row.subscriber ?? "مشترك غير محدد"}</td>
+                      <td className="break-words px-3 py-3 font-display text-xs text-slate-300" dir="ltr">{row.subscriberNo ?? "—"}</td>
+                      <td className="break-words px-3 py-3 font-display text-xs text-[#F5B800]" dir="ltr">{row.invoiceNo ?? "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-300">{formatDate(row.issueDate)}</td>
+                      <td className="whitespace-nowrap px-3 py-3 font-bold tabular-nums text-rose-200">{format(row.outstanding)}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-300">{formatDate(row.dueDate)}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-slate-300">{row.isOverdue ? `${format(row.ageDays)} يوم` : "—"}</td>
+                      <td className="break-words px-3 py-3"><Badge className={row.isOverdue ? "bg-rose-400/10 text-rose-300" : row.partialInvoices ? "bg-amber-400/10 text-amber-200" : "bg-sky-400/10 text-sky-200"}>{statusLabel(row)}</Badge></td>
+                      <td className="px-3 py-3">{canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="whitespace-nowrap bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="px-4 py-8 text-center text-sm text-slate-500">
+                {periodMetricsQuery.isLoading || !period.isReady ? "جارٍ تحميل بيانات الفترة…" : query.trim() || status !== "all" ? "لا توجد فواتير تطابق البحث أو الحالة المحددة في الفترة الحالية." : "لا توجد فواتير بأرصدة مفتوحة ضمن الفترة المحددة."}
+              </p>
+            )}
+          </div>
+          {!canRemind ? <p className="mt-4 text-xs leading-5 text-slate-500">يظهر زر التذكير للمالك أو المدير أو المحاسب المخول بإدارة المراسلات فقط.</p> : null}
+        </CardContent>
+      </Card>
+      <div ref={exportReportRef} dir="rtl" className="fixed left-[-30000px] top-0 w-[1500px] bg-white p-8 text-slate-900">
+        <h1 className="mb-2 text-2xl font-extrabold">{exportTitle}</h1>
+        <p className="mb-1 text-sm">الفترة: {period.startDate} — {period.endDate}</p>
+        <p className="mb-5 text-sm">الحالة: {statusFilterLabel} · الترتيب: {sortLabel} · عدد الفواتير: {exportRows.length}</p>
+        <table className="w-full border-collapse text-sm">
+          <thead><tr>{reportColumns.map((column) => <th key={column} className="border border-slate-400 bg-slate-100 p-2 text-right">{column}</th>)}</tr></thead>
+          <tbody>{exportRows.map((row, index) => <tr key={`${row.invoiceNo}-${index}`}>{valuesForRow(row).map((value, cellIndex) => <td key={cellIndex} className="border border-slate-300 p-2 align-top break-words">{String(value ?? "—")}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 function SubscriberFinancialOverview({ overview }: { overview: any }) {
