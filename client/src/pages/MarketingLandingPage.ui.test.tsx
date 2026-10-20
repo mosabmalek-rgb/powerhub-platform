@@ -21,7 +21,9 @@ describe("PowerHub marketing landing page", () => {
   it("presents the product value, operating features, and transparent plan scopes", () => {
     render(<MarketingLandingPage />);
 
-    expect(screen.getByRole("heading", { name: /كل كيلوواط/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "كل كيلوواط تحت السيطرة." })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "أدِر مشروع الكهرباء بوضوح أكبر." })).toBeInTheDocument();
+    expect(screen.getByText("من قراءة العداد إلى الفاتورة والتحصيل، اجعل تفاصيل التشغيل ومتابعة المستحقات في مساحة واحدة.")).toBeInTheDocument();
     expect(screen.getByText("إدارة المشتركين")).toBeInTheDocument();
     expect(screen.getByText("تحصيل منضبط")).toBeInTheDocument();
     expect(screen.getByText("الأساسية")).toBeInTheDocument();
@@ -36,7 +38,7 @@ describe("PowerHub marketing landing page", () => {
   it("routes a primary call to action through the existing OAuth login action", () => {
     render(<MarketingLandingPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "ابدأ إدارة مولدك" }));
+    fireEvent.click(screen.getByRole("button", { name: "ابدأ إدارة مشروعك" }));
     expect(oauthMocks.startLogin).toHaveBeenCalledTimes(1);
   });
 
