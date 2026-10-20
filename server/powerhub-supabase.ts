@@ -819,6 +819,7 @@ export async function listSupabaseReportInvoices(input: {
   start?: Date;
   endExclusive?: Date;
   billingPeriod?: string;
+  summaryOnly?: boolean;
 }): Promise<SupabaseReportInvoice[]> {
   const siteIds = normalizeReportSiteIds(input.siteIds);
   if (!siteIds.length) return [];
@@ -828,7 +829,9 @@ export async function listSupabaseReportInvoices(input: {
   const admin = supabaseAdmin();
   const rows = await readSupabaseReportPages((from, to) => {
     let query: any = admin.from("invoices")
-      .select("id, site_id, subscriber_id, invoice_no, billing_period, issue_date, due_date, total_amount, paid_amount, balance_due, consumption_kwh, status")
+      .select(input.summaryOnly
+        ? "id, site_id, subscriber_id, issue_date, due_date, total_amount, balance_due, status"
+        : "id, site_id, subscriber_id, invoice_no, billing_period, issue_date, due_date, total_amount, paid_amount, balance_due, consumption_kwh, status")
       .eq("tenant_id", input.tenantId)
       .in("site_id", siteIds);
     if (input.billingPeriod) query = query.eq("billing_period", input.billingPeriod);
@@ -839,8 +842,8 @@ export async function listSupabaseReportInvoices(input: {
     id: Number(row.id),
     siteId: Number(row.site_id),
     subscriberId: Number(row.subscriber_id),
-    invoiceNo: row.invoice_no,
-    billingPeriod: row.billing_period,
+    invoiceNo: String(row.invoice_no ?? ""),
+    billingPeriod: String(row.billing_period ?? ""),
     issueDate: new Date(row.issue_date),
     dueDate: new Date(row.due_date),
     totalAmount: Number(row.total_amount ?? 0),
@@ -860,6 +863,7 @@ export async function listSupabaseReportPayments(input: {
   siteIds: number[];
   start: Date;
   endExclusive: Date;
+  summaryOnly?: boolean;
 }): Promise<SupabaseReportPayment[]> {
   const siteIds = normalizeReportSiteIds(input.siteIds);
   if (!siteIds.length) return [];
@@ -867,7 +871,9 @@ export async function listSupabaseReportPayments(input: {
   const admin = supabaseAdmin();
   const rows = await readSupabaseReportPages((from, to) =>
     admin.from("payments")
-      .select("id, site_id, subscriber_id, payment_no, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
+      .select(input.summaryOnly
+        ? "id, site_id, subscriber_id, amount, status, paid_at"
+        : "id, site_id, subscriber_id, payment_no, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
       .eq("tenant_id", input.tenantId)
       .in("site_id", siteIds)
       .gte("paid_at", input.start.toISOString())
@@ -880,16 +886,16 @@ export async function listSupabaseReportPayments(input: {
       id: Number(row.id),
       siteId: Number(row.site_id),
       subscriberId: Number(row.subscriber_id),
-      paymentNo: row.payment_no,
+      paymentNo: String(row.payment_no ?? ""),
       amount: String(row.amount),
-      paymentMethod: row.payment_method,
-      transferFromAccount: row.transfer_from_account,
-      transferFromType: row.transfer_from_type,
-      transferToAccount: row.transfer_to_account,
-      transferToType: row.transfer_to_type,
-      status: row.status,
+      paymentMethod: String(row.payment_method ?? ""),
+      transferFromAccount: row.transfer_from_account == null ? null : String(row.transfer_from_account),
+      transferFromType: row.transfer_from_type == null ? null : String(row.transfer_from_type),
+      transferToAccount: row.transfer_to_account == null ? null : String(row.transfer_to_account),
+      transferToType: row.transfer_to_type == null ? null : String(row.transfer_to_type),
+      status: String(row.status ?? ""),
       paidAt: new Date(row.paid_at),
-      collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id),
+      collectedByUserId: row.collected_by_user_id == null ? null : Number(row.collected_by_user_id),
     },
   }));
 }
