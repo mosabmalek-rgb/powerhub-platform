@@ -77,7 +77,7 @@ export function useDashboardKpiPeriod(siteId?: number | null, initial?: Dashboar
   // effect and forcing a second render before the KPI query can start.
   const currentBoundsQuery = trpc.powerhub.readingCycle.currentBounds.useQuery(
     { siteId: siteId ?? 1 },
-    { enabled: Boolean(siteId), staleTime: 60_000, refetchOnWindowFocus: false },
+    { enabled: Boolean(siteId), staleTime: 60_000 },
   );
   const previousReferenceAt = useMemo(() => {
     const startAt = currentBoundsQuery.data?.startAt;
@@ -90,7 +90,6 @@ export function useDashboardKpiPeriod(siteId?: number | null, initial?: Dashboar
     {
       enabled: Boolean(siteId && preset === "previous_cycle" && currentBoundsQuery.data?.startAt),
       staleTime: 60_000,
-      refetchOnWindowFocus: false,
     },
   );
   const lastMonth = useMemo(() => previousMonthRange(), [siteId]);
