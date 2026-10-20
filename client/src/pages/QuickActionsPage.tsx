@@ -10,28 +10,32 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-type Capability = "manageSubscribers" | "recordReadings" | "issueInvoices" | "collectPayments" | "manageExpenses" | "manageMessaging" | "approvePaymentDocumentation";
+type Capability = "manageSubscribers" | "recordReadings" | "approveReadings" | "issueInvoices" | "collectPayments" | "manageExpenses" | "manageMessaging" | "approvePaymentDocumentation";
 type QuickActionId = "add_subscriber" | "record_reading" | "create_invoice" | "collect_payment" | "record_expense" | "send_notification";
 type PrimaryAction = { id: QuickActionId; label: string; description: string; path: string; capability: Capability; icon: typeof UserPlus; tone: string; group: string };
 
 const primaryActions: PrimaryAction[] = [
-  { id: "add_subscriber", label: "إضافة مشترك", description: "إنشاء ملف خدمة جديد وربطه بالفرع الحالي.", path: "/subscribers", capability: "manageSubscribers", icon: UserPlus, tone: "gold", group: "إدارة الخدمة" },
+  { id: "add_subscriber", label: "إضافة مشترك", description: "فتح نموذج الإضافة مباشرة، ثم إدارة الملف والبحث عن بياناته من السجل.", path: "/subscribers?add=1", capability: "manageSubscribers", icon: UserPlus, tone: "gold", group: "إدارة الخدمة" },
   { id: "record_reading", label: "تسجيل قراءة", description: "إدخال قراءة عداد والتحقق قبل الفوترة.", path: "/readings", capability: "recordReadings", icon: Gauge, tone: "sky", group: "دورة الفوترة" },
   { id: "create_invoice", label: "إنشاء فاتورة", description: "إصدار فاتورة من قراءة معتمدة أو مراجعة مسودة.", path: "/invoices", capability: "issueInvoices", icon: ReceiptText, tone: "violet", group: "دورة الفوترة" },
   { id: "collect_payment", label: "تحصيل دين", description: "تسجيل دفعة كاملة أو جزئية وإصدار إيصال.", path: "/collections", capability: "collectPayments", icon: WalletCards, tone: "emerald", group: "التحصيل" },
   { id: "record_expense", label: "تسجيل مصروف", description: "إضافة وقود أو صيانة أو مصروف تشغيلي للفرع.", path: "/expenses", capability: "manageExpenses", icon: CircleDollarSign, tone: "rose", group: "المالية" },
-  { id: "send_notification", label: "إرسال إشعارات", description: "مراجعة إشعارات الفواتير وحالة رسائل SMS.", path: "/notifications", capability: "manageMessaging", icon: BellRing, tone: "amber", group: "التواصل" },
+  { id: "send_notification", label: "مركز الرسائل", description: "متابعة رسائل SMS والتذكيرات وحالات الإرسال، وإرسال الرسائل المتاحة حسب صلاحيتك.", path: "/notifications", capability: "manageMessaging", icon: BellRing, tone: "amber", group: "التواصل" },
 ];
 
+const subscriberReadRoles = ["owner", "manager", "accountant", "collector", "viewer"];
 const supportActions = [
-  { label: "الفواتير", description: "مراجعة الفواتير والذمم وحالة السداد.", path: "/invoices", icon: FileText, roles: ["owner", "manager", "accountant", "collector", "viewer"] },
-  { label: "قراءات الميدان", description: "متابعة القراءات المرسلة من التطبيق الميداني ومزامنتها.", path: "/mobile-sync", icon: Gauge, roles: ["owner", "manager", "accountant", "viewer"] },
+  { label: "البحث وتعديل بيانات المشترك", description: "افتح سجل المشتركين مع تركيز مباشر على البحث بالاسم أو الرقم المرجعي أو الهاتف.", path: "/subscribers?subscriberFocus=1", icon: UsersRound, roles: subscriberReadRoles, capability: "manageSubscribers" as Capability },
+  { label: "متابعة المتأخرات", description: "افتح المتأخرات المستحقة مباشرة، مع البحث والفلترة والتصدير.", path: "/subscribers?debtorFocus=1&debtorStatus=overdue", icon: FileText, roles: subscriberReadRoles },
+  { label: "إرسال تذكير بالسداد", description: "انتقل إلى الفواتير المتأخرة وأرسل تذكيرًا من صف الفاتورة عند توفر صلاحية الرسائل.", path: "/subscribers?debtorFocus=1&debtorStatus=overdue", icon: BellRing, roles: subscriberReadRoles, capability: "manageMessaging" as Capability },
+  { label: "الفواتير", description: "مراجعة الفواتير الصادرة والذمم وحالة السداد.", path: "/invoices", icon: FileText, roles: ["owner", "manager", "accountant", "collector", "viewer"] },
+  { label: "مراجعة قراءات الميدان", description: "متابعة القراءات المستلمة وأخطاء المزامنة حسب الفرع والفترة.", path: "/mobile-sync", icon: Gauge, roles: ["owner", "manager", "accountant", "viewer"] },
+  { label: "اعتماد القراءات الميدانية المعلقة", description: "افتح تفاصيل القراءات الميدانية مباشرة للوصول إلى الاعتماد الجماعي وإصدار الفواتير.", path: "/mobile-sync?focus=pending", icon: Check, roles: ["owner", "manager", "accountant"], capability: "approveReadings" as Capability },
   { label: "توثيق الدفع", description: "إرسال طلب توثيق دفع ومتابعة بيانات الفاتورة.", path: "/payment-documentation", icon: WalletCards, roles: ["owner", "manager", "accountant", "collector", "technician", "viewer"] },
   { label: "مراجعة توثيق الدفع", description: "مراجعة طلبات التوثيق واتخاذ قرار الاعتماد.", path: "/payment-documentation/review", icon: ClipboardCheck, capability: "approvePaymentDocumentation" as Capability },
-  { label: "مركز الرسائل", description: "متابعة رسائل SMS والإشعارات والإرسال.", path: "/notifications", icon: BellRing, capability: "manageMessaging" as Capability },
   { label: "حسابات الشركة", description: "مراجعة الأرصدة والحركات والتحويلات.", path: "/company-accounts", icon: BookOpenCheck, roles: ["owner", "manager", "accountant"] },
   { label: "التقرير المالي", description: "تحليل التحصيل والمصروفات والتصدير.", path: "/reports", icon: TrendingUp, roles: ["owner", "manager", "accountant", "viewer"] },
-  { label: "الحسابات الفرعية", description: "إدارة الموظفين وصلاحياتهم.", path: "/staff", capability: "manageTeam" as Capability },
+  { label: "الحسابات الفرعية", description: "إدارة الموظفين وصلاحياتهم.", path: "/staff", icon: UsersRound, capability: "manageTeam" as Capability },
 ];
 
 const toneClasses: Record<string, { icon: string; border: string; hover: string; label: string }> = {
