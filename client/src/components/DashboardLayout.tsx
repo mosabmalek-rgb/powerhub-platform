@@ -607,7 +607,7 @@ function DashboardLayoutContent({
                 </div>
               </div>
             </div>
-            {user?.id ? <NotificationCenter userId={user.id} /> : null}
+            {user?.id ? <NotificationCenter userId={user.id} enabled={location !== "/notifications-center"} /> : null}
 
             <button
               type="button"
