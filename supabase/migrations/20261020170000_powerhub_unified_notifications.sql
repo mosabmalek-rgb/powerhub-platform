@@ -12,7 +12,7 @@ create table if not exists public.powerhub_user_notifications (
   )),
   title text not null check (char_length(btrim(title)) between 1 and 180),
   body text not null default '' check (char_length(body) <= 1000),
-  target_path text not null default '/workspace' check (target_path like '/%'),
+  target_path text not null default '/workspace' check (target_path like '/%%' and target_path not like '//%%' and position(chr(92) in target_path) = 0),
   entity_type text null,
   entity_id text null,
   dedupe_key text not null,
@@ -23,6 +23,9 @@ create table if not exists public.powerhub_user_notifications (
 );
 create index if not exists powerhub_user_notifications_unread_idx
   on public.powerhub_user_notifications(user_id, created_at desc, id desc) where read_at is null;
+-- Supports bounded inbox reads for both read and unread rows (not only the partial index).
+create index if not exists powerhub_user_notifications_inbox_idx
+  on public.powerhub_user_notifications(user_id, created_at desc, id desc);
 create index if not exists powerhub_user_notifications_tenant_idx
   on public.powerhub_user_notifications(tenant_id, created_at desc, id desc);
 alter table public.powerhub_user_notifications enable row level security;
@@ -74,7 +77,11 @@ begin
     user_id,tenant_id,notification_type,title,body,target_path,entity_type,entity_id,dedupe_key,metadata
   ) values (
     p_user_id,p_tenant_id,p_type,left(btrim(p_title),180),left(coalesce(p_body,''),1000),
-    case when p_target_path like '/%' then p_target_path else '/workspace' end,
+    case
+      when p_target_path like '/%' and p_target_path not like '//%'
+        and position(chr(92) in p_target_path) = 0 then p_target_path
+      else '/workspace'
+    end,
     p_entity_type,p_entity_id,p_dedupe_key,coalesce(p_metadata,'{}'::jsonb)
   ) on conflict(user_id,dedupe_key) do nothing returning id into v_id;
   return v_id;
