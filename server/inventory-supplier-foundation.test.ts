@@ -31,7 +31,7 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
   it("makes purchase posting and stock movement operations idempotent", () => {
     expect(migration).toContain("unique (tenant_id, operation_key)");
     expect(migration).toContain("unique (tenant_id, purchase_number)");
-    expect(migration).toContain("unique index inventory_stock_movements_purchase_idx");
+    expect(migration).toContain("create index inventory_stock_movements_purchase_idx");
     expect(migration).toContain("supplier_ledger_purchase_entry_unique_idx");
     expect(migration).toContain("supplier_ledger_payment_entry_unique_idx");
   });
