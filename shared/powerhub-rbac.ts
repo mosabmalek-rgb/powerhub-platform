@@ -21,7 +21,20 @@ export type PowerCapability =
   | "managePayroll"
   | "manageTeam"
   | "manageMessaging"
-  | "viewAudit";
+  | "viewAudit"
+  | "viewInventory"
+  | "manageInventoryItems"
+  | "manageSuppliers"
+  | "createPurchases"
+  | "approvePurchases"
+  | "receiveInventory"
+  | "manageSupplierPayments"
+  | "viewSupplierLedger"
+  | "issueInventory"
+  | "adjustInventory"
+  | "manageFuelAndConsumption"
+  | "manageMaintenance"
+  | "viewInventoryReports";
 
 export const powerRoleLabels: Record<PowerRole, string> = {
   owner: "صاحب مولد",
@@ -56,6 +69,19 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   manageTeam: ["owner"],
   manageMessaging: ["owner"],
   viewAudit: ["owner", "manager", "accountant", "viewer"],
+  viewInventory: ["owner", "manager", "accountant", "technician", "viewer"],
+  manageInventoryItems: ["owner", "manager"],
+  manageSuppliers: ["owner", "manager", "accountant"],
+  createPurchases: ["owner", "manager", "accountant"],
+  approvePurchases: ["owner", "manager", "accountant"],
+  receiveInventory: ["owner", "manager", "accountant", "technician"],
+  manageSupplierPayments: ["owner", "accountant"],
+  viewSupplierLedger: ["owner", "manager", "accountant"],
+  issueInventory: ["owner", "manager", "technician"],
+  adjustInventory: ["owner", "manager"],
+  manageFuelAndConsumption: ["owner", "manager", "technician"],
+  manageMaintenance: ["owner", "manager", "technician"],
+  viewInventoryReports: ["owner", "manager", "accountant", "viewer"],
 };
 
 export const powerCapabilityLabels: Record<PowerCapability, string> = {
@@ -73,6 +99,19 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   manageTeam: "إدارة الحسابات الفرعية",
   manageMessaging: "إدارة الإشعارات والقوالب",
   viewAudit: "عرض سجل التدقيق",
+  viewInventory: "عرض المخزون",
+  manageInventoryItems: "إدارة دليل الأصناف والمستودعات",
+  manageSuppliers: "إدارة الموردين",
+  createPurchases: "إنشاء فواتير المشتريات",
+  approvePurchases: "اعتماد المشتريات",
+  receiveInventory: "تأكيد استلام الأصناف",
+  manageSupplierPayments: "تسجيل واعتماد دفعات الموردين",
+  viewSupplierLedger: "عرض ذمم وكشوف الموردين",
+  issueInventory: "صرف الأصناف للمولدات",
+  adjustInventory: "الجرد والتسويات المخزنية",
+  manageFuelAndConsumption: "إدارة الوقود والاستهلاك",
+  manageMaintenance: "إدارة أوامر الصيانة",
+  viewInventoryReports: "عرض وتصدير تقارير المخزون",
 };
 
 export function can(role: PowerRole | undefined | null, capability: PowerCapability, permissions?: readonly PowerCapability[] | null) {
