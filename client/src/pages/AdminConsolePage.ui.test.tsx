@@ -70,6 +70,7 @@ vi.mock("@/lib/trpc", () => ({
       createGeneratorOwnerSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       createGeneratorOwnerWithTemporaryPassword: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       updateSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
+      resetUserPassword: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       renewSubscription: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       attachOwnerUser: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       setGeneratorStatus: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },

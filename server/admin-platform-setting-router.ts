@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { authenticatedProcedure, router } from "./_core/trpc";
@@ -11,6 +12,73 @@ import { adminRouterWithSupabasePlatformAccess } from "./admin-platform-access-r
 import { adminTenantAccessRouter } from "./admin-tenant-access-router";
 import { adminSmsPlanRouter } from "./admin-sms-plan-router";
 import { adminRouterWithSupabaseTenantBranchSettings } from "./admin-tenant-branch-settings-router";
+
+const resetUserPasswordProcedure = authenticatedProcedure
+  .input(z.object({ userId: z.number().int().positive() }))
+  .mutation(async ({ ctx, input }) => {
+    if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(ctx.user.platformRole ?? "") || ctx.user.accountStatus !== "active") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إعادة تعيين كلمات المرور." });
+    }
+    if (ctx.user.id === input.userId) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن استخدام هذا الإجراء لإعادة تعيين كلمة مرور حسابك الإداري." });
+
+    const admin = supabaseAdmin();
+    const { data: target, error: targetError } = await admin.from("users")
+      .select("id,auth_user_id,name,email,role,platform_role,account_status,must_change_password,temporary_password_issued_at")
+      .eq("id", input.userId).maybeSingle();
+    if (targetError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من الحساب المستهدف." });
+    if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "المستخدم غير موجود." });
+    if (target.role === "admin" && target.platform_role === "platform_owner") throw new TRPCError({ code: "FORBIDDEN", message: "حساب مالك المنصة محمي ولا يمكن إعادة تعيينه من هذا الإجراء." });
+    if (!target.auth_user_id) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا الحساب غير مرتبط بمستخدم في Supabase Auth." });
+
+    const occurredAt = new Date().toISOString();
+    const targetRole = target.platform_role ?? target.role;
+    const { data: auditEvent, error: auditStartError } = await admin.from("platform_security_events").insert({
+      event_type: "security_change", severity: "warning", status: "open",
+      title: "إعادة تعيين كلمة مرور مستخدم من إدارة المنصة",
+      details: "بدأ آدمن المنصة إعادة تعيين كلمة المرور. لا تُحفظ كلمة المرور المؤقتة في سجل التدقيق.",
+      created_by_user_id: ctx.user.id, related_user_id: input.userId,
+      metadata: { event: "platform_admin_password_reset", scope: "platform", actorUserId: ctx.user.id, targetUserId: input.userId, targetRole, targetEmail: target.email ?? null, outcome: "started", occurredAt },
+    }).select("id").single();
+    if (auditStartError || !auditEvent) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء سجل التدقيق؛ لم تتغير كلمة المرور." });
+
+    const finishAudit = async (status: "success" | "failed", outcome: string, details: string) => {
+      const { error } = await admin.from("platform_security_events").update({
+        status, severity: status === "success" ? "warning" : "critical", details,
+        metadata: { event: "platform_admin_password_reset", scope: "platform", actorUserId: ctx.user.id, targetUserId: input.userId, targetRole, targetEmail: target.email ?? null, outcome, occurredAt, updatedAt: new Date().toISOString(), temporaryPasswordStored: false },
+      }).eq("id", auditEvent.id);
+      return !error;
+    };
+
+    const issuedAt = new Date().toISOString();
+    const { data: flagged, error: flagError } = await admin.from("users").update({
+      must_change_password: true, temporary_password_issued_at: issuedAt, updated_at: issuedAt,
+    }).eq("id", input.userId).select("id").maybeSingle();
+    if (flagError || !flagged) {
+      await finishAudit("failed", "profile_flag_failed", "تعذر تعيين إلزام تغيير كلمة المرور في سجل المستخدم؛ لم تتغير كلمة مرور المصادقة.");
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز الحساب لإلزام تغيير كلمة المرور؛ لم تتغير كلمة المرور الحالية." });
+    }
+
+    const { data: authResult, error: authReadError } = await admin.auth.admin.getUserById(target.auth_user_id);
+    if (authReadError || !authResult.user) {
+      await admin.from("users").update({ must_change_password: target.must_change_password ?? false, temporary_password_issued_at: target.temporary_password_issued_at ?? null, updated_at: new Date().toISOString() }).eq("id", input.userId);
+      await finishAudit("failed", "auth_user_not_found", "تعذر العثور على حساب المصادقة؛ لم يتم تغيير كلمة المرور.");
+      throw new TRPCError({ code: "NOT_FOUND", message: "تعذر العثور على حساب المصادقة المرتبط بالمستخدم؛ لم تتغير كلمة المرور." });
+    }
+
+    const temporaryPassword = `Ph!${crypto.randomBytes(12).toString("base64url")}`;
+    const { error: authError } = await admin.auth.admin.updateUserById(target.auth_user_id, {
+      password: temporaryPassword,
+      user_metadata: { ...(authResult.user.user_metadata ?? {}), must_change_password: true },
+    });
+    if (authError) {
+      await admin.from("users").update({ must_change_password: target.must_change_password ?? false, temporary_password_issued_at: target.temporary_password_issued_at ?? null, updated_at: new Date().toISOString() }).eq("id", input.userId);
+      await finishAudit("failed", "auth_password_update_failed", "رفض مزود المصادقة تغيير كلمة المرور؛ تمت استعادة علامات ملف المستخدم السابقة.");
+      throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديث كلمة المرور في خدمة المصادقة." });
+    }
+
+    const auditRecorded = await finishAudit("success", "completed", "أُعيد تعيين كلمة المرور بنجاح وأُلزم المستخدم بتغييرها عند الدخول التالي. لم تُحفظ كلمة المرور المؤقتة في سجل التدقيق.");
+    return { success: true as const, userId: Number(target.id), userName: target.name ?? target.email ?? "المستخدم", temporaryPassword, auditRecorded };
+  });
 
 const platformAdminSavePlatformSettingProcedure = authenticatedProcedure
   .input(z.object({
@@ -103,6 +171,7 @@ const setTenantFeatureEntitlementProcedure = authenticatedProcedure
   });
 
 type PlatformSettingAdminRouter = typeof adminRouter & {
+  resetUserPassword: typeof resetUserPasswordProcedure;
   sendOwnerUsageAlert: typeof sendOwnerUsageAlertProcedure;
   listTenantFeatureEntitlements: typeof listTenantFeatureEntitlementsProcedure;
   setTenantFeatureEntitlement: typeof setTenantFeatureEntitlementProcedure;
@@ -125,6 +194,7 @@ export const adminRouterWithSupabasePlatformSetting = (router({
   ...tenantAccessRecord,
   ...smsPlanRecord,
   ...tenantBranchRecord,
+  resetUserPassword: resetUserPasswordProcedure,
   savePlatformSetting: platformAdminSavePlatformSettingProcedure,
   sendOwnerUsageAlert: sendOwnerUsageAlertProcedure,
   setTenantFeatureEntitlement: setTenantFeatureEntitlementProcedure,
