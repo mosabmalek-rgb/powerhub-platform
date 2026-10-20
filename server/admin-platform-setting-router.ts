@@ -171,6 +171,7 @@ const setTenantFeatureEntitlementProcedure = authenticatedProcedure
   });
 
 type PlatformSettingAdminRouter = typeof adminRouter & {
+  resetUserPassword: typeof resetUserPasswordProcedure;
   sendOwnerUsageAlert: typeof sendOwnerUsageAlertProcedure;
   listTenantFeatureEntitlements: typeof listTenantFeatureEntitlementsProcedure;
   setTenantFeatureEntitlement: typeof setTenantFeatureEntitlementProcedure;
