@@ -95,7 +95,7 @@ export function applyStaffCapabilityOverrides(
 ): PowerCapability[] {
   const permissions = new Set<PowerCapability>(basePermissions);
   for (const override of overrides) {
-    if (!(override.capability in powerCapabilityLabels)) continue;
+    if (!Object.prototype.hasOwnProperty.call(powerCapabilityLabels, override.capability)) continue;
     const capability = override.capability as PowerCapability;
     if (override.is_allowed) permissions.add(capability);
     else permissions.delete(capability);
