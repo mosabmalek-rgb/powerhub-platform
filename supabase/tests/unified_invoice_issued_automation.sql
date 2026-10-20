@@ -120,7 +120,12 @@ create or replace function public.powerhub_invoice_sms_next_schedule(
   p_created_at timestamptz, p_mode text, p_anchor_at timestamptz
 ) returns timestamptz
 language sql stable
-as $function$ select p_created_at; $function$;
+as $function$
+  select case
+    when coalesce(p_mode,'immediate')='immediate' or p_anchor_at is null then p_created_at
+    else greatest(p_created_at,p_anchor_at)
+  end;
+$function$;
 
 create or replace function public.powerhub_public_base_url()
 returns text language sql stable as $function$ select 'https://powerhub.example.test'; $function$;
@@ -185,7 +190,7 @@ values (10,20,true,false);
 insert into public.tenant_messaging_configurations(
   tenant_id,channel,is_active,auto_send_after_approval,invoice_sms_schedule_mode,
   invoice_sms_schedule_anchor_at,invoice_message_style
-) values (10,'sms',true,true,'immediate',null,'details');
+) values (10,'sms',true,true,'weekly','2026-10-22 20:00:00+03','details');
 insert into public.tenant_invoice_message_templates(tenant_id,channel,event_type,body,is_active)
 values (
   10,'sms','invoice_issued',
@@ -205,6 +210,12 @@ begin
   if v_template_count <> 1 or v_automation_count <> 1 then
     raise exception 'INVOICE_AUTOMATION_BACKFILL_FAILED templates=% automations=%',v_template_count,v_automation_count;
   end if;
+  if not exists (
+    select 1 from public.powerhub_message_automations
+    where tenant_id=10 and site_id=20 and event_type='invoice_issued'
+      and send_type='scheduled' and schedule_type='weekly'
+      and schedule_anchor_at='2026-10-22 20:00:00+03'::timestamptz
+  ) then raise exception 'INVOICE_AUTOMATION_SCHEDULE_BACKFILL_FAILED'; end if;
   select pg_get_functiondef(p.oid) into v_anchor
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='public' and p.proname='powerhub_approve_and_issue_mobile_reading' and p.pronargs=8;
@@ -231,6 +242,11 @@ begin
   if v_message.id is null then raise exception 'INVOICE_SMS_NOT_QUEUED'; end if;
   if v_message.automation_id is null or v_message.template_id is null then
     raise exception 'INVOICE_SMS_MISSING_AUTOMATION_OR_TEMPLATE';
+  end if;
+  if v_message.send_type <> 'scheduled' or v_message.schedule_type <> 'weekly'
+     or v_message.scheduled_at <> '2026-10-22 20:00:00+03'::timestamptz then
+    raise exception 'INVOICE_SMS_SCHEDULE_NOT_RESPECTED send_type=% schedule_type=% scheduled_at=%',
+      v_message.send_type,v_message.schedule_type,v_message.scheduled_at;
   end if;
   if v_message.payload->>'operationKey' <> 'invoice:501:invoice_issued' then
     raise exception 'INVOICE_SMS_OPERATION_KEY_INVALID: %',v_message.payload->>'operationKey';
