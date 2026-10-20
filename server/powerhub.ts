@@ -8,6 +8,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { buildFinancialOverview } from "./financial-overview-utils";
+import { buildDashboardPeriodMetrics } from "./dashboard-period-metrics";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
@@ -570,6 +571,28 @@ export const powerhubRouter = router({
       const row = Array.isArray(data) ? data[0] : data;
       if (error || !row?.cycle_start_at || !row?.cycle_end_at) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تحديد حدود دورة الفوترة الحالية لهذا الفرع." });
+      }
+      return {
+        cycleKey: String(row.cycle_key ?? ""),
+        cycleLabel: String(row.cycle_label ?? row.billing_period ?? ""),
+        billingPeriod: String(row.billing_period ?? row.cycle_key ?? ""),
+        startAt: String(row.cycle_start_at),
+        endAt: String(row.cycle_end_at),
+      };
+    }),
+
+    boundsAt: protectedProcedure.input(siteScoped.extend({
+      referenceAt: z.string().datetime({ offset: true }),
+    })).query(async ({ ctx, input }) => {
+      const scope = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_cycle_for_reading", {
+        p_tenant_id: scope.tenantId,
+        p_site_id: input.siteId,
+        p_reading_at: input.referenceAt,
+      });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row?.cycle_start_at || !row?.cycle_end_at) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تعذر تحديد حدود الدورة السابقة لهذا الفرع." });
       }
       return {
         cycleKey: String(row.cycle_key ?? ""),
@@ -3132,6 +3155,93 @@ export const powerhubRouter = router({
         }),
         payments: paymentRows.map((payment) => ({ siteId: Number(payment.site_id), subscriberId: Number(payment.subscriber_id), amount: Number(payment.amount), status: payment.status, paidAt: new Date(payment.paid_at) })),
         expenses: expenseRows.map((expense) => ({ siteId: Number(expense.site_id), amount: Number(expense.amount), occurredAt: new Date(expense.occurred_at) })),
+      });
+    }),
+
+    periodMetrics: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+      startDate: paymentDocumentationDateKeySchema,
+      endDate: paymentDocumentationDateKeySchema,
+    }).refine((input) => input.startDate <= input.endDate, {
+      message: "يجب أن يكون تاريخ بداية الفترة قبل تاريخ نهايتها أو مساوياً لها.",
+    })).query(async ({ ctx, input }) => {
+      let tenantId: number;
+      let siteRows: Array<{ id: number; name: string }>;
+      if (input.scope === "branch") {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .eq("id", input.siteId)
+          .neq("status", "archived")
+          .limit(1);
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الفرع لمؤشرات الفترة." });
+        siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
+      } else {
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .neq("status", "archived")
+          .order("created_at", { ascending: true });
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الأفرع لمؤشرات الفترة." });
+        siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
+      }
+
+      const siteIds = siteRows.map((site) => site.id);
+      // Date filters are entered and displayed in the Gaza billing timezone; use its exact local day boundaries.
+      const start = paymentDocumentationGazaDateBoundary(input.startDate);
+      const endExclusive = paymentDocumentationGazaDateBoundary(paymentDocumentationNextDateKey(input.endDate));
+      if (!siteIds.length) {
+        return buildDashboardPeriodMetrics({
+          scope: input.scope,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          invoices: [],
+          payments: [],
+        });
+      }
+
+      const [invoiceRows, paymentRows] = await Promise.all([
+        listSupabaseReportInvoices({ tenantId, siteIds, start, endExclusive }),
+        listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive }),
+      ]);
+      const eligibleInvoices = invoiceRows.filter((invoice) => invoice.status !== "cancelled" && invoice.status !== "draft");
+      const subscriberRows = await listSupabaseReportSubscribers({
+        tenantId,
+        siteIds,
+        subscriberIds: eligibleInvoices.map((invoice) => invoice.subscriberId),
+      });
+      const subscribersById = new Map(subscriberRows.map((subscriber) => [subscriber.id, subscriber]));
+      const branchNameById = new Map(siteRows.map((site) => [site.id, site.name]));
+      const invoices = eligibleInvoices.map((invoice) => {
+        const subscriber = subscribersById.get(invoice.subscriberId);
+        return {
+          id: invoice.id,
+          siteId: invoice.siteId,
+          siteName: branchNameById.get(invoice.siteId) ?? "فرع غير محدد",
+          subscriberId: invoice.subscriberId,
+          subscriberName: subscriber?.fullName ?? "مشترك غير محدد",
+          subscriberNo: subscriber?.subscriberNo ?? "—",
+          invoiceNo: invoice.invoiceNo,
+          issueDate: invoice.issueDate,
+          dueDate: invoice.dueDate,
+          totalAmount: invoice.totalAmount,
+          paidAmount: invoice.paidAmount,
+          balanceDue: invoice.balanceDue,
+          status: invoice.status,
+        };
+      });
+
+      return buildDashboardPeriodMetrics({
+        scope: input.scope,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        invoices,
+        payments: paymentRows.map(({ payment }) => ({ status: payment.status, amount: payment.amount })),
       });
     }),
   }),
