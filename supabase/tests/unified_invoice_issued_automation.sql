@@ -110,7 +110,7 @@ create table public.notification_messages (
   invoice_id bigint, subscriber_id bigint, channel text not null, event_type text not null,
   recipient text, status text not null, scheduled_at timestamptz,
   send_type text, schedule_type text, template_id bigint, automation_id bigint,
-  payload jsonb not null default '{}'::jsonb, operation_key text, created_at timestamptz not null default now(),
+  payload jsonb not null default '{}'::jsonb, operation_key text, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
   unique (tenant_id, operation_key)
 );
 
