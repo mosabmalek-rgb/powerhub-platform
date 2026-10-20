@@ -10,22 +10,35 @@ export const dashboardKpiPeriodLabels: Record<DashboardKpiPeriodPreset, string> 
   custom: "مخصص",
 };
 
+function gazaDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Gaza",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 export function dashboardDateKey(value: unknown): string {
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString().slice(0, 10) : "";
-  if (typeof value !== "string" || !value.trim()) return "";
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return isValidDashboardDateInput(value) ? value : "";
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isFinite(date.getTime()) ? gazaDateKey(date) : "";
 }
 
 export function isValidDashboardDateInput(value: string): boolean {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function previousMonthRange(now = new Date()) {
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
+  const today = gazaDateKey(now);
+  const [year, month] = today.split("-").map(Number);
+  const start = new Date(Date.UTC(year, month - 2, 1));
+  const end = new Date(Date.UTC(year, month - 1, 0));
   return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
 }
 
@@ -38,9 +51,10 @@ export type DashboardKpiPeriodInitial = {
 export function parseDashboardKpiPeriod(search: string): DashboardKpiPeriodInitial {
   const params = new URLSearchParams(search);
   const rawPreset = params.get("debtorPeriod") ?? params.get("kpiPeriod");
-  const preset: DashboardKpiPeriodPreset = rawPreset === "previous_cycle" || rawPreset === "last_month" || rawPreset === "custom" || rawPreset === "current_cycle"
-    ? rawPreset
-    : "current_cycle";
+  const preset: DashboardKpiPeriodPreset =
+    rawPreset === "previous_cycle" || rawPreset === "last_month" || rawPreset === "custom" || rawPreset === "current_cycle"
+      ? rawPreset
+      : "current_cycle";
   const startDate = params.get("startDate") ?? undefined;
   const endDate = params.get("endDate") ?? undefined;
   return {
@@ -52,7 +66,7 @@ export function parseDashboardKpiPeriod(search: string): DashboardKpiPeriodIniti
 
 export function useDashboardKpiPeriod(siteId?: number | null, initial?: DashboardKpiPeriodInitial) {
   const [preset, setPresetState] = useState<DashboardKpiPeriodPreset>(initial?.preset ?? "current_cycle");
-  const fallbackToday = () => new Date().toISOString().slice(0, 10);
+  const fallbackToday = () => gazaDateKey(new Date());
   const [startDate, setStartDate] = useState(initial?.startDate && isValidDashboardDateInput(initial.startDate) ? initial.startDate : fallbackToday());
   const [endDate, setEndDate] = useState(initial?.endDate && isValidDashboardDateInput(initial.endDate) ? initial.endDate : fallbackToday());
 
@@ -70,7 +84,7 @@ export function useDashboardKpiPeriod(siteId?: number | null, initial?: Dashboar
     { siteId: siteId ?? 1, referenceAt: previousReferenceAt },
     { enabled: Boolean(siteId && preset === "previous_cycle" && currentBoundsQuery.data?.startAt) },
   );
-  const lastMonth = useMemo(() => previousMonthRange(), [preset, siteId]);
+  const lastMonth = useMemo(() => previousMonthRange(), [siteId]);
 
   useEffect(() => {
     if (preset === "current_cycle" && currentBoundsQuery.data) {
@@ -131,16 +145,8 @@ export function useDashboardKpiPeriod(siteId?: number | null, initial?: Dashboar
   };
 
   return {
-    preset,
-    setPreset,
-    startDate,
-    endDate,
-    setStartDate,
-    setEndDate,
+    preset, setPreset, startDate, endDate, setStartDate, setEndDate,
     isReady: Boolean(siteId && datesValid && rangeReady && !isError),
-    isLoading,
-    isError,
-    retry,
-    label: dashboardKpiPeriodLabels[preset],
+    isLoading, isError, retry, label: dashboardKpiPeriodLabels[preset],
   };
 }
