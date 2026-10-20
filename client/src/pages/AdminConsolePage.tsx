@@ -274,7 +274,7 @@ function UsersCenter({ userSummary, pending, onTenantStatus, onPlatformStatus, c
   const [selected,setSelected]=useState<any>(null);
   const [temporaryCredential,setTemporaryCredential]=useState<any>(null);
   const utils = trpc.useUtils();
-  const resetPassword = trpc.admin.resetUserPassword.useMutation({ onSuccess: (result) => { setTemporaryCredential(result); toast.success("تمت إعادة تعيين كلمة المرور وتسجيل العملية في سجل الأمان."); void utils.admin.userDirectory.invalidate(); void utils.admin.platformSnapshot.invalidate(); }, onError: (error) => toast.error(error.message) });
+  const resetPassword = trpc.admin.resetUserPassword.useMutation({ onSuccess: (result) => { setTemporaryCredential(result); if (result.auditRecorded) toast.success("تمت إعادة تعيين كلمة المرور وتسجيل العملية في سجل الأمان."); else toast.error("تم تغيير كلمة المرور وبدأ سجل التدقيق، لكن تعذر تحديث حالة السجل النهائية؛ راجع سجل الأمان."); void utils.admin.userDirectory.invalidate(); void utils.admin.platformSnapshot.invalidate(); }, onError: (error) => toast.error(error.message) });
   const [page,setPage]=useState(1);
   const pageSize=50;
 
