@@ -197,5 +197,37 @@ export const platformAnnouncementsRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل قراءة الإعلان." });
       return { success: true as const };
     }),
+    markManyRead: authenticatedProcedure.input(z.object({ ids: z.array(z.number().int().positive()).max(100) })).mutation(async ({ ctx, input }) => {
+      const ids = Array.from(new Set(input.ids));
+      if (!ids.length) return { success: true as const, updated: 0 };
+      const admin = supabaseAdmin();
+      const now = new Date().toISOString();
+      const [{ data: announcements, error: announcementsError }, { data: profiles }, { data: account }, { data: memberships }] = await Promise.all([
+        admin.from("platform_announcements")
+          .select("id,status,published_at,audience_roles,tenant_id")
+          .in("id", ids).eq("status", "published")
+          .not("published_at", "is", null).lte("published_at", now),
+        admin.from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true),
+        admin.from("users").select("platform_role,account_status").eq("id", ctx.user.id).single(),
+        admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active"),
+      ]);
+      if (announcementsError || !account || account.account_status !== "active") {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من الإعلانات المتاحة." });
+      }
+      const roles = new Set<string>(profiles?.map((profile) => profile.role) ?? []);
+      if (account.platform_role) roles.add(account.platform_role);
+      const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
+      const visibleIds = (announcements ?? []).filter((announcement) =>
+        (announcement.tenant_id == null || tenantIds.has(Number(announcement.tenant_id))) &&
+        (announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role))),
+      ).map((announcement) => Number(announcement.id));
+      if (!visibleIds.length) return { success: true as const, updated: 0 };
+      const { error } = await admin.from("platform_announcement_reads").upsert(
+        visibleIds.map((announcement_id) => ({ announcement_id, user_id: ctx.user.id, read_at: now })),
+        { onConflict: "announcement_id,user_id" },
+      );
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث حالات قراءة الإعلانات." });
+      return { success: true as const, updated: visibleIds.length };
+    }),
   }),
 });
