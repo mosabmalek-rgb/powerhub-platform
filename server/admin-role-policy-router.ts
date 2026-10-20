@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { saveRolePolicy } from "./role-policy-supabase";
 import { supabaseAdmin } from "./supabase-admin";
+import { defaultCapabilitiesForRole, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 
 const roleSchema = z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]);
 const capabilitySchema = z.enum([
@@ -58,7 +59,7 @@ export const adminRolePolicyRouter = router({
       }
       const admin = supabaseAdmin();
       const profilesResult = await admin.from("staff_profiles")
-        .select("id,user_id,tenant_id,site_id,role,is_active")
+        .select("id,user_id,tenant_id,site_id,role,is_active,permissions,custom_role_id")
         .not("tenant_id", "is", null)
         .order("id", { ascending: false })
         .limit(500);
@@ -69,18 +70,21 @@ export const adminRolePolicyRouter = router({
       const tenantIds = [...new Set(profiles.map((row) => Number(row.tenant_id)).filter(Number.isSafeInteger))];
       const siteIds = [...new Set(profiles.map((row) => Number(row.site_id)).filter(Number.isSafeInteger))];
       const profileIds = profiles.map((row) => Number(row.id));
-      const [usersResult, tenantsResult, sitesResult, overridesResult] = await Promise.all([
+      const customRoleIds = [...new Set(profiles.map((row) => Number(row.custom_role_id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
+      const [usersResult, tenantsResult, sitesResult, overridesResult, customRolesResult] = await Promise.all([
         admin.from("users").select("id,name,email").in("id", userIds),
         admin.from("tenants").select("id,name").in("id", tenantIds),
         siteIds.length ? admin.from("sites").select("id,name").in("id", siteIds) : Promise.resolve({ data: [], error: null }),
         admin.from("staff_profile_capability_overrides").select("profile_id,capability,is_allowed").in("profile_id", profileIds),
+        customRoleIds.length ? admin.from("custom_permission_roles").select("id,permissions").in("id", customRoleIds) : Promise.resolve({ data: [], error: null }),
       ]);
-      if (usersResult.error || tenantsResult.error || sitesResult.error || overridesResult.error) {
+      if (usersResult.error || tenantsResult.error || sitesResult.error || overridesResult.error || customRolesResult.error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل الحسابات واستثناءات الصلاحيات." });
       }
       const users = new Map((usersResult.data ?? []).map((row) => [Number(row.id), row]));
       const tenants = new Map((tenantsResult.data ?? []).map((row) => [Number(row.id), row]));
       const sites = new Map((sitesResult.data ?? []).map((row) => [Number(row.id), row]));
+      const customRoles = new Map((customRolesResult.data ?? []).map((row) => [Number(row.id), row]));
       const overrides = new Map<number, Array<{ capability: string; isAllowed: boolean }>>();
       for (const row of overridesResult.data ?? []) {
         const id = Number(row.profile_id);
@@ -103,6 +107,11 @@ export const adminRolePolicyRouter = router({
           siteName: site?.name ?? (profile.site_id == null ? "جميع الفروع" : `فرع #${profile.site_id}`),
           role: profile.role,
           isActive: Boolean(profile.is_active),
+          baseCapabilities: Array.isArray(profile.permissions)
+            ? profile.permissions.filter((capability): capability is PowerCapability => typeof capability === "string")
+            : profile.custom_role_id
+              ? ((customRoles.get(Number(profile.custom_role_id))?.permissions ?? []) as unknown[]).filter((capability): capability is PowerCapability => typeof capability === "string")
+              : defaultCapabilitiesForRole(profile.role as PowerRole),
           overrides: overrides.get(Number(profile.id)) ?? [],
         };
       });
