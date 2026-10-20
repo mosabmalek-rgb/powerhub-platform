@@ -69,7 +69,7 @@ insert into public.powerhub_message_automations(
 select c.tenant_id,
        s.id,
        t.id,
-       left('إرسال الفواتير - ' || coalesce(s.name, 'فرع') || ' #' || s.id::text, 120),
+       left('إرسال الفواتير #' || s.id::text || ' - ' || coalesce(s.name, 'فرع'), 120),
        'invoice_issued',
        case
          when coalesce(c.invoice_sms_schedule_mode, 'immediate') <> 'immediate'
