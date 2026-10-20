@@ -26,13 +26,6 @@ as $$
     union
     select 'all'::text
   ),
-  memberships as (
-    select tm.tenant_id
-    from public.tenant_members tm
-    join actor a on a.id = tm.user_id
-    where tm.is_active = true
-      and tm.membership_status = 'active'
-  )
   select count(*)::integer
   from public.platform_announcements a
   where exists (select 1 from actor)
@@ -40,10 +33,6 @@ as $$
     and a.published_at is not null
     and a.published_at <= now()
     and a.audience_roles && array(select role from roles)
-    and (
-      a.tenant_id is null
-      or exists (select 1 from memberships m where m.tenant_id = a.tenant_id)
-    )
     and not exists (
       select 1
       from public.platform_announcement_reads ar
