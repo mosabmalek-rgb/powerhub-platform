@@ -37,7 +37,7 @@ create table public.staff_profile_capability_overrides (
   is_allowed boolean not null,
   updated_by_user_id bigint references public.users(id) on delete set null,
   updated_at timestamptz not null default now(),
-  unique (tenant_id, profile_id, capability),
+  constraint staff_profile_capability_override_unique unique (tenant_id, profile_id, capability),
   constraint staff_profile_capability_overrides_profile_tenant_fk
     foreign key (tenant_id, profile_id)
     references public.staff_profiles (tenant_id, id) on delete cascade
@@ -118,7 +118,7 @@ begin
     (tenant_id, profile_id, capability, is_allowed, updated_by_user_id, updated_at)
   values
     (v_profile.tenant_id, v_profile.id, p_capability, p_is_allowed, p_actor_user_id, now())
-  on conflict on constraint staff_profile_capability_overrides_tenant_id_profile_id_capability_key do update
+  on conflict on constraint staff_profile_capability_override_unique do update
     set is_allowed = excluded.is_allowed,
         updated_by_user_id = excluded.updated_by_user_id,
         updated_at = now();
