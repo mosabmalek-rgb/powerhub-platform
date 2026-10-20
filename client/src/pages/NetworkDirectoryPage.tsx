@@ -365,7 +365,7 @@ function SubscriberDebtorWorkspace({
     startDate: period.startDate,
     endDate: period.endDate,
     includeDetails: true,
-  }, { enabled: Boolean(siteId && period.isReady), staleTime: 10_000, refetchOnWindowFocus: false });
+  }, { enabled: Boolean(siteId && period.isReady), staleTime: 10_000 });
   const reminder = trpc.powerhub.notifications.sendPaymentReminderSms.useMutation({
     onSuccess: (result) => toast.success(result.status === "submitted" ? "تم إرسال تذكير SMS إلى المشترك." : "وُضع تذكير SMS في الطابور؛ راجع سجل الإشعارات."),
     onError: (error) => toast.error(error.message),
