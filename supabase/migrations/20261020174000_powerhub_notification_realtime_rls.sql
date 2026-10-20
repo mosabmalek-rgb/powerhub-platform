@@ -5,14 +5,7 @@ drop policy if exists powerhub_user_notifications_select_own on public.powerhub_
 create policy powerhub_user_notifications_select_own
   on public.powerhub_user_notifications
   for select to authenticated
-  using (
-    exists (
-      select 1
-      from public.users u
-      where u.id = powerhub_user_notifications.user_id
-        and u.auth_user_id = auth.uid()
-    )
-  );
+  using (powerhub_user_notifications.user_id = powerhub_private.current_user_id());
 grant select on public.powerhub_user_notifications to authenticated;
 
 do $$
