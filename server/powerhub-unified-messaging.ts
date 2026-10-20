@@ -1028,8 +1028,19 @@ export const powerhubUnifiedMessagingRouter = router({
 
   setAutomationState: protectedProcedure.input(z.object({siteId:z.number().int().positive(),automationId:z.number().int().positive(),enabled:z.boolean(),archived:z.boolean().default(false)})).mutation(async({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageMessaging");
-    const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_set_automation_state",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_automation_id:input.automationId,p_enabled:input.enabled,p_archived:input.archived,p_actor_user_id:ctx.user.id});
+    const admin=supabaseAdmin();
+    const {data:existingAutomation,error:existingError}=await admin.from("powerhub_message_automations")
+      .select("event_type").eq("id",input.automationId).eq("tenant_id",access.tenantId).eq("site_id",input.siteId).maybeSingle();
+    if(existingError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من حدث الأتمتة الحالية."});
+    if(!existingAutomation) throw new TRPCError({code:"NOT_FOUND",message:"الأتمتة غير موجودة ضمن الفرع المحدد."});
+    const {data,error}=await admin.rpc("powerhub_unified_messaging_set_automation_state",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_automation_id:input.automationId,p_enabled:input.enabled,p_archived:input.archived,p_actor_user_id:ctx.user.id});
     if(error||!data?.[0]) throw new TRPCError({code:"BAD_REQUEST",message:"تعذر تغيير حالة الأتمتة."});
+    if(existingAutomation.event_type==="invoice_issued") {
+      const {error:rescheduleError}=await admin.rpc("powerhub_reschedule_invoice_issued_automation",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_automation_id:input.automationId,
+      });
+      if(rescheduleError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تم تغيير حالة الأتمتة لكن تعذر تحديث توقيت الرسائل المعلقة."});
+    }
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_automation",entityId:String(input.automationId),action:input.archived?"archive":input.enabled?"enable":"disable",afterData:{enabled:input.enabled,archived:Boolean(data[0].archived_at)}});
     return {id:Number(data[0].id),enabled:Boolean(data[0].enabled),archived:Boolean(data[0].archived_at)};
   }),
