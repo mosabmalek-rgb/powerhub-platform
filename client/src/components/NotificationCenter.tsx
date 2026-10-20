@@ -45,8 +45,10 @@ export function NotificationCenter({ userId }: { userId: number }) {
   useEffect(() => {
     if (!userId) return;
     const unsubscribe = subscribeToChatNotifications(userId, (event) => {
+      seenIds.current ??= new Set<number>();
+      if (seenIds.current.has(event.notification_id)) return;
+      seenIds.current.add(event.notification_id);
       void queryClient.invalidateQueries({ queryKey: ["notification-center", "chat", userId] });
-      if (seenIds.current?.has(event.notification_id)) return;
       if (!muted) {
         try {
           const Ctx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
