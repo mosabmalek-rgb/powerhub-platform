@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { BellRing, CheckCheck, ClipboardList, Loader2, Megaphone, MessageSquareText, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { listChatNotifications, markChatNotificationRead, type ChatInboxNotification } from "@/lib/chatReceipts";
+import { listChatNotifications, markChatNotificationRead, subscribeToChatNotifications, type ChatInboxNotification } from "@/lib/chatReceipts";
 import { supabase } from "@/lib/supabase";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -16,7 +16,7 @@ export default function NotificationsCenterPage(){
  const userId=Number(auth.data?.id??0);
  const client=useQueryClient();
  const [filter,setFilter]=useState<"all"|"unread">("all");
- const eventsLoadedRef=useRef(false);
+ const eventsLoadedRef=useRef(true);
  const chats=useQuery({queryKey:["notification-center","chat",userId],queryFn:()=>listChatNotifications(100),enabled:userId>0,refetchOnWindowFocus:true});
  const chatUnread=useQuery({queryKey:["notification-center","chat-unread",userId],queryFn:async()=>{const {data,error}=await supabase.rpc("chat_unread_notification_count");if(error)throw error;return Number(data??0);},enabled:userId>0,staleTime:30000,refetchOnWindowFocus:true});
  const eventUnread=useQuery({queryKey:["notification-center","unread-count",userId],queryFn:async()=>{const {data,error}=await supabase.rpc("powerhub_notification_unread_count");if(error)throw error;return Number(data??0);},enabled:userId>0,staleTime:30000,refetchOnWindowFocus:false});
@@ -25,6 +25,7 @@ export default function NotificationsCenterPage(){
  const announcements=trpc.platformAnnouncements.inbox.list.useQuery(undefined,{enabled:userId>0,staleTime:60000,refetchOnWindowFocus:false});
  const utils=trpc.useUtils();
  useEffect(()=>{if(!userId)return;const channel=supabase.channel("powerhub-notifications-page-"+userId).on("postgres_changes",{event:"INSERT",schema:"public",table:"powerhub_user_notifications",filter:"user_id=eq."+userId},()=>{if(eventsLoadedRef.current)void client.invalidateQueries({queryKey:["notification-center","events",userId]});}).subscribe();return()=>{void supabase.removeChannel(channel);};},[userId,client]);
+ useEffect(()=>{if(!userId)return;return subscribeToChatNotifications(userId,()=>{void client.invalidateQueries({queryKey:["notification-center","chat",userId]});void client.invalidateQueries({queryKey:["notification-center","chat-unread",userId]});});},[userId,client]);
  const rows=useMemo(()=>[
   ...(chats.data??[]).map(x=>({key:"chat:"+x.id,kind:"chat" as const,id:x.id,title:x.title,body:x.body??"رسالة جديدة في الدردشة",createdAt:x.created_at,read:Boolean(x.read_at),path:"/support-chat",raw:x})),
   ...(events.data??[]).map(x=>({key:"event:"+x.id,kind:"event" as const,id:x.id,title:x.title,body:x.body,createdAt:x.created_at,read:Boolean(x.read_at),path:x.target_path,raw:x})),
@@ -33,7 +34,7 @@ export default function NotificationsCenterPage(){
  const visible=filter==="unread"?rows.filter(x=>!x.read):rows;
  const unread=Number(chatUnread.data??rows.filter(x=>x.kind==="chat"&&!x.read).length)+Number(eventUnread.data??rows.filter(x=>x.kind==="event"&&!x.read).length)+Number(announcementUnread.data??rows.filter(x=>x.kind==="announcement"&&!x.read).length);
  const loading=chats.isLoading||events.isLoading||announcements.isLoading;
- const refresh=()=>{eventsLoadedRef.current=true;void chats.refetch();void events.refetch();void announcements.refetch();};
+ const refresh=()=>{eventsLoadedRef.current=true;void chats.refetch();void events.refetch();void announcements.refetch();void chatUnread.refetch();void eventUnread.refetch();void announcementUnread.refetch();};
  const markAll=async()=>{try{
   const unreadAnnouncements=(announcements.data??[]).filter(x=>!x.readAt);
   const failures:string[]=[];
