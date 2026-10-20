@@ -159,3 +159,52 @@ revoke insert, update, delete, truncate, references, trigger on table public.sta
 grant select on table public.staff_profile_permission_audit to authenticated;
 grant all on table public.staff_profile_permission_audit to service_role;
 grant usage, select on sequence public.staff_profile_permission_audit_id_seq to service_role;
+
+-- Extend the existing role-policy writer to accept the new inventory capabilities.
+-- It remains service-role-only and requires an active platform owner/admin.
+drop function if exists public.powerhub_admin_save_role_policy(bigint,text,text,boolean);
+create function public.powerhub_admin_save_role_policy(
+  p_actor_user_id bigint,
+  p_role text,
+  p_capability text,
+  p_is_allowed boolean
+)
+returns table(success boolean, policy_id bigint, role text, capability text, is_allowed boolean, replayed boolean)
+language plpgsql security invoker set search_path=public,pg_temp
+as $$
+declare v_id bigint;
+begin
+  if not exists (
+    select 1 from public.users
+    where id = p_actor_user_id
+      and role = 'admin'
+      and account_status = 'active'
+      and platform_role in ('platform_owner','platform_admin')
+  ) then
+    raise exception 'PLATFORM_ADMIN_REQUIRED' using errcode='P0001';
+  end if;
+  if p_role not in ('owner','manager','accountant','collector','technician','viewer') then
+    raise exception 'INVALID_ROLE' using errcode='P0001';
+  end if;
+  if p_capability not in (
+    'manageSubscribers','manageGenerators','recordReadings','accessFieldApp',
+    'approveReadings','manageTariffs','issueInvoices','collectPayments',
+    'approvePaymentDocumentation','manageExpenses','managePayroll','manageTeam',
+    'manageMessaging','viewAudit',
+    'viewInventory','manageInventoryItems','manageSuppliers','createPurchases',
+    'approvePurchases','receiveInventory','manageSupplierPayments','viewSupplierLedger',
+    'issueInventory','adjustInventory','manageFuelAndConsumption','manageMaintenance',
+    'viewInventoryReports'
+  ) then
+    raise exception 'INVALID_CAPABILITY' using errcode='P0001';
+  end if;
+  insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id,updated_at)
+  values(p_role,p_capability,p_is_allowed,p_actor_user_id,now())
+  on conflict(role,capability) do update
+    set is_allowed=excluded.is_allowed,updated_by_user_id=excluded.updated_by_user_id,updated_at=now()
+  returning id into v_id;
+  return query select true,v_id,p_role,p_capability,p_is_allowed,false;
+end;
+$$;
+revoke execute on function public.powerhub_admin_save_role_policy(bigint,text,text,boolean) from public,anon,authenticated;
+grant execute on function public.powerhub_admin_save_role_policy(bigint,text,text,boolean) to service_role;
