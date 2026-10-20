@@ -169,7 +169,7 @@ export function WorkspaceHome() {
     ? "—"
     : periodMetricsLoading ? "…" : ratio(value);
   const openPeriodArrears = () => {
-    if (!siteId || !dashboardPeriod.startDate || !dashboardPeriod.endDate) return;
+    if (!siteId || !dashboardPeriod.isReady || !dashboardPeriod.startDate || !dashboardPeriod.endDate) return;
     const params = new URLSearchParams({
       siteId: String(siteId),
       debtorScope: selectedScope,
