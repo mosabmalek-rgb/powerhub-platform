@@ -37,4 +37,23 @@ describe("buildDashboardPeriodMetrics", () => {
     expect(result.summary).toMatchObject({ invoiced: 0, collected: 0, collectionRate: 0, outstanding: 0, overdue: 0 });
     expect(() => buildDashboardPeriodMetrics({ scope: "branch", startDate: "2026-10-31", endDate: "2026-10-01", invoices: [], payments: [] })).toThrow("الفترة الزمنية غير صالحة");
   });
+  it("omits invoice details for a dashboard KPI request while preserving the aggregate totals", () => {
+    const result = buildDashboardPeriodMetrics({
+      scope: "branch",
+      startDate: "2026-10-01",
+      endDate: "2026-10-31",
+      invoices: [{
+        id: 9, siteId: 10, siteName: "الرئيسي", subscriberId: 109,
+        subscriberName: "فاطمة", subscriberNo: "P-109", invoiceNo: "I-9",
+        issueDate: new Date("2026-10-02T08:00:00.000Z"), dueDate: new Date("2026-10-10T00:00:00.000Z"),
+        totalAmount: 50, paidAmount: 0, balanceDue: 50, status: "issued",
+      }],
+      payments: [{ status: "completed", amount: 20 }],
+      includeDetails: false,
+      now: new Date("2026-10-20T12:00:00.000Z"),
+    });
+    expect(result.summary).toMatchObject({ invoiced: 50, collected: 20, outstanding: 50, overdue: 50, overdueSubscriberCount: 1 });
+    expect(result.outstandingInvoices).toEqual([]);
+  });
+
 });
