@@ -552,7 +552,7 @@ function SubscriberDebtorWorkspace({
                         <div className="min-w-0"><p className="text-xs text-slate-500">رقم الفاتورة</p><p className="mt-1 break-all font-display text-xs text-[#F5B800]" dir="ltr">{row.invoiceNo ?? "—"}</p></div>
                         <div className="min-w-0"><p className="text-xs text-slate-500">تاريخ الفاتورة</p><p className="mt-1 text-slate-300">{formatDate(row.issueDate)}</p></div>
                       </div>
-                      {canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="mt-4 w-full bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : null}
+                      {canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="mt-3 h-7 min-h-0 w-full px-2 py-1 text-[11px] bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : null}
                     </article>
                   ))}
                 </div>
@@ -583,7 +583,7 @@ function SubscriberDebtorWorkspace({
                       <td className="whitespace-nowrap px-1 py-2 text-center font-bold tabular-nums text-rose-200">{format(row.outstanding)}</td>
                       <td className="whitespace-nowrap px-1 py-2 text-center text-[10px] text-slate-300">{formatDate(row.dueDate)}</td>
                       <td className="break-words px-1 py-2"><Badge className={row.isOverdue ? "max-w-full whitespace-normal bg-rose-400/10 text-rose-300" : row.partialInvoices ? "max-w-full whitespace-normal bg-amber-400/10 text-amber-200" : "max-w-full whitespace-normal bg-sky-400/10 text-sky-200"}>{statusLabel(row)}</Badge></td>
-                      <td className="px-1 py-2 text-center">{canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="w-full min-w-0 whitespace-normal break-words bg-[#F5B800] px-1 text-[10px] leading-4 text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : "—"}</td>
+                      <td className="px-1 py-2 text-center">{canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="h-6 min-h-0 w-full min-w-0 whitespace-normal break-words bg-[#F5B800] px-1 py-0 text-[11px] leading-3 text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
