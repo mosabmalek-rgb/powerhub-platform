@@ -39,7 +39,7 @@ describe("PDF CSS color compatibility", () => {
     expect(normalized).toContain("color: rgb(0, 0, 0)");
     expect(normalized).toContain("background-color: rgba(255, 255, 255, 0.25)");
     expect(normalized).toContain("border-color: rgb(0, 0, 0)");
-    expect(normalized).not.toMatch(/\\b(?:oklch|oklab)\\(/i);
+    expect(normalized).not.toMatch(/\b(?:oklch|oklab)\(/i);
   });
 
   it("normalizes color functions inside gradient declarations without changing the gradient", () => {
