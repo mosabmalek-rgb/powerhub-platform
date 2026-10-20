@@ -323,6 +323,68 @@ $function$;
 revoke all on function public.powerhub_enqueue_invoice_sms(bigint,bigint,bigint) from public, anon, authenticated;
 grant execute on function public.powerhub_enqueue_invoice_sms(bigint,bigint,bigint) to service_role;
 
+-- Reapply a saved automation's delivery cycle to already-queued automatic messages in
+-- this site only. Explicit manual sends retain their immediate/manual behavior.
+create or replace function public.powerhub_reschedule_invoice_issued_automation(
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_automation_id bigint
+)
+returns bigint
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $function$
+declare
+  v_automation public.powerhub_message_automations%rowtype;
+  v_mode text := 'immediate';
+  v_anchor timestamptz;
+  v_count bigint := 0;
+begin
+  select * into v_automation
+  from public.powerhub_message_automations a
+  where a.id = p_automation_id
+    and a.tenant_id = p_tenant_id
+    and a.site_id = p_site_id
+    and a.event_type = 'invoice_issued';
+  if not found then raise exception 'INVOICE_AUTOMATION_OUT_OF_SCOPE' using errcode = 'P0001'; end if;
+
+  if v_automation.enabled is true and v_automation.archived_at is null
+     and v_automation.send_type = 'scheduled'
+     and v_automation.schedule_type in ('weekly','every_10_days','every_15_days','monthly')
+     and v_automation.schedule_anchor_at is not null then
+    v_mode := v_automation.schedule_type;
+    v_anchor := v_automation.schedule_anchor_at;
+  end if;
+
+  update public.notification_messages n
+  set scheduled_at = public.powerhub_invoice_sms_next_schedule(i.created_at, v_mode, v_anchor),
+      schedule_type = case when n.send_type = 'manual' then n.schedule_type when v_mode = 'immediate' then 'none' else v_mode end,
+      send_type = case when n.send_type = 'manual' then 'manual' when v_mode = 'immediate' then 'automatic' else 'scheduled' end,
+      automation_id = v_automation.id,
+      payload = jsonb_set(
+        jsonb_set(coalesce(n.payload, '{}'::jsonb), '{scheduleMode}', to_jsonb(v_mode), true),
+        '{scheduledAt}', to_jsonb(public.powerhub_invoice_sms_next_schedule(i.created_at, v_mode, v_anchor)), true
+      ),
+      updated_at = now()
+  from public.invoices i
+  where n.tenant_id = p_tenant_id
+    and n.invoice_id = i.id
+    and i.tenant_id = p_tenant_id
+    and i.site_id = p_site_id
+    and n.channel = 'sms'
+    and n.event_type = 'invoice_issued'
+    and n.status = 'pending'
+    and coalesce(n.send_type, 'automatic') <> 'manual';
+
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$function$;
+
+revoke all on function public.powerhub_reschedule_invoice_issued_automation(bigint,bigint,bigint) from public, anon, authenticated;
+grant execute on function public.powerhub_reschedule_invoice_issued_automation(bigint,bigint,bigint) to service_role;
+
 create or replace function public.powerhub_queue_invoice_sms_after_issue()
 returns trigger
 language plpgsql
