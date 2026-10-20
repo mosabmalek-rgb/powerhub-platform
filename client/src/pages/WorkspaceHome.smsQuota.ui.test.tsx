@@ -111,22 +111,24 @@ describe("تهيئة مصادقة مساحة العمل", () => {
 });
 
 describe("إشعارات حدود الاشتراك في لوحة المالك", () => {
-  it("لا يعرض تحذير Toast تلقائياً عند فتح لوحة التحكم والحصة مستنفدة", async () => {
+  it("يُبقي بطاقة استهلاك حد الأفرع مخفية حتى عند استنفاد الحصة دون إطلاق Toast", async () => {
     const { toast } = await import("sonner");
     state.branchPolicy = { isEnabled: true, maxBranches: 1, currentCount: 1, remaining: 0 };
     render(<WorkspaceHome />);
-    expect(screen.getByText("بلغت الحد الأقصى للأفرع المتاحة.")).toBeInTheDocument();
+    expect(screen.queryByText("بلغت الحد الأقصى للأفرع المتاحة.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: "استهلاك حصة الأفرع" })).not.toBeInTheDocument();
     expect(toast.warning).not.toHaveBeenCalled();
   });
 
-  it("يعرض حالات الحصص في بطاقاتها دون Toast عام عند تجاوز أكثر من حصة", async () => {
+  it("يعرض بطاقات حدود المشتركين والرسائل مع إبقاء بطاقة حد الأفرع مخفية ودون Toast عام", async () => {
     const { toast } = await import("sonner");
     state.branchPolicy = { isEnabled: true, maxBranches: 3, currentCount: 3, remaining: 0 };
     state.subscriberQuota = { limit: 100, currentCount: 85, remaining: 15, plan: "basic" };
     state.smsUsed = 450;
     render(<WorkspaceHome />);
     expect(screen.getByText("استهلكت 85% من الحد المسموح. اقتربت من الحد الأقصى.")).toBeInTheDocument();
-    expect(screen.getByText("بلغت الحد الأقصى للأفرع المتاحة.")).toBeInTheDocument();
+    expect(screen.queryByText("بلغت الحد الأقصى للأفرع المتاحة.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: "استهلاك حصة الأفرع" })).not.toBeInTheDocument();
     expect(screen.getByText("محفظة رسائل SMS")).toBeInTheDocument();
     expect(screen.getByText("حد مزود الرسائل الشهري")).toBeInTheDocument();
     expect(screen.queryByText("تحتاج إلى رصيد رسائل إضافي؟")).not.toBeInTheDocument();

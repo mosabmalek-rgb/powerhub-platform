@@ -165,15 +165,24 @@ describe("role guards in administration UI", () => {
     expect(screen.queryByRole("button", { name: /إصدار الفاتورة/ })).not.toBeInTheDocument();
   });
 
-  it("lets the owner select an unsent invoice and send only that selection", () => {
+  it("shows subscriber names instead of a select-all column and preserves individual bulk-send selection", () => {
     mocks.activeRole = "owner";
+    mocks.subscribers = [
+      { id: 101, fullName: "أحمد حسن", subscriberNo: "SUB-101", phone: "0599000101" },
+      { id: 102, fullName: "سارة علي", subscriberNo: "SUB-102", phone: "0599000102" },
+    ];
     mocks.invoices = [
-      { id: 81, invoiceNo: "PH-TEST-0081", billingPeriod: "2026-08", consumptionKwh: "12", totalAmount: "60", paidAmount: "0", balanceDue: "60", status: "issued" } as any,
-      { id: 82, invoiceNo: "PH-TEST-0082", billingPeriod: "2026-08", consumptionKwh: "18", totalAmount: "90", paidAmount: "0", balanceDue: "90", status: "issued" } as any,
+      { id: 81, subscriberId: 101, invoiceNo: "PH-TEST-0081", billingPeriod: "2026-08", consumptionKwh: "12", totalAmount: "60", paidAmount: "0", balanceDue: "60", status: "issued" } as any,
+      { id: 82, subscriberId: 102, invoiceNo: "PH-TEST-0082", billingPeriod: "2026-08", consumptionKwh: "18", totalAmount: "90", paidAmount: "0", balanceDue: "90", status: "issued" } as any,
     ];
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<BillingPage />);
-    fireEvent.click(screen.getByLabelText("تحديد كل الفواتير غير المرسلة في الصفحة"));
+    expect(screen.getByRole("columnheader", { name: "اسم المشترك" })).toBeInTheDocument();
+    expect(screen.getByText("أحمد حسن")).toBeInTheDocument();
+    expect(screen.getByText("سارة علي")).toBeInTheDocument();
+    expect(screen.queryByLabelText("تحديد كل الفواتير غير المرسلة في الصفحة")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("تحديد الفاتورة PH-TEST-0081"));
+    fireEvent.click(screen.getByLabelText("تحديد الفاتورة PH-TEST-0082"));
     expect(screen.getByLabelText("تحديد الفاتورة PH-TEST-0081")).toBeChecked();
     expect(screen.getByLabelText("تحديد الفاتورة PH-TEST-0082")).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: /إرسال المحددة/ }));
@@ -182,9 +191,13 @@ describe("role guards in administration UI", () => {
 
   it("does not let failed or scheduled SMS invoices enter the ordinary bulk-send selection", () => {
     mocks.activeRole = "owner";
+    mocks.subscribers = [
+      { id: 101, fullName: "أحمد حسن", subscriberNo: "SUB-101", phone: "0599000101" },
+      { id: 102, fullName: "سارة علي", subscriberNo: "SUB-102", phone: "0599000102" },
+    ];
     mocks.invoices = [
-      { id: 81, invoiceNo: "PH-TEST-0081", billingPeriod: "2026-08", consumptionKwh: "12", totalAmount: "60", paidAmount: "0", balanceDue: "60", status: "issued" } as any,
-      { id: 82, invoiceNo: "PH-TEST-0082", billingPeriod: "2026-08", consumptionKwh: "18", totalAmount: "90", paidAmount: "0", balanceDue: "90", status: "issued" } as any,
+      { id: 81, subscriberId: 101, invoiceNo: "PH-TEST-0081", billingPeriod: "2026-08", consumptionKwh: "12", totalAmount: "60", paidAmount: "0", balanceDue: "60", status: "issued" } as any,
+      { id: 82, subscriberId: 102, invoiceNo: "PH-TEST-0082", billingPeriod: "2026-08", consumptionKwh: "18", totalAmount: "90", paidAmount: "0", balanceDue: "90", status: "issued" } as any,
     ];
     mocks.notifications = [
       { notification: { invoiceId: 81, status: "failed", scheduledAt: null } },
@@ -193,7 +206,8 @@ describe("role guards in administration UI", () => {
     render(<BillingPage />);
     expect(screen.getByLabelText("تحديد الفاتورة PH-TEST-0081")).toBeDisabled();
     expect(screen.getByLabelText("تحديد الفاتورة PH-TEST-0082")).toBeDisabled();
-    expect(screen.getByLabelText("تحديد كل الفواتير غير المرسلة في الصفحة")).toBeDisabled();
+    expect(screen.queryByLabelText("تحديد كل الفواتير غير المرسلة في الصفحة")).not.toBeInTheDocument();
+    expect(screen.getByText("أحمد حسن")).toBeInTheDocument();
     expect(screen.getByText("فشل")).toBeInTheDocument();
     expect(screen.getByText("في قائمة الانتظار")).toBeInTheDocument();
   });
