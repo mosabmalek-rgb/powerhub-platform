@@ -269,8 +269,24 @@ begin
   v_rendered_text := replace(v_rendered_text, '{{subscriber_no}}', coalesce(v_subscriber.subscriber_no, ''));
   v_rendered_text := replace(v_rendered_text, '{{invoice_no}}', coalesce(v_invoice.invoice_no, ''));
   v_rendered_text := replace(v_rendered_text, '{{billing_period}}', coalesce(v_invoice.billing_period, ''));
-  v_rendered_text := replace(v_rendered_text, '{{total_amount}}', v_invoice.total_amount::text);
-  v_rendered_text := replace(v_rendered_text, '{{balance_due}}', v_invoice.balance_due::text);
+  v_rendered_text := replace(v_rendered_text, '{{total_amount}}', public.powerhub_format_message_amount(p_tenant_id, p_site_id, v_invoice.total_amount));
+  v_rendered_text := replace(v_rendered_text, '{{balance_due}}', public.powerhub_format_message_amount(p_tenant_id, p_site_id, v_invoice.balance_due));
+  v_rendered_text := replace(v_rendered_text, '{{previous_reading}}', coalesce(v_invoice.previous_reading::text, ''));
+  v_rendered_text := replace(v_rendered_text, '{{current_reading}}', coalesce(v_invoice.current_reading::text, ''));
+  v_rendered_text := replace(v_rendered_text, '{{consumption_kwh}}', coalesce(v_invoice.consumption_kwh::text, ''));
+  v_rendered_text := replace(v_rendered_text, '{{total_balance}}', public.powerhub_format_message_amount(
+    p_tenant_id,
+    p_site_id,
+    coalesce((
+      select sum(i.balance_due)
+      from public.invoices i
+      where i.tenant_id = p_tenant_id
+        and i.site_id = p_site_id
+        and i.subscriber_id = v_invoice.subscriber_id
+        and i.status in ('issued','partially_paid','overdue')
+        and i.balance_due > 0
+    ), 0)
+  ));
   v_rendered_text := replace(v_rendered_text, '{{due_date}}', to_char(v_invoice.due_date at time zone 'Asia/Gaza', 'YYYY-MM-DD'));
   v_rendered_text := replace(v_rendered_text, '{{invoice_link}}', coalesce(v_invoice_link, ''));
   v_rendered_text := replace(v_rendered_text, '{{portal_link}}', coalesce(v_portal_link, ''));
