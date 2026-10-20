@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,11 +16,12 @@ export default function NotificationsCenterPage(){
  const userId=Number(auth.data?.id??0);
  const client=useQueryClient();
  const [filter,setFilter]=useState<"all"|"unread">("all");
+ const eventsLoadedRef=useRef(false);
  const chats=useQuery({queryKey:["notification-center","chat",userId],queryFn:()=>listChatNotifications(100),enabled:userId>0,refetchOnWindowFocus:true});
  const events=useQuery({queryKey:["notification-center","events",userId],queryFn:async()=>{const {data,error}=await supabase.rpc("powerhub_notification_list",{p_limit:100});if(error)throw error;return (data??[]) as StoredNotification[];},enabled:userId>0,staleTime:60000,refetchOnWindowFocus:false});
  const announcements=trpc.platformAnnouncements.inbox.list.useQuery(undefined,{enabled:userId>0,staleTime:60000,refetchOnWindowFocus:false});
  const utils=trpc.useUtils();
- useEffect(()=>{if(!userId)return;const channel=supabase.channel("powerhub-notifications-page-"+userId).on("postgres_changes",{event:"INSERT",schema:"public",table:"powerhub_user_notifications",filter:"user_id=eq."+userId},()=>{if(events.isFetched)void client.invalidateQueries({queryKey:["notification-center","events",userId]});}).subscribe();return()=>{void supabase.removeChannel(channel);};},[userId,client,events.isFetched]);
+ useEffect(()=>{if(!userId)return;const channel=supabase.channel("powerhub-notifications-page-"+userId).on("postgres_changes",{event:"INSERT",schema:"public",table:"powerhub_user_notifications",filter:"user_id=eq."+userId},()=>{if(eventsLoadedRef.current)void client.invalidateQueries({queryKey:["notification-center","events",userId]});}).subscribe();return()=>{void supabase.removeChannel(channel);};},[userId,client]);
  const markAnnouncement=trpc.platformAnnouncements.inbox.markRead.useMutation({onSuccess:()=>void utils.platformAnnouncements.inbox.list.invalidate(),onError:e=>toast.error(e.message)});
  const rows=useMemo(()=>[
   ...(chats.data??[]).map(x=>({key:"chat:"+x.id,kind:"chat" as const,id:x.id,title:x.title,body:x.body??"رسالة جديدة في الدردشة",createdAt:x.created_at,read:Boolean(x.read_at),path:"/support-chat",raw:x})),
@@ -30,10 +31,9 @@ export default function NotificationsCenterPage(){
  const visible=filter==="unread"?rows.filter(x=>!x.read):rows;
  const unread=rows.filter(x=>!x.read).length;
  const loading=chats.isLoading||events.isLoading||announcements.isLoading;
- const refresh=()=>{void chats.refetch();void events.refetch();void announcements.refetch();};
+ const refresh=()=>{eventsLoadedRef.current=true;void chats.refetch();void events.refetch();void announcements.refetch();};
  const markAll=async()=>{try{
   const unreadChats=(chats.data??[]).filter(x=>!x.read_at);
-  const unreadEvents=(events.data??[]).filter(x=>!x.read_at);
   const unreadAnnouncements=(announcements.data??[]).filter(x=>!x.readAt);
   const failures:string[]=[];
   const chatResults=await Promise.allSettled(unreadChats.map(x=>markChatNotificationRead(x.id)));
