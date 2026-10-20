@@ -5,12 +5,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
-import { ArrowDown, ArrowLeft, ArrowUp, BellRing, BookOpenCheck, Check, CircleDollarSign, FileText, Gauge, ReceiptText, Settings2, TrendingUp, UserPlus, UsersRound, WalletCards, Zap } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, BellRing, BookOpenCheck, Check, CircleDollarSign, ClipboardCheck, FileText, Gauge, ReceiptText, Settings2, TrendingUp, UserPlus, UsersRound, WalletCards, Zap } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-type Capability = "manageSubscribers" | "recordReadings" | "issueInvoices" | "collectPayments" | "manageExpenses" | "manageMessaging";
+type Capability = "manageSubscribers" | "recordReadings" | "issueInvoices" | "collectPayments" | "manageExpenses" | "manageMessaging" | "approvePaymentDocumentation";
 type QuickActionId = "add_subscriber" | "record_reading" | "create_invoice" | "collect_payment" | "record_expense" | "send_notification";
 type PrimaryAction = { id: QuickActionId; label: string; description: string; path: string; capability: Capability; icon: typeof UserPlus; tone: string; group: string };
 
@@ -25,9 +25,13 @@ const primaryActions: PrimaryAction[] = [
 
 const supportActions = [
   { label: "الفواتير", description: "مراجعة الفواتير والذمم وحالة السداد.", path: "/invoices", icon: FileText, roles: ["owner", "manager", "accountant", "collector", "viewer"] },
+  { label: "قراءات الميدان", description: "متابعة القراءات المرسلة من التطبيق الميداني ومزامنتها.", path: "/mobile-sync", icon: Gauge, roles: ["owner", "manager", "accountant", "viewer"] },
+  { label: "توثيق الدفع", description: "إرسال طلب توثيق دفع ومتابعة بيانات الفاتورة.", path: "/payment-documentation", icon: WalletCards, roles: ["owner", "manager", "accountant", "collector", "technician", "viewer"] },
+  { label: "مراجعة توثيق الدفع", description: "مراجعة طلبات التوثيق واتخاذ قرار الاعتماد.", path: "/payment-documentation/review", icon: ClipboardCheck, capability: "approvePaymentDocumentation" as Capability },
+  { label: "مركز الرسائل", description: "متابعة رسائل SMS والإشعارات والإرسال.", path: "/notifications", icon: BellRing, capability: "manageMessaging" as Capability },
   { label: "حسابات الشركة", description: "مراجعة الأرصدة والحركات والتحويلات.", path: "/company-accounts", icon: BookOpenCheck, roles: ["owner", "manager", "accountant"] },
   { label: "التقرير المالي", description: "تحليل التحصيل والمصروفات والتصدير.", path: "/reports", icon: TrendingUp, roles: ["owner", "manager", "accountant", "viewer"] },
-  { label: "الحسابات الفرعية", description: "إدارة الموظفين وصلاحياتهم.", path: "/staff", icon: UsersRound, capability: "manageTeam" as Capability },
+  { label: "الحسابات الفرعية", description: "إدارة الموظفين وصلاحياتهم.", path: "/staff", capability: "manageTeam" as Capability },
 ];
 
 const toneClasses: Record<string, { icon: string; border: string; hover: string; label: string }> = {
