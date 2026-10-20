@@ -327,9 +327,49 @@ begin
 end;
 $reschedule_assertions$;
 
+do $mobile_enqueue_assertions$
+declare
+  v_mobile record;
+  v_count integer;
+  v_message public.notification_messages%rowtype;
+begin
+  select * into v_mobile
+  from public.powerhub_approve_and_issue_mobile_reading(
+    10,20,1,42,1,'2026-10-30 20:00:00+03'::timestamptz,'2026-10',0
+  );
+  select count(*) into v_count from public.notification_messages
+  where tenant_id=10 and invoice_id=999 and channel='sms' and event_type='invoice_issued';
+  select * into v_message from public.notification_messages
+  where tenant_id=10 and invoice_id=999 and channel='sms' and event_type='invoice_issued';
+  if v_count <> 1 or v_message.id is null or not (v_mobile.notification_ids @> array[v_message.id]::bigint[]) then
+    raise exception 'MOBILE_APPROVAL_SMS_NOT_UNIFIED_OR_DEDUPED count=% message_id=% returned=%',
+      v_count,v_message.id,v_mobile.notification_ids;
+  end if;
+end;
+$mobile_enqueue_assertions$;
+
 update public.powerhub_message_automations
 set enabled=false,updated_at=now()
 where tenant_id=10 and site_id=20 and event_type='invoice_issued' and archived_at is null;
+
+do $disabled_reschedule_assertions$
+declare
+  v_rescheduled bigint;
+  v_before timestamptz;
+  v_after timestamptz;
+begin
+  select scheduled_at into v_before from public.notification_messages
+  where tenant_id=10 and invoice_id=501 and channel='sms' and event_type='invoice_issued';
+  v_rescheduled := public.powerhub_reschedule_invoice_issued_automation(
+    10,20,(select id from public.powerhub_message_automations where tenant_id=10 and site_id=20 and event_type='invoice_issued' and archived_at is null)
+  );
+  select scheduled_at into v_after from public.notification_messages
+  where tenant_id=10 and invoice_id=501 and channel='sms' and event_type='invoice_issued';
+  if v_rescheduled <> 0 or v_after is distinct from v_before then
+    raise exception 'DISABLING_INVOICE_AUTOMATION_CHANGED_PENDING_SCHEDULE count=% before=% after=%',v_rescheduled,v_before,v_after;
+  end if;
+end;
+$disabled_reschedule_assertions$;
 
 insert into public.invoices(
   id,tenant_id,site_id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,
