@@ -37,7 +37,8 @@ select distinct c.tenant_id,
        ),
        jsonb_build_array(
          '{{subscriber_name}}','{{subscriber_no}}','{{invoice_no}}','{{billing_period}}',
-         '{{total_amount}}','{{balance_due}}','{{due_date}}','{{invoice_link}}','{{portal_link}}'
+         '{{total_amount}}','{{balance_due}}','{{due_date}}','{{previous_reading}}',
+         '{{current_reading}}','{{consumption_kwh}}','{{total_balance}}','{{invoice_link}}','{{portal_link}}'
        ),
        true,
        1
