@@ -381,6 +381,7 @@ begin
     execute format('revoke insert, update, delete, truncate, references, trigger on table public.%I from authenticated', table_name);
     execute format('grant select on table public.%I to authenticated', table_name);
     execute format('grant all on table public.%I to service_role', table_name);
+    execute format('grant usage, select on sequence public.%I to service_role', table_name || '_id_seq');
   end loop;
 end;
 $rls$;
