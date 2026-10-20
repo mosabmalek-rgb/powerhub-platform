@@ -349,8 +349,13 @@ begin
     and a.event_type = 'invoice_issued';
   if not found then raise exception 'INVOICE_AUTOMATION_OUT_OF_SCOPE' using errcode = 'P0001'; end if;
 
-  if v_automation.enabled is true and v_automation.archived_at is null
-     and v_automation.send_type = 'scheduled'
+  -- Disabling/archiving stops future enqueueing but must not release already-scheduled
+  -- pending messages early by turning their delivery time into "immediate".
+  if v_automation.enabled is not true or v_automation.archived_at is not null then
+    return 0;
+  end if;
+
+  if v_automation.send_type = 'scheduled'
      and v_automation.schedule_type in ('weekly','every_10_days','every_15_days','monthly')
      and v_automation.schedule_anchor_at is not null then
     v_mode := v_automation.schedule_type;
