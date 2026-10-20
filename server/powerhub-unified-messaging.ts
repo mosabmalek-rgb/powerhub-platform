@@ -165,6 +165,9 @@ async function getPlatformActorId() {
 async function executeAutomation(automation: any, now: Date, actorUserId: number) {
   const admin = supabaseAdmin();
   const eventType = String(automation.event_type);
+  // Invoice-issued messages are enqueued per invoice by the database issuance hook;
+  // do not scan subscribers from the periodic automation runner.
+  if (eventType === "invoice_issued") return { status: "skipped", requested: 0, queued: 0, failed: 0, skipped: 0 };
   const incrementalAutomaticEvent = automation.send_type === "automatic" && isIncrementalAutomaticEvent(eventType);
   let eventScanSince = String(automation.created_at);
   if (incrementalAutomaticEvent) {
@@ -995,8 +998,16 @@ export const powerhubUnifiedMessagingRouter = router({
     triggerConfig:z.object({afterDueHours:z.number().int().min(0).max(2160).optional(),afterDueDays:z.number().int().min(0).max(90).optional(),minBalance:z.number().min(0).optional()}).default({}), enabled:z.boolean().default(true),
   })).mutation(async ({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageMessaging");
+    if(input.id) {
+      const {data:existingAutomation,error:existingAutomationError}=await supabaseAdmin().from("powerhub_message_automations")
+        .select("event_type").eq("id",input.id).eq("tenant_id",access.tenantId).eq("site_id",input.siteId).maybeSingle();
+      if(existingAutomationError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من حدث الأتمتة الحالية."});
+      if(existingAutomation?.event_type==="invoice_issued" && input.eventType!=="invoice_issued") {
+        throw new TRPCError({code:"BAD_REQUEST",message:"لا يمكن تغيير حدث أتمتة صدور الفاتورة؛ عطّلها أو أرشفها ثم أنشئ أتمتة مستقلة للحدث الآخر."});
+      }
+    }
     if(input.sendType==="manual") throw new TRPCError({code:"BAD_REQUEST",message:"الإرسال اليدوي لا يُحفظ كأتمتة؛ استخدم حملة يدوية."});
-    if(input.eventType==="invoice_issued") throw new TRPCError({code:"BAD_REQUEST",message:"إصدار الفاتورة يُدار عبر مسار رسائل الفاتورة الموحد وإعداد دورة الإرسال؛ لا تُنشئ له أتمتة منفصلة."});
+    
     const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_upsert_automation_v2",{
       p_id:input.id??null,p_tenant_id:access.tenantId,p_site_id:input.siteId,p_template_id:input.templateId,p_name:input.name,p_event_type:input.eventType,
       p_send_type:input.sendType,p_schedule_type:input.scheduleType,p_schedule_anchor_at:input.scheduleAnchorAt?.toISOString()??null,p_timezone:input.timezone,
@@ -1005,14 +1016,31 @@ export const powerhubUnifiedMessagingRouter = router({
     if(error) throw new TRPCError({code:"BAD_REQUEST",message:"تعذر حفظ أتمتة المراسلة."});
     const id=Number(Array.isArray(data)?data[0]?.powerhub_unified_messaging_upsert_automation_v2??data[0]?.id:data);
     if(!id) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد قاعدة البيانات معرف الأتمتة."});
+    if(input.eventType==="invoice_issued") {
+      const {error:rescheduleError}=await supabaseAdmin().rpc("powerhub_reschedule_invoice_issued_automation",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_automation_id:id,
+      });
+      if(rescheduleError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تم حفظ أتمتة الفواتير لكن تعذر تحديث توقيت الرسائل المعلقة."});
+    }
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_automation",entityId:String(id),action:input.id?"update":"create",afterData:{id,name:input.name,eventType:input.eventType,sendType:input.sendType,scheduleType:input.scheduleType,enabled:input.enabled}});
     return {id};
   }),
 
   setAutomationState: protectedProcedure.input(z.object({siteId:z.number().int().positive(),automationId:z.number().int().positive(),enabled:z.boolean(),archived:z.boolean().default(false)})).mutation(async({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageMessaging");
-    const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_set_automation_state",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_automation_id:input.automationId,p_enabled:input.enabled,p_archived:input.archived,p_actor_user_id:ctx.user.id});
+    const admin=supabaseAdmin();
+    const {data:existingAutomation,error:existingError}=await admin.from("powerhub_message_automations")
+      .select("event_type").eq("id",input.automationId).eq("tenant_id",access.tenantId).eq("site_id",input.siteId).maybeSingle();
+    if(existingError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من حدث الأتمتة الحالية."});
+    if(!existingAutomation) throw new TRPCError({code:"NOT_FOUND",message:"الأتمتة غير موجودة ضمن الفرع المحدد."});
+    const {data,error}=await admin.rpc("powerhub_unified_messaging_set_automation_state",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_automation_id:input.automationId,p_enabled:input.enabled,p_archived:input.archived,p_actor_user_id:ctx.user.id});
     if(error||!data?.[0]) throw new TRPCError({code:"BAD_REQUEST",message:"تعذر تغيير حالة الأتمتة."});
+    if(existingAutomation.event_type==="invoice_issued") {
+      const {error:rescheduleError}=await admin.rpc("powerhub_reschedule_invoice_issued_automation",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_automation_id:input.automationId,
+      });
+      if(rescheduleError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تم تغيير حالة الأتمتة لكن تعذر تحديث توقيت الرسائل المعلقة."});
+    }
     await writeSupabaseAudit({userId:ctx.user.id,tenantId:access.tenantId,siteId:input.siteId,entityType:"message_automation",entityId:String(input.automationId),action:input.archived?"archive":input.enabled?"enable":"disable",afterData:{enabled:input.enabled,archived:Boolean(data[0].archived_at)}});
     return {id:Number(data[0].id),enabled:Boolean(data[0].enabled),archived:Boolean(data[0].archived_at)};
   }),
