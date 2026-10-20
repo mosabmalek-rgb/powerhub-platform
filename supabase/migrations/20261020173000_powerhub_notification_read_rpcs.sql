@@ -74,3 +74,29 @@ $$;
 revoke all on function private.chat_mark_all_notifications_read() from public, anon, authenticated;
 revoke all on function public.chat_mark_all_notifications_read() from public, anon;
 grant execute on function public.chat_mark_all_notifications_read() to authenticated;
+
+create or replace function private.chat_unread_notification_count()
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select count(*)::integer
+  from public.chat_inbox_notifications n
+  where n.user_id = private.chat_current_user_id()
+    and n.read_at is null;
+$$;
+
+create or replace function public.chat_unread_notification_count()
+returns integer
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select private.chat_unread_notification_count();
+$$;
+revoke all on function private.chat_unread_notification_count() from public, anon, authenticated;
+revoke all on function public.chat_unread_notification_count() from public, anon;
+grant execute on function public.chat_unread_notification_count() to authenticated;
