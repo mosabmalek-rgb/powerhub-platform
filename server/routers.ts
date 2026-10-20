@@ -16,6 +16,7 @@ import { adminFeatureControlsRouter } from "./admin-feature-controls-router";
 
 const adminRuntimeRouter = router({
   ...adminRouterWithSupabasePlatformSetting._def.record,
+  resetUserPassword: adminRouterWithSupabasePlatformSetting.resetUserPassword,
   ...adminRolePolicyRouter._def.record,
   ...adminFeatureControlsRouter._def.record,
 });
