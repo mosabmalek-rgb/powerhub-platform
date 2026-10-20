@@ -35,3 +35,42 @@ end;
 $$;
 revoke all on function public.powerhub_notification_unread_count() from public, anon;
 grant execute on function public.powerhub_notification_unread_count() to authenticated;
+
+-- Chat inbox badge/read-all APIs: derive the recipient from the authenticated session.
+-- The indexed (user_id, read_at, created_at) access path keeps both operations bounded
+-- to the current user's unread rows and avoids one RPC call per notification.
+create or replace function private.chat_mark_all_notifications_read()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id bigint;
+  v_count integer;
+begin
+  v_user_id := private.chat_current_user_id();
+  if v_user_id is null then
+    raise exception 'UNAUTHORIZED' using errcode = '42501';
+  end if;
+
+  update public.chat_inbox_notifications
+     set read_at = coalesce(read_at, now())
+   where user_id = v_user_id
+     and read_at is null;
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+create or replace function public.chat_mark_all_notifications_read()
+returns integer
+language sql
+security invoker
+set search_path = ''
+as $$
+  select private.chat_mark_all_notifications_read();
+$$;
+revoke all on function private.chat_mark_all_notifications_read() from public, anon, authenticated;
+revoke all on function public.chat_mark_all_notifications_read() from public, anon;
+grant execute on function public.chat_mark_all_notifications_read() to authenticated;
