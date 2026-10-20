@@ -108,9 +108,11 @@ begin
     raise exception 'OWNER_PERMISSION_OVERRIDE_NOT_SUPPORTED' using errcode='P0001';
   end if;
 
-  select is_allowed into v_previous
-  from public.staff_profile_capability_overrides
-  where tenant_id = v_profile.tenant_id and profile_id = v_profile.id and capability = p_capability;
+  select existing_override.is_allowed into v_previous
+  from public.staff_profile_capability_overrides as existing_override
+  where existing_override.tenant_id = v_profile.tenant_id
+    and existing_override.profile_id = v_profile.id
+    and existing_override.capability = p_capability;
 
   insert into public.staff_profile_capability_overrides
     (tenant_id, profile_id, capability, is_allowed, updated_by_user_id, updated_at)
