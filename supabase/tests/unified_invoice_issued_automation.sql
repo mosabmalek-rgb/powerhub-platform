@@ -267,6 +267,27 @@ end;
 $enqueue_assertions$;
 
 update public.powerhub_message_automations
+set send_type='scheduled',schedule_type='monthly',schedule_anchor_at='2026-10-25 18:00:00+03'::timestamptz,updated_at=now()
+where tenant_id=10 and site_id=20 and event_type='invoice_issued' and archived_at is null;
+
+do $reschedule_assertions$
+declare v_rescheduled bigint; v_message public.notification_messages%rowtype;
+begin
+  v_rescheduled := public.powerhub_reschedule_invoice_issued_automation(
+    10,20,(select id from public.powerhub_message_automations where tenant_id=10 and site_id=20 and event_type='invoice_issued' and archived_at is null)
+  );
+  select * into v_message from public.notification_messages
+  where tenant_id=10 and invoice_id=501 and channel='sms' and event_type='invoice_issued';
+  if v_rescheduled <> 1 or v_message.send_type <> 'scheduled' or v_message.schedule_type <> 'monthly'
+     or v_message.scheduled_at <> '2026-10-25 18:00:00+03'::timestamptz
+     or v_message.payload->>'scheduleMode' <> 'monthly' then
+    raise exception 'INVOICE_SMS_RESCHEDULE_FAILED count=% mode=% schedule=% at=%',
+      v_rescheduled,v_message.send_type,v_message.schedule_type,v_message.scheduled_at;
+  end if;
+end;
+$reschedule_assertions$;
+
+update public.powerhub_message_automations
 set enabled=false,updated_at=now()
 where tenant_id=10 and site_id=20 and event_type='invoice_issued' and archived_at is null;
 
