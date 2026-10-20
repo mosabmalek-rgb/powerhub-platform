@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { defaultCapabilitiesForRole, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { applyStaffCapabilityOverrides, defaultCapabilitiesForRole, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
@@ -195,13 +195,10 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   if (!hasExplicitPermissions && profile.custom_role_id) {
     permissions = asPermissions(customRoleResult.data?.permissions);
   }
-  const permissionSet = new Set(permissions);
-  for (const override of userOverridesResult.data ?? []) {
-    const capability = override.capability as PowerCapability;
-    if (override.is_allowed) permissionSet.add(capability);
-    else permissionSet.delete(capability);
-  }
-  permissions = [...permissionSet];
+  permissions = applyStaffCapabilityOverrides(
+    permissions,
+    (userOverridesResult.data ?? []).map((override) => ({ capability: override.capability, is_allowed: Boolean(override.is_allowed) })),
+  );
   reportSlowAccess("staff");
   return { role, permissions, usesPermissionOverride: usesPermissionOverride || (userOverridesResult.data ?? []).length > 0, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, isPlatformAdmin: false };
 }
