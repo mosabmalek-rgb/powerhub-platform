@@ -506,16 +506,34 @@ input[type="datetime-local"] {
 }
 
 
-/* Shared table spacing: keep adjacent Arabic and numeric columns visually distinct. */
+/* Compact, spreadsheet-like record tables: consistent 12px text, tight cells, and clear row separators. */
+table:not([data-slot="table"]) {
+  font-size: 12px !important;
+  line-height: 1.35;
+  border-collapse: collapse;
+}
+table:not([data-slot="table"]) th,
+table:not([data-slot="table"]) td {
+  padding: 5px 8px !important;
+  vertical-align: middle;
+}
+table:not([data-slot="table"]) thead th {
+  font-size: 12px !important;
+  font-weight: 600;
+  white-space: normal;
+}
+table:not([data-slot="table"]) tbody tr {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
 table[data-slot="table"] th,
 table[data-slot="table"] td {
-  padding-inline: 0.875rem;
+  padding: 5px 8px;
 }
 table[data-slot="table"] th:first-child,
 table[data-slot="table"] td:first-child {
-  padding-inline-start: 1rem;
+  padding-inline-start: 8px;
 }
 table[data-slot="table"] th:last-child,
 table[data-slot="table"] td:last-child {
-  padding-inline-end: 1rem;
+  padding-inline-end: 8px;
 }
