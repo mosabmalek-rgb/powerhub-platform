@@ -531,11 +531,35 @@ function SubscriberDebtorWorkspace({
             <span>{periodMetricsQuery.isLoading || !period.isReady ? "جارٍ تحميل النتائج…" : periodMetricsQuery.isError ? "تعذر تحميل فواتير الفترة؛ أعد المحاولة." : `${rows.length} فاتورة تطابق الفلتر الحالي`}</span>
             <span>إجمالي الفواتير ذات الرصيد في الفترة: {totalOpenCount}</span>
           </div>
-          <div className="mt-4 overflow-x-auto rounded-xl border border-white/8">
+          <div className="mt-4">
             {periodMetricsQuery.isError ? (
               <p role="alert" className="px-4 py-8 text-center text-sm text-rose-200">تعذر تحميل المتأخرات للفترة المحددة. استخدم «إعادة المحاولة» في بطاقة الفلتر.</p>
             ) : rows.length ? (
-              <table className="w-full min-w-max table-fixed border-collapse text-sm">
+              <>
+                <div className="grid gap-3 xl:hidden">
+                  {rows.map((row: any) => (
+                    <article key={"mobile-" + row.siteId + "-" + row.invoiceId} className="min-w-0 rounded-xl border border-white/8 bg-white/[.02] p-4">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="break-words font-bold leading-6 text-white">{row.subscriber ?? "مشترك غير محدد"}</p>
+                          <p className="mt-1 break-all font-display text-xs text-slate-400" dir="ltr">{row.subscriberNo ?? "—"}</p>
+                          {initialScope === "all" ? <p className="mt-1 break-words text-xs text-slate-500">{row.siteName ?? "—"}</p> : null}
+                        </div>
+                        <Badge className={row.isOverdue ? "shrink-0 bg-rose-400/10 text-rose-300" : row.partialInvoices ? "shrink-0 bg-amber-400/10 text-amber-200" : "shrink-0 bg-sky-400/10 text-sky-200"}>{statusLabel(row)}</Badge>
+                      </div>
+                      <div className="mt-4 grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                        <div className="min-w-0"><p className="text-xs text-slate-500">الرصيد المتبقي</p><p className="mt-1 break-words font-bold tabular-nums text-rose-200">{format(row.outstanding)}</p></div>
+                        <div className="min-w-0"><p className="text-xs text-slate-500">رقم الفاتورة</p><p className="mt-1 break-all font-display text-xs text-[#F5B800]" dir="ltr">{row.invoiceNo ?? "—"}</p></div>
+                        <div className="min-w-0"><p className="text-xs text-slate-500">تاريخ الفاتورة</p><p className="mt-1 text-slate-300">{formatDate(row.issueDate)}</p></div>
+                        <div className="min-w-0"><p className="text-xs text-slate-500">تاريخ الاستحقاق</p><p className="mt-1 text-slate-300">{formatDate(row.dueDate)}</p></div>
+                        <div className="min-w-0"><p className="text-xs text-slate-500">عمر التأخير</p><p className="mt-1 text-slate-300">{row.isOverdue ? String(format(row.ageDays)) + " يوم" : "—"}</p></div>
+                      </div>
+                      {canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="mt-4 w-full bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : null}
+                    </article>
+                  ))}
+                </div>
+                <div className="hidden overflow-hidden rounded-xl border border-white/8 xl:block">
+              <table className="w-full table-fixed border-collapse text-xs">
                 <colgroup>{columnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
                 <thead className="bg-white/[.025] text-right text-xs text-slate-400">
                   <tr>
@@ -568,6 +592,8 @@ function SubscriberDebtorWorkspace({
                   ))}
                 </tbody>
               </table>
+                </div>
+              </>
             ) : (
               <p className="px-4 py-8 text-center text-sm text-slate-500">
                 {periodMetricsQuery.isLoading || !period.isReady ? "جارٍ تحميل بيانات الفترة…" : query.trim() || status !== "all" ? "لا توجد فواتير تطابق البحث أو الحالة المحددة في الفترة الحالية." : "لا توجد فواتير بأرصدة مفتوحة ضمن الفترة المحددة."}
