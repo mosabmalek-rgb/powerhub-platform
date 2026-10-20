@@ -294,6 +294,11 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain('if (eventType === "invoice_issued") return');
     expect(ui).toContain('<option value="invoice_issued">صدور فاتورة</option>');
     expect(invoiceAutomationMigration).toContain("powerhub_enqueue_invoice_sms");
+    expect(invoiceAutomationMigration).toContain("powerhub_format_message_amount");
+    expect(invoiceAutomationMigration).toContain("{{previous_reading}}");
+    expect(invoiceAutomationMigration).toContain("{{current_reading}}");
+    expect(invoiceAutomationMigration).toContain("{{consumption_kwh}}");
+    expect(invoiceAutomationMigration).toContain("{{total_balance}}");
     expect(invoiceAutomationMigration).toContain("automation_id, payload, operation_key");
     expect(invoiceAutomationMigration).toContain("powerhub_invoice_issued_automation_per_site_uidx");
     expect(invoiceAutomationMigration).toContain("powerhub.invoice_notification_handled_by_rpc");
