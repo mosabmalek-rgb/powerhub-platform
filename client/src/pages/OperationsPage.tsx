@@ -495,7 +495,7 @@ function CollectorSessionsPanel({ siteId }: { siteId: number }) {
   const enabled = Boolean(role && ["owner", "manager", "accountant", "collector"].includes(role));
   const sessionsQuery = trpc.powerhub.collectorSessions.list.useQuery({ siteId }, { enabled });
   const currentQuery = trpc.powerhub.collectorSessions.current.useQuery({ siteId }, { enabled: role === "collector" });
-  const refreshSessions = async () => { await Promise.all([utils.powerhub.collectorSessions.list.invalidate(), utils.powerhub.collectorSessions.current.invalidate(), utils.powerhub.payments.list.invalidate(), utils.powerhub.audit.list.invalidate()]); };
+  const refreshSessions = async () => { await Promise.all([utils.powerhub.collectorSessions.list.invalidate({ siteId }), utils.powerhub.collectorSessions.current.invalidate({ siteId }), utils.powerhub.payments.list.invalidate({ siteId }), utils.powerhub.dashboard.summary.invalidate({ siteId }), utils.powerhub.dashboard.financialOverview.invalidate({ siteId, scope: "branch" }), utils.powerhub.dashboard.periodMetrics.invalidate({ siteId, scope: "branch" }), utils.powerhub.audit.list.invalidate({ siteId })]); };
   const openSession = trpc.powerhub.collectorSessions.open.useMutation({ onSuccess: async () => { await refreshSessions(); toast.success("تم فتح جلسة التحصيل."); }, onError: (error) => toast.error(error.message) });
   const closeSession = trpc.powerhub.collectorSessions.close.useMutation({ onSuccess: async (result) => { await refreshSessions(); toast.success(`تم الإغلاق. الفرق النقدي: ${formatValue(result.varianceAmount, 2)}`); }, onError: (error) => toast.error(error.message) });
   const current = currentQuery.data;
