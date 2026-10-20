@@ -293,7 +293,10 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).not.toContain('if(input.eventType==="invoice_issued") throw new TRPCError');
     expect(runtime).toContain('if (eventType === "invoice_issued") return');
     expect(ui).toContain('<option value="invoice_issued">صدور فاتورة</option>');
+    expect(ui).not.toContain("AutoSendPolicyCard");
     expect(invoiceAutomationMigration).toContain("powerhub_enqueue_invoice_sms");
+    expect(invoiceAutomationMigration).toContain("from public.powerhub_issue_invoice_from_reading(");
+    expect(invoiceAutomationMigration).toContain("POWERHUB_MOBILE_APPROVAL_INVOICE_ISSUE_ANCHOR_NOT_FOUND");
     expect(invoiceAutomationMigration).toContain("powerhub_reschedule_invoice_issued_automation");
     expect(runtime).toContain('powerhub_reschedule_invoice_issued_automation');
     expect(invoiceAutomationMigration).toContain("powerhub_format_message_amount");

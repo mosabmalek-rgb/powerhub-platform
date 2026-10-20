@@ -49,6 +49,11 @@ create table public.sites (
   id bigint primary key, tenant_id bigint not null, name text not null
 );
 
+create table public.tariffs (
+  id bigint primary key, tenant_id bigint not null, site_id bigint not null,
+  is_active boolean not null default true, effective_from timestamptz not null default now()
+);
+
 create table public.users (
   id bigint primary key, account_status text not null, platform_role text not null
 );
@@ -147,21 +152,15 @@ create trigger invoice_sms_test_trigger
 after insert on public.invoices
 for each row execute function public.powerhub_queue_invoice_sms_after_issue();
 
--- This disposable RPC fixture includes the exact anchors the migration patches.
-create or replace function public.powerhub_approve_and_issue_mobile_reading(
+-- This disposable RPC fixture mirrors the deployed function's invoice-issue anchor.
+create or replace function public.powerhub_issue_invoice_from_reading(
   p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_reading_id bigint,
-  p_base_version integer, p_due_date timestamptz, p_billing_period text,
-  p_discount_amount numeric default 0
-) returns void
-language plpgsql set search_path=public,pg_temp
+  p_tariff_id bigint, p_billing_period text, p_due_date timestamptz,
+  p_discount_amount numeric, p_optional text
+) returns table(invoice_id bigint, invoice_no text, total_amount numeric)
+language plpgsql
+set search_path=public,pg_temp
 as $function$
-declare
-  v_invoice_id bigint;
-  v_notification_id bigint;
-  v_notification_ids bigint[] := array[]::bigint[];
-  v_has_channel boolean := false;
-  v_channel text;
-  v_template text;
 begin
   insert into public.invoices(
     id,tenant_id,site_id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,
@@ -169,17 +168,58 @@ begin
   ) values (
     999,p_tenant_id,p_site_id,101,'TEST-MOBILE',p_billing_period,10,10,p_due_date,
     1,2,1,'issued',now()
-  ) returning id into v_invoice_id;
+  );
+  return query select 999::bigint,'TEST-MOBILE'::text,10::numeric;
+end;
+$function$;
+
+create or replace function public.powerhub_approve_and_issue_mobile_reading(
+  p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_reading_id bigint,
+  p_base_version integer, p_due_date timestamptz, p_billing_period text,
+  p_discount_amount numeric default 0
+) returns table(invoice_id bigint, invoice_no text, total_amount numeric, notification_ids bigint[], already_processed boolean)
+language plpgsql set search_path=public,pg_temp
+as $function$
+declare
+  v_tariff public.tariffs%rowtype;
+  v_invoice_id bigint;
+  v_invoice_no text;
+  v_total_amount numeric;
+  v_notification_id bigint;
+  v_notification_ids bigint[] := array[]::bigint[];
+  v_has_channel boolean := false;
+  v_channel text;
+  v_template text;
+  v_recipient text;
+begin
+  select * into v_tariff from public.tariffs where id=1;
+  select issued.invoice_id, issued.invoice_no, issued.total_amount
+into v_invoice_id, v_invoice_no, v_total_amount
+from public.powerhub_issue_invoice_from_reading(
+  p_tenant_id,
+  p_site_id,
+  p_user_id,
+  p_reading_id,
+  v_tariff.id,
+  p_billing_period,
+  p_due_date,
+  p_discount_amount,
+  null
+) as issued;
 
   for v_channel in select c.channel from public.tenant_messaging_configurations c
     where c.tenant_id=p_tenant_id and c.is_active=true loop
+    v_has_channel:=true; v_recipient:=case when v_channel='whatsapp' then '+970599000101' else '+970599000101' end;
     select t.body into v_template from public.tenant_invoice_message_templates t
     where t.tenant_id=p_tenant_id and t.channel=v_channel and t.event_type='invoice_issued' and t.is_active=true;
   end loop;
+
+  return query select v_invoice_id,v_invoice_no,v_total_amount,v_notification_ids,false;
 end;
 $function$;
 
 insert into public.sites(id,tenant_id,name) values (20,10,'فرع الاختبار');
+insert into public.tariffs(id,tenant_id,site_id,is_active,effective_from) values (1,10,20,true,now());
 insert into public.users(id,account_status,platform_role) values (1,'active','platform_admin');
 insert into public.subscribers(id,tenant_id,site_id,full_name,subscriber_no,phone)
 values (101,10,20,'مشترك اختبار','SUB-101','+970599000101');
@@ -287,9 +327,49 @@ begin
 end;
 $reschedule_assertions$;
 
+do $mobile_enqueue_assertions$
+declare
+  v_mobile record;
+  v_count integer;
+  v_message public.notification_messages%rowtype;
+begin
+  select * into v_mobile
+  from public.powerhub_approve_and_issue_mobile_reading(
+    10,20,1,42,1,'2026-10-30 20:00:00+03'::timestamptz,'2026-10',0
+  );
+  select count(*) into v_count from public.notification_messages
+  where tenant_id=10 and invoice_id=999 and channel='sms' and event_type='invoice_issued';
+  select * into v_message from public.notification_messages
+  where tenant_id=10 and invoice_id=999 and channel='sms' and event_type='invoice_issued';
+  if v_count <> 1 or v_message.id is null or not (v_mobile.notification_ids @> array[v_message.id]::bigint[]) then
+    raise exception 'MOBILE_APPROVAL_SMS_NOT_UNIFIED_OR_DEDUPED count=% message_id=% returned=%',
+      v_count,v_message.id,v_mobile.notification_ids;
+  end if;
+end;
+$mobile_enqueue_assertions$;
+
 update public.powerhub_message_automations
 set enabled=false,updated_at=now()
 where tenant_id=10 and site_id=20 and event_type='invoice_issued' and archived_at is null;
+
+do $disabled_reschedule_assertions$
+declare
+  v_rescheduled bigint;
+  v_before timestamptz;
+  v_after timestamptz;
+begin
+  select scheduled_at into v_before from public.notification_messages
+  where tenant_id=10 and invoice_id=501 and channel='sms' and event_type='invoice_issued';
+  v_rescheduled := public.powerhub_reschedule_invoice_issued_automation(
+    10,20,(select id from public.powerhub_message_automations where tenant_id=10 and site_id=20 and event_type='invoice_issued' and archived_at is null)
+  );
+  select scheduled_at into v_after from public.notification_messages
+  where tenant_id=10 and invoice_id=501 and channel='sms' and event_type='invoice_issued';
+  if v_rescheduled <> 0 or v_after is distinct from v_before then
+    raise exception 'DISABLING_INVOICE_AUTOMATION_CHANGED_PENDING_SCHEDULE count=% before=% after=%',v_rescheduled,v_before,v_after;
+  end if;
+end;
+$disabled_reschedule_assertions$;
 
 insert into public.invoices(
   id,tenant_id,site_id,subscriber_id,invoice_no,billing_period,total_amount,balance_due,due_date,

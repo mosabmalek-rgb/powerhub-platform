@@ -349,8 +349,13 @@ begin
     and a.event_type = 'invoice_issued';
   if not found then raise exception 'INVOICE_AUTOMATION_OUT_OF_SCOPE' using errcode = 'P0001'; end if;
 
-  if v_automation.enabled is true and v_automation.archived_at is null
-     and v_automation.send_type = 'scheduled'
+  -- Disabling/archiving stops future enqueueing but must not release already-scheduled
+  -- pending messages early by turning their delivery time into "immediate".
+  if v_automation.enabled is not true or v_automation.archived_at is not null then
+    return 0;
+  end if;
+
+  if v_automation.send_type = 'scheduled'
      and v_automation.schedule_type in ('weekly','every_10_days','every_15_days','monthly')
      and v_automation.schedule_anchor_at is not null then
     v_mode := v_automation.schedule_type;
@@ -405,7 +410,39 @@ do $migration$
 declare
   v_definition text;
   v_patched text;
-  v_insert_anchor text := 'returning id into v_invoice_id;';
+  v_issue_anchor text := $anchor$select issued.invoice_id, issued.invoice_no, issued.total_amount
+into v_invoice_id, v_invoice_no, v_total_amount
+from public.powerhub_issue_invoice_from_reading(
+  p_tenant_id,
+  p_site_id,
+  p_user_id,
+  p_reading_id,
+  v_tariff.id,
+  p_billing_period,
+  p_due_date,
+  p_discount_amount,
+  null
+) as issued;$anchor$;
+  v_issue_replacement text := $replacement$perform set_config('powerhub.invoice_notification_handled_by_rpc', 'true', true);
+select issued.invoice_id, issued.invoice_no, issued.total_amount
+into v_invoice_id, v_invoice_no, v_total_amount
+from public.powerhub_issue_invoice_from_reading(
+  p_tenant_id,
+  p_site_id,
+  p_user_id,
+  p_reading_id,
+  v_tariff.id,
+  p_billing_period,
+  p_due_date,
+  p_discount_amount,
+  null
+) as issued;
+perform set_config('powerhub.invoice_notification_handled_by_rpc', 'false', true);
+v_notification_id := public.powerhub_enqueue_invoice_sms(p_tenant_id, p_site_id, v_invoice_id);
+if v_notification_id is not null then
+  v_notification_ids := array_append(v_notification_ids, v_notification_id);
+  v_has_channel := true;
+end if;$replacement$;
   v_template_anchor text := 'select t.body into v_template from public.tenant_invoice_message_templates t';
 begin
   select pg_get_functiondef(p.oid) into v_definition
@@ -414,16 +451,10 @@ begin
   if v_definition is null then raise exception 'POWERHUB_MOBILE_APPROVAL_FUNCTION_NOT_FOUND'; end if;
 
   if position('public.powerhub_enqueue_invoice_sms(' in v_definition) = 0 then
-    v_patched := replace(
-      v_definition,
-      v_insert_anchor,
-      v_insert_anchor || E'\n  v_notification_id := public.powerhub_enqueue_invoice_sms(p_tenant_id, p_site_id, v_invoice_id);' ||
-      E'\n  if v_notification_id is not null then' ||
-      E'\n    v_notification_ids := array_append(v_notification_ids, v_notification_id);' ||
-      E'\n    v_has_channel := true;' ||
-      E'\n  end if;'
-    );
-    if v_patched = v_definition then raise exception 'POWERHUB_MOBILE_APPROVAL_SMS_ENQUEUE_ANCHOR_NOT_FOUND'; end if;
+    v_patched := replace(v_definition, v_issue_anchor, v_issue_replacement);
+    if v_patched = v_definition then
+      raise exception 'POWERHUB_MOBILE_APPROVAL_INVOICE_ISSUE_ANCHOR_NOT_FOUND';
+    end if;
 
     v_definition := v_patched;
     v_patched := replace(
@@ -431,8 +462,19 @@ begin
       v_template_anchor,
       'if v_channel = ''sms'' then continue; end if;' || E'\n    ' || v_template_anchor
     );
-    if v_patched = v_definition then raise exception 'POWERHUB_MOBILE_APPROVAL_SMS_LOOP_ANCHOR_NOT_FOUND'; end if;
+    if v_patched = v_definition then
+      raise exception 'POWERHUB_MOBILE_APPROVAL_SMS_LOOP_ANCHOR_NOT_FOUND';
+    end if;
     execute v_patched;
+  end if;
+
+  select pg_get_functiondef(p.oid) into v_definition
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname='powerhub_approve_and_issue_mobile_reading' and p.pronargs=8;
+  if position('public.powerhub_enqueue_invoice_sms(' in v_definition)=0
+     or position('powerhub.invoice_notification_handled_by_rpc' in v_definition)=0
+     or position('if v_channel = ''sms'' then continue; end if;' in v_definition)=0 then
+    raise exception 'POWERHUB_MOBILE_APPROVAL_UNIFIED_SMS_VALIDATION_FAILED';
   end if;
 end
 $migration$;
