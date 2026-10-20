@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { authenticatedProcedure, router } from "./_core/trpc";
@@ -11,6 +12,66 @@ import { adminRouterWithSupabasePlatformAccess } from "./admin-platform-access-r
 import { adminTenantAccessRouter } from "./admin-tenant-access-router";
 import { adminSmsPlanRouter } from "./admin-sms-plan-router";
 import { adminRouterWithSupabaseTenantBranchSettings } from "./admin-tenant-branch-settings-router";
+
+const resetUserPasswordProcedure = authenticatedProcedure
+  .input(z.object({ userId: z.number().int().positive() }))
+  .mutation(async ({ ctx, input }) => {
+    if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(ctx.user.platformRole ?? "") || ctx.user.accountStatus !== "active") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إعادة تعيين كلمات المرور." });
+    }
+    if (ctx.user.id === input.userId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن استخدام هذا الإجراء لإعادة تعيين كلمة مرور حسابك الإداري." });
+    }
+    const admin = supabaseAdmin();
+    const { data: target, error: targetError } = await admin.from("users")
+      .select("id,auth_user_id,name,email,role,platform_role,account_status")
+      .eq("id", input.userId).maybeSingle();
+    if (targetError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من الحساب المستهدف." });
+    if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "المستخدم غير موجود." });
+    if (target.role === "admin" && target.platform_role === "platform_owner") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "حساب مالك المنصة محمي ولا يمكن إعادة تعيينه من هذا الإجراء." });
+    }
+    if (!target.auth_user_id) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "هذا الحساب غير مرتبط بمستخدم في Supabase Auth." });
+
+    const temporaryPassword = `Ph!${crypto.randomBytes(12).toString("base64url")}`;
+    const occurredAt = new Date().toISOString();
+    const { error: authError } = await admin.auth.admin.updateUserById(target.auth_user_id, {
+      password: temporaryPassword,
+      user_metadata: { must_change_password: true },
+    });
+    if (authError) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديث كلمة المرور في خدمة المصادقة." });
+
+    const { error: profileError } = await admin.from("users").update({
+      must_change_password: true,
+      temporary_password_issued_at: occurredAt,
+      updated_at: occurredAt,
+    }).eq("id", input.userId);
+    if (profileError) {
+      await admin.from("platform_security_events").insert({
+        event_type: "security_change", severity: "critical", status: "failed",
+        title: "فشل إكمال إعادة تعيين كلمة مرور مستخدم",
+        details: "تم تحديث كلمة مرور Auth لكن تعذر تحديث علامة التغيير الإلزامي في سجل المستخدم.",
+        created_by_user_id: ctx.user.id, related_user_id: input.userId,
+        metadata: { event: "platform_admin_password_reset", actorUserId: ctx.user.id, targetUserId: input.userId, outcome: "profile_update_failed", occurredAt },
+      });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث كلمة المرور في خدمة المصادقة لكن تعذر إكمال سجل المستخدم. راجع سجل الأمان قبل إعادة المحاولة." });
+    }
+
+    const { error: auditError } = await admin.from("platform_security_events").insert({
+      event_type: "security_change", severity: "warning", status: "success",
+      title: "إعادة تعيين كلمة مرور مستخدم من إدارة المنصة",
+      created_by_user_id: ctx.user.id, related_user_id: input.userId,
+      metadata: {
+        event: "platform_admin_password_reset", scope: "platform", actorUserId: ctx.user.id,
+        targetUserId: input.userId, targetRole: target.role, targetPlatformRole: target.platform_role ?? null,
+        targetEmail: target.email ?? null, mustChangePassword: true, occurredAt,
+      },
+    });
+    if (auditError) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تم تحديث كلمة المرور لكن تعذر تسجيل العملية في سجل الأمان؛ يجب مراجعة السجل قبل تسليم كلمة المرور." });
+    }
+    return { success: true as const, userId: Number(target.id), userName: target.name ?? target.email ?? "المستخدم", temporaryPassword };
+  });
 
 const platformAdminSavePlatformSettingProcedure = authenticatedProcedure
   .input(z.object({
@@ -125,6 +186,7 @@ export const adminRouterWithSupabasePlatformSetting = (router({
   ...tenantAccessRecord,
   ...smsPlanRecord,
   ...tenantBranchRecord,
+  resetUserPassword: resetUserPasswordProcedure,
   savePlatformSetting: platformAdminSavePlatformSettingProcedure,
   sendOwnerUsageAlert: sendOwnerUsageAlertProcedure,
   setTenantFeatureEntitlement: setTenantFeatureEntitlementProcedure,
