@@ -663,13 +663,13 @@ function DashboardLayoutContent({
           </div>
         )}
         {!isMobile && user?.role !== "admin" ? (
-          <header className="sticky top-0 z-30 border-b border-black/20 bg-[#d6a204] px-4 py-4 backdrop-blur sm:px-6" dir="rtl">
-            <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-              <div className="min-w-0">
+          <header className="sticky top-0 z-30 border-b border-black/20 bg-[#d6a204] px-3 py-3 backdrop-blur sm:px-6 sm:py-4" dir="rtl">
+            <div className="mx-auto flex max-w-7xl min-w-0 flex-col items-stretch gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+              <div className="min-w-0 flex-1 text-right">
                 <div className="truncate text-xl font-extrabold leading-tight tracking-tight text-[#111827]" style={{ WebkitTextStroke: "0px transparent", textShadow: "none" }}>{tenantDisplayName ?? "مساحة المولد"}</div>
                 <div className="mt-1 truncate text-sm font-semibold tracking-tight text-[#292524]">{activeMenuItem?.label ?? "لوحة التحكم"}</div>
               </div>
-              <div className="shrink-0 text-xs font-semibold text-[#1f2937]">{displayUser.name || ""}</div>
+              <div className="max-w-full shrink-0 truncate text-left text-xs font-semibold text-[#1f2937] lg:max-w-[35%]">{displayUser.name || ""}</div>
             </div>
           </header>
         ) : null}
