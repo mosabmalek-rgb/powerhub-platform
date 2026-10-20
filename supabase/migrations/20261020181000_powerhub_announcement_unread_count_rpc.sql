@@ -15,12 +15,12 @@ as $$
       and u.account_status = 'active'
   ),
   roles as (
-    select distinct sp.role as role
+    select distinct sp.role::text as role
     from public.staff_profiles sp
     join actor a on a.id = sp.user_id
     where sp.is_active = true
     union
-    select a.platform_role
+    select a.platform_role::text as role
     from actor a
     where a.platform_role is not null
     union
