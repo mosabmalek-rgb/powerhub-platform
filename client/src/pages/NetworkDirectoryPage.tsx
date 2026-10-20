@@ -65,7 +65,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   useEffect(() => {
     if (kind !== "subscribers") return;
     const params = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
-    if (params.get("add") === "1" && canEdit) setAddCardCollapsed(false);
+    if (params.get("add") === "1") setAddCardCollapsed(false);
     if (params.get("subscriberFocus") === "1") {
       window.requestAnimationFrame(() => {
         const input = document.getElementById("subscriber-search-input");
