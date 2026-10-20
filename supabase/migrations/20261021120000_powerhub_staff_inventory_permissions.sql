@@ -71,7 +71,7 @@ create or replace function public.powerhub_admin_set_staff_capability_override(
 )
 returns table(success boolean, profile_id bigint, capability text, is_allowed boolean)
 language plpgsql
-security invoker
+security definer
 set search_path=public,pg_temp
 as $$
 declare
