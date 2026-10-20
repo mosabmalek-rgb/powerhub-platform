@@ -590,13 +590,13 @@ function SubscriberDebtorWorkspace({
                     <tr className="border-t border-white/7 align-middle" key={`${row.siteId}-${row.invoiceId}`}>
                       {initialScope === "all" ? <td className="break-words px-2 py-2 text-[11px] leading-4 text-slate-300">{row.siteName ?? "—"}</td> : null}
                       <td className="min-w-0 break-words px-2 py-2 text-sm font-bold leading-5 text-white [overflow-wrap:anywhere]">{row.subscriber ?? "مشترك غير محدد"}</td>
-                      <td className="whitespace-nowrap px-1 py-2 text-center font-mono text-[11px] tabular-nums text-slate-300" dir="ltr">{row.subscriberNo ?? "—"}</td>
-                      <td className="whitespace-nowrap px-1 py-2 text-center font-mono text-[11px] tabular-nums text-[#F5B800]" dir="ltr">{row.invoiceNo ?? "—"}</td>
-                      <td className="whitespace-nowrap px-1 py-2 text-center text-[10px] text-slate-300">{formatDate(row.issueDate)}</td>
-                      <td className="whitespace-nowrap px-1 py-2 text-center font-bold tabular-nums text-rose-200">{format(row.outstanding)}</td>
-                      <td className="whitespace-nowrap px-1 py-2 text-center text-[10px] text-slate-300">{formatDate(row.dueDate)}</td>
+                      <td className="min-w-0 break-all px-1 py-2 text-center font-mono text-sm tabular-nums text-slate-300 [overflow-wrap:anywhere]" dir="ltr">{row.subscriberNo ?? "—"}</td>
+                      <td className="min-w-0 break-all px-1 py-2 text-center font-mono text-sm tabular-nums text-[#F5B800] [overflow-wrap:anywhere]" dir="ltr">{row.invoiceNo ?? "—"}</td>
+                      <td className="min-w-0 break-words px-1 py-2 text-center text-sm leading-5 text-slate-300 [overflow-wrap:anywhere]">{formatDate(row.issueDate)}</td>
+                      <td className="whitespace-normal break-words px-1 py-2 text-center text-sm font-bold tabular-nums leading-5 text-rose-200">{format(row.outstanding)}</td>
+                      <td className="min-w-0 break-words px-1 py-2 text-center text-sm leading-5 text-slate-300 [overflow-wrap:anywhere]">{formatDate(row.dueDate)}</td>
                       <td className="min-w-0 break-words px-1 py-2"><Badge className={row.isOverdue ? "max-w-full whitespace-normal bg-rose-400/10 text-rose-300 text-sm [overflow-wrap:anywhere]" : row.partialInvoices ? "max-w-full whitespace-normal bg-amber-400/10 text-amber-200 text-sm [overflow-wrap:anywhere]" : "max-w-full whitespace-normal bg-sky-400/10 text-sky-200 text-sm [overflow-wrap:anywhere]"}>{statusLabel(row)}</Badge></td>
-                      <td className="px-1 py-2 text-center">{canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="h-6 min-h-0 w-full min-w-0 whitespace-normal break-words bg-[#F5B800] px-1 py-0 text-[11px] leading-3 text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : "—"}</td>
+                      <td className="px-1 py-2 text-center">{canRemind && row.invoiceId ? <Button size="sm" disabled={reminder.isPending && reminder.variables?.invoiceId === row.invoiceId} onClick={() => reminder.mutate({ siteId: Number(row.siteId ?? siteId), invoiceId: row.invoiceId })} className="h-9 min-h-0 w-full min-w-0 whitespace-normal break-words bg-[#F5B800] px-1 py-1 text-sm leading-4 text-[#0D1117] hover:bg-[#ffd23f]">{reminder.isPending && reminder.variables?.invoiceId === row.invoiceId ? "جارٍ الإرسال…" : "إرسال تذكير"}</Button> : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
