@@ -110,7 +110,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   let userAndSiteMs = 0;
   let membershipAndSubscriptionMs = 0;
   let staffProfilesMs = 0;
-  let customRoleMs = 0;
+  let permissionResolutionMs = 0;
   const reportSlowAccess = (outcome: "platform_admin" | "owner" | "staff") => {
     const totalMs = Math.round(performance.now() - accessStartedAt);
     if (totalMs < 800) return;
@@ -122,7 +122,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
       userAndSiteMs,
       membershipAndSubscriptionMs,
       staffProfilesMs,
-      customRoleMs,
+      permissionResolutionMs,
     });
   };
   const admin = supabaseAdmin();
@@ -189,7 +189,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
       .eq("tenant_id", site.tenantId)
       .eq("profile_id", profile.id),
   ]);
-  customRoleMs = Math.round(performance.now() - customRoleStartedAt);
+  permissionResolutionMs = Math.round(performance.now() - customRoleStartedAt);
   if (customRoleResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
   if (userOverridesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استثناءات صلاحيات المستخدم من Supabase." });
   if (!hasExplicitPermissions && profile.custom_role_id) {
