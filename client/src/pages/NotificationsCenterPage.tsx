@@ -18,6 +18,9 @@ export default function NotificationsCenterPage(){
  const [filter,setFilter]=useState<"all"|"unread">("all");
  const eventsLoadedRef=useRef(false);
  const chats=useQuery({queryKey:["notification-center","chat",userId],queryFn:()=>listChatNotifications(100),enabled:userId>0,refetchOnWindowFocus:true});
+ const chatUnread=useQuery({queryKey:["notification-center","chat-unread",userId],queryFn:async()=>{const {data,error}=await supabase.rpc("chat_unread_notification_count");if(error)throw error;return Number(data??0);},enabled:userId>0,staleTime:30000,refetchOnWindowFocus:true});
+ const eventUnread=useQuery({queryKey:["notification-center","unread-count",userId],queryFn:async()=>{const {data,error}=await supabase.rpc("powerhub_notification_unread_count");if(error)throw error;return Number(data??0);},enabled:userId>0,staleTime:30000,refetchOnWindowFocus:false});
+ const announcementUnread=trpc.platformAnnouncements.inbox.unreadCount.useQuery(undefined,{enabled:userId>0,staleTime:30000,refetchOnWindowFocus:true});
  const events=useQuery({queryKey:["notification-center","events",userId],queryFn:async()=>{const {data,error}=await supabase.rpc("powerhub_notification_list",{p_limit:100});if(error)throw error;return (data??[]) as StoredNotification[];},enabled:userId>0,staleTime:60000,refetchOnWindowFocus:false});
  const announcements=trpc.platformAnnouncements.inbox.list.useQuery(undefined,{enabled:userId>0,staleTime:60000,refetchOnWindowFocus:false});
  const utils=trpc.useUtils();
@@ -28,15 +31,14 @@ export default function NotificationsCenterPage(){
   ...(announcements.data??[]).map(x=>({key:"announcement:"+x.id,kind:"announcement" as const,id:x.id,title:x.title,body:x.body,createdAt:x.publishedAt??"",read:Boolean(x.readAt),path:"/announcements",raw:x})),
  ].sort((a,b)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime()),[chats.data,events.data,announcements.data]);
  const visible=filter==="unread"?rows.filter(x=>!x.read):rows;
- const unread=rows.filter(x=>!x.read).length;
+ const unread=Number(chatUnread.data??rows.filter(x=>x.kind==="chat"&&!x.read).length)+Number(eventUnread.data??rows.filter(x=>x.kind==="event"&&!x.read).length)+Number(announcementUnread.data??rows.filter(x=>x.kind==="announcement"&&!x.read).length);
  const loading=chats.isLoading||events.isLoading||announcements.isLoading;
  const refresh=()=>{eventsLoadedRef.current=true;void chats.refetch();void events.refetch();void announcements.refetch();};
  const markAll=async()=>{try{
-  const unreadChats=(chats.data??[]).filter(x=>!x.read_at);
   const unreadAnnouncements=(announcements.data??[]).filter(x=>!x.readAt);
   const failures:string[]=[];
-  const chatResults=await Promise.allSettled(unreadChats.map(x=>markChatNotificationRead(x.id)));
-  if(chatResults.some(x=>x.status==="rejected"))failures.push("الدردشة");
+  const chatResult=await supabase.rpc("chat_mark_all_notifications_read");
+  if(chatResult.error)failures.push("الدردشة");
   const eventResult=await supabase.rpc("powerhub_notification_mark_all_read");
   if(eventResult.error)failures.push("إشعارات الأحداث");
   if(unreadAnnouncements.length){
@@ -44,6 +46,7 @@ export default function NotificationsCenterPage(){
    catch{failures.push("الإعلانات");}
   }
   refresh();
+  void chatUnread.refetch();void eventUnread.refetch();void announcementUnread.refetch();
   if(failures.length)toast.error("تعذر تعليم جميع الإشعارات كمقروءة في: "+failures.join("، "));
   else toast.success("تم تعليم جميع الإشعارات كمقروءة.");
  }catch{toast.error("تعذر تحديث حالة الإشعارات.");}};
