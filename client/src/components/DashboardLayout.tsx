@@ -120,10 +120,11 @@ const platformAdminGroup = {
   items: [{ icon: Building2, label: "أصحاب المولدات والاشتراكات", path: "/admin" }],
 };
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 280;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 480;
+const SIDEBAR_WIDTH_KEY = "sidebar-width-v2";
+const LEGACY_SIDEBAR_WIDTH_KEY = "sidebar-width";
+const DEFAULT_WIDTH = 238;
+const MIN_WIDTH = 170;
+const MAX_WIDTH = 408;
 const TENANT_ACCESS_CACHE_PREFIX = "powerhub.tenant-access.v1";
 
 type TenantAccessSnapshot = {
@@ -245,7 +246,18 @@ export default function DashboardLayout({
 }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
+    if (saved) {
+      const parsed = Number.parseInt(saved, 10);
+      return Number.isFinite(parsed) ? Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, parsed)) : DEFAULT_WIDTH;
+    }
+
+    // Migrate each user's previously saved width once, keeping the existing font size and reducing width by ~15%.
+    const legacy = localStorage.getItem(LEGACY_SIDEBAR_WIDTH_KEY);
+    if (legacy) {
+      const parsed = Number.parseInt(legacy, 10);
+      if (Number.isFinite(parsed)) return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(parsed * 0.85)));
+    }
+    return DEFAULT_WIDTH;
   });
   const { user } = useAuth();
 
