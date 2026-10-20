@@ -506,9 +506,9 @@ input[type="datetime-local"] {
 }
 
 
-/* Compact, spreadsheet-like record tables: consistent 12px text, tight cells, and clear row separators. */
+/* Compact, spreadsheet-like record tables: consistent 13px text, tight cells, and clear row separators. */
 table:not([data-slot="table"]) {
-  font-size: 12px !important;
+  font-size: 13px !important;
   line-height: 1.35;
   border-collapse: collapse;
 }
@@ -518,7 +518,7 @@ table:not([data-slot="table"]) td {
   vertical-align: middle;
 }
 table:not([data-slot="table"]) thead th {
-  font-size: 12px !important;
+  font-size: 13px !important;
   font-weight: 600;
   white-space: normal;
 }
@@ -526,7 +526,7 @@ table:not([data-slot="table"]) tbody tr {
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 table[data-slot="table"] {
-  font-size: 12px !important;
+  font-size: 13px !important;
   line-height: 1.35;
   border-collapse: collapse;
 }
@@ -536,7 +536,7 @@ table[data-slot="table"] td {
   vertical-align: middle;
 }
 table[data-slot="table"] thead th {
-  font-size: 12px !important;
+  font-size: 13px !important;
   font-weight: 600;
 }
 table[data-slot="table"] tbody tr {
