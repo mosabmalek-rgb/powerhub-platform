@@ -249,7 +249,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
   const [automationId, setAutomationId] = useState<number | null>(null);
   const [automationName, setAutomationName] = useState("");
   const [automationTemplateId, setAutomationTemplateId] = useState<number | null>(null);
-  const [automationEventType, setAutomationEventType] = useState<"subscriber_created"|"invoice_overdue"|"payment_received"|"service_alert">("subscriber_created");
+  const [automationEventType, setAutomationEventType] = useState<"invoice_issued"|"subscriber_created"|"invoice_overdue"|"payment_received"|"service_alert">("invoice_issued");
   const [scheduleType, setScheduleType] = useState<"none"|"weekly"|"every_10_days"|"every_15_days"|"monthly">("none");
   const [anchor, setAnchor] = useState("");
   const [automationTimezone, setAutomationTimezone] = useState("Asia/Gaza");
@@ -286,7 +286,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
     if (!a) return;
     setAutomationId(a.id); setAutomationName(a.name);
     setAutomationTemplateId(a.templateId);
-    if (["subscriber_created", "invoice_overdue", "payment_received", "service_alert"].includes(a.eventType)) {
+    if (["invoice_issued", "subscriber_created", "invoice_overdue", "payment_received", "service_alert"].includes(a.eventType)) {
       setAutomationEventType(a.eventType);
     }
     setScheduleType(a.scheduleType === "none" ? "none" : a.scheduleType);
@@ -390,7 +390,7 @@ function UnifiedMessagingPanelContent({ siteId }: { siteId: number }) {
           <div className="flex items-center justify-between"><h3 className="font-bold text-white">{automationId ? "تعديل الأتمتة" : "أتمتة جديدة"}</h3>{automationId ? <Button type="button" size="sm" variant="outline" onClick={() => { setAutomationId(null); setAutomationName(""); setAutomationTemplateId(null); setAutomationEventType("subscriber_created"); setScheduleType("none"); setAnchor(""); setAfterDueHours(24); setMinBalance(""); }}>جديدة</Button> : null}</div>
           <input className={inputClass} value={automationName} onChange={(e) => setAutomationName(e.target.value)} placeholder="اسم الأتمتة" />
           <Field label="قالب الأتمتة"><select aria-label="قالب الأتمتة" className={inputClass} value={automationTemplateId ?? ""} onChange={(e) => setAutomationTemplateId(Number(e.target.value) || null)}><option value="">اختر القالب</option>{activeSmsTemplates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
-          <Field label="حدث الأتمتة"><select aria-label="حدث الأتمتة" className={inputClass} value={automationEventType} onChange={(e) => setAutomationEventType(e.target.value as typeof automationEventType)}><option value="subscriber_created">مشترك جديد</option><option value="invoice_overdue">فاتورة متأخرة</option><option value="payment_received">استلام دفعة</option><option value="service_alert">تنبيه تشغيلي</option></select></Field>
+          <Field label="حدث الأتمتة"><select aria-label="حدث الأتمتة" className={inputClass} value={automationEventType} onChange={(e) => setAutomationEventType(e.target.value as typeof automationEventType)}><option value="invoice_issued">صدور فاتورة</option><option value="subscriber_created">مشترك جديد</option><option value="invoice_overdue">فاتورة متأخرة</option><option value="payment_received">استلام دفعة</option><option value="service_alert">تنبيه تشغيلي</option></select></Field>
           <select className={inputClass} value={scheduleType} onChange={(e) => setScheduleType(e.target.value as typeof scheduleType)}><option value="none">عند الحدث</option><option value="weekly">أسبوعي</option><option value="every_10_days">كل 10 أيام</option><option value="every_15_days">كل 15 يوماً</option><option value="monthly">شهري</option></select>
           {automationEventType === "invoice_overdue" ? <div className="grid gap-3 sm:grid-cols-2">
             <Field label="بعد كم ساعة من الاستحقاق"><input aria-label="بعد كم ساعة من الاستحقاق" type="number" min="0" max="2160" step="1" className={inputClass} value={afterDueHours} onChange={(e) => setAfterDueHours(Number(e.target.value))} placeholder="24" /><span className="mt-1 block text-[11px] leading-5 text-slate-500">تبدأ المهلة من تاريخ الاستحقاق المسجّل في الفاتورة، ولا يُرسل التذكير قبل انتهائها.</span></Field>
