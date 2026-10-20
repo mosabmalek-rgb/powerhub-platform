@@ -151,36 +151,11 @@ export const platformAnnouncementsRouter = router({
       return visible.map((row) => mapAnnouncement(row, readMap.get(Number(row.id)) ?? null));
     }),
     unreadCount: authenticatedProcedure.query(async ({ ctx }) => {
-      const admin = supabaseAdmin();
-      const now = new Date().toISOString();
-      const [{ data: profiles, error: profileError }, { data: account, error: accountError }, { data: memberships, error: membershipsError }] = await Promise.all([
-        admin.from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true),
-        admin.from("users").select("platform_role,account_status").eq("id", ctx.user.id).single(),
-        admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active"),
-      ]);
-      if (profileError || accountError || membershipsError) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حساب الإشعارات غير المقروءة." });
-      }
-      if (!account || account.account_status !== "active") return 0;
-      const roles = Array.from(new Set(["all", ...(profiles ?? []).map((row) => row.role), ...(account.platform_role ? [account.platform_role] : [])]));
-      const tenantIds = Array.from(new Set((memberships ?? []).map((row) => Number(row.tenant_id))));
-      let query = admin.from("platform_announcements")
-        .select("id")
-        .eq("status", "published")
-        .not("published_at", "is", null)
-        .lte("published_at", now)
-        .overlaps("audience_roles", roles);
-      query = tenantIds.length
-        ? query.or(`tenant_id.is.null,tenant_id.in.(${tenantIds.join(",")})`)
-        : query.is("tenant_id", null);
-      const { data: visible, error: visibleError } = await query;
-      if (visibleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حساب الإعلانات غير المقروءة." });
-      const ids = (visible ?? []).map((row) => Number(row.id));
-      if (!ids.length) return 0;
-      const { data: reads, error: readsError } = await admin.from("platform_announcement_reads")
-        .select("announcement_id").eq("user_id", ctx.user.id).in("announcement_id", ids);
-      if (readsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر قراءة حالات الإعلانات." });
-      return Math.max(0, ids.length - new Set((reads ?? []).map((row) => Number(row.announcement_id))).size);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_platform_announcement_unread_count_for_user", {
+        p_user_id: ctx.user.id,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حساب الإعلانات غير المقروءة." });
+      return Math.max(0, Number(data ?? 0));
     }),
     markRead: authenticatedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const admin = supabaseAdmin();
