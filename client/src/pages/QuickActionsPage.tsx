@@ -33,6 +33,7 @@ const supportActions = [
   { label: "اعتماد القراءات الميدانية المعلقة", description: "افتح تفاصيل القراءات الميدانية مباشرة للوصول إلى الاعتماد الجماعي وإصدار الفواتير.", path: "/mobile-sync?focus=pending", icon: Check, roles: ["owner", "manager", "accountant"], capability: "approveReadings" as Capability },
   { label: "توثيق الدفع", description: "إرسال طلب توثيق دفع ومتابعة بيانات الفاتورة.", path: "/payment-documentation", icon: WalletCards, roles: ["owner", "manager", "accountant", "collector", "technician", "viewer"] },
   { label: "مراجعة توثيق الدفع", description: "مراجعة طلبات التوثيق واتخاذ قرار الاعتماد.", path: "/payment-documentation/review", icon: ClipboardCheck, capability: "approvePaymentDocumentation" as Capability },
+  { label: "مركز الرسائل", description: "متابعة رسائل SMS والتذكيرات وحالات الإرسال.", path: "/notifications", icon: BellRing, capability: "manageMessaging" as Capability },
   { label: "حسابات الشركة", description: "مراجعة الأرصدة والحركات والتحويلات.", path: "/company-accounts", icon: BookOpenCheck, roles: ["owner", "manager", "accountant"] },
   { label: "التقرير المالي", description: "تحليل التحصيل والمصروفات والتصدير.", path: "/reports", icon: TrendingUp, roles: ["owner", "manager", "accountant", "viewer"] },
   { label: "الحسابات الفرعية", description: "إدارة الموظفين وصلاحياتهم.", path: "/staff", icon: UsersRound, capability: "manageTeam" as Capability },
