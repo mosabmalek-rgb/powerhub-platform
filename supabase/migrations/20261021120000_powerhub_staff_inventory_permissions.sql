@@ -104,6 +104,9 @@ begin
   if not found then
     raise exception 'STAFF_PROFILE_NOT_FOUND' using errcode='P0001';
   end if;
+  if v_profile.role = 'owner' then
+    raise exception 'OWNER_PERMISSION_OVERRIDE_NOT_SUPPORTED' using errcode='P0001';
+  end if;
 
   select is_allowed into v_previous
   from public.staff_profile_capability_overrides
