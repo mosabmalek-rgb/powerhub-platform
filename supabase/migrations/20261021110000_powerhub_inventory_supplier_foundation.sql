@@ -326,6 +326,10 @@ create unique index supplier_ledger_payment_entry_unique_idx
 create index supplier_ledger_supplier_date_idx
   on public.supplier_ledger_entries (tenant_id, supplier_id, occurred_at desc, id desc);
 
+-- Composite uniqueness is required for tenant-safe cross-ledger foreign keys.
+create unique index if not exists account_transactions_tenant_id_id_unique_idx
+  on public.account_transactions (tenant_id, id);
+
 -- Supplier payment account movements are linked back to their originating payment.
 alter table public.account_transactions
   add column if not exists related_supplier_payment_id bigint;
