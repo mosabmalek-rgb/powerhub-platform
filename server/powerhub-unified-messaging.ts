@@ -998,6 +998,14 @@ export const powerhubUnifiedMessagingRouter = router({
     triggerConfig:z.object({afterDueHours:z.number().int().min(0).max(2160).optional(),afterDueDays:z.number().int().min(0).max(90).optional(),minBalance:z.number().min(0).optional()}).default({}), enabled:z.boolean().default(true),
   })).mutation(async ({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageMessaging");
+    if(input.id) {
+      const {data:existingAutomation,error:existingAutomationError}=await supabaseAdmin().from("powerhub_message_automations")
+        .select("event_type").eq("id",input.id).eq("tenant_id",access.tenantId).eq("site_id",input.siteId).maybeSingle();
+      if(existingAutomationError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من حدث الأتمتة الحالية."});
+      if(existingAutomation?.event_type==="invoice_issued" && input.eventType!=="invoice_issued") {
+        throw new TRPCError({code:"BAD_REQUEST",message:"لا يمكن تغيير حدث أتمتة صدور الفاتورة؛ عطّلها أو أرشفها ثم أنشئ أتمتة مستقلة للحدث الآخر."});
+      }
+    }
     if(input.sendType==="manual") throw new TRPCError({code:"BAD_REQUEST",message:"الإرسال اليدوي لا يُحفظ كأتمتة؛ استخدم حملة يدوية."});
     
     const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_upsert_automation_v2",{
