@@ -3,6 +3,7 @@ import { powerhubRouter } from "./powerhub";
 import { approveAndIssueMobileReadingRuntime } from "./powerhub-mobile-approve-runtime";
 import { powerhubStaffSuspensionRuntimeRouter } from "./powerhub-staff-suspension-runtime";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
+import { powerhubInventoryRouter } from "./powerhub-inventory-router";
 
 /**
  * Runtime bridge for the incremental Supabase migration.
@@ -39,5 +40,6 @@ export const powerhubRuntimeRouter: typeof powerhubRouter = router({
       }
     : {}),
   unifiedMessaging: powerhubUnifiedMessagingRouter,
+  inventory: powerhubInventoryRouter,
   readingCycle: legacyRecord.readingCycle,
 }) as unknown as typeof powerhubRouter;
