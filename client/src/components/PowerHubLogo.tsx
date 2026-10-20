@@ -6,7 +6,7 @@ export const DARK_LOGO_URL = "/brand-v1/powerhub-logo-dark.webp?v=lossless-20261
 const LIGHT_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-light.png";
 const DARK_LOGO_FALLBACK_URL = "/api/brand-assets/powerhub-logo-dark.png";
 
-export function PowerHubLogo({ compact = false, header = false, size = "default", className }: { compact?: boolean; header?: boolean; size?: "default" | "invoice"; className?: string }) {
+export function PowerHubLogo({ compact = false, header = false, marketing = false, size = "default", className }: { compact?: boolean; header?: boolean; marketing?: boolean; size?: "default" | "invoice"; className?: string }) {
   const theme = useOptionalTheme();
   const isDark = theme?.theme === "dark";
   const logoUrl = isDark ? DARK_LOGO_URL : LIGHT_LOGO_URL;
@@ -15,9 +15,13 @@ export function PowerHubLogo({ compact = false, header = false, size = "default"
     ? "h-[6.75rem] w-[21.6rem] max-w-full sm:h-[8.1rem] sm:w-[26.1rem]"
     : compact
       ? "h-9 w-[9.5rem]"
-      : header
-        ? "h-[3rem] w-[10rem] min-[400px]:h-[3.25rem] min-[400px]:w-[10.5rem] sm:h-[3.5rem] sm:w-[11.5rem] md:h-[3.75rem] md:w-[12rem] xl:h-[4rem] xl:w-[13rem]"
-        : "h-[3.75rem] w-[12rem] sm:h-[4.5rem] sm:w-[14.5rem]";
+      : marketing && header
+        ? "h-[3.25rem] w-[11rem] min-[400px]:h-[3.5rem] min-[400px]:w-[11.5rem] sm:h-[3.75rem] sm:w-[12.5rem] md:h-[4rem] md:w-[13.5rem] xl:h-[4.25rem] xl:w-[14.5rem]"
+        : marketing
+          ? "h-[4.25rem] w-[13.5rem] sm:h-[5rem] sm:w-[16.5rem]"
+          : header
+            ? "h-[3rem] w-[10rem] min-[400px]:h-[3.25rem] min-[400px]:w-[10.5rem] sm:h-[3.5rem] sm:w-[11.5rem] md:h-[3.75rem] md:w-[12rem] xl:h-[4rem] xl:w-[13rem]"
+            : "h-[3.75rem] w-[12rem] sm:h-[4.5rem] sm:w-[14.5rem]";
 
   return (
     <div
