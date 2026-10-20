@@ -9,7 +9,7 @@ security definer
 set search_path = ''
 as $$
   with actor as (
-    select u.id, u.platform_role
+    select u.id, u.role, u.platform_role
     from public.users u
     where u.id = p_user_id
       and u.account_status = 'active'
@@ -23,6 +23,10 @@ as $$
     select a.platform_role::text as role
     from actor a
     where a.platform_role is not null
+    union
+    select a.role::text
+    from actor a
+    where a.role is not null
     union
     select 'all'::text
   )
