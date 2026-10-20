@@ -61,6 +61,7 @@ export const adminRolePolicyRouter = router({
       const profilesResult = await admin.from("staff_profiles")
         .select("id,user_id,tenant_id,site_id,role,is_active,permissions,custom_role_id")
         .not("tenant_id", "is", null)
+        .neq("role", "owner")
         .order("id", { ascending: false })
         .limit(500);
       if (profilesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الموظفين للصلاحيات الدقيقة." });
