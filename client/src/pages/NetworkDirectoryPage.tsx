@@ -73,7 +73,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
         input?.focus({ preventScroll: true });
       });
     }
-  }, [kind, canEdit]);
+  }, [kind]);
 
   useEffect(() => {
     const normalizedSearch = normalizeSubscriberSearch(subscriberSearch);
