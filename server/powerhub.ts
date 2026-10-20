@@ -3163,6 +3163,7 @@ export const powerhubRouter = router({
       scope: z.enum(["branch", "all"]).default("branch"),
       startDate: paymentDocumentationDateKeySchema,
       endDate: paymentDocumentationDateKeySchema,
+      includeDetails: z.boolean().default(true),
     }).refine((input) => input.startDate <= input.endDate, {
       message: "يجب أن يكون تاريخ بداية الفترة قبل تاريخ نهايتها أو مساوياً لها.",
     })).query(async ({ ctx, input }) => {
@@ -3210,11 +3211,15 @@ export const powerhubRouter = router({
         listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive }),
       ]);
       const eligibleInvoices = invoiceRows.filter((invoice) => invoice.status !== "cancelled" && invoice.status !== "draft");
-      const subscriberRows = await listSupabaseReportSubscribers({
-        tenantId,
-        siteIds,
-        subscriberIds: eligibleInvoices.map((invoice) => invoice.subscriberId),
-      });
+      // The dashboard needs only four aggregate KPIs. Avoid a second large subscriber lookup
+      // and invoice-detail serialization until the user opens the arrears workspace.
+      const subscriberRows = input.includeDetails
+        ? await listSupabaseReportSubscribers({
+            tenantId,
+            siteIds,
+            subscriberIds: eligibleInvoices.map((invoice) => invoice.subscriberId),
+          })
+        : [];
       const subscribersById = new Map(subscriberRows.map((subscriber) => [subscriber.id, subscriber]));
       const branchNameById = new Map(siteRows.map((site) => [site.id, site.name]));
       const invoices = eligibleInvoices.map((invoice) => {
@@ -3242,6 +3247,7 @@ export const powerhubRouter = router({
         endDate: input.endDate,
         invoices,
         payments: paymentRows.map(({ payment }) => ({ status: payment.status, amount: payment.amount })),
+        includeDetails: input.includeDetails,
       });
     }),
   }),
