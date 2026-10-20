@@ -3211,7 +3211,9 @@ export const powerhubRouter = router({
       }
 
       const siteIds = siteRows.map((site) => site.id);
-      const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
+      // Date filters are entered and displayed in the Gaza billing timezone; use its exact local day boundaries.
+      const start = paymentDocumentationGazaDateBoundary(input.startDate);
+      const endExclusive = paymentDocumentationGazaDateBoundary(paymentDocumentationNextDateKey(input.endDate));
       if (!siteIds.length) {
         return buildDashboardPeriodMetrics({
           scope: input.scope,
