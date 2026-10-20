@@ -79,57 +79,6 @@ insert into public.generators(id,tenant_id,site_id) values (10000,10,100),(20000
 \ir ../migrations/20261021110000_powerhub_inventory_supplier_foundation.sql
 \ir ../migrations/20261021130000_powerhub_inventory_atomic_create.sql
 
--- Atomic RPCs create the domain row and its audit record together.
-do $atomic_create_assertions$
-declare v_item_id bigint; v_before integer; v_after integer;
-begin
-  select count(*) into v_before from public.inventory_items where tenant_id=10;
-  select id into v_item_id from public.powerhub_inventory_create_item(
-    10,100,1,'RPC-ATOMIC-01','RPC-created diesel','fuel','liter',25,null,null
-  );
-  if not exists (
-    select 1 from public.audit_logs
-    where tenant_id=10 and site_id=100 and entity_type='inventory_item'
-      and entity_id=v_item_id::text and action='create'
-  ) then raise exception 'INVENTORY_CREATE_AUDIT_MISSING'; end if;
-
-  create function public.fail_inventory_audit_for_test()
-  returns trigger language plpgsql as $trigger$
-  begin
-    if new.entity_type='inventory_item' and new.after_data->>'name'='Rollback diesel' then
-      raise exception 'FORCED_AUDIT_FAILURE';
-    end if;
-    return new;
-  end;
-  $trigger$;
-  create trigger fail_inventory_audit_for_test
-    before insert on public.audit_logs for each row execute function public.fail_inventory_audit_for_test();
-
-  begin
-    perform * from public.powerhub_inventory_create_item(
-      10,100,1,'RPC-ATOMIC-ROLLBACK','Rollback diesel','fuel','liter',0,null,null
-    );
-    raise exception 'AUDIT_FAILURE_DID_NOT_ABORT_CREATE';
-  exception when others then
-    if sqlerrm='AUDIT_FAILURE_DID_NOT_ABORT_CREATE' then raise; end if;
-    if sqlerrm<>'FORCED_AUDIT_FAILURE' then raise; end if;
-  end;
-  drop trigger fail_inventory_audit_for_test on public.audit_logs;
-  drop function public.fail_inventory_audit_for_test();
-
-  select count(*) into v_after from public.inventory_items where tenant_id=10;
-  if v_after<>v_before+1 then
-    raise exception 'INVENTORY_CREATE_NOT_ATOMIC expected=% actual=%',v_before+1,v_after;
-  end if;
-  if has_function_privilege('authenticated','public.powerhub_inventory_create_item(bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE') then
-    raise exception 'AUTHENTICATED_CAN_EXECUTE_INVENTORY_CREATE_RPC';
-  end if;
-  if not has_function_privilege('service_role','public.powerhub_inventory_create_item(bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE') then
-    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_INVENTORY_CREATE_RPC';
-  end if;
-end;
-$atomic_create_assertions$;
-
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
        (20,'DSL-01','Diesel other tenant','fuel','liter',20,1);
@@ -195,6 +144,59 @@ begin
   ) then raise exception 'SUPPLIER_PAYMENT_NOT_LINKED_TO_COMPANY_ACCOUNT_LEDGER'; end if;
 end;
 $ledger_assertions$;
+
+-- Atomic RPCs create the domain row and its audit record together.
+do $atomic_create_assertions$
+declare v_item_id bigint; v_before integer; v_after integer;
+begin
+  select count(*) into v_before from public.inventory_items where tenant_id=10;
+  select id into v_item_id from public.powerhub_inventory_create_item(
+    10,100,1,'RPC-ATOMIC-01','RPC-created diesel','fuel','liter',25,null,null
+  );
+  if not exists (
+    select 1 from public.audit_logs
+    where tenant_id=10 and site_id=100 and entity_type='inventory_item'
+      and entity_id=v_item_id::text and action='create'
+  ) then raise exception 'INVENTORY_CREATE_AUDIT_MISSING'; end if;
+
+  create function public.fail_inventory_audit_for_test()
+  returns trigger language plpgsql as $trigger$
+  begin
+    if new.entity_type='inventory_item' and new.after_data->>'name'='Rollback diesel' then
+      raise exception 'FORCED_AUDIT_FAILURE';
+    end if;
+    return new;
+  end;
+  $trigger$;
+  create trigger fail_inventory_audit_for_test
+    before insert on public.audit_logs for each row execute function public.fail_inventory_audit_for_test();
+
+  begin
+    perform * from public.powerhub_inventory_create_item(
+      10,100,1,'RPC-ATOMIC-ROLLBACK','Rollback diesel','fuel','liter',0,null,null
+    );
+    raise exception 'AUDIT_FAILURE_DID_NOT_ABORT_CREATE';
+  exception when others then
+    if sqlerrm='AUDIT_FAILURE_DID_NOT_ABORT_CREATE' then raise; end if;
+    if sqlerrm<>'FORCED_AUDIT_FAILURE' then raise; end if;
+  end;
+  drop trigger fail_inventory_audit_for_test on public.audit_logs;
+  drop function public.fail_inventory_audit_for_test();
+
+  select count(*) into v_after from public.inventory_items where tenant_id=10;
+  if v_after<>v_before+1 then
+    raise exception 'INVENTORY_CREATE_NOT_ATOMIC expected=% actual=%',v_before+1,v_after;
+  end if;
+  -- Keep the existing foundation fixture's stable IDs for later FK/idempotency assertions.
+  delete from public.inventory_items where id=v_item_id;
+  if has_function_privilege('authenticated','public.powerhub_inventory_create_item(bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_INVENTORY_CREATE_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_create_item(bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_INVENTORY_CREATE_RPC';
+  end if;
+end;
+$atomic_create_assertions$;
 
 do $idempotency_assertions$
 begin
