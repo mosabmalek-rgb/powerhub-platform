@@ -525,9 +525,22 @@ table:not([data-slot="table"]) thead th {
 table:not([data-slot="table"]) tbody tr {
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
+table[data-slot="table"] {
+  font-size: 12px !important;
+  line-height: 1.35;
+  border-collapse: collapse;
+}
 table[data-slot="table"] th,
 table[data-slot="table"] td {
   padding: 5px 8px;
+  vertical-align: middle;
+}
+table[data-slot="table"] thead th {
+  font-size: 12px !important;
+  font-weight: 600;
+}
+table[data-slot="table"] tbody tr {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 table[data-slot="table"] th:first-child,
 table[data-slot="table"] td:first-child {
