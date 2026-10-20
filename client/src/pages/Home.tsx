@@ -125,14 +125,17 @@ export function WorkspaceHome() {
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const dashboardPeriod = useDashboardKpiPeriod(siteId);
   const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword) });
-  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 20_000 });
   const periodMetricsQuery = trpc.powerhub.dashboard.periodMetrics.useQuery({
     siteId: siteId ?? 0,
     scope: selectedScope,
     startDate: dashboardPeriod.startDate,
     endDate: dashboardPeriod.endDate,
+    includeDetails: false,
   }, {
     enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword && dashboardPeriod.isReady),
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
   });
   const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
@@ -228,7 +231,7 @@ export function WorkspaceHome() {
       <MetricCard label="المشتركون النشطون" value={metricNumber(activeSubscribers)} unit="مشترك" periodLabel="العدد الحالي" description={financialOverviewQuery.isError ? "تعذر تحميل عدد المشتركين." : selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
     </section>
 
-    <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} siteId={siteId} scope={selectedScope} />
+    <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
 
     <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={financialOverviewQuery.isError} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError} loading={financialOverviewQuery.isLoading || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading : summaryQuery.isLoading)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 

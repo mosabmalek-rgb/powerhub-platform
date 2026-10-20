@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 
 export type DashboardKpiPeriodPreset = "current_cycle" | "previous_cycle" | "last_month" | "custom";
@@ -22,7 +22,9 @@ function gazaDateKey(date: Date) {
 }
 
 export function dashboardDateKey(value: unknown): string {
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return isValidDashboardDateInput(value) ? value : "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return isValidDashboardDateInput(value) ? value : "";
+  }
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(String(value));
   return Number.isFinite(date.getTime()) ? gazaDateKey(date) : "";
@@ -67,12 +69,15 @@ export function parseDashboardKpiPeriod(search: string): DashboardKpiPeriodIniti
 export function useDashboardKpiPeriod(siteId?: number | null, initial?: DashboardKpiPeriodInitial) {
   const [preset, setPresetState] = useState<DashboardKpiPeriodPreset>(initial?.preset ?? "current_cycle");
   const fallbackToday = () => gazaDateKey(new Date());
-  const [startDate, setStartDate] = useState(initial?.startDate && isValidDashboardDateInput(initial.startDate) ? initial.startDate : fallbackToday());
-  const [endDate, setEndDate] = useState(initial?.endDate && isValidDashboardDateInput(initial.endDate) ? initial.endDate : fallbackToday());
+  const [customStartDate, setCustomStartDate] = useState(initial?.startDate && isValidDashboardDateInput(initial.startDate) ? initial.startDate : fallbackToday());
+  const [customEndDate, setCustomEndDate] = useState(initial?.endDate && isValidDashboardDateInput(initial.endDate) ? initial.endDate : fallbackToday());
 
+  // The cycle boundaries are cached because they rarely change. Derive the effective
+  // range directly from the query data, rather than updating two React states in an
+  // effect and forcing a second render before the KPI query can start.
   const currentBoundsQuery = trpc.powerhub.readingCycle.currentBounds.useQuery(
     { siteId: siteId ?? 1 },
-    { enabled: Boolean(siteId) },
+    { enabled: Boolean(siteId), staleTime: 60_000 },
   );
   const previousReferenceAt = useMemo(() => {
     const startAt = currentBoundsQuery.data?.startAt;
@@ -82,39 +87,12 @@ export function useDashboardKpiPeriod(siteId?: number | null, initial?: Dashboar
   }, [currentBoundsQuery.data?.startAt]);
   const previousBoundsQuery = trpc.powerhub.readingCycle.boundsAt.useQuery(
     { siteId: siteId ?? 1, referenceAt: previousReferenceAt },
-    { enabled: Boolean(siteId && preset === "previous_cycle" && currentBoundsQuery.data?.startAt) },
+    {
+      enabled: Boolean(siteId && preset === "previous_cycle" && currentBoundsQuery.data?.startAt),
+      staleTime: 60_000,
+    },
   );
   const lastMonth = useMemo(() => previousMonthRange(), [siteId]);
-
-  useEffect(() => {
-    if (preset === "current_cycle" && currentBoundsQuery.data) {
-      const nextStart = dashboardDateKey(currentBoundsQuery.data.startAt);
-      const nextEnd = dashboardDateKey(currentBoundsQuery.data.endAt);
-      if (nextStart && nextEnd && (startDate !== nextStart || endDate !== nextEnd)) {
-        setStartDate(nextStart);
-        setEndDate(nextEnd);
-      }
-    } else if (preset === "previous_cycle" && previousBoundsQuery.data) {
-      const nextStart = dashboardDateKey(previousBoundsQuery.data.startAt);
-      const nextEnd = dashboardDateKey(previousBoundsQuery.data.endAt);
-      if (nextStart && nextEnd && (startDate !== nextStart || endDate !== nextEnd)) {
-        setStartDate(nextStart);
-        setEndDate(nextEnd);
-      }
-    } else if (preset === "last_month" && (startDate !== lastMonth.startDate || endDate !== lastMonth.endDate)) {
-      setStartDate(lastMonth.startDate);
-      setEndDate(lastMonth.endDate);
-    }
-  }, [preset, currentBoundsQuery.data, previousBoundsQuery.data, lastMonth.startDate, lastMonth.endDate, startDate, endDate]);
-
-  const setPreset = (next: DashboardKpiPeriodPreset) => {
-    setPresetState(next);
-    if (next === "last_month") {
-      const range = previousMonthRange();
-      setStartDate(range.startDate);
-      setEndDate(range.endDate);
-    }
-  };
 
   const currentCycleRange = currentBoundsQuery.data
     ? { startDate: dashboardDateKey(currentBoundsQuery.data.startAt), endDate: dashboardDateKey(currentBoundsQuery.data.endAt) }
@@ -122,22 +100,36 @@ export function useDashboardKpiPeriod(siteId?: number | null, initial?: Dashboar
   const previousCycleRange = previousBoundsQuery.data
     ? { startDate: dashboardDateKey(previousBoundsQuery.data.startAt), endDate: dashboardDateKey(previousBoundsQuery.data.endAt) }
     : null;
-  const datesValid = isValidDashboardDateInput(startDate) && isValidDashboardDateInput(endDate) && startDate <= endDate;
-  const rangeReady = preset === "current_cycle"
-    ? Boolean(currentCycleRange?.startDate && currentCycleRange?.endDate && startDate === currentCycleRange.startDate && endDate === currentCycleRange.endDate)
-    : preset === "previous_cycle"
-      ? Boolean(previousCycleRange?.startDate && previousCycleRange?.endDate && startDate === previousCycleRange.startDate && endDate === previousCycleRange.endDate)
+  const effectiveRange = preset === "current_cycle" && currentCycleRange?.startDate && currentCycleRange.endDate
+    ? currentCycleRange
+    : preset === "previous_cycle" && previousCycleRange?.startDate && previousCycleRange.endDate
+      ? previousCycleRange
       : preset === "last_month"
-        ? startDate === lastMonth.startDate && endDate === lastMonth.endDate
+        ? lastMonth
+        : { startDate: customStartDate, endDate: customEndDate };
+
+  const datesValid = isValidDashboardDateInput(effectiveRange.startDate) &&
+    isValidDashboardDateInput(effectiveRange.endDate) &&
+    effectiveRange.startDate <= effectiveRange.endDate;
+  const rangeReady = preset === "current_cycle"
+    ? Boolean(currentCycleRange?.startDate && currentCycleRange.endDate)
+    : preset === "previous_cycle"
+      ? Boolean(currentCycleRange?.startDate && currentCycleRange.endDate && previousCycleRange?.startDate && previousCycleRange.endDate)
+      : preset === "last_month"
+        ? datesValid
         : datesValid;
   const isLoading = Boolean(siteId && (
     (preset === "current_cycle" && currentBoundsQuery.isLoading) ||
-    (preset === "previous_cycle" && (currentBoundsQuery.isLoading || previousBoundsQuery.isLoading))
+    (preset === "previous_cycle" && (currentBoundsQuery.isLoading || (Boolean(currentBoundsQuery.data?.startAt) && previousBoundsQuery.isLoading)))
   ));
   const isError = Boolean(siteId && (
     (preset === "current_cycle" && currentBoundsQuery.isError) ||
     (preset === "previous_cycle" && (currentBoundsQuery.isError || previousBoundsQuery.isError))
   ));
+
+  const setPreset = (next: DashboardKpiPeriodPreset) => {
+    setPresetState(next);
+  };
 
   const retry = () => {
     void currentBoundsQuery.refetch();
@@ -145,8 +137,16 @@ export function useDashboardKpiPeriod(siteId?: number | null, initial?: Dashboar
   };
 
   return {
-    preset, setPreset, startDate, endDate, setStartDate, setEndDate,
+    preset,
+    setPreset,
+    startDate: effectiveRange.startDate,
+    endDate: effectiveRange.endDate,
+    setStartDate: setCustomStartDate,
+    setEndDate: setCustomEndDate,
     isReady: Boolean(siteId && datesValid && rangeReady && !isError),
-    isLoading, isError, retry, label: dashboardKpiPeriodLabels[preset],
+    isLoading,
+    isError,
+    retry,
+    label: dashboardKpiPeriodLabels[preset],
   };
 }

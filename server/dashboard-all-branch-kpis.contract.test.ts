@@ -28,13 +28,15 @@ describe("dashboard all-branch KPI authorization contract", () => {
     expect(migration).toContain("to service_role");
   });
 
-  it("makes the dashboard's selected branch or all-branches scope the source of truth for performance cards", () => {
-    expect(home).toContain('<FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} siteId={siteId} scope={selectedScope} />');
-    expect(trendSection).toContain("scope={scope}");
-    expect(trendSection).toContain("siteId={siteId}");
+  it("keeps detailed performance reports out of the dashboard while preserving authorized report APIs", () => {
+    expect(home).toContain('<FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />');
+    expect(trendSection).not.toContain("ConsumptionKpiSection");
+    expect(trendSection).not.toContain("CollectorPerformanceSection");
+    expect(trendSection).not.toContain("scope={scope}");
+    expect(trendSection).not.toContain("siteId={siteId}");
+    expect(router).toContain('requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"])');
     expect(kpiComponent).toContain('scope === "all"');
     expect(kpiComponent).not.toContain("useBranchFilter");
-    expect(kpiComponent).not.toContain("متوسط الاستهلاك");
     expect(kpiComponent).toContain("آخر قراءة معتمدة ضمن الفترة");
   });
 });

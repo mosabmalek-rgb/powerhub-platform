@@ -1,23 +1,15 @@
 import { useMemo, useState } from "react";
 import { FinancialTrendChart, type FinancialTrendPoint } from "@/components/FinancialTrendChart";
 import { DashboardPeriodFilter } from "@/components/DashboardPeriodFilter";
-import ConsumptionKpiSection from "@/components/ConsumptionKpiSection";
-import CollectorPerformanceSection from "@/components/CollectorPerformanceSection";
 import { resolveDashboardPeriod, type DashboardPeriodPreset } from "@/lib/dashboard-period";
 import { Card, CardContent } from "@/components/ui/card";
-
-type DashboardScope = "branch" | "all";
 
 export function FinancialTrendSection({
   data = [],
   loading = false,
-  siteId,
-  scope = "branch",
 }: {
   data?: FinancialTrendPoint[];
   loading?: boolean;
-  siteId?: number | null;
-  scope?: DashboardScope;
 }) {
   const [preset, setPreset] = useState<Exclude<DashboardPeriodPreset, "custom">>("30d");
   const period = useMemo(() => resolveDashboardPeriod(preset), [preset]);
@@ -38,8 +30,6 @@ export function FinancialTrendSection({
         </CardContent>
       </Card>
       <FinancialTrendChart data={visibleData} loading={loading} />
-      <ConsumptionKpiSection siteId={siteId} scope={scope} enabled={!loading} from={period.from} to={period.to} />
-      <CollectorPerformanceSection siteId={siteId} scope={scope} enabled={!loading} from={period.from} to={period.to} />
     </section>
   );
 }

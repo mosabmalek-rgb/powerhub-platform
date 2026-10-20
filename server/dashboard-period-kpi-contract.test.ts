@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 const router = read("server/powerhub.ts");
+const reportReads = read("server/powerhub-supabase.ts");
 const metrics = read("server/dashboard-period-metrics.ts");
 const hook = read("client/src/hooks/useDashboardKpiPeriod.ts");
 const filter = read("client/src/components/DashboardKpiPeriodFilter.tsx");
@@ -15,8 +16,13 @@ describe("billing-cycle dashboard KPI and arrears handoff", () => {
     expect(router).toContain('periodMetrics: protectedProcedure.input(z.object({');
     expect(router).toContain('boundsAt: protectedProcedure.input(siteScoped.extend({');
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"])');
-    expect(router).toContain("listSupabaseReportInvoices({ tenantId, siteIds, start, endExclusive })");
-    expect(router).toContain("listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive })");
+    expect(router).toContain("listSupabaseReportInvoices({ tenantId, siteIds, start, endExclusive, summaryOnly: !input.includeDetails })");
+    expect(router).toContain("listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive, summaryOnly: !input.includeDetails })");
+    expect(router).toContain("includeDetails: z.boolean().default(true)");
+    expect(router).toContain("const subscriberRows = input.includeDetails");
+    expect(reportReads).toContain('.select(input.summaryOnly');
+    expect(reportReads).toContain('? "id, site_id, subscriber_id, issue_date, due_date, total_amount, balance_due, status"');
+    expect(reportReads).toContain('? "id, site_id, subscriber_id, amount, status, paid_at"');
     expect(router).toContain("paymentDocumentationGazaDateBoundary(input.startDate)");
     expect(metrics).toContain('invoice.status !== "cancelled" && invoice.status !== "draft"');
     expect(metrics).toContain('payment.status === "completed"');
@@ -35,6 +41,7 @@ describe("billing-cycle dashboard KPI and arrears handoff", () => {
 
   it("binds the first four dashboard cards to the selected range and hands the same range to arrears", () => {
     expect(home).toContain("periodMetricsQuery.data?.summary.invoiced");
+    expect(home).toContain("includeDetails: false");
     expect(home).toContain("periodMetricsQuery.data?.summary.collected");
     expect(home).toContain("periodMetricsQuery.data?.summary.collectionRate");
     expect(home).toContain("periodMetricsQuery.data?.summary.overdue");
@@ -47,6 +54,7 @@ describe("billing-cycle dashboard KPI and arrears handoff", () => {
   it("keeps the filter and exports in the subscribers arrears list with non-overlapping table columns", () => {
     expect(subscribers).toContain("initialPeriod={initialDebtorPeriod}");
     expect(subscribers).toContain("periodMetricsQuery.data?.outstandingInvoices");
+    expect(subscribers).toContain("includeDetails: true");
     expect(subscribers).toContain("<DashboardKpiPeriodFilter");
     expect(subscribers).toContain("downloadReportHtmlAsPdf");
     expect(subscribers).toContain("loadExcelJS");
