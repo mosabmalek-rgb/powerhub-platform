@@ -127,3 +127,17 @@ export function defaultCapabilitiesForRole(role: PowerRole | undefined | null): 
 export function rolesWith(capability: PowerCapability): PowerRole[] {
   return [...capabilityRoles[capability]];
 }
+
+export function applyStaffCapabilityOverrides(
+  basePermissions: readonly PowerCapability[],
+  overrides: readonly { capability: string; is_allowed: boolean }[],
+): PowerCapability[] {
+  const permissions = new Set<PowerCapability>(basePermissions);
+  for (const override of overrides) {
+    if (!Object.prototype.hasOwnProperty.call(powerCapabilityLabels, override.capability)) continue;
+    const capability = override.capability as PowerCapability;
+    if (override.is_allowed) permissions.add(capability);
+    else permissions.delete(capability);
+  }
+  return [...permissions];
+}

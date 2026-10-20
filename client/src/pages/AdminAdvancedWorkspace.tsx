@@ -459,14 +459,88 @@ export function InvoiceDeliverySettingsPanel() {
 }
 
 const policyCapabilities: Array<{ id: PowerCapability; label: string }> = [
-  { id: "manageSubscribers", label: "إدارة المشتركين" }, { id: "manageGenerators", label: "إدارة المولدات" }, { id: "recordReadings", label: "تسجيل القراءات" }, { id: "approveReadings", label: "اعتماد القراءات" }, { id: "manageTariffs", label: "إدارة التعرفات" }, { id: "issueInvoices", label: "إصدار الفواتير" }, { id: "collectPayments", label: "التحصيل والدفعات" }, { id: "manageExpenses", label: "المصروفات" }, { id: "managePayroll", label: "اعتماد وصرف الرواتب" }, { id: "manageTeam", label: "إدارة الفريق" }, { id: "manageMessaging", label: "المراسلات" }, { id: "viewAudit", label: "سجل التدقيق" },
+  { id: "manageSubscribers", label: "إدارة المشتركين" },
+  { id: "manageGenerators", label: "إدارة المولدات" },
+  { id: "recordReadings", label: "تسجيل القراءات" },
+  { id: "accessFieldApp", label: "الدخول للتطبيق الميداني" },
+  { id: "approveReadings", label: "اعتماد القراءات" },
+  { id: "manageTariffs", label: "إدارة التعرفات" },
+  { id: "issueInvoices", label: "إصدار الفواتير" },
+  { id: "collectPayments", label: "التحصيل والدفعات" },
+  { id: "approvePaymentDocumentation", label: "اعتماد توثيق الدفع الإلكتروني" },
+  { id: "manageExpenses", label: "المصروفات" },
+  { id: "managePayroll", label: "اعتماد وصرف الرواتب" },
+  { id: "manageTeam", label: "إدارة الفريق" },
+  { id: "manageMessaging", label: "المراسلات" },
+  { id: "viewAudit", label: "سجل التدقيق" },
+  { id: "viewInventory", label: "عرض المخزون" },
+  { id: "manageInventoryItems", label: "إدارة دليل الأصناف والمستودعات" },
+  { id: "manageSuppliers", label: "إدارة الموردين" },
+  { id: "createPurchases", label: "إنشاء فواتير المشتريات" },
+  { id: "approvePurchases", label: "اعتماد المشتريات" },
+  { id: "receiveInventory", label: "تأكيد استلام الأصناف" },
+  { id: "manageSupplierPayments", label: "تسجيل دفعات الموردين" },
+  { id: "viewSupplierLedger", label: "عرض ذمم وكشوف الموردين" },
+  { id: "issueInventory", label: "صرف الأصناف للمولدات" },
+  { id: "adjustInventory", label: "الجرد والتسويات المخزنية" },
+  { id: "manageFuelAndConsumption", label: "إدارة الوقود والاستهلاك" },
+  { id: "manageMaintenance", label: "إدارة أوامر الصيانة" },
+  { id: "viewInventoryReports", label: "تقارير المخزون" },
 ];
 
 export function PlatformRolePoliciesPanel() {
   const utils = trpc.useUtils();
   const policies = trpc.admin.rolePolicies.useQuery();
+  const targets = trpc.admin.staffPermissionTargets.useQuery();
   const save = trpc.admin.saveRolePolicy.useMutation({ onSuccess: () => { void utils.admin.rolePolicies.invalidate(); toast.success("تم حفظ سياسة الدور."); }, onError: (error) => toast.error(error.message) });
+  const saveUserOverride = trpc.admin.setStaffCapabilityOverride.useMutation({
+    onSuccess: async () => { await utils.admin.staffPermissionTargets.invalidate(); toast.success("تم حفظ صلاحية المستخدم وتسجيل التغيير."); },
+    onError: (error) => toast.error(error.message),
+  });
+  const [scope, setScope] = useState<"role" | "user">("role");
   const [role, setRole] = useState<PowerRole>("manager");
+  const [profileId, setProfileId] = useState<number | null>(null);
   const lookup = new Map((policies.data ?? []).map((policy) => [`${policy.role}:${policy.capability}`, policy.isAllowed]));
-  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><h2 className="font-bold text-white">سياسات الصلاحيات الدقيقة</h2><p className="mt-1 max-w-3xl text-sm leading-7 text-slate-500">المصفوفة الأساسية لـ PowerHub هي المرجع. يمكن لآدمن المنصة **تقييد** قدرة مسموحة أساساً؛ لا يمكن من هذه الشاشة منح دور قدرة لم تكن مسموحة في سياسة المنتج الأصلية.</p><div className="mt-5 max-w-sm"><select value={role} onChange={(event) => setRole(event.target.value as PowerRole)} className={inputClass}>{(Object.keys(powerRoleLabels) as PowerRole[]).map((item) => <option key={item} value={item}>{powerRoleLabels[item]}</option>)}</select></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{policyCapabilities.map((capability) => { const baseAllowed = can(role, capability.id); const allowed = lookup.get(`${role}:${capability.id}`) ?? baseAllowed; return <label key={capability.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-sm ${baseAllowed ? "border-white/8 bg-white/[.02] text-slate-200" : "border-white/5 bg-white/[.01] text-slate-600"}`}><span>{capability.label}</span><input disabled={!baseAllowed || save.isPending} checked={Boolean(allowed)} onChange={(event) => save.mutate({ role, capability: capability.id, isAllowed: event.target.checked })} type="checkbox" className="h-4 w-4 accent-[#F5B800] disabled:opacity-40" /></label>; })}</div></CardContent></Card>;
+  const selectedProfile = (targets.data ?? []).find((target) => target.profileId === profileId);
+  const userOverrides = new Map((selectedProfile?.overrides ?? []).map((item) => [item.capability, item.isAllowed]));
+  const effectiveBase = new Set<PowerCapability>((selectedProfile?.baseCapabilities ?? []) as PowerCapability[]);
+  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">
+    <h2 className="font-bold text-white">سياسات الصلاحيات الدقيقة</h2>
+    <p className="mt-1 max-w-3xl text-sm leading-7 text-slate-500">تحكم مركزي بصلاحيات الأدوار أو بمستخدم محدد. استثناءات المستخدم مستقلة عن الدور المحفوظ، ويُسجل كل تغيير في سجل تدقيق.</p>
+    <div className="mt-5 flex flex-wrap gap-2">
+      <Button type="button" variant={scope === "role" ? "default" : "outline"} onClick={() => setScope("role")} className={scope === "role" ? "bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]" : "border-white/10 text-slate-200"}>سياسات الأدوار</Button>
+      <Button type="button" variant={scope === "user" ? "default" : "outline"} onClick={() => setScope("user")} className={scope === "user" ? "bg-[#F5B800] text-[#0D1117] hover:bg-[#ffd23f]" : "border-white/10 text-slate-200"}>صلاحيات كل مستخدم</Button>
+    </div>
+    {scope === "role" ? <>
+      <p className="mt-3 text-xs leading-6 text-slate-500">سياسة الدور هنا تسمح بتقييد الصلاحيات الافتراضية فقط. استخدم «صلاحيات كل مستخدم» لمنح أو منع قدرة لحساب بعينه.</p>
+      <div className="mt-4 max-w-sm"><select value={role} onChange={(event) => setRole(event.target.value as PowerRole)} className={inputClass}>{(Object.keys(powerRoleLabels) as PowerRole[]).map((item) => <option key={item} value={item}>{powerRoleLabels[item]}</option>)}</select></div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{policyCapabilities.map((capability) => { const baseAllowed = can(role, capability.id); const allowed = lookup.get(`${role}:${capability.id}`) ?? baseAllowed; return <label key={capability.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-sm ${baseAllowed ? "border-white/8 bg-white/[.02] text-slate-200" : "border-white/5 bg-white/[.01] text-slate-600"}`}><span>{capability.label}</span><input disabled={!baseAllowed || save.isPending} checked={Boolean(allowed)} onChange={(event) => save.mutate({ role, capability: capability.id, isAllowed: event.target.checked })} type="checkbox" className="h-4 w-4 accent-[#F5B800] disabled:opacity-40" /></label>; })}</div>
+    </> : <>
+      <p className="mt-3 text-xs leading-6 text-slate-500">اختر حساب موظف من أي مساحة، ثم عدّل قدراته واحدةً واحدة. «موروثة» تعني أنها من الدور أو الدور المخصص؛ التغيير هنا يضيف استثناءً لهذا الحساب فقط.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+        <label className="text-xs text-slate-400">المستخدم والفرع
+          <select value={profileId ?? ""} onChange={(event) => setProfileId(event.target.value ? Number(event.target.value) : null)} className={inputClass + " mt-1"} aria-label="اختيار مستخدم لتخصيص صلاحياته">
+            <option value="">اختر مستخدماً</option>
+            {(targets.data ?? []).map((target) => <option key={target.profileId} value={target.profileId}>{target.userName || target.email || `مستخدم #${target.userId}`} — {target.tenantName} — {target.siteName} ({powerRoleLabels[target.role as PowerRole] ?? target.role}{target.isActive ? "" : "، غير فعال"})</option>)}
+          </select>
+        </label>
+        <Badge className="w-fit bg-sky-400/10 text-sky-200">{targets.isLoading ? "جارٍ تحميل المستخدمين" : `${targets.data?.length ?? 0} تعيين متاح`}</Badge>
+      </div>
+      {selectedProfile ? <>
+        <div className="mt-3 rounded-xl border border-white/8 bg-white/[.02] p-3 text-sm">
+          <p className="font-bold text-white">{selectedProfile.userName || selectedProfile.email || `مستخدم #${selectedProfile.userId}`}</p>
+          <p className="mt-1 text-xs text-slate-400">{selectedProfile.tenantName} · {selectedProfile.siteName} · {powerRoleLabels[selectedProfile.role as PowerRole] ?? selectedProfile.role}</p>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{policyCapabilities.map((capability) => {
+          const explicit = userOverrides.has(capability.id);
+          const checked = explicit ? Boolean(userOverrides.get(capability.id)) : effectiveBase.has(capability.id);
+          return <label key={capability.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-sm ${checked ? "border-emerald-400/20 bg-emerald-400/[.04] text-slate-100" : "border-white/8 bg-white/[.015] text-slate-400"}`}>
+            <span className="min-w-0"><span className="block">{capability.label}</span><span className="mt-1 block text-[10px] text-slate-500">{explicit ? "استثناء فردي" : "موروثة من الدور"}</span></span>
+            <input type="checkbox" checked={checked} disabled={saveUserOverride.isPending} onChange={(event) => saveUserOverride.mutate({ profileId: selectedProfile.profileId, capability: capability.id, isAllowed: event.target.checked })} className="h-4 w-4 shrink-0 accent-[#F5B800] disabled:opacity-40" />
+          </label>;
+        })}</div>
+        <p className="mt-3 text-xs leading-6 text-slate-500">تُطبق الاستثناءات الفردية على قدرات المستخدم فقط، ولا تغيّر صلاحيات بقية أصحاب الدور. سيظل رفض العملية في الخادم هو المرجع النهائي.</p>
+      </> : <p className="mt-6 rounded-xl border border-dashed border-white/10 py-8 text-center text-sm text-slate-500">اختر مستخدماً لعرض صلاحياته وتخصيصها.</p>}
+    </>}
+  </CardContent></Card>;
 }

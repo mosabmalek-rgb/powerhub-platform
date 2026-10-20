@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { defaultCapabilitiesForRole, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { applyStaffCapabilityOverrides, defaultCapabilitiesForRole, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
@@ -8,7 +8,7 @@ import { isActivePlatformAdmin } from "./platform-admin";
 
 const allCapabilities: PowerCapability[] = [
   "manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs",
-  "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit",
+  "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit", "viewInventory", "manageInventoryItems", "manageSuppliers", "createPurchases", "approvePurchases", "receiveInventory", "manageSupplierPayments", "viewSupplierLedger", "issueInventory", "adjustInventory", "manageFuelAndConsumption", "manageMaintenance", "viewInventoryReports",
 ];
 
 type SupabaseSite = {
@@ -110,7 +110,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   let userAndSiteMs = 0;
   let membershipAndSubscriptionMs = 0;
   let staffProfilesMs = 0;
-  let customRoleMs = 0;
+  let permissionResolutionMs = 0;
   const reportSlowAccess = (outcome: "platform_admin" | "owner" | "staff") => {
     const totalMs = Math.round(performance.now() - accessStartedAt);
     if (totalMs < 800) return;
@@ -122,7 +122,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
       userAndSiteMs,
       membershipAndSubscriptionMs,
       staffProfilesMs,
-      customRoleMs,
+      permissionResolutionMs,
     });
   };
   const admin = supabaseAdmin();
@@ -160,7 +160,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
 
   const staffProfilesStartedAt = performance.now();
   const { data: profiles, error: profileError } = await admin.from("staff_profiles")
-    .select("role, permissions, custom_role_id, suspension_started_at, suspension_ends_at, site_id")
+    .select("id, role, permissions, custom_role_id, suspension_started_at, suspension_ends_at, site_id")
     .eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true);
   staffProfilesMs = Math.round(performance.now() - staffProfilesStartedAt);
   if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تعيين المستخدم في Supabase." });
@@ -174,16 +174,33 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   const role = asPowerRole(profile.role);
   const usesPermissionOverride = hasExplicitPermissions || Boolean(profile.custom_role_id);
   let permissions = hasExplicitPermissions ? asPermissions(profile.permissions) : defaultCapabilitiesForRole(role);
+
+  // Load custom-role permissions and per-profile capability overrides concurrently.
+  // Explicit per-profile entries are applied last, so the platform admin can grant
+  // or deny a capability for one account without mutating the reusable role.
+  const customRoleStartedAt = performance.now();
+  const [customRoleResult, userOverridesResult] = await Promise.all([
+    !hasExplicitPermissions && profile.custom_role_id
+      ? admin.from("custom_permission_roles").select("permissions")
+          .eq("id", profile.custom_role_id).eq("tenant_id", site.tenantId).eq("is_active", true).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    admin.from("staff_profile_capability_overrides")
+      .select("capability,is_allowed")
+      .eq("tenant_id", site.tenantId)
+      .eq("profile_id", profile.id),
+  ]);
+  permissionResolutionMs = Math.round(performance.now() - customRoleStartedAt);
+  if (customRoleResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
+  if (userOverridesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استثناءات صلاحيات المستخدم من Supabase." });
   if (!hasExplicitPermissions && profile.custom_role_id) {
-    const customRoleStartedAt = performance.now();
-    const { data: customRole, error: customRoleError } = await admin.from("custom_permission_roles")
-      .select("permissions").eq("id", profile.custom_role_id).eq("tenant_id", site.tenantId).eq("is_active", true).maybeSingle();
-    customRoleMs = Math.round(performance.now() - customRoleStartedAt);
-    if (customRoleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
-    permissions = asPermissions(customRole?.permissions);
+    permissions = asPermissions(customRoleResult.data?.permissions);
   }
+  permissions = applyStaffCapabilityOverrides(
+    permissions,
+    (userOverridesResult.data ?? []).map((override) => ({ capability: override.capability, is_allowed: Boolean(override.is_allowed) })),
+  );
   reportSlowAccess("staff");
-  return { role, permissions, usesPermissionOverride, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, isPlatformAdmin: false };
+  return { role, permissions, usesPermissionOverride: usesPermissionOverride || (userOverridesResult.data ?? []).length > 0, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, isPlatformAdmin: false };
 }
 
 export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; usesPermissionOverride: boolean }> {

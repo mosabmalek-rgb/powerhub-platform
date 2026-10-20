@@ -18,7 +18,20 @@ export async function saveRolePolicy(input: {
     | "managePayroll"
     | "manageTeam"
     | "manageMessaging"
-    | "viewAudit";
+    | "viewAudit"
+    | "viewInventory"
+    | "manageInventoryItems"
+    | "manageSuppliers"
+    | "createPurchases"
+    | "approvePurchases"
+    | "receiveInventory"
+    | "manageSupplierPayments"
+    | "viewSupplierLedger"
+    | "issueInventory"
+    | "adjustInventory"
+    | "manageFuelAndConsumption"
+    | "manageMaintenance"
+    | "viewInventoryReports";
   isAllowed: boolean;
 }) {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_save_role_policy", {
