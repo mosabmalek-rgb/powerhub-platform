@@ -54,7 +54,10 @@ export const powerhubInventoryRouter = router({
         .order("name", { ascending: true })
         .limit(500);
       if (!input.includeInactive) query = query.eq("is_active", true);
-      if (input.search) query = query.or(`name.ilike.%${input.search}%,sku.ilike.%${input.search}%`);
+      if (input.search) {
+        const safeSearch = input.search.replace(/[%,*()]/g, " ").replace(/[,]/g, " ").trim();
+        if (safeSearch) query = query.or(`name.ilike.%${safeSearch}%,sku.ilike.%${safeSearch}%`);
+      }
       const { data, error } = await query;
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دليل الأصناف." });
       return data ?? [];
@@ -105,7 +108,10 @@ export const powerhubInventoryRouter = router({
         .order("name", { ascending: true })
         .limit(500);
       if (!input.includeInactive) query = query.eq("is_active", true);
-      if (input.search) query = query.or(`name.ilike.%${input.search}%,supplier_code.ilike.%${input.search}%,phone.ilike.%${input.search}%`);
+      if (input.search) {
+        const safeSearch = input.search.replace(/[%,*()]/g, " ").replace(/[,]/g, " ").trim();
+        if (safeSearch) query = query.or(`name.ilike.%${safeSearch}%,supplier_code.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`);
+      }
       const { data, error } = await query;
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دليل الموردين." });
       return data ?? [];
