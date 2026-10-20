@@ -42,6 +42,8 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     utils.powerhub.invoices.list.invalidate({ siteId }),
     utils.powerhub.payments.list.invalidate({ siteId }),
     utils.powerhub.dashboard.summary.invalidate({ siteId }),
+    utils.powerhub.dashboard.financialOverview.invalidate({ siteId, scope: "branch" }),
+    utils.powerhub.dashboard.periodMetrics.invalidate({ siteId, scope: "branch" }),
     utils.powerhub.audit.list.invalidate({ siteId }),
   ]);
 
