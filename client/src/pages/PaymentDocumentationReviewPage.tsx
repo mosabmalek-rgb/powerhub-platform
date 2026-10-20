@@ -97,6 +97,7 @@ export default function PaymentDocumentationReviewPage() {
       utils.powerhub.collectorSessions.current.invalidate({ siteId: targetSiteId }),
       utils.powerhub.dashboard.summary.invalidate({ siteId: targetSiteId }),
       utils.powerhub.dashboard.financialOverview.invalidate({ siteId: targetSiteId }),
+      utils.powerhub.dashboard.periodMetrics.invalidate({ siteId: targetSiteId, scope: "branch" }),
       utils.powerhub.audit.list.invalidate({ siteId: targetSiteId }),
     ]).catch(() => toast.warning("تم اعتماد الدفع، لكن تعذر تحديث بعض الملخصات. أعد تحميل العرض للتحقق."));
   };
