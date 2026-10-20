@@ -10,7 +10,15 @@ import { toast } from "sonner";
 import { defaultCapabilitiesForRole, powerCapabilityLabels, powerRoleLabels, type PowerCapability, type PowerRole } from "@shared/powerhub-rbac";
 
 type StaffRow = { profile: { id: number; role: string; permissions: string[] | null; customRoleId: number | null }; user: { id: number; name: string | null; email: string | null } };
-const capabilities = Object.keys(powerCapabilityLabels) as PowerCapability[];
+// Tenant-managed custom roles keep the existing tenant capability contract.
+ // Inventory-specific per-user overrides are administered centrally from the platform
+ // "سياسات الصلاحيات الدقيقة" panel until their tenant mutation RPCs are extended.
+const capabilities: PowerCapability[] = [
+  "manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp",
+  "approveReadings", "manageTariffs", "issueInvoices", "collectPayments",
+  "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam",
+  "manageMessaging", "viewAudit",
+];
 
 export default function FlexiblePermissionsPanel({ siteId, staff, canManageTeam }: { siteId: number; staff: StaffRow[]; canManageTeam: boolean }) {
   const utils = trpc.useUtils();
