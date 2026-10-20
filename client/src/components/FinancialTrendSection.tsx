@@ -4,18 +4,12 @@ import { DashboardPeriodFilter } from "@/components/DashboardPeriodFilter";
 import { resolveDashboardPeriod, type DashboardPeriodPreset } from "@/lib/dashboard-period";
 import { Card, CardContent } from "@/components/ui/card";
 
-type DashboardScope = "branch" | "all";
-
 export function FinancialTrendSection({
   data = [],
   loading = false,
-  siteId,
-  scope = "branch",
 }: {
   data?: FinancialTrendPoint[];
   loading?: boolean;
-  siteId?: number | null;
-  scope?: DashboardScope;
 }) {
   const [preset, setPreset] = useState<Exclude<DashboardPeriodPreset, "custom">>("30d");
   const period = useMemo(() => resolveDashboardPeriod(preset), [preset]);
