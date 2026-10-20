@@ -16,7 +16,7 @@ export function PowerHubLogo({ compact = false, header = false, size = "default"
     : compact
       ? "h-9 w-[9.5rem]"
       : header
-        ? "h-[3.5rem] w-[11rem] md:h-[4.25rem] md:w-[13.5rem] xl:h-24 xl:w-[18rem]"
+        ? "h-[3rem] w-[10rem] min-[400px]:h-[3.25rem] min-[400px]:w-[10.5rem] sm:h-[3.5rem] sm:w-[11.5rem] md:h-[3.75rem] md:w-[12rem] xl:h-[4rem] xl:w-[13rem]"
         : "h-[3.75rem] w-[12rem] sm:h-[4.5rem] sm:w-[14.5rem]";
 
   return (
@@ -38,7 +38,7 @@ export function PowerHubLogo({ compact = false, header = false, size = "default"
             image.src = fallbackUrl;
           }
         }}
-        className={cn("block object-contain object-center", imageSize)}
+        className={cn("block shrink-0 object-contain object-center", imageSize)}
       />
     </div>
   );
