@@ -162,7 +162,7 @@ export const platformAnnouncementsRouter = router({
           .lte("published_at", new Date().toISOString())
           .single(),
         admin.from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true),
-        admin.from("users").select("platform_role,account_status").eq("id", ctx.user.id).single(),
+        admin.from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single(),
       ]);
       if (announcementError || !announcement || !account || account.account_status !== "active") {
         throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
