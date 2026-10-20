@@ -3207,8 +3207,8 @@ export const powerhubRouter = router({
       }
 
       const [invoiceRows, paymentRows] = await Promise.all([
-        listSupabaseReportInvoices({ tenantId, siteIds, start, endExclusive }),
-        listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive }),
+        listSupabaseReportInvoices({ tenantId, siteIds, start, endExclusive, summaryOnly: !input.includeDetails }),
+        listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive, summaryOnly: !input.includeDetails }),
       ]);
       const eligibleInvoices = invoiceRows.filter((invoice) => invoice.status !== "cancelled" && invoice.status !== "draft");
       // The dashboard needs only four aggregate KPIs. Avoid a second large subscriber lookup
