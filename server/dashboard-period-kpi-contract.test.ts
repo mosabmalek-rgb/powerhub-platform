@@ -17,6 +17,7 @@ describe("billing-cycle dashboard KPI and arrears handoff", () => {
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"])');
     expect(router).toContain("listSupabaseReportInvoices({ tenantId, siteIds, start, endExclusive })");
     expect(router).toContain("listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive })");
+    expect(router).toContain("paymentDocumentationGazaDateBoundary(input.startDate)");
     expect(metrics).toContain('invoice.status !== "cancelled" && invoice.status !== "draft"');
     expect(metrics).toContain('payment.status === "completed"');
     expect(metrics).toContain("overdueSubscriberCount");
@@ -24,9 +25,11 @@ describe("billing-cycle dashboard KPI and arrears handoff", () => {
 
   it("defaults to the current billing cycle and exposes the requested four period presets", () => {
     expect(hook).toContain('useState<DashboardKpiPeriodPreset>(initial?.preset ?? "current_cycle")');
-    for (const label of ["الدورة الحالية", "الدورة السابقة", "آخر شهر", "مخصص"]) {
-      expect(filter).toContain(label);
-    }
+    expect(hook).toContain('current_cycle: "الدورة الحالية"');
+    expect(hook).toContain('previous_cycle: "الدورة السابقة"');
+    expect(hook).toContain('last_month: "آخر شهر"');
+    expect(hook).toContain('custom: "مخصص"');
+    expect(filter).toContain("dashboardKpiPeriodLabels[preset]");
     expect(filter).toContain('type="date"');
   });
 
