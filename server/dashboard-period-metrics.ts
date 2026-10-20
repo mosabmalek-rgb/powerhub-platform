@@ -26,6 +26,7 @@ export function buildDashboardPeriodMetrics(input: {
   invoices: DashboardPeriodInvoice[];
   payments: DashboardPeriodPayment[];
   now?: Date;
+  includeDetails?: boolean;
 }) {
   if (input.startDate > input.endDate) throw new Error("الفترة الزمنية غير صالحة.");
   const now = input.now ?? new Date();
@@ -37,7 +38,7 @@ export function buildDashboardPeriodMetrics(input: {
   const collected = payments.reduce((total, payment) => total + finiteMoney(payment.amount), 0);
   const outstanding = openInvoices.reduce((total, invoice) => total + finiteMoney(invoice.balanceDue), 0);
   const overdue = overdueInvoices.reduce((total, invoice) => total + finiteMoney(invoice.balanceDue), 0);
-  const outstandingInvoices = openInvoices.map((invoice) => {
+  const outstandingInvoices = input.includeDetails === false ? [] : openInvoices.map((invoice) => {
     const isOverdue = invoice.dueDate < now;
     return {
       siteId: invoice.siteId,
