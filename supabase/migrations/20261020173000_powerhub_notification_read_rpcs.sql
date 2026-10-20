@@ -66,7 +66,7 @@ $$;
 create or replace function public.chat_mark_all_notifications_read()
 returns integer
 language sql
-security invoker
+security definer
 set search_path = ''
 as $$
   select private.chat_mark_all_notifications_read();
@@ -92,7 +92,7 @@ create or replace function public.chat_unread_notification_count()
 returns integer
 language sql
 stable
-security invoker
+security definer
 set search_path = ''
 as $$
   select private.chat_unread_notification_count();
