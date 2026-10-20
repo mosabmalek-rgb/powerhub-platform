@@ -25,7 +25,7 @@ as $$
     where a.platform_role is not null
     union
     select 'all'::text
-  ),
+  )
   select count(*)::integer
   from public.platform_announcements a
   where exists (select 1 from actor)
