@@ -48,6 +48,7 @@ const PlatformAnnouncementsPage = lazy(() => import("./pages/PlatformAnnouncemen
 const AdminGeneratorFeaturesPage = lazy(() => import("./pages/AdminGeneratorFeaturesPage"));
 const AdminOwnerSubscriptionProfilePage = lazy(() => import("./pages/AdminOwnerSubscriptionProfilePage"));
 const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
+const NotificationsCenterPage = lazy(() => import("./pages/NotificationsCenterPage"));
 
 function Router() {
   return (
@@ -81,6 +82,7 @@ function Router() {
       <Route path={"/company-accounts"}>{() => <RouteAccessGate><CompanyAccountsPage /></RouteAccessGate>}</Route>
       <Route path={"/notifications"}>{() => <RouteAccessGate><MessagingSettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/announcements"}>{() => <RouteAccessGate><AnnouncementsPage /></RouteAccessGate>}</Route>
+      <Route path={"/notifications-center"}>{() => <RouteAccessGate><NotificationsCenterPage /></RouteAccessGate>}</Route>
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync/readings/:readingId"}>{() => <RouteAccessGate><MobileReadingDetailPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync"}>{() => <RouteAccessGate><MobileSyncPage /></RouteAccessGate>}</Route>
