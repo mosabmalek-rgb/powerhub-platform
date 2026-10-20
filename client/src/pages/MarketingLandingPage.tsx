@@ -111,7 +111,7 @@ export default function MarketingLandingPage() {
       <header className="ph-topbar-rail sticky top-0 z-30 border-b border-white/8 bg-[#0D1117]/85 backdrop-blur-xl">
         <div className="container flex min-h-[76px] flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2 lg:min-h-[92px] lg:flex-nowrap lg:py-0">
           <button type="button" className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4 focus-visible:ring-offset-[#0D1117]" onClick={() => setLocation("/")} aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub">
-            <PowerHubLogo header />
+            <PowerHubLogo header marketing />
           </button>
           <nav className="hidden items-center gap-7 text-sm font-bold text-slate-300 xl:flex">
             <a href="#features" className="transition hover:text-[#F5B800]">المميزات</a>
@@ -131,9 +131,9 @@ export default function MarketingLandingPage() {
         <div className="relative z-10 text-center lg:text-right">
           <Badge className="border border-[#F5B800]/20 bg-[#F5B800]/10 px-3 py-1.5 text-xs font-bold text-[#F5B800] hover:bg-[#F5B800]/10"><Bolt className="ml-1.5 h-3.5 w-3.5 fill-current" />منصة إدارة مولدات الكهرباء</Badge>
           <h1 className="mt-6 max-w-3xl text-4xl font-black leading-[1.18] tracking-tight text-white sm:text-5xl lg:text-6xl">
-            كل دورة كهرباء <span className="text-[#F5B800]">أوضح من البداية.</span>
+            كل <span className="text-[#F5B800]">كيلوواط تحت السيطرة.</span>
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg lg:mx-0">PowerHub يجمع إدارة المشتركين والقراءات والفواتير والتحصيل والمتأخرات في مساحة واحدة، لتعرف ما الذي صدر، وما الذي دُفع، وما الذي يحتاج متابعة.</p>
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg lg:mx-0">من قراءة العداد إلى الفاتورة والتحصيل، أدر مشروع الكهرباء من مكان واحد، وتابع المستحقات والعمليات بوضوح.</p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">
             <Button size="lg" onClick={contactOnWhatsapp} className="h-12 bg-[#F5B800] px-6 text-base font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">ابدأ إدارة مشروعك <ArrowLeft className="mr-2 h-5 w-5" /></Button>
             <Button size="lg" variant="outline" onClick={goToFeatures} className="h-12 border-white/15 bg-white/[0.025] px-6 text-base font-bold text-white hover:bg-white/8 hover:text-white">استكشف المميزات <ChevronLeft className="mr-1 h-5 w-5" /></Button>
@@ -212,11 +212,11 @@ export default function MarketingLandingPage() {
       </section> : null}
 
       <section id="contact" className="container py-20 sm:py-28">
-        <div className="relative overflow-hidden rounded-[32px] border border-[#F5B800]/20 bg-gradient-to-l from-[#1c2229] to-[#111823] px-6 py-12 text-center sm:px-12"><div className="absolute left-0 top-0 h-56 w-56 rounded-full bg-[#F5B800]/10 blur-3xl" /><MessageSquareText className="relative mx-auto h-7 w-7 text-[#F5B800]" /><h2 className="relative mt-5 text-3xl font-extrabold text-white sm:text-4xl">راقب، أدر، واحسب بثقة.</h2><p className="relative mx-auto mt-4 max-w-2xl text-base leading-8 text-slate-300">ابدأ مساحة PowerHub لتجعل كل قراءة وفاتورة ودفعة جزءاً من دورة تشغيل واضحة وقابلة للمراجعة.</p><Button size="lg" onClick={contactOnWhatsapp} className="relative mt-8 bg-[#F5B800] px-7 font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">تواصل مع المنصة <ArrowLeft className="mr-2 h-5 w-5" /></Button></div>
+        <div className="relative overflow-hidden rounded-[32px] border border-[#F5B800]/30 bg-[#fff7dd] px-6 py-12 text-center text-[#17212b] shadow-[0_20px_70px_rgba(33,45,60,0.10)] dark:bg-gradient-to-l dark:from-[#1c2229] dark:to-[#111823] dark:text-white sm:px-12"><div className="absolute left-0 top-0 h-56 w-56 rounded-full bg-[#F5B800]/15 blur-3xl dark:bg-[#F5B800]/10" /><MessageSquareText className="relative mx-auto h-7 w-7 text-[#9a6800] dark:text-[#F5B800]" /><h2 className="relative mt-5 text-3xl font-extrabold text-[#17212b] dark:text-white sm:text-4xl">أدِر مشروع الكهرباء بوضوح أكبر.</h2><p className="relative mx-auto mt-4 max-w-2xl text-base leading-8 text-[#3f4c5a] dark:text-slate-300">من قراءة العداد إلى الفاتورة والتحصيل، اجعل تفاصيل التشغيل ومتابعة المستحقات في مساحة واحدة.</p><Button size="lg" onClick={contactOnWhatsapp} className="relative mt-8 bg-[#F5B800] px-7 font-extrabold text-[#0D1117] hover:bg-[#FFD45A]">تواصل لبدء الاستخدام <ArrowLeft className="mr-2 h-5 w-5" /></Button></div>
       </section>
 
       <footer className="border-t border-white/8 bg-[#090d12]">
-        <div className="container flex flex-col gap-5 py-8 text-center sm:flex-row sm:items-center sm:justify-between sm:text-right"><button type="button" onClick={() => setLocation("/")} className="mx-auto rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4 focus-visible:ring-offset-[#090d12] sm:mx-0" aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub"><PowerHubLogo /></button><p className="text-sm text-slate-500">PowerHub — إدارة الطاقة بذكاء.</p><div className="flex justify-center gap-5 text-sm font-bold text-slate-400"><a href="#features" className="hover:text-[#F5B800]">المميزات</a>{showPlans ? <a href="#plans" className="hover:text-[#F5B800]">الباقات</a> : null}<button onClick={startLogin} className="hover:text-[#F5B800]">تسجيل الدخول</button></div></div>
+        <div className="container flex flex-col gap-5 py-8 text-center sm:flex-row sm:items-center sm:justify-between sm:text-right"><button type="button" onClick={() => setLocation("/")} className="mx-auto rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4 focus-visible:ring-offset-[#090d12] sm:mx-0" aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub"><PowerHubLogo marketing /></button><p className="text-sm text-slate-500">PowerHub — إدارة الطاقة بذكاء.</p><div className="flex justify-center gap-5 text-sm font-bold text-slate-400"><a href="#features" className="hover:text-[#F5B800]">المميزات</a>{showPlans ? <a href="#plans" className="hover:text-[#F5B800]">الباقات</a> : null}<button onClick={startLogin} className="hover:text-[#F5B800]">تسجيل الدخول</button></div></div>
       </footer>
     </main>
   );
