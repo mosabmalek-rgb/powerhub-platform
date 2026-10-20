@@ -92,6 +92,8 @@ describe("operations UI contracts", () => {
   it("uses a plain invoices title and supports the requested date filters", () => {
     const billing = read("client/src/pages/BillingPage.tsx");
     expect(billing).toContain("فلتر فترة الفواتير");
+    expect(billing).not.toContain("ضمن الصفحة الحالية:");
+    expect(billing).toContain("حان موعد معالجتها ولم تُحسم بعد");
     expect(billing).toContain("الدورة الحالية");
     expect(billing).toContain("آخر 7 أيام");
     expect(billing).toContain("آخر شهر");
