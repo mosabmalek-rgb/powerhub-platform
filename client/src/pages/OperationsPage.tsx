@@ -160,6 +160,8 @@ export default function OperationsPage({ section }: { section: Section }) {
         () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
         () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 200 }),
         () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
+        () => utils.powerhub.dashboard.financialOverview.invalidate({ siteId: siteId ?? 0, scope: "branch" }),
+        () => utils.powerhub.dashboard.periodMetrics.invalidate({ siteId: siteId ?? 0, scope: "branch" }),
         () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
       ],
     );
@@ -176,6 +178,8 @@ export default function OperationsPage({ section }: { section: Section }) {
         () => utils.powerhub.collectorSessions.list.invalidate({ siteId: siteId ?? 0 }),
         () => utils.powerhub.collectorSessions.current.invalidate({ siteId: siteId ?? 0 }),
         () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
+        () => utils.powerhub.dashboard.financialOverview.invalidate({ siteId: siteId ?? 0, scope: "branch" }),
+        () => utils.powerhub.dashboard.periodMetrics.invalidate({ siteId: siteId ?? 0, scope: "branch" }),
         () => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 }),
       ],
     );
@@ -196,6 +200,8 @@ export default function OperationsPage({ section }: { section: Section }) {
       [
         () => utils.powerhub.expenses.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
         () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
+        () => utils.powerhub.dashboard.financialOverview.invalidate({ siteId: siteId ?? 0, scope: "branch" }),
+        () => utils.powerhub.dashboard.periodMetrics.invalidate({ siteId: siteId ?? 0, scope: "branch" }),
       ],
       [() => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 })],
     );
