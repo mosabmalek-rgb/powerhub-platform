@@ -996,7 +996,7 @@ export const powerhubUnifiedMessagingRouter = router({
   })).mutation(async ({ctx,input})=>{
     const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"],"manageMessaging");
     if(input.sendType==="manual") throw new TRPCError({code:"BAD_REQUEST",message:"الإرسال اليدوي لا يُحفظ كأتمتة؛ استخدم حملة يدوية."});
-    if(input.eventType==="invoice_issued") throw new TRPCError({code:"BAD_REQUEST",message:"إصدار الفاتورة يُدار عبر مسار رسائل الفاتورة الموحد وإعداد دورة الإرسال؛ لا تُنشئ له أتمتة منفصلة."});
+    
     const {data,error}=await supabaseAdmin().rpc("powerhub_unified_messaging_upsert_automation_v2",{
       p_id:input.id??null,p_tenant_id:access.tenantId,p_site_id:input.siteId,p_template_id:input.templateId,p_name:input.name,p_event_type:input.eventType,
       p_send_type:input.sendType,p_schedule_type:input.scheduleType,p_schedule_anchor_at:input.scheduleAnchorAt?.toISOString()??null,p_timezone:input.timezone,
