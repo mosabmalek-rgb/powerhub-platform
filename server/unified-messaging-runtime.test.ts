@@ -290,7 +290,7 @@ describe("unified messaging runtime contract", () => {
 
   it("routes invoice_issued through the per-invoice enqueue path and validates retry campaign site scope", () => {
     expect(runtime).not.toContain('input.eventType==="invoice_issued"');
-    expect(runtime).toContain("إصدار الفاتورة يُدار عبر مسار رسائل الفاتورة الموحد");
+    expect(runtime).toContain('if (eventType === "invoice_issued") return');
     expect(runtime).toContain('.eq("site_id",input.siteId).maybeSingle()');
     expect(runtime).toContain("الحملة غير موجودة ضمن الفرع المحدد.");
   });
