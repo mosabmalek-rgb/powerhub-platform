@@ -3176,6 +3176,91 @@ export const powerhubRouter = router({
         expenses: expenseRows.map((expense) => ({ siteId: Number(expense.site_id), amount: Number(expense.amount), occurredAt: new Date(expense.occurred_at) })),
       });
     }),
+
+    periodMetrics: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+      startDate: paymentDocumentationDateKeySchema,
+      endDate: paymentDocumentationDateKeySchema,
+    }).refine((input) => input.startDate <= input.endDate, {
+      message: "يجب أن يكون تاريخ بداية الفترة قبل تاريخ نهايتها أو مساوياً لها.",
+    })).query(async ({ ctx, input }) => {
+      let tenantId: number;
+      let siteRows: Array<{ id: number; name: string }>;
+      if (input.scope === "branch") {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .eq("id", input.siteId)
+          .neq("status", "archived")
+          .limit(1);
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الفرع لمؤشرات الفترة." });
+        siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
+      } else {
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .neq("status", "archived")
+          .order("created_at", { ascending: true });
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الأفرع لمؤشرات الفترة." });
+        siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
+      }
+
+      const siteIds = siteRows.map((site) => site.id);
+      const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
+      if (!siteIds.length) {
+        return buildDashboardPeriodMetrics({
+          scope: input.scope,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          invoices: [],
+          payments: [],
+        });
+      }
+
+      const [invoiceRows, paymentRows] = await Promise.all([
+        listSupabaseReportInvoices({ tenantId, siteIds, start, endExclusive }),
+        listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive }),
+      ]);
+      const eligibleInvoices = invoiceRows.filter((invoice) => invoice.status !== "cancelled" && invoice.status !== "draft");
+      const subscriberRows = await listSupabaseReportSubscribers({
+        tenantId,
+        siteIds,
+        subscriberIds: eligibleInvoices.map((invoice) => invoice.subscriberId),
+      });
+      const subscribersById = new Map(subscriberRows.map((subscriber) => [subscriber.id, subscriber]));
+      const branchNameById = new Map(siteRows.map((site) => [site.id, site.name]));
+      const invoices = eligibleInvoices.map((invoice) => {
+        const subscriber = subscribersById.get(invoice.subscriberId);
+        return {
+          id: invoice.id,
+          siteId: invoice.siteId,
+          siteName: branchNameById.get(invoice.siteId) ?? "فرع غير محدد",
+          subscriberId: invoice.subscriberId,
+          subscriberName: subscriber?.fullName ?? "مشترك غير محدد",
+          subscriberNo: subscriber?.subscriberNo ?? "—",
+          invoiceNo: invoice.invoiceNo,
+          issueDate: invoice.issueDate,
+          dueDate: invoice.dueDate,
+          totalAmount: invoice.totalAmount,
+          paidAmount: invoice.paidAmount,
+          balanceDue: invoice.balanceDue,
+          status: invoice.status,
+        };
+      });
+
+      return buildDashboardPeriodMetrics({
+        scope: input.scope,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        invoices,
+        payments: paymentRows.map(({ payment }) => ({ status: payment.status, amount: payment.amount })),
+      });
+    }),
   }),
 
   settlements: router({
