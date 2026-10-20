@@ -130,3 +130,10 @@ jobs:
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres inventory_supplier_foundation_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_supplier_foundation_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_supplier_foundation.sql
+
+      - name: Verify per-user fine-grained permissions in isolated PostgreSQL
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres staff_inventory_permissions_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname staff_inventory_permissions_test --set ON_ERROR_STOP=1 --file supabase/tests/staff_inventory_permissions.sql
