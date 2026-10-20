@@ -118,7 +118,7 @@ begin
     (tenant_id, profile_id, capability, is_allowed, updated_by_user_id, updated_at)
   values
     (v_profile.tenant_id, v_profile.id, p_capability, p_is_allowed, p_actor_user_id, now())
-  on conflict (tenant_id, profile_id, capability) do update
+  on conflict on constraint staff_profile_capability_overrides_tenant_id_profile_id_capability_key do update
     set is_allowed = excluded.is_allowed,
         updated_by_user_id = excluded.updated_by_user_id,
         updated_at = now();
