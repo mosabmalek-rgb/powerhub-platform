@@ -22,7 +22,6 @@ export default function NotificationsCenterPage(){
  const announcements=trpc.platformAnnouncements.inbox.list.useQuery(undefined,{enabled:userId>0,staleTime:60000,refetchOnWindowFocus:false});
  const utils=trpc.useUtils();
  useEffect(()=>{if(!userId)return;const channel=supabase.channel("powerhub-notifications-page-"+userId).on("postgres_changes",{event:"INSERT",schema:"public",table:"powerhub_user_notifications",filter:"user_id=eq."+userId},()=>{if(eventsLoadedRef.current)void client.invalidateQueries({queryKey:["notification-center","events",userId]});}).subscribe();return()=>{void supabase.removeChannel(channel);};},[userId,client]);
- const markAnnouncement=trpc.platformAnnouncements.inbox.markRead.useMutation({onSuccess:()=>void utils.platformAnnouncements.inbox.list.invalidate(),onError:e=>toast.error(e.message)});
  const rows=useMemo(()=>[
   ...(chats.data??[]).map(x=>({key:"chat:"+x.id,kind:"chat" as const,id:x.id,title:x.title,body:x.body??"رسالة جديدة في الدردشة",createdAt:x.created_at,read:Boolean(x.read_at),path:"/support-chat",raw:x})),
   ...(events.data??[]).map(x=>({key:"event:"+x.id,kind:"event" as const,id:x.id,title:x.title,body:x.body,createdAt:x.created_at,read:Boolean(x.read_at),path:x.target_path,raw:x})),
@@ -40,8 +39,10 @@ export default function NotificationsCenterPage(){
   if(chatResults.some(x=>x.status==="rejected"))failures.push("الدردشة");
   const eventResult=await supabase.rpc("powerhub_notification_mark_all_read");
   if(eventResult.error)failures.push("إشعارات الأحداث");
-  const announcementResults=await Promise.allSettled(unreadAnnouncements.map(x=>utils.client.platformAnnouncements.inbox.markRead.mutate({id:x.id})));
-  if(announcementResults.some(x=>x.status==="rejected"))failures.push("الإعلانات");
+  if(unreadAnnouncements.length){
+   try{await utils.client.platformAnnouncements.inbox.markManyRead.mutate({ids:unreadAnnouncements.map(x=>x.id)});}
+   catch{failures.push("الإعلانات");}
+  }
   refresh();
   if(failures.length)toast.error("تعذر تعليم جميع الإشعارات كمقروءة في: "+failures.join("، "));
   else toast.success("تم تعليم جميع الإشعارات كمقروءة.");
