@@ -6,6 +6,7 @@ const root = process.cwd();
 const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messaging.ts"), "utf8");
 const manualFreeSmsMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261019090000_powerhub_free_manual_sms.sql"), "utf8");
 const manualSmsHistoryScopeMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261019120000_powerhub_manual_sms_history_scope.sql"), "utf8");
+const invoiceAutomationMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261020123000_powerhub_unify_invoice_issued_automation.sql"), "utf8");
 const invoiceLinksMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261009223156_powerhub_invoice_message_links.sql"), "utf8");
 const readingVariablesMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014180000_powerhub_invoice_reading_message_variables.sql"), "utf8");
 const manualReadingGuardMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261014190000_powerhub_manual_campaign_reading_token_guard.sql"), "utf8");
@@ -291,6 +292,11 @@ describe("unified messaging runtime contract", () => {
   it("routes invoice_issued through the per-invoice enqueue path and validates retry campaign site scope", () => {
     expect(runtime).not.toContain('input.eventType==="invoice_issued"');
     expect(runtime).toContain('if (eventType === "invoice_issued") return');
+    expect(ui).toContain('<option value="invoice_issued">صدور فاتورة</option>');
+    expect(invoiceAutomationMigration).toContain("powerhub_enqueue_invoice_sms");
+    expect(invoiceAutomationMigration).toContain("automation_id, payload, operation_key");
+    expect(invoiceAutomationMigration).toContain("powerhub_invoice_issued_automation_per_site_uidx");
+    expect(invoiceAutomationMigration).toContain("powerhub.invoice_notification_handled_by_rpc");
     expect(runtime).toContain('.eq("site_id",input.siteId).maybeSingle()');
     expect(runtime).toContain("الحملة غير موجودة ضمن الفرع المحدد.");
   });
