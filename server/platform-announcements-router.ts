@@ -115,31 +115,25 @@ export const platformAnnouncementsRouter = router({
   }),
   inbox: router({
     list: authenticatedProcedure.query(async ({ ctx }) => {
-      const { data: profiles } = await supabaseAdmin().from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true);
-      const { data: account } = await supabaseAdmin().from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single();
+      const admin = supabaseAdmin();
+      const [{ data: profiles }, { data: account }] = await Promise.all([
+        admin.from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true),
+        admin.from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single(),
+      ]);
       if (!account || account.account_status !== "active") return [];
       const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
-      const admin = supabaseAdmin();
-      const { data: memberships } = await admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active");
-      const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
+      if (account.role) roles.add(account.role);
       if (account.platform_role) roles.add(account.platform_role);
-      const baseSelect = "id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at,audience_roles,tenant_id";
       const effectiveRoles = Array.from(new Set(["all", ...roles]));
-      let visibleQuery = admin
+      const { data: visibleRows, error: visibleError } = await admin
         .from("platform_announcements")
-        .select(baseSelect)
+        .select("id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at,audience_roles")
         .eq("status", "published")
         .not("published_at", "is", null)
         .lte("published_at", new Date().toISOString())
         .overlaps("audience_roles", effectiveRoles)
         .order("published_at", { ascending: false })
         .limit(100);
-      if (tenantIds.size) {
-        visibleQuery = visibleQuery.or(`tenant_id.is.null,tenant_id.in.(${Array.from(tenantIds).join(",")})`);
-      } else {
-        visibleQuery = visibleQuery.is("tenant_id", null);
-      }
-      const { data: visibleRows, error: visibleError } = await visibleQuery;
       if (visibleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الإشعارات الداخلية." });
       const visible = visibleRows ?? [];
       const ids = visible.map((row) => Number(row.id));
@@ -161,7 +155,7 @@ export const platformAnnouncementsRouter = router({
       const admin = supabaseAdmin();
       const [{ data: announcement, error: announcementError }, { data: profiles }, { data: account }] = await Promise.all([
         admin.from("platform_announcements")
-          .select("id,status,published_at,audience_roles,tenant_id")
+          .select("id,status,published_at,audience_roles")
           .eq("id", input.id)
           .eq("status", "published")
           .not("published_at", "is", null)
@@ -175,9 +169,8 @@ export const platformAnnouncementsRouter = router({
       }
       const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
       if (account.platform_role) roles.add(account.platform_role);
-      const { data: memberships } = await admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active");
-      const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
-      const visible = (announcement.tenant_id == null || tenantIds.has(Number(announcement.tenant_id))) && (announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role)));
+      if (account.role) roles.add(account.role);
+      const visible = announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role));
       if (!visible) throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
       const { error } = await admin.from("platform_announcement_reads").upsert(
         { announcement_id: input.id, user_id: ctx.user.id, read_at: new Date().toISOString() },
@@ -191,24 +184,22 @@ export const platformAnnouncementsRouter = router({
       if (!ids.length) return { success: true as const, updated: 0 };
       const admin = supabaseAdmin();
       const now = new Date().toISOString();
-      const [{ data: announcements, error: announcementsError }, { data: profiles }, { data: account }, { data: memberships }] = await Promise.all([
+      const [{ data: announcements, error: announcementsError }, { data: profiles }, { data: account }] = await Promise.all([
         admin.from("platform_announcements")
-          .select("id,status,published_at,audience_roles,tenant_id")
+          .select("id,status,published_at,audience_roles")
           .in("id", ids).eq("status", "published")
           .not("published_at", "is", null).lte("published_at", now),
         admin.from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true),
-        admin.from("users").select("platform_role,account_status").eq("id", ctx.user.id).single(),
-        admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active"),
+        admin.from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single(),
       ]);
       if (announcementsError || !account || account.account_status !== "active") {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من الإعلانات المتاحة." });
       }
       const roles = new Set<string>(profiles?.map((profile) => profile.role) ?? []);
+      if (account.role) roles.add(account.role);
       if (account.platform_role) roles.add(account.platform_role);
-      const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
       const visibleIds = (announcements ?? []).filter((announcement) =>
-        (announcement.tenant_id == null || tenantIds.has(Number(announcement.tenant_id))) &&
-        (announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role))),
+        announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role)),
       ).map((announcement) => Number(announcement.id));
       if (!visibleIds.length) return { success: true as const, updated: 0 };
       const { error } = await admin.from("platform_announcement_reads").upsert(
