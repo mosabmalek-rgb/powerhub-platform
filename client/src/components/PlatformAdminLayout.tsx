@@ -107,12 +107,12 @@ export default function PlatformAdminLayout({ activeTab, onTabChange, children }
   return (
     <div className="min-h-screen bg-[#0B1018] text-white" dir="rtl">
       <header className="ph-topbar-rail sticky top-0 z-40 border-b border-white/8 bg-[#0D1117]/95 backdrop-blur-xl">
-        <div className="flex h-[92px] items-center justify-between gap-4 px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-4">
+        <div className="flex h-[92px] min-w-0 items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             <PowerHubLogo header />
-            <div className="hidden border-r border-white/10 pr-4 lg:block"><p className="text-[11px] font-bold text-[#F5B800]">PLATFORM ADMIN</p><p className="mt-0.5 text-sm font-extrabold text-white">{isSupportOnly ? "مركز دعم PowerHub" : "مركز إدارة المنصة"}</p></div>
+            <div className="hidden border-r border-white/10 pr-4 xl:block"><p className="text-[11px] font-bold text-[#F5B800]">PLATFORM ADMIN</p><p className="mt-0.5 text-sm font-extrabold text-white">{isSupportOnly ? "مركز دعم PowerHub" : "مركز إدارة المنصة"}</p></div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <ThemeSelector compact />
             <button type="button" aria-label="تنبيهات المنصة" onClick={() => navigate("notifications")} className="relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-slate-300 transition hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]"><BellRing className="h-4 w-4" /><span className="absolute left-2 top-2 h-1.5 w-1.5 rounded-full bg-rose-400" /></button>
             <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-2.5 py-1.5 sm:flex"><span className="grid h-7 w-7 place-items-center rounded-lg bg-[#F5B800]/15 text-xs font-black text-[#F5B800]">{initials}</span><div className="max-w-32"><p className="truncate text-xs font-bold text-white">{user?.name ?? "مشرف المنصة"}</p><p className="text-[10px] text-slate-500">مشرف منصة</p></div></div>

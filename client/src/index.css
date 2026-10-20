@@ -506,19 +506,21 @@ input[type="datetime-local"] {
 }
 
 
-/* Compact, spreadsheet-like record tables: consistent 12px text, tight cells, and clear row separators. */
+/* Readable record tables: consistent 14px text, comfortable cells, and clear row separators. */
 table:not([data-slot="table"]) {
-  font-size: 12px !important;
-  line-height: 1.35;
+  font-size: 14px !important;
+  line-height: 1.4;
   border-collapse: collapse;
 }
 table:not([data-slot="table"]) th,
 table:not([data-slot="table"]) td {
-  padding: 5px 8px !important;
+  padding: 6px 8px !important;
+  font-size: 14px !important;
   vertical-align: middle;
+  overflow-wrap: anywhere;
 }
 table:not([data-slot="table"]) thead th {
-  font-size: 12px !important;
+  font-size: 14px !important;
   font-weight: 600;
   white-space: normal;
 }
@@ -526,17 +528,19 @@ table:not([data-slot="table"]) tbody tr {
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 table[data-slot="table"] {
-  font-size: 12px !important;
-  line-height: 1.35;
+  font-size: 14px !important;
+  line-height: 1.4;
   border-collapse: collapse;
 }
 table[data-slot="table"] th,
 table[data-slot="table"] td {
-  padding: 5px 8px;
+  padding: 6px 8px;
+  font-size: 14px !important;
   vertical-align: middle;
+  overflow-wrap: anywhere;
 }
 table[data-slot="table"] thead th {
-  font-size: 12px !important;
+  font-size: 14px !important;
   font-weight: 600;
 }
 table[data-slot="table"] tbody tr {

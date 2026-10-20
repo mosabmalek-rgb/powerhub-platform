@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { Activity, AlertTriangle, CheckCircle2, Clock3, ExternalLink, Loader2, RefreshCw, Smartphone, UsersRound, WifiOff } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type SyncStatus = "all" | "success" | "partial" | "retryable" | "needs_review" | "failed";
@@ -37,6 +37,12 @@ export default function MobileSyncPage() {
   // New field readings should appear promptly, but polling stops when this tab is hidden/unmounted.
   const events = trpc.powerhub.mobileSync.list.useQuery({ siteId: siteId ?? 0, status: status === "all" ? undefined : status, userId: userId === "all" ? undefined : Number(userId), from, to, page, pageSize: 25 }, { enabled, staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false });
   const readings = trpc.powerhub.mobileSync.readings.useQuery({ siteId: siteId ?? 0, userId: userId === "all" ? undefined : Number(userId), from, to, page: readingPage, pageSize: 20 }, { enabled, staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false });
+  useEffect(() => {
+    const params = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+    if (params.get("focus") !== "pending") return;
+    window.requestAnimationFrame(() => document.getElementById("field-reading-details")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, []);
+
   const refresh = () => { void summary.refetch(); void events.refetch(); void readings.refetch(); void technicians.refetch(); };  const utils = trpc.useUtils();
   const bulkApprove = trpc.powerhub.mobileSync.approveAllAndIssue.useMutation();
   const approvePendingInBatches = async () => {
@@ -117,7 +123,7 @@ export default function MobileSyncPage() {
       <div className="flex items-center justify-between border-t border-white/8 px-5 py-4"><span className="text-xs text-slate-500">صفحة {page}</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}>السابق</Button><Button size="sm" variant="outline" disabled={(events.data?.length ?? 0) < 25} onClick={() => setPage(p => p + 1)}>التالي</Button></div></div>
     </CardContent></Card>
 
-    <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0">
+    <Card id="field-reading-details" className="scroll-mt-6 border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4"><div><h2 className="font-extrabold text-white">تفاصيل القراءات المستلمة ميدانياً</h2><p className="mt-1 text-xs text-slate-500">تظهر فقط القراءات المسجلة من تطبيق الفني ضمن الفرع والفترة المختارين.</p></div><div className="flex max-w-xl flex-wrap items-center justify-end gap-2"><div className="rounded-xl border border-sky-400/25 bg-sky-400/10 px-3 py-2 text-right"><Badge className="bg-sky-400/15 text-sky-200">اعتماد جماعي آمن</Badge><p className="mt-1 text-xs leading-5 text-sky-100/85">تُعالج القراءات على دفعات متتابعة من 100 كحد أقصى لكل طلب؛ فشل قراءة لا يلغي نجاح البقية.</p></div><label className="text-xs text-slate-400">الحد الإجمالي<select aria-label="الحد الإجمالي للاعتماد" className="mt-1 h-10 rounded-xl border border-white/10 bg-[#111823] px-3 text-sm text-white" value={bulkTarget} disabled={bulkApprove.isPending || bulkProgress !== null} onChange={(event) => setBulkTarget(Number(event.target.value))}><option value={100}>100 قراءة</option><option value={250}>250 قراءة</option><option value={500}>500 قراءة</option></select></label><Button disabled={!(readings.data?.length) || bulkApprove.isPending || bulkProgress !== null} onClick={() => void approvePendingInBatches()} className="bg-emerald-500 font-bold text-white hover:bg-emerald-400">{bulkApprove.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="ml-2 h-4 w-4" />}{bulkProgress ? `جارٍ معالجة ${bulkProgress.processed} من ${bulkProgress.target}` : `اعتماد وإصدار المعلّق (حتى ${bulkTarget})`}</Button></div></div>
       {readings.isError ? <div role="alert" className="mx-5 my-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-400/25 bg-rose-400/5 p-4 text-sm text-rose-200"><span>تعذر تحميل تفاصيل القراءات من الخادم. لا يعني ذلك أن القراءات غير موجودة؛ أعد المحاولة بعد التحقق من الاتصال.</span><Button size="sm" variant="outline" onClick={() => void readings.refetch()} className="border-rose-300/30 text-rose-100">إعادة تحميل التفاصيل</Button></div> : null}
       {readings.isFetching && readings.data ? <p role="status" aria-live="polite" className="flex items-center gap-2 px-5 pt-3 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> جارٍ تحديث القراءات المستلمة في الخلفية؛ تبقى النتائج الحالية ظاهرة.</p> : null}

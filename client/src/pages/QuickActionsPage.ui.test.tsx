@@ -58,6 +58,40 @@ describe("شاشة الإجراءات السريعة", () => {
   });
 
 
+  it("يعرض اختصارات قراءات الميدان وتوثيق الدفع ومركز الرسائل عند عدم وجودها في الإجراءات الأساسية", () => {
+    state.preferences = ["collect_payment"];
+    render(<QuickActionsPage />);
+    expect(screen.getByRole("button", { name: /^مراجعة قراءات الميدان/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^توثيق الدفع/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /مراجعة توثيق الدفع/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /مركز الرسائل/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^مراجعة قراءات الميدان/ }));
+    expect(state.setLocation).toHaveBeenLastCalledWith("/mobile-sync");
+    fireEvent.click(screen.getByRole("button", { name: /^توثيق الدفع/ }));
+    expect(state.setLocation).toHaveBeenLastCalledWith("/payment-documentation");
+    fireEvent.click(screen.getByRole("button", { name: /مراجعة توثيق الدفع/ }));
+    expect(state.setLocation).toHaveBeenLastCalledWith("/payment-documentation/review");
+    fireEvent.click(screen.getByRole("button", { name: /مركز الرسائل/ }));
+    expect(state.setLocation).toHaveBeenLastCalledWith("/notifications");
+  });
+
+  it("يعرض اختصارات دورة الاشتراك ويربط البحث والمتأخرات والتذكير والاعتماد بمساراتها الفعلية", () => {
+    state.preferences = ["collect_payment"];
+    render(<QuickActionsPage />);
+    const expected = [
+      ["البحث وتعديل بيانات المشترك", "/subscribers?subscriberFocus=1"],
+      ["متابعة المتأخرات", "/subscribers?debtorFocus=1&debtorStatus=overdue"],
+      ["إرسال تذكير بالسداد", "/subscribers?debtorFocus=1&debtorStatus=overdue"],
+      ["مراجعة قراءات الميدان", "/mobile-sync"],
+      ["اعتماد القراءات الميدانية المعلقة", "/mobile-sync?focus=pending"],
+    ] as const;
+    for (const [label, path] of expected) {
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(label) }));
+      expect(state.setLocation).toHaveBeenLastCalledWith(path);
+    }
+  });
+
   it("لا يكرر رابط الفواتير في اختصارات المتابعة إذا كان إجراء الفاتورة ظاهرًا", () => {
     state.preferences = ["create_invoice", "collect_payment"];
     render(<QuickActionsPage />);
@@ -95,12 +129,12 @@ describe("شاشة الإجراءات السريعة", () => {
 
   it("يوصل كل إجراء أساسي إلى التبويب المتخصص الصحيح", () => {
     const destinations = [
-      ["إضافة مشترك", "/subscribers"],
+      ["إضافة مشترك", "/subscribers?add=1"],
       ["تسجيل قراءة", "/readings"],
       ["إنشاء فاتورة", "/invoices"],
       ["تحصيل دين", "/collections"],
       ["تسجيل مصروف", "/expenses"],
-      ["إرسال إشعارات", "/notifications"],
+      ["مركز الرسائل", "/notifications"],
     ] as const;
     state.setLocation.mockClear();
     render(<QuickActionsPage />);

@@ -41,4 +41,15 @@ describe("subscriber directory pagination and type support", () => {
     expect(migration).toContain("SUBSCRIBER_OPENING_READING_TYPE_VALIDATION_PATTERN_NOT_FOUND");
     expect(migration).toContain("pg_get_functiondef(p.oid)");
   });
+  it("uses readable 14px record tables and keeps long arrears names within their column", () => {
+    const page = read("client/src/pages/NetworkDirectoryPage.tsx");
+    const styles = read("client/src/index.css");
+    expect(styles).toContain("font-size: 14px !important;");
+    expect(page).toContain(': "مستحق";');
+    expect(page).not.toContain('"مستحق لاحقاً";');
+    expect(page).toContain("[overflow-wrap:anywhere]");
+    expect(page).toContain('["10%", "20%", "9%", "9%", "10%", "11%", "10%", "11%", "10%"]');
+    expect(page).toContain('["20%", "10%", "10%", "12%", "13%", "13%", "12%", "10%"]');
+  });
+
 });
