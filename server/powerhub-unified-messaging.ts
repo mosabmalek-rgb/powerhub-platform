@@ -165,6 +165,9 @@ async function getPlatformActorId() {
 async function executeAutomation(automation: any, now: Date, actorUserId: number) {
   const admin = supabaseAdmin();
   const eventType = String(automation.event_type);
+  // Invoice-issued messages are enqueued per invoice by the database issuance hook;
+  // do not scan subscribers from the periodic automation runner.
+  if (eventType === "invoice_issued") return { status: "skipped", requested: 0, queued: 0, failed: 0, skipped: 0 };
   const incrementalAutomaticEvent = automation.send_type === "automatic" && isIncrementalAutomaticEvent(eventType);
   let eventScanSince = String(automation.created_at);
   if (incrementalAutomaticEvent) {
