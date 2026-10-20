@@ -82,7 +82,7 @@ describe("شاشة الإجراءات السريعة", () => {
     const expected = [
       ["البحث وتعديل بيانات المشترك", "/subscribers?subscriberFocus=1"],
       ["متابعة المتأخرات", "/subscribers?debtorFocus=1&debtorStatus=overdue"],
-      ["متابعة المتأخرات والتذكير بالسداد", "/subscribers?debtorFocus=1&debtorStatus=overdue"],
+      ["إرسال تذكير بالسداد", "/subscribers?debtorFocus=1&debtorStatus=overdue"],
       ["مراجعة قراءات الميدان", "/mobile-sync"],
       ["اعتماد القراءات الميدانية المعلقة", "/mobile-sync?focus=pending"],
     ] as const;
