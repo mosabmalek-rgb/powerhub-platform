@@ -153,6 +153,3 @@ export const powerhubInventoryRouter = router({
       return data[0];
     }),
 });
-      return data;
-    }),
-});
