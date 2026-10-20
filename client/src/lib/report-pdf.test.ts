@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { escapeHtml } from "./report-pdf";
+import { escapeHtml, normalizePdfCssColors } from "./report-pdf";
 
 describe("escapeHtml", () => {
   it("escapes HTML metacharacters before PDF report interpolation", () => {
@@ -28,6 +28,24 @@ describe("escapeHtml", () => {
     expect(operations).toContain("escapeHtml(cell)");
     expect(reports).not.toContain("${pdfRef.current.innerHTML}");
     expect(reports).toContain("pdfRef.current.cloneNode(true)");
+  });
+});
+
+describe("PDF CSS color compatibility", () => {
+  it("converts Tailwind v4 oklch and oklab colors to html2canvas-safe RGB", () => {
+    const normalized = normalizePdfCssColors(
+      "color: oklch(0% 0 0); background-color: oklch(100% 0 0 / 0.25); border-color: oklab(0% 0 0)",
+    );
+    expect(normalized).toContain("color: rgb(0, 0, 0)");
+    expect(normalized).toContain("background-color: rgba(255, 255, 255, 0.25)");
+    expect(normalized).toContain("border-color: rgb(0, 0, 0)");
+    expect(normalized).not.toMatch(/\\b(?:oklch|oklab)\\(/i);
+  });
+
+  it("normalizes color functions inside gradient declarations without changing the gradient", () => {
+    expect(normalizePdfCssColors("linear-gradient(oklch(0% 0 0), oklch(100% 0 0))")).toBe(
+      "linear-gradient(rgb(0, 0, 0), rgb(255, 255, 255))",
+    );
   });
 });
 
