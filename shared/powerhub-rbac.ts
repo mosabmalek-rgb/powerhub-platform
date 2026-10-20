@@ -56,6 +56,19 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   manageTeam: ["owner"],
   manageMessaging: ["owner"],
   viewAudit: ["owner", "manager", "accountant", "viewer"],
+  viewInventory: ["owner", "manager", "accountant", "technician", "viewer"],
+  manageInventoryItems: ["owner", "manager"],
+  manageSuppliers: ["owner", "manager", "accountant"],
+  createPurchases: ["owner", "manager", "accountant"],
+  approvePurchases: ["owner", "manager", "accountant"],
+  receiveInventory: ["owner", "manager", "accountant", "technician"],
+  manageSupplierPayments: ["owner", "accountant"],
+  viewSupplierLedger: ["owner", "manager", "accountant"],
+  issueInventory: ["owner", "manager", "technician"],
+  adjustInventory: ["owner", "manager"],
+  manageFuelAndConsumption: ["owner", "manager", "technician"],
+  manageMaintenance: ["owner", "manager", "technician"],
+  viewInventoryReports: ["owner", "manager", "accountant", "viewer"],
 };
 
 export const powerCapabilityLabels: Record<PowerCapability, string> = {
