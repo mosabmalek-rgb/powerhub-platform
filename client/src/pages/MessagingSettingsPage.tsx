@@ -491,6 +491,7 @@ export default function MessagingSettingsPage() {
   const retryReceipt = trpc.powerhub.notifications.retryPaymentReceipt.useMutation({ onSuccess: async () => { await refresh(); toast.success("تمت معالجة طلب إعادة الإرسال."); }, onError: (e) => toast.error(e.message) });
 
   const configs = configsQuery.data ?? [];
+  const smsConfig = configs.find((item) => item.channel === "sms");
   const policy = policyQuery.data;
   const open = policy?.configured === true && policy?.isEnabled === true;
   const available = { whatsapp: open && policy?.whatsappEnabled === true, sms: open && policy?.smsEnabled === true };
