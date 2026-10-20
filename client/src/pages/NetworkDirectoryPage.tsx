@@ -47,9 +47,9 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
   const requestedSiteId = Number(routeSearchParams.get("siteId"));
   const [routeBranchApplied, setRouteBranchApplied] = useState(false);
   useEffect(() => {
-    if (routeBranchApplied || !sitesQuery.data?.length) return;
+    if (routeBranchApplied || !sitesQuery.data?.length || !Number.isInteger(requestedSiteId) || requestedSiteId <= 0) return;
     setRouteBranchApplied(true);
-    if (Number.isInteger(requestedSiteId) && requestedSiteId > 0 && sitesQuery.data.some((site) => site.id === requestedSiteId) && siteId !== requestedSiteId) {
+    if (sitesQuery.data.some((site) => site.id === requestedSiteId) && siteId !== requestedSiteId) {
       setSiteId(requestedSiteId);
     }
   }, [routeBranchApplied, requestedSiteId, setSiteId, siteId, sitesQuery.data]);
