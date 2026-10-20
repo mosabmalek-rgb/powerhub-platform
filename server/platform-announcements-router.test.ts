@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   rpc: vi.fn(),
   from: vi.fn(() => { throw new Error("unreadCount must use one SQL RPC, not fan out queries"); }),
-  client: {} as { rpc: typeof state.rpc; from: typeof state.from },
+  client: {} as any,
 }));
 
 state.client = { rpc: state.rpc, from: state.from } as never;
