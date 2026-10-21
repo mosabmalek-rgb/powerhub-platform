@@ -120,7 +120,8 @@ describe("inventory workspace UI contract", () => {
     expect(reports).toContain("download");
     expect(reports).toContain("canViewInventoryReports");
     expect(reports).toContain("belowReorderOnly");
-    expect(reports).toContain("formula");
+    expect(reports).toContain("s.replace(/\"/g");
+    expect(reports).toContain("canViewInventoryReports");
     expect(router).toContain('permissions.includes("viewInventoryReports")');
   });
 
