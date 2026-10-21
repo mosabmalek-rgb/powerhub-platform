@@ -26,6 +26,7 @@ type InventoryPurchasesPanelProps = {
   canCreatePurchases: boolean;
   canApprovePurchases: boolean;
   canReceiveInventory: boolean;
+  canAdjustInventory: boolean;
   canManageSupplierPayments: boolean;
 };
 
@@ -103,6 +104,7 @@ export default function InventoryPurchasesPanel({
   canCreatePurchases,
   canApprovePurchases,
   canReceiveInventory,
+  canAdjustInventory,
   canManageSupplierPayments,
 }: InventoryPurchasesPanelProps) {
   const [search, setSearch] = useState("");
