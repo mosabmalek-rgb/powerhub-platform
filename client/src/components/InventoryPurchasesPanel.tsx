@@ -271,6 +271,7 @@ export default function InventoryPurchasesPanel({
       setReturnReason("");
       setReturnNotes("");
       setReturnRefundAmount("0");
+      setReturnRefundAccountId("");
       setReturnDate(todayForInput());
       clearOperationKey(`powerhub:inventory:${siteId}:purchase:${Number(result.purchase_id)}:return`);
       await Promise.all([
@@ -409,7 +410,7 @@ export default function InventoryPurchasesPanel({
       toast.error("مبلغ الاسترداد يجب أن يكون صفرًا أو موجبًا وبحد أقصى منزلتين عشريتين.");
       return;
     }
-    if (refundAmount > 0 && !companyAccountId) {
+    if (refundAmount > 0 && !returnRefundAccountId) {
       toast.error("اختر حساب الشركة الذي سيستقبل المبلغ المسترد.");
       return;
     }
@@ -422,7 +423,7 @@ export default function InventoryPurchasesPanel({
       reason: returnReason.trim(),
       notes: returnNotes.trim() || undefined,
       refundAmount,
-      refundCompanyAccountId: refundAmount > 0 ? Number(companyAccountId) : undefined,
+      refundCompanyAccountId: refundAmount > 0 ? Number(returnRefundAccountId) : undefined,
       lines,
     });
   };
@@ -700,7 +701,7 @@ export default function InventoryPurchasesPanel({
                           <Input type="number" min="0" step="0.01" value={returnRefundAmount} onChange={(event) => setReturnRefundAmount(event.target.value)} required />
                         </label>
                         {Number(returnRefundAmount) > 0 ? <label className={inputGridClass}>حساب الشركة المستلم
-                          <select className={selectClass} value={companyAccountId} onChange={(event) => setReturnRefundAccountId(event.target.value)} required>
+                          <select className={selectClass} value={returnRefundAccountId} onChange={(event) => setReturnRefundAccountId(event.target.value)} required>
                             <option value="">اختر حسابًا</option>
                             {(paymentOptions.data ?? []).map((account) => <option key={account.id} value={account.id}>{account.name} — الرصيد {formatAmount(account.balance)}</option>)}
                           </select>
