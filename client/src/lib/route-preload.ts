@@ -5,6 +5,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   "/invoices": () => import("../pages/BillingPage"),
   "/collections": () => import("../pages/OperationsPage"),
   "/expenses": () => import("../pages/OperationsPage"),
+  "/inventory": () => import("../pages/InventoryWorkspacePage"),
   "/reports": () => import("../pages/ReportsPage"),
   "/notifications": () => import("../pages/MessagingSettingsPage"),
   "/audit": () => import("../pages/AuditLogPage"),

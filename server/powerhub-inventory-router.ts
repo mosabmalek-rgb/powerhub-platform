@@ -67,7 +67,7 @@ export const powerhubInventoryRouter = router({
   listSuppliers: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), search: z.string().trim().max(100).optional(), includeInactive: z.boolean().default(false) }))
     .query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewSupplierLedger");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewSuppliers");
       let query = supabaseAdmin().from("suppliers")
         .select("id,tenant_id,supplier_code,name,contact_name,phone,email,address,tax_number,default_payment_terms_days,notes,is_active,created_at,updated_at")
         .eq("tenant_id", access.tenantId)

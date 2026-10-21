@@ -12,6 +12,7 @@ const LoginPage = lazy(() => import("./pages/LoginPage"));
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 const OperationsPage = lazy(() => import("./pages/OperationsPage"));
+const InventoryWorkspacePage = lazy(() => import("./pages/InventoryWorkspacePage"));
 const MeterReadingsPage = lazy(() => import("./pages/MeterReadingsPage"));
 const BillingPage = lazy(() => import("./pages/BillingPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
@@ -73,6 +74,7 @@ function Router() {
       <Route path={"/invoices"}>{() => <RouteAccessGate><BillingPage /></RouteAccessGate>}</Route>
       <Route path={"/collections"}>{() => <RouteAccessGate><OperationsPage section="collections" /></RouteAccessGate>}</Route>
       <Route path={"/expenses"}>{() => <RouteAccessGate><OperationsPage section="expenses" /></RouteAccessGate>}</Route>
+      <Route path={"/inventory"}>{() => <RouteAccessGate><InventoryWorkspacePage /></RouteAccessGate>}</Route>
       <Route path={"/reports"}>{() => <RouteAccessGate><ReportsPage /></RouteAccessGate>}</Route>
       <Route path={"/financial-dashboard"}>{() => <RouteAccessGate><FinancialDashboardPage /></RouteAccessGate>}</Route>
       <Route path={"/financial-settlements"}>{() => <RouteAccessGate><FinancialSettlementsPage /></RouteAccessGate>}</Route>

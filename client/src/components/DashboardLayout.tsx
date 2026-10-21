@@ -24,7 +24,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import {
-  BellRing, Bolt, BriefcaseBusiness, ClipboardCheck, ChartNoAxesCombined, Fuel, Gauge,
+  BellRing, Bolt, BriefcaseBusiness, ClipboardCheck, ChartNoAxesCombined, Fuel, Gauge, Boxes,
   LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X, MessageSquareText,
   Settings2, ShieldCheck, UsersRound, WalletCards, Building2, UserRound, Palette, Store, RadioTower, Zap, CloudOff, Bot,
 } from "lucide-react";
@@ -62,6 +62,7 @@ const menuGroups = [
       { icon: WalletCards, label: "التحصيلات", path: "/collections" },
       { icon: WalletCards, label: "حسابات الشركة", path: "/company-accounts" },
       { icon: Fuel, label: "المصروفات والربحية", path: "/expenses" },
+      { icon: Boxes, label: "المخزون والمشتريات والصيانة", path: "/inventory", capability: "viewInventory" as PowerCapability },
       { icon: ChartNoAxesCombined, label: "لوحة المالية", path: "/financial-dashboard" },
       { icon: ChartNoAxesCombined, label: "التسويات المالية", path: "/financial-settlements" },
       { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },
