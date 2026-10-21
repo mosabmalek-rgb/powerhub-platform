@@ -83,7 +83,7 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain('opening_balance: "رصيد افتتاحي"');
     expect(router).toContain('"opening_balance"');
     expect(router).toContain('value.movementType !== "opening_balance" || value.unitCost !== undefined');
-    expect(router).toContain("paymentDate: z.string().regex(/^\\\\d{4}-\\\\d{2}-\\\\d{2}$/).optional()");
+    expect(router).toContain("paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional()");
     expect(router).toContain("paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional()");
     expect(router).toContain('"issueInventory"');
     expect(router).toContain('"adjustInventory"');
