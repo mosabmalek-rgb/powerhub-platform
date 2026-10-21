@@ -129,6 +129,8 @@ describe("inventory workspace UI contract", () => {
     expect(reports).toContain('s.replace(/"/g');
     expect(router).toContain('permissions.includes("viewInventoryReports")');
     expect(router).toContain("powerhub_inventory_list_stock_movement_report");
+    expect(router).toContain("listInventoryReportWarehouses: protectedProcedure");
+    expect(reports).toContain("listInventoryReportWarehouses.useQuery");
     expect(menuAccess).toContain('"/inventory": { capabilities: ["viewInventory", "viewInventoryReports"] }');
     expect(roleTests).toContain('tenantMenuRouteAllowed("/inventory", "viewer", ["viewInventoryReports"], true)');
     expect(migration).toContain("p_before_occurred_at");
