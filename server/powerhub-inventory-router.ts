@@ -97,6 +97,7 @@ function mapPurchaseDatabaseError(
     INVALID_STOCK_QUANTITY: { code: "BAD_REQUEST", message: "أدخل كمية موجبة لا تتجاوز ثلاث منازل عشرية." },
     INVALID_STOCK_UNIT_COST: { code: "BAD_REQUEST", message: "تكلفة الوحدة غير صالحة أو لا تتوافق مع نوع الحركة." },
     STOCK_ADJUSTMENT_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سبب تسوية الجرد." },
+    OPENING_BALANCE_ALREADY_EXISTS: { code: "CONFLICT", message: "تم تسجيل رصيد افتتاحي لهذا الصنف في المخزن؛ استخدم تسوية جرد موثقة بدل تكراره." },
     STOCK_UNIT_COST_REQUIRED: { code: "BAD_REQUEST", message: "أدخل تكلفة الوحدة عند إضافة كمية لصنف بلا رصيد سابق." },
     STOCK_ITEM_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "الصنف غير نشط أو لا ينتمي إلى هذه الشركة." },
     STOCK_WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن غير نشط أو لا يتبع هذا الفرع." },
@@ -186,7 +187,7 @@ export const powerhubInventoryRouter = router({
       siteId: z.number().int().positive(),
       warehouseId: z.number().int().positive(),
       itemId: z.number().int().positive(),
-      movementType: z.enum(["issue", "adjustment_in", "adjustment_out", "fuel_consumption"]),
+      movementType: z.enum(["issue", "opening_balance", "adjustment_in", "adjustment_out", "fuel_consumption"]),
       quantity: z.number().finite().positive().max(1_000_000_000)
         .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7, "الكمية تقبل ثلاث منازل عشرية كحد أقصى."),
       unitCost: z.number().finite().min(0).max(1_000_000_000)
@@ -197,13 +198,13 @@ export const powerhubInventoryRouter = router({
       notes: z.string().trim().max(2000).optional(),
       operationKey: z.string().trim().min(1).max(180),
     }).refine((value) =>
-      (value.movementType === "adjustment_in" || value.unitCost === undefined),
+      (["adjustment_in", "opening_balance"].includes(value.movementType) || value.unitCost === undefined),
       { message: "تكلفة الوحدة المدخلة تستخدم فقط عند تسوية زيادة المخزون.", path: ["unitCost"] }
     ).refine((value) =>
       (value.movementType !== "fuel_consumption" || value.generatorId !== undefined),
       { message: "اختر المولد المرتبط باستهلاك الوقود.", path: ["generatorId"] }
     ).refine((value) =>
-      (!["adjustment_in", "adjustment_out"].includes(value.movementType) || Boolean(value.notes?.trim())),
+      (!["opening_balance", "adjustment_in", "adjustment_out"].includes(value.movementType) || Boolean(value.notes?.trim())),
       { message: "أدخل سبب تسوية الجرد.", path: ["notes"] }
     ))
     .mutation(async ({ ctx, input }) => {
@@ -683,7 +684,7 @@ export const powerhubInventoryRouter = router({
       companyAccountId: z.number().int().positive(),
       amount: z.number().finite().positive().max(1_000_000_000)
         .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7, "يجب ألا يزيد مبلغ الدفعة عن منزلتين عشريتين."),
-      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       referenceNo: z.string().trim().max(120).optional(),
       notes: z.string().trim().max(2000).optional(),
       operationKey: z.string().trim().min(1).max(180),
