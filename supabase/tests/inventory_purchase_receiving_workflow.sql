@@ -284,6 +284,13 @@ select 'inventory supplier foundation PostgreSQL integration passed' as result;
 
 -- Workflow assertions are appended after the foundation integration fixture and migrations.
 
+insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
+values (10,'PUR-WF-ITEM-01','Workflow diesel','fuel','liter',0,1);
+insert into public.inventory_warehouses(tenant_id,site_id,code,name,created_by_user_id)
+values (10,100,'PUR-WF-MAIN','Workflow warehouse',1);
+insert into public.suppliers(tenant_id,supplier_code,name,default_payment_terms_days,created_by_user_id)
+values (10,'PUR-WF-SUP','Workflow supplier',30,1);
+
 create function public.fail_purchase_receipt_audit_for_test()
 returns trigger language plpgsql as $trigger$
 begin
@@ -321,9 +328,9 @@ declare
   v_supplier_ledger integer;
   v_audit_count integer;
 begin
-  select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='SUP-01';
-  select id into v_warehouse_id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='MAIN';
-  select id into v_item_id from public.inventory_items where tenant_id=10 and sku='DSL-01';
+  select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='PUR-WF-SUP';
+  select id into v_warehouse_id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='PUR-WF-MAIN';
+  select id into v_item_id from public.inventory_items where tenant_id=10 and sku='PUR-WF-ITEM-01';
   if v_supplier_id is null or v_warehouse_id is null or v_item_id is null then
     raise exception 'PURCHASE_WORKFLOW_FIXTURE_LOOKUP_FAILED supplier=% warehouse=% item=%',v_supplier_id,v_warehouse_id,v_item_id;
   end if;
