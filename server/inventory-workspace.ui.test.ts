@@ -77,6 +77,11 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("trpc.powerhub.inventory.stockOverview.useQuery");
     expect(panel).toContain("trpc.powerhub.inventory.listStockMovements.useQuery");
     expect(panel).toContain("trpc.powerhub.inventory.recordStockMovement.useMutation");
+    expect(panel).toContain("trpc.powerhub.inventory.correctStockMovement.useMutation");
+    expect(panel).toContain("سبب التعديل");
+    expect(panel).toContain("reversal_of_movement_id");
+    expect(router).toContain("powerhub_inventory_correct_stock_movement");
+    expect(router).toContain('"adjustInventory"');
     expect(panel).toContain("fuel_consumption");
     expect(router).toContain("powerhub_inventory_stock_overview");
     expect(router).toContain("powerhub_inventory_list_stock_movements");

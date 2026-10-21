@@ -156,6 +156,8 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021134343_powerhub_supplier_returns_integrated.sql
 \ir ../migrations/20261021140313_powerhub_supplier_return_refund_precision_guard.sql
 \ir ../migrations/20261021141600_powerhub_supplier_return_fk_indexes.sql
+\ir ../migrations/20261021170000_powerhub_inventory_receipt_cost_reconciliation.sql
+\ir ../migrations/20261021171000_powerhub_inventory_movement_correction.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -736,14 +738,118 @@ reset role;
 drop trigger fail_purchase_receipt_audit_for_test on public.audit_logs;
 drop function public.fail_purchase_receipt_audit_for_test();
 
+-- Batch 2: cumulative cent allocation must make partial receipt costs equal the invoice line total.
+set role service_role;
+do $receipt_cost_allocation_assertions$
+declare
+  v_supplier_id bigint;
+  v_warehouse_id bigint;
+  v_item_id bigint;
+  v_purchase_id bigint;
+  v_purchase_line_id bigint;
+  v_purchase_status text;
+  v_replayed boolean;
+  v_receipt_id bigint;
+  v_movement_cost numeric(14,2);
+  v_total_cost numeric(14,2);
+  v_line_total numeric(14,2);
+  v_receipt_count integer;
+begin
+  select id into v_supplier_id from public.suppliers
+    where tenant_id=10 and supplier_code='PUR-WF-SUP';
+  select id into v_warehouse_id from public.inventory_warehouses
+    where tenant_id=10 and site_id=100 and code='PUR-WF-MAIN';
+  select id into v_item_id from public.inventory_items
+    where tenant_id=10 and sku='PUR-WF-ITEM-01';
+  if v_supplier_id is null or v_warehouse_id is null or v_item_id is null then
+    raise exception 'RECEIPT_COST_FIXTURE_LOOKUP_FAILED';
+  end if;
+
+  select purchase_id,total_amount,replayed
+  into v_purchase_id,v_line_total,v_replayed
+  from public.powerhub_inventory_create_purchase(
+    10,100,1,v_supplier_id,v_warehouse_id,'INV-COST-ROUNDING-001',current_date,null,30,
+    'COST-ROUNDING-REF',null,'purchase-workflow:cost-rounding:create',
+    jsonb_build_array(jsonb_build_object(
+      'item_id',v_item_id,'quantity',3,'unit','liter','units_to_base_factor',1,
+      'unit_price',3.3,'discount_amount',0.01,'tax_amount',0
+    ))
+  );
+  if v_purchase_id is null or v_replayed or v_line_total<>9.89 then
+    raise exception 'RECEIPT_COST_FIXTURE_CREATE_FAILED purchase=% total=% replayed=%',
+      v_purchase_id,v_line_total,v_replayed;
+  end if;
+  select id into v_purchase_line_id from public.supplier_purchase_lines
+    where tenant_id=10 and purchase_id=v_purchase_id;
+  if v_purchase_line_id is null then raise exception 'RECEIPT_COST_FIXTURE_LINE_MISSING'; end if;
+
+  perform * from public.powerhub_inventory_confirm_purchase(10,100,1,v_purchase_id);
+
+  select receipt_id,purchase_status,replayed into v_receipt_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_receive_purchase(
+    10,100,1,v_purchase_id,current_date,'purchase-workflow:cost-rounding:receipt-1','first cent allocation',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1))
+  );
+  select total_cost_amount into v_movement_cost from public.inventory_stock_movements
+    where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt';
+  if v_movement_cost<>3.30 or v_purchase_status<>'partially_received' or v_replayed then
+    raise exception 'FIRST_RECEIPT_COST_ALLOCATION_FAILED cost=% status=% replayed=%',
+      v_movement_cost,v_purchase_status,v_replayed;
+  end if;
+
+  select receipt_id,purchase_status,replayed into v_receipt_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_receive_purchase(
+    10,100,1,v_purchase_id,current_date,'purchase-workflow:cost-rounding:receipt-2','second cent allocation',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1))
+  );
+  select total_cost_amount into v_movement_cost from public.inventory_stock_movements
+    where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt'
+    order by id desc limit 1;
+  if v_movement_cost<>3.29 or v_purchase_status<>'partially_received' or v_replayed then
+    raise exception 'SECOND_RECEIPT_COST_ALLOCATION_FAILED cost=% status=% replayed=%',
+      v_movement_cost,v_purchase_status,v_replayed;
+  end if;
+
+  select receipt_id,purchase_status,replayed into v_receipt_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_receive_purchase(
+    10,100,1,v_purchase_id,current_date,'purchase-workflow:cost-rounding:receipt-3','final cent allocation',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1))
+  );
+  select coalesce(sum(total_cost_amount),0)::numeric(14,2),count(*)::integer
+  into v_total_cost,v_receipt_count
+  from public.inventory_stock_movements
+  where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt';
+  if v_total_cost<>v_line_total or v_receipt_count<>3 or v_purchase_status<>'received' or v_replayed then
+    raise exception 'FINAL_RECEIPT_COST_NOT_RECONCILED expected=% actual=% movements=% status=% replayed=%',
+      v_line_total,v_total_cost,v_receipt_count,v_purchase_status,v_replayed;
+  end if;
+
+  select receipt_id,purchase_status,replayed into v_receipt_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_receive_purchase(
+    10,100,1,v_purchase_id,current_date,'purchase-workflow:cost-rounding:receipt-3','final cent allocation',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1))
+  );
+  select count(*) into v_receipt_count from public.inventory_stock_movements
+    where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt';
+  if not v_replayed or v_receipt_count<>3 then
+    raise exception 'RECEIPT_COST_REPLAY_CREATED_DUPLICATE_MOVEMENT';
+  end if;
+
+  if has_column_privilege('authenticated','public.inventory_stock_movements','total_cost_amount','INSERT') then
+    raise exception 'AUTHENTICATED_CAN_INSERT_INVENTORY_STOCK_MOVEMENT_COST';
+  end if;
+end;
+$receipt_cost_allocation_assertions$;
+reset role;
+
 set role authenticated;
 do $purchase_rls_assertions$
 declare v_receipts integer; v_lines integer; v_cross_tenant integer; v_payments integer; v_allocations integer;
 begin
   select count(*) into v_receipts from public.supplier_purchase_receipts;
-  if v_receipts<>2 then raise exception 'RECEIPT_RLS_FAILED expected=2 visible=%',v_receipts; end if;
+  if v_receipts<>5 then raise exception 'RECEIPT_RLS_FAILED expected=5 visible=%',v_receipts; end if;
   select count(*) into v_lines from public.supplier_purchase_receipt_lines;
-  if v_lines<>4 then raise exception 'RECEIPT_LINE_RLS_FAILED expected=4 visible=%',v_lines; end if;
+  if v_lines<>7 then raise exception 'RECEIPT_LINE_RLS_FAILED expected=7 visible=%',v_lines; end if;
   select count(*) into v_cross_tenant from public.supplier_purchase_receipts where tenant_id=20;
   if v_cross_tenant<>0 then raise exception 'CROSS_TENANT_RECEIPT_LEAK'; end if;
   select count(*) into v_payments from public.supplier_payments where tenant_id=10;
@@ -1661,6 +1767,93 @@ begin
   end if;
 end;
 $supplier_return_assertions$;
+reset role;
+
+insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
+values (10,'EDIT-01','Movement correction fixture','other','piece',0,1);
+set role service_role;
+do $stock_movement_correction_assertions$
+declare
+ v_item bigint; v_wh bigint; v_old bigint; v_latest bigint; v_rev bigint; v_new bigint;
+ v_original bigint; v_rev_out bigint; v_new_out bigint; v_qty numeric(14,3); v_cost numeric(14,2);
+ v_onhand numeric(14,3); v_value numeric(14,2); v_bqty numeric(14,3); v_bval numeric(14,2);
+ v_count integer; v_count_after integer; v_replayed boolean; v_can_edit boolean;
+begin
+ select id into v_item from public.inventory_items where tenant_id=10 and sku='EDIT-01';
+ select id into v_wh from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='PUR-WF-MAIN';
+ if v_item is null or v_wh is null then raise exception 'STOCK_CORRECTION_FIXTURE_LOOKUP_FAILED'; end if;
+ select movement_id into v_old from public.powerhub_inventory_record_stock_movement(
+  10,100,2,v_wh,v_item,'adjustment_in',4,3.3,null,'EDIT-OLDER','older movement','stock-correction:seed:older');
+ select movement_id into v_latest from public.powerhub_inventory_record_stock_movement(
+  10,100,2,v_wh,v_item,'adjustment_in',1,3.3,null,'EDIT-LATEST','latest movement','stock-correction:seed:latest');
+ select can_edit into v_can_edit from public.powerhub_inventory_list_stock_movements(10,100,500) where movement_id=v_old;
+ if coalesce(v_can_edit,false) then raise exception 'OLDER_STOCK_MOVEMENT_WRONGLY_MARKED_EDITABLE'; end if;
+ select can_edit into v_can_edit from public.powerhub_inventory_list_stock_movements(10,100,500) where movement_id=v_latest;
+ if not coalesce(v_can_edit,false) then raise exception 'LATEST_STOCK_MOVEMENT_NOT_MARKED_EDITABLE'; end if;
+ begin
+  perform * from public.powerhub_inventory_correct_stock_movement(10,100,2,v_old,3,3.3,'OLD','invalid','older movement test','stock-correction:older');
+  raise exception 'OLDER_STOCK_MOVEMENT_CORRECTION_ACCEPTED';
+ exception when others then
+  if sqlerrm='OLDER_STOCK_MOVEMENT_CORRECTION_ACCEPTED' then raise; end if;
+  if sqlerrm not like '%STOCK_MOVEMENT_NOT_LATEST%' then raise; end if;
+ end;
+ select coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then quantity else -quantity end),0)::numeric(14,3),
+        coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then total_cost_amount else -total_cost_amount end),0)::numeric(14,2),
+        count(*)::integer
+ into v_bqty,v_bval,v_count from public.inventory_stock_movements
+ where tenant_id=10 and site_id=100 and warehouse_id=v_wh and item_id=v_item;
+ select original_movement_id,reversal_movement_id,replacement_movement_id,quantity,total_cost_amount,on_hand_quantity,stock_value,replayed
+ into v_original,v_rev,v_new,v_qty,v_cost,v_onhand,v_value,v_replayed
+ from public.powerhub_inventory_correct_stock_movement(10,100,2,v_latest,2,3.3,'EDIT-FIXED','corrected description','Correct quantity after recount','stock-correction:request-001');
+ if v_original<>v_latest or v_rev is null or v_new is null or v_qty<>2 or v_cost<>6.60 or v_replayed
+    or v_onhand<>v_bqty+1 or v_value<>v_bval+3.30 then raise exception 'STOCK_MOVEMENT_CORRECTION_POST_FAILED'; end if;
+ select count(*) into v_count_after from public.inventory_stock_movements where tenant_id=10 and site_id=100 and warehouse_id=v_wh and item_id=v_item;
+ if v_count_after<>v_count+2 then raise exception 'STOCK_MOVEMENT_CORRECTION_ROW_COUNT_WRONG'; end if;
+ select can_edit into v_can_edit from public.powerhub_inventory_list_stock_movements(10,100,500) where movement_id=v_new;
+ if coalesce(v_can_edit,false) then raise exception 'CORRECTED_REPLACEMENT_WRONGLY_MARKED_EDITABLE'; end if;
+ begin
+  perform * from public.powerhub_inventory_correct_stock_movement(10,100,2,v_new,2.2,3.3,'EDIT-AGAIN','second edit','second correction blocked by policy','stock-correction:second-edit');
+  raise exception 'CORRECTED_REPLACEMENT_EDIT_WAS_ACCEPTED';
+ exception when others then
+  if sqlerrm='CORRECTED_REPLACEMENT_EDIT_WAS_ACCEPTED' then raise; end if;
+  if sqlerrm not like '%STOCK_MOVEMENT_NOT_EDITABLE%' then raise; end if;
+ end;
+ select original_movement_id,reversal_movement_id,replacement_movement_id,replayed into v_original,v_rev_out,v_new_out,v_replayed
+ from public.powerhub_inventory_correct_stock_movement(10,100,2,v_latest,2,3.3,'EDIT-FIXED','corrected description','Correct quantity after recount','stock-correction:request-001');
+ if not v_replayed or v_original<>v_latest or v_rev_out<>v_rev or v_new_out<>v_new then raise exception 'STOCK_MOVEMENT_CORRECTION_REPLAY_FAILED'; end if;
+ select count(*) into v_count_after from public.inventory_stock_movements where tenant_id=10 and site_id=100 and warehouse_id=v_wh and item_id=v_item;
+ if v_count_after<>v_count+2 then raise exception 'STOCK_MOVEMENT_CORRECTION_REPLAY_DUPLICATED_ROWS'; end if;
+ begin
+  perform * from public.powerhub_inventory_correct_stock_movement(10,100,2,v_latest,2.5,3.3,'EDIT-FIXED','corrected description','Correct quantity after recount','stock-correction:request-001');
+  raise exception 'STOCK_CORRECTION_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+ exception when others then
+  if sqlerrm='STOCK_CORRECTION_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+  if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+ end;
+ begin
+  update public.inventory_stock_movements set notes='attempted edit' where tenant_id=10 and id=v_latest;
+  raise exception 'STOCK_MOVEMENT_DIRECT_UPDATE_WAS_ACCEPTED';
+ exception when others then
+  if sqlerrm='STOCK_MOVEMENT_DIRECT_UPDATE_WAS_ACCEPTED' then raise; end if;
+  if sqlerrm not like '%INVENTORY_STOCK_MOVEMENT_IMMUTABLE%' then raise; end if;
+ end;
+ begin
+  delete from public.inventory_stock_movements where tenant_id=10 and id=v_latest;
+  raise exception 'STOCK_MOVEMENT_DIRECT_DELETE_WAS_ACCEPTED';
+ exception when others then
+  if sqlerrm='STOCK_MOVEMENT_DIRECT_DELETE_WAS_ACCEPTED' then raise; end if;
+  if sqlerrm not like '%INVENTORY_STOCK_MOVEMENT_IMMUTABLE%' then raise; end if;
+ end;
+ if not exists(select 1 from public.inventory_stock_movements where tenant_id=10 and id=v_latest and quantity=1 and total_cost_amount=3.30)
+ or not exists(select 1 from public.inventory_stock_movements where tenant_id=10 and id=v_rev and reversal_of_movement_id=v_latest and movement_type='adjustment_out' and total_cost_amount=3.30)
+ or not exists(select 1 from public.inventory_stock_movements where tenant_id=10 and id=v_new and corrects_movement_id=v_latest and correction_reason='Correct quantity after recount' and quantity=2 and total_cost_amount=6.60)
+ then raise exception 'STOCK_MOVEMENT_CORRECTION_AUDIT_LINKS_INVALID'; end if;
+ if not has_function_privilege('service_role','public.powerhub_inventory_correct_stock_movement(bigint,bigint,bigint,bigint,numeric,numeric,text,text,text,text)','EXECUTE')
+ or has_function_privilege('authenticated','public.powerhub_inventory_correct_stock_movement(bigint,bigint,bigint,bigint,numeric,numeric,text,text,text,text)','EXECUTE')
+ or has_function_privilege('anon','public.powerhub_inventory_correct_stock_movement(bigint,bigint,bigint,bigint,numeric,numeric,text,text,text,text)','EXECUTE')
+ then raise exception 'STOCK_MOVEMENT_CORRECTION_RPC_GRANTS_INVALID'; end if;
+end;
+$stock_movement_correction_assertions$;
 reset role;
 drop trigger if exists powerhub_test_supplier_return_audit_failure on public.audit_logs;
 drop function if exists public.powerhub_test_supplier_return_audit_failure();
