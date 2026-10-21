@@ -84,7 +84,13 @@ begin
 
     select p.* into v_purchase
     from public.supplier_purchases as p
-    where p.tenant_id=p_tenant_id and p.site_id=p_site_id and p.id=v_payment.purchase_id;
+    where p.tenant_id=p_tenant_id and p.site_id=p_site_id and p.id=p_purchase_id
+      and exists (
+        select 1 from public.supplier_payment_allocations as existing_allocation
+        where existing_allocation.tenant_id=p_tenant_id
+          and existing_allocation.payment_id=v_payment.id
+          and existing_allocation.purchase_id=p.id
+      );
     if not found then raise exception 'PURCHASE_NOT_FOUND' using errcode='P0001'; end if;
 
     select ca.* into v_account
