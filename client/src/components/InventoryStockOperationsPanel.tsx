@@ -209,8 +209,8 @@ export default function InventoryStockOperationsPanel({
     if (cost !== undefined && (!Number.isFinite(cost) || cost < 0 || Math.abs(cost * 10000 - Math.round(cost * 10000)) > 1e-7)) {
       toast.error("أدخل تكلفة وحدة صحيحة حتى أربع منازل عشرية."); return;
     }
-    if (["adjustment_in", "adjustment_out"].includes(movementType) && !notes.trim()) {
-      toast.error("أدخل سبب تسوية الجرد."); return;
+    if (["opening_balance", "adjustment_in", "adjustment_out"].includes(movementType) && !notes.trim()) {
+      toast.error("أدخل سبب الحركة المخزنية."); return;
     }
     if (movementType === "opening_balance" && cost === undefined) {
       toast.error("أدخل تكلفة الوحدة للرصيد الافتتاحي."); return;
