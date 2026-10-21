@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ArrowLeftRight, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeftRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,9 +33,16 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
   }, [items.data, itemId]);
   useEffect(() => {
     const rows = warehouses.data ?? [];
-    if (!rows.some((warehouse) => String(warehouse.id) === sourceWarehouseId) && rows[0]) setSourceWarehouseId(String(rows[0].id));
-    if (!rows.some((warehouse) => String(warehouse.id) === destinationWarehouseId) && rows.length > 1) {
-      setDestinationWarehouseId(String(rows.find((warehouse) => String(warehouse.id) !== sourceWarehouseId)?.id ?? rows[1].id));
+    const sourceExists = rows.some((warehouse) => String(warehouse.id) === sourceWarehouseId);
+    const effectiveSourceId = sourceExists ? sourceWarehouseId : String(rows[0]?.id ?? "");
+    if (effectiveSourceId && effectiveSourceId !== sourceWarehouseId) setSourceWarehouseId(effectiveSourceId);
+
+    const destinationExists = rows.some((warehouse) => String(warehouse.id) === destinationWarehouseId);
+    const destinationConflictsWithSource = destinationWarehouseId === effectiveSourceId;
+    if ((!destinationExists || destinationConflictsWithSource) && effectiveSourceId) {
+      const nextDestination = rows.find((warehouse) => String(warehouse.id) !== effectiveSourceId);
+      if (nextDestination) setDestinationWarehouseId(String(nextDestination.id));
+      else if (destinationWarehouseId) setDestinationWarehouseId("");
     }
   }, [warehouses.data, sourceWarehouseId, destinationWarehouseId]);
 
