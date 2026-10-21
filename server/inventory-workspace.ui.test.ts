@@ -94,7 +94,7 @@ describe("inventory workspace UI contract", () => {
     const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
     const router = read("server/powerhub-inventory-router.ts");
     const migration = read("supabase/migrations/20261021134343_powerhub_supplier_returns_integrated.sql");
-    const precisionGuardMigration = read("supabase/migrations/20261021140000_powerhub_supplier_return_refund_precision_guard.sql");
+    const precisionGuardMigration = read("supabase/migrations/20261021140313_powerhub_supplier_return_refund_precision_guard.sql");
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     expect(panel).toContain("trpc.powerhub.inventory.returnToSupplier.useMutation");
     expect(panel).toContain("سجل مرتجعات المورد");
