@@ -15,9 +15,9 @@ item_id="$("${psql_base[@]}" --command "select id from public.inventory_items wh
 
 # Race two independent sessions to issue 7 units each from a stock of 10.
 # Exactly one must commit; the loser must be rejected after the stock lock is acquired.
-PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,1,${item_id},'issue',7,null,null,'CONC-RACE-A',null,'inventory-concurrency:race-a')" >/tmp/inventory-race-a.log 2>&1 &
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,1,${item_id},'issue',7,null,null,'CONC-RACE-A',null,'inventory-concurrency:race-a')" >/tmp/inventory-race-a.log 2>&1 &
 pid_a=$!
-PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,1,${item_id},'issue',7,null,null,'CONC-RACE-B',null,'inventory-concurrency:race-b')" >/tmp/inventory-race-b.log 2>&1 &
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,1,${item_id},'issue',7,null,null,'CONC-RACE-B',null,'inventory-concurrency:race-b')" >/tmp/inventory-race-b.log 2>&1 &
 pid_b=$!
 set +e
 wait "$pid_a"; rc_a=$?
@@ -35,9 +35,9 @@ if ! grep -q 'INSUFFICIENT_STOCK' /tmp/inventory-race-a.log /tmp/inventory-race-
 fi
 
 # Two sessions with the same operation key and identical payload must return the same row.
-PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id || ':' || replayed from public.powerhub_inventory_record_stock_movement(10,100,1,1,${item_id},'issue',1,null,null,'CONC-IDEM',null,'inventory-concurrency:idempotent')" >/tmp/inventory-idem-a.log 2>&1 &
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select movement_id::text || ':' || replayed::text from public.powerhub_inventory_record_stock_movement(10,100,1,1,${item_id},'issue',1,null,null,'CONC-IDEM',null,'inventory-concurrency:idempotent')" >/tmp/inventory-idem-a.log 2>&1 &
 pid_a=$!
-PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id || ':' || replayed from public.powerhub_inventory_record_stock_movement(10,100,1,1,${item_id},'issue',1,null,null,'CONC-IDEM',null,'inventory-concurrency:idempotent')" >/tmp/inventory-idem-b.log 2>&1 &
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select movement_id::text || ':' || replayed::text from public.powerhub_inventory_record_stock_movement(10,100,1,1,${item_id},'issue',1,null,null,'CONC-IDEM',null,'inventory-concurrency:idempotent')" >/tmp/inventory-idem-b.log 2>&1 &
 pid_b=$!
 wait "$pid_a"
 wait "$pid_b"
