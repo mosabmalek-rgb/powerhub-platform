@@ -21,6 +21,7 @@ export async function saveRolePolicy(input: {
     | "viewAudit"
     | "viewInventory"
     | "viewSuppliers"
+    | "viewPurchases"
     | "manageInventoryItems"
     | "manageSuppliers"
     | "createPurchases"

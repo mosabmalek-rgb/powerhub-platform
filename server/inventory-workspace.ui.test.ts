@@ -18,6 +18,8 @@ describe("inventory workspace UI contract", () => {
     expect(runtimeRouter).toContain("inventory: powerhubInventoryRouter");
     expect(runtimeRouter).toContain("}) as unknown as typeof powerhubRouter;");
     expect(canonicalRouter).toContain("inventory: powerhubInventoryRouter");
+    expect(read("client/src/pages/InventoryWorkspacePage.tsx")).toContain("InventoryPurchasesPanel");
+    expect(menu).toContain("المخزون والمشتريات والصيانة");
   });
 
   it("keeps the unified workspace tabs horizontal and does not treat item definition as stock receipt", () => {
@@ -35,4 +37,25 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain("trpc.powerhub.inventory.createSupplier.useMutation");
     expect(page).toContain("trpc.powerhub.inventory.createWarehouse.useMutation");
   });
+
+  it("wires purchase draft, approval and receipt UI to guarded purchase procedures", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    expect(workspace).toContain('canReadPurchases ? <TabsTrigger value="purchases"');
+    expect(workspace).toContain("canCreatePurchases={canCreatePurchases}");
+    expect(panel).toContain("trpc.powerhub.inventory.listPurchases.useQuery");
+    expect(panel).toContain("trpc.powerhub.inventory.createPurchase.useMutation");
+    expect(panel).toContain("trpc.powerhub.inventory.confirmPurchase.useMutation");
+    expect(panel).toContain("trpc.powerhub.inventory.receivePurchase.useMutation");
+    expect(panel).toContain("لا تُضاف كميات إلى المخزون حتى تسجيل الاستلام");
+    expect(panel).toContain("canViewFinancials");
+    expect(router).toContain("requirePurchaseReadAccess");
+    expect(router).toContain("resolveSupabaseSiteAccess(userId, siteId)");
+    expect(router).toContain('"viewPurchases"');
+    expect(router).toContain('"createPurchases"');
+    expect(router).toContain('"approvePurchases"');
+    expect(router).toContain('"receiveInventory"');
+  });
+
 });
