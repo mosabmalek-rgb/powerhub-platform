@@ -2355,6 +2355,33 @@ end;
 $movement_report_paging_assertions$;
 reset role;
 
+-- Seed a dedicated item with a known quantity/value for true multi-session CI concurrency tests.
+insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
+values (10,'CONC-ITEM-01','Concurrency test item','other','piece',0,1);
+
+do $inventory_concurrency_fixture$
+declare
+  v_item_id bigint;
+  v_movement_id bigint;
+  v_cost numeric(14,2);
+begin
+  select id into strict v_item_id
+  from public.inventory_items
+  where tenant_id=10 and sku='CONC-ITEM-01';
+
+  select movement_id,total_cost_amount
+  into v_movement_id,v_cost
+  from public.powerhub_inventory_record_stock_movement(
+    10,100,1,1,v_item_id,'opening_balance',10,3.33,null,
+    'CONC-OPEN-01','dedicated concurrent CI test fixture',
+    'inventory-concurrency:opening-01'
+  );
+  if v_movement_id is null or v_cost<>33.30 then
+    raise exception 'INVENTORY_CONCURRENCY_FIXTURE_FAILED movement=% cost=%',v_movement_id,v_cost;
+  end if;
+end;
+$inventory_concurrency_fixture$;
+
 select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
 
