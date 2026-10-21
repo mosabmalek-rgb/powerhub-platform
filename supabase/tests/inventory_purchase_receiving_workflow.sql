@@ -13,6 +13,8 @@ do $roles$
 begin create role service_role nologin bypassrls; exception when duplicate_object then null; end
 $roles$;
 
+alter role service_role bypassrls;
+
 create schema powerhub_private;
 create function powerhub_private.current_tenant_ids()
 returns bigint[] language sql stable security definer set search_path=public,powerhub_private
