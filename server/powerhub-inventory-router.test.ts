@@ -319,4 +319,30 @@ describe("PowerHub inventory catalog and supplier API", () => {
   });
 
 
+  it("requires viewSupplierLedger and scopes the statement RPC to the authorized tenant and branch", async () => {
+    state.access.mockReset().mockRejectedValueOnce(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.supplierLedgerStatement;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 91 } }, input: { siteId: 7, supplierId: 4, limit: 200 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(91, 7, expect.any(Array), "viewSupplierLedger");
+    expect(state.rpc).not.toHaveBeenCalled();
+
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: {
+      supplier: { id: 4, name: "Supplier A", supplier_code: "SUP-4" },
+      site_id: 7, balance: "55.00", entry_count: 2, entries: [],
+    }, error: null });
+    const result = await query._def.resolver({
+      ctx: { user: { id: 91 } }, input: { siteId: 7, supplierId: 4, limit: 200 },
+    });
+    expect(result).toMatchObject({ supplier: { id: 4 }, site_id: 7, balance: "55.00" });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_supplier_ledger_statement", {
+      p_tenant_id: 44, p_site_id: 7, p_supplier_id: 4, p_limit: 200,
+    });
+  });
+
+
 });
