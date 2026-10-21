@@ -283,6 +283,7 @@ as $$
     ),
     m.source_issue_movement_id,
     case when m.movement_type='issue'
+      and m.reversal_of_movement_id is null and m.corrects_movement_id is null
       and not exists(select 1 from public.inventory_stock_movements c
         where c.tenant_id=m.tenant_id and (c.reversal_of_movement_id=m.id or c.corrects_movement_id=m.id))
       then greatest(
@@ -388,10 +389,12 @@ begin
   where m.tenant_id=p_tenant_id and m.site_id=p_site_id and m.id=p_source_issue_movement_id
   for update;
   if not found or v_source.movement_type<>'issue' or v_source.purchase_id is not null
-    or v_source.purchase_line_id is not null or v_source.reversal_of_movement_id is not null then
+    or v_source.purchase_line_id is not null or v_source.reversal_of_movement_id is not null
+    or v_source.corrects_movement_id is not null then
     raise exception 'STOCK_MOVEMENT_NOT_RETURNABLE' using errcode='P0001';
   end if;
   if v_source.quantity<=0 or v_source.total_cost_amount<0
+    or v_source.corrects_movement_id is not null
     or exists(select 1 from public.inventory_stock_movements c
       where c.tenant_id=p_tenant_id and c.reversal_of_movement_id=v_source.id)
     or exists(select 1 from public.inventory_stock_movements c

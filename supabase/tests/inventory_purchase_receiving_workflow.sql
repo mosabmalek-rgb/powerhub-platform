@@ -1861,7 +1861,8 @@ reset role;
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values
  (10,'ISSUE-RETURN-01','Issue return cost fixture','other','piece',0,1),
- (10,'ISSUE-RETURN-FUEL-01','Fuel depletion cost fixture','fuel','liter',0,1);
+ (10,'ISSUE-RETURN-FUEL-01','Fuel depletion cost fixture','fuel','liter',0,1),
+ (10,'ISSUE-RETURN-CORRECTED-01','Corrected issue cannot be returned','other','piece',0,1);
 set role service_role;
 do $issue_return_cost_assertions$
 declare
@@ -1869,6 +1870,9 @@ declare
  v_return1 bigint; v_return2 bigint; v_out_id bigint; v_out_source bigint;
  v_fuel_item bigint; v_fuel_open bigint; v_fuel_consume_1 bigint; v_fuel_consume_2 bigint;
  v_fuel_total numeric(14,2); v_lock_id bigint;
+ v_corrected_item bigint; v_corrected_open bigint; v_corrected_issue bigint; v_corrected_reversal bigint; v_corrected_replacement bigint;
+ v_corrected_qty numeric(14,3); v_corrected_cost numeric(14,2); v_corrected_replayed boolean; v_returnable numeric(14,3);
+ v_ledger_before integer; v_ledger_after integer; v_account_before integer; v_account_after integer;
  v_qty numeric(14,3); v_unit numeric(14,4); v_total numeric(14,2);
  v_on_hand numeric(14,3); v_value numeric(14,2); v_replayed boolean;
  v_total_issued numeric(14,2); v_total_returned numeric(14,2); v_returned_qty numeric(14,3);
@@ -1876,8 +1880,11 @@ declare
 begin
  select id into v_item from public.inventory_items where tenant_id=10 and sku='ISSUE-RETURN-01';
  select id into v_fuel_item from public.inventory_items where tenant_id=10 and sku='ISSUE-RETURN-FUEL-01';
+ select id into v_corrected_item from public.inventory_items where tenant_id=10 and sku='ISSUE-RETURN-CORRECTED-01';
  select id into v_wh from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='PUR-WF-MAIN';
- if v_item is null or v_fuel_item is null or v_wh is null then raise exception 'ISSUE_RETURN_FIXTURE_LOOKUP_FAILED'; end if;
+ if v_item is null or v_fuel_item is null or v_corrected_item is null or v_wh is null then raise exception 'ISSUE_RETURN_FIXTURE_LOOKUP_FAILED'; end if;
+ select count(*) into v_ledger_before from public.supplier_ledger_entries where tenant_id=10;
+ select count(*) into v_account_before from public.account_transactions where tenant_id=10;
 
  select movement_id,total_cost_amount into v_open,v_total
  from public.powerhub_inventory_record_stock_movement(
@@ -1952,6 +1959,43 @@ begin
  if v_count_after<>2 then raise exception 'ISSUE_RETURN_REPLAY_DUPLICATED_MOVEMENT'; end if;
 
 
+
+ -- A replacement issue created by a correction is not a return source: it belongs to a correction chain.
+ select movement_id into v_corrected_open
+ from public.powerhub_inventory_record_stock_movement(
+  10,100,2,v_wh,v_corrected_item,'opening_balance',2,3,null,'CORRECTED-ISSUE-OPEN',
+  'opening stock for correction-chain test','issue-return:corrected-open'
+ );
+ select movement_id into v_corrected_issue
+ from public.powerhub_inventory_record_stock_movement(
+  10,100,2,v_wh,v_corrected_item,'issue',1,null,null,'CORRECTED-ISSUE-ORIGINAL',
+  'issue that is then corrected','issue-return:corrected-issue'
+ );
+ select original_movement_id,reversal_movement_id,replacement_movement_id,quantity,total_cost_amount,replayed
+ into v_corrected_open,v_corrected_reversal,v_corrected_replacement,v_corrected_qty,v_corrected_cost,v_corrected_replayed
+ from public.powerhub_inventory_correct_stock_movement(
+  10,100,2,v_corrected_issue,0.5,null,'CORRECTED-ISSUE-REPLACEMENT','corrected issued quantity',
+  'recounted issued stock','issue-return:corrected-issue-correction'
+ );
+ if v_corrected_replayed or v_corrected_replacement is null or v_corrected_reversal is null
+   or not exists(select 1 from public.inventory_stock_movements where tenant_id=10
+      and id=v_corrected_replacement and movement_type='issue' and corrects_movement_id=v_corrected_issue) then
+   raise exception 'CORRECTED_ISSUE_FIXTURE_FAILED';
+ end if;
+ select returnable_quantity into v_returnable
+ from public.powerhub_inventory_list_stock_movements(10,100,500) where movement_id=v_corrected_replacement;
+ if coalesce(v_returnable,0)<>0 then raise exception 'CORRECTED_ISSUE_REPORTED_RETURNABLE_QUANTITY'; end if;
+ begin
+  perform * from public.powerhub_inventory_return_from_issue(
+   10,100,2,v_corrected_replacement,0.25,'corrected issue return attempt',
+   'CORRECTED-ISSUE-RET','must be rejected','issue-return:corrected-issue-return'
+  );
+  raise exception 'CORRECTED_ISSUE_WAS_RETURNABLE';
+ exception when others then
+  if sqlerrm='CORRECTED_ISSUE_WAS_RETURNABLE' then raise; end if;
+  if sqlerrm not like '%STOCK_MOVEMENT_NOT_RETURNABLE%' then raise; end if;
+ end;
+
  -- Reusing a successful idempotency key with a different payload must not return or post another result.
  begin
   perform * from public.powerhub_inventory_return_from_issue(
@@ -2024,6 +2068,14 @@ begin
  from public.inventory_stock_movements where tenant_id=10 and site_id=100 and warehouse_id=v_wh and item_id=v_fuel_item
    and movement_type='fuel_consumption';
  if v_fuel_total<>5.01 then raise exception 'TOTAL_FUEL_COST_NOT_RECONCILED_EXPECTED_5_01_GOT_%',v_fuel_total; end if;
+
+ -- Stock consumption/returns/corrections must not create supplier-ledger or company-account postings.
+ select count(*) into v_ledger_after from public.supplier_ledger_entries where tenant_id=10;
+ select count(*) into v_account_after from public.account_transactions where tenant_id=10;
+ if v_ledger_after<>v_ledger_before or v_account_after<>v_account_before then
+  raise exception 'ISSUE_RETURN_CHANGED_SUPPLIER_OR_COMPANY_ACCOUNT_LEDGER ledger_before=% ledger_after=% account_before=% account_after=%',
+   v_ledger_before,v_ledger_after,v_account_before,v_account_after;
+ end if;
 
  begin
   perform * from public.powerhub_inventory_return_from_issue(
