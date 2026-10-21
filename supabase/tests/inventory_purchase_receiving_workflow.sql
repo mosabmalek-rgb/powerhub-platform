@@ -158,6 +158,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021141600_powerhub_supplier_return_fk_indexes.sql
 \ir ../migrations/20261021170000_powerhub_inventory_receipt_cost_reconciliation.sql
 \ir ../migrations/20261021171000_powerhub_inventory_movement_correction.sql
+\ir ../migrations/20261021180000_powerhub_inventory_issue_return_cost_reconciliation.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -1855,6 +1856,113 @@ begin
 end;
 $stock_movement_correction_assertions$;
 reset role;
+
+-- Batch 3: final depletion uses the exact remaining value; returns from issue restore original issue cost.
+insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
+values(10,'ISSUE-RETURN-01','Issue return cost fixture','other','piece',0,1);
+set role service_role;
+do $issue_return_cost_assertions$
+declare
+ v_item bigint; v_wh bigint; v_open bigint; v_issue1 bigint; v_issue2 bigint; v_issue3 bigint;
+ v_return1 bigint; v_return2 bigint; v_out_id bigint; v_out_source bigint;
+ v_qty numeric(14,3); v_unit numeric(14,4); v_total numeric(14,2);
+ v_on_hand numeric(14,3); v_value numeric(14,2); v_replayed boolean;
+ v_total_issued numeric(14,2); v_total_returned numeric(14,2); v_returned_qty numeric(14,3);
+ v_count_before integer; v_count_after integer;
+begin
+ select id into v_item from public.inventory_items where tenant_id=10 and sku='ISSUE-RETURN-01';
+ select id into v_wh from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='PUR-WF-MAIN';
+ if v_item is null or v_wh is null then raise exception 'ISSUE_RETURN_FIXTURE_LOOKUP_FAILED'; end if;
+
+ select movement_id,total_cost_amount into v_open,v_total
+ from public.powerhub_inventory_record_stock_movement(
+  10,100,2,v_wh,v_item,'opening_balance',3,3.3333,null,'ISSUE-RETURN-OPEN','opening stock for valuation test','issue-return:opening'
+ );
+ if v_total<>10.00 then raise exception 'OPENING_STOCK_VALUE_EXPECTED_10 got %',v_total; end if;
+
+ select movement_id,total_cost_amount into v_issue1,v_total
+ from public.powerhub_inventory_record_stock_movement(
+  10,100,2,v_wh,v_item,'issue',1,null,null,'ISSUE-RETURN-ISSUE-1','first issue','issue-return:issue-1'
+ );
+ if v_total<>3.33 then raise exception 'FIRST_ISSUE_COST_EXPECTED_3_33 got %',v_total; end if;
+
+ select movement_id,total_cost_amount into v_issue2,v_total
+ from public.powerhub_inventory_record_stock_movement(
+  10,100,2,v_wh,v_item,'issue',1,null,null,'ISSUE-RETURN-ISSUE-2','second issue','issue-return:issue-2'
+ );
+ if v_total<>3.34 then raise exception 'SECOND_ISSUE_COST_EXPECTED_3_34 got %',v_total; end if;
+
+ select movement_id,total_cost_amount into v_issue3,v_total
+ from public.powerhub_inventory_record_stock_movement(
+  10,100,2,v_wh,v_item,'issue',1,null,null,'ISSUE-RETURN-ISSUE-3','final issue depletes remaining stock','issue-return:issue-3'
+ );
+ if v_total<>3.33 then raise exception 'FINAL_ISSUE_DID_NOT_CONSUME_REMAINING_COST expected=3.33 actual=%',v_total; end if;
+ select coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+       then quantity else -quantity end),0)::numeric(14,3),
+        coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+       then total_cost_amount else -total_cost_amount end),0)::numeric(14,2),
+        coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+       then total_cost_amount else -total_cost_amount end),0)::numeric(14,2)
+ into v_on_hand,v_value,v_total_issued
+ from public.inventory_stock_movements where tenant_id=10 and site_id=100 and warehouse_id=v_wh and item_id=v_item;
+ if v_on_hand<>0 or v_value<>0 or v_total_issued<>0 then
+  raise exception 'FINAL_DEPLETION_LEFT_STOCK_BALANCE quantity=% value=% total=%',v_on_hand,v_value,v_total_issued;
+ end if;
+ select coalesce(sum(total_cost_amount),0)::numeric(14,2) into v_total_issued
+ from public.inventory_stock_movements where tenant_id=10 and site_id=100 and warehouse_id=v_wh and item_id=v_item and movement_type='issue';
+ if v_total_issued<>10.00 then raise exception 'TOTAL_ISSUE_COST_NOT_RECONCILED expected=10 actual=%',v_total_issued; end if;
+
+ select return_movement_id,total_cost_amount,on_hand_quantity,stock_value,replayed
+ into v_return1,v_total,v_on_hand,v_value,v_replayed
+ from public.powerhub_inventory_return_from_issue(
+  10,100,2,v_issue1,0.333,'material returned to stock','RET-ISSUE-1','first partial return','issue-return:return-1'
+ );
+ if v_total<>1.11 or v_on_hand<>0.333 or v_value<>1.11 or v_replayed then
+  raise exception 'FIRST_ISSUE_RETURN_COST_FAILED cost=% qty=% value=% replayed=%',v_total,v_on_hand,v_value,v_replayed;
+ end if;
+ select return_movement_id,total_cost_amount,on_hand_quantity,stock_value,replayed
+ into v_return2,v_total,v_on_hand,v_value,v_replayed
+ from public.powerhub_inventory_return_from_issue(
+  10,100,2,v_issue1,0.667,'material returned to stock','RET-ISSUE-1','final partial return','issue-return:return-2'
+ );
+ if v_total<>2.22 or v_on_hand<>1.000 or v_value<>3.33 or v_replayed then
+  raise exception 'FINAL_ISSUE_RETURN_COST_FAILED cost=% qty=% value=% replayed=%',v_total,v_on_hand,v_value,v_replayed;
+ end if;
+ select coalesce(sum(quantity),0)::numeric(14,3),coalesce(sum(total_cost_amount),0)::numeric(14,2),count(*)::integer
+ into v_returned_qty,v_total,v_count_before from public.inventory_stock_movements
+ where tenant_id=10 and site_id=100 and source_issue_movement_id=v_issue1 and movement_type='return_from_issue';
+ if v_returned_qty<>1.000 or v_total<>3.33 or v_count_before<>2 then
+  raise exception 'ISSUE_RETURN_CUMULATIVE_COST_NOT_RECONCILED';
+ end if;
+ select return_movement_id,source_issue_movement_id,quantity,unit_cost,total_cost_amount,on_hand_quantity,stock_value,replayed
+ into v_out_id,v_out_source,v_qty,v_unit,v_total,v_on_hand,v_value,v_replayed
+ from public.powerhub_inventory_return_from_issue(
+  10,100,2,v_issue1,0.667,'material returned to stock','RET-ISSUE-1','final partial return','issue-return:return-2'
+ );
+ if not v_replayed or v_out_id<>v_return2 or v_out_source<>v_issue1 or v_total<>2.22 then
+  raise exception 'ISSUE_RETURN_IDEMPOTENT_REPLAY_FAILED';
+ end if;
+ select count(*) into v_count_after from public.inventory_stock_movements
+ where tenant_id=10 and site_id=100 and source_issue_movement_id=v_issue1 and movement_type='return_from_issue';
+ if v_count_after<>2 then raise exception 'ISSUE_RETURN_REPLAY_DUPLICATED_MOVEMENT'; end if;
+
+ begin
+  perform * from public.powerhub_inventory_return_from_issue(
+   10,100,2,v_issue1,0.001,'over return','RET-ISSUE-1','must fail','issue-return:return-over');
+  raise exception 'ISSUE_RETURN_EXCEEDED_SOURCE_QUANTITY';
+ exception when others then
+  if sqlerrm='ISSUE_RETURN_EXCEEDED_SOURCE_QUANTITY' then raise; end if;
+  if sqlerrm not like '%RETURN_FROM_ISSUE_EXCEEDS_UNRETURNED_QUANTITY%' then raise; end if;
+ end;
+ if has_function_privilege('anon','public.powerhub_inventory_return_from_issue(bigint,bigint,bigint,bigint,numeric,text,text,text,text)','EXECUTE')
+   or has_function_privilege('authenticated','public.powerhub_inventory_return_from_issue(bigint,bigint,bigint,bigint,numeric,text,text,text,text)','EXECUTE')
+   or not has_function_privilege('service_role','public.powerhub_inventory_return_from_issue(bigint,bigint,bigint,bigint,numeric,text,text,text,text)','EXECUTE') then
+  raise exception 'ISSUE_RETURN_RPC_GRANTS_INVALID';
+ end if;
+end;
+$issue_return_cost_assertions$;
+reset role;
+
 drop trigger if exists powerhub_test_supplier_return_audit_failure on public.audit_logs;
 drop function if exists public.powerhub_test_supplier_return_audit_failure();
 
