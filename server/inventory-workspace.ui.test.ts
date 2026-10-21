@@ -79,6 +79,14 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("trpc.powerhub.inventory.recordStockMovement.useMutation");
     expect(panel).toContain("trpc.powerhub.inventory.correctStockMovement.useMutation");
     expect(panel).toContain("trpc.powerhub.inventory.returnFromIssue.useMutation");
+    const transferPanel = read("client/src/components/InventoryWarehouseTransferPanel.tsx");
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    expect(transferPanel).toContain("trpc.powerhub.inventory.transferStock.useMutation");
+    expect(transferPanel).toContain("sourceWarehouseId");
+    expect(transferPanel).toContain("destinationWarehouseId");
+    expect(transferPanel).toContain("stockOverview.invalidate");
+    expect(workspace).toContain("InventoryWarehouseTransferPanel");
+    expect(workspace).toContain("canAdjustInventory={canAdjustInventory}");
     expect(panel).toContain("source_issue_movement_id");
     expect(panel).toContain("returnable_quantity");
     expect(router).toContain("powerhub_inventory_return_from_issue");
