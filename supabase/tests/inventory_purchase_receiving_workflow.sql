@@ -1300,6 +1300,16 @@ begin
   if not has_function_privilege('service_role','public.powerhub_inventory_return_to_supplier(bigint,bigint,bigint,bigint,date,text,text,text,jsonb,numeric,bigint)','EXECUTE') then
     raise exception 'SERVICE_ROLE_CANNOT_RETURN_TO_SUPPLIER';
   end if;
+  if has_table_privilege('authenticated','public.supplier_purchase_returns','SELECT')
+    or has_table_privilege('authenticated','public.supplier_purchase_return_lines','SELECT')
+    or has_table_privilege('anon','public.supplier_purchase_returns','SELECT')
+    or has_table_privilege('anon','public.supplier_purchase_return_lines','SELECT') then
+    raise exception 'UNPRIVILEGED_ROLE_CAN_READ_SUPPLIER_RETURN_FINANCIAL_DETAILS';
+  end if;
+  if not has_table_privilege('service_role','public.supplier_purchase_returns','SELECT')
+    or not has_table_privilege('service_role','public.supplier_purchase_return_lines','SELECT') then
+    raise exception 'SERVICE_ROLE_CANNOT_READ_SUPPLIER_RETURN_DETAILS';
+  end if;
 end;
 $supplier_return_assertions$;
 reset role;
