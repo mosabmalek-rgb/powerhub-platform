@@ -195,17 +195,8 @@ export default function InventoryPurchasesPanel({
     const lines = details.data?.lines;
     const returns = details.data?.returns ?? [];
     if (!lines) return;
-    const returnedByLine = new Map<number, number>();
-    for (const supplierReturn of returns) {
-      for (const line of supplierReturn.lines ?? []) {
-        const id = Number(line.purchase_line_id);
-        returnedByLine.set(id, (returnedByLine.get(id) ?? 0) + Number(line.quantity));
-      }
-    }
-    setReturnQuantities(Object.fromEntries(lines.map((line) => [
-      Number(line.id),
-      String(Math.max(0, Number(line.received_quantity) - (returnedByLine.get(Number(line.id)) ?? 0))),
-    ])));
+    // Never preselect a return quantity: a destructive stock operation must require an explicit choice.
+    setReturnQuantities(Object.fromEntries(lines.map((line) => [Number(line.id), "0"])));
   }, [details.data?.purchase.id, details.data?.purchase.updated_at, details.data?.returns]);
 
   const previewTotal = useMemo(() => draftLines.reduce((sum, line) => {
