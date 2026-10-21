@@ -13,7 +13,7 @@ describe("inventory workspace UI contract", () => {
     const canonicalRouter = read("server/powerhub.ts");
     expect(app).toContain('const InventoryWorkspacePage = lazy(() => import("./pages/InventoryWorkspacePage"));');
     expect(app).toContain('<Route path={"/inventory"}>{() => <RouteAccessGate><InventoryWorkspacePage /></RouteAccessGate>}</Route>');
-    expect(menu).toContain('label: "المخزون والموردون", path: "/inventory", capability: "viewInventory"');
+    expect(menu).toContain('label: "المخزون والمشتريات والصيانة", path: "/inventory", capability: "viewInventory"');
     expect(preload).toContain('"/inventory": () => import("../pages/InventoryWorkspacePage")');
     expect(runtimeRouter).toContain("inventory: powerhubInventoryRouter");
     expect(runtimeRouter).toContain("}) as unknown as typeof powerhubRouter;");
@@ -29,6 +29,7 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain('supplierAccess.data?.permissions.includes("viewSuppliers")');
     expect(page).toContain("canViewSuppliers ? <TabsTrigger value=\"suppliers\"");
     expect(page).toContain("useBranchFilter(sites.data)");
+    expect(page).toContain("المخزون والمشتريات والصيانة");
     expect(page).toContain("تعريف الصنف لا يضيف كمية إلى المخزون");
     expect(page).toContain("trpc.powerhub.inventory.createItem.useMutation");
     expect(page).toContain("trpc.powerhub.inventory.createSupplier.useMutation");

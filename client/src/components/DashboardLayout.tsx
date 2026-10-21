@@ -62,7 +62,7 @@ const menuGroups = [
       { icon: WalletCards, label: "التحصيلات", path: "/collections" },
       { icon: WalletCards, label: "حسابات الشركة", path: "/company-accounts" },
       { icon: Fuel, label: "المصروفات والربحية", path: "/expenses" },
-      { icon: Boxes, label: "المخزون والموردون", path: "/inventory", capability: "viewInventory" as PowerCapability },
+      { icon: Boxes, label: "المخزون والمشتريات والصيانة", path: "/inventory", capability: "viewInventory" as PowerCapability },
       { icon: ChartNoAxesCombined, label: "لوحة المالية", path: "/financial-dashboard" },
       { icon: ChartNoAxesCombined, label: "التسويات المالية", path: "/financial-settlements" },
       { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },

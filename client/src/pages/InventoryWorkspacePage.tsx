@@ -126,7 +126,7 @@ export default function InventoryWorkspacePage() {
       <div dir="rtl" className="mx-auto w-full max-w-7xl space-y-5 p-3 md:p-6">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="flex items-center gap-2"><Boxes className="h-6 w-6 text-primary" /><h1 className="text-2xl font-bold">المخزون والموردون</h1></div>
+            <div className="flex items-center gap-2"><Boxes className="h-6 w-6 text-primary" /><h1 className="text-2xl font-bold">المخزون والمشتريات والصيانة</h1></div>
             <p className="mt-1 text-sm text-muted-foreground">إدارة دليل الأصناف والموردين والمخازن من مساحة موحدة.</p>
             {selectedSiteName ? <p className="mt-1 text-xs text-muted-foreground">الفرع: {selectedSiteName}</p> : null}
           </div>
