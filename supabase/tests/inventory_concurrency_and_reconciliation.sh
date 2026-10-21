@@ -119,7 +119,7 @@ destination_warehouse_id="$("${psql_base[@]}" --command "select id from public.i
 }
 transfer_item_id="$("${psql_base[@]}" --command "insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id) values (10,'CONC-TRANSFER-01','Concurrent transfer item','other','piece',0,1) returning id")"
 [[ "$transfer_item_id" =~ ^[0-9]+$ ]] || { echo "Could not seed transfer race item"; exit 1; }
-PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,${source_warehouse_id},${transfer_item_id},'opening_balance',3,3.3333,10.00,'CONC-TRANSFER-OPEN','transfer concurrency fixture','inventory-concurrency:transfer-opening')" >/tmp/inventory-transfer-open.log 2>&1
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,${source_warehouse_id},${transfer_item_id},'opening_balance',3,3.3333,null,'CONC-TRANSFER-OPEN','transfer concurrency fixture','inventory-concurrency:transfer-opening')" >/tmp/inventory-transfer-open.log 2>&1
 
 PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select transfer_id from public.powerhub_inventory_transfer_stock(10,100,1,${transfer_item_id},${source_warehouse_id},${destination_warehouse_id},2,'inventory-concurrency:transfer-a','CONC-TRANSFER-A','competing transfer A')" >/tmp/inventory-transfer-a.log 2>&1 &
 pid_a=$!
