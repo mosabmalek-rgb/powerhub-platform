@@ -27,6 +27,12 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/subscribers", "collector", ["manageSubscribers"], true)).toBe(true);
   });
 
+  it("allows report-only staff to reach the inventory workspace without granting stock operations", () => {
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["viewInventoryReports"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/inventory", "technician", [], true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/inventory", "manager", ["viewInventory"], true)).toBe(true);
+  });
+
   it("does not expose unknown routes", () => {
     expect(tenantMenuRouteAllowed("/does-not-exist", "owner")).toBe(false);
   });
