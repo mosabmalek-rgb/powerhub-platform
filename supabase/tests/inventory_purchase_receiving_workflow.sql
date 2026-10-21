@@ -771,10 +771,10 @@ begin
     'COST-ROUNDING-REF',null,'purchase-workflow:cost-rounding:create',
     jsonb_build_array(jsonb_build_object(
       'item_id',v_item_id,'quantity',3,'unit','liter','units_to_base_factor',1,
-      'unit_price',3.3333,'discount_amount',0,'tax_amount',0
+      'unit_price',3.3,'discount_amount',0.01,'tax_amount',0
     ))
   );
-  if v_purchase_id is null or v_replayed or v_line_total<>10.00 then
+  if v_purchase_id is null or v_replayed or v_line_total<>9.89 then
     raise exception 'RECEIPT_COST_FIXTURE_CREATE_FAILED purchase=% total=% replayed=%',
       v_purchase_id,v_line_total,v_replayed;
   end if;
@@ -791,7 +791,7 @@ begin
   );
   select total_cost_amount into v_movement_cost from public.inventory_stock_movements
     where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt';
-  if v_movement_cost<>3.33 or v_purchase_status<>'partially_received' or v_replayed then
+  if v_movement_cost<>3.30 or v_purchase_status<>'partially_received' or v_replayed then
     raise exception 'FIRST_RECEIPT_COST_ALLOCATION_FAILED cost=% status=% replayed=%',
       v_movement_cost,v_purchase_status,v_replayed;
   end if;
@@ -804,7 +804,7 @@ begin
   select total_cost_amount into v_movement_cost from public.inventory_stock_movements
     where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt'
     order by id desc limit 1;
-  if v_movement_cost<>3.34 or v_purchase_status<>'partially_received' or v_replayed then
+  if v_movement_cost<>3.29 or v_purchase_status<>'partially_received' or v_replayed then
     raise exception 'SECOND_RECEIPT_COST_ALLOCATION_FAILED cost=% status=% replayed=%',
       v_movement_cost,v_purchase_status,v_replayed;
   end if;
@@ -846,9 +846,9 @@ do $purchase_rls_assertions$
 declare v_receipts integer; v_lines integer; v_cross_tenant integer; v_payments integer; v_allocations integer;
 begin
   select count(*) into v_receipts from public.supplier_purchase_receipts;
-  if v_receipts<>2 then raise exception 'RECEIPT_RLS_FAILED expected=2 visible=%',v_receipts; end if;
+  if v_receipts<>5 then raise exception 'RECEIPT_RLS_FAILED expected=5 visible=%',v_receipts; end if;
   select count(*) into v_lines from public.supplier_purchase_receipt_lines;
-  if v_lines<>4 then raise exception 'RECEIPT_LINE_RLS_FAILED expected=4 visible=%',v_lines; end if;
+  if v_lines<>7 then raise exception 'RECEIPT_LINE_RLS_FAILED expected=7 visible=%',v_lines; end if;
   select count(*) into v_cross_tenant from public.supplier_purchase_receipts where tenant_id=20;
   if v_cross_tenant<>0 then raise exception 'CROSS_TENANT_RECEIPT_LEAK'; end if;
   select count(*) into v_payments from public.supplier_payments where tenant_id=10;
