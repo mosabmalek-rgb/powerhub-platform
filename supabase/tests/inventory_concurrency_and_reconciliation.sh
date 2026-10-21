@@ -191,7 +191,7 @@ end;
 
 # Race duplicate supplier-return submissions against the same received purchase line.
 purchase_id="$("${psql_base[@]}" --command "select id from public.supplier_purchases where tenant_id=10 and operation_key='purchase-workflow:cost-rounding:create'")"
-purchase_line_id="$(${psql_base[@]}" --command "select id from public.supplier_purchase_lines where tenant_id=10 and purchase_id=${purchase_id} order by id limit 1")"
+purchase_line_id="$("${psql_base[@]}" --command "select id from public.supplier_purchase_lines where tenant_id=10 and purchase_id=${purchase_id} order by id limit 1")"
 [[ "$purchase_id" =~ ^[0-9]+$ && "$purchase_line_id" =~ ^[0-9]+$ ]] || {
   echo "Could not resolve received purchase line for concurrent supplier-return test"
   exit 1
