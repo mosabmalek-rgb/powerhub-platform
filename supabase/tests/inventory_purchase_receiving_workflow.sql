@@ -303,6 +303,9 @@ select * from public.powerhub_admin_save_role_policy(1,'manager','viewPurchases'
 do $purchase_workflow_assertions$
 declare
   v_purchase_id bigint;
+  v_supplier_id bigint;
+  v_warehouse_id bigint;
+  v_item_id bigint;
   v_purchase_number text;
   v_total numeric(14,2);
   v_replayed boolean;
@@ -318,14 +321,21 @@ declare
   v_supplier_ledger integer;
   v_audit_count integer;
 begin
+  select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='SUP-01';
+  select id into v_warehouse_id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='MAIN';
+  select id into v_item_id from public.inventory_items where tenant_id=10 and sku='DSL-01';
+  if v_supplier_id is null or v_warehouse_id is null or v_item_id is null then
+    raise exception 'PURCHASE_WORKFLOW_FIXTURE_LOOKUP_FAILED supplier=% warehouse=% item=%',v_supplier_id,v_warehouse_id,v_item_id;
+  end if;
+
   select purchase_id,purchase_number,total_amount,replayed
   into v_purchase_id,v_purchase_number,v_total,v_replayed
   from public.powerhub_inventory_create_purchase(
-    10,100,1,1,1,'INV-WORKFLOW-001',current_date,null,30,'WORKFLOW-REF',null,'purchase-workflow:create-001',
+    10,100,1,v_supplier_id,v_warehouse_id,'INV-WORKFLOW-001',current_date,null,30,'WORKFLOW-REF',null,'purchase-workflow:create-001',
     jsonb_build_array(
-      jsonb_build_object('item_id',1,'quantity',10,'unit','liter','units_to_base_factor',1,
+      jsonb_build_object('item_id',v_item_id,'quantity',10,'unit','liter','units_to_base_factor',1,
         'unit_price',10,'discount_amount',5,'tax_amount',2,'notes','first test line'),
-      jsonb_build_object('item_id',1,'quantity',5,'unit','liter','units_to_base_factor',1,
+      jsonb_build_object('item_id',v_item_id,'quantity',5,'unit','liter','units_to_base_factor',1,
         'unit_price',20,'discount_amount',0,'tax_amount',5,'notes','second test line')
     )
   );
@@ -350,11 +360,11 @@ begin
   select purchase_id,purchase_number,total_amount,replayed
   into v_receipt_id,v_receipt_number,v_total,v_replayed
   from public.powerhub_inventory_create_purchase(
-    10,100,1,1,1,'INV-WORKFLOW-001',current_date,null,30,'WORKFLOW-REF',null,'purchase-workflow:create-001',
+    10,100,1,v_supplier_id,v_warehouse_id,'INV-WORKFLOW-001',current_date,null,30,'WORKFLOW-REF',null,'purchase-workflow:create-001',
     jsonb_build_array(
-      jsonb_build_object('item_id',1,'quantity',10,'unit','liter','units_to_base_factor',1,
+      jsonb_build_object('item_id',v_item_id,'quantity',10,'unit','liter','units_to_base_factor',1,
         'unit_price',10,'discount_amount',5,'tax_amount',2,'notes','first test line'),
-      jsonb_build_object('item_id',1,'quantity',5,'unit','liter','units_to_base_factor',1,
+      jsonb_build_object('item_id',v_item_id,'quantity',5,'unit','liter','units_to_base_factor',1,
         'unit_price',20,'discount_amount',0,'tax_amount',5,'notes','second test line')
     )
   );
@@ -364,8 +374,8 @@ begin
 
   begin
     perform * from public.powerhub_inventory_create_purchase(
-      10,100,1,1,1,'INV-WORKFLOW-001',current_date,null,30,'WORKFLOW-REF',null,'purchase-workflow:create-001',
-      jsonb_build_array(jsonb_build_object('item_id',1,'quantity',9,'unit','liter','units_to_base_factor',1,
+      10,100,1,v_supplier_id,v_warehouse_id,'INV-WORKFLOW-001',current_date,null,30,'WORKFLOW-REF',null,'purchase-workflow:create-001',
+      jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',9,'unit','liter','units_to_base_factor',1,
         'unit_price',10,'discount_amount',5,'tax_amount',2,'notes','changed payload'))
     );
     raise exception 'PURCHASE_IDEMPOTENCY_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
@@ -483,8 +493,8 @@ begin
 
   begin
     perform * from public.powerhub_inventory_create_purchase(
-      10,200,1,1,1,'INV-CROSS-TENANT',current_date,null,30,null,null,'purchase-workflow:cross-tenant',
-      jsonb_build_array(jsonb_build_object('item_id',1,'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0))
+      10,200,1,v_supplier_id,v_warehouse_id,'INV-CROSS-TENANT',current_date,null,30,null,null,'purchase-workflow:cross-tenant',
+      jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0))
     );
     raise exception 'CROSS_TENANT_PURCHASE_WAS_ACCEPTED';
   exception when others then
