@@ -149,6 +149,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021085549_powerhub_inventory_purchase_receiving_workflow.sql
 \ir ../migrations/20261021085557_powerhub_inventory_supplier_payment.sql
 \ir ../migrations/20261021091113_powerhub_inventory_supplier_payment_actor_role_fix.sql
+\ir ../migrations/20261021100000_powerhub_inventory_stock_operations.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -746,4 +747,192 @@ begin
 end;
 $purchase_rls_assertions$;
 reset role;
+
+set role service_role;
+do $stock_operation_assertions$
+declare
+  v_item_id bigint;
+  v_tenant_id bigint := 10;
+  v_site_id bigint := 100;
+  v_warehouse_id bigint := 1;
+  v_user_id bigint := 2;
+  v_generator_id bigint := 10000;
+  v_before_quantity numeric(14,3);
+  v_after_quantity numeric(14,3);
+  v_before_value numeric(14,2);
+  v_expected_quantity numeric(14,3);
+  v_issue_id bigint;
+  v_replay_id bigint;
+  v_movement_id bigint;
+  v_replayed boolean;
+  v_count integer;
+  v_overview_quantity numeric(14,3);
+begin
+  select id into v_item_id
+  from public.inventory_items
+  where tenant_id=v_tenant_id and sku='DSL-01';
+  if v_item_id is null then raise exception 'STOCK_ITEM_FIXTURE_MISSING'; end if;
+
+  select
+    coalesce(sum(case
+      when m.movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+        then m.quantity else -m.quantity end),0)::numeric(14,3),
+    coalesce(sum(case
+      when m.movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+        then m.total_cost_amount else -m.total_cost_amount end),0)::numeric(14,2)
+  into v_before_quantity,v_before_value
+  from public.inventory_stock_movements m
+  where m.tenant_id=v_tenant_id and m.site_id=v_site_id
+    and m.warehouse_id=v_warehouse_id and m.item_id=v_item_id;
+  if v_before_quantity<=1 then
+    raise exception 'STOCK_OPERATION_FIXTURE_HAS_INSUFFICIENT_STOCK quantity=%',v_before_quantity;
+  end if;
+
+  -- Issue is linked to a valid generator and records a nullable platform role for tenant actors.
+  select movement_id,replayed into v_issue_id,v_replayed
+  from public.powerhub_inventory_record_stock_movement(
+    v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_item_id,'issue',
+    1,null,v_generator_id,'STOCK-ISSUE-001','Routine issue',
+    'stock-workflow:issue-001'
+  );
+  if v_issue_id is null or v_replayed then raise exception 'STOCK_ISSUE_CREATE_FAILED'; end if;
+
+  select count(*) into v_count from public.audit_logs
+  where tenant_id=v_tenant_id and site_id=v_site_id
+    and entity_type='inventory_stock_movement' and entity_id=v_issue_id::text
+    and action='issue' and actor_platform_role is null;
+  if v_count<>1 then raise exception 'STOCK_ISSUE_AUDIT_FAILED'; end if;
+
+  -- Replaying the same request is safe and doesn't append a second movement.
+  select movement_id,replayed into v_replay_id,v_replayed
+  from public.powerhub_inventory_record_stock_movement(
+    v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_item_id,'issue',
+    1,null,v_generator_id,'STOCK-ISSUE-001','Routine issue',
+    'stock-workflow:issue-001'
+  );
+  if v_replay_id<>v_issue_id or not v_replayed then raise exception 'STOCK_ISSUE_REPLAY_FAILED'; end if;
+  select count(*) into v_count from public.inventory_stock_movements
+  where tenant_id=v_tenant_id and operation_key='stock-workflow:issue-001';
+  if v_count<>1 then raise exception 'STOCK_ISSUE_REPLAY_DUPLICATED_MOVEMENT'; end if;
+
+  -- An idempotency key cannot be reused for a different payload.
+  begin
+    perform * from public.powerhub_inventory_record_stock_movement(
+      v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_item_id,'issue',
+      0.5,null,v_generator_id,'STOCK-ISSUE-001','Routine issue',
+      'stock-workflow:issue-001'
+    );
+    raise exception 'STOCK_ISSUE_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+  exception when others then
+    if sqlerrm='STOCK_ISSUE_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+    if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+  end;
+
+  -- Fuel consumption is connected to the same tenant's generator.
+  select movement_id into v_movement_id
+  from public.powerhub_inventory_record_stock_movement(
+    v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_item_id,'fuel_consumption',
+    0.5,null,v_generator_id,'FUEL-TEST-001','Fuel consumption integration test',
+    'stock-workflow:fuel-001'
+  );
+  if v_movement_id is null then raise exception 'FUEL_CONSUMPTION_CREATE_FAILED'; end if;
+
+  -- Inventory gains/loses and the audit log are recorded atomically with the movement.
+  select movement_id into v_movement_id
+  from public.powerhub_inventory_record_stock_movement(
+    v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_item_id,'adjustment_in',
+    2,4.25,null,'COUNT-PLUS-001','Physical count surplus',
+    'stock-workflow:adjust-in-001'
+  );
+  select movement_id into v_movement_id
+  from public.powerhub_inventory_record_stock_movement(
+    v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_item_id,'adjustment_out',
+    0.25,null,null,'COUNT-MINUS-001','Physical count shortage',
+    'stock-workflow:adjust-out-001'
+  );
+
+  v_expected_quantity := v_before_quantity - 1 - 0.5 + 2 - 0.25;
+  select coalesce(sum(case
+    when m.movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+      then m.quantity else -m.quantity end),0)::numeric(14,3)
+  into v_after_quantity
+  from public.inventory_stock_movements m
+  where m.tenant_id=v_tenant_id and m.site_id=v_site_id
+    and m.warehouse_id=v_warehouse_id and m.item_id=v_item_id;
+  if v_after_quantity<>v_expected_quantity then
+    raise exception 'STOCK_BALANCE_MISMATCH expected=% actual=%',v_expected_quantity,v_after_quantity;
+  end if;
+
+  select on_hand_quantity into v_overview_quantity
+  from public.powerhub_inventory_stock_overview(v_tenant_id,v_site_id)
+  where warehouse_id=v_warehouse_id and item_id=v_item_id;
+  if v_overview_quantity<>v_after_quantity then
+    raise exception 'STOCK_OVERVIEW_BALANCE_MISMATCH expected=% actual=%',v_after_quantity,v_overview_quantity;
+  end if;
+
+  select count(*) into v_count
+  from public.powerhub_inventory_list_stock_movements(v_tenant_id,v_site_id,100)
+  where item_id=v_item_id and movement_type in ('issue','fuel_consumption','adjustment_in','adjustment_out');
+  if v_count<4 then raise exception 'STOCK_MOVEMENT_HISTORY_MISSING expected_at_least=4 actual=%',v_count; end if;
+
+  -- A rejected movement must not leave a partial row or audit entry.
+  begin
+    perform * from public.powerhub_inventory_record_stock_movement(
+      v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_item_id,'issue',
+      v_after_quantity+1,null,null,'STOCK-OVERDRAWN','must be rejected',
+      'stock-workflow:insufficient-stock'
+    );
+    raise exception 'STOCK_ISSUE_ALLOWED_NEGATIVE_BALANCE';
+  exception when others then
+    if sqlerrm='STOCK_ISSUE_ALLOWED_NEGATIVE_BALANCE' then raise; end if;
+    if sqlerrm not like '%INSUFFICIENT_STOCK%' then raise; end if;
+  end;
+  if exists (select 1 from public.inventory_stock_movements
+    where tenant_id=v_tenant_id and operation_key='stock-workflow:insufficient-stock') then
+    raise exception 'INSUFFICIENT_STOCK_ATTEMPT_LEFT_MOVEMENT';
+  end if;
+
+  -- Site/tenant isolation must apply to generator references, not only the item and warehouse.
+  begin
+    perform * from public.powerhub_inventory_record_stock_movement(
+      v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_item_id,'fuel_consumption',
+      0.25,null,20000,'CROSS-TENANT-GENERATOR','must be rejected',
+      'stock-workflow:cross-tenant-generator'
+    );
+    raise exception 'CROSS_TENANT_GENERATOR_WAS_ACCEPTED';
+  exception when others then
+    if sqlerrm='CROSS_TENANT_GENERATOR_WAS_ACCEPTED' then raise; end if;
+    if sqlerrm not like '%STOCK_GENERATOR_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  insert into public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
+  values(v_tenant_id,v_site_id,'locked',now()-interval '1 day',now()+interval '1 day');
+  begin
+    perform * from public.powerhub_inventory_record_stock_movement(
+      v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_item_id,'issue',
+      0.25,null,null,'LOCKED-STOCK-OP','must be rejected while the period is locked',
+      'stock-workflow:locked-period'
+    );
+    raise exception 'STOCK_MOVEMENT_ACCEPTED_IN_LOCKED_PERIOD';
+  exception when others then
+    if sqlerrm='STOCK_MOVEMENT_ACCEPTED_IN_LOCKED_PERIOD' then raise; end if;
+    if sqlerrm not like '%FINANCIAL_PERIOD_LOCKED%' then raise; end if;
+  end;
+  delete from public.financial_settlements
+  where tenant_id=v_tenant_id and site_id=v_site_id and status='locked';
+
+  if has_function_privilege('anon','public.powerhub_inventory_record_stock_movement(bigint,bigint,bigint,bigint,bigint,text,numeric,numeric,bigint,text,text,text)','EXECUTE') then
+    raise exception 'ANON_CAN_EXECUTE_STOCK_MOVEMENT_RPC';
+  end if;
+  if has_function_privilege('authenticated','public.powerhub_inventory_record_stock_movement(bigint,bigint,bigint,bigint,bigint,text,numeric,numeric,bigint,text,text,text)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_STOCK_MOVEMENT_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_record_stock_movement(bigint,bigint,bigint,bigint,bigint,text,numeric,numeric,bigint,text,text,text)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_STOCK_MOVEMENT_RPC';
+  end if;
+end;
+$stock_operation_assertions$;
+reset role;
+
+select 'inventory purchase receiving and stock operations PostgreSQL integration passed' as result;
 

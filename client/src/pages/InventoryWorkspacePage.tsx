@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import InventoryPurchasesPanel from "@/components/InventoryPurchasesPanel";
+import InventoryStockOperationsPanel from "@/components/InventoryStockOperationsPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse } from "lucide-react";
+import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 
 const categoryLabels: Record<string, string> = {
@@ -44,6 +45,12 @@ export default function InventoryWorkspacePage() {
     staleTime: 30_000,
   });
   const canViewSuppliers = supplierAccess.data?.permissions.includes("viewSuppliers") ?? false;
+  const canViewInventory = supplierAccess.data?.permissions.includes("viewInventory") ?? false;
+  const canViewInventoryReports = supplierAccess.data?.permissions.includes("viewInventoryReports") ?? false;
+  const canIssueInventory = supplierAccess.data?.permissions.includes("issueInventory") ?? false;
+  const canAdjustInventory = supplierAccess.data?.permissions.includes("adjustInventory") ?? false;
+  const canManageFuelAndConsumption = supplierAccess.data?.permissions.includes("manageFuelAndConsumption") ?? false;
+  const canReadStock = canViewInventory || canViewInventoryReports;
   const canViewPurchases = supplierAccess.data?.permissions.includes("viewPurchases") ?? false;
   const canCreatePurchases = supplierAccess.data?.permissions.includes("createPurchases") ?? false;
   const canApprovePurchases = supplierAccess.data?.permissions.includes("approvePurchases") ?? false;
@@ -120,8 +127,8 @@ export default function InventoryWorkspacePage() {
   });
 
   useEffect(() => {
-    if ((!canViewSuppliers && tab === "suppliers") || (!canReadPurchases && tab === "purchases")) setTab("catalog");
-  }, [canViewSuppliers, canReadPurchases, tab]);
+    if ((!canViewSuppliers && tab === "suppliers") || (!canReadPurchases && tab === "purchases") || (!canReadStock && tab === "stock")) setTab("catalog");
+  }, [canViewSuppliers, canReadPurchases, canReadStock, tab]);
 
   const selectedSiteName = useMemo(() => sites.data?.find((site) => site.id === siteId)?.name ?? "", [sites.data, siteId]);
 
@@ -149,6 +156,7 @@ export default function InventoryWorkspacePage() {
                 <TabsTrigger value="catalog" className="gap-2"><Boxes className="h-4 w-4" /> دليل الأصناف</TabsTrigger>
                 {canViewSuppliers ? <TabsTrigger value="suppliers" className="gap-2"><Store className="h-4 w-4" /> الموردون</TabsTrigger> : null}
                 <TabsTrigger value="warehouses" className="gap-2"><Warehouse className="h-4 w-4" /> المخازن</TabsTrigger>
+                {canReadStock ? <TabsTrigger value="stock" className="gap-2"><ArrowLeftRight className="h-4 w-4" /> الأرصدة والحركات</TabsTrigger> : null}
                 {canReadPurchases ? <TabsTrigger value="purchases" className="gap-2"><ClipboardList className="h-4 w-4" /> المشتريات</TabsTrigger> : null}
               </TabsList>
             </div>
@@ -213,6 +221,17 @@ export default function InventoryWorkspacePage() {
                 <CardContent>{warehouses.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل المخازن…</p> : warehouses.error ? <p className="py-8 text-center text-destructive">تعذر تحميل المخازن. تحقق من صلاحياتك.</p> : !warehouses.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد مخازن لهذا الفرع.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full text-right text-sm"><thead className="bg-muted/60"><tr>{["الرمز","اسم المخزن","ملاحظات","الحالة"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{warehouses.data.map((warehouse) => <tr key={warehouse.id} className="border-t"><td className="p-3">{warehouse.code}</td><td className="p-3 font-medium">{warehouse.name}</td><td className="p-3">{warehouse.notes || "—"}</td><td className="p-3">{warehouse.is_active ? "نشط" : "موقوف"}</td></tr>)}</tbody></table></div>}</CardContent>
               </Card>
             </TabsContent>
+
+            {canReadStock ? <TabsContent value="stock" className="space-y-4">
+              <InventoryStockOperationsPanel
+                siteId={siteId}
+                isAuthenticated={isAuthenticated}
+                canIssueInventory={canIssueInventory}
+                canAdjustInventory={canAdjustInventory}
+                canManageFuelAndConsumption={canManageFuelAndConsumption}
+                canViewInventoryReports={canViewInventoryReports}
+              />
+            </TabsContent> : null}
 
             {canReadPurchases ? <TabsContent value="purchases" className="space-y-4">
               <InventoryPurchasesPanel

@@ -45,7 +45,18 @@ function mapPurchaseDatabaseError(
     COMPANY_ACCOUNT_INACTIVE: { code: "BAD_REQUEST", message: "حساب الشركة غير نشط ولا يمكن الدفع منه." },
     COMPANY_ACCOUNT_OUT_OF_SCOPE: { code: "FORBIDDEN", message: "حساب الشركة غير متاح لهذا الفرع." },
     INSUFFICIENT_ACCOUNT_BALANCE: { code: "BAD_REQUEST", message: "رصيد حساب الشركة لا يكفي لهذه الدفعة." },
-    FINANCIAL_PERIOD_LOCKED: { code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تسجيل دفعة المورد." },
+    FINANCIAL_PERIOD_LOCKED: { code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تسجيل هذه الحركة خلال الفترة المقفلة." },
+    INVALID_STOCK_MOVEMENT: { code: "BAD_REQUEST", message: "نوع حركة المخزون غير صالح." },
+    INVALID_STOCK_QUANTITY: { code: "BAD_REQUEST", message: "أدخل كمية موجبة لا تتجاوز ثلاث منازل عشرية." },
+    INVALID_STOCK_UNIT_COST: { code: "BAD_REQUEST", message: "تكلفة الوحدة غير صالحة أو لا تتوافق مع نوع الحركة." },
+    STOCK_ADJUSTMENT_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سبب تسوية الجرد." },
+    STOCK_UNIT_COST_REQUIRED: { code: "BAD_REQUEST", message: "أدخل تكلفة الوحدة عند إضافة كمية لصنف بلا رصيد سابق." },
+    STOCK_ITEM_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "الصنف غير نشط أو لا ينتمي إلى هذه الشركة." },
+    STOCK_WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن غير نشط أو لا يتبع هذا الفرع." },
+    STOCK_GENERATOR_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المولد المحدد لا يتبع هذه الشركة أو الفرع." },
+    GENERATOR_REQUIRED: { code: "BAD_REQUEST", message: "اختر المولد المرتبط باستهلاك الوقود." },
+    FUEL_ITEM_REQUIRED: { code: "BAD_REQUEST", message: "استهلاك الوقود متاح لأصناف الوقود فقط." },
+    INSUFFICIENT_STOCK: { code: "CONFLICT", message: "الكمية المتاحة لا تكفي لهذه الحركة؛ حدّث الرصيد وحاول مجددًا." },
     PURCHASE_BALANCE_EXCEEDED: { code: "CONFLICT", message: "مبلغ الدفعة يتجاوز المتبقي من فاتورة المشتريات." },
     PURCHASE_NOT_PAYABLE: { code: "CONFLICT", message: "لا يمكن دفع فاتورة مسودة أو ملغاة." },
     PURCHASE_HAS_NO_LINES: { code: "BAD_REQUEST", message: "لا يمكن اعتماد فاتورة بلا بنود." },
@@ -69,6 +80,14 @@ async function requirePurchaseReadAccess(userId: number, siteId: number) {
   return { ...access, canViewFinancials, canManageSupplierPayments };
 }
 
+async function requireStockReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  if (!access.permissions.includes("viewInventory") && !access.permissions.includes("viewInventoryReports")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض أرصدة المخزون وحركاته." });
+  }
+  return access;
+}
+
 const purchaseStatusSchema = z.enum(["draft", "confirmed", "partially_received", "received", "cancelled"]);
 const purchaseLineInputSchema = z.object({
   itemId: z.number().int().positive(),
@@ -82,6 +101,81 @@ const purchaseLineInputSchema = z.object({
 });
 
 export const powerhubInventoryRouter = router({
+  stockOverview: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStockReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_stock_overview", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أرصدة المخزون." });
+      return data ?? [];
+    }),
+
+  listStockMovements: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(500).default(100) }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStockReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_stock_movements", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_limit: input.limit,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل حركات المخزون." });
+      return data ?? [];
+    }),
+
+  recordStockMovement: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      warehouseId: z.number().int().positive(),
+      itemId: z.number().int().positive(),
+      movementType: z.enum(["issue", "adjustment_in", "adjustment_out", "fuel_consumption"]),
+      quantity: z.number().finite().positive().max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7, "الكمية تقبل ثلاث منازل عشرية كحد أقصى."),
+      unitCost: z.number().finite().min(0).max(1_000_000_000)
+        .refine((value) => Math.abs(value * 10000 - Math.round(value * 10000)) < 1e-7, "تكلفة الوحدة تقبل أربع منازل عشرية كحد أقصى.")
+        .optional(),
+      generatorId: z.number().int().positive().optional(),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      operationKey: z.string().trim().min(1).max(180),
+    }).refine((value) =>
+      (value.movementType === "adjustment_in" || value.unitCost === undefined),
+      { message: "تكلفة الوحدة المدخلة تستخدم فقط عند تسوية زيادة المخزون.", path: ["unitCost"] }
+    ).refine((value) =>
+      (value.movementType !== "fuel_consumption" || value.generatorId !== undefined),
+      { message: "اختر المولد المرتبط باستهلاك الوقود.", path: ["generatorId"] }
+    ).refine((value) =>
+      (!["adjustment_in", "adjustment_out"].includes(value.movementType) || Boolean(value.notes?.trim())),
+      { message: "أدخل سبب تسوية الجرد.", path: ["notes"] }
+    ))
+    .mutation(async ({ ctx, input }) => {
+      const requiredCapability = input.movementType === "issue"
+        ? "issueInventory"
+        : input.movementType === "fuel_consumption"
+          ? "manageFuelAndConsumption"
+          : "adjustInventory";
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], requiredCapability);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_stock_movement", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_warehouse_id: input.warehouseId,
+        p_item_id: input.itemId,
+        p_movement_type: input.movementType,
+        p_quantity: input.quantity,
+        p_unit_cost: input.unitCost ?? null,
+        p_generator_id: input.generatorId ?? null,
+        p_reference_no: input.referenceNo || null,
+        p_notes: input.notes || null,
+        p_operation_key: input.operationKey,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل حركة المخزون.");
+      return data[0];
+    }),
+
   listItems: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), search: z.string().trim().max(100).optional(), includeInactive: z.boolean().default(false) }))
     .query(async ({ ctx, input }) => {
