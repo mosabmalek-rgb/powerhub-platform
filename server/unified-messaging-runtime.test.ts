@@ -73,6 +73,12 @@ describe("unified messaging runtime contract", () => {
     expect(runtime).toContain('previous_reading: invoice?.previous_reading == null ? "" : String(invoice.previous_reading)');
   });
 
+  it("records sanitized diagnostics when the unified automation scheduler cannot reclaim stale messages", () => {
+    expect(runtime).toContain('logSafeSupabaseWorkerQueryFailure("unified-messaging", "stale-message reclaim", reclaimError)');
+    expect(runtime).toContain('throw new Error("تعذر استرداد رسائل المراسلة الموحدة العالقة قبل بدء دورة الأتمتة.")');
+    expect(runtime).toContain('logSafeSupabaseWorkerQueryFailure("unified-messaging", "enabled automation query", error)');
+  });
+
   it("does not turn scheduler/template/portal query errors into benign skips", () => {
     expect(runtime).toContain('if (occurrence.error) throw new Error("تعذر حساب موعد أتمتة المراسلة.")');
     expect(runtime).toContain('if (templateError) throw new Error("تعذر تحميل قالب أتمتة المراسلة.")');
