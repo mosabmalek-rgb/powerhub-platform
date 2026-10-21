@@ -367,6 +367,53 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
+  it("requires stock-adjustment permission before returning goods to a supplier", async () => {
+    state.rpc.mockClear();
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnToSupplier;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 94 } },
+      input: {
+        siteId: 7, purchaseId: 14, returnDate: "2026-10-21",
+        operationKey: "supplier-return:test:001", reason: "damaged item",
+        refundAmount: 0, lines: [{ purchaseLineId: 21, quantity: 1 }],
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(94, 7, expect.any(Array), "adjustInventory");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("requires financial permission for cash refund and passes only the authorized tenant to the return RPC", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      return_id: 301, return_number: "RET-20261021-000001", purchase_id: 14,
+      status: "posted", total_credit_amount: "20.00", stock_cost_amount: "18.00",
+      refund_amount: "5.00", supplier_credit_remaining: "15.00", account_balance: "105.00", replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnToSupplier;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 95 } },
+      input: {
+        siteId: 7, purchaseId: 14, returnDate: "2026-10-21",
+        operationKey: "supplier-return:test:002", reason: "damaged item",
+        refundAmount: 5, refundCompanyAccountId: 8,
+        lines: [{ purchaseLineId: 21, quantity: 1 }],
+      },
+    });
+    expect(result).toMatchObject({ return_id: 301, refund_amount: "5.00" });
+    expect(state.access).toHaveBeenNthCalledWith(1, 95, 7, expect.any(Array), "adjustInventory");
+    expect(state.access).toHaveBeenNthCalledWith(2, 95, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_return_to_supplier", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 95, p_purchase_id: 14,
+      p_return_date: "2026-10-21", p_operation_key: "supplier-return:test:002",
+      p_reason: "damaged item", p_notes: null,
+      p_lines: [{ purchase_line_id: 21, quantity: 1 }],
+      p_refund_amount: 5, p_refund_company_account_id: 8,
+    });
+  });
+
   it("scopes supplier ledger statement to the authorized tenant and branch", async () => {
     state.access.mockReset().mockResolvedValue({ tenantId: 44 });
     state.rpc.mockReset().mockResolvedValue({ data: {
