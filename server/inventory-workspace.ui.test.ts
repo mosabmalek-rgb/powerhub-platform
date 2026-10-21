@@ -36,6 +36,12 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain("trpc.powerhub.inventory.createItem.useMutation");
     expect(page).toContain("trpc.powerhub.inventory.createSupplier.useMutation");
     expect(page).toContain("trpc.powerhub.inventory.createWarehouse.useMutation");
+    expect(page).toContain("recordSupplierPayment.useMutation");
+    expect(page).toContain("سجل دفعات المورد");
+    expect(page).toContain("تُسجل الدفعة والسحب من حساب الشركة وتخصيص الفاتورة وقيد المورد في معاملة واحدة");
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    expect(workspace).toContain('permissions.includes("manageSupplierPayments")');
+    expect(workspace).toContain("canManageSupplierPayments={canManageSupplierPayments}");
   });
 
   it("wires purchase draft, approval and receipt UI to guarded purchase procedures", () => {
