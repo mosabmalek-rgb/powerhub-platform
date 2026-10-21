@@ -127,6 +127,7 @@ declare
   v_paid_amount numeric(14,2);
   v_outstanding numeric(14,2);
   v_period_locked boolean;
+  v_replayed boolean := false;
 begin
   if v_reason is null or length(v_reason)>500 then
     raise exception 'SUPPLIER_PAYMENT_REVERSAL_REASON_REQUIRED' using errcode='P0001';
@@ -166,7 +167,9 @@ begin
   select u.platform_role into v_platform_role from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
 
-  if v_payment.status='posted' then
+  if v_payment.status='reversed' then
+    v_replayed := true;
+  elsif v_payment.status='posted' then
     select exists (
       select 1 from public.financial_settlements fs
       where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked'
@@ -232,7 +235,7 @@ begin
 
   v_outstanding := greatest(0,v_purchase.total_amount-v_paid_amount);
   return query select v_payment.id,v_purchase.id,v_payment.status,v_payment.amount,
-    v_paid_amount,v_outstanding,v_account_balance,(v_payment.status='reversed' and v_payment.reversed_at < now()-interval '1 millisecond');
+    v_paid_amount,v_outstanding,v_account_balance,v_replayed;
 end;
 $$;
 
