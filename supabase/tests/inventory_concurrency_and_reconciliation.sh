@@ -108,4 +108,84 @@ begin
 end;
 \$assert\$;
 "
-echo "Inventory concurrency, idempotency, stock-value reconciliation, and transfer linkage checks passed."
+
+# Race two warehouse transfers against the same source balance.
+# Seed a separate item with 3 units / $10.00, then try to transfer 2 units twice.
+source_warehouse_id="$(${psql_base[@]}" --command "select id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-SOURCE'")"
+destination_warehouse_id="$(${psql_base[@]}" --command "select id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-DEST'")"
+[[ "$source_warehouse_id" =~ ^[0-9]+$ && "$destination_warehouse_id" =~ ^[0-9]+$ ]] || {
+  echo "Could not resolve warehouse transfer race fixtures"
+  exit 1
+}
+transfer_item_id="$(${psql_base[@]}" --command "insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id) values (10,'CONC-TRANSFER-01','Concurrent transfer item','other','piece',0,1) returning id")"
+[[ "$transfer_item_id" =~ ^[0-9]+$ ]] || { echo "Could not seed transfer race item"; exit 1; }
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,${source_warehouse_id},${transfer_item_id},'opening_balance',3,3.3333,10.00,'CONC-TRANSFER-OPEN','transfer concurrency fixture','inventory-concurrency:transfer-opening')" >/tmp/inventory-transfer-open.log 2>&1
+
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select transfer_id from public.powerhub_inventory_transfer_stock(10,100,1,${transfer_item_id},${source_warehouse_id},${destination_warehouse_id},2,'inventory-concurrency:transfer-a','CONC-TRANSFER-A','competing transfer A')" >/tmp/inventory-transfer-a.log 2>&1 &
+pid_a=$!
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select transfer_id from public.powerhub_inventory_transfer_stock(10,100,1,${transfer_item_id},${source_warehouse_id},${destination_warehouse_id},2,'inventory-concurrency:transfer-b','CONC-TRANSFER-B','competing transfer B')" >/tmp/inventory-transfer-b.log 2>&1 &
+pid_b=$!
+set +e
+wait "$pid_a"; rc_a=$?
+wait "$pid_b"; rc_b=$?
+set -e
+if [[ $(( (rc_a == 0) + (rc_b == 0) )) -ne 1 ]]; then
+  echo "Expected exactly one competing warehouse transfer to commit (rc_a=$rc_a rc_b=$rc_b)"
+  cat /tmp/inventory-transfer-a.log /tmp/inventory-transfer-b.log
+  exit 1
+fi
+if ! grep -q 'INSUFFICIENT_STOCK' /tmp/inventory-transfer-a.log /tmp/inventory-transfer-b.log; then
+  echo "The losing warehouse transfer was not rejected specifically for insufficient stock"
+  cat /tmp/inventory-transfer-a.log /tmp/inventory-transfer-b.log
+  exit 1
+fi
+
+"${psql_base[@]}" --command "
+do \\$transfer_race_assert\\$
+declare
+  v_source_qty numeric(14,3);
+  v_source_value numeric(14,2);
+  v_destination_qty numeric(14,3);
+  v_destination_value numeric(14,2);
+  v_transfer_count integer;
+  v_out_count integer;
+  v_in_count integer;
+begin
+  select coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then quantity else -quantity end),0),
+         coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then total_cost_amount else -total_cost_amount end),0)
+    into v_source_qty,v_source_value
+  from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=${source_warehouse_id} and item_id=${transfer_item_id};
+
+  select coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then quantity else -quantity end),0),
+         coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then total_cost_amount else -total_cost_amount end),0)
+    into v_destination_qty,v_destination_value
+  from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=${destination_warehouse_id} and item_id=${transfer_item_id};
+
+  select count(*) into v_transfer_count from public.inventory_stock_transfers
+  where tenant_id=10 and item_id=${transfer_item_id}
+    and operation_key in ('inventory-concurrency:transfer-a','inventory-concurrency:transfer-b');
+  select count(*) into v_out_count from public.inventory_stock_movements
+  where tenant_id=10 and item_id=${transfer_item_id} and operation_key in (
+    'trf:inventory-concurrency:transfer-a:out','trf:inventory-concurrency:transfer-b:out');
+  select count(*) into v_in_count from public.inventory_stock_movements
+  where tenant_id=10 and item_id=${transfer_item_id} and operation_key in (
+    'trf:inventory-concurrency:transfer-a:in','trf:inventory-concurrency:transfer-b:in');
+
+  if v_source_qty<>1 or v_source_value<>3.33 or v_destination_qty<>2 or v_destination_value<>6.67 then
+    raise exception 'CONCURRENT_TRANSFER_BALANCE_RECONCILIATION_FAILED source=(%,%) destination=(%,%)',
+      v_source_qty,v_source_value,v_destination_qty,v_destination_value;
+  end if;
+  if v_transfer_count<>1 or v_out_count<>1 or v_in_count<>1 then
+    raise exception 'CONCURRENT_TRANSFER_DUPLICATE_OR_PARTIAL_WRITES transfer=% out=% in=%',
+      v_transfer_count,v_out_count,v_in_count;
+  end if;
+  if v_source_value+v_destination_value<>10.00 then
+    raise exception 'CONCURRENT_TRANSFER_COST_NOT_CONSERVED source=% destination=%',v_source_value,v_destination_value;
+  end if;
+end;
+\\$transfer_race_assert\\$;
+"
+
+echo "Inventory issue/transfer concurrency, idempotency, stock-value reconciliation, and transfer linkage checks passed."
