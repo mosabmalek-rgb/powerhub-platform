@@ -155,6 +155,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021113032_powerhub_inventory_opening_balance_hardening.sql
 \ir ../migrations/20261021134343_powerhub_supplier_returns_integrated.sql
 \ir ../migrations/20261021140313_powerhub_supplier_return_refund_precision_guard.sql
+\ir ../migrations/20261021141600_powerhub_supplier_return_fk_indexes.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -1129,7 +1130,12 @@ begin
     ('supplier_payments_tenant_account_idx'),
     ('supplier_purchase_receipts_tenant_site_idx'),
     ('supplier_purchase_receipt_lines_tenant_purchase_line_idx'),
-    ('supplier_purchases_tenant_warehouse_idx')
+    ('supplier_purchases_tenant_warehouse_idx'),
+    ('supplier_purchase_return_lines_tenant_purchase_line_idx'),
+    ('supplier_purchase_returns_tenant_site_date_idx'),
+    ('supplier_purchase_returns_tenant_warehouse_date_idx'),
+    ('supplier_purchase_returns_tenant_refund_account_idx'),
+    ('supplier_purchase_returns_returned_by_user_idx')
   ) required(index_name)
   where not exists (
     select 1 from pg_indexes i
