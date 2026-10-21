@@ -156,6 +156,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021134343_powerhub_supplier_returns_integrated.sql
 \ir ../migrations/20261021140313_powerhub_supplier_return_refund_precision_guard.sql
 \ir ../migrations/20261021141600_powerhub_supplier_return_fk_indexes.sql
+\ir ../migrations/20261021170000_powerhub_inventory_receipt_cost_reconciliation.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -735,6 +736,110 @@ $purchase_workflow_assertions$;
 reset role;
 drop trigger fail_purchase_receipt_audit_for_test on public.audit_logs;
 drop function public.fail_purchase_receipt_audit_for_test();
+
+-- Batch 2: cumulative cent allocation must make partial receipt costs equal the invoice line total.
+set role service_role;
+do $receipt_cost_allocation_assertions$
+declare
+  v_supplier_id bigint;
+  v_warehouse_id bigint;
+  v_item_id bigint;
+  v_purchase_id bigint;
+  v_purchase_line_id bigint;
+  v_purchase_status text;
+  v_replayed boolean;
+  v_receipt_id bigint;
+  v_movement_cost numeric(14,2);
+  v_total_cost numeric(14,2);
+  v_line_total numeric(14,2);
+  v_receipt_count integer;
+begin
+  select id into v_supplier_id from public.suppliers
+    where tenant_id=10 and supplier_code='PUR-WF-SUP';
+  select id into v_warehouse_id from public.inventory_warehouses
+    where tenant_id=10 and site_id=100 and code='PUR-WF-MAIN';
+  select id into v_item_id from public.inventory_items
+    where tenant_id=10 and sku='PUR-WF-ITEM-01';
+  if v_supplier_id is null or v_warehouse_id is null or v_item_id is null then
+    raise exception 'RECEIPT_COST_FIXTURE_LOOKUP_FAILED';
+  end if;
+
+  select purchase_id,total_amount,replayed
+  into v_purchase_id,v_line_total,v_replayed
+  from public.powerhub_inventory_create_purchase(
+    10,100,1,v_supplier_id,v_warehouse_id,'INV-COST-ROUNDING-001',current_date,null,30,
+    'COST-ROUNDING-REF',null,'purchase-workflow:cost-rounding:create',
+    jsonb_build_array(jsonb_build_object(
+      'item_id',v_item_id,'quantity',3,'unit','liter','units_to_base_factor',1,
+      'unit_price',3.3333,'discount_amount',0,'tax_amount',0
+    ))
+  );
+  if v_purchase_id is null or v_replayed or v_line_total<>10.00 then
+    raise exception 'RECEIPT_COST_FIXTURE_CREATE_FAILED purchase=% total=% replayed=%',
+      v_purchase_id,v_line_total,v_replayed;
+  end if;
+  select id into v_purchase_line_id from public.supplier_purchase_lines
+    where tenant_id=10 and purchase_id=v_purchase_id;
+  if v_purchase_line_id is null then raise exception 'RECEIPT_COST_FIXTURE_LINE_MISSING'; end if;
+
+  perform * from public.powerhub_inventory_confirm_purchase(10,100,1,v_purchase_id);
+
+  select receipt_id,purchase_status,replayed into v_receipt_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_receive_purchase(
+    10,100,1,v_purchase_id,current_date,'purchase-workflow:cost-rounding:receipt-1','first cent allocation',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1))
+  );
+  select total_cost_amount into v_movement_cost from public.inventory_stock_movements
+    where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt';
+  if v_movement_cost<>3.33 or v_purchase_status<>'partially_received' or v_replayed then
+    raise exception 'FIRST_RECEIPT_COST_ALLOCATION_FAILED cost=% status=% replayed=%',
+      v_movement_cost,v_purchase_status,v_replayed;
+  end if;
+
+  select receipt_id,purchase_status,replayed into v_receipt_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_receive_purchase(
+    10,100,1,v_purchase_id,current_date,'purchase-workflow:cost-rounding:receipt-2','second cent allocation',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1))
+  );
+  select total_cost_amount into v_movement_cost from public.inventory_stock_movements
+    where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt'
+    order by id desc limit 1;
+  if v_movement_cost<>3.34 or v_purchase_status<>'partially_received' or v_replayed then
+    raise exception 'SECOND_RECEIPT_COST_ALLOCATION_FAILED cost=% status=% replayed=%',
+      v_movement_cost,v_purchase_status,v_replayed;
+  end if;
+
+  select receipt_id,purchase_status,replayed into v_receipt_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_receive_purchase(
+    10,100,1,v_purchase_id,current_date,'purchase-workflow:cost-rounding:receipt-3','final cent allocation',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1))
+  );
+  select coalesce(sum(total_cost_amount),0)::numeric(14,2),count(*)::integer
+  into v_total_cost,v_receipt_count
+  from public.inventory_stock_movements
+  where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt';
+  if v_total_cost<>v_line_total or v_receipt_count<>3 or v_purchase_status<>'received' or v_replayed then
+    raise exception 'FINAL_RECEIPT_COST_NOT_RECONCILED expected=% actual=% movements=% status=% replayed=%',
+      v_line_total,v_total_cost,v_receipt_count,v_purchase_status,v_replayed;
+  end if;
+
+  select receipt_id,purchase_status,replayed into v_receipt_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_receive_purchase(
+    10,100,1,v_purchase_id,current_date,'purchase-workflow:cost-rounding:receipt-3','final cent allocation',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1))
+  );
+  select count(*) into v_receipt_count from public.inventory_stock_movements
+    where tenant_id=10 and purchase_line_id=v_purchase_line_id and movement_type='purchase_receipt';
+  if not v_replayed or v_receipt_count<>3 then
+    raise exception 'RECEIPT_COST_REPLAY_CREATED_DUPLICATE_MOVEMENT';
+  end if;
+
+  if has_column_privilege('authenticated','public.inventory_stock_movements','total_cost_amount','INSERT') then
+    raise exception 'AUTHENTICATED_CAN_INSERT_INVENTORY_STOCK_MOVEMENT_COST';
+  end if;
+end;
+$receipt_cost_allocation_assertions$;
+reset role;
 
 set role authenticated;
 do $purchase_rls_assertions$
