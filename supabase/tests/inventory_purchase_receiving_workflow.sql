@@ -1780,7 +1780,7 @@ declare
  v_count integer; v_count_after integer; v_replayed boolean; v_can_edit boolean;
 begin
  select id into v_item from public.inventory_items where tenant_id=10 and sku='EDIT-01';
- select id into v_wh from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='MAIN';
+ select id into v_wh from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='PUR-WF-MAIN';
  if v_item is null or v_wh is null then raise exception 'STOCK_CORRECTION_FIXTURE_LOOKUP_FAILED'; end if;
  select movement_id into v_old from public.powerhub_inventory_record_stock_movement(
   10,100,2,v_wh,v_item,'adjustment_in',4,3.3,null,'EDIT-OLDER','older movement','stock-correction:seed:older');
