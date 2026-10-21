@@ -122,8 +122,6 @@ end;
 $rls$;
 
 grant usage,select on sequence public.supplier_purchase_return_number_seq to service_role;
-create unique index if not exists account_transactions_tenant_id_id_unique_idx
-  on public.account_transactions(tenant_id,id);
 
 create or replace function public.powerhub_inventory_return_to_supplier(
   p_tenant_id bigint,

@@ -31,6 +31,7 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain("InventoryStockOperationsPanel");
     expect(page).toContain('permissions.includes("issueInventory")');
     expect(page).toContain('permissions.includes("adjustInventory")');
+    expect(page).toContain("const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments || canAdjustInventory;");
     expect(page).toContain('permissions.includes("manageFuelAndConsumption")');
     expect(page).toContain("overflow-x-auto");
     expect(page).toContain('supplierAccess.data?.permissions.includes("viewSuppliers")');

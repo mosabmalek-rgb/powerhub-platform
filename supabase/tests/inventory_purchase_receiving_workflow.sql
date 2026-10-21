@@ -1179,6 +1179,11 @@ declare
   v_cash_entries integer;
   v_audits integer;
   v_expected_credit numeric(14,2);
+  v_expected_stock_delta numeric(14,3);
+  v_expected_no_refund_credit numeric(14,2);
+  v_full_refund_amount numeric(14,2);
+  v_account_balance_before numeric(14,2);
+  v_account_balance_after numeric(14,2);
   v_before_returns integer;
   v_before_return_lines integer;
   v_before_return_movements integer;
@@ -1205,6 +1210,76 @@ begin
     select warehouse_id from public.supplier_purchases where tenant_id=10 and id=v_purchase_id
   ) and m.item_id=(select item_id from public.supplier_purchase_lines where tenant_id=10 and id=v_line1);
 
+  select ca.opening_balance + coalesce((
+    select sum(case when atx.transaction_type in ('deposit','transfer_in','collection')
+      then atx.amount else -atx.amount end)
+    from public.account_transactions atx
+    where atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  ),0)::numeric(14,2)
+  into v_account_balance_before
+  from public.company_accounts ca
+  where ca.tenant_id=10 and ca.id=1000;
+
+  -- A company account explicitly linked to another branch cannot receive this refund.
+  begin
+    perform * from public.powerhub_inventory_return_to_supplier(
+      10,100,2,v_purchase_id,current_date,'supplier-return:workflow-account-out-of-scope',
+      'Damaged packaging',null,
+      jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',1)),1,1001
+    );
+    raise exception 'SUPPLIER_RETURN_ACCEPTED_OUT_OF_SCOPE_REFUND_ACCOUNT';
+  exception when others then
+    if sqlerrm='SUPPLIER_RETURN_ACCEPTED_OUT_OF_SCOPE_REFUND_ACCOUNT' then raise; end if;
+    if sqlerrm not like '%COMPANY_ACCOUNT_OUT_OF_SCOPE%' then raise; end if;
+  end;
+  if exists (select 1 from public.supplier_purchase_returns
+    where tenant_id=10 and operation_key='supplier-return:workflow-account-out-of-scope') then
+    raise exception 'SUPPLIER_RETURN_OUT_OF_SCOPE_ACCOUNT_LEFT_HEADER';
+  end if;
+
+  -- Inactive company accounts cannot receive supplier cash refunds.
+  update public.company_accounts set is_active=false where tenant_id=10 and id=1000;
+  begin
+    perform * from public.powerhub_inventory_return_to_supplier(
+      10,100,2,v_purchase_id,current_date,'supplier-return:workflow-account-inactive',
+      'Damaged packaging',null,
+      jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',1)),1,1000
+    );
+    raise exception 'SUPPLIER_RETURN_ACCEPTED_INACTIVE_REFUND_ACCOUNT';
+  exception when others then
+    if sqlerrm='SUPPLIER_RETURN_ACCEPTED_INACTIVE_REFUND_ACCOUNT' then raise; end if;
+    if sqlerrm not like '%COMPANY_ACCOUNT_INACTIVE%' then
+      update public.company_accounts set is_active=true where tenant_id=10 and id=1000;
+      raise;
+    end if;
+  end;
+  update public.company_accounts set is_active=true where tenant_id=10 and id=1000;
+  if exists (select 1 from public.supplier_purchase_returns
+    where tenant_id=10 and operation_key='supplier-return:workflow-account-inactive') then
+    raise exception 'SUPPLIER_RETURN_INACTIVE_ACCOUNT_LEFT_HEADER';
+  end if;
+
+  -- A locked financial period must reject a return atomically.
+  insert into public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
+  values(10,100,'locked',now()-interval '1 day',now()+interval '1 day');
+  begin
+    perform * from public.powerhub_inventory_return_to_supplier(
+      10,100,2,v_purchase_id,current_date,'supplier-return:workflow-locked-period',
+      'Damaged packaging',null,
+      jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',1)),0,null
+    );
+    raise exception 'SUPPLIER_RETURN_ACCEPTED_IN_LOCKED_PERIOD';
+  exception when others then
+    if sqlerrm='SUPPLIER_RETURN_ACCEPTED_IN_LOCKED_PERIOD' then raise; end if;
+    if sqlerrm not like '%FINANCIAL_PERIOD_LOCKED%' then raise; end if;
+  end;
+  delete from public.financial_settlements
+  where tenant_id=10 and site_id=100 and status='locked';
+  if exists (select 1 from public.supplier_purchase_returns
+    where tenant_id=10 and operation_key='supplier-return:workflow-locked-period') then
+    raise exception 'SUPPLIER_RETURN_LOCKED_PERIOD_LEFT_HEADER';
+  end if;
+
   select return_id,return_number,status,total_credit_amount,stock_cost_amount,refund_amount,
     supplier_credit_remaining,account_balance,replayed
   into v_return_id,v_return_number,v_status,v_credit,v_stock_cost,v_refund,v_remaining,v_account_balance,v_replayed
@@ -1223,7 +1298,7 @@ begin
       (select quantity from public.supplier_purchase_lines where tenant_id=10 and id=v_line2),2);
   if v_return_id is null or v_status<>'posted' or v_replayed
     or v_credit<>v_expected_credit or v_refund<>10 or v_remaining<>v_expected_credit-10
-    or v_account_balance<>470 then
+    or v_account_balance<>v_account_balance_before+10 then
     raise exception 'SUPPLIER_RETURN_POST_FAILED id=% status=% credit=% expected=% refund=% remaining=% balance=% replayed=%',
       v_return_id,v_status,v_credit,v_expected_credit,v_refund,v_remaining,v_account_balance,v_replayed;
   end if;
@@ -1235,7 +1310,16 @@ begin
   where m.tenant_id=10 and m.site_id=100 and m.warehouse_id=(
     select warehouse_id from public.supplier_purchases where tenant_id=10 and id=v_purchase_id
   ) and m.item_id=(select item_id from public.supplier_purchase_lines where tenant_id=10 and id=v_line1);
-  if v_stock_after<>v_stock_before-2 then
+  select coalesce(sum(pl.units_to_base_factor * requested.quantity),0)::numeric(14,3)
+  into v_expected_stock_delta
+  from jsonb_to_recordset(jsonb_build_array(
+    jsonb_build_object('purchase_line_id',v_line1,'quantity',1),
+    jsonb_build_object('purchase_line_id',v_line2,'quantity',1)
+  )) as requested(purchase_line_id bigint,quantity numeric)
+  join public.supplier_purchase_lines pl
+    on pl.tenant_id=10 and pl.id=requested.purchase_line_id
+  where pl.item_id=(select item_id from public.supplier_purchase_lines where tenant_id=10 and id=v_line1);
+  if v_stock_after<>v_stock_before-v_expected_stock_delta then
     raise exception 'SUPPLIER_RETURN_STOCK_BALANCE_MISMATCH before=% after=%',v_stock_before,v_stock_after;
   end if;
 
@@ -1283,7 +1367,7 @@ begin
       jsonb_build_object('purchase_line_id',v_line2,'quantity',1)
     ),10,1000
   );
-  if not v_replayed or v_return_id is null or v_account_balance<>470 then
+  if not v_replayed or v_return_id is null or v_account_balance<>v_account_balance_before+10 then
     raise exception 'SUPPLIER_RETURN_REPLAY_FAILED';
   end if;
   select count(*) into v_movements from public.inventory_stock_movements
@@ -1349,6 +1433,31 @@ begin
     raise exception 'SUPPLIER_RETURN_AUDIT_FAILURE_PARTIALLY_COMMITTED';
   end if;
 
+  -- Expected marginal credit is calculated from this fixture's actual line and prior returns.
+  select round(l.line_total*(coalesce(prior.returned_quantity,0)+1)/l.quantity,2)
+       - round(l.line_total*coalesce(prior.returned_quantity,0)/l.quantity,2)
+  into v_expected_no_refund_credit
+  from public.supplier_purchase_lines l
+  left join (
+    select rl.tenant_id,rl.purchase_line_id,sum(rl.quantity) returned_quantity
+    from public.supplier_purchase_return_lines rl
+    join public.supplier_purchase_returns r
+      on r.tenant_id=rl.tenant_id and r.id=rl.return_id and r.status='posted'
+    where rl.tenant_id=10 and rl.purchase_line_id=v_line1
+    group by rl.tenant_id,rl.purchase_line_id
+  ) prior on prior.tenant_id=l.tenant_id and prior.purchase_line_id=l.id
+  where l.tenant_id=10 and l.id=v_line1;
+
+  select ca.opening_balance + coalesce((
+    select sum(case when atx.transaction_type in ('deposit','transfer_in','collection')
+      then atx.amount else -atx.amount end)
+    from public.account_transactions atx
+    where atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  ),0)::numeric(14,2)
+  into v_account_balance_before
+  from public.company_accounts ca
+  where ca.tenant_id=10 and ca.id=1000;
+
   -- A return with no cash refund reduces the supplier payable by its full value.
   select return_id,status,total_credit_amount,refund_amount,supplier_credit_remaining,replayed
   into v_return_id,v_status,v_credit,v_refund,v_remaining,v_replayed
@@ -1358,7 +1467,7 @@ begin
     jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',1)),0,null
   );
   if v_return_id is null or v_status<>'posted' or v_replayed or v_refund<>0
-    or v_credit<>9.70 or v_remaining<>v_credit then
+    or v_credit<>v_expected_no_refund_credit or v_remaining<>v_credit then
     raise exception 'SUPPLIER_RETURN_NO_REFUND_POST_FAILED';
   end if;
   if not exists (
@@ -1373,6 +1482,80 @@ begin
     where tenant_id=10 and related_supplier_return_id=v_return_id
   ) then
     raise exception 'SUPPLIER_RETURN_NO_REFUND_LEDGER_MISMATCH';
+  end if;
+
+  select ca.opening_balance + coalesce((
+    select sum(case when atx.transaction_type in ('deposit','transfer_in','collection')
+      then atx.amount else -atx.amount end)
+    from public.account_transactions atx
+    where atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  ),0)::numeric(14,2)
+  into v_account_balance_after
+  from public.company_accounts ca
+  where ca.tenant_id=10 and ca.id=1000;
+  if v_account_balance_after<>v_account_balance_before then
+    raise exception 'SUPPLIER_RETURN_WITHOUT_REFUND_CHANGED_ACCOUNT_BALANCE before=% after=%',
+      v_account_balance_before,v_account_balance_after;
+  end if;
+
+  -- A separate return may be fully settled in cash; the full refund is credited once.
+  select round(l.line_total*(coalesce(prior.returned_quantity,0)+1)/l.quantity,2)
+       - round(l.line_total*coalesce(prior.returned_quantity,0)/l.quantity,2)
+  into v_full_refund_amount
+  from public.supplier_purchase_lines l
+  left join (
+    select rl.tenant_id,rl.purchase_line_id,sum(rl.quantity) returned_quantity
+    from public.supplier_purchase_return_lines rl
+    join public.supplier_purchase_returns r
+      on r.tenant_id=rl.tenant_id and r.id=rl.return_id and r.status='posted'
+    where rl.tenant_id=10 and rl.purchase_line_id=v_line2
+    group by rl.tenant_id,rl.purchase_line_id
+  ) prior on prior.tenant_id=l.tenant_id and prior.purchase_line_id=l.id
+  where l.tenant_id=10 and l.id=v_line2;
+  if v_full_refund_amount<=0 then
+    raise exception 'SUPPLIER_RETURN_FULL_REFUND_FIXTURE_INVALID';
+  end if;
+
+  select ca.opening_balance + coalesce((
+    select sum(case when atx.transaction_type in ('deposit','transfer_in','collection')
+      then atx.amount else -atx.amount end)
+    from public.account_transactions atx
+    where atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  ),0)::numeric(14,2)
+  into v_account_balance_before
+  from public.company_accounts ca
+  where ca.tenant_id=10 and ca.id=1000;
+
+  select return_id,status,total_credit_amount,refund_amount,supplier_credit_remaining,account_balance,replayed
+  into v_return_id,v_status,v_credit,v_refund,v_remaining,v_account_balance,v_replayed
+  from public.powerhub_inventory_return_to_supplier(
+    10,100,2,v_purchase_id,current_date,'supplier-return:workflow-full-refund',
+    'Damaged packaging','Supplier refunded the full value of this return',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_line2,'quantity',1)),
+    v_full_refund_amount,1000
+  );
+  if v_return_id is null or v_status<>'posted' or v_replayed
+    or v_credit<>v_full_refund_amount or v_refund<>v_credit or v_remaining<>0
+    or v_account_balance<>v_account_balance_before+v_full_refund_amount then
+    raise exception 'SUPPLIER_RETURN_FULL_REFUND_POST_FAILED';
+  end if;
+  if (select count(*) from public.account_transactions
+      where tenant_id=10 and related_supplier_return_id=v_return_id
+        and transaction_type='deposit' and amount=v_full_refund_amount)<>1
+    or not exists (
+      select 1 from public.supplier_ledger_entries
+      where tenant_id=10 and supplier_return_id=v_return_id and entry_type='supplier_return'
+        and debit_amount=v_credit
+    )
+    or not exists (
+      select 1 from public.supplier_ledger_entries
+      where tenant_id=10 and supplier_return_id=v_return_id and entry_type='credit_note'
+        and credit_amount=v_refund
+    )
+    or (select coalesce(sum(e.credit_amount-e.debit_amount),0)
+        from public.supplier_ledger_entries e
+        where e.tenant_id=10 and e.supplier_return_id=v_return_id)<>0 then
+    raise exception 'SUPPLIER_RETURN_FULL_REFUND_LEDGER_MISMATCH';
   end if;
 
   -- Remove all remaining physical stock, then prove a valid but unavailable

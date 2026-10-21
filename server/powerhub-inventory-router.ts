@@ -499,7 +499,7 @@ export const powerhubInventoryRouter = router({
       if (!purchase || (!access.canViewFinancials && !["confirmed", "partially_received", "received"].includes(purchase.status))) {
         throw new TRPCError({ code: "NOT_FOUND", message: "فاتورة المشتريات غير موجودة في هذا الفرع." });
       }
-      const [lineResult, receiptResult, returnResult, supplierResult, warehouseResult] = await Promise.all([
+      const [lineResult, receiptResult, returnResult, returnCreditResult, supplierResult, warehouseResult] = await Promise.all([
         supabaseAdmin().from("supplier_purchase_lines")
           .select("id,tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,unit_price,discount_amount,tax_amount,line_subtotal,line_total,received_quantity,notes,created_at,updated_at")
           .eq("tenant_id", access.tenantId).eq("purchase_id", input.purchaseId).order("id", { ascending: true }),
