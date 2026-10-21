@@ -3,6 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import InventoryPurchasesPanel from "@/components/InventoryPurchasesPanel";
 import InventoryStockOperationsPanel from "@/components/InventoryStockOperationsPanel";
+import InventoryWarehouseTransferPanel from "@/components/InventoryWarehouseTransferPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -244,6 +245,11 @@ export default function InventoryWorkspacePage() {
             </TabsContent>
 
             {canReadStock ? <TabsContent value="stock" className="space-y-4">
+              <InventoryWarehouseTransferPanel
+                siteId={siteId}
+                isAuthenticated={isAuthenticated}
+                canAdjustInventory={canAdjustInventory}
+              />
               <InventoryStockOperationsPanel
                 siteId={siteId}
                 isAuthenticated={isAuthenticated}
