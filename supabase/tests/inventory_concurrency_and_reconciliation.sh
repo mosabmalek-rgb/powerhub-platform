@@ -188,4 +188,128 @@ end;
 \$transfer_race_assert\$;
 "
 
-echo "Inventory issue/transfer concurrency, idempotency, stock-value reconciliation, and transfer linkage checks passed."
+
+# Race duplicate supplier-return submissions against the same received purchase line.
+purchase_id="$("${psql_base[@]}" --command "select id from public.supplier_purchases where tenant_id=10 and operation_key='purchase-workflow:cost-rounding:create'")"
+purchase_line_id="$("${psql_base[@]}" --command "select id from public.supplier_purchase_lines where tenant_id=10 and purchase_id=${purchase_id} order by id limit 1")"
+warehouse_id="$("${psql_base[@]}" --command "select warehouse_id from public.supplier_purchases where tenant_id=10 and id=${purchase_id}")"
+return_item_id="$("${psql_base[@]}" --command "select item_id from public.supplier_purchase_lines where tenant_id=10 and purchase_id=${purchase_id} and id=${purchase_line_id}")"
+[[ "$purchase_id" =~ ^[0-9]+$ && "$purchase_line_id" =~ ^[0-9]+$ ]] || {
+  echo "Could not resolve received purchase line for concurrent supplier-return test"
+  exit 1
+}
+[[ "$warehouse_id" =~ ^[0-9]+$ && "$return_item_id" =~ ^[0-9]+$ ]] || { echo "Could not resolve supplier-return stock scope"; exit 1; }
+
+# Isolate this race from earlier test cases by seeding one explicit stock unit in the purchase warehouse.
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,${warehouse_id},${return_item_id},'adjustment_in',1,1.00,null,'CONC-RETURN-SEED','isolated supplier-return concurrency stock seed','inventory-concurrency:supplier-return:stock-seed')"
+
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select return_id::text || ':' || replayed::text from public.powerhub_inventory_return_to_supplier(10,100,1,${purchase_id},current_date,'inventory-concurrency:supplier-return:once','Concurrent idempotent supplier return',null,jsonb_build_array(jsonb_build_object('purchase_line_id',${purchase_line_id},'quantity',1)),0,null)" >/tmp/inventory-supplier-return-a.log 2>&1 &
+pid_a=$!
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select return_id::text || ':' || replayed::text from public.powerhub_inventory_return_to_supplier(10,100,1,${purchase_id},current_date,'inventory-concurrency:supplier-return:once','Concurrent idempotent supplier return',null,jsonb_build_array(jsonb_build_object('purchase_line_id',${purchase_line_id},'quantity',1)),0,null)" >/tmp/inventory-supplier-return-b.log 2>&1 &
+pid_b=$!
+wait "$pid_a"
+wait "$pid_b"
+
+result_a="$(tr -d '[:space:]' </tmp/inventory-supplier-return-a.log)"
+result_b="$(tr -d '[:space:]' </tmp/inventory-supplier-return-b.log)"
+return_id_a="${result_a%%:*}"
+return_id_b="${result_b%%:*}"
+if [[ ! "$return_id_a" =~ ^[0-9]+$ || "$return_id_a" != "$return_id_b" ]]; then
+  echo "Concurrent supplier-return calls did not return the same return ID"
+  cat /tmp/inventory-supplier-return-a.log /tmp/inventory-supplier-return-b.log
+  exit 1
+fi
+if ! { [[ "$result_a" == "$return_id_a:false" && "$result_b" == "$return_id_b:true" ]] || [[ "$result_a" == "$return_id_a:true" && "$result_b" == "$return_id_b:false" ]]; }; then
+  echo "Expected one original supplier-return result and one idempotent replay"
+  cat /tmp/inventory-supplier-return-a.log /tmp/inventory-supplier-return-b.log
+  exit 1
+fi
+
+# Final reconciliation across receipt quantities, supplier returns, stock ledger,
+# supplier financial ledger, company-account refunds, and audit entries.
+"${psql_base[@]}" --command "
+do \$inventory_prelaunch_reconciliation\$
+declare
+  v_mismatches integer;
+begin
+  select count(*) into v_mismatches
+  from public.supplier_purchase_lines pl
+  join public.supplier_purchases p on p.tenant_id=pl.tenant_id and p.id=pl.purchase_id
+  where p.tenant_id=10 and p.operation_key like 'purchase-workflow:%'
+    and pl.received_quantity is distinct from coalesce((
+      select sum(rl.quantity)::numeric(14,3)
+      from public.supplier_purchase_receipt_lines rl
+      where rl.tenant_id=pl.tenant_id and rl.purchase_id=pl.purchase_id and rl.purchase_line_id=pl.id
+    ),0)::numeric(14,3);
+  if v_mismatches<>0 then
+    raise exception 'PRELAUNCH_PURCHASE_RECEIPT_QUANTITY_RECONCILIATION_FAILED mismatches=%',v_mismatches;
+  end if;
+
+  select count(*) into v_mismatches
+  from public.supplier_purchase_returns r
+  left join lateral (
+    select count(*)::integer line_count,
+      coalesce(sum(rl.supplier_credit_amount),0)::numeric(14,2) credit_amount,
+      coalesce(sum(rl.stock_cost_amount),0)::numeric(14,2) stock_cost_amount,
+      count(*) filter (where m.id is not null and m.movement_type='supplier_return'
+        and m.purchase_id=rl.purchase_id and m.purchase_line_id=rl.purchase_line_id
+        and m.quantity=rl.base_quantity and m.total_cost_amount=rl.stock_cost_amount)::integer linked_movements
+    from public.supplier_purchase_return_lines rl
+    left join public.inventory_stock_movements m on m.tenant_id=rl.tenant_id and m.id=rl.stock_movement_id
+    where rl.tenant_id=r.tenant_id and rl.return_id=r.id
+  ) lines on true
+  left join lateral (
+    select coalesce(sum(e.debit_amount) filter (where e.entry_type='supplier_return'),0)::numeric(14,2) gross_debit,
+      coalesce(sum(e.credit_amount) filter (where e.entry_type='credit_note'),0)::numeric(14,2) refunds
+    from public.supplier_ledger_entries e
+    where e.tenant_id=r.tenant_id and e.supplier_return_id=r.id
+  ) ledger on true
+  left join lateral (
+    select coalesce(sum(atx.amount) filter (where atx.transaction_type='deposit'),0)::numeric(14,2) refunds
+    from public.account_transactions atx
+    where atx.tenant_id=r.tenant_id and atx.related_supplier_return_id=r.id
+  ) cash on true
+  left join lateral (
+    select count(*)::integer audits
+    from public.audit_logs a
+    where a.tenant_id=r.tenant_id and a.site_id=r.site_id
+      and a.entity_type='supplier_purchase_return' and a.entity_id=r.id::text and a.action='post'
+  ) audit on true
+  where r.tenant_id=10 and r.status='posted'
+    and (
+      lines.line_count=0
+      or r.total_credit_amount is distinct from lines.credit_amount
+      or r.stock_cost_amount is distinct from lines.stock_cost_amount
+      or lines.linked_movements<>lines.line_count
+      or ledger.gross_debit is distinct from r.total_credit_amount
+      or ledger.refunds is distinct from r.refund_amount
+      or cash.refunds is distinct from r.refund_amount
+      or audit.audits<>1
+    );
+  if v_mismatches<>0 then
+    raise exception 'PRELAUNCH_SUPPLIER_RETURN_FINANCIAL_RECONCILIATION_FAILED mismatches=%',v_mismatches;
+  end if;
+
+  if (select count(*) from public.supplier_purchase_returns
+      where tenant_id=10 and operation_key='inventory-concurrency:supplier-return:once')<>1
+     or (select count(*) from public.supplier_purchase_return_lines rl
+         join public.supplier_purchase_returns r on r.tenant_id=rl.tenant_id and r.id=rl.return_id
+         where r.tenant_id=10 and r.operation_key='inventory-concurrency:supplier-return:once')<>1
+     or (select count(*) from public.inventory_stock_movements
+         where tenant_id=10 and operation_key like 'supplier-return:'||
+           (select id::text from public.supplier_purchase_returns where tenant_id=10 and operation_key='inventory-concurrency:supplier-return:once')||':line:%')<>1
+     or (select count(*) from public.supplier_ledger_entries
+         where tenant_id=10 and supplier_return_id=(select id from public.supplier_purchase_returns where tenant_id=10 and operation_key='inventory-concurrency:supplier-return:once')
+           and entry_type='supplier_return')<>1
+     or (select count(*) from public.audit_logs
+         where tenant_id=10 and entity_type='supplier_purchase_return'
+           and entity_id=(select id::text from public.supplier_purchase_returns where tenant_id=10 and operation_key='inventory-concurrency:supplier-return:once')
+           and action='post')<>1 then
+    raise exception 'PRELAUNCH_CONCURRENT_SUPPLIER_RETURN_DUPLICATED_OR_PARTIAL_POSTING';
+  end if;
+end;
+\$inventory_prelaunch_reconciliation\$;
+"
+
+echo "Inventory issue/transfer/supplier-return concurrency and complete pre-release ledger reconciliation checks passed."
+
