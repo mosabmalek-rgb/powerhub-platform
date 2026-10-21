@@ -161,6 +161,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021180000_powerhub_inventory_issue_return_cost_reconciliation.sql
 \ir ../migrations/20261021194100_powerhub_supplier_return_exact_cost_reconciliation.sql
 \ir ../migrations/20261021200000_powerhub_inventory_atomic_warehouse_transfers.sql
+\ir ../migrations/20261021220000_powerhub_inventory_movement_report_paging.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
