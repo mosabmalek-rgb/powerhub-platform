@@ -119,7 +119,7 @@ describe("inventory workspace UI contract", () => {
     expect(reports).toContain("trpc.powerhub.inventory.listStockMovements.useQuery");
     expect(reports).toContain("download");
     expect(reports).toContain("canViewInventoryReports");
-    expect(reports).toContain("belowReorderOnly");
+    expect(reports).toContain("lowOnly");
     expect(reports).toContain("s.replace(/\"/g");
     expect(reports).toContain("canViewInventoryReports");
     expect(router).toContain('permissions.includes("viewInventoryReports")');
