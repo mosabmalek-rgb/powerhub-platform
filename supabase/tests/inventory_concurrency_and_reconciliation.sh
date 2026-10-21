@@ -111,13 +111,13 @@ end;
 
 # Race two warehouse transfers against the same source balance.
 # Seed a separate item with 3 units / $10.00, then try to transfer 2 units twice.
-source_warehouse_id="$(${psql_base[@]}" --command "select id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-SOURCE'")"
-destination_warehouse_id="$(${psql_base[@]}" --command "select id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-DEST'")"
+source_warehouse_id="$("${psql_base[@]}" --command "select id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-SOURCE'")"
+destination_warehouse_id="$("${psql_base[@]}" --command "select id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-DEST'")"
 [[ "$source_warehouse_id" =~ ^[0-9]+$ && "$destination_warehouse_id" =~ ^[0-9]+$ ]] || {
   echo "Could not resolve warehouse transfer race fixtures"
   exit 1
 }
-transfer_item_id="$(${psql_base[@]}" --command "insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id) values (10,'CONC-TRANSFER-01','Concurrent transfer item','other','piece',0,1) returning id")"
+transfer_item_id="$("${psql_base[@]}" --command "insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id) values (10,'CONC-TRANSFER-01','Concurrent transfer item','other','piece',0,1) returning id")"
 [[ "$transfer_item_id" =~ ^[0-9]+$ ]] || { echo "Could not seed transfer race item"; exit 1; }
 PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,${source_warehouse_id},${transfer_item_id},'opening_balance',3,3.3333,10.00,'CONC-TRANSFER-OPEN','transfer concurrency fixture','inventory-concurrency:transfer-opening')" >/tmp/inventory-transfer-open.log 2>&1
 
@@ -141,7 +141,7 @@ if ! grep -q 'INSUFFICIENT_STOCK' /tmp/inventory-transfer-a.log /tmp/inventory-t
 fi
 
 "${psql_base[@]}" --command "
-do \\$transfer_race_assert\\$
+do \$transfer_race_assert\$
 declare
   v_source_qty numeric(14,3);
   v_source_value numeric(14,2);
@@ -185,7 +185,7 @@ begin
     raise exception 'CONCURRENT_TRANSFER_COST_NOT_CONSERVED source=% destination=%',v_source_value,v_destination_value;
   end if;
 end;
-\\$transfer_race_assert\\$;
+\$transfer_race_assert\$;
 "
 
 echo "Inventory issue/transfer concurrency, idempotency, stock-value reconciliation, and transfer linkage checks passed."
