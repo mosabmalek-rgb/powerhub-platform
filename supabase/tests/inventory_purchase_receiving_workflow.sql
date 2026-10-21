@@ -159,6 +159,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021170000_powerhub_inventory_receipt_cost_reconciliation.sql
 \ir ../migrations/20261021171000_powerhub_inventory_movement_correction.sql
 \ir ../migrations/20261021180000_powerhub_inventory_issue_return_cost_reconciliation.sql
+\ir ../migrations/20261021194100_powerhub_supplier_return_exact_cost_reconciliation.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -1766,6 +1767,21 @@ begin
     or not has_table_privilege('service_role','public.supplier_purchase_return_lines','SELECT') then
     raise exception 'SERVICE_ROLE_CANNOT_READ_SUPPLIER_RETURN_DETAILS';
   end if;
+  -- Supplier-return valuation must match the exact append-only stock movement cost.
+  -- Do not derive this from quantity * rounded unit_cost: final depletion may consume the last cent.
+  if exists (
+    select 1
+    from public.supplier_purchase_return_lines rl
+    join public.inventory_stock_movements m
+      on m.tenant_id=rl.tenant_id and m.id=rl.stock_movement_id
+    where rl.tenant_id=10
+      and (rl.stock_cost_amount is distinct from m.total_cost_amount
+        or rl.stock_cost_amount < 0
+        or m.total_cost_amount < 0)
+  ) then
+    raise exception 'SUPPLIER_RETURN_STOCK_COST_MOVEMENT_MISMATCH';
+  end if;
+
 end;
 $supplier_return_assertions$;
 reset role;
