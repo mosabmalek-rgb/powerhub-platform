@@ -116,11 +116,11 @@ as $$
 declare v_id bigint;
 begin
   if not exists (
-    select 1 from public.users
-    where id = p_actor_user_id
-      and role = 'admin'
-      and account_status = 'active'
-      and platform_role in ('platform_owner','platform_admin')
+    select 1 from public.users as actor
+    where actor.id = p_actor_user_id
+      and actor.role = 'admin'
+      and actor.account_status = 'active'
+      and actor.platform_role in ('platform_owner','platform_admin')
   ) then
     raise exception 'PLATFORM_ADMIN_REQUIRED' using errcode='P0001';
   end if;
