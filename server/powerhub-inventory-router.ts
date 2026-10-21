@@ -627,6 +627,7 @@ export const powerhubInventoryRouter = router({
           baseUnit: items.get(Number(line.item_id))?.base_unit ?? null,
         })),
         receipts: receiptResult.data ?? [],
+        returns,
       };
     }),
 
