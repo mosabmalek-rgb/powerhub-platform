@@ -199,7 +199,7 @@ export const powerhubInventoryRouter = router({
       operationKey: z.string().trim().min(1).max(180),
     }).refine((value) =>
       (["adjustment_in", "opening_balance"].includes(value.movementType) || value.unitCost === undefined),
-      { message: "تكلفة الوحدة المدخلة تستخدم فقط عند تسوية زيادة المخزون.", path: ["unitCost"] }
+      { message: "تكلفة الوحدة المدخلة تستخدم فقط عند الرصيد الافتتاحي أو تسوية زيادة المخزون.", path: ["unitCost"] }
     ).refine((value) =>
       (value.movementType !== "opening_balance" || value.unitCost !== undefined),
       { message: "أدخل تكلفة الوحدة للرصيد الافتتاحي.", path: ["unitCost"] }
