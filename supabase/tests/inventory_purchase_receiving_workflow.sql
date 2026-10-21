@@ -126,7 +126,9 @@ create table public.audit_logs (
 );
 
 insert into public.tenants(id,name) values (10,'Tenant A'),(20,'Tenant B');
-insert into public.users(id,name,platform_role,role,account_status) values (1,'Test operator','platform_admin','admin','active');
+insert into public.users(id,name,platform_role,role,account_status)
+values (1,'Test operator','platform_admin','admin','active'),
+       (2,'Tenant operator',null,'user','active');
 insert into public.sites(id,tenant_id) values (100,10),(101,10),(200,20);
 insert into public.staff_profiles(id,user_id,tenant_id,site_id,role,is_active) values (101,1,10,100,'manager',true);
 insert into public.company_accounts(id,tenant_id,name,account_type,opening_balance,is_active)
@@ -146,6 +148,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021130000_powerhub_inventory_atomic_create.sql
 \ir ../migrations/20261021160000_powerhub_inventory_purchase_receiving_workflow.sql
 \ir ../migrations/20261021180000_powerhub_inventory_supplier_payment.sql
+\ir ../migrations/20261021190000_powerhub_inventory_supplier_payment_actor_role_fix.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -542,7 +545,7 @@ begin
   into v_payment_id,v_receipt_id,v_payment_account_id,v_account_transaction_id,
     v_payment_amount,v_payment_paid,v_payment_outstanding,v_account_balance,v_payment_replayed
   from public.powerhub_inventory_record_supplier_payment(
-    10,100,1,v_purchase_id,1000,60,current_date,'PAY-WF-60','first workflow payment',
+    10,100,2,v_purchase_id,1000,60,current_date,'PAY-WF-60','first workflow payment',
     'purchase-workflow:payment-001'
   );
   if v_payment_id is null or v_receipt_id<>v_purchase_id or v_payment_account_id<>1000
@@ -566,11 +569,16 @@ begin
     select 1 from public.audit_logs where tenant_id=10 and site_id=100
       and entity_type='supplier_payment' and entity_id=v_payment_id::text and action='post_payment'
   ) then raise exception 'SUPPLIER_PAYMENT_AUDIT_MISSING'; end if;
+  if not exists (
+    select 1 from public.audit_logs
+    where tenant_id=10 and site_id=100 and entity_type='supplier_payment'
+      and entity_id=v_payment_id::text and action='post_payment' and actor_platform_role is null
+  ) then raise exception 'SUPPLIER_PAYMENT_NULL_PLATFORM_ROLE_AUDIT_FAILED'; end if;
 
   select payment_id,account_transaction_id,paid_amount,outstanding_amount,account_balance,replayed
   into v_receipt_id,v_account_transaction_id,v_payment_paid,v_payment_outstanding,v_account_balance,v_payment_replayed
   from public.powerhub_inventory_record_supplier_payment(
-    10,100,1,v_purchase_id,1000,60,current_date,'PAY-WF-60','first workflow payment',
+    10,100,2,v_purchase_id,1000,60,current_date,'PAY-WF-60','first workflow payment',
     'purchase-workflow:payment-001'
   );
   if v_receipt_id<>v_payment_id or not v_payment_replayed or v_payment_paid<>60
