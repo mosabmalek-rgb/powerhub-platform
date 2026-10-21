@@ -182,7 +182,7 @@ declare
   v_stock_value numeric(14,2);
   v_inventory_unit_cost numeric(14,4);
   v_stock_movement_id bigint;
-  v_account_balance numeric(14,2);
+  v_account_balance numeric(14,2):=0;
   v_line_count integer;
   v_distinct_line_count integer;
   v_item_id bigint;
@@ -467,15 +467,6 @@ begin
       v_return.return_number,v_return.id,p_user_id,v_return.return_date::timestamptz
     );
 
-    insert into public.supplier_ledger_entries(
-      tenant_id,site_id,supplier_id,entry_type,credit_amount,purchase_id,supplier_return_id,
-      entry_key,reference_no,description,occurred_at,created_by_user_id
-    ) values (
-      p_tenant_id,p_site_id,v_purchase.supplier_id,'credit_note',v_refund_amount,
-      v_purchase.id,v_return.id,'supplier-return-refund:'||v_return.id,v_return.return_number,
-      'استرداد نقدي من المورد إلى حساب الشركة — مرتجع '||v_return.return_number,
-      v_return.return_date::timestamptz,p_user_id
-    );
   end if;
 
   if v_refund_amount>0 then
