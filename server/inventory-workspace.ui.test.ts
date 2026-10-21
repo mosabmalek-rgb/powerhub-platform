@@ -85,4 +85,16 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain('"manageFuelAndConsumption"');
   });
 
+  it("shows a supplier ledger statement only to staff with the dedicated capability", () => {
+    const page = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    expect(page).toContain('permissions.includes("viewSupplierLedger")');
+    expect(page).toContain("trpc.powerhub.inventory.supplierLedgerStatement.useQuery");
+    expect(page).toContain("كشف حساب المورد");
+    expect(page).toContain("الرصيد المستحق");
+    expect(router).toContain("powerhub_inventory_supplier_ledger_statement");
+    expect(router).toContain('"viewSupplierLedger"');
+  });
+
+
 });
