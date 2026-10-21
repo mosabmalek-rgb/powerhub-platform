@@ -282,11 +282,14 @@ as $$
           and later.warehouse_id=m.warehouse_id and later.item_id=m.item_id and later.id>m.id)
     ),
     m.source_issue_movement_id,
-    case when m.movement_type='issue' then greatest(
-      m.quantity-coalesce((select sum(r.quantity) from public.inventory_stock_movements r
-        where r.tenant_id=m.tenant_id and r.source_issue_movement_id=m.id
-          and r.movement_type='return_from_issue'),0),0
-    ) else 0::numeric end
+    case when m.movement_type='issue'
+      and not exists(select 1 from public.inventory_stock_movements c
+        where c.tenant_id=m.tenant_id and (c.reversal_of_movement_id=m.id or c.corrects_movement_id=m.id))
+      then greatest(
+        m.quantity-coalesce((select sum(r.quantity) from public.inventory_stock_movements r
+          where r.tenant_id=m.tenant_id and r.source_issue_movement_id=m.id
+            and r.movement_type='return_from_issue'),0),0
+      ) else 0::numeric end
   from public.inventory_stock_movements m
   join public.inventory_items i on i.tenant_id=m.tenant_id and i.id=m.item_id
   join public.inventory_warehouses w on w.tenant_id=m.tenant_id and w.site_id=m.site_id and w.id=m.warehouse_id
