@@ -36,7 +36,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.from).not.toHaveBeenCalled();
   });
 
-  it("requires supplier-ledger visibility before reading supplier data", async () => {
+  it("requires supplier-directory visibility before reading supplier data", async () => {
     state.from.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
@@ -47,7 +47,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
       input: { siteId: 7 },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-    expect(state.access).toHaveBeenCalledWith(22, 7, expect.any(Array), "viewSupplierLedger");
+    expect(state.access).toHaveBeenCalledWith(22, 7, expect.any(Array), "viewSuppliers");
     expect(state.from).not.toHaveBeenCalled();
   });
 

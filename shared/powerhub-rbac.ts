@@ -23,6 +23,7 @@ export type PowerCapability =
   | "manageMessaging"
   | "viewAudit"
   | "viewInventory"
+  | "viewSuppliers"
   | "manageInventoryItems"
   | "manageSuppliers"
   | "createPurchases"
@@ -70,6 +71,7 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   manageMessaging: ["owner"],
   viewAudit: ["owner", "manager", "accountant", "viewer"],
   viewInventory: ["owner", "manager", "accountant", "technician", "viewer"],
+  viewSuppliers: ["owner", "manager", "accountant"],
   manageInventoryItems: ["owner", "manager"],
   manageSuppliers: ["owner", "manager", "accountant"],
   createPurchases: ["owner", "manager", "accountant"],
@@ -100,6 +102,7 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   manageMessaging: "إدارة الإشعارات والقوالب",
   viewAudit: "عرض سجل التدقيق",
   viewInventory: "عرض المخزون",
+  viewSuppliers: "عرض دليل الموردين",
   manageInventoryItems: "إدارة دليل الأصناف والمستودعات",
   manageSuppliers: "إدارة الموردين",
   createPurchases: "إنشاء فواتير المشتريات",

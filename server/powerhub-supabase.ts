@@ -8,7 +8,7 @@ import { isActivePlatformAdmin } from "./platform-admin";
 
 const allCapabilities: PowerCapability[] = [
   "manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs",
-  "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit", "viewInventory", "manageInventoryItems", "manageSuppliers", "createPurchases", "approvePurchases", "receiveInventory", "manageSupplierPayments", "viewSupplierLedger", "issueInventory", "adjustInventory", "manageFuelAndConsumption", "manageMaintenance", "viewInventoryReports",
+  "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit", "viewInventory", "viewSuppliers", "manageInventoryItems", "manageSuppliers", "createPurchases", "approvePurchases", "receiveInventory", "manageSupplierPayments", "viewSupplierLedger", "issueInventory", "adjustInventory", "manageFuelAndConsumption", "manageMaintenance", "viewInventoryReports",
 ];
 
 type SupabaseSite = {

@@ -474,6 +474,7 @@ const policyCapabilities: Array<{ id: PowerCapability; label: string }> = [
   { id: "manageMessaging", label: "المراسلات" },
   { id: "viewAudit", label: "سجل التدقيق" },
   { id: "viewInventory", label: "عرض المخزون" },
+  { id: "viewSuppliers", label: "عرض دليل الموردين" },
   { id: "manageInventoryItems", label: "إدارة دليل الأصناف والمستودعات" },
   { id: "manageSuppliers", label: "إدارة الموردين" },
   { id: "createPurchases", label: "إنشاء فواتير المشتريات" },

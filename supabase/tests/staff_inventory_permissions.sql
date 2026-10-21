@@ -84,23 +84,31 @@ grant select, insert, update, delete on public.users, public.tenants, public.sit
 grant usage, select on all sequences in schema public to service_role;
 
 \ir ../migrations/20261021120000_powerhub_staff_inventory_permissions.sql
+\ir ../migrations/20261021143000_powerhub_supplier_directory_view_permission.sql
 
 set role service_role;
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'manageInventoryItems',true);
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'viewSupplierLedger',false);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'viewSuppliers',true);
+select * from public.powerhub_admin_save_role_policy(1,'manager','viewSuppliers',false);
 reset role;
 
 do $write_assertions$
-declare v_allowed boolean; v_denied boolean; v_audit_count integer;
+declare v_allowed boolean; v_denied boolean; v_supplier_view boolean; v_audit_count integer; v_role_policy boolean;
 begin
   select is_allowed into v_allowed from public.staff_profile_capability_overrides
     where tenant_id=10 and profile_id=101 and capability='manageInventoryItems';
   select is_allowed into v_denied from public.staff_profile_capability_overrides
     where tenant_id=10 and profile_id=101 and capability='viewSupplierLedger';
+  select is_allowed into v_supplier_view from public.staff_profile_capability_overrides
+    where tenant_id=10 and profile_id=101 and capability='viewSuppliers';
+  select is_allowed into v_role_policy from public.platform_role_policies where role='manager' and capability='viewSuppliers';
   select count(*) into v_audit_count from public.staff_profile_permission_audit where tenant_id=10 and profile_id=101;
   if v_allowed is distinct from true then raise exception 'INDIVIDUAL_PERMISSION_GRANT_FAILED'; end if;
   if v_denied is distinct from false then raise exception 'INDIVIDUAL_PERMISSION_DENY_FAILED'; end if;
-  if v_audit_count <> 2 then raise exception 'PERMISSION_AUDIT_COUNT_FAILED expected=2 actual=%',v_audit_count; end if;
+  if v_supplier_view is distinct from true then raise exception 'SUPPLIER_DIRECTORY_PERMISSION_GRANT_FAILED'; end if;
+  if v_role_policy is distinct from false then raise exception 'SUPPLIER_DIRECTORY_ROLE_POLICY_FAILED'; end if;
+  if v_audit_count <> 3 then raise exception 'PERMISSION_AUDIT_COUNT_FAILED expected=3 actual=%',v_audit_count; end if;
 end;
 $write_assertions$;
 
@@ -109,7 +117,7 @@ do $tenant_rls$
 declare v_count integer;
 begin
   select count(*) into v_count from public.staff_profile_capability_overrides;
-  if v_count <> 2 then raise exception 'TENANT_ISOLATION_FAILED expected=2 visible=%',v_count; end if;
+  if v_count <> 3 then raise exception 'TENANT_ISOLATION_FAILED expected=3 visible=%',v_count; end if;
   begin
     insert into public.staff_profile_capability_overrides(tenant_id,profile_id,capability,is_allowed)
     values (10,101,'manageSuppliers',true);

@@ -22,6 +22,7 @@ const capabilitySchema = z.enum([
   "manageMessaging",
   "viewAudit",
   "viewInventory",
+  "viewSuppliers",
   "manageInventoryItems",
   "manageSuppliers",
   "createPurchases",

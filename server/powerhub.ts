@@ -23,6 +23,7 @@ import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReadin
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
+import { powerhubInventoryRouter } from "./powerhub-inventory-router";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
@@ -475,6 +476,8 @@ async function sendPendingInvoiceSmsRuntime(
 
 export const powerhubRouter = router({
   unifiedMessaging: powerhubUnifiedMessagingRouter,
+  // Declared on the canonical router so the public AppRouter retains inventory types.
+  inventory: powerhubInventoryRouter,
   siteBillingPolicy: router({
     get: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       // Read-only policy fields are needed to keep message previews consistent for messaging managers;

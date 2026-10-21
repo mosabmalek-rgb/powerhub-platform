@@ -20,6 +20,7 @@ export async function saveRolePolicy(input: {
     | "manageMessaging"
     | "viewAudit"
     | "viewInventory"
+    | "viewSuppliers"
     | "manageInventoryItems"
     | "manageSuppliers"
     | "createPurchases"
