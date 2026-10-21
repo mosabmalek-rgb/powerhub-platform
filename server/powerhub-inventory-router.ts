@@ -758,7 +758,7 @@ export const powerhubInventoryRouter = router({
     .input(z.object({
       siteId: z.number().int().positive(),
       purchaseId: z.number().int().positive(),
-      returnDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       operationKey: z.string().trim().min(1).max(120),
       reason: z.string().trim().min(3).max(500),
       notes: z.string().trim().max(2000).optional(),
