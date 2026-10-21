@@ -445,12 +445,15 @@ begin
   where r.tenant_id=p_tenant_id and r.id=v_return.id
   returning * into v_return;
 
-  if v_total_credit_amount>0 then
+  -- Only the portion retained as supplier credit reduces the payable ledger.
+  -- The refunded portion is represented by the linked company-account deposit,
+  -- and must not also reduce the amount payable to the supplier.
+  if v_total_credit_amount-v_refund_amount>0 then
     insert into public.supplier_ledger_entries(
       tenant_id,site_id,supplier_id,entry_type,debit_amount,purchase_id,supplier_return_id,
       entry_key,reference_no,description,occurred_at,created_by_user_id
     ) values (
-      p_tenant_id,p_site_id,v_purchase.supplier_id,'supplier_return',v_total_credit_amount,
+      p_tenant_id,p_site_id,v_purchase.supplier_id,'supplier_return',v_total_credit_amount-v_refund_amount,
       v_purchase.id,v_return.id,'supplier-return:'||v_return.id,v_return.return_number,
       'مرتجع للمورد — فاتورة '||v_purchase.purchase_number||' — '||v_reason,
       v_return.return_date::timestamptz,p_user_id
