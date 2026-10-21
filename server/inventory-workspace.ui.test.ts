@@ -89,6 +89,27 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain('"manageFuelAndConsumption"');
   });
 
+  it("wires supplier returns to the stock, supplier ledger, and optional company-account refund workflow", () => {
+    const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const migration = read("supabase/migrations/20261021160000_powerhub_supplier_returns.sql");
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    expect(panel).toContain("trpc.powerhub.inventory.returnToSupplier.useMutation");
+    expect(panel).toContain("سجل مرتجعات المورد");
+    expect(panel).toContain("مرتجع إلى المورد");
+    expect(panel).toContain("المبلغ الذي استردته الشركة نقدًا");
+    expect(panel).toContain("canAdjustInventory");
+    expect(workspace).toContain("canAdjustInventory={canAdjustInventory}");
+    expect(router).toContain("powerhub_inventory_return_to_supplier");
+    expect(router).toContain('"adjustInventory"');
+    expect(router).toContain('"manageSupplierPayments"');
+    expect(migration).toContain("SUPPLIER_RETURN_EXCEEDS_UNRETURNED_RECEIPT");
+    expect(migration).toContain("INSUFFICIENT_STOCK_FOR_SUPPLIER_RETURN");
+    expect(migration).toContain("supplier_return");
+    expect(migration).toContain("related_supplier_return_id");
+    expect(migration).toContain("supplier-return:");
+  });
+
   it("wires supplier ledger, purchase cancellation, and supplier payment reversal as guarded accounting operations", () => {
     const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
     const router = read("server/powerhub-inventory-router.ts");
