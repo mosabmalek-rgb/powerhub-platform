@@ -24,7 +24,7 @@ function mapPurchaseDatabaseError(
     throw new TRPCError({ code: "CONFLICT", message: "يوجد رقم فاتورة أو مفتاح عملية مستخدم مسبقًا." });
   }
   const message = error?.message ?? "";
-  const known: Record<string, { code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND"; message: string }> = {
+  const known: Record<string, { code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND" | "FORBIDDEN"; message: string }> = {
     INVALID_OPERATION_KEY: { code: "BAD_REQUEST", message: "مفتاح العملية غير صالح." },
     INVALID_PURCHASE_LINES: { code: "BAD_REQUEST", message: "تحقق من بنود فاتورة المشتريات والكميات والأسعار." },
     INVALID_RECEIPT_LINES: { code: "BAD_REQUEST", message: "تحقق من كميات الاستلام." },
@@ -40,6 +40,14 @@ function mapPurchaseDatabaseError(
     PURCHASE_STATE_CONFLICT: { code: "CONFLICT", message: "حالة فاتورة المشتريات لا تسمح بهذه العملية." },
     IDEMPOTENCY_KEY_REUSED: { code: "CONFLICT", message: "مفتاح العملية مستخدم بطلب مختلف؛ أنشئ مفتاحًا جديدًا." },
     DUPLICATE_PURCHASE_LINE: { code: "BAD_REQUEST", message: "لا تكرر بند الفاتورة نفسه ضمن طلب الاستلام الواحد." },
+    INVALID_SUPPLIER_PAYMENT_AMOUNT: { code: "BAD_REQUEST", message: "مبلغ دفعة المورد يجب أن يكون موجبًا وبحد أقصى منزلتين عشريتين." },
+    COMPANY_ACCOUNT_NOT_FOUND: { code: "NOT_FOUND", message: "حساب الشركة غير موجود." },
+    COMPANY_ACCOUNT_INACTIVE: { code: "BAD_REQUEST", message: "حساب الشركة غير نشط ولا يمكن الدفع منه." },
+    COMPANY_ACCOUNT_OUT_OF_SCOPE: { code: "FORBIDDEN", message: "حساب الشركة غير متاح لهذا الفرع." },
+    INSUFFICIENT_ACCOUNT_BALANCE: { code: "BAD_REQUEST", message: "رصيد حساب الشركة لا يكفي لهذه الدفعة." },
+    FINANCIAL_PERIOD_LOCKED: { code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تسجيل دفعة المورد." },
+    PURCHASE_BALANCE_EXCEEDED: { code: "CONFLICT", message: "مبلغ الدفعة يتجاوز المتبقي من فاتورة المشتريات." },
+    PURCHASE_NOT_PAYABLE: { code: "CONFLICT", message: "لا يمكن دفع فاتورة مسودة أو ملغاة." },
     PURCHASE_HAS_NO_LINES: { code: "BAD_REQUEST", message: "لا يمكن اعتماد فاتورة بلا بنود." },
     SITE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "الفرع المحدد غير متاح لهذه الشركة." },
   };
@@ -53,11 +61,12 @@ function mapPurchaseDatabaseError(
 
 async function requirePurchaseReadAccess(userId: number, siteId: number) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const canViewFinancials = access.permissions.includes("viewPurchases");
+  const canManageSupplierPayments = access.permissions.includes("manageSupplierPayments");
+  const canViewFinancials = access.permissions.includes("viewPurchases") || canManageSupplierPayments;
   if (!canViewFinancials && !access.permissions.includes("receiveInventory")) {
     throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض المشتريات أو الاستلام." });
   }
-  return { ...access, canViewFinancials };
+  return { ...access, canViewFinancials, canManageSupplierPayments };
 }
 
 const purchaseStatusSchema = z.enum(["draft", "confirmed", "partially_received", "received", "cancelled"]);
@@ -228,6 +237,50 @@ export const powerhubInventoryRouter = router({
       return { suppliers: supplierResult.data ?? [], warehouses: warehouseResult.data ?? [], items: itemResult.data ?? [] };
     }),
 
+  listSupplierPaymentOptions: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      const { data: accountRows, error: accountError } = await supabaseAdmin().from("company_accounts")
+        .select("id,tenant_id,name,account_type,is_active")
+        .eq("tenant_id", access.tenantId).eq("is_active", true)
+        .order("name", { ascending: true }).limit(500);
+      if (accountError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة المتاحة للدفع." });
+      const rows = accountRows ?? [];
+      if (!rows.length) return [];
+      const accountIds = rows.map((account) => Number(account.id));
+      const { data: siteLinks, error: siteLinksError } = await supabaseAdmin().from("company_account_sites")
+        .select("account_id,site_id").eq("tenant_id", access.tenantId).in("account_id", accountIds);
+      if (siteLinksError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ربط الحسابات بالفروع." });
+      const linksByAccount = new Map<number, number[]>();
+      for (const link of siteLinks ?? []) {
+        const id = Number(link.account_id);
+        linksByAccount.set(id, [...(linksByAccount.get(id) ?? []), Number(link.site_id)]);
+      }
+      // No links means a tenant-wide company account. Explicitly linked accounts
+      // are shown only for one of their configured branches.
+      const visible = rows.filter((account) => {
+        const sites = linksByAccount.get(Number(account.id)) ?? [];
+        return sites.length === 0 || sites.includes(input.siteId);
+      });
+      if (!visible.length) return [];
+      const visibleIds = visible.map((account) => Number(account.id));
+      const { data: balances, error: balanceError } = await supabaseAdmin().rpc("powerhub_company_account_balance_rollup", {
+        p_tenant_id: access.tenantId, p_account_ids: visibleIds,
+      });
+      if (balanceError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب الأرصدة الحالية لحسابات الشركة." });
+      const balanceById = new Map<number, number>((balances ?? []).map((row: { account_id: number | string; balance: number | string }) => [
+        Number(row.account_id), Number(row.balance),
+      ]));
+      return visible.map((account) => {
+        const balance = balanceById.get(Number(account.id));
+        if (balance === undefined || !Number.isFinite(balance)) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم يُرجع حساب الشركة رصيدًا صالحًا." });
+        }
+        return { id: Number(account.id), name: account.name, accountType: account.account_type, balance };
+      });
+    }),
+
   listPurchases: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), search: z.string().trim().max(100).optional(), status: purchaseStatusSchema.optional() }))
     .query(async ({ ctx, input }) => {
@@ -303,6 +356,51 @@ export const powerhubInventoryRouter = router({
         : { data: [], error: null };
       if (itemResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء الأصناف." });
       const items = new Map((itemResult.data ?? []).map((item) => [Number(item.id), item]));
+      let payments: Array<{
+        id: number; amount: number; allocated_amount: number; payment_date: string;
+        reference_no: string | null; company_account_id: number; company_account_name: string;
+        account_transaction_id: number | null; posted_at: string | null;
+      }> = [];
+      let paidAmount = 0;
+      if (access.canViewFinancials) {
+        const { data: allocations, error: allocationError } = await supabaseAdmin().from("supplier_payment_allocations")
+          .select("payment_id,amount").eq("tenant_id", access.tenantId).eq("purchase_id", input.purchaseId)
+          .order("id", { ascending: false }).limit(200);
+        if (allocationError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تخصيصات دفعات المورد." });
+        const allocationByPayment = new Map<number, number>();
+        for (const allocation of allocations ?? []) {
+          const id = Number(allocation.payment_id);
+          allocationByPayment.set(id, (allocationByPayment.get(id) ?? 0) + Number(allocation.amount));
+        }
+        const paymentIds = [...allocationByPayment.keys()];
+        if (paymentIds.length) {
+          const { data: paymentRows, error: paymentError } = await supabaseAdmin().from("supplier_payments")
+            .select("id,amount,payment_date,reference_no,company_account_id,account_transaction_id,posted_at,status")
+            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("status", "posted").in("id", paymentIds)
+            .order("payment_date", { ascending: false }).order("id", { ascending: false });
+          if (paymentError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دفعات المورد." });
+          const visiblePayments = paymentRows ?? [];
+          const accountIds = [...new Set(visiblePayments.map((payment) => Number(payment.company_account_id)))];
+          const { data: accountRows, error: accountError } = accountIds.length
+            ? await supabaseAdmin().from("company_accounts").select("id,name")
+              .eq("tenant_id", access.tenantId).in("id", accountIds)
+            : { data: [], error: null };
+          if (accountError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء حسابات دفعات المورد." });
+          const accountNames = new Map((accountRows ?? []).map((account) => [Number(account.id), account.name]));
+          payments = visiblePayments.map((payment) => ({
+            id: Number(payment.id),
+            amount: Number(payment.amount),
+            allocated_amount: allocationByPayment.get(Number(payment.id)) ?? 0,
+            payment_date: payment.payment_date,
+            reference_no: payment.reference_no ?? null,
+            company_account_id: Number(payment.company_account_id),
+            company_account_name: accountNames.get(Number(payment.company_account_id)) ?? "حساب غير متاح",
+            account_transaction_id: payment.account_transaction_id == null ? null : Number(payment.account_transaction_id),
+            posted_at: payment.posted_at ?? null,
+          }));
+          paidAmount = payments.reduce((sum, payment) => sum + payment.allocated_amount, 0);
+        }
+      }
       return {
         purchase: {
           ...purchase,
@@ -310,13 +408,14 @@ export const powerhubInventoryRouter = router({
           supplierCode: supplierResult.data?.supplier_code ?? null,
           warehouseName: warehouseResult.data?.name ?? "مخزن غير متاح",
           canViewFinancials: access.canViewFinancials,
-          ...(access.canViewFinancials ? {} : {
-            supplier_invoice_no: null, due_date: null, subtotal_amount: null, discount_amount: null,
-            tax_amount: null, other_charges_amount: null, total_amount: null, payment_terms_days: null,
-            reference_no: null, notes: null,
+          ...(access.canViewFinancials ? { paidAmount, outstandingAmount: Math.max(0, Number(purchase.total_amount) - paidAmount) } : {
+            supplier_invoice_no: null, due_date: null, subtotal_amount: null, discount_amount: null, tax_amount: null,
+            other_charges_amount: null, total_amount: null, payment_terms_days: null, reference_no: null, notes: null,
+            paidAmount: null, outstandingAmount: null,
           }),
         },
         canViewFinancials: access.canViewFinancials,
+        payments,
         lines: (lineResult.data ?? []).map((line) => ({
           ...line,
           ...(access.canViewFinancials ? {} : {
@@ -373,6 +472,36 @@ export const powerhubInventoryRouter = router({
         p_user_id: ctx.user.id, p_purchase_id: input.purchaseId,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر اعتماد فاتورة المشتريات.");
+      return data[0];
+    }),
+
+  recordSupplierPayment: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      purchaseId: z.number().int().positive(),
+      companyAccountId: z.number().int().positive(),
+      amount: z.number().finite().positive().max(1_000_000_000)
+        .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7, "يجب ألا يزيد مبلغ الدفعة عن منزلتين عشريتين."),
+      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      operationKey: z.string().trim().min(1).max(180),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_supplier_payment", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_purchase_id: input.purchaseId,
+        p_company_account_id: input.companyAccountId,
+        p_amount: input.amount,
+        p_payment_date: input.paymentDate || null,
+        p_reference_no: input.referenceNo || null,
+        p_notes: input.notes || null,
+        p_operation_key: input.operationKey,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل دفعة المورد.");
       return data[0];
     }),
 

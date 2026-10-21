@@ -48,7 +48,9 @@ export default function InventoryWorkspacePage() {
   const canCreatePurchases = supplierAccess.data?.permissions.includes("createPurchases") ?? false;
   const canApprovePurchases = supplierAccess.data?.permissions.includes("approvePurchases") ?? false;
   const canReceiveInventory = supplierAccess.data?.permissions.includes("receiveInventory") ?? false;
-  const canReadPurchases = canViewPurchases || canReceiveInventory;
+  const canManageSupplierPayments = supplierAccess.data?.permissions.includes("manageSupplierPayments") ?? false;
+  const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments;
+  const canViewPurchaseFinancials = canViewPurchases || canManageSupplierPayments;
   const utils = trpc.useUtils();
   const [tab, setTab] = useState("catalog");
   const [itemSearch, setItemSearch] = useState("");
@@ -217,7 +219,8 @@ export default function InventoryWorkspacePage() {
                 siteId={siteId}
                 isAuthenticated={isAuthenticated}
                 canViewPurchases={canReadPurchases}
-                canViewFinancials={canViewPurchases}
+                canViewFinancials={canViewPurchaseFinancials}
+                canManageSupplierPayments={canManageSupplierPayments}
                 canCreatePurchases={canCreatePurchases}
                 canApprovePurchases={canApprovePurchases}
                 canReceiveInventory={canReceiveInventory}

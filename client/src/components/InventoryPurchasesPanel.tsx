@@ -26,10 +26,14 @@ type InventoryPurchasesPanelProps = {
   canCreatePurchases: boolean;
   canApprovePurchases: boolean;
   canReceiveInventory: boolean;
+  canManageSupplierPayments: boolean;
 };
 
 const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground";
 const inputGridClass = "grid gap-1.5 text-sm";
+const accountTypeLabels: Record<string, string> = {
+  cash: "نقدي", jawwal_pay: "جوال باي", palpay: "بال باي", bank_of_palestine: "بنك فلسطين", other: "أخرى",
+};
 const statusLabels: Record<string, string> = {
   draft: "مسودة",
   confirmed: "معتمدة — بانتظار الاستلام",
@@ -99,6 +103,7 @@ export default function InventoryPurchasesPanel({
   canCreatePurchases,
   canApprovePurchases,
   canReceiveInventory,
+  canManageSupplierPayments,
 }: InventoryPurchasesPanelProps) {
   const [search, setSearch] = useState("");
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<number | null>(null);
@@ -118,6 +123,11 @@ export default function InventoryPurchasesPanel({
   const [receiptNotes, setReceiptNotes] = useState("");
 
   const [receiptQuantities, setReceiptQuantities] = useState<Record<number, string>>({});
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [companyAccountId, setCompanyAccountId] = useState("");
+  const [paymentDate, setPaymentDate] = useState(todayForInput);
+  const [paymentReferenceNo, setPaymentReferenceNo] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
 
   const utils = trpc.useUtils();
   const purchases = trpc.powerhub.inventory.listPurchases.useQuery(
@@ -127,6 +137,10 @@ export default function InventoryPurchasesPanel({
   const options = trpc.powerhub.inventory.listPurchaseOptions.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && canCreatePurchases), staleTime: 30_000 },
+  );
+  const paymentOptions = trpc.powerhub.inventory.listSupplierPaymentOptions.useQuery(
+    { siteId },
+    { enabled: Boolean(siteId && isAuthenticated && canManageSupplierPayments), staleTime: 15_000 },
   );
   const details = trpc.powerhub.inventory.getPurchase.useQuery(
     { siteId, purchaseId: selectedPurchaseId ?? 0 },
@@ -147,6 +161,18 @@ export default function InventoryPurchasesPanel({
       setDraftLines((current) => current.map((line) => line.itemId ? line : { ...line, itemId: String(firstItem.id), unit: firstItem.base_unit }));
     }
   }, [options.data]);
+
+  useEffect(() => {
+    const accounts = paymentOptions.data ?? [];
+    if (!accounts.length) return;
+    setCompanyAccountId((current) => accounts.some((account) => String(account.id) === current) ? current : String(accounts[0].id));
+  }, [paymentOptions.data]);
+
+  useEffect(() => {
+    const outstanding = details.data?.purchase.outstandingAmount;
+    if (outstanding === null || outstanding === undefined || !Number.isFinite(Number(outstanding))) return;
+    setPaymentAmount((current) => !current.trim() || Number(current) > Number(outstanding) ? Number(outstanding).toFixed(2) : current);
+  }, [details.data?.purchase.id, details.data?.purchase.paidAmount, details.data?.purchase.outstandingAmount]);
 
   useEffect(() => {
     const lines = details.data?.lines;
@@ -209,6 +235,22 @@ export default function InventoryPurchasesPanel({
     onError: (error) => toast.error(error.message || "تعذر تسجيل الاستلام."),
   });
 
+  const recordSupplierPayment = trpc.powerhub.inventory.recordSupplierPayment.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.replayed ? "تم التحقق من الدفعة السابقة دون خصم مكرر." : `تم تسجيل دفعة المورد بقيمة ${formatAmount(result.amount)}.`);
+      setPaymentReferenceNo("");
+      setPaymentNotes("");
+      setPaymentDate(todayForInput());
+      setPaymentAmount("");
+      clearOperationKey(`powerhub:inventory:${siteId}:purchase:${Number(result.purchase_id)}:payment`);
+      await Promise.all([
+        refreshPurchaseData(Number(result.purchase_id)),
+        utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
+      ]);
+    },
+    onError: (error) => toast.error(error.message || "تعذر تسجيل دفعة المورد."),
+  });
+
   const onCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!supplierId || !warehouseId) {
@@ -250,6 +292,41 @@ export default function InventoryPurchasesPanel({
       notes: purchaseNotes.trim() || undefined,
       operationKey: createOperationKey,
       lines,
+    });
+  };
+
+  const onSupplierPaymentSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedPurchaseId || !details.data) return;
+    const amount = Number(paymentAmount);
+    const outstanding = Number(details.data.purchase.outstandingAmount ?? 0);
+    const account = paymentOptions.data?.find((row) => String(row.id) === companyAccountId);
+    if (!account) {
+      toast.error("اختر حساب شركة نشطًا ومتاحًا لهذا الفرع.");
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) >= 1e-7) {
+      toast.error("أدخل مبلغًا موجبًا وبحد أقصى منزلتين عشريتين.");
+      return;
+    }
+    if (amount > outstanding) {
+      toast.error("مبلغ الدفعة يتجاوز المتبقي من فاتورة المشتريات.");
+      return;
+    }
+    if (amount > Number(account.balance)) {
+      toast.error("رصيد الحساب المحدد لا يكفي لهذه الدفعة.");
+      return;
+    }
+    const storageKey = `powerhub:inventory:${siteId}:purchase:${selectedPurchaseId}:payment`;
+    recordSupplierPayment.mutate({
+      siteId,
+      purchaseId: selectedPurchaseId,
+      companyAccountId: Number(companyAccountId),
+      amount,
+      paymentDate: paymentDate || undefined,
+      referenceNo: paymentReferenceNo.trim() || undefined,
+      notes: paymentNotes.trim() || undefined,
+      operationKey: getOrCreateOperationKey(storageKey, "supplier-payment"),
     });
   };
 
@@ -469,7 +546,7 @@ export default function InventoryPurchasesPanel({
                   <div><p className="text-xs text-muted-foreground">المخزن</p><p className="font-semibold">{details.data.purchase.warehouseName}</p></div>
                   <div><p className="text-xs text-muted-foreground">الحالة</p><p className="font-semibold">{statusLabels[details.data.purchase.status] ?? details.data.purchase.status}</p></div>
                   <div><p className="text-xs text-muted-foreground">تاريخ الفاتورة</p><p>{details.data.purchase.invoice_date}</p></div>
-                  {canViewFinancials ? <><div><p className="text-xs text-muted-foreground">الإجمالي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.total_amount)}</p></div><div><p className="text-xs text-muted-foreground">الاستحقاق</p><p>{details.data.purchase.due_date || "—"}</p></div><div><p className="text-xs text-muted-foreground">المرجع</p><p>{details.data.purchase.reference_no || "—"}</p></div></> : null}
+                  {canViewFinancials ? <><div><p className="text-xs text-muted-foreground">الإجمالي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.total_amount)}</p></div><div><p className="text-xs text-muted-foreground">الاستحقاق</p><p>{details.data.purchase.due_date || "—"}</p></div><div><p className="text-xs text-muted-foreground">المرجع</p><p>{details.data.purchase.reference_no || "—"}</p></div><div><p className="text-xs text-muted-foreground">إجمالي المدفوع</p><p className="font-semibold">{formatAmount(details.data.purchase.paidAmount)}</p></div><div><p className="text-xs text-muted-foreground">المتبقي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.outstandingAmount)}</p></div></> : null}
                 </div>
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full min-w-[850px] text-right text-sm">
@@ -502,6 +579,67 @@ export default function InventoryPurchasesPanel({
                       </table>
                     </div>
                   </div>
+                ) : null}
+
+                {details.data.payments.length ? (
+                  <div className="space-y-2">
+                    <h4 className="font-semibold">سجل دفعات المورد</h4>
+                    <div className="overflow-x-auto rounded-md border">
+                      <table className="w-full min-w-[700px] text-right text-sm">
+                        <thead className="bg-muted/60"><tr>{["تاريخ الدفع","حساب الشركة","المرجع","المبلغ"].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
+                        <tbody>{details.data.payments.map((payment) => <tr key={payment.id} className="border-t">
+                          <td className="p-3">{payment.payment_date}</td>
+                          <td className="p-3">{payment.company_account_name}</td>
+                          <td className="p-3">{payment.reference_no || "—"}</td>
+                          <td className="p-3 font-semibold">{formatAmount(payment.allocated_amount)}</td>
+                        </tr>)}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+
+                {canManageSupplierPayments
+                  && ["confirmed", "partially_received", "received"].includes(details.data.purchase.status)
+                  && Number(details.data.purchase.outstandingAmount ?? 0) > 0 ? (
+                  <form onSubmit={onSupplierPaymentSubmit} className="space-y-3 rounded-md border border-dashed p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div><p className="font-semibold">تسجيل دفعة للمورد</p><p className="text-sm text-muted-foreground">تُسجل الدفعة والسحب من حساب الشركة وتخصيص الفاتورة وقيد المورد في معاملة واحدة.</p></div>
+                      <div className="text-left"><p className="text-xs text-muted-foreground">المتبقي</p><p className="font-bold">{formatAmount(details.data.purchase.outstandingAmount)}</p></div>
+                    </div>
+                    {paymentOptions.isLoading ? <p className="text-sm text-muted-foreground">جارٍ تحميل حسابات الشركة وأرصدتها…</p> : null}
+                    {paymentOptions.error ? <p className="text-sm text-destructive">تعذر تحميل حسابات الشركة: {paymentOptions.error.message}</p> : null}
+                    {!paymentOptions.isLoading && !paymentOptions.error && !paymentOptions.data?.length
+                      ? <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">لا يوجد حساب شركة نشط مرتبط بهذا الفرع أو متاح للشركة بالكامل.</p>
+                      : null}
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <label className={inputGridClass}>حساب الشركة
+                        <select className={selectClass} value={companyAccountId} onChange={(event) => setCompanyAccountId(event.target.value)} required>
+                          <option value="">اختر الحساب</option>
+                          {paymentOptions.data?.map((account) => <option key={account.id} value={account.id}>{account.name} — {accountTypeLabels[account.accountType] ?? account.accountType} — الرصيد {formatAmount(account.balance)}</option>)}
+                        </select>
+                      </label>
+                      <label className={inputGridClass}>مبلغ الدفعة
+                        <Input type="number" min="0.01" max={Math.max(0, Number(details.data.purchase.outstandingAmount ?? 0))} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} required />
+                      </label>
+                      <label className={inputGridClass}>تاريخ الدفع
+                        <Input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} required />
+                      </label>
+                      <label className={inputGridClass}>رقم مرجع الدفع
+                        <Input value={paymentReferenceNo} onChange={(event) => setPaymentReferenceNo(event.target.value)} maxLength={120} />
+                      </label>
+                      <label className={inputGridClass + " sm:col-span-2"}>ملاحظات الدفعة
+                        <Input value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} maxLength={2000} />
+                      </label>
+                    </div>
+                    {companyAccountId && paymentAmount && Number(paymentAmount) > Number(paymentOptions.data?.find((account) => String(account.id) === companyAccountId)?.balance ?? 0)
+                      ? <p className="text-sm text-destructive">المبلغ أكبر من الرصيد الحالي للحساب المحدد.</p> : null}
+                    <div className="flex justify-end">
+                      <Button type="submit" disabled={recordSupplierPayment.isPending || paymentOptions.isLoading || !paymentOptions.data?.length}>
+                        {recordSupplierPayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="ml-2 h-4 w-4" />}
+                        تسجيل الدفعة
+                      </Button>
+                    </div>
+                  </form>
                 ) : null}
 
                 {details.data.purchase.status === "draft" && canApprovePurchases ? (
