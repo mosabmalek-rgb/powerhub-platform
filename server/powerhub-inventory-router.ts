@@ -507,6 +507,7 @@ export const powerhubInventoryRouter = router({
         id: number; amount: number; allocated_amount: number; payment_date: string;
         reference_no: string | null; company_account_id: number; company_account_name: string;
         account_transaction_id: number | null; posted_at: string | null;
+        status: "posted" | "reversed"; reversal_reason: string | null;
       }> = [];
       let paidAmount = 0;
       if (access.canViewFinancials) {
@@ -522,8 +523,8 @@ export const powerhubInventoryRouter = router({
         const paymentIds = [...allocationByPayment.keys()];
         if (paymentIds.length) {
           const { data: paymentRows, error: paymentError } = await supabaseAdmin().from("supplier_payments")
-            .select("id,amount,payment_date,reference_no,company_account_id,account_transaction_id,posted_at,status")
-            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("status", "posted").in("id", paymentIds)
+            .select("id,amount,payment_date,reference_no,company_account_id,account_transaction_id,posted_at,status,reversal_reason")
+            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("id", paymentIds)
             .order("payment_date", { ascending: false }).order("id", { ascending: false });
           if (paymentError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دفعات المورد." });
           const visiblePayments = paymentRows ?? [];
@@ -544,8 +545,11 @@ export const powerhubInventoryRouter = router({
             company_account_name: accountNames.get(Number(payment.company_account_id)) ?? "حساب غير متاح",
             account_transaction_id: payment.account_transaction_id == null ? null : Number(payment.account_transaction_id),
             posted_at: payment.posted_at ?? null,
+            status: payment.status as "posted" | "reversed",
+            reversal_reason: payment.reversal_reason ?? null,
           }));
-          paidAmount = payments.reduce((sum, payment) => sum + payment.allocated_amount, 0);
+          paidAmount = payments.filter((payment) => payment.status === "posted")
+            .reduce((sum, payment) => sum + payment.allocated_amount, 0);
         }
       }
       return {
