@@ -5,6 +5,45 @@ import { requireSupabaseSiteRole, resolveSupabaseSiteAccess } from "./powerhub-s
 import { supabaseAdmin } from "./supabase-admin";
 
 const roles = ["owner", "manager", "accountant", "collector", "technician", "viewer"] as const;
+
+type InventoryStockOverviewRow = {
+  warehouse_id: number;
+  warehouse_code: string;
+  warehouse_name: string;
+  item_id: number;
+  sku: string | null;
+  item_name: string;
+  category: string;
+  base_unit: string;
+  reorder_point: number | string;
+  on_hand_quantity: number | string;
+  stock_value: number | string;
+  average_unit_cost: number | string;
+  below_reorder_point: boolean;
+};
+
+type InventoryStockMovementRow = {
+  movement_id: number;
+  warehouse_id: number;
+  warehouse_code: string;
+  warehouse_name: string;
+  item_id: number;
+  sku: string | null;
+  item_name: string;
+  base_unit: string;
+  generator_id: number | null;
+  movement_type: string;
+  quantity: number | string;
+  unit_cost: number | string;
+  total_cost_amount: number | string;
+  reference_no: string | null;
+  notes: string | null;
+  operation_key: string;
+  occurred_at: string;
+  created_by_user_id: number | null;
+  created_at: string;
+};
+
 const categorySchema = z.enum(["fuel", "oil", "filter", "spare_part", "maintenance_supply", "other"]);
 const unitSchema = z.enum(["liter", "milliliter", "piece", "container", "kg", "gram", "meter", "set", "gallon", "other"]);
 
@@ -111,7 +150,7 @@ export const powerhubInventoryRouter = router({
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أرصدة المخزون." });
       if (access.permissions.includes("viewInventoryReports")) return data ?? [];
-      return (data ?? []).map((row) => {
+      return (data ?? []).map((row: InventoryStockOverviewRow) => {
         const { stock_value: _stockValue, average_unit_cost: _averageUnitCost, ...visible } = row;
         return visible;
       });
@@ -128,7 +167,7 @@ export const powerhubInventoryRouter = router({
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل حركات المخزون." });
       if (access.permissions.includes("viewInventoryReports")) return data ?? [];
-      return (data ?? []).map((row) => {
+      return (data ?? []).map((row: InventoryStockMovementRow) => {
         const { unit_cost: _unitCost, total_cost_amount: _totalCostAmount, ...visible } = row;
         return visible;
       });
