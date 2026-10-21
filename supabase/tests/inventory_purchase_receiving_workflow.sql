@@ -154,6 +154,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021110721_powerhub_inventory_supplier_fk_indexes.sql
 \ir ../migrations/20261021113032_powerhub_inventory_opening_balance_hardening.sql
 \ir ../migrations/20261021134343_powerhub_supplier_returns_integrated.sql
+\ir ../migrations/20261021140000_powerhub_supplier_return_refund_precision_guard.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -1219,6 +1220,23 @@ begin
   into v_account_balance_before
   from public.company_accounts ca
   where ca.tenant_id=10 and ca.id=1000;
+
+  -- Reject more than two decimal places before rounding or writing any rows.
+  begin
+    perform * from public.powerhub_inventory_return_to_supplier(
+      10,100,2,v_purchase_id,current_date,'supplier-return:workflow-invalid-refund-precision',
+      'Damaged packaging',null,
+      jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',1)),1.239,1000
+    );
+    raise exception 'SUPPLIER_RETURN_ACCEPTED_THREE_DECIMAL_REFUND';
+  exception when others then
+    if sqlerrm='SUPPLIER_RETURN_ACCEPTED_THREE_DECIMAL_REFUND' then raise; end if;
+    if sqlerrm not like '%INVALID_SUPPLIER_RETURN_REFUND%' then raise; end if;
+  end;
+  if exists (select 1 from public.supplier_purchase_returns
+    where tenant_id=10 and operation_key='supplier-return:workflow-invalid-refund-precision') then
+    raise exception 'SUPPLIER_RETURN_INVALID_REFUND_LEFT_HEADER';
+  end if;
 
   -- A company account explicitly linked to another branch cannot receive this refund.
   begin

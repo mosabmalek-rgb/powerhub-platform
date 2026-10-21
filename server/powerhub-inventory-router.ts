@@ -804,7 +804,11 @@ export const powerhubInventoryRouter = router({
       operationKey: z.string().trim().min(1).max(120),
       reason: z.string().trim().min(3).max(500),
       notes: z.string().trim().max(2000).optional(),
-      refundAmount: z.number().finite().min(0).max(1_000_000_000).default(0),
+      refundAmount: z.number().finite().min(0).max(1_000_000_000)
+        .refine((amount) => Math.abs(amount * 100 - Math.round(amount * 100)) < 1e-7, {
+          message: "مبلغ الاسترداد النقدي يجب أن يكون بحد أقصى منزلتين عشريتين.",
+        })
+        .default(0),
       refundCompanyAccountId: z.number().int().positive().optional(),
       lines: z.array(z.object({
         purchaseLineId: z.number().int().positive(),

@@ -94,6 +94,7 @@ describe("inventory workspace UI contract", () => {
     const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
     const router = read("server/powerhub-inventory-router.ts");
     const migration = read("supabase/migrations/20261021134343_powerhub_supplier_returns_integrated.sql");
+    const precisionGuardMigration = read("supabase/migrations/20261021140000_powerhub_supplier_return_refund_precision_guard.sql");
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     expect(panel).toContain("trpc.powerhub.inventory.returnToSupplier.useMutation");
     expect(panel).toContain("سجل مرتجعات المورد");
@@ -110,6 +111,8 @@ describe("inventory workspace UI contract", () => {
     expect(migration).toContain("supplier_return");
     expect(migration).toContain("related_supplier_return_id");
     expect(migration).toContain("supplier-return:");
+    expect(precisionGuardMigration).toContain("v_refund_amount numeric:=coalesce(p_refund_amount,0);");
+    expect(precisionGuardMigration).toContain("INVALID_SUPPLIER_RETURN_REFUND");
   });
 
   it("wires supplier ledger, purchase cancellation, and supplier payment reversal as guarded accounting operations", () => {
