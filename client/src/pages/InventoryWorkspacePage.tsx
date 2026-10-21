@@ -264,6 +264,7 @@ export default function InventoryWorkspacePage() {
                 canCreatePurchases={canCreatePurchases}
                 canApprovePurchases={canApprovePurchases}
                 canReceiveInventory={canReceiveInventory}
+                canAdjustInventory={canAdjustInventory}
               />
             </TabsContent> : null}
           </Tabs>
