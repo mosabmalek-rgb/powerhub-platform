@@ -810,6 +810,13 @@ begin
       and entity_type='inventory_stock_movement' and entity_id=v_movement_id::text
       and action='opening_balance'
   ) then raise exception 'OPENING_BALANCE_AUDIT_MISSING'; end if;
+  select on_hand_quantity,stock_value
+    into v_overview_quantity,v_before_value
+  from public.powerhub_inventory_stock_overview(v_tenant_id,v_site_id)
+  where item_id=v_opening_item_id and warehouse_id=v_warehouse_id;
+  if v_overview_quantity<>8 or v_before_value<>34 then
+    raise exception 'OPENING_BALANCE_STOCK_VALUATION_MISMATCH quantity=% value=%',v_overview_quantity,v_before_value;
+  end if;
 
   select
     coalesce(sum(case
