@@ -956,6 +956,9 @@ declare
   v_outstanding numeric(14,2);
   v_cancelled_count integer;
   v_reversal_count integer;
+  v_statement jsonb;
+  v_expected_supplier_balance numeric(14,2);
+  v_expected_entry_count integer;
 begin
   select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='PUR-WF-SUP';
   select id into v_warehouse_id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='PUR-WF-MAIN';
@@ -1040,6 +1043,18 @@ begin
   where tenant_id=10 and supplier_payment_id=v_payment_id and entry_type='reversal'
     and entry_key='supplier-payment-reversal:'||v_payment_id;
   if v_reversal_count<>1 then raise exception 'SUPPLIER_PAYMENT_REVERSAL_DUPLICATED_LEDGER_ENTRY'; end if;
+
+  select coalesce(sum(credit_amount-debit_amount),0)::numeric(14,2),count(*)::integer
+  into v_expected_supplier_balance,v_expected_entry_count
+  from public.supplier_ledger_entries
+  where tenant_id=10 and site_id=100 and supplier_id=v_supplier_id;
+  select public.powerhub_inventory_supplier_ledger_statement(10,100,v_supplier_id,1)
+  into v_statement;
+  if (v_statement->>'balance')::numeric<>v_expected_supplier_balance
+    or (v_statement->>'entry_count')::integer<>v_expected_entry_count
+    or jsonb_array_length(v_statement->'entries')>1 then
+    raise exception 'SUPPLIER_LEDGER_STATEMENT_TOTAL_OR_LIMIT_MISMATCH';
+  end if;
 
   if has_function_privilege('anon','public.powerhub_inventory_cancel_purchase(bigint,bigint,bigint,bigint,text)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_cancel_purchase(bigint,bigint,bigint,bigint,text)','EXECUTE') then
