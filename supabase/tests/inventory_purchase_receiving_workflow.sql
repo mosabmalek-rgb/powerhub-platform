@@ -1138,6 +1138,24 @@ begin
 end;
 $inventory_fk_index_assertions$;
 
+drop trigger if exists powerhub_test_supplier_return_audit_failure on public.audit_logs;
+drop function if exists public.powerhub_test_supplier_return_audit_failure();
+create or replace function public.powerhub_test_supplier_return_audit_failure()
+returns trigger language plpgsql
+as $function$
+begin
+  if new.entity_type='supplier_purchase_return'
+    and new.action='post'
+    and new.metadata->>'operationKey'='supplier-return:workflow:audit-failure' then
+    raise exception 'FORCED_SUPPLIER_RETURN_AUDIT_FAILURE';
+  end if;
+  return new;
+end;
+$function$;
+create trigger powerhub_test_supplier_return_audit_failure
+before insert on public.audit_logs
+for each row execute function public.powerhub_test_supplier_return_audit_failure();
+
 set role service_role;
 do $supplier_return_assertions$
 declare
@@ -1161,6 +1179,13 @@ declare
   v_cash_entries integer;
   v_audits integer;
   v_expected_credit numeric(14,2);
+  v_before_returns integer;
+  v_before_return_lines integer;
+  v_before_return_movements integer;
+  v_before_return_ledger integer;
+  v_before_return_cash integer;
+  v_before_return_audits integer;
+  v_before_return_stock_audits integer;
 begin
   select id into v_purchase_id from public.supplier_purchases
     where tenant_id=10 and operation_key='purchase-workflow:create-001';
@@ -1265,6 +1290,123 @@ begin
   where tenant_id=10 and operation_key like 'supplier-return:'||v_return_id||':%';
   if v_movements<>2 then raise exception 'SUPPLIER_RETURN_REPLAY_DUPLICATED_STOCK'; end if;
 
+  -- Reusing the operation key with a different payload must be rejected.
+  begin
+    perform * from public.powerhub_inventory_return_to_supplier(
+      10,100,2,v_purchase_id,current_date,'supplier-return:workflow-001',
+      'Damaged packaging','changed note',
+      jsonb_build_array(
+        jsonb_build_object('purchase_line_id',v_line1,'quantity',1),
+        jsonb_build_object('purchase_line_id',v_line2,'quantity',1)
+      ),10,1000
+    );
+    raise exception 'SUPPLIER_RETURN_IDEMPOTENCY_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+  exception when others then
+    if sqlerrm='SUPPLIER_RETURN_IDEMPOTENCY_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+    if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+  end;
+
+  -- Force the final return audit to fail. All prior stock, supplier-ledger,
+  -- cash, return header/line and movement-audit writes must roll back together.
+  select count(*) into v_before_returns from public.supplier_purchase_returns
+    where tenant_id=10 and purchase_id=v_purchase_id;
+  select count(*) into v_before_return_lines from public.supplier_purchase_return_lines
+    where tenant_id=10 and purchase_id=v_purchase_id;
+  select count(*) into v_before_return_movements from public.inventory_stock_movements
+    where tenant_id=10 and purchase_id=v_purchase_id and movement_type='supplier_return';
+  select count(*) into v_before_return_ledger from public.supplier_ledger_entries
+    where tenant_id=10 and supplier_return_id is not null;
+  select count(*) into v_before_return_cash from public.account_transactions
+    where tenant_id=10 and related_supplier_return_id is not null;
+  select count(*) into v_before_return_audits from public.audit_logs
+    where tenant_id=10 and entity_type='supplier_purchase_return' and action='post';
+  select count(*) into v_before_return_stock_audits from public.audit_logs
+    where tenant_id=10 and entity_type='inventory_stock_movement' and action='supplier_return';
+
+  begin
+    perform * from public.powerhub_inventory_return_to_supplier(
+      10,100,2,v_purchase_id,current_date,'supplier-return:workflow:audit-failure',
+      'Damaged packaging','atomicity audit test',
+      jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',1)),5,1000
+    );
+    raise exception 'SUPPLIER_RETURN_AUDIT_FAILURE_DID_NOT_ABORT_RETURN';
+  exception when others then
+    if sqlerrm='SUPPLIER_RETURN_AUDIT_FAILURE_DID_NOT_ABORT_RETURN' then raise; end if;
+    if sqlerrm<>'FORCED_SUPPLIER_RETURN_AUDIT_FAILURE' then raise; end if;
+  end;
+  if (select count(*) from public.supplier_purchase_returns
+      where tenant_id=10 and operation_key='supplier-return:workflow:audit-failure')<>0
+    or (select count(*) from public.supplier_purchase_returns where tenant_id=10 and purchase_id=v_purchase_id)<>v_before_returns
+    or (select count(*) from public.supplier_purchase_return_lines where tenant_id=10 and purchase_id=v_purchase_id)<>v_before_return_lines
+    or (select count(*) from public.inventory_stock_movements
+        where tenant_id=10 and purchase_id=v_purchase_id and movement_type='supplier_return')<>v_before_return_movements
+    or (select count(*) from public.supplier_ledger_entries where tenant_id=10 and supplier_return_id is not null)<>v_before_return_ledger
+    or (select count(*) from public.account_transactions where tenant_id=10 and related_supplier_return_id is not null)<>v_before_return_cash
+    or (select count(*) from public.audit_logs
+        where tenant_id=10 and entity_type='supplier_purchase_return' and action='post')<>v_before_return_audits
+    or (select count(*) from public.audit_logs
+        where tenant_id=10 and entity_type='inventory_stock_movement' and action='supplier_return')<>v_before_return_stock_audits then
+    raise exception 'SUPPLIER_RETURN_AUDIT_FAILURE_PARTIALLY_COMMITTED';
+  end if;
+
+  -- A return with no cash refund reduces the supplier payable by its full value.
+  select return_id,status,total_credit_amount,refund_amount,supplier_credit_remaining,replayed
+  into v_return_id,v_status,v_credit,v_refund,v_remaining,v_replayed
+  from public.powerhub_inventory_return_to_supplier(
+    10,100,2,v_purchase_id,current_date,'supplier-return:workflow-no-refund',
+    'Damaged packaging','Apply the credit to the supplier account',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',1)),0,null
+  );
+  if v_return_id is null or v_status<>'posted' or v_replayed or v_refund<>0
+    or v_credit<>9.70 or v_remaining<>v_credit then
+    raise exception 'SUPPLIER_RETURN_NO_REFUND_POST_FAILED';
+  end if;
+  if not exists (
+    select 1 from public.supplier_ledger_entries
+    where tenant_id=10 and supplier_return_id=v_return_id and entry_type='supplier_return'
+      and debit_amount=v_credit
+  ) or exists (
+    select 1 from public.supplier_ledger_entries
+    where tenant_id=10 and supplier_return_id=v_return_id and entry_type='credit_note'
+  ) or exists (
+    select 1 from public.account_transactions
+    where tenant_id=10 and related_supplier_return_id=v_return_id
+  ) then
+    raise exception 'SUPPLIER_RETURN_NO_REFUND_LEDGER_MISMATCH';
+  end if;
+
+  -- Remove all remaining physical stock, then prove a valid but unavailable
+  -- return quantity is rejected by the inventory balance guard, atomically.
+  select on_hand_quantity into v_stock_after
+  from public.powerhub_inventory_stock_overview(10,100)
+  where warehouse_id=(select warehouse_id from public.supplier_purchases where tenant_id=10 and id=v_purchase_id)
+    and item_id=(select item_id from public.supplier_purchase_lines where tenant_id=10 and id=v_line1);
+  if coalesce(v_stock_after,0)<=0 then raise exception 'SUPPLIER_RETURN_STOCK_SHORTAGE_FIXTURE_EMPTY'; end if;
+  perform * from public.powerhub_inventory_record_stock_movement(
+    10,100,2,
+    (select warehouse_id from public.supplier_purchases where tenant_id=10 and id=v_purchase_id),
+    (select item_id from public.supplier_purchase_lines where tenant_id=10 and id=v_line1),
+    'issue',v_stock_after,null,null,'RET-SHORTAGE-SEED','precondition for supplier return stock-shortage test',
+    'supplier-return:workflow:stock-shortage-seed'
+  );
+  begin
+    perform * from public.powerhub_inventory_return_to_supplier(
+      10,100,2,v_purchase_id,current_date,'supplier-return:workflow-stock-shortage',
+      'Damaged packaging',null,
+      jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',1)),0,null
+    );
+    raise exception 'SUPPLIER_RETURN_ALLOWED_NEGATIVE_STOCK';
+  exception when others then
+    if sqlerrm='SUPPLIER_RETURN_ALLOWED_NEGATIVE_STOCK' then raise; end if;
+    if sqlerrm not like '%INSUFFICIENT_STOCK_FOR_SUPPLIER_RETURN%' then raise; end if;
+  end;
+  if exists (select 1 from public.supplier_purchase_returns
+    where tenant_id=10 and operation_key='supplier-return:workflow-stock-shortage')
+    or exists (select 1 from public.inventory_stock_movements
+      where tenant_id=10 and movement_type='supplier_return' and reference_no='RET-SHORTAGE') then
+    raise exception 'SUPPLIER_RETURN_STOCK_SHORTAGE_LEFT_PARTIAL_WRITES';
+  end if;
+
   begin
     perform * from public.powerhub_inventory_return_to_supplier(
       10,100,2,v_purchase_id,current_date,'supplier-return:workflow-overreturn',
@@ -1313,6 +1455,8 @@ begin
 end;
 $supplier_return_assertions$;
 reset role;
+drop trigger if exists powerhub_test_supplier_return_audit_failure on public.audit_logs;
+drop function if exists public.powerhub_test_supplier_return_audit_failure();
 
 select 'inventory purchase receiving, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
