@@ -1221,9 +1221,16 @@ begin
     and operation_key like 'supplier-return:'||v_return_id||':%';
   select count(*) into v_ledger from public.supplier_ledger_entries
   where tenant_id=10 and supplier_return_id=v_return_id and entry_type='supplier_return'
-    and debit_amount=v_expected_credit-10;
+    and debit_amount=v_expected_credit;
   if v_expected_credit<=10 then
     raise exception 'SUPPLIER_RETURN_FIXTURE_CREDIT_TOO_SMALL expected=%',v_expected_credit;
+  end if;
+  if not exists (
+    select 1 from public.supplier_ledger_entries
+    where tenant_id=10 and supplier_return_id=v_return_id and entry_type='credit_note'
+      and credit_amount=10 and entry_key='supplier-return-refund:'||v_return_id
+  ) then
+    raise exception 'SUPPLIER_RETURN_REFUND_LEDGER_ENTRY_MISSING';
   end if;
   select count(*) into v_cash_entries from public.account_transactions
   where tenant_id=10 and related_supplier_return_id=v_return_id and transaction_type='deposit' and amount=10;
@@ -1234,9 +1241,10 @@ begin
     raise exception 'SUPPLIER_RETURN_LINKAGE_FAILED lines=% movements=% ledger=% cash=% audit=%',
       v_return_lines,v_movements,v_ledger,v_cash_entries,v_audits;
   end if;
-  if exists(select 1 from public.supplier_ledger_entries
-    where tenant_id=10 and supplier_return_id=v_return_id and entry_type='credit_note') then
-    raise exception 'SUPPLIER_RETURN_CASH_REFUND_MUST_NOT_OFFSET_SUPPLIER_DEBIT';
+  if (select coalesce(sum(credit_amount-debit_amount),0)
+      from public.supplier_ledger_entries
+      where tenant_id=10 and supplier_return_id=v_return_id) <> -(v_expected_credit-10) then
+    raise exception 'SUPPLIER_RETURN_NET_LEDGER_IMPACT_MISMATCH';
   end if;
 
   select return_id,return_number,status,total_credit_amount,stock_cost_amount,refund_amount,
