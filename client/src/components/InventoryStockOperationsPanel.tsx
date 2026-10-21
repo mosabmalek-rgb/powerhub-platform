@@ -55,6 +55,8 @@ type StockMovementRow = {
   correction_reason?: string | null;
   corrected_by_movement_id?: number | null;
   can_edit?: boolean;
+  source_issue_movement_id?: number | null;
+  returnable_quantity?: number | string;
 };
 
 const movementLabels: Record<MovementType, string> = {
@@ -133,6 +135,12 @@ export default function InventoryStockOperationsPanel({
   const [notes, setNotes] = useState("");
   const [operationKey, setOperationKey] = useState(() => getOrCreateOperationKey(storageKey));
   const [stockSearch, setStockSearch] = useState("");
+  const [returningMovement, setReturningMovement] = useState<StockMovementRow | null>(null);
+  const [returnQuantity, setReturnQuantity] = useState("");
+  const [returnReason, setReturnReason] = useState("");
+  const [returnReferenceNo, setReturnReferenceNo] = useState("");
+  const [returnNotes, setReturnNotes] = useState("");
+  const [returnOperationKey, setReturnOperationKey] = useState("");
   const [editingMovement, setEditingMovement] = useState<StockMovementRow | null>(null);
   const [editQuantity, setEditQuantity] = useState("");
   const [editUnitCost, setEditUnitCost] = useState("");
@@ -210,6 +218,48 @@ export default function InventoryStockOperationsPanel({
     },
     onError: (error) => toast.error(error.message || "تعذر تسجيل حركة المخزون."),
   });
+
+  const returnFromIssue = trpc.powerhub.inventory.returnFromIssue.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.replayed ? "تم التحقق من مرتجع الصرف السابق دون تكرار." :
+        "تمت إعادة " + fmtQty(result.quantity) + " إلى المخزون بالتكلفة الأصلية للصرف.");
+      setReturningMovement(null);
+      setReturnQuantity("");
+      setReturnReason("");
+      setReturnReferenceNo("");
+      setReturnNotes("");
+      setReturnOperationKey("");
+      await refreshStock();
+    },
+    onError: (error) => toast.error(error.message || "تعذر إرجاع الصرف إلى المخزون."),
+  });
+
+  const beginReturnFromIssue = (movement: StockMovementRow) => {
+    if (movement.movement_type !== "issue" || Number(movement.returnable_quantity ?? 0) <= 0) return;
+    setReturningMovement(movement);
+    setReturnQuantity(String(movement.returnable_quantity));
+    setReturnReason("");
+    setReturnReferenceNo(movement.reference_no ?? "");
+    setReturnNotes("");
+    setReturnOperationKey(newOperationKey());
+  };
+
+  const submitReturnFromIssue = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!returningMovement || !returnOperationKey) return;
+    const quantity = Number(returnQuantity);
+    const returnable = Number(returningMovement.returnable_quantity ?? 0);
+    if (!Number.isFinite(quantity) || quantity <= 0 || quantity > returnable ||
+      Math.abs(quantity * 1000 - Math.round(quantity * 1000)) > 1e-7) {
+      toast.error("أدخل كمية صحيحة لا تتجاوز المتبقي القابل للإرجاع: " + fmtQty(returnable)); return;
+    }
+    if (returnReason.trim().length < 3) { toast.error("أدخل سببًا واضحًا للإرجاع."); return; }
+    returnFromIssue.mutate({
+      siteId, sourceIssueMovementId: returningMovement.movement_id, quantity,
+      reason: returnReason.trim(), referenceNo: returnReferenceNo.trim() || undefined,
+      notes: returnNotes.trim() || undefined, operationKey: returnOperationKey,
+    });
+  };
 
   const correctMovement = trpc.powerhub.inventory.correctStockMovement.useMutation({
     onSuccess: async (result) => {
@@ -435,6 +485,38 @@ export default function InventoryStockOperationsPanel({
         </CardContent>
       </Card> : null}
 
+
+      {returningMovement ? <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+          <div><CardTitle>إرجاع صرف إلى المخزون</CardTitle>
+            <p className="text-sm text-muted-foreground">{returningMovement.item_name} — الصرف #{returningMovement.movement_id}; المتبقي للإرجاع {fmtQty(returningMovement.returnable_quantity)} {units[returningMovement.base_unit] ?? returningMovement.base_unit}.</p>
+          </div>
+          <Button type="button" variant="ghost" onClick={() => setReturningMovement(null)}><X className="ml-1 h-4 w-4" /> إلغاء</Button>
+        </CardHeader>
+        <CardContent>
+          <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={submitReturnFromIssue}>
+            <label className={inputClass}>الكمية المراد إرجاعها *
+              <Input type="number" min="0.001" step="0.001" max={Number(returningMovement.returnable_quantity ?? 0)} required value={returnQuantity} onChange={(event) => setReturnQuantity(event.target.value)} />
+            </label>
+            <label className={inputClass}>المرجع (اختياري)
+              <Input maxLength={120} value={returnReferenceNo} onChange={(event) => setReturnReferenceNo(event.target.value)} />
+            </label>
+            <label className={inputClass}>سبب الإرجاع *
+              <Input minLength={3} maxLength={500} required value={returnReason} onChange={(event) => setReturnReason(event.target.value)} placeholder="مثال: إعادة مواد غير مستخدمة" />
+            </label>
+            <label className={inputClass + " md:col-span-2"}>ملاحظات
+              <Input maxLength={2000} value={returnNotes} onChange={(event) => setReturnNotes(event.target.value)} />
+            </label>
+            <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+              تُحسب تكلفة المرتجع من تكلفة الصرف الأصلي وتُوزّع فروق التقريب تراكميًا. لا يمكن تجاوز الكمية المصروفة أو إرجاع الكمية نفسها مرتين.
+            </div>
+            <div><Button type="submit" disabled={returnFromIssue.isPending || !returnOperationKey}>
+              {returnFromIssue.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} تأكيد الإرجاع
+            </Button></div>
+          </form>
+        </CardContent>
+      </Card> : null}
+
       <Card>
         <CardHeader className="flex flex-row items-center gap-2 space-y-0"><ClipboardList className="h-5 w-5" /><CardTitle>آخر الحركات</CardTitle></CardHeader>
         <CardContent>
@@ -457,7 +539,10 @@ export default function InventoryStockOperationsPanel({
                         <td className="p-3">{movement.reference_no || "—"}</td>
                         {canViewInventoryReports ? <td className="p-3 tabular-nums">{fmtMoney(movement.total_cost_amount)}</td> : null}
                         {canAdjustInventory ? <td className="p-3">
-                          {movement.can_edit ? <Button type="button" size="sm" variant="outline" onClick={() => beginEditMovement(movement)}>
+                          {movement.movement_type === "issue" && Number(movement.returnable_quantity ?? 0) > 0 ?
+                            <Button type="button" size="sm" variant="outline" onClick={() => beginReturnFromIssue(movement)}>
+                              إرجاع ({fmtQty(movement.returnable_quantity)})
+                            </Button> : movement.can_edit ? <Button type="button" size="sm" variant="outline" onClick={() => beginEditMovement(movement)}>
                             <Pencil className="ml-1 h-3.5 w-3.5" /> تعديل
                           </Button> : movement.corrects_movement_id ? <span className="text-xs text-muted-foreground">تصحيح #{movement.corrects_movement_id}</span>
                             : movement.reversal_of_movement_id ? <span className="text-xs text-muted-foreground">عكس #{movement.reversal_of_movement_id}</span>
