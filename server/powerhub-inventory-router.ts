@@ -221,8 +221,8 @@ export const powerhubInventoryRouter = router({
       limit: z.number().int().min(1).max(200).default(100),
       beforeOccurredAt: z.string().datetime().optional(),
       beforeMovementId: z.number().int().positive().optional(),
-      fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
-      toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       warehouseId: z.number().int().positive().optional(),
       search: z.string().trim().max(150).optional(),
     }).refine((value) => Boolean(value.beforeOccurredAt) === Boolean(value.beforeMovementId), {
