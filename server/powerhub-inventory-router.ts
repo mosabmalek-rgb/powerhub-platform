@@ -323,6 +323,24 @@ export const powerhubInventoryRouter = router({
       return data[0];
     }),
 
+  supplierLedgerStatement: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      supplierId: z.number().int().positive(),
+      limit: z.number().int().min(1).max(500).default(200),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewSupplierLedger");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_supplier_ledger_statement", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_supplier_id: input.supplierId,
+        p_limit: input.limit,
+      });
+      if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل كشف حساب المورد.");
+      return data;
+    }),
+
   listWarehouses: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), includeInactive: z.boolean().default(false) }))
     .query(async ({ ctx, input }) => {
