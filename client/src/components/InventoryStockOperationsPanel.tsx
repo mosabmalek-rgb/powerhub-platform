@@ -538,15 +538,17 @@ export default function InventoryStockOperationsPanel({
                         <td className="p-3">{movement.generator_id ? (generators.data?.find((item) => item.id === movement.generator_id)?.name ?? "#" + movement.generator_id) : "—"}</td>
                         <td className="p-3">{movement.reference_no || "—"}</td>
                         {canViewInventoryReports ? <td className="p-3 tabular-nums">{fmtMoney(movement.total_cost_amount)}</td> : null}
-                        {canAdjustInventory ? <td className="p-3">
+                        {canAdjustInventory ? <td className="p-3 whitespace-nowrap">
                           {movement.movement_type === "issue" && Number(movement.returnable_quantity ?? 0) > 0 ?
                             <Button type="button" size="sm" variant="outline" onClick={() => beginReturnFromIssue(movement)}>
                               إرجاع ({fmtQty(movement.returnable_quantity)})
-                            </Button> : movement.can_edit ? <Button type="button" size="sm" variant="outline" onClick={() => beginEditMovement(movement)}>
+                            </Button> : null}
+                          {movement.can_edit ? <Button type="button" size="sm" variant="outline" onClick={() => beginEditMovement(movement)}>
                             <Pencil className="ml-1 h-3.5 w-3.5" /> تعديل
                           </Button> : movement.corrects_movement_id ? <span className="text-xs text-muted-foreground">تصحيح #{movement.corrects_movement_id}</span>
                             : movement.reversal_of_movement_id ? <span className="text-xs text-muted-foreground">عكس #{movement.reversal_of_movement_id}</span>
-                              : movement.corrected_by_movement_id ? <span className="text-xs text-muted-foreground">تم تصحيحها</span> : <span className="text-xs text-muted-foreground">—</span>}
+                              : movement.corrected_by_movement_id ? <span className="text-xs text-muted-foreground">تم تصحيحها</span>
+                                : !movement.can_edit && !(movement.movement_type === "issue" && Number(movement.returnable_quantity ?? 0) > 0) ? <span className="text-xs text-muted-foreground">—</span> : null}
                         </td> : null}
                       </tr>
                     ))}</tbody>
