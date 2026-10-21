@@ -280,6 +280,30 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
 
+  it("accepts opening balances only through adjustment permission and forwards explicit cost", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      movement_id: 902, movement_type: "opening_balance", quantity: "8.000",
+      unit_cost: "4.2500", total_cost_amount: "34.00", operation_key: "stock:opening:1", replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordStockMovement;
+    const input = {
+      siteId: 7, warehouseId: 3, itemId: 91, movementType: "opening_balance",
+      quantity: 8, unitCost: 4.25, notes: "رصيد أول المدة بعد الجرد",
+      operationKey: "stock:opening:1",
+    };
+    const result = await mutation._def.resolver({ ctx: { user: { id: 89 } }, input });
+    expect(result).toMatchObject({ movement_id: 902, movement_type: "opening_balance", replayed: false });
+    expect(state.access).toHaveBeenCalledWith(89, 7, expect.any(Array), "adjustInventory");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_record_stock_movement", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 89, p_warehouse_id: 3, p_item_id: 91,
+      p_movement_type: "opening_balance", p_quantity: 8, p_unit_cost: 4.25,
+      p_generator_id: null, p_reference_no: null, p_notes: "رصيد أول المدة بعد الجرد",
+      p_operation_key: "stock:opening:1",
+    });
+  });
+
   it("requires manageFuelAndConsumption before recording fuel use", async () => {
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     state.rpc.mockClear();

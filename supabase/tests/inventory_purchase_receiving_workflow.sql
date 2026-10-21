@@ -152,6 +152,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021101548_powerhub_inventory_stock_operations.sql
 \ir ../migrations/20261021110452_powerhub_inventory_accounting_completion.sql
 \ir ../migrations/20261021110721_powerhub_inventory_supplier_fk_indexes.sql
+\ir ../migrations/20261021113032_powerhub_inventory_opening_balance_hardening.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -754,6 +755,7 @@ set role service_role;
 do $stock_operation_assertions$
 declare
   v_item_id bigint;
+  v_opening_item_id bigint;
   v_tenant_id bigint := 10;
   v_site_id bigint := 100;
   v_warehouse_id bigint := 1;
@@ -774,6 +776,47 @@ begin
   from public.inventory_items
   where tenant_id=v_tenant_id and sku='DSL-01';
   if v_item_id is null then raise exception 'STOCK_ITEM_FIXTURE_MISSING'; end if;
+
+  -- Opening balances are explicit, valued, audited and may be recorded only once per warehouse/item.
+  select id into v_opening_item_id from public.powerhub_inventory_create_item(
+    v_tenant_id,v_site_id,v_user_id,'OPENING-BALANCE-01','Opening balance test item',
+    'other','piece',0,null,'integration test'
+  );
+  select movement_id,replayed into v_movement_id,v_replayed
+  from public.powerhub_inventory_record_stock_movement(
+    v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_opening_item_id,'opening_balance',
+    8,4.25,null,'OPEN-001','opening stock count','stock-workflow:opening-001'
+  );
+  if v_movement_id is null or v_replayed then raise exception 'OPENING_BALANCE_CREATE_FAILED'; end if;
+  select movement_id,replayed into v_replay_id,v_replayed
+  from public.powerhub_inventory_record_stock_movement(
+    v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_opening_item_id,'opening_balance',
+    8,4.25,null,'OPEN-001','opening stock count','stock-workflow:opening-001'
+  );
+  if v_replay_id<>v_movement_id or not v_replayed then raise exception 'OPENING_BALANCE_IDEMPOTENT_REPLAY_FAILED'; end if;
+  begin
+    perform * from public.powerhub_inventory_record_stock_movement(
+      v_tenant_id,v_site_id,v_user_id,v_warehouse_id,v_opening_item_id,'opening_balance',
+      2,4.25,null,'OPEN-002','duplicate opening stock count','stock-workflow:opening-002'
+    );
+    raise exception 'DUPLICATE_OPENING_BALANCE_WAS_ACCEPTED';
+  exception when others then
+    if sqlerrm='DUPLICATE_OPENING_BALANCE_WAS_ACCEPTED' then raise; end if;
+    if sqlerrm not like '%OPENING_BALANCE_ALREADY_EXISTS%' then raise; end if;
+  end;
+  if not exists (
+    select 1 from public.audit_logs
+    where tenant_id=v_tenant_id and site_id=v_site_id
+      and entity_type='inventory_stock_movement' and entity_id=v_movement_id::text
+      and action='opening_balance'
+  ) then raise exception 'OPENING_BALANCE_AUDIT_MISSING'; end if;
+  select on_hand_quantity,stock_value
+    into v_overview_quantity,v_before_value
+  from public.powerhub_inventory_stock_overview(v_tenant_id,v_site_id)
+  where item_id=v_opening_item_id and warehouse_id=v_warehouse_id;
+  if v_overview_quantity<>8 or v_before_value<>34 then
+    raise exception 'OPENING_BALANCE_STOCK_VALUATION_MISMATCH quantity=% value=%',v_overview_quantity,v_before_value;
+  end if;
 
   select
     coalesce(sum(case
