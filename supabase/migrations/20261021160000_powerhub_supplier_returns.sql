@@ -1,6 +1,6 @@
--- Supplier returns: atomic stock reduction, supplier ledger debit, and optional cash refund.
--- A supplier refund is posted as a company-account deposit only when explicitly supplied.
--- Any unrefunded amount remains a debit balance (credit due from supplier) on the supplier ledger.
+-- Supplier returns: atomic stock reduction, gross supplier-ledger debit, and optional cash settlement.
+-- The cash refund is recorded both as a linked supplier-ledger credit and a company-account deposit.
+-- The resulting net supplier-ledger debit equals the amount not refunded in cash.
 
 create sequence if not exists public.supplier_purchase_return_number_seq;
 
