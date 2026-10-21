@@ -82,6 +82,8 @@ function mapPurchaseDatabaseError(
     PURCHASE_CANCELLATION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإلغاء فاتورة المشتريات." },
     SUPPLIER_PAYMENT_NOT_FOUND: { code: "NOT_FOUND", message: "دفعة المورد غير موجودة في هذا الفرع." },
     SUPPLIER_PAYMENT_ALLOCATION_NOT_FOUND: { code: "CONFLICT", message: "لا يوجد تخصيص فاتورة صالح لهذه الدفعة." },
+    SUPPLIER_PAYMENT_ALLOCATION_MISMATCH: { code: "CONFLICT", message: "تخصيص الدفعة لا يطابق فاتورة المورد؛ أوقفنا العكس لحماية الأرصدة." },
+    SUPPLIER_PAYMENT_ORIGINAL_TRANSACTION_MISMATCH: { code: "CONFLICT", message: "تعذر مطابقة حركة السحب الأصلية في حساب الشركة؛ لم يُسجل أي عكس." },
     SUPPLIER_PAYMENT_REVERSAL_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لعكس دفعة المورد." },
     IDEMPOTENCY_KEY_REUSED: { code: "CONFLICT", message: "مفتاح العملية مستخدم بطلب مختلف؛ أنشئ مفتاحًا جديدًا." },
     DUPLICATE_PURCHASE_LINE: { code: "BAD_REQUEST", message: "لا تكرر بند الفاتورة نفسه ضمن طلب الاستلام الواحد." },
