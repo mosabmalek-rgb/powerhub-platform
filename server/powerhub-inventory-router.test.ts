@@ -450,6 +450,42 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
 
+
+  it("requires stock-adjustment permission before returning issued stock", async () => {
+    state.rpc.mockClear();
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnFromIssue;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 96 } },
+      input: { siteId: 7, sourceIssueMovementId: 51, quantity: 1, reason: "unused stock returned", operationKey: "issue-return:test:1" },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(96, 7, expect.any(Array), "adjustInventory");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("forwards issue returns to the atomic RPC using the authorized tenant", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      return_movement_id: 61, source_issue_movement_id: 51, quantity: "1.000",
+      unit_cost: "3.3300", total_cost_amount: "3.33", on_hand_quantity: "4.000",
+      stock_value: "13.33", replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnFromIssue;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 96 } },
+      input: { siteId: 7, sourceIssueMovementId: 51, quantity: 1, reason: "unused stock returned",
+        referenceNo: "RET-51", notes: "sealed item", operationKey: "issue-return:test:1" },
+    });
+    expect(result).toMatchObject({ return_movement_id: 61, source_issue_movement_id: 51, total_cost_amount: "3.33" });
+    expect(state.access).toHaveBeenCalledWith(96, 7, expect.any(Array), "adjustInventory");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_return_from_issue", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 96, p_source_issue_movement_id: 51,
+      p_quantity: 1, p_reason: "unused stock returned", p_reference_no: "RET-51",
+      p_notes: "sealed item", p_operation_key: "issue-return:test:1",
+    });
+  });
   it("scopes supplier ledger statement to the authorized tenant and branch", async () => {
     state.access.mockReset().mockResolvedValue({ tenantId: 44 });
     state.rpc.mockReset().mockResolvedValue({ data: {

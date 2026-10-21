@@ -296,6 +296,9 @@ $$;
 
 
 
+revoke all on function public.powerhub_inventory_list_stock_movements(bigint,bigint,integer) from public,anon,authenticated;
+grant execute on function public.powerhub_inventory_list_stock_movements(bigint,bigint,integer) to service_role;
+
 create or replace function public.powerhub_inventory_return_from_issue(
   p_tenant_id bigint,
   p_site_id bigint,
@@ -385,7 +388,11 @@ begin
     or v_source.purchase_line_id is not null or v_source.reversal_of_movement_id is not null then
     raise exception 'STOCK_MOVEMENT_NOT_RETURNABLE' using errcode='P0001';
   end if;
-  if v_source.quantity<=0 or v_source.total_cost_amount<0 then
+  if v_source.quantity<=0 or v_source.total_cost_amount<0
+    or exists(select 1 from public.inventory_stock_movements c
+      where c.tenant_id=p_tenant_id and c.reversal_of_movement_id=v_source.id)
+    or exists(select 1 from public.inventory_stock_movements c
+      where c.tenant_id=p_tenant_id and c.corrects_movement_id=v_source.id) then
     raise exception 'STOCK_MOVEMENT_NOT_RETURNABLE' using errcode='P0001';
   end if;
   if not exists(select 1 from public.inventory_warehouses w
