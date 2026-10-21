@@ -201,7 +201,7 @@ return_item_id="$("${psql_base[@]}" --command "select item_id from public.suppli
 [[ "$warehouse_id" =~ ^[0-9]+$ && "$return_item_id" =~ ^[0-9]+$ ]] || { echo "Could not resolve supplier-return stock scope"; exit 1; }
 
 # Isolate this race from earlier test cases by seeding one explicit stock unit in the purchase warehouse.
-PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,${warehouse_id},${return_item_id},'opening_balance',1,1.00,null,'CONC-RETURN-OPEN','isolated supplier-return concurrency stock seed','inventory-concurrency:supplier-return:stock-seed')"
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,${warehouse_id},${return_item_id},'adjustment_in',1,1.00,null,'CONC-RETURN-SEED','isolated supplier-return concurrency stock seed','inventory-concurrency:supplier-return:stock-seed')"
 
 PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select return_id::text || ':' || replayed::text from public.powerhub_inventory_return_to_supplier(10,100,1,${purchase_id},current_date,'inventory-concurrency:supplier-return:once','Concurrent idempotent supplier return',null,jsonb_build_array(jsonb_build_object('purchase_line_id',${purchase_line_id},'quantity',1)),0,null)" >/tmp/inventory-supplier-return-a.log 2>&1 &
 pid_a=$!
