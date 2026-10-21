@@ -509,13 +509,16 @@ export const powerhubInventoryRouter = router({
         supabaseAdmin().from("supplier_purchase_returns")
           .select("id,return_number,return_date,status,reason,notes,total_credit_amount,stock_cost_amount,refund_amount,refund_company_account_id,returned_at,operation_key")
           .eq("tenant_id", access.tenantId).eq("purchase_id", input.purchaseId).order("id", { ascending: false }).limit(100),
+        supabaseAdmin().rpc("powerhub_inventory_purchase_supplier_return_credit", {
+          p_tenant_id: access.tenantId, p_purchase_id: input.purchaseId,
+        }),
         supabaseAdmin().from("suppliers").select("id,name,supplier_code")
           .eq("tenant_id", access.tenantId).eq("id", purchase.supplier_id).maybeSingle(),
         supabaseAdmin().from("inventory_warehouses").select("id,name,code")
           .eq("tenant_id", access.tenantId).eq("id", purchase.warehouse_id).maybeSingle(),
       ]);
-      if (lineResult.error || receiptResult.error || returnResult.error || supplierResult.error || warehouseResult.error) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل البنود والاستلام والمرتجعات." });
+      if (lineResult.error || receiptResult.error || returnResult.error || supplierResult.error || warehouseResult.error || returnCreditResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل البنود والاستلام والمرتجعات وأثرها على المستحق." });
       }
       const itemIds = [...new Set((lineResult.data ?? []).map((line) => Number(line.item_id)))];
       const itemResult = itemIds.length
@@ -553,6 +556,9 @@ export const powerhubInventoryRouter = router({
         }),
         lines: returnLinesByReturn.get(Number(row.id)) ?? [],
       }));
+      const supplierReturnCreditAmount = access.canViewFinancials
+        ? Number(returnCreditResult.data ?? 0)
+        : null;
 
       let payments: Array<{
         id: number; amount: number; allocated_amount: number; payment_date: string;
@@ -610,10 +616,14 @@ export const powerhubInventoryRouter = router({
           supplierCode: supplierResult.data?.supplier_code ?? null,
           warehouseName: warehouseResult.data?.name ?? "مخزن غير متاح",
           canViewFinancials: access.canViewFinancials,
-          ...(access.canViewFinancials ? { paidAmount, outstandingAmount: Math.max(0, Number(purchase.total_amount) - paidAmount) } : {
+          ...(access.canViewFinancials ? {
+            paidAmount,
+            supplierReturnCreditAmount,
+            outstandingAmount: Math.max(0, Number(purchase.total_amount) - paidAmount - Number(supplierReturnCreditAmount ?? 0)),
+          } : {
             supplier_invoice_no: null, due_date: null, subtotal_amount: null, discount_amount: null, tax_amount: null,
             other_charges_amount: null, total_amount: null, payment_terms_days: null, reference_no: null, notes: null,
-            paidAmount: null, outstandingAmount: null,
+            paidAmount: null, supplierReturnCreditAmount: null, outstandingAmount: null,
           }),
         },
         canViewFinancials: access.canViewFinancials,
