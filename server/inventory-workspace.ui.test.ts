@@ -27,6 +27,11 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain('TabsTrigger value="catalog"');
     expect(page).toContain('TabsTrigger value="suppliers"');
     expect(page).toContain('TabsTrigger value="warehouses"');
+    expect(page).toContain('TabsTrigger value="stock"');
+    expect(page).toContain("InventoryStockOperationsPanel");
+    expect(page).toContain('permissions.includes("issueInventory")');
+    expect(page).toContain('permissions.includes("adjustInventory")');
+    expect(page).toContain('permissions.includes("manageFuelAndConsumption")');
     expect(page).toContain("overflow-x-auto");
     expect(page).toContain('supplierAccess.data?.permissions.includes("viewSuppliers")');
     expect(page).toContain("canViewSuppliers ? <TabsTrigger value=\"suppliers\"");
@@ -63,6 +68,21 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain('"createPurchases"');
     expect(router).toContain('"approvePurchases"');
     expect(router).toContain('"receiveInventory"');
+  });
+
+  it("wires stock balances, movements, issue, adjustment and fuel usage to guarded RPCs", () => {
+    const panel = read("client/src/components/InventoryStockOperationsPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    expect(panel).toContain("trpc.powerhub.inventory.stockOverview.useQuery");
+    expect(panel).toContain("trpc.powerhub.inventory.listStockMovements.useQuery");
+    expect(panel).toContain("trpc.powerhub.inventory.recordStockMovement.useMutation");
+    expect(panel).toContain("fuel_consumption");
+    expect(router).toContain("powerhub_inventory_stock_overview");
+    expect(router).toContain("powerhub_inventory_list_stock_movements");
+    expect(router).toContain("powerhub_inventory_record_stock_movement");
+    expect(router).toContain('"issueInventory"');
+    expect(router).toContain('"adjustInventory"');
+    expect(router).toContain('"manageFuelAndConsumption"');
   });
 
 });

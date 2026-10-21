@@ -210,4 +210,113 @@ describe("PowerHub inventory catalog and supplier API", () => {
     })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "رصيد حساب الشركة لا يكفي لهذه الدفعة." });
   });
 
+  it("requires viewInventory or viewInventoryReports before querying stock balances", async () => {
+    state.rpc.mockClear();
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "technician", permissions: [], usesPermissionOverride: false,
+    });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.stockOverview;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 84 } }, input: { siteId: 7 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.siteAccess).toHaveBeenCalledWith(84, 7);
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("returns tenant-scoped stock overview through the read RPC", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "manager", permissions: ["viewInventory"], usesPermissionOverride: false,
+    });
+    state.rpc.mockReset().mockResolvedValue({
+      data: [{
+        warehouse_id: 3, item_id: 9, on_hand_quantity: "12.500",
+        stock_value: "87.50", average_unit_cost: "7.00", below_reorder_point: false,
+      }],
+      error: null,
+    });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.stockOverview;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 85 } }, input: { siteId: 7 },
+    });
+    expect(result).toMatchObject([{ warehouse_id: 3, item_id: 9, on_hand_quantity: "12.500" }]);
+    expect(result[0]).not.toHaveProperty("stock_value");
+    expect(result[0]).not.toHaveProperty("average_unit_cost");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_stock_overview", {
+      p_tenant_id: 44, p_site_id: 7,
+    });
+  });
+
+  it("requires issueInventory before recording an issue and sends the stable key to the atomic RPC", async () => {
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordStockMovement;
+    const input = {
+      siteId: 7, warehouseId: 3, itemId: 9, movementType: "issue",
+      quantity: 1.25, referenceNo: "ISSUE-25", notes: "test issue", operationKey: "stock:test:issue-1",
+    };
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 86 } }, input,
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(86, 7, expect.any(Array), "issueInventory");
+    expect(state.rpc).not.toHaveBeenCalled();
+
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({
+      data: [{ movement_id: 901, movement_type: "issue", quantity: "1.250", replayed: false }],
+      error: null,
+    });
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 86 } }, input,
+    })).resolves.toMatchObject({ movement_id: 901, replayed: false });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_record_stock_movement", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 86,
+      p_warehouse_id: 3, p_item_id: 9, p_movement_type: "issue",
+      p_quantity: 1.25, p_unit_cost: null, p_generator_id: null,
+      p_reference_no: "ISSUE-25", p_notes: "test issue",
+      p_operation_key: "stock:test:issue-1",
+    });
+  });
+
+  it("requires manageFuelAndConsumption before recording fuel use", async () => {
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordStockMovement;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 87 } },
+      input: {
+        siteId: 7, warehouseId: 3, itemId: 9, movementType: "fuel_consumption",
+        quantity: 0.5, generatorId: 22, operationKey: "stock:test:fuel",
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(87, 7, expect.any(Array), "manageFuelAndConsumption");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("does not expose unit or total stock valuation to users without inventory-report permission", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "technician", permissions: ["viewInventory"], usesPermissionOverride: false,
+    });
+    state.rpc.mockReset().mockResolvedValue({
+      data: [{
+        movement_id: 901, warehouse_id: 3, item_id: 9, movement_type: "issue",
+        quantity: "1.000", unit_cost: "7.0000", total_cost_amount: "7.00",
+      }],
+      error: null,
+    });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listStockMovements;
+    const result = await query._def.resolver({ ctx: { user: { id: 88 } }, input: { siteId: 7, limit: 100 } });
+    expect(result).toMatchObject([{ movement_id: 901, quantity: "1.000" }]);
+    expect(result[0]).not.toHaveProperty("unit_cost");
+    expect(result[0]).not.toHaveProperty("total_cost_amount");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_list_stock_movements", {
+      p_tenant_id: 44, p_site_id: 7, p_limit: 100,
+    });
+  });
+
+
 });
