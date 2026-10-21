@@ -60,7 +60,6 @@ export default function InventoryWorkspacePage() {
   const canIssueInventory = supplierAccess.data?.permissions.includes("issueInventory") ?? false;
   const canAdjustInventory = supplierAccess.data?.permissions.includes("adjustInventory") ?? false;
   const canManageFuelAndConsumption = supplierAccess.data?.permissions.includes("manageFuelAndConsumption") ?? false;
-  const canReadStock = canViewInventory || canViewInventoryReports;
   const canViewPurchases = supplierAccess.data?.permissions.includes("viewPurchases") ?? false;
   const canCreatePurchases = supplierAccess.data?.permissions.includes("createPurchases") ?? false;
   const canApprovePurchases = supplierAccess.data?.permissions.includes("approvePurchases") ?? false;
