@@ -3,6 +3,7 @@ import { can, type PowerCapability, type PowerRole } from "@shared/powerhub-rbac
 type TenantMenuRule = {
   roles?: readonly PowerRole[];
   capability?: PowerCapability;
+  capabilities?: readonly PowerCapability[];
 };
 
 const READ_ROLES = {
@@ -24,6 +25,7 @@ const READ_ROLES = {
 
 const TENANT_MENU_RULES: Record<string, TenantMenuRule> = {
   "/workspace": {},
+  "/inventory": { capabilities: ["viewInventory", "viewInventoryReports"] },
   "/quick-actions": {},
   "/profile": {},
   "/announcements": {},
@@ -67,6 +69,7 @@ export function tenantMenuRouteAllowed(
     if (rule.roles.includes(role as PowerRole) && !usesPermissionOverride) return true;
     if (!rule.capability && !rule.roles.includes(role as PowerRole)) return false;
   }
+  if (rule.capabilities) return rule.capabilities.some((capability) => can(role, capability, permissions));
   if (rule.capability) return can(role, rule.capability, permissions);
   return Boolean(role);
 }

@@ -215,6 +215,85 @@ export const powerhubInventoryRouter = router({
       });
     }),
 
+  listInventoryReportWarehouses: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStockReadAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون." });
+      }
+      const { data, error } = await supabaseAdmin().from("inventory_warehouses")
+        .select("id,code,name")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .eq("is_active", true)
+        .order("name", { ascending: true })
+        .limit(200);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مخازن التقرير." });
+      return (data ?? []).map((row: { id: number; code: string; name: string }) => ({
+        id: row.id, code: row.code, name: row.name,
+      }));
+    }),
+
+  listStockMovementReport: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      limit: z.number().int().min(1).max(200).default(100),
+      beforeOccurredAt: z.string().datetime({ offset: true }).optional(),
+      beforeMovementId: z.number().int().positive().optional(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      warehouseId: z.number().int().positive().optional(),
+      search: z.string().trim().max(150).optional(),
+    }).refine((value) => Boolean(value.beforeOccurredAt) === Boolean(value.beforeMovementId), {
+      message: "مؤشر صفحة الحركات غير مكتمل.",
+    }).refine((value) => !value.fromDate || !value.toDate || value.fromDate <= value.toDate, {
+      message: "نطاق تاريخ الحركات غير صحيح.",
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStockReadAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض أو تصدير تقارير المخزون." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_stock_movement_report", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_limit: input.limit + 1,
+        p_before_occurred_at: input.beforeOccurredAt ?? null,
+        p_before_movement_id: input.beforeMovementId ?? null,
+        p_from_date: input.fromDate ?? null,
+        p_to_date: input.toDate ?? null,
+        p_warehouse_id: input.warehouseId ?? null,
+        p_search: input.search?.trim() || null,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تقرير حركات المخزون." });
+      const rows = (data ?? []) as InventoryStockMovementRow[];
+      const hasMore = rows.length > input.limit;
+      const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
+      const items = pageRows.map((row) => ({
+        movement_id: row.movement_id,
+        warehouse_id: row.warehouse_id,
+        warehouse_code: row.warehouse_code,
+        warehouse_name: row.warehouse_name,
+        item_id: row.item_id,
+        sku: row.sku,
+        item_name: row.item_name,
+        base_unit: row.base_unit,
+        movement_type: row.movement_type,
+        quantity: row.quantity,
+        total_cost_amount: row.total_cost_amount,
+        reference_no: row.reference_no,
+        notes: row.notes,
+        occurred_at: row.occurred_at,
+      }));
+      const last = pageRows[pageRows.length - 1];
+      return {
+        items,
+        hasMore,
+        nextCursor: hasMore && last ? { beforeOccurredAt: last.occurred_at, beforeMovementId: Number(last.movement_id) } : null,
+      };
+    }),
+
   recordStockMovement: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),

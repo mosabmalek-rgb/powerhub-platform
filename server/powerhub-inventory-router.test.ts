@@ -248,6 +248,58 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
 
+  it("requires the dedicated report permission before querying paginated stock movements", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "manager", permissions: ["viewInventory"], usesPermissionOverride: true,
+    });
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listStockMovementReport;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 851 } },
+      input: { siteId: 7, limit: 100 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.siteAccess).toHaveBeenCalledWith(851, 7);
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("forwards tenant scope and keyset filters to the paginated inventory report RPC", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "accountant", permissions: ["viewInventoryReports"], usesPermissionOverride: true,
+    });
+    state.rpc.mockReset().mockResolvedValue({
+      data: [
+        { movement_id: 990, occurred_at: "2026-10-21T10:00:00Z", quantity: "2.000" },
+        { movement_id: 989, occurred_at: "2026-10-21T09:00:00Z", quantity: "1.000" },
+        { movement_id: 988, occurred_at: "2026-10-21T08:00:00Z", quantity: "1.000" },
+      ],
+      error: null,
+    });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listStockMovementReport;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 852 } },
+      input: {
+        siteId: 7, limit: 2,
+        beforeOccurredAt: "2026-10-22T00:00:00.000Z", beforeMovementId: 1000,
+        fromDate: "2026-10-01", toDate: "2026-10-21", warehouseId: 3, search: "diesel",
+      },
+    });
+    expect(result.items).toHaveLength(2);
+    expect(result.hasMore).toBe(true);
+    expect(result.items[0]).not.toHaveProperty("unit_cost");
+    expect(result.items[0]).not.toHaveProperty("operation_key");
+    expect(result.items[0]).not.toHaveProperty("created_by_user_id");
+    expect(result.nextCursor).toEqual({
+      beforeOccurredAt: "2026-10-21T09:00:00Z", beforeMovementId: 989,
+    });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_list_stock_movement_report", {
+      p_tenant_id: 44, p_site_id: 7, p_limit: 3,
+      p_before_occurred_at: "2026-10-22T00:00:00.000Z", p_before_movement_id: 1000,
+      p_from_date: "2026-10-01", p_to_date: "2026-10-21", p_warehouse_id: 3, p_search: "diesel",
+    });
+  });
+
   it("requires issueInventory before recording an issue and sends the stable key to the atomic RPC", async () => {
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     state.rpc.mockClear();

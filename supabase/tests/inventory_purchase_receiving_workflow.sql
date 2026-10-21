@@ -161,6 +161,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021180000_powerhub_inventory_issue_return_cost_reconciliation.sql
 \ir ../migrations/20261021194100_powerhub_supplier_return_exact_cost_reconciliation.sql
 \ir ../migrations/20261021200000_powerhub_inventory_atomic_warehouse_transfers.sql
+\ir ../migrations/20261021220000_powerhub_inventory_movement_report_paging.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -2320,6 +2321,39 @@ $warehouse_transfer_rollback_assertions$;
 reset role;
 drop trigger powerhub_test_transfer_audit_failure on public.audit_logs;
 drop function public.powerhub_test_transfer_audit_failure();
+
+set role service_role;
+do $movement_report_paging_assertions$
+declare
+  v_first_at timestamptz;
+  v_first_id bigint;
+  v_second_at timestamptz;
+  v_second_id bigint;
+begin
+  select occurred_at,movement_id into v_first_at,v_first_id
+  from public.powerhub_inventory_list_stock_movement_report(10::bigint,100::bigint,1,null,null,null,null,null,null);
+  if not found then raise exception 'INVENTORY_MOVEMENT_REPORT_HAS_NO_FIXTURE_ROWS'; end if;
+
+  select occurred_at,movement_id into v_second_at,v_second_id
+  from public.powerhub_inventory_list_stock_movement_report(10::bigint,100::bigint,1,v_first_at,v_first_id,null,null,null,null);
+  if not found then raise exception 'INVENTORY_MOVEMENT_REPORT_CURSOR_DID_NOT_RETURN_NEXT_ROW'; end if;
+  if (v_second_at,v_second_id)>=(v_first_at,v_first_id) then
+    raise exception 'INVENTORY_MOVEMENT_REPORT_CURSOR_ORDER_INVALID';
+  end if;
+  if v_second_id=v_first_id then raise exception 'INVENTORY_MOVEMENT_REPORT_CURSOR_DUPLICATED_ROW'; end if;
+
+  if has_function_privilege('anon','public.powerhub_inventory_list_stock_movement_report(bigint,bigint,integer,timestamp with time zone,bigint,date,date,bigint,text)','EXECUTE') then
+    raise exception 'ANON_CAN_EXECUTE_INVENTORY_MOVEMENT_REPORT_RPC';
+  end if;
+  if has_function_privilege('authenticated','public.powerhub_inventory_list_stock_movement_report(bigint,bigint,integer,timestamp with time zone,bigint,date,date,bigint,text)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_INVENTORY_MOVEMENT_REPORT_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_list_stock_movement_report(bigint,bigint,integer,timestamp with time zone,bigint,date,date,bigint,text)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_INVENTORY_MOVEMENT_REPORT_RPC';
+  end if;
+end;
+$movement_report_paging_assertions$;
+reset role;
 
 select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
