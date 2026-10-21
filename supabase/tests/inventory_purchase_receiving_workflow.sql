@@ -582,6 +582,18 @@ begin
   if v_account_transactions<>1 then raise exception 'SUPPLIER_PAYMENT_REPLAY_DUPLICATED_WITHDRAWAL'; end if;
 
   begin
+    -- The same operation key cannot be replayed against a different purchase.
+    perform * from public.powerhub_inventory_record_supplier_payment(
+      10,100,1,1,1000,60,current_date,'PAY-WF-60','first workflow payment',
+      'purchase-workflow:payment-001'
+    );
+    raise exception 'SUPPLIER_PAYMENT_KEY_ACCEPTED_DIFFERENT_PURCHASE';
+  exception when others then
+    if sqlerrm='SUPPLIER_PAYMENT_KEY_ACCEPTED_DIFFERENT_PURCHASE' then raise; end if;
+    if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+  end;
+
+  begin
     perform * from public.powerhub_inventory_record_supplier_payment(
       10,100,1,v_purchase_id,1000,61,current_date,'PAY-WF-60','first workflow payment',
       'purchase-workflow:payment-001'
@@ -645,6 +657,20 @@ begin
     raise exception 'SUPPLIER_PAYMENT_ACCEPTED_IN_LOCKED_PERIOD';
   exception when others then
     if sqlerrm='SUPPLIER_PAYMENT_ACCEPTED_IN_LOCKED_PERIOD' then raise; end if;
+    if sqlerrm not like '%FINANCIAL_PERIOD_LOCKED%' then raise; end if;
+  end;
+  delete from public.financial_settlements where tenant_id=10 and site_id=100 and status='locked';
+
+  insert into public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
+  values(10,100,'locked',(current_date-interval '10 days')::timestamptz,(current_date-interval '1 day')::timestamptz);
+  begin
+    perform * from public.powerhub_inventory_record_supplier_payment(
+      10,100,1,v_purchase_id,1000,1,current_date-5,'BACKDATED-LOCK','backdated locked-period payment',
+      'purchase-workflow:payment-backdated-locked-period'
+    );
+    raise exception 'SUPPLIER_PAYMENT_ACCEPTED_FOR_BACKDATED_LOCKED_PERIOD';
+  exception when others then
+    if sqlerrm='SUPPLIER_PAYMENT_ACCEPTED_FOR_BACKDATED_LOCKED_PERIOD' then raise; end if;
     if sqlerrm not like '%FINANCIAL_PERIOD_LOCKED%' then raise; end if;
   end;
   delete from public.financial_settlements where tenant_id=10 and site_id=100 and status='locked';
