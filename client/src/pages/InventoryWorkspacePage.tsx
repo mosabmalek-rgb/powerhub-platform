@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import InventoryPurchasesPanel from "@/components/InventoryPurchasesPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { Boxes, Loader2, PackagePlus, Search, Store, Warehouse } from "lucide-react";
+import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 
 const categoryLabels: Record<string, string> = {
@@ -43,6 +44,11 @@ export default function InventoryWorkspacePage() {
     staleTime: 30_000,
   });
   const canViewSuppliers = supplierAccess.data?.permissions.includes("viewSuppliers") ?? false;
+  const canViewPurchases = supplierAccess.data?.permissions.includes("viewPurchases") ?? false;
+  const canCreatePurchases = supplierAccess.data?.permissions.includes("createPurchases") ?? false;
+  const canApprovePurchases = supplierAccess.data?.permissions.includes("approvePurchases") ?? false;
+  const canReceiveInventory = supplierAccess.data?.permissions.includes("receiveInventory") ?? false;
+  const canReadPurchases = canViewPurchases || canReceiveInventory;
   const utils = trpc.useUtils();
   const [tab, setTab] = useState("catalog");
   const [itemSearch, setItemSearch] = useState("");
@@ -112,8 +118,8 @@ export default function InventoryWorkspacePage() {
   });
 
   useEffect(() => {
-    if (!canViewSuppliers && tab === "suppliers") setTab("catalog");
-  }, [canViewSuppliers, tab]);
+    if ((!canViewSuppliers && tab === "suppliers") || (!canReadPurchases && tab === "purchases")) setTab("catalog");
+  }, [canViewSuppliers, canReadPurchases, tab]);
 
   const selectedSiteName = useMemo(() => sites.data?.find((site) => site.id === siteId)?.name ?? "", [sites.data, siteId]);
 
@@ -141,6 +147,7 @@ export default function InventoryWorkspacePage() {
                 <TabsTrigger value="catalog" className="gap-2"><Boxes className="h-4 w-4" /> دليل الأصناف</TabsTrigger>
                 {canViewSuppliers ? <TabsTrigger value="suppliers" className="gap-2"><Store className="h-4 w-4" /> الموردون</TabsTrigger> : null}
                 <TabsTrigger value="warehouses" className="gap-2"><Warehouse className="h-4 w-4" /> المخازن</TabsTrigger>
+                {canReadPurchases ? <TabsTrigger value="purchases" className="gap-2"><ClipboardList className="h-4 w-4" /> المشتريات</TabsTrigger> : null}
               </TabsList>
             </div>
 
@@ -204,6 +211,18 @@ export default function InventoryWorkspacePage() {
                 <CardContent>{warehouses.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل المخازن…</p> : warehouses.error ? <p className="py-8 text-center text-destructive">تعذر تحميل المخازن. تحقق من صلاحياتك.</p> : !warehouses.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد مخازن لهذا الفرع.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full text-right text-sm"><thead className="bg-muted/60"><tr>{["الرمز","اسم المخزن","ملاحظات","الحالة"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{warehouses.data.map((warehouse) => <tr key={warehouse.id} className="border-t"><td className="p-3">{warehouse.code}</td><td className="p-3 font-medium">{warehouse.name}</td><td className="p-3">{warehouse.notes || "—"}</td><td className="p-3">{warehouse.is_active ? "نشط" : "موقوف"}</td></tr>)}</tbody></table></div>}</CardContent>
               </Card>
             </TabsContent>
+
+            {canReadPurchases ? <TabsContent value="purchases" className="space-y-4">
+              <InventoryPurchasesPanel
+                siteId={siteId}
+                isAuthenticated={isAuthenticated}
+                canViewPurchases={canReadPurchases}
+                canViewFinancials={canViewPurchases}
+                canCreatePurchases={canCreatePurchases}
+                canApprovePurchases={canApprovePurchases}
+                canReceiveInventory={canReceiveInventory}
+              />
+            </TabsContent> : null}
           </Tabs>
         )}
       </div>
