@@ -160,6 +160,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021171000_powerhub_inventory_movement_correction.sql
 \ir ../migrations/20261021180000_powerhub_inventory_issue_return_cost_reconciliation.sql
 \ir ../migrations/20261021194100_powerhub_supplier_return_exact_cost_reconciliation.sql
+\ir ../migrations/20261021200000_powerhub_inventory_atomic_warehouse_transfers.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -2161,6 +2162,165 @@ drop function public.powerhub_test_issue_return_audit_failure();
 drop trigger if exists powerhub_test_supplier_return_audit_failure on public.audit_logs;
 drop function if exists public.powerhub_test_supplier_return_audit_failure();
 
-select 'inventory purchase receiving, stock operations, and accounting reversals PostgreSQL integration passed' as result;
+
+-- Atomic warehouse-transfer assertions: quantities, exact value, idempotency, permissions and rollback.
+insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
+values (10,'TRF-ITEM-01','Transfer test item','other','piece',0,1);
+insert into public.inventory_warehouses(tenant_id,site_id,code,name,created_by_user_id)
+values (10,100,'TRF-SOURCE','Transfer source',1),(10,100,'TRF-DEST','Transfer destination',1);
+
+set role service_role;
+do $warehouse_transfer_assertions$
+declare
+  v_item bigint;
+  v_source bigint;
+  v_dest bigint;
+  v_transfer record;
+  v_replay record;
+  v_source_qty numeric(14,3);
+  v_source_value numeric(14,2);
+  v_dest_qty numeric(14,3);
+  v_dest_value numeric(14,2);
+  v_transfer_count integer;
+  v_out_count integer;
+  v_in_count integer;
+begin
+  select id into v_item from public.inventory_items where tenant_id=10 and sku='TRF-ITEM-01';
+  select id into v_source from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-SOURCE';
+  select id into v_dest from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-DEST';
+  if v_item is null or v_source is null or v_dest is null then raise exception 'WAREHOUSE_TRANSFER_FIXTURE_MISSING'; end if;
+
+  perform * from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_source,v_item,'opening_balance',3,3.33,null,'TRF-OPEN','transfer fixture','transfer-test:opening'
+  );
+
+  select * into v_transfer from public.powerhub_inventory_transfer_stock(
+    10,100,1,v_item,v_source,v_dest,1,'transfer-test:one','TRF-001','test transfer'
+  );
+  if v_transfer.transfer_id is null or v_transfer.source_movement_id is null
+     or v_transfer.destination_movement_id is null or v_transfer.replayed
+     or v_transfer.total_cost_amount<>3.33 then
+    raise exception 'WAREHOUSE_TRANSFER_RESULT_INVALID: %',row_to_json(v_transfer);
+  end if;
+
+  select * into v_replay from public.powerhub_inventory_transfer_stock(
+    10,100,1,v_item,v_source,v_dest,1,'transfer-test:one','TRF-001','test transfer'
+  );
+  if not v_replay.replayed or v_replay.transfer_id<>v_transfer.transfer_id then
+    raise exception 'WAREHOUSE_TRANSFER_IDEMPOTENCY_FAILED';
+  end if;
+
+  select count(*) into v_transfer_count from public.inventory_stock_transfers
+  where tenant_id=10 and operation_key='transfer-test:one';
+  select count(*) into v_out_count from public.inventory_stock_movements
+  where tenant_id=10 and operation_key='trf:transfer-test:one:out';
+  select count(*) into v_in_count from public.inventory_stock_movements
+  where tenant_id=10 and operation_key='trf:transfer-test:one:in';
+  if v_transfer_count<>1 or v_out_count<>1 or v_in_count<>1 then
+    raise exception 'WAREHOUSE_TRANSFER_DUPLICATED_RECORDS transfer=% out=% in=%',v_transfer_count,v_out_count,v_in_count;
+  end if;
+
+  select coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then quantity else -quantity end),0),
+         coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then total_cost_amount else -total_cost_amount end),0)
+  into v_source_qty,v_source_value from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_source and item_id=v_item;
+  select coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then quantity else -quantity end),0),
+         coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then total_cost_amount else -total_cost_amount end),0)
+  into v_dest_qty,v_dest_value from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_dest and item_id=v_item;
+  if v_source_qty<>2 or v_source_value<>6.66 or v_dest_qty<>1 or v_dest_value<>3.33 then
+    raise exception 'WAREHOUSE_TRANSFER_STOCK_OR_VALUE_MISMATCH source=(%,%) destination=(%,%)',
+      v_source_qty,v_source_value,v_dest_qty,v_dest_value;
+  end if;
+
+  begin
+    perform * from public.powerhub_inventory_transfer_stock(
+      10,100,1,v_item,v_source,v_dest,1,'transfer-test:one','DIFFERENT','changed payload'
+    );
+    raise exception 'WAREHOUSE_TRANSFER_REUSED_KEY_WITH_DIFFERENT_PAYLOAD';
+  exception when others then
+    if sqlerrm='WAREHOUSE_TRANSFER_REUSED_KEY_WITH_DIFFERENT_PAYLOAD' then raise; end if;
+    if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_transfer_stock(
+      10,100,1,v_item,v_source,v_dest,3,'transfer-test:insufficient',null,'too much'
+    );
+    raise exception 'WAREHOUSE_TRANSFER_ALLOWED_NEGATIVE_SOURCE';
+  exception when others then
+    if sqlerrm='WAREHOUSE_TRANSFER_ALLOWED_NEGATIVE_SOURCE' then raise; end if;
+    if sqlerrm not like '%INSUFFICIENT_STOCK%' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_transfer_stock(
+      10,100,1,v_item,v_source,v_source,0.5,'transfer-test:same-warehouse',null,'invalid'
+    );
+    raise exception 'WAREHOUSE_TRANSFER_ALLOWED_SAME_WAREHOUSE';
+  exception when others then
+    if sqlerrm='WAREHOUSE_TRANSFER_ALLOWED_SAME_WAREHOUSE' then raise; end if;
+    if sqlerrm not like '%INVALID_STOCK_TRANSFER%' then raise; end if;
+  end;
+
+  if has_function_privilege('anon','public.powerhub_inventory_transfer_stock(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text,text)','EXECUTE') then
+    raise exception 'ANON_CAN_EXECUTE_WAREHOUSE_TRANSFER_RPC';
+  end if;
+  if has_function_privilege('authenticated','public.powerhub_inventory_transfer_stock(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text,text)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_WAREHOUSE_TRANSFER_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_transfer_stock(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text,text)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_WAREHOUSE_TRANSFER_RPC';
+  end if;
+end;
+$warehouse_transfer_assertions$;
+reset role;
+
+create function public.powerhub_test_transfer_audit_failure()
+returns trigger language plpgsql as $function$
+begin
+  if new.entity_type='inventory_stock_transfer' and new.metadata->>'operationKey'='transfer-test:audit-fail' then
+    raise exception 'FORCED_TRANSFER_AUDIT_FAILURE';
+  end if;
+  return new;
+end;
+$function$;
+create trigger powerhub_test_transfer_audit_failure before insert on public.audit_logs
+for each row execute function public.powerhub_test_transfer_audit_failure();
+
+set role service_role;
+do $warehouse_transfer_rollback_assertions$
+declare
+  v_item bigint;
+  v_source bigint;
+  v_dest bigint;
+  v_before integer;
+  v_after integer;
+begin
+  select id into v_item from public.inventory_items where tenant_id=10 and sku='TRF-ITEM-01';
+  select id into v_source from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-SOURCE';
+  select id into v_dest from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='TRF-DEST';
+  select count(*) into v_before from public.inventory_stock_movements where tenant_id=10 and operation_key like 'trf:transfer-test:audit-fail:%';
+  begin
+    perform * from public.powerhub_inventory_transfer_stock(
+      10,100,1,v_item,v_source,v_dest,0.5,'transfer-test:audit-fail','TRF-AUDIT','audit rollback'
+    );
+    raise exception 'WAREHOUSE_TRANSFER_AUDIT_FAILURE_DID_NOT_ABORT';
+  exception when others then
+    if sqlerrm='WAREHOUSE_TRANSFER_AUDIT_FAILURE_DID_NOT_ABORT' then raise; end if;
+    if sqlerrm<>'FORCED_TRANSFER_AUDIT_FAILURE' then raise; end if;
+  end;
+  select count(*) into v_after from public.inventory_stock_movements where tenant_id=10 and operation_key like 'trf:transfer-test:audit-fail:%';
+  if v_after<>v_before then raise exception 'WAREHOUSE_TRANSFER_AUDIT_FAILURE_LEFT_MOVEMENTS'; end if;
+  if exists(select 1 from public.inventory_stock_transfers where tenant_id=10 and operation_key='transfer-test:audit-fail') then
+    raise exception 'WAREHOUSE_TRANSFER_AUDIT_FAILURE_LEFT_HEADER';
+  end if;
+end;
+$warehouse_transfer_rollback_assertions$;
+reset role;
+drop trigger powerhub_test_transfer_audit_failure on public.audit_logs;
+drop function public.powerhub_test_transfer_audit_failure();
+
+select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
 

@@ -67,6 +67,9 @@ function mapPurchaseDatabaseError(
   const message = error?.message ?? "";
   const known: Record<string, { code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND" | "FORBIDDEN"; message: string }> = {
     INVALID_OPERATION_KEY: { code: "BAD_REQUEST", message: "مفتاح العملية غير صالح." },
+    INVALID_STOCK_TRANSFER: { code: "BAD_REQUEST", message: "بيانات التحويل المخزني غير صالحة؛ اختر مخزنين مختلفين." },
+    INVALID_STOCK_TRANSFER_QUANTITY: { code: "BAD_REQUEST", message: "كمية التحويل غير صالحة أو تتجاوز ثلاث منازل عشرية." },
+    STOCK_DESTINATION_WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن المستلم غير نشط أو لا يتبع هذا الفرع." },
     STOCK_MOVEMENT_NOT_FOUND: { code: "NOT_FOUND", message: "حركة المخزون غير موجودة في هذا الفرع." },
     STOCK_MOVEMENT_NOT_RETURNABLE: { code: "BAD_REQUEST", message: "يمكن إرجاع الصرف اليدوي المؤهل فقط." },
     RETURN_FROM_ISSUE_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإرجاع الصرف." },
@@ -919,6 +922,39 @@ export const powerhubInventoryRouter = router({
         p_refund_amount: input.refundAmount, p_refund_company_account_id: input.refundCompanyAccountId ?? null,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل مرتجع المورد.");
+      return data[0];
+    }),
+
+
+  transferStock: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      itemId: z.number().int().positive(),
+      sourceWarehouseId: z.number().int().positive(),
+      destinationWarehouseId: z.number().int().positive(),
+      quantity: z.number().finite().positive().max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7, "الكمية تقبل ثلاث منازل عشرية كحد أقصى."),
+      operationKey: z.string().trim().min(1).max(170),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+    }).refine((value) => value.sourceWarehouseId !== value.destinationWarehouseId, {
+      message: "اختر مخزنين مختلفين.", path: ["destinationWarehouseId"],
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "adjustInventory");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_transfer_stock", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_item_id: input.itemId,
+        p_source_warehouse_id: input.sourceWarehouseId,
+        p_destination_warehouse_id: input.destinationWarehouseId,
+        p_quantity: input.quantity,
+        p_operation_key: input.operationKey,
+        p_reference_no: input.referenceNo || null,
+        p_notes: input.notes || null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تنفيذ التحويل المخزني.");
       return data[0];
     }),
 
