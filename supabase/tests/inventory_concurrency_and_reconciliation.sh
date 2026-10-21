@@ -250,7 +250,7 @@ if ! { [[ "$payment_race_rc_a" -eq 0 && "$payment_race_rc_b" -ne 0 ]] || [[ "$pa
   exit 1
 fi
 "${psql_base[@]}" --command "
-do \\$supplier_payment_balance_race_reconciliation\\$
+do \$supplier_payment_balance_race_reconciliation\$
 declare
   v_payment_id bigint;
 begin
@@ -269,7 +269,7 @@ begin
     raise exception 'CONCURRENT_SUPPLIER_PAYMENT_RACE_LEFT_PARTIAL_LEDGER_POSTING';
   end if;
 end;
-\\$supplier_payment_balance_race_reconciliation\\$;
+\$supplier_payment_balance_race_reconciliation\$;
 "
 
 # Race duplicate supplier-return submissions against the same received purchase line.
