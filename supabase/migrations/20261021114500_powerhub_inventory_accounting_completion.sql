@@ -164,6 +164,22 @@ begin
   for update;
   if not found then raise exception 'SUPPLIER_PAYMENT_NOT_FOUND' using errcode='P0001'; end if;
 
+  if v_payment.supplier_id<>v_purchase.supplier_id
+    or (select count(*) from public.supplier_payment_allocations a
+        where a.tenant_id=p_tenant_id and a.payment_id=v_payment.id)<>1
+    or v_allocation.amount<>v_payment.amount then
+    raise exception 'SUPPLIER_PAYMENT_ALLOCATION_MISMATCH' using errcode='P0001';
+  end if;
+
+  if v_payment.account_transaction_id is null or not exists (
+    select 1 from public.account_transactions atx
+    where atx.tenant_id=p_tenant_id and atx.id=v_payment.account_transaction_id
+      and atx.account_id=v_payment.company_account_id and atx.transaction_type='withdrawal'
+      and atx.amount=v_payment.amount and atx.related_supplier_payment_id=v_payment.id
+  ) then
+    raise exception 'SUPPLIER_PAYMENT_ORIGINAL_TRANSACTION_MISMATCH' using errcode='P0001';
+  end if;
+
   select u.platform_role into v_platform_role from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
 
