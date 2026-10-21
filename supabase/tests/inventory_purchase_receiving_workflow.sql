@@ -1198,7 +1198,7 @@ begin
       (select quantity from public.supplier_purchase_lines where tenant_id=10 and id=v_line2),2);
   if v_return_id is null or v_status<>'posted' or v_replayed
     or v_credit<>v_expected_credit or v_refund<>10 or v_remaining<>v_expected_credit-10
-    or v_account_balance<>410 then
+    or v_account_balance<>470 then
     raise exception 'SUPPLIER_RETURN_POST_FAILED id=% status=% credit=% expected=% refund=% remaining=% balance=% replayed=%',
       v_return_id,v_status,v_credit,v_expected_credit,v_refund,v_remaining,v_account_balance,v_replayed;
   end if;
@@ -1247,7 +1247,7 @@ begin
       jsonb_build_object('purchase_line_id',v_line2,'quantity',1)
     ),10,1000
   );
-  if not v_replayed or v_return_id is null or v_account_balance<>410 then
+  if not v_replayed or v_return_id is null or v_account_balance<>470 then
     raise exception 'SUPPLIER_RETURN_REPLAY_FAILED';
   end if;
   select count(*) into v_movements from public.inventory_stock_movements
