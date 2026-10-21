@@ -534,28 +534,58 @@ export const powerhubInventoryRouter = router({
         : { data: [], error: null };
       if (returnLinesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بنود مرتجعات المورد." });
       const purchaseLinesById = new Map((lineResult.data ?? []).map((line) => [Number(line.id), line]));
-      const returnLinesByReturn = new Map<number, Array<Record<string, unknown>>>();
+      type SupplierPurchaseReturnLineView = {
+        id: number;
+        return_id: number;
+        purchase_line_id: number;
+        stock_movement_id: number;
+        quantity: number;
+        base_quantity: number;
+        supplier_credit_amount: number | null;
+        inventory_unit_cost: number | null;
+        stock_cost_amount: number | null;
+        itemName: string;
+        unit: string;
+      };
+      const returnLinesByReturn = new Map<number, SupplierPurchaseReturnLineView[]>();
       for (const line of returnLinesResult.data ?? []) {
         const returnId = Number(line.return_id);
         const purchaseLine = purchaseLinesById.get(Number(line.purchase_line_id));
         const item = purchaseLine ? items.get(Number(purchaseLine.item_id)) : undefined;
-        const visibleLine = {
-          ...line,
+        const visibleLine: SupplierPurchaseReturnLineView = {
+          id: Number(line.id),
+          return_id: returnId,
+          purchase_line_id: Number(line.purchase_line_id),
+          stock_movement_id: Number(line.stock_movement_id),
+          quantity: Number(line.quantity),
+          base_quantity: Number(line.base_quantity),
+          supplier_credit_amount: access.canViewFinancials ? Number(line.supplier_credit_amount ?? 0) : null,
+          inventory_unit_cost: access.canViewFinancials ? Number(line.inventory_unit_cost ?? 0) : null,
+          stock_cost_amount: access.canViewFinancials ? Number(line.stock_cost_amount ?? 0) : null,
           itemName: item?.name ?? "صنف غير متاح",
           unit: purchaseLine?.unit ?? "",
-          ...(access.canViewFinancials ? {} : {
-            supplier_credit_amount: null, inventory_unit_cost: null, stock_cost_amount: null,
-          }),
         };
         returnLinesByReturn.set(returnId, [...(returnLinesByReturn.get(returnId) ?? []), visibleLine]);
       }
-      const returns = (returnResult.data ?? []).map((row) => ({
-        ...row,
-        ...(access.canViewFinancials ? {} : {
-          total_credit_amount: null, stock_cost_amount: null, refund_amount: null, refund_company_account_id: null,
-        }),
-        lines: returnLinesByReturn.get(Number(row.id)) ?? [],
-      }));
+      const returns = (returnResult.data ?? []).map((row) => {
+        const returnId = Number(row.id);
+        return {
+          id: returnId,
+          return_number: String(row.return_number ?? ""),
+          return_date: String(row.return_date ?? ""),
+          status: String(row.status ?? ""),
+          reason: String(row.reason ?? ""),
+          notes: typeof row.notes === "string" ? row.notes : null,
+          total_credit_amount: access.canViewFinancials ? Number(row.total_credit_amount ?? 0) : null,
+          stock_cost_amount: access.canViewFinancials ? Number(row.stock_cost_amount ?? 0) : null,
+          refund_amount: access.canViewFinancials ? Number(row.refund_amount ?? 0) : null,
+          refund_company_account_id: access.canViewFinancials && row.refund_company_account_id != null
+            ? Number(row.refund_company_account_id) : null,
+          returned_at: typeof row.returned_at === "string" ? row.returned_at : null,
+          operation_key: String(row.operation_key ?? ""),
+          lines: returnLinesByReturn.get(returnId) ?? [],
+        };
+      });
       const supplierReturnCreditAmount = access.canViewFinancials
         ? Number(returnCreditResult.data ?? 0)
         : null;
