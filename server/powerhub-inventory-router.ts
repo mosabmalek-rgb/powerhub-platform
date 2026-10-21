@@ -110,7 +110,11 @@ export const powerhubInventoryRouter = router({
         p_site_id: input.siteId,
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أرصدة المخزون." });
-      return data ?? [];
+      if (access.permissions.includes("viewInventoryReports")) return data ?? [];
+      return (data ?? []).map((row) => {
+        const { stock_value: _stockValue, average_unit_cost: _averageUnitCost, ...visible } = row;
+        return visible;
+      });
     }),
 
   listStockMovements: protectedProcedure
@@ -123,7 +127,11 @@ export const powerhubInventoryRouter = router({
         p_limit: input.limit,
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل حركات المخزون." });
-      return data ?? [];
+      if (access.permissions.includes("viewInventoryReports")) return data ?? [];
+      return (data ?? []).map((row) => {
+        const { unit_cost: _unitCost, total_cost_amount: _totalCostAmount, ...visible } = row;
+        return visible;
+      });
     }),
 
   recordStockMovement: protectedProcedure

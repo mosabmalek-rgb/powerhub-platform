@@ -229,14 +229,20 @@ describe("PowerHub inventory catalog and supplier API", () => {
       tenantId: 44, role: "manager", permissions: ["viewInventory"], usesPermissionOverride: false,
     });
     state.rpc.mockReset().mockResolvedValue({
-      data: [{ warehouse_id: 3, item_id: 9, on_hand_quantity: "12.500", below_reorder_point: false }],
+      data: [{
+        warehouse_id: 3, item_id: 9, on_hand_quantity: "12.500",
+        stock_value: "87.50", average_unit_cost: "7.00", below_reorder_point: false,
+      }],
       error: null,
     });
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.stockOverview;
-    await expect(query._def.resolver({
+    const result = await query._def.resolver({
       ctx: { user: { id: 85 } }, input: { siteId: 7 },
-    })).resolves.toMatchObject([{ warehouse_id: 3, item_id: 9, on_hand_quantity: "12.500" }]);
+    });
+    expect(result).toMatchObject([{ warehouse_id: 3, item_id: 9, on_hand_quantity: "12.500" }]);
+    expect(result[0]).not.toHaveProperty("stock_value");
+    expect(result[0]).not.toHaveProperty("average_unit_cost");
     expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_stock_overview", {
       p_tenant_id: 44, p_site_id: 7,
     });
@@ -289,5 +295,28 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.access).toHaveBeenCalledWith(87, 7, expect.any(Array), "manageFuelAndConsumption");
     expect(state.rpc).not.toHaveBeenCalled();
   });
+
+  it("does not expose unit or total stock valuation to users without inventory-report permission", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "technician", permissions: ["viewInventory"], usesPermissionOverride: false,
+    });
+    state.rpc.mockReset().mockResolvedValue({
+      data: [{
+        movement_id: 901, warehouse_id: 3, item_id: 9, movement_type: "issue",
+        quantity: "1.000", unit_cost: "7.0000", total_cost_amount: "7.00",
+      }],
+      error: null,
+    });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listStockMovements;
+    const result = await query._def.resolver({ ctx: { user: { id: 88 } }, input: { siteId: 7, limit: 100 } });
+    expect(result).toMatchObject([{ movement_id: 901, quantity: "1.000" }]);
+    expect(result[0]).not.toHaveProperty("unit_cost");
+    expect(result[0]).not.toHaveProperty("total_cost_amount");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_list_stock_movements", {
+      p_tenant_id: 44, p_site_id: 7, p_limit: 100,
+    });
+  });
+
 
 });

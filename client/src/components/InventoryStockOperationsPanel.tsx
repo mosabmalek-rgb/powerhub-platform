@@ -268,7 +268,7 @@ export default function InventoryStockOperationsPanel({
               </label>
             ) : null}
             <label className={inputClass}>الكمية *
-              <Input type="number" required min="0.001" step="0.001" max={movementType === "adjustment_in" ? 1_000_000_000 : Math.max(currentQuantity, 0)} value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+              <Input type="number" required min="0.001" step="0.001" max={movementType === "adjustment_in" ? 1_000_000_000 : undefined} value={quantity} onChange={(event) => setQuantity(event.target.value)} />
               <span className="text-xs text-muted-foreground">الرصيد الحالي: {fmtQty(currentQuantity)} {units[selectedStock?.base_unit ?? "other"] ?? ""}</span>
             </label>
             {movementType === "adjustment_in" ? <label className={inputClass}>تكلفة الوحدة (اختيارية مع وجود رصيد)
