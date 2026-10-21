@@ -249,8 +249,24 @@ export const powerhubInventoryRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تقرير حركات المخزون." });
       const rows = (data ?? []) as InventoryStockMovementRow[];
       const hasMore = rows.length > input.limit;
-      const items = hasMore ? rows.slice(0, input.limit) : rows;
-      const last = items[items.length - 1] as (InventoryStockMovementRow & { movement_id: number; occurred_at: string }) | undefined;
+      const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
+      const items = pageRows.map((row) => ({
+        movement_id: row.movement_id,
+        warehouse_id: row.warehouse_id,
+        warehouse_code: row.warehouse_code,
+        warehouse_name: row.warehouse_name,
+        item_id: row.item_id,
+        sku: row.sku,
+        item_name: row.item_name,
+        base_unit: row.base_unit,
+        movement_type: row.movement_type,
+        quantity: row.quantity,
+        total_cost_amount: row.total_cost_amount,
+        reference_no: row.reference_no,
+        notes: row.notes,
+        occurred_at: row.occurred_at,
+      }));
+      const last = pageRows[pageRows.length - 1];
       return {
         items,
         hasMore,
