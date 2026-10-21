@@ -80,6 +80,9 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain("powerhub_inventory_stock_overview");
     expect(router).toContain("powerhub_inventory_list_stock_movements");
     expect(router).toContain("powerhub_inventory_record_stock_movement");
+    expect(panel).toContain('opening_balance: "رصيد افتتاحي"');
+    expect(router).toContain('"opening_balance"');
+    expect(router).toContain("paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional()");
     expect(router).toContain('"issueInventory"');
     expect(router).toContain('"adjustInventory"');
     expect(router).toContain('"manageFuelAndConsumption"');
