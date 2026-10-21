@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const migration = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20261021110000_powerhub_inventory_supplier_foundation.sql"),
+  resolve(process.cwd(), "supabase/migrations/20261021085533_powerhub_inventory_supplier_foundation.sql"),
   "utf8",
 );
 
