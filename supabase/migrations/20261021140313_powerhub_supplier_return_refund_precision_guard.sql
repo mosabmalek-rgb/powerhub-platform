@@ -1,0 +1,391 @@
+-- Reject currency precision before assigning the request to a two-decimal storage column.
+-- This is additive: the original supplier-return migration may already have been applied.
+
+create or replace function public.powerhub_inventory_return_to_supplier(
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_user_id bigint,
+  p_purchase_id bigint,
+  p_return_date date,
+  p_operation_key text,
+  p_reason text,
+  p_notes text,
+  p_lines jsonb,
+  p_refund_amount numeric default 0,
+  p_refund_company_account_id bigint default null
+)
+returns table(
+  return_id bigint,
+  return_number text,
+  purchase_id bigint,
+  status text,
+  total_credit_amount numeric,
+  stock_cost_amount numeric,
+  refund_amount numeric,
+  supplier_credit_remaining numeric,
+  account_balance numeric,
+  replayed boolean
+)
+language plpgsql
+security invoker
+set search_path=public,pg_temp
+as $$
+declare
+  v_return public.supplier_purchase_returns%rowtype;
+  v_purchase public.supplier_purchases%rowtype;
+  v_purchase_line public.supplier_purchase_lines%rowtype;
+  v_account public.company_accounts%rowtype;
+  v_line record;
+  v_platform_role text;
+  v_operation_key text:=nullif(btrim(p_operation_key),'');
+  v_return_date date:=coalesce(p_return_date,current_date);
+  v_reason text:=nullif(btrim(p_reason),'');
+  v_refund_amount numeric:=coalesce(p_refund_amount,0);
+  v_payload_hash text;
+  v_canonical_lines jsonb;
+  v_processed_lines jsonb:='[]'::jsonb;
+  v_received_quantity numeric(14,3);
+  v_already_returned_quantity numeric(14,3);
+  v_base_quantity numeric(14,3);
+  v_line_credit_amount numeric(14,2);
+  v_total_credit_amount numeric(14,2):=0;
+  v_stock_cost_amount numeric(14,2):=0;
+  v_stock_quantity numeric(14,3);
+  v_stock_value numeric(14,2);
+  v_inventory_unit_cost numeric(14,4);
+  v_stock_movement_id bigint;
+  v_account_balance numeric(14,2):=0;
+  v_line_count integer;
+  v_distinct_line_count integer;
+  v_item_id bigint;
+begin
+  if v_operation_key is null or length(v_operation_key)>120 then
+    raise exception 'INVALID_OPERATION_KEY' using errcode='P0001';
+  end if;
+  if v_reason is null or length(v_reason) not between 3 and 500 then
+    raise exception 'SUPPLIER_RETURN_REASON_REQUIRED' using errcode='P0001';
+  end if;
+  if p_lines is null or jsonb_typeof(p_lines)<>'array'
+    or jsonb_array_length(p_lines)<1 or jsonb_array_length(p_lines)>200 then
+    raise exception 'INVALID_SUPPLIER_RETURN_LINES' using errcode='P0001';
+  end if;
+  if v_refund_amount<0 or v_refund_amount>1000000000
+    or v_refund_amount<>round(v_refund_amount,2) then
+    raise exception 'INVALID_SUPPLIER_RETURN_REFUND' using errcode='P0001';
+  end if;
+  if (v_refund_amount>0 and p_refund_company_account_id is null)
+    or (v_refund_amount=0 and p_refund_company_account_id is not null) then
+    raise exception 'SUPPLIER_RETURN_REFUND_ACCOUNT_REQUIRED' using errcode='P0001';
+  end if;
+
+  select count(*)::integer,count(distinct l.purchase_line_id)::integer,
+         jsonb_agg(jsonb_build_object('purchase_line_id',l.purchase_line_id,'quantity',l.quantity)
+           order by l.purchase_line_id)
+  into v_line_count,v_distinct_line_count,v_canonical_lines
+  from jsonb_to_recordset(p_lines) as l(purchase_line_id bigint,quantity numeric);
+  if v_line_count<1 or v_line_count<>v_distinct_line_count then
+    raise exception 'DUPLICATE_OR_INVALID_SUPPLIER_RETURN_LINE' using errcode='P0001';
+  end if;
+  if exists (
+    select 1 from jsonb_to_recordset(p_lines) as l(purchase_line_id bigint,quantity numeric)
+    where l.purchase_line_id is null or l.purchase_line_id<=0
+       or l.quantity is null or l.quantity<=0 or l.quantity>1000000000
+       or l.quantity*1000<>trunc(l.quantity*1000)
+  ) then
+    raise exception 'INVALID_SUPPLIER_RETURN_LINES' using errcode='P0001';
+  end if;
+
+  v_payload_hash:=md5(jsonb_build_object(
+    'site_id',p_site_id,'purchase_id',p_purchase_id,'return_date',v_return_date,
+    'reason',v_reason,'notes',nullif(btrim(p_notes),''),'refund_amount',v_refund_amount,
+    'refund_company_account_id',p_refund_company_account_id,'lines',v_canonical_lines
+  )::text);
+
+  perform pg_advisory_xact_lock(hashtextextended(
+    p_tenant_id::text||':supplier-return:'||v_operation_key,0
+  ));
+
+  select r.* into v_return
+  from public.supplier_purchase_returns r
+  where r.tenant_id=p_tenant_id and r.operation_key=v_operation_key
+  for update;
+  if found then
+    if v_return.payload_hash is distinct from v_payload_hash then
+      raise exception 'IDEMPOTENCY_KEY_REUSED' using errcode='P0001';
+    end if;
+    if v_return.refund_company_account_id is not null then
+      select ca.* into v_account from public.company_accounts ca
+      where ca.tenant_id=p_tenant_id and ca.id=v_return.refund_company_account_id;
+      if found then
+        select v_account.opening_balance+coalesce(sum(
+          case when atx.transaction_type in ('deposit','transfer_in','collection')
+            then atx.amount else -atx.amount end
+        ),0)
+        into v_account_balance
+        from public.account_transactions atx
+        where atx.tenant_id=p_tenant_id and atx.account_id=v_account.id;
+      end if;
+    end if;
+    return query select v_return.id,v_return.return_number,v_return.purchase_id,v_return.status,
+      v_return.total_credit_amount,v_return.stock_cost_amount,v_return.refund_amount,
+      greatest(0,v_return.total_credit_amount-v_return.refund_amount),v_account_balance,true;
+    return;
+  end if;
+
+  -- Match the account->purchase lock order used by supplier payment posting.
+  if v_refund_amount>0 then
+    perform pg_advisory_xact_lock(p_refund_company_account_id);
+    select ca.* into v_account from public.company_accounts ca
+    where ca.tenant_id=p_tenant_id and ca.id=p_refund_company_account_id
+    for update;
+    if not found then raise exception 'COMPANY_ACCOUNT_NOT_FOUND' using errcode='P0001'; end if;
+    if not v_account.is_active then raise exception 'COMPANY_ACCOUNT_INACTIVE' using errcode='P0001'; end if;
+    if exists (
+      select 1 from public.company_account_sites cas
+      where cas.tenant_id=p_tenant_id and cas.account_id=v_account.id
+    ) and not exists (
+      select 1 from public.company_account_sites cas
+      where cas.tenant_id=p_tenant_id and cas.account_id=v_account.id and cas.site_id=p_site_id
+    ) then
+      raise exception 'COMPANY_ACCOUNT_OUT_OF_SCOPE' using errcode='P0001';
+    end if;
+  end if;
+
+  select p.* into v_purchase from public.supplier_purchases p
+  where p.tenant_id=p_tenant_id and p.site_id=p_site_id and p.id=p_purchase_id
+  for update;
+  if not found then raise exception 'PURCHASE_NOT_FOUND' using errcode='P0001'; end if;
+  if v_purchase.status not in ('partially_received','received') then
+    raise exception 'SUPPLIER_RETURN_PURCHASE_NOT_RECEIVABLE' using errcode='P0001';
+  end if;
+
+  select coalesce(u.platform_role,'tenant_user') into v_platform_role
+  from public.users u where u.id=p_user_id;
+  if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
+
+  if exists (
+    select 1 from public.financial_settlements fs
+    where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked'
+      and (
+        (fs.period_start<=now() and fs.period_end>=now())
+        or (fs.period_start::date<=v_return_date and fs.period_end::date>=v_return_date)
+      )
+  ) then
+    raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001';
+  end if;
+
+  -- Validate the source received quantities and calculate proportional invoice value.
+  -- Cumulative cent allocation ensures that partial returns cannot accumulate rounding drift.
+  for v_line in
+    select l.purchase_line_id,l.quantity
+    from jsonb_to_recordset(v_canonical_lines) as l(purchase_line_id bigint,quantity numeric)
+    order by l.purchase_line_id
+  loop
+    select l.* into v_purchase_line
+    from public.supplier_purchase_lines l
+    where l.tenant_id=p_tenant_id and l.purchase_id=v_purchase.id and l.id=v_line.purchase_line_id
+    for update;
+    if not found then raise exception 'PURCHASE_LINE_NOT_FOUND' using errcode='P0001'; end if;
+
+    select coalesce(sum(rl.quantity),0)::numeric(14,3)
+      into v_received_quantity
+    from public.supplier_purchase_receipt_lines rl
+    where rl.tenant_id=p_tenant_id and rl.purchase_id=v_purchase.id
+      and rl.purchase_line_id=v_purchase_line.id;
+    if v_received_quantity<>v_purchase_line.received_quantity then
+      raise exception 'PURCHASE_RECEIPT_QUANTITY_MISMATCH' using errcode='P0001';
+    end if;
+
+    select coalesce(sum(rl.quantity),0)::numeric(14,3)
+      into v_already_returned_quantity
+    from public.supplier_purchase_return_lines rl
+    join public.supplier_purchase_returns r
+      on r.tenant_id=rl.tenant_id and r.id=rl.return_id and r.status='posted'
+    where rl.tenant_id=p_tenant_id and rl.purchase_id=v_purchase.id
+      and rl.purchase_line_id=v_purchase_line.id;
+
+    if v_line.quantity>v_received_quantity-v_already_returned_quantity then
+      raise exception 'SUPPLIER_RETURN_EXCEEDS_UNRETURNED_RECEIPT' using errcode='P0001';
+    end if;
+
+    v_base_quantity:=round(v_line.quantity*v_purchase_line.units_to_base_factor,3);
+    if v_base_quantity<=0 then
+      raise exception 'INVALID_SUPPLIER_RETURN_LINES' using errcode='P0001';
+    end if;
+
+    v_line_credit_amount :=
+      round(v_purchase_line.line_total*(v_already_returned_quantity+v_line.quantity)/v_purchase_line.quantity,2)
+      - round(v_purchase_line.line_total*v_already_returned_quantity/v_purchase_line.quantity,2);
+
+    v_total_credit_amount:=v_total_credit_amount+v_line_credit_amount;
+    v_processed_lines:=v_processed_lines||jsonb_build_array(jsonb_build_object(
+      'purchase_line_id',v_purchase_line.id,'item_id',v_purchase_line.item_id,
+      'quantity',v_line.quantity,'base_quantity',v_base_quantity,
+      'supplier_credit_amount',v_line_credit_amount
+    ));
+  end loop;
+
+  if v_refund_amount>v_total_credit_amount then
+    raise exception 'SUPPLIER_RETURN_REFUND_EXCEEDS_CREDIT' using errcode='P0001';
+  end if;
+  if v_total_credit_amount<0 then
+    raise exception 'INVALID_SUPPLIER_RETURN_REFUND' using errcode='P0001';
+  end if;
+
+  -- Lock each affected warehouse/item in a stable order, matching stock-operation locks.
+  for v_item_id in
+    select distinct l.item_id
+    from jsonb_to_recordset(v_processed_lines) as r(purchase_line_id bigint,item_id bigint)
+    join public.supplier_purchase_lines l
+      on l.tenant_id=p_tenant_id and l.purchase_id=v_purchase.id and l.id=r.purchase_line_id
+    order by l.item_id
+  loop
+    perform pg_advisory_xact_lock(hashtextextended(
+      p_tenant_id::text||':inventory-stock:'||v_purchase.warehouse_id::text||':'||v_item_id::text,0
+    ));
+  end loop;
+
+  insert into public.supplier_purchase_returns(
+    tenant_id,site_id,purchase_id,supplier_id,warehouse_id,return_number,return_date,
+    status,operation_key,payload_hash,reason,notes,total_credit_amount,stock_cost_amount,
+    refund_amount,refund_company_account_id,returned_by_user_id
+  ) values (
+    p_tenant_id,p_site_id,v_purchase.id,v_purchase.supplier_id,v_purchase.warehouse_id,
+    'RET-'||to_char(v_return_date,'YYYYMMDD')||'-'||lpad(nextval('public.supplier_purchase_return_number_seq')::text,6,'0'),
+    v_return_date,'posted',v_operation_key,v_payload_hash,v_reason,nullif(btrim(p_notes),''),
+    v_total_credit_amount,0,v_refund_amount,case when v_refund_amount>0 then p_refund_company_account_id else null end,p_user_id
+  ) returning * into v_return;
+
+  for v_line in
+    select * from jsonb_to_recordset(v_processed_lines) as r(
+      purchase_line_id bigint,item_id bigint,quantity numeric,base_quantity numeric,supplier_credit_amount numeric
+    ) order by purchase_line_id
+  loop
+    select coalesce(sum(case
+      when m.movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+        then m.quantity else -m.quantity end),0)::numeric(14,3),
+      coalesce(sum(case
+        when m.movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+          then m.total_cost_amount else -m.total_cost_amount end),0)::numeric(14,2)
+    into v_stock_quantity,v_stock_value
+    from public.inventory_stock_movements m
+    where m.tenant_id=p_tenant_id and m.site_id=p_site_id
+      and m.warehouse_id=v_purchase.warehouse_id and m.item_id=v_line.item_id;
+
+    if v_stock_quantity<v_line.base_quantity then
+      raise exception 'INSUFFICIENT_STOCK_FOR_SUPPLIER_RETURN' using errcode='P0001';
+    end if;
+    v_inventory_unit_cost:=case when v_stock_quantity>0
+      then round(greatest(v_stock_value,0)/v_stock_quantity,4) else 0::numeric end;
+
+    insert into public.inventory_stock_movements(
+      tenant_id,site_id,warehouse_id,item_id,movement_type,quantity,unit_cost,purchase_id,purchase_line_id,
+      reference_no,notes,operation_key,operation_payload_hash,occurred_at,created_by_user_id
+    ) values (
+      p_tenant_id,p_site_id,v_purchase.warehouse_id,v_line.item_id,'supplier_return',
+      v_line.base_quantity,v_inventory_unit_cost,v_purchase.id,v_line.purchase_line_id,
+      v_return.return_number,'مرتجع مورد: '||v_reason,
+      'supplier-return:'||v_return.id||':line:'||v_line.purchase_line_id,
+      md5(jsonb_build_object('return_id',v_return.id,'purchase_line_id',v_line.purchase_line_id,
+        'base_quantity',v_line.base_quantity,'unit_cost',v_inventory_unit_cost)::text),
+      v_return.returned_at,p_user_id
+    ) returning id into v_stock_movement_id;
+
+    insert into public.supplier_purchase_return_lines(
+      tenant_id,return_id,purchase_id,purchase_line_id,stock_movement_id,
+      quantity,base_quantity,supplier_credit_amount,inventory_unit_cost
+    ) values (
+      p_tenant_id,v_return.id,v_purchase.id,v_line.purchase_line_id,v_stock_movement_id,
+      v_line.quantity,v_line.base_quantity,v_line.supplier_credit_amount,v_inventory_unit_cost
+    );
+    v_stock_cost_amount:=v_stock_cost_amount+round(v_line.base_quantity*v_inventory_unit_cost,2);
+
+    insert into public.audit_logs(
+      tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,
+      before_data,after_data,metadata
+    ) values (
+      p_tenant_id,p_site_id,p_user_id,v_platform_role,'inventory_stock_movement',v_stock_movement_id::text,'supplier_return',
+      jsonb_build_object('onHandQuantity',v_stock_quantity,'stockValue',v_stock_value),
+      jsonb_build_object('onHandQuantity',v_stock_quantity-v_line.base_quantity,
+        'stockValue',greatest(v_stock_value-round(v_line.base_quantity*v_inventory_unit_cost,2),0)),
+      jsonb_build_object('returnId',v_return.id,'returnNumber',v_return.return_number,
+        'purchaseId',v_purchase.id,'purchaseLineId',v_line.purchase_line_id)
+    );
+  end loop;
+
+  update public.supplier_purchase_returns r
+    set stock_cost_amount=v_stock_cost_amount
+  where r.tenant_id=p_tenant_id and r.id=v_return.id
+  returning * into v_return;
+
+  -- Keep the gross return and its cash settlement as separate, linked ledger entries.
+  -- The net supplier balance impact is the unrefunded amount, without losing the gross return history.
+  if v_total_credit_amount>0 then
+    insert into public.supplier_ledger_entries(
+      tenant_id,site_id,supplier_id,entry_type,debit_amount,purchase_id,supplier_return_id,
+      entry_key,reference_no,description,occurred_at,created_by_user_id
+    ) values (
+      p_tenant_id,p_site_id,v_purchase.supplier_id,'supplier_return',v_total_credit_amount,
+      v_purchase.id,v_return.id,'supplier-return:'||v_return.id,v_return.return_number,
+      'قيمة مرتجع المورد — فاتورة '||v_purchase.purchase_number||' — '||v_reason,
+      v_return.return_date::timestamptz,p_user_id
+    );
+  end if;
+
+  if v_refund_amount>0 then
+    insert into public.supplier_ledger_entries(
+      tenant_id,site_id,supplier_id,entry_type,credit_amount,purchase_id,supplier_return_id,
+      entry_key,reference_no,description,occurred_at,created_by_user_id
+    ) values (
+      p_tenant_id,p_site_id,v_purchase.supplier_id,'credit_note',v_refund_amount,
+      v_purchase.id,v_return.id,'supplier-return-refund:'||v_return.id,v_return.return_number,
+      'تسوية المبلغ المسترد نقدًا لمرتجع المورد '||v_return.return_number,
+      v_return.return_date::timestamptz,p_user_id
+    );
+  end if;
+
+  if v_refund_amount>0 then
+    insert into public.account_transactions(
+      tenant_id,account_id,transaction_type,amount,description,reference_no,
+      related_supplier_return_id,created_by_user_id,occurred_at
+    ) values (
+      p_tenant_id,v_account.id,'deposit',v_refund_amount,
+      'رد مبلغ من المورد — مرتجع '||v_return.return_number,
+      v_return.return_number,v_return.id,p_user_id,v_return.return_date::timestamptz
+    );
+
+  end if;
+
+  if v_refund_amount>0 then
+    select v_account.opening_balance+coalesce(sum(
+      case when atx.transaction_type in ('deposit','transfer_in','collection')
+        then atx.amount else -atx.amount end
+    ),0)
+    into v_account_balance
+    from public.account_transactions atx
+    where atx.tenant_id=p_tenant_id and atx.account_id=v_account.id;
+  end if;
+
+  insert into public.audit_logs(
+    tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,
+    before_data,after_data,metadata
+  ) values (
+    p_tenant_id,p_site_id,p_user_id,v_platform_role,'supplier_purchase_return',v_return.id::text,'post',
+    jsonb_build_object('purchaseId',v_purchase.id,'purchaseNumber',v_purchase.purchase_number),
+    jsonb_build_object('returnNumber',v_return.return_number,'status',v_return.status,
+      'totalCreditAmount',v_total_credit_amount,'stockCostAmount',v_stock_cost_amount,
+      'refundAmount',v_refund_amount,'supplierCreditRemaining',v_total_credit_amount-v_refund_amount),
+    jsonb_build_object('operationKey',v_operation_key,'reason',v_reason,
+      'refundCompanyAccountId',v_return.refund_company_account_id)
+  );
+
+  return query select v_return.id,v_return.return_number,v_purchase.id,v_return.status,
+    v_total_credit_amount,v_stock_cost_amount,v_refund_amount,
+    greatest(0,v_total_credit_amount-v_refund_amount),v_account_balance,false;
+end;
+$$;
+
+revoke all on function public.powerhub_inventory_return_to_supplier(bigint,bigint,bigint,bigint,date,text,text,text,jsonb,numeric,bigint)
+  from public,anon,authenticated;
+grant execute on function public.powerhub_inventory_return_to_supplier(bigint,bigint,bigint,bigint,date,text,text,text,jsonb,numeric,bigint)
+  to service_role;

@@ -62,7 +62,7 @@ export default function InventoryWorkspacePage() {
   const canApprovePurchases = supplierAccess.data?.permissions.includes("approvePurchases") ?? false;
   const canReceiveInventory = supplierAccess.data?.permissions.includes("receiveInventory") ?? false;
   const canManageSupplierPayments = supplierAccess.data?.permissions.includes("manageSupplierPayments") ?? false;
-  const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments;
+  const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments || canAdjustInventory;
   const canViewPurchaseFinancials = canViewPurchases || canManageSupplierPayments;
   const utils = trpc.useUtils();
   const [tab, setTab] = useState("catalog");

@@ -70,6 +70,16 @@ function mapPurchaseDatabaseError(
     INVALID_PAYMENT_TERMS: { code: "BAD_REQUEST", message: "مدة السداد غير صالحة." },
     INVALID_DUE_DATE: { code: "BAD_REQUEST", message: "تاريخ الاستحقاق لا يجوز أن يسبق تاريخ الفاتورة." },
     PURCHASE_NOT_FOUND: { code: "NOT_FOUND", message: "فاتورة المشتريات غير موجودة في هذا الفرع." },
+    SUPPLIER_RETURN_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لمرتجع المورد." },
+    INVALID_SUPPLIER_RETURN_LINES: { code: "BAD_REQUEST", message: "تحقق من بنود وكميات مرتجع المورد." },
+    DUPLICATE_OR_INVALID_SUPPLIER_RETURN_LINE: { code: "BAD_REQUEST", message: "لا تكرر بند الفاتورة نفسه في المرتجع." },
+    SUPPLIER_RETURN_EXCEEDS_UNRETURNED_RECEIPT: { code: "CONFLICT", message: "كمية المرتجع تتجاوز الكمية المستلمة المتبقية بعد المرتجعات السابقة." },
+    PURCHASE_RECEIPT_QUANTITY_MISMATCH: { code: "CONFLICT", message: "سجل الاستلام لا يطابق كميات الفاتورة؛ أوقفنا المرتجع لحماية المخزون." },
+    SUPPLIER_RETURN_PURCHASE_NOT_RECEIVABLE: { code: "CONFLICT", message: "يمكن إرجاع البنود المستلمة فقط من فاتورة غير ملغاة." },
+    INVALID_SUPPLIER_RETURN_REFUND: { code: "BAD_REQUEST", message: "مبلغ الاسترداد النقدي غير صالح." },
+    SUPPLIER_RETURN_REFUND_ACCOUNT_REQUIRED: { code: "BAD_REQUEST", message: "حدد حساب الشركة إذا كان المورد سيرد مبلغًا نقديًا." },
+    SUPPLIER_RETURN_REFUND_EXCEEDS_CREDIT: { code: "BAD_REQUEST", message: "مبلغ الاسترداد يتجاوز قيمة المرتجع." },
+    INSUFFICIENT_STOCK_FOR_SUPPLIER_RETURN: { code: "CONFLICT", message: "الرصيد المتاح لا يكفي لإرجاع الكمية المحددة؛ راجع المخزون أولًا." },
     PURCHASE_LINE_NOT_FOUND: { code: "NOT_FOUND", message: "أحد بنود المشتريات غير موجود." },
     SUPPLIER_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المورد غير نشط أو لا ينتمي إلى الشركة." },
     WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن غير نشط أو لا يتبع هذا الفرع." },
@@ -122,8 +132,9 @@ async function requirePurchaseReadAccess(userId: number, siteId: number) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   const canManageSupplierPayments = access.permissions.includes("manageSupplierPayments");
   const canViewFinancials = access.permissions.includes("viewPurchases") || canManageSupplierPayments;
-  if (!canViewFinancials && !access.permissions.includes("receiveInventory")) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض المشتريات أو الاستلام." });
+  const canAdjustInventory = access.permissions.includes("adjustInventory");
+  if (!canViewFinancials && !access.permissions.includes("receiveInventory") && !canAdjustInventory) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض المشتريات أو تنفيذ استلام أو مرتجع مخزني." });
   }
   return { ...access, canViewFinancials, canManageSupplierPayments };
 }
@@ -488,20 +499,26 @@ export const powerhubInventoryRouter = router({
       if (!purchase || (!access.canViewFinancials && !["confirmed", "partially_received", "received"].includes(purchase.status))) {
         throw new TRPCError({ code: "NOT_FOUND", message: "فاتورة المشتريات غير موجودة في هذا الفرع." });
       }
-      const [lineResult, receiptResult, supplierResult, warehouseResult] = await Promise.all([
+      const [lineResult, receiptResult, returnResult, returnCreditResult, supplierResult, warehouseResult] = await Promise.all([
         supabaseAdmin().from("supplier_purchase_lines")
           .select("id,tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,unit_price,discount_amount,tax_amount,line_subtotal,line_total,received_quantity,notes,created_at,updated_at")
           .eq("tenant_id", access.tenantId).eq("purchase_id", input.purchaseId).order("id", { ascending: true }),
         supabaseAdmin().from("supplier_purchase_receipts")
           .select("id,receipt_number,receipt_date,operation_key,notes,received_at,received_by_user_id,created_at")
           .eq("tenant_id", access.tenantId).eq("purchase_id", input.purchaseId).order("id", { ascending: false }).limit(100),
+        supabaseAdmin().from("supplier_purchase_returns")
+          .select("id,return_number,return_date,status,reason,notes,total_credit_amount,stock_cost_amount,refund_amount,refund_company_account_id,returned_at,operation_key")
+          .eq("tenant_id", access.tenantId).eq("purchase_id", input.purchaseId).order("id", { ascending: false }).limit(100),
+        supabaseAdmin().rpc("powerhub_inventory_purchase_supplier_return_credit", {
+          p_tenant_id: access.tenantId, p_purchase_id: input.purchaseId,
+        }),
         supabaseAdmin().from("suppliers").select("id,name,supplier_code")
           .eq("tenant_id", access.tenantId).eq("id", purchase.supplier_id).maybeSingle(),
         supabaseAdmin().from("inventory_warehouses").select("id,name,code")
           .eq("tenant_id", access.tenantId).eq("id", purchase.warehouse_id).maybeSingle(),
       ]);
-      if (lineResult.error || receiptResult.error || supplierResult.error || warehouseResult.error) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل البنود والاستلام." });
+      if (lineResult.error || receiptResult.error || returnResult.error || supplierResult.error || warehouseResult.error || returnCreditResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل البنود والاستلام والمرتجعات وأثرها على المستحق." });
       }
       const itemIds = [...new Set((lineResult.data ?? []).map((line) => Number(line.item_id)))];
       const itemResult = itemIds.length
@@ -509,6 +526,70 @@ export const powerhubInventoryRouter = router({
         : { data: [], error: null };
       if (itemResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء الأصناف." });
       const items = new Map((itemResult.data ?? []).map((item) => [Number(item.id), item]));
+      const returnIds = (returnResult.data ?? []).map((row) => Number(row.id));
+      const returnLinesResult = returnIds.length
+        ? await supabaseAdmin().from("supplier_purchase_return_lines")
+          .select("id,return_id,purchase_line_id,stock_movement_id,quantity,base_quantity,supplier_credit_amount,inventory_unit_cost,stock_cost_amount")
+          .eq("tenant_id", access.tenantId).in("return_id", returnIds).order("id", { ascending: true })
+        : { data: [], error: null };
+      if (returnLinesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بنود مرتجعات المورد." });
+      const purchaseLinesById = new Map((lineResult.data ?? []).map((line) => [Number(line.id), line]));
+      type SupplierPurchaseReturnLineView = {
+        id: number;
+        return_id: number;
+        purchase_line_id: number;
+        stock_movement_id: number;
+        quantity: number;
+        base_quantity: number;
+        supplier_credit_amount: number | null;
+        inventory_unit_cost: number | null;
+        stock_cost_amount: number | null;
+        itemName: string;
+        unit: string;
+      };
+      const returnLinesByReturn = new Map<number, SupplierPurchaseReturnLineView[]>();
+      for (const line of returnLinesResult.data ?? []) {
+        const returnId = Number(line.return_id);
+        const purchaseLine = purchaseLinesById.get(Number(line.purchase_line_id));
+        const item = purchaseLine ? items.get(Number(purchaseLine.item_id)) : undefined;
+        const visibleLine: SupplierPurchaseReturnLineView = {
+          id: Number(line.id),
+          return_id: returnId,
+          purchase_line_id: Number(line.purchase_line_id),
+          stock_movement_id: Number(line.stock_movement_id),
+          quantity: Number(line.quantity),
+          base_quantity: Number(line.base_quantity),
+          supplier_credit_amount: access.canViewFinancials ? Number(line.supplier_credit_amount ?? 0) : null,
+          inventory_unit_cost: access.canViewFinancials ? Number(line.inventory_unit_cost ?? 0) : null,
+          stock_cost_amount: access.canViewFinancials ? Number(line.stock_cost_amount ?? 0) : null,
+          itemName: item?.name ?? "صنف غير متاح",
+          unit: purchaseLine?.unit ?? "",
+        };
+        returnLinesByReturn.set(returnId, [...(returnLinesByReturn.get(returnId) ?? []), visibleLine]);
+      }
+      const returns = (returnResult.data ?? []).map((row) => {
+        const returnId = Number(row.id);
+        return {
+          id: returnId,
+          return_number: String(row.return_number ?? ""),
+          return_date: String(row.return_date ?? ""),
+          status: String(row.status ?? ""),
+          reason: String(row.reason ?? ""),
+          notes: typeof row.notes === "string" ? row.notes : null,
+          total_credit_amount: access.canViewFinancials ? Number(row.total_credit_amount ?? 0) : null,
+          stock_cost_amount: access.canViewFinancials ? Number(row.stock_cost_amount ?? 0) : null,
+          refund_amount: access.canViewFinancials ? Number(row.refund_amount ?? 0) : null,
+          refund_company_account_id: access.canViewFinancials && row.refund_company_account_id != null
+            ? Number(row.refund_company_account_id) : null,
+          returned_at: typeof row.returned_at === "string" ? row.returned_at : null,
+          operation_key: String(row.operation_key ?? ""),
+          lines: returnLinesByReturn.get(returnId) ?? [],
+        };
+      });
+      const supplierReturnCreditAmount = access.canViewFinancials
+        ? Number(returnCreditResult.data ?? 0)
+        : null;
+
       let payments: Array<{
         id: number; amount: number; allocated_amount: number; payment_date: string;
         reference_no: string | null; company_account_id: number; company_account_name: string;
@@ -565,10 +646,14 @@ export const powerhubInventoryRouter = router({
           supplierCode: supplierResult.data?.supplier_code ?? null,
           warehouseName: warehouseResult.data?.name ?? "مخزن غير متاح",
           canViewFinancials: access.canViewFinancials,
-          ...(access.canViewFinancials ? { paidAmount, outstandingAmount: Math.max(0, Number(purchase.total_amount) - paidAmount) } : {
+          ...(access.canViewFinancials ? {
+            paidAmount,
+            supplierReturnCreditAmount,
+            outstandingAmount: Math.max(0, Number(purchase.total_amount) - paidAmount - Number(supplierReturnCreditAmount ?? 0)),
+          } : {
             supplier_invoice_no: null, due_date: null, subtotal_amount: null, discount_amount: null, tax_amount: null,
             other_charges_amount: null, total_amount: null, payment_terms_days: null, reference_no: null, notes: null,
-            paidAmount: null, outstandingAmount: null,
+            paidAmount: null, supplierReturnCreditAmount: null, outstandingAmount: null,
           }),
         },
         canViewFinancials: access.canViewFinancials,
@@ -583,6 +668,7 @@ export const powerhubInventoryRouter = router({
           baseUnit: items.get(Number(line.item_id))?.base_unit ?? null,
         })),
         receipts: receiptResult.data ?? [],
+        returns,
       };
     }),
 
@@ -707,6 +793,52 @@ export const powerhubInventoryRouter = router({
         p_operation_key: input.operationKey,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل دفعة المورد.");
+      return data[0];
+    }),
+
+  returnToSupplier: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      purchaseId: z.number().int().positive(),
+      returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      operationKey: z.string().trim().min(1).max(120),
+      reason: z.string().trim().min(3).max(500),
+      notes: z.string().trim().max(2000).optional(),
+      refundAmount: z.number().finite().min(0).max(1_000_000_000)
+        .refine((amount) => Math.abs(amount * 100 - Math.round(amount * 100)) < 1e-7, {
+          message: "مبلغ الاسترداد النقدي يجب أن يكون بحد أقصى منزلتين عشريتين.",
+        })
+        .default(0),
+      refundCompanyAccountId: z.number().int().positive().optional(),
+      lines: z.array(z.object({
+        purchaseLineId: z.number().int().positive(),
+        quantity: z.number().finite().positive().max(1_000_000_000),
+      })).min(1).max(200),
+    }).superRefine((value, ctx) => {
+      if (value.refundAmount > 0 && !value.refundCompanyAccountId) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["refundCompanyAccountId"], message: "حدد حساب الشركة لاستلام المبلغ النقدي." });
+      }
+      if (value.refundAmount === 0 && value.refundCompanyAccountId) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["refundCompanyAccountId"], message: "لا حاجة لحساب شركة إذا لم يُسترد مبلغ نقدي." });
+      }
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "adjustInventory");
+      if (input.refundAmount > 0) {
+        const financialAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+        if (financialAccess.tenantId !== access.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "حساب الشركة غير متاح لهذا المستأجر." });
+        }
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_return_to_supplier", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_purchase_id: input.purchaseId, p_return_date: input.returnDate || null,
+        p_operation_key: input.operationKey, p_reason: input.reason,
+        p_notes: input.notes || null,
+        p_lines: input.lines.map((line) => ({ purchase_line_id: line.purchaseLineId, quantity: line.quantity })),
+        p_refund_amount: input.refundAmount, p_refund_company_account_id: input.refundCompanyAccountId ?? null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل مرتجع المورد.");
       return data[0];
     }),
 

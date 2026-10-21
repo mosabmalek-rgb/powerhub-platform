@@ -26,6 +26,7 @@ type InventoryPurchasesPanelProps = {
   canCreatePurchases: boolean;
   canApprovePurchases: boolean;
   canReceiveInventory: boolean;
+  canAdjustInventory: boolean;
   canManageSupplierPayments: boolean;
 };
 
@@ -103,6 +104,7 @@ export default function InventoryPurchasesPanel({
   canCreatePurchases,
   canApprovePurchases,
   canReceiveInventory,
+  canAdjustInventory,
   canManageSupplierPayments,
 }: InventoryPurchasesPanelProps) {
   const [search, setSearch] = useState("");
@@ -195,17 +197,8 @@ export default function InventoryPurchasesPanel({
     const lines = details.data?.lines;
     const returns = details.data?.returns ?? [];
     if (!lines) return;
-    const returnedByLine = new Map<number, number>();
-    for (const supplierReturn of returns) {
-      for (const line of supplierReturn.lines ?? []) {
-        const id = Number(line.purchase_line_id);
-        returnedByLine.set(id, (returnedByLine.get(id) ?? 0) + Number(line.quantity));
-      }
-    }
-    setReturnQuantities(Object.fromEntries(lines.map((line) => [
-      Number(line.id),
-      String(Math.max(0, Number(line.received_quantity) - (returnedByLine.get(Number(line.id)) ?? 0))),
-    ])));
+    // Never preselect a return quantity: a destructive stock operation must require an explicit choice.
+    setReturnQuantities(Object.fromEntries(lines.map((line) => [Number(line.id), "0"])));
   }, [details.data?.purchase.id, details.data?.purchase.updated_at, details.data?.returns]);
 
   const previewTotal = useMemo(() => draftLines.reduce((sum, line) => {
@@ -278,11 +271,12 @@ export default function InventoryPurchasesPanel({
       setReturnReason("");
       setReturnNotes("");
       setReturnRefundAmount("0");
+      setReturnRefundAccountId("");
       setReturnDate(todayForInput());
       clearOperationKey(`powerhub:inventory:${siteId}:purchase:${Number(result.purchase_id)}:return`);
       await Promise.all([
         refreshPurchaseData(Number(result.purchase_id)),
-        utils.powerhub.inventory.listStockOverview.invalidate({ siteId }),
+        utils.powerhub.inventory.stockOverview.invalidate({ siteId }),
         utils.powerhub.inventory.listStockMovements.invalidate({ siteId, limit: 100 }),
         utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
       ]);
@@ -416,7 +410,7 @@ export default function InventoryPurchasesPanel({
       toast.error("مبلغ الاسترداد يجب أن يكون صفرًا أو موجبًا وبحد أقصى منزلتين عشريتين.");
       return;
     }
-    if (refundAmount > 0 && !companyAccountId) {
+    if (refundAmount > 0 && !returnRefundAccountId) {
       toast.error("اختر حساب الشركة الذي سيستقبل المبلغ المسترد.");
       return;
     }
@@ -429,7 +423,7 @@ export default function InventoryPurchasesPanel({
       reason: returnReason.trim(),
       notes: returnNotes.trim() || undefined,
       refundAmount,
-      refundCompanyAccountId: refundAmount > 0 ? Number(companyAccountId) : undefined,
+      refundCompanyAccountId: refundAmount > 0 ? Number(returnRefundAccountId) : undefined,
       lines,
     });
   };
@@ -707,7 +701,7 @@ export default function InventoryPurchasesPanel({
                           <Input type="number" min="0" step="0.01" value={returnRefundAmount} onChange={(event) => setReturnRefundAmount(event.target.value)} required />
                         </label>
                         {Number(returnRefundAmount) > 0 ? <label className={inputGridClass}>حساب الشركة المستلم
-                          <select className={selectClass} value={companyAccountId} onChange={(event) => setReturnRefundAccountId(event.target.value)} required>
+                          <select className={selectClass} value={returnRefundAccountId} onChange={(event) => setReturnRefundAccountId(event.target.value)} required>
                             <option value="">اختر حسابًا</option>
                             {(paymentOptions.data ?? []).map((account) => <option key={account.id} value={account.id}>{account.name} — الرصيد {formatAmount(account.balance)}</option>)}
                           </select>
