@@ -2330,11 +2330,11 @@ declare
   v_second_id bigint;
 begin
   select occurred_at,movement_id into v_first_at,v_first_id
-  from public.powerhub_inventory_list_stock_movement_report(10,100,1,null,null,null,null,null,null);
+  from public.powerhub_inventory_list_stock_movement_report(10::bigint,100::bigint,1,null,null,null,null,null,null);
   if not found then raise exception 'INVENTORY_MOVEMENT_REPORT_HAS_NO_FIXTURE_ROWS'; end if;
 
   select occurred_at,movement_id into v_second_at,v_second_id
-  from public.powerhub_inventory_list_stock_movement_report(10,100,1,v_first_at,v_first_id,null,null,null,null);
+  from public.powerhub_inventory_list_stock_movement_report(10::bigint,100::bigint,1,v_first_at,v_first_id,null,null,null,null);
   if not found then raise exception 'INVENTORY_MOVEMENT_REPORT_CURSOR_DID_NOT_RETURN_NEXT_ROW'; end if;
   if (v_second_at,v_second_id)>=(v_first_at,v_first_id) then
     raise exception 'INVENTORY_MOVEMENT_REPORT_CURSOR_ORDER_INVALID';
