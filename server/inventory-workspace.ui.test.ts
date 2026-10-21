@@ -109,20 +109,30 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain('"manageFuelAndConsumption"');
   });
 
-  it("wires inventory reports and CSV exports behind the dedicated report permission", () => {
+  it("wires complete inventory reports, keyset paging, safe CSV export, and report-only access", () => {
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     const reports = read("client/src/components/InventoryReportsPanel.tsx");
     const router = read("server/powerhub-inventory-router.ts");
+    const menuAccess = read("client/src/lib/tenant-menu-access.ts");
+    const roleTests = read("client/src/lib/tenant-menu-access.test.ts");
+    const migration = read("supabase/migrations/20261021220000_powerhub_inventory_movement_report_paging.sql");
     expect(workspace).toContain('canViewInventoryReports ? <TabsTrigger value="reports"');
     expect(workspace).toContain("canViewInventoryReports={canViewInventoryReports}");
+    expect(workspace).toContain('canViewInventory ? <TabsContent value="stock"');
     expect(reports).toContain("trpc.powerhub.inventory.stockOverview.useQuery");
-    expect(reports).toContain("trpc.powerhub.inventory.listStockMovements.useQuery");
-    expect(reports).toContain("download");
-    expect(reports).toContain("canViewInventoryReports");
-    expect(reports).toContain("lowOnly");
-    expect(reports).toContain("s.replace(/\"/g");
-    expect(reports).toContain("canViewInventoryReports");
+    expect(reports).toContain("trpc.powerhub.inventory.listStockMovementReport.useQuery");
+    expect(reports).toContain("listStockMovementReport.fetch");
+    expect(reports).toContain("downloadCsv");
+    expect(reports).toContain("hasMore");
+    expect(reports).toContain("exportingMoves");
+    expect(reports).toContain("setTimeout");
+    expect(reports).toContain("s.replace(/\\"/g");
     expect(router).toContain('permissions.includes("viewInventoryReports")');
+    expect(router).toContain("powerhub_inventory_list_stock_movement_report");
+    expect(menuAccess).toContain('"/inventory": { capabilities: ["viewInventory", "viewInventoryReports"] }');
+    expect(roleTests).toContain('tenantMenuRouteAllowed("/inventory", "viewer", ["viewInventoryReports"], true)');
+    expect(migration).toContain("p_before_occurred_at");
+    expect(migration).toContain("order by m.occurred_at desc, m.id desc");
   });
 
   it("wires supplier returns to the stock, supplier ledger, and optional company-account refund workflow", () => {
