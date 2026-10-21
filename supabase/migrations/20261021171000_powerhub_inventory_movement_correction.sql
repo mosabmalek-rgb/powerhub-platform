@@ -62,6 +62,7 @@ as $$
       m.movement_type in ('issue','adjustment_in','adjustment_out','fuel_consumption')
       and m.purchase_id is null and m.purchase_line_id is null
       and m.reversal_of_movement_id is null
+      and m.corrects_movement_id is null
       and not exists(select 1 from public.inventory_stock_movements c
         where c.tenant_id=m.tenant_id and c.reversal_of_movement_id=m.id)
       and not exists(select 1 from public.inventory_stock_movements later
@@ -366,7 +367,8 @@ begin
   if not found then raise exception 'STOCK_MOVEMENT_NOT_FOUND' using errcode='P0001'; end if;
   if v_original.movement_type not in ('issue','adjustment_in','adjustment_out','fuel_consumption')
     or v_original.purchase_id is not null or v_original.purchase_line_id is not null
-    or v_original.reversal_of_movement_id is not null then
+    or v_original.reversal_of_movement_id is not null
+    or v_original.corrects_movement_id is not null then
     raise exception 'STOCK_MOVEMENT_NOT_EDITABLE' using errcode='P0001';
   end if;
   if exists(select 1 from public.inventory_stock_movements c

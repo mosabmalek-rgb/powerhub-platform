@@ -1809,6 +1809,15 @@ begin
     or v_onhand<>v_bqty+1 or v_value<>v_bval+3.30 then raise exception 'STOCK_MOVEMENT_CORRECTION_POST_FAILED'; end if;
  select count(*) into v_count_after from public.inventory_stock_movements where tenant_id=10 and site_id=100 and warehouse_id=v_wh and item_id=v_item;
  if v_count_after<>v_count+2 then raise exception 'STOCK_MOVEMENT_CORRECTION_ROW_COUNT_WRONG'; end if;
+ select can_edit into v_can_edit from public.powerhub_inventory_list_stock_movements(10,100,500) where movement_id=v_new;
+ if coalesce(v_can_edit,false) then raise exception 'CORRECTED_REPLACEMENT_WRONGLY_MARKED_EDITABLE'; end if;
+ begin
+  perform * from public.powerhub_inventory_correct_stock_movement(10,100,2,v_new,2.2,3.3,'EDIT-AGAIN','second edit','second correction blocked by policy','stock-correction:second-edit');
+  raise exception 'CORRECTED_REPLACEMENT_EDIT_WAS_ACCEPTED';
+ exception when others then
+  if sqlerrm='CORRECTED_REPLACEMENT_EDIT_WAS_ACCEPTED' then raise; end if;
+  if sqlerrm not like '%STOCK_MOVEMENT_NOT_EDITABLE%' then raise; end if;
+ end;
  select original_movement_id,reversal_movement_id,replacement_movement_id,replayed into v_original,v_rev_out,v_new_out,v_replayed
  from public.powerhub_inventory_correct_stock_movement(10,100,2,v_latest,2,3.3,'EDIT-FIXED','corrected description','Correct quantity after recount','stock-correction:request-001');
  if not v_replayed or v_original<>v_latest or v_rev_out<>v_rev or v_new_out<>v_new then raise exception 'STOCK_MOVEMENT_CORRECTION_REPLAY_FAILED'; end if;
