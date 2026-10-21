@@ -276,7 +276,7 @@ export default function InventoryPurchasesPanel({
       clearOperationKey(`powerhub:inventory:${siteId}:purchase:${Number(result.purchase_id)}:return`);
       await Promise.all([
         refreshPurchaseData(Number(result.purchase_id)),
-        utils.powerhub.inventory.listStockOverview.invalidate({ siteId }),
+        utils.powerhub.inventory.stockOverview.invalidate({ siteId }),
         utils.powerhub.inventory.listStockMovements.invalidate({ siteId, limit: 100 }),
         utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
       ]);
