@@ -93,7 +93,7 @@ begin
      or abs(p_quantity * 1000 - round(p_quantity * 1000)) > 0.0000001 then
     raise exception 'INVALID_STOCK_TRANSFER_QUANTITY' using errcode='P0001';
   end if;
-  if p_operation_key is null or length(trim(p_operation_key)) not between 1 and 180 then
+  if p_operation_key is null or length(trim(p_operation_key)) not between 1 and 170 then
     raise exception 'INVALID_OPERATION_KEY' using errcode='P0001';
   end if;
 
@@ -183,7 +183,7 @@ begin
     p_tenant_id,p_site_id,p_source_warehouse_id,p_item_id,'issue',p_quantity,v_unit_cost,v_total_cost,
     coalesce(nullif(trim(p_reference_no),''),'TRF-'||v_transfer.id::text),
     'تحويل مخزني صادر #'||v_transfer.id||case when nullif(trim(p_notes),'') is not null then ': '||trim(p_notes) else '' end,
-    'transfer:'||trim(p_operation_key)||':out',v_payload_hash,now(),p_user_id
+    'trf:'||trim(p_operation_key)||':out',v_payload_hash,now(),p_user_id
   ) returning * into v_out;
 
   insert into public.inventory_stock_movements(
@@ -193,7 +193,7 @@ begin
     p_tenant_id,p_site_id,p_destination_warehouse_id,p_item_id,'adjustment_in',p_quantity,v_unit_cost,v_total_cost,
     coalesce(nullif(trim(p_reference_no),''),'TRF-'||v_transfer.id::text),
     'تحويل مخزني وارد #'||v_transfer.id||case when nullif(trim(p_notes),'') is not null then ': '||trim(p_notes) else '' end,
-    'transfer:'||trim(p_operation_key)||':in',v_payload_hash,now(),p_user_id
+    'trf:'||trim(p_operation_key)||':in',v_payload_hash,now(),p_user_id
   ) returning * into v_in;
 
   update public.inventory_stock_transfers set source_movement_id=v_out.id,destination_movement_id=v_in.id
