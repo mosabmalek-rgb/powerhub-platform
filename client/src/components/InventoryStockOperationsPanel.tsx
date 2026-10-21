@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Boxes, ClipboardList, Loader2, RefreshCw, Save, TrendingDown } from "lucide-react";
 
-type MovementType = "issue" | "adjustment_in" | "adjustment_out" | "fuel_consumption";
+type MovementType = "issue" | "opening_balance" | "adjustment_in" | "adjustment_out" | "fuel_consumption";
 type Props = {
   siteId: number;
   isAuthenticated: boolean;
@@ -54,12 +54,14 @@ type StockMovementRow = {
 
 const movementLabels: Record<MovementType, string> = {
   issue: "صرف صنف",
+  opening_balance: "رصيد افتتاحي",
   adjustment_in: "تسوية زيادة",
   adjustment_out: "تسوية نقص",
   fuel_consumption: "استهلاك وقود للمولد",
 };
 const movementDescriptions: Record<MovementType, string> = {
   issue: "يصرف الكمية من المخزن، ويمكن ربطها بالمولد.",
+  opening_balance: "يسجل الرصيد الفعلي عند بدء استخدام النظام مرة واحدة للصنف والمخزن، مع تكلفة وحدة وسبب واضح.",
   adjustment_in: "يسجل زيادة الجرد مع سبب واضح وتكلفة وحدة عند عدم وجود رصيد سابق.",
   adjustment_out: "يسجل نقص الجرد، ولا يسمح بأن يصبح الرصيد سالبًا.",
   fuel_consumption: "يسجل استهلاك صنف وقود ويربط الحركة بمولد محدد.",
@@ -112,7 +114,7 @@ export default function InventoryStockOperationsPanel({
   const storageKey = "powerhub:inventory:" + siteId + ":stock-movement";
   const allowedTypes = useMemo<MovementType[]>(() => [
     ...(canIssueInventory ? ["issue" as const] : []),
-    ...(canAdjustInventory ? ["adjustment_in" as const, "adjustment_out" as const] : []),
+    ...(canAdjustInventory ? ["opening_balance" as const, "adjustment_in" as const, "adjustment_out" as const] : []),
     ...(canManageFuelAndConsumption ? ["fuel_consumption" as const] : []),
   ], [canIssueInventory, canAdjustInventory, canManageFuelAndConsumption]);
 
@@ -210,6 +212,9 @@ export default function InventoryStockOperationsPanel({
     if (["adjustment_in", "adjustment_out"].includes(movementType) && !notes.trim()) {
       toast.error("أدخل سبب تسوية الجرد."); return;
     }
+    if (movementType === "opening_balance" && cost === undefined) {
+      toast.error("أدخل تكلفة الوحدة للرصيد الافتتاحي."); return;
+    }
     if (movementType === "adjustment_in" && currentQuantity <= 0 && cost === undefined) {
       toast.error("أدخل تكلفة الوحدة عند إضافة كمية لصنف لا يملك رصيدًا سابقًا."); return;
     }
@@ -306,17 +311,17 @@ export default function InventoryStockOperationsPanel({
               </label>
             ) : null}
             <label className={inputClass}>الكمية *
-              <Input type="number" required min="0.001" step="0.001" max={movementType === "adjustment_in" ? 1_000_000_000 : undefined} value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+              <Input type="number" required min="0.001" step="0.001" max={["opening_balance", "adjustment_in"].includes(movementType) ? 1_000_000_000 : undefined} value={quantity} onChange={(event) => setQuantity(event.target.value)} />
               <span className="text-xs text-muted-foreground">الرصيد الحالي: {fmtQty(currentQuantity)} {units[selectedStock?.base_unit ?? "other"] ?? ""}</span>
             </label>
-            {movementType === "adjustment_in" ? <label className={inputClass}>تكلفة الوحدة (اختيارية مع وجود رصيد)
+            {["opening_balance", "adjustment_in"].includes(movementType) ? <label className={inputClass}>{movementType === "opening_balance" ? "تكلفة الوحدة *" : "تكلفة الوحدة (اختيارية مع وجود رصيد)"}
               <Input type="number" min="0" step="0.0001" max="1000000000" value={unitCost} onChange={(event) => setUnitCost(event.target.value)} placeholder={selectedStock?.average_unit_cost ? String(selectedStock.average_unit_cost) : "مطلوبة لأول رصيد"} />
             </label> : null}
             <label className={inputClass}>رقم المرجع (اختياري)
               <Input maxLength={120} value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} placeholder="رقم أمر صرف أو مرجع داخلي" />
             </label>
-            <label className={inputClass + " md:col-span-2"}>{["adjustment_in", "adjustment_out"].includes(movementType) ? "سبب التسوية *" : "ملاحظات"}
-              <Input maxLength={2000} value={notes} onChange={(event) => setNotes(event.target.value)} required={["adjustment_in", "adjustment_out"].includes(movementType)} placeholder={movementType === "fuel_consumption" ? "مثال: تعبئة مولد الفرع" : movementType === "issue" ? "سبب الصرف أو أمر العمل" : "سبب الجرد والتسوية"} />
+            <label className={inputClass + " md:col-span-2"}>{["opening_balance", "adjustment_in", "adjustment_out"].includes(movementType) ? (movementType === "opening_balance" ? "سبب الرصيد الافتتاحي *" : "سبب التسوية *") : "ملاحظات"}
+              <Input maxLength={2000} value={notes} onChange={(event) => setNotes(event.target.value)} required={["opening_balance", "adjustment_in", "adjustment_out"].includes(movementType)} placeholder={movementType === "fuel_consumption" ? "مثال: تعبئة مولد الفرع" : movementType === "issue" ? "سبب الصرف أو أمر العمل" : "سبب الجرد والتسوية"} />
             </label>
             <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">{movementDescriptions[movementType]}</div>
             <div><Button type="submit" disabled={recordMovement.isPending || warehouses.isLoading || items.isLoading || !warehouseId || !itemId}>
