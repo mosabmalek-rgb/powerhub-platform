@@ -76,8 +76,8 @@ insert into public.sites(id,tenant_id) values (100,10),(200,20);
 insert into public.company_accounts(id,tenant_id,name) values (1000,10,'Cash A'),(2000,20,'Cash B');
 insert into public.generators(id,tenant_id,site_id) values (10000,10,100),(20000,20,200);
 
-\ir ../migrations/20261021110000_powerhub_inventory_supplier_foundation.sql
-\ir ../migrations/20261021130000_powerhub_inventory_atomic_create.sql
+\ir ../migrations/20261021085533_powerhub_inventory_supplier_foundation.sql
+\ir ../migrations/20261021085541_powerhub_inventory_atomic_create.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
