@@ -9,6 +9,7 @@ import { renderAutomationTemplate } from "./unified-messaging-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
 import { buildAutomaticOccurrenceKey, buildInvoiceOverdueOperationKey, isIncrementalAutomaticEvent, isInvoiceOverdueEligible, isLaterOverdueInvoiceCandidate } from "./unified-messaging-automation-policy";
 import { normalizeInternationalPhone } from "../shared/phone";
+import { logSafeSupabaseWorkerQueryFailure } from "./safe-supabase-worker-error";
 
 const channelSchema = z.enum(["sms", "whatsapp"]);
 const sendTypeSchema = z.enum(["manual", "automatic", "scheduled"]);
@@ -495,7 +496,10 @@ async function executeAutomation(automation: any, now: Date, actorUserId: number
 export async function processUnifiedMessagingAutomations(now = new Date()) {
   const admin = supabaseAdmin();
   const { error: reclaimError } = await admin.rpc("powerhub_reclaim_stale_sms_notifications", { p_limit: 200 });
-  if (reclaimError) throw new Error("تعذر استرداد رسائل المراسلة الموحدة العالقة قبل بدء دورة الأتمتة.");
+  if (reclaimError) {
+    logSafeSupabaseWorkerQueryFailure("unified-messaging", "stale-message reclaim", reclaimError);
+    throw new Error("تعذر استرداد رسائل المراسلة الموحدة العالقة قبل بدء دورة الأتمتة.");
+  }
   const results: Array<Record<string, unknown>> = [];
   let lastAutomationId = 0;
   let actorUserId: number | null = null;
@@ -504,7 +508,10 @@ export async function processUnifiedMessagingAutomations(now = new Date()) {
       .select("id,tenant_id,site_id,template_id,name,event_type,send_type,schedule_type,schedule_anchor_at,timezone,audience,trigger_config,created_at")
       .eq("enabled", true).is("archived_at", null)
       .gt("id", lastAutomationId).order("id", { ascending: true }).limit(500);
-    if (error) throw new Error("تعذر تحميل أتمتة المراسلة المفعلة.");
+    if (error) {
+      logSafeSupabaseWorkerQueryFailure("unified-messaging", "enabled automation query", error);
+      throw new Error("تعذر تحميل أتمتة المراسلة المفعلة.");
+    }
     if (!rows?.length) break;
     const scopedRows = rows.filter((row: any) => row.site_id != null);
     if (scopedRows.length && actorUserId === null) actorUserId = await getPlatformActorId();
