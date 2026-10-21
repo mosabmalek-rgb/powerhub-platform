@@ -84,6 +84,8 @@ describe("inventory workspace UI contract", () => {
     expect(transferPanel).toContain("trpc.powerhub.inventory.transferStock.useMutation");
     expect(transferPanel).toContain("sourceWarehouseId");
     expect(transferPanel).toContain("destinationWarehouseId");
+    expect(transferPanel).toContain("destinationConflictsWithSource");
+    expect(transferPanel).toContain("rows.find((warehouse) => String(warehouse.id) !== effectiveSourceId)");
     expect(transferPanel).toContain("stockOverview.invalidate");
     expect(workspace).toContain("InventoryWarehouseTransferPanel");
     expect(workspace).toContain("canAdjustInventory={canAdjustInventory}");
