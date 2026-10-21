@@ -92,6 +92,10 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("trpc.powerhub.inventory.cancelPurchase.useMutation");
     expect(panel).toContain("trpc.powerhub.inventory.reverseSupplierPayment.useMutation");
     expect(panel).toContain("معكوسة");
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    expect(workspace).toContain("trpc.powerhub.inventory.supplierLedgerStatement.useQuery");
+    expect(workspace).toContain("كشف حساب المورد");
+    expect(workspace).toContain('permissions.includes("viewSupplierLedger")');
     expect(panel).toContain("سبب الإلغاء");
     expect(router).toContain('"approvePurchases"');
     expect(router).toContain('"manageSupplierPayments"');
