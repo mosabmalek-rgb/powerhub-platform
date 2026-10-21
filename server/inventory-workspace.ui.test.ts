@@ -85,4 +85,27 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain('"manageFuelAndConsumption"');
   });
 
+  it("wires supplier ledger, purchase cancellation, and supplier payment reversal as guarded accounting operations", () => {
+    const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const migration = read("supabase/migrations/20261021110452_powerhub_inventory_accounting_completion.sql");
+    expect(panel).toContain("trpc.powerhub.inventory.cancelPurchase.useMutation");
+    expect(panel).toContain("trpc.powerhub.inventory.reverseSupplierPayment.useMutation");
+    expect(panel).toContain("معكوسة");
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    expect(workspace).toContain("trpc.powerhub.inventory.supplierLedgerStatement.useQuery");
+    expect(workspace).toContain("كشف حساب المورد");
+    expect(workspace).toContain('permissions.includes("viewSupplierLedger")');
+    expect(panel).toContain("سبب الإلغاء");
+    expect(router).toContain('"approvePurchases"');
+    expect(router).toContain('"manageSupplierPayments"');
+    expect(router).toContain("powerhub_inventory_cancel_purchase");
+    expect(router).toContain("powerhub_inventory_reverse_supplier_payment");
+    expect(router).toContain("powerhub_inventory_supplier_ledger_statement");
+    expect(migration).toContain("FINANCIAL_PERIOD_LOCKED");
+    expect(migration).toContain("supplier-payment-reversal:");
+    expect(migration).toContain("purchase-cancellation:");
+  });
+
+
 });

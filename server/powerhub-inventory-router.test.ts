@@ -319,4 +319,47 @@ describe("PowerHub inventory catalog and supplier API", () => {
   });
 
 
+  it("requires approval permission before cancelling a purchase", async () => {
+    state.rpc.mockClear();
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.cancelPurchase;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 91 } }, input: { siteId: 7, purchaseId: 14, reason: "duplicate order" },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(91, 7, expect.any(Array), "approvePurchases");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("requires supplier-payment management permission before reversing a payment", async () => {
+    state.rpc.mockClear();
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.reverseSupplierPayment;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 92 } }, input: { siteId: 7, paymentId: 15, reason: "duplicate bank entry" },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(92, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("scopes supplier ledger statement to the authorized tenant and branch", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: {
+      supplier: { id: 4, name: "Supplier A", supplier_code: "SUP-4" },
+      site_id: 7, balance: "55.00", entry_count: 1, entries: [],
+    }, error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.supplierLedgerStatement;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 93 } }, input: { siteId: 7, supplierId: 4, limit: 200 },
+    });
+    expect(result).toMatchObject({ supplier: { id: 4 }, site_id: 7, balance: "55.00" });
+    expect(state.access).toHaveBeenCalledWith(93, 7, expect.any(Array), "viewSupplierLedger");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_supplier_ledger_statement", {
+      p_tenant_id: 44, p_site_id: 7, p_supplier_id: 4, p_limit: 200,
+    });
+  });
+
+
 });

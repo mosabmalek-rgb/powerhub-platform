@@ -150,6 +150,8 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021085557_powerhub_inventory_supplier_payment.sql
 \ir ../migrations/20261021091113_powerhub_inventory_supplier_payment_actor_role_fix.sql
 \ir ../migrations/20261021101548_powerhub_inventory_stock_operations.sql
+\ir ../migrations/20261021110452_powerhub_inventory_accounting_completion.sql
+\ir ../migrations/20261021110721_powerhub_inventory_supplier_fk_indexes.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -934,5 +936,164 @@ end;
 $stock_operation_assertions$;
 reset role;
 
-select 'inventory purchase receiving and stock operations PostgreSQL integration passed' as result;
+
+
+set role service_role;
+do $accounting_completion_assertions$
+declare
+  v_supplier_id bigint;
+  v_warehouse_id bigint;
+  v_item_id bigint;
+  v_purchase_id bigint;
+  v_purchase_number text;
+  v_purchase_status text;
+  v_replayed boolean;
+  v_payment_id bigint;
+  v_payment_amount numeric(14,2);
+  v_account_balance_before numeric(14,2);
+  v_account_balance_after numeric(14,2);
+  v_paid_before numeric(14,2);
+  v_paid_after numeric(14,2);
+  v_outstanding numeric(14,2);
+  v_cancelled_count integer;
+  v_reversal_count integer;
+  v_statement jsonb;
+  v_expected_supplier_balance numeric(14,2);
+  v_expected_entry_count integer;
+begin
+  select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='PUR-WF-SUP';
+  select id into v_warehouse_id from public.inventory_warehouses where tenant_id=10 and site_id=100 and code='PUR-WF-MAIN';
+  select id into v_item_id from public.inventory_items where tenant_id=10 and sku='PUR-WF-ITEM-01';
+  if v_supplier_id is null or v_warehouse_id is null or v_item_id is null then
+    raise exception 'ACCOUNTING_COMPLETION_FIXTURE_LOOKUP_FAILED';
+  end if;
+
+  -- Cancellation of an unreceived draft is idempotent and leaves stock untouched.
+  select purchase_id,purchase_number,replayed into v_purchase_id,v_purchase_number,v_replayed
+  from public.powerhub_inventory_create_purchase(
+    10,100,1,v_supplier_id,v_warehouse_id,'CANCEL-DRAFT-001',current_date,null,30,
+    'CANCEL-DRAFT-REF',null,'accounting-completion:cancel-draft',
+    jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',1,'unit','liter',
+      'units_to_base_factor',1,'unit_price',10,'discount_amount',0,'tax_amount',0))
+  );
+  if v_purchase_id is null or v_replayed then raise exception 'CANCEL_DRAFT_FIXTURE_CREATE_FAILED'; end if;
+  select purchase_id,status,replayed into v_purchase_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_cancel_purchase(10,100,1,v_purchase_id,'duplicate supplier order');
+  if v_purchase_status<>'cancelled' or v_replayed then raise exception 'DRAFT_CANCELLATION_FAILED'; end if;
+  select purchase_id,status,replayed into v_purchase_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_cancel_purchase(10,100,1,v_purchase_id,'duplicate supplier order');
+  if v_purchase_status<>'cancelled' or not v_replayed then raise exception 'DRAFT_CANCELLATION_REPLAY_FAILED'; end if;
+  if exists(select 1 from public.inventory_stock_movements where tenant_id=10 and purchase_id=v_purchase_id) then
+    raise exception 'CANCELLED_DRAFT_CHANGED_STOCK';
+  end if;
+
+  -- Confirmed but unreceived purchase is reversed in the supplier ledger, never deleted.
+  select purchase_id into v_purchase_id
+  from public.powerhub_inventory_create_purchase(
+    10,100,1,v_supplier_id,v_warehouse_id,'CANCEL-CONFIRMED-001',current_date,null,30,
+    'CANCEL-CONFIRMED-REF',null,'accounting-completion:cancel-confirmed',
+    jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',2,'unit','liter',
+      'units_to_base_factor',1,'unit_price',15,'discount_amount',0,'tax_amount',0))
+  );
+  perform * from public.powerhub_inventory_confirm_purchase(10,100,1,v_purchase_id);
+  select purchase_id,status,replayed into v_purchase_id,v_purchase_status,v_replayed
+  from public.powerhub_inventory_cancel_purchase(10,100,1,v_purchase_id,'supplier invoice entered in error');
+  if v_purchase_status<>'cancelled' or v_replayed then raise exception 'CONFIRMED_PURCHASE_CANCELLATION_FAILED'; end if;
+  if (select coalesce(sum(credit_amount-debit_amount),0) from public.supplier_ledger_entries
+      where tenant_id=10 and purchase_id=v_purchase_id)<>0 then
+    raise exception 'CONFIRMED_PURCHASE_CANCELLATION_LEDGER_NOT_REVERSED';
+  end if;
+
+  -- Reverse the real test payment posted by the preceding workflow, then replay it.
+  select id,amount into v_payment_id,v_payment_amount
+  from public.supplier_payments
+  where tenant_id=10 and operation_key='purchase-workflow:payment-001';
+  if v_payment_id is null then raise exception 'PAYMENT_REVERSAL_FIXTURE_MISSING'; end if;
+
+  select opening_balance + coalesce(sum(case when transaction_type in ('deposit','transfer_in','collection')
+    then amount else -amount end),0)
+  into v_account_balance_before
+  from public.company_accounts ca
+  left join public.account_transactions atx on atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  where ca.tenant_id=10 and ca.id=1000
+  group by ca.opening_balance;
+
+  select coalesce(sum(a.amount),0) into v_paid_before
+  from public.supplier_payment_allocations a
+  join public.supplier_payments sp on sp.tenant_id=a.tenant_id and sp.id=a.payment_id
+  where a.tenant_id=10 and a.purchase_id=(select purchase_id from public.supplier_payment_allocations where tenant_id=10 and payment_id=v_payment_id)
+    and sp.status='posted';
+
+  select payment_id,paid_amount,outstanding_amount,account_balance,replayed
+  into v_payment_id,v_paid_after,v_outstanding,v_account_balance_after,v_replayed
+  from public.powerhub_inventory_reverse_supplier_payment(10,100,1,v_payment_id,'duplicate bank entry');
+  if v_replayed or v_account_balance_after<>v_account_balance_before+v_payment_amount
+    or v_paid_after<>v_paid_before-v_payment_amount then
+    raise exception 'SUPPLIER_PAYMENT_REVERSAL_BALANCE_MISMATCH balance_before=% balance_after=% paid_before=% paid_after=% amount=%',
+      v_account_balance_before,v_account_balance_after,v_paid_before,v_paid_after,v_payment_amount;
+  end if;
+
+  select payment_id,paid_amount,outstanding_amount,account_balance,replayed
+  into v_payment_id,v_paid_after,v_outstanding,v_account_balance_after,v_replayed
+  from public.powerhub_inventory_reverse_supplier_payment(10,100,1,v_payment_id,'duplicate bank entry');
+  if not v_replayed then raise exception 'SUPPLIER_PAYMENT_REVERSAL_REPLAY_FLAG_MISSING'; end if;
+  select count(*) into v_reversal_count from public.account_transactions
+  where tenant_id=10 and account_id=1000 and reference_no='REV-SUPPLIER-PAYMENT-'||v_payment_id;
+  if v_reversal_count<>1 then raise exception 'SUPPLIER_PAYMENT_REVERSAL_DUPLICATED_ACCOUNT_ENTRY'; end if;
+  select count(*) into v_reversal_count from public.supplier_ledger_entries
+  where tenant_id=10 and supplier_payment_id=v_payment_id and entry_type='reversal'
+    and entry_key='supplier-payment-reversal:'||v_payment_id;
+  if v_reversal_count<>1 then raise exception 'SUPPLIER_PAYMENT_REVERSAL_DUPLICATED_LEDGER_ENTRY'; end if;
+
+  select coalesce(sum(credit_amount-debit_amount),0)::numeric(14,2),count(*)::integer
+  into v_expected_supplier_balance,v_expected_entry_count
+  from public.supplier_ledger_entries
+  where tenant_id=10 and site_id=100 and supplier_id=v_supplier_id;
+  select public.powerhub_inventory_supplier_ledger_statement(10,100,v_supplier_id,1)
+  into v_statement;
+  if (v_statement->>'balance')::numeric<>v_expected_supplier_balance
+    or (v_statement->>'entry_count')::integer<>v_expected_entry_count
+    or jsonb_array_length(v_statement->'entries')>1 then
+    raise exception 'SUPPLIER_LEDGER_STATEMENT_TOTAL_OR_LIMIT_MISMATCH';
+  end if;
+
+  if has_function_privilege('anon','public.powerhub_inventory_cancel_purchase(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_cancel_purchase(bigint,bigint,bigint,bigint,text)','EXECUTE') then
+    raise exception 'UNTRUSTED_ROLE_CAN_CANCEL_PURCHASE';
+  end if;
+  if has_function_privilege('anon','public.powerhub_inventory_reverse_supplier_payment(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_reverse_supplier_payment(bigint,bigint,bigint,bigint,text)','EXECUTE') then
+    raise exception 'UNTRUSTED_ROLE_CAN_REVERSE_SUPPLIER_PAYMENT';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_reverse_supplier_payment(bigint,bigint,bigint,bigint,text)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_REVERSE_SUPPLIER_PAYMENT';
+  end if;
+end;
+$accounting_completion_assertions$;
+reset role;
+
+do $inventory_fk_index_assertions$
+declare v_missing text;
+begin
+  select string_agg(required.index_name, ', ')
+    into v_missing
+  from (values
+    ('inventory_stock_movements_tenant_item_idx'),
+    ('inventory_stock_movements_tenant_purchase_line_idx'),
+    ('supplier_ledger_entries_tenant_site_idx'),
+    ('supplier_payments_tenant_account_idx'),
+    ('supplier_purchase_receipts_tenant_site_idx'),
+    ('supplier_purchase_receipt_lines_tenant_purchase_line_idx'),
+    ('supplier_purchases_tenant_warehouse_idx')
+  ) required(index_name)
+  where not exists (
+    select 1 from pg_indexes i
+    where i.schemaname='public' and i.indexname=required.index_name
+  );
+  if v_missing is not null then raise exception 'INVENTORY_FK_INDEX_MISSING: %',v_missing; end if;
+end;
+$inventory_fk_index_assertions$;
+
+select 'inventory purchase receiving, stock operations, and accounting reversals PostgreSQL integration passed' as result;
+
 
