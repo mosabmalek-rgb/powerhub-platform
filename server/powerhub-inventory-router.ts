@@ -215,11 +215,31 @@ export const powerhubInventoryRouter = router({
       });
     }),
 
+  listInventoryReportWarehouses: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStockReadAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون." });
+      }
+      const { data, error } = await supabaseAdmin().from("inventory_warehouses")
+        .select("id,code,name")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .eq("is_active", true)
+        .order("name", { ascending: true })
+        .limit(200);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مخازن التقرير." });
+      return (data ?? []).map((row: { id: number; code: string; name: string }) => ({
+        id: row.id, code: row.code, name: row.name,
+      }));
+    }),
+
   listStockMovementReport: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
       limit: z.number().int().min(1).max(200).default(100),
-      beforeOccurredAt: z.string().datetime().optional(),
+      beforeOccurredAt: z.string().datetime({ offset: true }).optional(),
       beforeMovementId: z.number().int().positive().optional(),
       fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
