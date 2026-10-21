@@ -128,6 +128,8 @@ export default function InventoryPurchasesPanel({
   const [paymentDate, setPaymentDate] = useState(todayForInput);
   const [paymentReferenceNo, setPaymentReferenceNo] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
+  const [paymentReversalReasons, setPaymentReversalReasons] = useState<Record<number, string>>({});
+  const [purchaseCancellationReason, setPurchaseCancellationReason] = useState("");
 
   const utils = trpc.useUtils();
   const purchases = trpc.powerhub.inventory.listPurchases.useQuery(
@@ -233,6 +235,28 @@ export default function InventoryPurchasesPanel({
       await refreshPurchaseData(Number(result.purchase_id));
     },
     onError: (error) => toast.error(error.message || "تعذر تسجيل الاستلام."),
+  });
+
+
+  const cancelPurchase = trpc.powerhub.inventory.cancelPurchase.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.replayed ? "الفاتورة ملغاة مسبقًا." : "تم إلغاء فاتورة المشتريات وتسجيل عكس الاستحقاق عند الحاجة.");
+      setPurchaseCancellationReason("");
+      await refreshPurchaseData(Number(result.purchase_id));
+    },
+    onError: (error) => toast.error(error.message || "تعذر إلغاء فاتورة المشتريات."),
+  });
+
+  const reverseSupplierPayment = trpc.powerhub.inventory.reverseSupplierPayment.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.replayed ? "تم التحقق من أن الدفعة معكوسة مسبقًا." : "تم عكس دفعة المورد وإعادة المبلغ إلى حساب الشركة.");
+      setPaymentReversalReasons((current) => ({ ...current, [Number(result.payment_id)]: "" }));
+      await Promise.all([
+        refreshPurchaseData(Number(result.purchase_id)),
+        utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
+      ]);
+    },
+    onError: (error) => toast.error(error.message || "تعذر عكس دفعة المورد."),
   });
 
   const recordSupplierPayment = trpc.powerhub.inventory.recordSupplierPayment.useMutation({
