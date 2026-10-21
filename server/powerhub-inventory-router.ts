@@ -103,7 +103,6 @@ function mapPurchaseDatabaseError(
     COMPANY_ACCOUNT_INACTIVE: { code: "BAD_REQUEST", message: "حساب الشركة غير نشط ولا يمكن الدفع منه." },
     COMPANY_ACCOUNT_OUT_OF_SCOPE: { code: "FORBIDDEN", message: "حساب الشركة غير متاح لهذا الفرع." },
     INSUFFICIENT_ACCOUNT_BALANCE: { code: "BAD_REQUEST", message: "رصيد حساب الشركة لا يكفي لهذه الدفعة." },
-    FINANCIAL_PERIOD_LOCKED: { code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تسجيل هذه الحركة خلال الفترة المقفلة." },
     INVALID_STOCK_MOVEMENT: { code: "BAD_REQUEST", message: "نوع حركة المخزون غير صالح." },
     INVALID_STOCK_QUANTITY: { code: "BAD_REQUEST", message: "أدخل كمية موجبة لا تتجاوز ثلاث منازل عشرية." },
     INVALID_STOCK_UNIT_COST: { code: "BAD_REQUEST", message: "تكلفة الوحدة غير صالحة أو لا تتوافق مع نوع الحركة." },
