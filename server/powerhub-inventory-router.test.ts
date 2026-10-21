@@ -414,6 +414,42 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
 
+  it("requires adjustInventory before correcting a stock movement", async () => {
+    state.rpc.mockClear();
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.correctStockMovement;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 93 } },
+      input: { siteId: 7, movementId: 51, quantity: 2, reason: "count correction", operationKey: "stock-correction:test:1" },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(93, 7, expect.any(Array), "adjustInventory");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("forwards a movement correction to the atomic, idempotent RPC", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      original_movement_id: 51, reversal_movement_id: 52, replacement_movement_id: 53,
+      movement_type: "adjustment_in", quantity: "2", unit_cost: "3.3", total_cost_amount: "6.60",
+      on_hand_quantity: "8", stock_value: "25.00", replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.correctStockMovement;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 93 } },
+      input: { siteId: 7, movementId: 51, quantity: 2, unitCost: 3.3, referenceNo: "FIX-51",
+        notes: "recounted", reason: "count correction", operationKey: "stock-correction:test:1" },
+    });
+    expect(result).toMatchObject({ original_movement_id: 51, reversal_movement_id: 52, replacement_movement_id: 53 });
+    expect(state.access).toHaveBeenCalledWith(93, 7, expect.any(Array), "adjustInventory");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_correct_stock_movement", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 93, p_movement_id: 51, p_quantity: 2,
+      p_unit_cost: 3.3, p_reference_no: "FIX-51", p_notes: "recounted",
+      p_reason: "count correction", p_operation_key: "stock-correction:test:1",
+    });
+  });
+
   it("scopes supplier ledger statement to the authorized tenant and branch", async () => {
     state.access.mockReset().mockResolvedValue({ tenantId: 44 });
     state.rpc.mockReset().mockResolvedValue({ data: {

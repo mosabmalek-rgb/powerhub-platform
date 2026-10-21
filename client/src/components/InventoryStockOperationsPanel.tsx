@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Boxes, ClipboardList, Loader2, RefreshCw, Save, TrendingDown } from "lucide-react";
+import { Boxes, ClipboardList, Loader2, Pencil, RefreshCw, Save, TrendingDown, X } from "lucide-react";
 
 type MovementType = "issue" | "opening_balance" | "adjustment_in" | "adjustment_out" | "fuel_consumption";
 type Props = {
@@ -50,6 +50,11 @@ type StockMovementRow = {
   notes: string | null;
   operation_key: string;
   occurred_at: string;
+  reversal_of_movement_id?: number | null;
+  corrects_movement_id?: number | null;
+  correction_reason?: string | null;
+  corrected_by_movement_id?: number | null;
+  can_edit?: boolean;
 };
 
 const movementLabels: Record<MovementType, string> = {
@@ -128,6 +133,13 @@ export default function InventoryStockOperationsPanel({
   const [notes, setNotes] = useState("");
   const [operationKey, setOperationKey] = useState(() => getOrCreateOperationKey(storageKey));
   const [stockSearch, setStockSearch] = useState("");
+  const [editingMovement, setEditingMovement] = useState<StockMovementRow | null>(null);
+  const [editQuantity, setEditQuantity] = useState("");
+  const [editUnitCost, setEditUnitCost] = useState("");
+  const [editReferenceNo, setEditReferenceNo] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [editOperationKey, setEditOperationKey] = useState("");
 
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery(
     { siteId }, { enabled: Boolean(siteId && isAuthenticated && allowedTypes.length), staleTime: 30_000 },
@@ -198,6 +210,51 @@ export default function InventoryStockOperationsPanel({
     },
     onError: (error) => toast.error(error.message || "تعذر تسجيل حركة المخزون."),
   });
+
+  const correctMovement = trpc.powerhub.inventory.correctStockMovement.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.replayed ? "تم التحقق من التصحيح السابق دون إنشاء حركات مكررة." :
+        "تم تصحيح الحركة #" + result.original_movement_id + " مع حفظ سجل العكس والتعديل.");
+      setEditingMovement(null);
+      setEditReason("");
+      setEditOperationKey("");
+      await refreshStock();
+    },
+    onError: (error) => toast.error(error.message || "تعذر تصحيح حركة المخزون."),
+  });
+
+  const beginEditMovement = (movement: StockMovementRow) => {
+    if (!movement.can_edit) return;
+    setEditingMovement(movement);
+    setEditQuantity(String(movement.quantity));
+    setEditUnitCost(movement.movement_type === "adjustment_in" ? String(movement.unit_cost ?? "") : "");
+    setEditReferenceNo(movement.reference_no ?? "");
+    setEditNotes(movement.notes ?? "");
+    setEditReason("");
+    setEditOperationKey(newOperationKey());
+  };
+
+  const submitMovementCorrection = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingMovement || !editOperationKey) return;
+    const amount = Number(editQuantity);
+    const cost = editUnitCost.trim() ? Number(editUnitCost) : undefined;
+    if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 1000 - Math.round(amount * 1000)) > 1e-7) {
+      toast.error("أدخل كمية موجبة لا تتجاوز ثلاث منازل عشرية."); return;
+    }
+    if (editingMovement.movement_type === "adjustment_in" &&
+      (cost === undefined || !Number.isFinite(cost) || cost < 0 || Math.abs(cost * 10000 - Math.round(cost * 10000)) > 1e-7)) {
+      toast.error("أدخل تكلفة وحدة صحيحة حتى أربع منازل عشرية."); return;
+    }
+    if (editReason.trim().length < 3) { toast.error("أدخل سببًا واضحًا للتعديل."); return; }
+    correctMovement.mutate({
+      siteId, movementId: editingMovement.movement_id, quantity: amount,
+      unitCost: editingMovement.movement_type === "adjustment_in" ? cost : undefined,
+      referenceNo: editReferenceNo.trim() || undefined,
+      notes: editNotes.trim() || undefined,
+      reason: editReason.trim(), operationKey: editOperationKey,
+    });
+  };
 
   const submitMovement = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -335,6 +392,49 @@ export default function InventoryStockOperationsPanel({
         لديك صلاحية الاطلاع فقط. لإجراء الصرف أو التسويات أو استهلاك الوقود اطلب الصلاحية المناسبة من صاحب المولد.
       </CardContent></Card> : null}
 
+      {editingMovement ? <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2"><Pencil className="h-5 w-5" /> تعديل الحركة #{editingMovement.movement_id}</CardTitle>
+            <p className="text-sm text-muted-foreground">سيُحفظ عكس الحركة الأصلية والحركة المصححة في سجل مستقل؛ لن تتغير الحركة القديمة.</p>
+          </div>
+          <Button type="button" variant="outline" onClick={() => setEditingMovement(null)} disabled={correctMovement.isPending}>
+            <X className="ml-2 h-4 w-4" /> إلغاء
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={submitMovementCorrection}>
+            <div className={inputClass}>نوع الحركة
+              <Input value={movementLabels[editingMovement.movement_type as MovementType] ?? editingMovement.movement_type} readOnly />
+            </div>
+            <div className={inputClass}>الصنف والمخزن
+              <Input value={editingMovement.item_name + " — " + editingMovement.warehouse_name} readOnly />
+            </div>
+            <label className={inputClass}>الكمية المصححة *
+              <Input type="number" required min="0.001" max="1000000000" step="0.001" value={editQuantity} onChange={(event) => setEditQuantity(event.target.value)} />
+            </label>
+            {editingMovement.movement_type === "adjustment_in" ? <label className={inputClass}>تكلفة الوحدة *
+              <Input type="number" required min="0" max="1000000000" step="0.0001" value={editUnitCost} onChange={(event) => setEditUnitCost(event.target.value)} />
+            </label> : null}
+            <label className={inputClass}>رقم المرجع
+              <Input maxLength={120} value={editReferenceNo} onChange={(event) => setEditReferenceNo(event.target.value)} />
+            </label>
+            <label className={inputClass}>ملاحظات
+              <Input maxLength={2000} value={editNotes} onChange={(event) => setEditNotes(event.target.value)} />
+            </label>
+            <label className={inputClass + " md:col-span-2"}>سبب التعديل * 
+              <Input required minLength={3} maxLength={500} value={editReason} onChange={(event) => setEditReason(event.target.value)} placeholder="مثال: تصحيح الكمية بعد إعادة الجرد" />
+            </label>
+            <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+              لا يمكن تعديل حركة سبقها صرف أو حركة أحدث للصنف نفسه، أو حركة مرتبطة بفاتورة مشتريات أو مرتجع مورد أو فترة مالية مقفلة.
+            </div>
+            <div><Button type="submit" disabled={correctMovement.isPending || !editOperationKey}>
+              {correctMovement.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} حفظ التصحيح
+            </Button></div>
+          </form>
+        </CardContent>
+      </Card> : null}
+
       <Card>
         <CardHeader className="flex flex-row items-center gap-2 space-y-0"><ClipboardList className="h-5 w-5" /><CardTitle>آخر الحركات</CardTitle></CardHeader>
         <CardContent>
@@ -344,7 +444,7 @@ export default function InventoryStockOperationsPanel({
                 : <div className="overflow-x-auto rounded-md border">
                   <table className="w-full min-w-[760px] text-right text-sm">
                     <thead className="bg-muted/60"><tr>
-                      {["التاريخ","الحركة","الصنف","المخزن","الكمية","المولد","المرجع",...(canViewInventoryReports ? ["التكلفة"] : [])].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}
+                      {["التاريخ","الحركة","الصنف","المخزن","الكمية","المولد","المرجع",...(canViewInventoryReports ? ["التكلفة"] : []),...(canAdjustInventory ? ["إجراء"] : [])].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}
                     </tr></thead>
                     <tbody>{movementRows.map((movement) => (
                       <tr key={movement.movement_id} className="border-t">
@@ -356,6 +456,13 @@ export default function InventoryStockOperationsPanel({
                         <td className="p-3">{movement.generator_id ? (generators.data?.find((item) => item.id === movement.generator_id)?.name ?? "#" + movement.generator_id) : "—"}</td>
                         <td className="p-3">{movement.reference_no || "—"}</td>
                         {canViewInventoryReports ? <td className="p-3 tabular-nums">{fmtMoney(movement.total_cost_amount)}</td> : null}
+                        {canAdjustInventory ? <td className="p-3">
+                          {movement.can_edit ? <Button type="button" size="sm" variant="outline" onClick={() => beginEditMovement(movement)}>
+                            <Pencil className="ml-1 h-3.5 w-3.5" /> تعديل
+                          </Button> : movement.corrects_movement_id ? <span className="text-xs text-muted-foreground">تصحيح #{movement.corrects_movement_id}</span>
+                            : movement.reversal_of_movement_id ? <span className="text-xs text-muted-foreground">عكس #{movement.reversal_of_movement_id}</span>
+                              : movement.corrected_by_movement_id ? <span className="text-xs text-muted-foreground">تم تصحيحها</span> : <span className="text-xs text-muted-foreground">—</span>}
+                        </td> : null}
                       </tr>
                     ))}</tbody>
                   </table>

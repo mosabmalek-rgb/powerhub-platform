@@ -65,6 +65,18 @@ function mapPurchaseDatabaseError(
   const message = error?.message ?? "";
   const known: Record<string, { code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND" | "FORBIDDEN"; message: string }> = {
     INVALID_OPERATION_KEY: { code: "BAD_REQUEST", message: "مفتاح العملية غير صالح." },
+    STOCK_MOVEMENT_NOT_FOUND: { code: "NOT_FOUND", message: "حركة المخزون غير موجودة في هذا الفرع." },
+    STOCK_MOVEMENT_NOT_EDITABLE: { code: "BAD_REQUEST", message: "هذا النوع من الحركات لا يقبل التعديل المباشر؛ عدّل المستند الأصلي أو سجّل تسوية." },
+    STOCK_MOVEMENT_ALREADY_CORRECTED: { code: "CONFLICT", message: "سبق تصحيح هذه الحركة." },
+    STOCK_MOVEMENT_NOT_LATEST: { code: "CONFLICT", message: "لا يمكن تعديل حركة سبقتها حركة أحدث للصنف نفسه؛ استخدم تسوية مخزون جديدة." },
+    STOCK_MOVEMENT_CORRECTION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا للتعديل (3 أحرف على الأقل)." },
+    STOCK_MOVEMENT_CORRECTION_WOULD_NEGATE_BALANCE: { code: "CONFLICT", message: "التعديل سيؤدي إلى رصيد أو قيمة مخزون سالبة." },
+    STOCK_MOVEMENT_CORRECTION_COST_NEGATIVE: { code: "CONFLICT", message: "التعديل سيؤدي إلى قيمة مخزون سالبة." },
+    STOCK_MOVEMENT_CORRECTION_INCOMPLETE: { code: "CONFLICT", message: "لم يكتمل سجل التصحيح؛ أوقفنا إعادة المحاولة." },
+    STOCK_MOVEMENT_DIRECT_UPDATE_WAS_ACCEPTED: { code: "CONFLICT", message: "سجل الحركة غير قابل للتعديل المباشر." },
+    INVALID_STOCK_REFERENCE: { code: "BAD_REQUEST", message: "رقم مرجع الحركة أطول من المسموح." },
+    INVALID_STOCK_NOTES: { code: "BAD_REQUEST", message: "ملاحظات الحركة أطول من المسموح." },
+    FUEL_MOVEMENT_SCOPE_INVALID: { code: "BAD_REQUEST", message: "المولد أو صنف الوقود المرتبط بالحركة غير صالح." },
     INVALID_PURCHASE_LINES: { code: "BAD_REQUEST", message: "تحقق من بنود فاتورة المشتريات والكميات والأسعار." },
     INVALID_RECEIPT_LINES: { code: "BAD_REQUEST", message: "تحقق من كميات الاستلام." },
     INVALID_PAYMENT_TERMS: { code: "BAD_REQUEST", message: "مدة السداد غير صالحة." },
@@ -243,6 +255,38 @@ export const powerhubInventoryRouter = router({
         p_operation_key: input.operationKey,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل حركة المخزون.");
+      return data[0];
+    }),
+
+  correctStockMovement: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      movementId: z.number().int().positive(),
+      quantity: z.number().finite().positive().max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7, "الكمية تقبل ثلاث منازل عشرية كحد أقصى."),
+      unitCost: z.number().finite().min(0).max(1_000_000_000)
+        .refine((value) => Math.abs(value * 10000 - Math.round(value * 10000)) < 1e-7, "تكلفة الوحدة تقبل أربع منازل عشرية كحد أقصى.")
+        .optional(),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      reason: z.string().trim().min(3).max(500),
+      operationKey: z.string().trim().min(1).max(160),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "adjustInventory");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_correct_stock_movement", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_movement_id: input.movementId,
+        p_quantity: input.quantity,
+        p_unit_cost: input.unitCost ?? null,
+        p_reference_no: input.referenceNo || null,
+        p_notes: input.notes || null,
+        p_reason: input.reason,
+        p_operation_key: input.operationKey,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تصحيح حركة المخزون.");
       return data[0];
     }),
 
