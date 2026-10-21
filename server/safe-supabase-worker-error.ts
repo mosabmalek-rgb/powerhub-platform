@@ -8,8 +8,8 @@ export function logSafeSupabaseWorkerQueryFailure(
   const rawCode = typeof error?.code === "string" ? error.code : "";
   const rawMessage = typeof error?.message === "string" ? error.message : "Unknown Supabase error";
   const safeMessage = rawMessage
-    .replace(/(\\bbearer\\s+)[^\\s,;]+/gi, "$1[REDACTED]")
-    .replace(/\\b(api[_ -]?key|secret|password|token)\\b\\s*[:=]\\s*[^\\s,;]+/gi, "$1=[REDACTED]")
+    .replace(/(\bbearer\s+)[^\s,;]+/gi, "$1[REDACTED]")
+    .replace(/\b(api[_ -]?key|secret|password|token)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]")
     .slice(0, 500);
 
   console.error(`[${component}] ${operation} failed`, {
