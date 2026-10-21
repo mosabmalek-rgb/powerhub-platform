@@ -88,7 +88,7 @@ describe("inventory workspace UI contract", () => {
   it("wires supplier ledger, purchase cancellation, and supplier payment reversal as guarded accounting operations", () => {
     const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
     const router = read("server/powerhub-inventory-router.ts");
-    const migration = read("supabase/migrations/20261021114500_powerhub_inventory_accounting_completion.sql");
+    const migration = read("supabase/migrations/20261021110452_powerhub_inventory_accounting_completion.sql");
     expect(panel).toContain("trpc.powerhub.inventory.cancelPurchase.useMutation");
     expect(panel).toContain("trpc.powerhub.inventory.reverseSupplierPayment.useMutation");
     expect(panel).toContain("معكوسة");
