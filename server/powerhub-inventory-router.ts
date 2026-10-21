@@ -132,8 +132,8 @@ async function requirePurchaseReadAccess(userId: number, siteId: number) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   const canManageSupplierPayments = access.permissions.includes("manageSupplierPayments");
   const canViewFinancials = access.permissions.includes("viewPurchases") || canManageSupplierPayments;
-  if (!canViewFinancials && !access.permissions.includes("receiveInventory")) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض المشتريات أو الاستلام." });
+  if (!canViewFinancials && !access.permissions.includes("receiveInventory") && !access.permissions.includes("adjustInventory")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض المشتريات أو تنفيذ استلام أو مرتجع مخزني." });
   }
   return { ...access, canViewFinancials, canManageSupplierPayments };
 }
