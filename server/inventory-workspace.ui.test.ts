@@ -93,7 +93,7 @@ describe("inventory workspace UI contract", () => {
   it("wires supplier returns to the stock, supplier ledger, and optional company-account refund workflow", () => {
     const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
     const router = read("server/powerhub-inventory-router.ts");
-    const migration = read("supabase/migrations/20261021160000_powerhub_supplier_returns.sql");
+    const migration = read("supabase/migrations/20261021134343_powerhub_supplier_returns_integrated.sql");
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     expect(panel).toContain("trpc.powerhub.inventory.returnToSupplier.useMutation");
     expect(panel).toContain("سجل مرتجعات المورد");
