@@ -1221,7 +1221,10 @@ begin
     and operation_key like 'supplier-return:'||v_return_id||':%';
   select count(*) into v_ledger from public.supplier_ledger_entries
   where tenant_id=10 and supplier_return_id=v_return_id and entry_type='supplier_return'
-    and debit_amount=v_expected_credit;
+    and debit_amount=v_expected_credit-10;
+  if v_expected_credit<=10 then
+    raise exception 'SUPPLIER_RETURN_FIXTURE_CREDIT_TOO_SMALL expected=%',v_expected_credit;
+  end if;
   select count(*) into v_cash_entries from public.account_transactions
   where tenant_id=10 and related_supplier_return_id=v_return_id and transaction_type='deposit' and amount=10;
   select count(*) into v_audits from public.audit_logs
