@@ -151,6 +151,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021091113_powerhub_inventory_supplier_payment_actor_role_fix.sql
 \ir ../migrations/20261021101548_powerhub_inventory_stock_operations.sql
 \ir ../migrations/20261021110452_powerhub_inventory_accounting_completion.sql
+\ir ../migrations/20261021112000_powerhub_inventory_supplier_fk_indexes.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -1070,6 +1071,28 @@ begin
 end;
 $accounting_completion_assertions$;
 reset role;
+
+do $inventory_fk_index_assertions$
+declare v_missing text;
+begin
+  select string_agg(required.index_name, ', ')
+    into v_missing
+  from (values
+    ('inventory_stock_movements_tenant_item_idx'),
+    ('inventory_stock_movements_tenant_purchase_line_idx'),
+    ('supplier_ledger_entries_tenant_site_idx'),
+    ('supplier_payments_tenant_account_idx'),
+    ('supplier_purchase_receipts_tenant_site_idx'),
+    ('supplier_purchase_receipt_lines_tenant_purchase_line_idx'),
+    ('supplier_purchases_tenant_warehouse_idx')
+  ) required(index_name)
+  where not exists (
+    select 1 from pg_indexes i
+    where i.schemaname='public' and i.indexname=required.index_name
+  );
+  if v_missing is not null then raise exception 'INVENTORY_FK_INDEX_MISSING: %',v_missing; end if;
+end;
+$inventory_fk_index_assertions$;
 
 select 'inventory purchase receiving, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
