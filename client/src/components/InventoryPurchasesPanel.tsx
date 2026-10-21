@@ -610,12 +610,17 @@ export default function InventoryPurchasesPanel({
                     <h4 className="font-semibold">سجل دفعات المورد</h4>
                     <div className="overflow-x-auto rounded-md border">
                       <table className="w-full min-w-[700px] text-right text-sm">
-                        <thead className="bg-muted/60"><tr>{["تاريخ الدفع","حساب الشركة","المرجع","المبلغ"].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
+                        <thead className="bg-muted/60"><tr>{["تاريخ الدفع","حساب الشركة","المرجع","المبلغ","الحالة",...(canManageSupplierPayments ? ["إجراء"] : [])].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
                         <tbody>{details.data.payments.map((payment) => <tr key={payment.id} className="border-t">
                           <td className="p-3">{payment.payment_date}</td>
                           <td className="p-3">{payment.company_account_name}</td>
                           <td className="p-3">{payment.reference_no || "—"}</td>
                           <td className="p-3 font-semibold">{formatAmount(payment.allocated_amount)}</td>
+                          <td className="p-3">{payment.status === "reversed" ? <span className="text-muted-foreground">معكوسة{payment.reversal_reason ? <span className="block text-xs">{payment.reversal_reason}</span> : null}</span> : "مسجلة"}</td>
+                          {canManageSupplierPayments ? <td className="p-3">{payment.status === "posted" ? <div className="flex min-w-56 flex-col gap-2">
+                            <Input value={paymentReversalReasons[payment.id] ?? ""} onChange={(event) => setPaymentReversalReasons((current) => ({ ...current, [payment.id]: event.target.value }))} maxLength={500} placeholder="سبب عكس الدفعة" aria-label="سبب عكس الدفعة" />
+                            <Button type="button" size="sm" variant="outline" disabled={reverseSupplierPayment.isPending || (paymentReversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => reverseSupplierPayment.mutate({ siteId, paymentId: payment.id, reason: (paymentReversalReasons[payment.id] ?? "").trim() })}>عكس الدفعة</Button>
+                          </div> : "—"}</td> : null}
                         </tr>)}</tbody>
                       </table>
                     </div>
@@ -661,6 +666,23 @@ export default function InventoryPurchasesPanel({
                       <Button type="submit" disabled={recordSupplierPayment.isPending || paymentOptions.isLoading || !paymentOptions.data?.length}>
                         {recordSupplierPayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="ml-2 h-4 w-4" />}
                         تسجيل الدفعة
+                      </Button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases ? (
+                  <form onSubmit={(event) => {
+                    event.preventDefault();
+                    const reason = purchaseCancellationReason.trim();
+                    if (reason.length < 3) { toast.error("اكتب سببًا واضحًا للإلغاء."); return; }
+                    cancelPurchase.mutate({ siteId, purchaseId: selectedPurchaseId, reason });
+                  }} className="space-y-3 rounded-md border border-destructive/30 p-3">
+                    <div><p className="font-semibold">إلغاء فاتورة المشتريات</p><p className="text-sm text-muted-foreground">لا يُسمح بالإلغاء بعد الاستلام أو مع وجود دفعات مسجلة. عند إلغاء فاتورة معتمدة يُسجل قيد عكسي بدل حذف الاستحقاق الأصلي.</p></div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input value={purchaseCancellationReason} onChange={(event) => setPurchaseCancellationReason(event.target.value)} maxLength={500} placeholder="سبب الإلغاء (إلزامي)" required minLength={3} />
+                      <Button type="submit" variant="destructive" disabled={cancelPurchase.isPending || purchaseCancellationReason.trim().length < 3}>
+                        {cancelPurchase.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} إلغاء الفاتورة
                       </Button>
                     </div>
                   </form>
