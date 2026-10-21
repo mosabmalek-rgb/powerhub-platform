@@ -77,6 +77,12 @@ function mapPurchaseDatabaseError(
     OVER_RECEIPT: { code: "CONFLICT", message: "كمية الاستلام تتجاوز الكمية المتبقية في الفاتورة." },
     PURCHASE_NOT_RECEIVABLE: { code: "CONFLICT", message: "لا يمكن استلام هذه الفاتورة قبل اعتمادها أو بعد اكتمالها." },
     PURCHASE_STATE_CONFLICT: { code: "CONFLICT", message: "حالة فاتورة المشتريات لا تسمح بهذه العملية." },
+    PURCHASE_CANNOT_BE_CANCELLED_AFTER_RECEIPT: { code: "CONFLICT", message: "لا يمكن إلغاء فاتورة بعد تسجيل أي استلام أو حركة مخزون." },
+    PURCHASE_HAS_POSTED_PAYMENTS: { code: "CONFLICT", message: "لا يمكن إلغاء الفاتورة قبل عكس دفعات المورد المسجلة." },
+    PURCHASE_CANCELLATION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإلغاء فاتورة المشتريات." },
+    SUPPLIER_PAYMENT_NOT_FOUND: { code: "NOT_FOUND", message: "دفعة المورد غير موجودة في هذا الفرع." },
+    SUPPLIER_PAYMENT_ALLOCATION_NOT_FOUND: { code: "CONFLICT", message: "لا يوجد تخصيص فاتورة صالح لهذه الدفعة." },
+    SUPPLIER_PAYMENT_REVERSAL_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لعكس دفعة المورد." },
     IDEMPOTENCY_KEY_REUSED: { code: "CONFLICT", message: "مفتاح العملية مستخدم بطلب مختلف؛ أنشئ مفتاحًا جديدًا." },
     DUPLICATE_PURCHASE_LINE: { code: "BAD_REQUEST", message: "لا تكرر بند الفاتورة نفسه ضمن طلب الاستلام الواحد." },
     INVALID_SUPPLIER_PAYMENT_AMOUNT: { code: "BAD_REQUEST", message: "مبلغ دفعة المورد يجب أن يكون موجبًا وبحد أقصى منزلتين عشريتين." },
@@ -601,6 +607,54 @@ export const powerhubInventoryRouter = router({
         })),
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر إنشاء مسودة فاتورة المشتريات.");
+      return data[0];
+    }),
+
+  supplierLedgerStatement: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      supplierId: z.number().int().positive(),
+      limit: z.number().int().min(1).max(500).default(200),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewSupplierLedger");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_supplier_ledger_statement", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_supplier_id: input.supplierId, p_limit: input.limit,
+      });
+      if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل كشف حساب المورد.");
+      return data;
+    }),
+
+  cancelPurchase: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      purchaseId: z.number().int().positive(),
+      reason: z.string().trim().min(3).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "approvePurchases");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_cancel_purchase", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_purchase_id: input.purchaseId, p_reason: input.reason,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر إلغاء فاتورة المشتريات.");
+      return data[0];
+    }),
+
+  reverseSupplierPayment: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      paymentId: z.number().int().positive(),
+      reason: z.string().trim().min(3).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_reverse_supplier_payment", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_payment_id: input.paymentId, p_reason: input.reason,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر عكس دفعة المورد.");
       return data[0];
     }),
 
