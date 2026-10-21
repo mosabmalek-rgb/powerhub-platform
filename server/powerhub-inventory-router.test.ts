@@ -505,4 +505,54 @@ describe("PowerHub inventory catalog and supplier API", () => {
   });
 
 
+  it("requires inventory-adjustment permission before executing a warehouse transfer", async () => {
+    state.rpc.mockClear();
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.transferStock;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 98 } },
+      input: { siteId: 7, itemId: 12, sourceWarehouseId: 3, destinationWarehouseId: 4,
+        quantity: 2.5, operationKey: "stock-transfer:unauthorized" },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(98, 7, expect.any(Array), "adjustInventory");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects transfers between the same warehouse before authorization or database access", async () => {
+    state.rpc.mockClear();
+    state.access.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.transferStock;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 98 } },
+      input: { siteId: 7, itemId: 12, sourceWarehouseId: 3, destinationWarehouseId: 3,
+        quantity: 2, operationKey: "stock-transfer:same-warehouse" },
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("forwards the authorized tenant and idempotency key to the atomic warehouse-transfer RPC", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      transfer_id: 701, source_movement_id: 702, destination_movement_id: 703,
+      quantity: "2.500", total_cost_amount: "8.33", replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.transferStock;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 98 } },
+      input: { siteId: 7, itemId: 12, sourceWarehouseId: 3, destinationWarehouseId: 4,
+        quantity: 2.5, operationKey: "stock-transfer:stable-1", referenceNo: "TR-1", notes: "branch transfer" },
+    });
+    expect(result).toMatchObject({ transfer_id: 701, source_movement_id: 702, destination_movement_id: 703, replayed: false });
+    expect(state.access).toHaveBeenCalledWith(98, 7, expect.any(Array), "adjustInventory");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_transfer_stock", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 98, p_item_id: 12,
+      p_source_warehouse_id: 3, p_destination_warehouse_id: 4, p_quantity: 2.5,
+      p_operation_key: "stock-transfer:stable-1", p_reference_no: "TR-1", p_notes: "branch transfer",
+    });
+  });
+
+
 });
