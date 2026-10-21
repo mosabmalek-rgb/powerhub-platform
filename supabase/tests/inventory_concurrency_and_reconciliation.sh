@@ -234,6 +234,44 @@ end;
 \$supplier_payment_concurrency_reconciliation\$;
 "
 
+# Different operation keys must not bypass the purchase's outstanding-balance lock.
+# After the $1 idempotent payment, only one competing $5 payment can fit within the $8.89 balance.
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select payment_id from public.powerhub_inventory_record_supplier_payment(10,100,1,${payment_purchase_id},1000,5.00,current_date,'CONC-PAYMENT-RACE-A','Competing payment A','inventory-concurrency:supplier-payment:race-a')" >/tmp/inventory-supplier-payment-race-a.log 2>&1 &
+payment_race_pid_a=$!
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select payment_id from public.powerhub_inventory_record_supplier_payment(10,100,1,${payment_purchase_id},1000,5.00,current_date,'CONC-PAYMENT-RACE-B','Competing payment B','inventory-concurrency:supplier-payment:race-b')" >/tmp/inventory-supplier-payment-race-b.log 2>&1 &
+payment_race_pid_b=$!
+set +e
+wait "$payment_race_pid_a"; payment_race_rc_a=$?
+wait "$payment_race_pid_b"; payment_race_rc_b=$?
+set -e
+if ! { [[ "$payment_race_rc_a" -eq 0 && "$payment_race_rc_b" -ne 0 ]] || [[ "$payment_race_rc_a" -ne 0 && "$payment_race_rc_b" -eq 0 ]]; }; then
+  echo "Expected exactly one competing supplier payment to fit the outstanding purchase balance"
+  cat /tmp/inventory-supplier-payment-race-a.log /tmp/inventory-supplier-payment-race-b.log
+  exit 1
+fi
+"${psql_base[@]}" --command "
+do \\$supplier_payment_balance_race_reconciliation\\$
+declare
+  v_payment_id bigint;
+begin
+  if (select count(*) from public.supplier_payments
+      where tenant_id=10 and operation_key in ('inventory-concurrency:supplier-payment:race-a','inventory-concurrency:supplier-payment:race-b'))<>1
+     or (select coalesce(sum(amount),0) from public.supplier_payments
+      where tenant_id=10 and operation_key in ('inventory-concurrency:supplier-payment:race-a','inventory-concurrency:supplier-payment:race-b'))<>5.00 then
+    raise exception 'CONCURRENT_SUPPLIER_PAYMENTS_EXCEEDED_PURCHASE_BALANCE';
+  end if;
+  select id into v_payment_id from public.supplier_payments
+  where tenant_id=10 and operation_key in ('inventory-concurrency:supplier-payment:race-a','inventory-concurrency:supplier-payment:race-b');
+  if (select count(*) from public.account_transactions where tenant_id=10 and related_supplier_payment_id=v_payment_id and transaction_type='withdrawal' and amount=5.00)<>1
+     or (select count(*) from public.supplier_payment_allocations where tenant_id=10 and payment_id=v_payment_id and purchase_id=${payment_purchase_id} and amount=5.00)<>1
+     or (select count(*) from public.supplier_ledger_entries where tenant_id=10 and supplier_payment_id=v_payment_id and entry_type='payment' and debit_amount=5.00)<>1
+     or (select count(*) from public.audit_logs where tenant_id=10 and site_id=100 and entity_type='supplier_payment' and entity_id=v_payment_id::text and action='post_payment')<>1 then
+    raise exception 'CONCURRENT_SUPPLIER_PAYMENT_RACE_LEFT_PARTIAL_LEDGER_POSTING';
+  end if;
+end;
+\\$supplier_payment_balance_race_reconciliation\\$;
+"
+
 # Race duplicate supplier-return submissions against the same received purchase line.
 purchase_id="$("${psql_base[@]}" --command "select id from public.supplier_purchases where tenant_id=10 and operation_key='purchase-workflow:cost-rounding:create'")"
 purchase_line_id="$("${psql_base[@]}" --command "select id from public.supplier_purchase_lines where tenant_id=10 and purchase_id=${purchase_id} order by id limit 1")"
