@@ -54,6 +54,8 @@ export default function InventoryWorkspacePage() {
   const canViewSuppliers = supplierAccess.data?.permissions.includes("viewSuppliers") ?? false;
   const canViewSupplierLedger = supplierAccess.data?.permissions.includes("viewSupplierLedger") ?? false;
   const canViewInventory = supplierAccess.data?.permissions.includes("viewInventory") ?? false;
+  const canManageInventoryItems = supplierAccess.data?.permissions.includes("manageInventoryItems") ?? false;
+  const canManageSuppliers = supplierAccess.data?.permissions.includes("manageSuppliers") ?? false;
   const canViewInventoryReports = supplierAccess.data?.permissions.includes("viewInventoryReports") ?? false;
   const canIssueInventory = supplierAccess.data?.permissions.includes("issueInventory") ?? false;
   const canAdjustInventory = supplierAccess.data?.permissions.includes("adjustInventory") ?? false;
@@ -97,7 +99,7 @@ export default function InventoryWorkspacePage() {
 
   const items = trpc.powerhub.inventory.listItems.useQuery(
     { siteId, search: itemSearch || undefined },
-    { enabled: Boolean(siteId && isAuthenticated), staleTime: 30_000 },
+    { enabled: Boolean(siteId && isAuthenticated && canViewInventory), staleTime: 30_000 },
   );
   const suppliers = trpc.powerhub.inventory.listSuppliers.useQuery(
     { siteId, search: supplierSearch || undefined },
@@ -109,7 +111,7 @@ export default function InventoryWorkspacePage() {
   );
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery(
     { siteId },
-    { enabled: Boolean(siteId && isAuthenticated), staleTime: 30_000 },
+    { enabled: Boolean(siteId && isAuthenticated && canViewInventory), staleTime: 30_000 },
   );
 
   const createItem = trpc.powerhub.inventory.createItem.useMutation({
@@ -140,8 +142,10 @@ export default function InventoryWorkspacePage() {
   });
 
   useEffect(() => {
-    if ((!canViewSuppliers && tab === "suppliers") || (!canReadPurchases && tab === "purchases") || (!canReadStock && tab === "stock") || (!canViewInventoryReports && tab === "reports")) setTab("catalog");
-  }, [canViewSuppliers, canReadPurchases, canReadStock, canViewInventoryReports, tab]);
+    if ((!canViewSuppliers && tab === "suppliers") || (!canReadPurchases && tab === "purchases") || (!canViewInventory && tab === "stock") || (!canViewInventoryReports && tab === "reports") || (!canViewInventory && tab === "catalog") || (!canViewInventory && tab === "warehouses")) {
+      setTab(canViewInventoryReports ? "reports" : "catalog");
+    }
+  }, [canViewSuppliers, canReadPurchases, canViewInventory, canViewInventoryReports, tab]);
 
   const selectedSiteName = useMemo(() => sites.data?.find((site) => site.id === siteId)?.name ?? "", [sites.data, siteId]);
 
@@ -166,20 +170,20 @@ export default function InventoryWorkspacePage() {
           <Tabs value={tab} onValueChange={setTab} dir="rtl" className="space-y-4">
             <div className="overflow-x-auto pb-1">
               <TabsList className="inline-flex min-w-max gap-1">
-                <TabsTrigger value="catalog" className="gap-2"><Boxes className="h-4 w-4" /> دليل الأصناف</TabsTrigger>
+                {canViewInventory ? <TabsTrigger value="catalog" className="gap-2"><Boxes className="h-4 w-4" /> دليل الأصناف</TabsTrigger> : null}
                 {canViewSuppliers ? <TabsTrigger value="suppliers" className="gap-2"><Store className="h-4 w-4" /> الموردون</TabsTrigger> : null}
-                <TabsTrigger value="warehouses" className="gap-2"><Warehouse className="h-4 w-4" /> المخازن</TabsTrigger>
-                {canReadStock ? <TabsTrigger value="stock" className="gap-2"><ArrowLeftRight className="h-4 w-4" /> الأرصدة والحركات</TabsTrigger> : null}
+                {canViewInventory ? <TabsTrigger value="warehouses" className="gap-2"><Warehouse className="h-4 w-4" /> المخازن</TabsTrigger> : null}
+                {canViewInventory ? <TabsTrigger value="stock" className="gap-2"><ArrowLeftRight className="h-4 w-4" /> الأرصدة والحركات</TabsTrigger> : null}
                 {canReadPurchases ? <TabsTrigger value="purchases" className="gap-2"><ClipboardList className="h-4 w-4" /> المشتريات</TabsTrigger> : null}
                 {canViewInventoryReports ? <TabsTrigger value="reports" className="gap-2"><FileSpreadsheet className="h-4 w-4" /> التقارير والتصدير</TabsTrigger> : null}
               </TabsList>
             </div>
 
-            <TabsContent value="catalog" className="space-y-4">
+            {canViewInventory ? <TabsContent value="catalog" className="space-y-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
                   <div><CardTitle>دليل الأصناف الموحد</CardTitle><p className="mt-1 text-sm text-muted-foreground">تعريف الصنف لا يضيف كمية إلى المخزون؛ الكميات تُضاف لاحقًا من استلام المشتريات.</p></div>
-                  <Button onClick={() => setShowItemForm((value) => !value)}><PackagePlus className="ml-2 h-4 w-4" /> {showItemForm ? "إلغاء" : "إضافة صنف"}</Button>
+                  {canManageInventoryItems ? <Button onClick={() => setShowItemForm((value) => !value)}><PackagePlus className="ml-2 h-4 w-4" /> {showItemForm ? "إلغاء" : "إضافة صنف"}</Button> : null}
                 </CardHeader>
                 {showItemForm ? <CardContent className="border-t pt-4">
                   <form className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3" onSubmit={(event) => {
@@ -203,11 +207,11 @@ export default function InventoryWorkspacePage() {
                   {items.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل الأصناف…</p> : items.error ? <p className="py-8 text-center text-destructive">تعذر تحميل دليل الأصناف. حدّث الصفحة أو تحقق من صلاحياتك.</p> : !items.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد أصناف بعد. استخدم «إضافة صنف» لبدء الدليل.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[720px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","الرمز","التصنيف","الوحدة","حد إعادة الطلب","الحالة"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{items.data.map((item) => <tr key={item.id} className="border-t"><td className="p-3 font-medium">{item.name}<div className="text-xs text-muted-foreground">{item.specification || ""}</div></td><td className="p-3">{item.sku || "—"}</td><td className="p-3">{categoryLabels[item.category] || item.category}</td><td className="p-3">{unitLabels[item.base_unit] || item.base_unit}</td><td className="p-3 tabular-nums">{Number(item.reorder_point).toLocaleString("ar", { maximumFractionDigits: 3 })}</td><td className="p-3">{item.is_active ? "نشط" : "موقوف"}</td></tr>)}</tbody></table></div>}
                 </CardContent>
               </Card>
-            </TabsContent>
+            </TabsContent> : null}
 
             <TabsContent value="suppliers" className="space-y-4">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0"><div><CardTitle>دليل الموردين</CardTitle><p className="mt-1 text-sm text-muted-foreground">تُستخدم بيانات المورد عند تسجيل المشتريات والذمم.</p></div><Button onClick={() => setShowSupplierForm((value) => !value)}><PackagePlus className="ml-2 h-4 w-4" /> {showSupplierForm ? "إلغاء" : "إضافة مورد"}</Button></CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0"><div><CardTitle>دليل الموردين</CardTitle><p className="mt-1 text-sm text-muted-foreground">تُستخدم بيانات المورد عند تسجيل المشتريات والذمم.</p></div>{canManageSuppliers ? <Button onClick={() => setShowSupplierForm((value) => !value)}><PackagePlus className="ml-2 h-4 w-4" /> {showSupplierForm ? "إلغاء" : "إضافة مورد"}</Button> : null}</CardHeader>
                 {showSupplierForm ? <CardContent className="border-t pt-4"><form className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3" onSubmit={(event) => {event.preventDefault(); const days = Number(paymentTerms); if (!Number.isInteger(days) || days < 0 || days > 3650) {toast.error("مدة السداد يجب أن تكون عدد أيام صحيحًا."); return;} createSupplier.mutate({siteId,supplierCode:supplierCode.trim() || undefined,name:supplierName.trim(),contactName:contactName.trim() || undefined,phone:phone.trim() || undefined,email:email.trim(),defaultPaymentTermsDays:days,notes:supplierNotes.trim() || undefined});}}>
                   <label className="space-y-1 text-sm">اسم المورد *<Input required maxLength={180} value={supplierName} onChange={(e) => setSupplierName(e.target.value)} /></label>
                   <label className="space-y-1 text-sm">رمز المورد<Input maxLength={80} value={supplierCode} onChange={(e) => setSupplierCode(e.target.value)} /></label>
@@ -234,8 +238,8 @@ export default function InventoryWorkspacePage() {
                 </Card> : null}
             </TabsContent>
 
-            <TabsContent value="warehouses" className="space-y-4">
-              <Card><CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0"><div><CardTitle>المخازن</CardTitle><p className="mt-1 text-sm text-muted-foreground">كل مخزن مرتبط بالفرع الحالي؛ لا توجد حركة كمية بمجرد إنشائه.</p></div><Button onClick={() => setShowWarehouseForm((value) => !value)}><Warehouse className="ml-2 h-4 w-4" /> {showWarehouseForm ? "إلغاء" : "إنشاء مخزن"}</Button></CardHeader>
+            {canViewInventory ? <TabsContent value="warehouses" className="space-y-4">
+              <Card><CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0"><div><CardTitle>المخازن</CardTitle><p className="mt-1 text-sm text-muted-foreground">كل مخزن مرتبط بالفرع الحالي؛ لا توجد حركة كمية بمجرد إنشائه.</p></div>{canManageInventoryItems ? <Button onClick={() => setShowWarehouseForm((value) => !value)}><Warehouse className="ml-2 h-4 w-4" /> {showWarehouseForm ? "إلغاء" : "إنشاء مخزن"}</Button> : null}</CardHeader>
                 {showWarehouseForm ? <CardContent className="border-t pt-4"><form className="grid grid-cols-1 gap-3 md:grid-cols-3" onSubmit={(event) => {event.preventDefault(); createWarehouse.mutate({siteId,code:warehouseCode.trim(),name:warehouseName.trim(),notes:warehouseNotes.trim() || undefined});}}>
                   <label className="space-y-1 text-sm">رمز المخزن *<Input required maxLength={40} value={warehouseCode} onChange={(e) => setWarehouseCode(e.target.value)} /></label>
                   <label className="space-y-1 text-sm">اسم المخزن *<Input required maxLength={120} value={warehouseName} onChange={(e) => setWarehouseName(e.target.value)} /></label>
@@ -244,9 +248,9 @@ export default function InventoryWorkspacePage() {
                 </form></CardContent> : null}
                 <CardContent>{warehouses.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل المخازن…</p> : warehouses.error ? <p className="py-8 text-center text-destructive">تعذر تحميل المخازن. تحقق من صلاحياتك.</p> : !warehouses.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد مخازن لهذا الفرع.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full text-right text-sm"><thead className="bg-muted/60"><tr>{["الرمز","اسم المخزن","ملاحظات","الحالة"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{warehouses.data.map((warehouse) => <tr key={warehouse.id} className="border-t"><td className="p-3">{warehouse.code}</td><td className="p-3 font-medium">{warehouse.name}</td><td className="p-3">{warehouse.notes || "—"}</td><td className="p-3">{warehouse.is_active ? "نشط" : "موقوف"}</td></tr>)}</tbody></table></div>}</CardContent>
               </Card>
-            </TabsContent>
+            </TabsContent> : null}
 
-            {canReadStock ? <TabsContent value="stock" className="space-y-4">
+            {canViewInventory ? <TabsContent value="stock" className="space-y-4">
               <InventoryWarehouseTransferPanel
                 siteId={siteId}
                 isAuthenticated={isAuthenticated}
