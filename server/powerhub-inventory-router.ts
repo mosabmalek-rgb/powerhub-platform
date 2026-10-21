@@ -42,6 +42,8 @@ type InventoryStockMovementRow = {
   occurred_at: string;
   created_by_user_id: number | null;
   created_at: string;
+  source_issue_movement_id?: number | null;
+  returnable_quantity?: number | string;
 };
 
 const categorySchema = z.enum(["fuel", "oil", "filter", "spare_part", "maintenance_supply", "other"]);
@@ -66,6 +68,11 @@ function mapPurchaseDatabaseError(
   const known: Record<string, { code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND" | "FORBIDDEN"; message: string }> = {
     INVALID_OPERATION_KEY: { code: "BAD_REQUEST", message: "مفتاح العملية غير صالح." },
     STOCK_MOVEMENT_NOT_FOUND: { code: "NOT_FOUND", message: "حركة المخزون غير موجودة في هذا الفرع." },
+    STOCK_MOVEMENT_NOT_RETURNABLE: { code: "BAD_REQUEST", message: "يمكن إرجاع الصرف اليدوي المؤهل فقط." },
+    RETURN_FROM_ISSUE_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإرجاع الصرف." },
+    RETURN_FROM_ISSUE_EXCEEDS_UNRETURNED_QUANTITY: { code: "CONFLICT", message: "الكمية تتجاوز الكمية المصروفة المتبقية للإرجاع." },
+    RETURN_FROM_ISSUE_COST_RECONCILIATION_FAILED: { code: "CONFLICT", message: "تعذر مطابقة تكلفة المرتجع مع تكلفة الصرف الأصلي." },
+    INVENTORY_BALANCE_INVALID: { code: "CONFLICT", message: "رصيد المخزون غير متزن؛ أوقفنا الإرجاع لحماية السجلات." },
     STOCK_MOVEMENT_NOT_EDITABLE: { code: "BAD_REQUEST", message: "هذا النوع من الحركات لا يقبل التعديل المباشر؛ عدّل المستند الأصلي أو سجّل تسوية." },
     STOCK_MOVEMENT_ALREADY_CORRECTED: { code: "CONFLICT", message: "سبق تصحيح هذه الحركة." },
     STOCK_MOVEMENT_NOT_LATEST: { code: "CONFLICT", message: "لا يمكن تعديل حركة سبقتها حركة أحدث للصنف نفسه؛ استخدم تسوية مخزون جديدة." },
@@ -255,6 +262,35 @@ export const powerhubInventoryRouter = router({
         p_operation_key: input.operationKey,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل حركة المخزون.");
+      return data[0];
+    }),
+
+
+  returnFromIssue: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      sourceIssueMovementId: z.number().int().positive(),
+      quantity: z.number().finite().positive().max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7, "الكمية تقبل ثلاث منازل عشرية كحد أقصى."),
+      reason: z.string().trim().min(3).max(500),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      operationKey: z.string().trim().min(1).max(180),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "adjustInventory");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_return_from_issue", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_source_issue_movement_id: input.sourceIssueMovementId,
+        p_quantity: input.quantity,
+        p_reason: input.reason,
+        p_reference_no: input.referenceNo || null,
+        p_notes: input.notes || null,
+        p_operation_key: input.operationKey,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر إرجاع الصرف إلى المخزون.");
       return data[0];
     }),
 
