@@ -201,6 +201,9 @@ export const powerhubInventoryRouter = router({
       (["adjustment_in", "opening_balance"].includes(value.movementType) || value.unitCost === undefined),
       { message: "تكلفة الوحدة المدخلة تستخدم فقط عند تسوية زيادة المخزون.", path: ["unitCost"] }
     ).refine((value) =>
+      (value.movementType !== "opening_balance" || value.unitCost !== undefined),
+      { message: "أدخل تكلفة الوحدة للرصيد الافتتاحي.", path: ["unitCost"] }
+    ).refine((value) =>
       (value.movementType !== "fuel_consumption" || value.generatorId !== undefined),
       { message: "اختر المولد المرتبط باستهلاك الوقود.", path: ["generatorId"] }
     ).refine((value) =>
