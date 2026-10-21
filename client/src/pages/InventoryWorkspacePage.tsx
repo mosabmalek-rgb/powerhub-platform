@@ -4,13 +4,14 @@ import DashboardLayout from "@/components/DashboardLayout";
 import InventoryPurchasesPanel from "@/components/InventoryPurchasesPanel";
 import InventoryStockOperationsPanel from "@/components/InventoryStockOperationsPanel";
 import InventoryWarehouseTransferPanel from "@/components/InventoryWarehouseTransferPanel";
+import InventoryReportsPanel from "@/components/InventoryReportsPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight } from "lucide-react";
+import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 
 const categoryLabels: Record<string, string> = {
@@ -139,8 +140,8 @@ export default function InventoryWorkspacePage() {
   });
 
   useEffect(() => {
-    if ((!canViewSuppliers && tab === "suppliers") || (!canReadPurchases && tab === "purchases") || (!canReadStock && tab === "stock")) setTab("catalog");
-  }, [canViewSuppliers, canReadPurchases, canReadStock, tab]);
+    if ((!canViewSuppliers && tab === "suppliers") || (!canReadPurchases && tab === "purchases") || (!canReadStock && tab === "stock") || (!canViewInventoryReports && tab === "reports")) setTab("catalog");
+  }, [canViewSuppliers, canReadPurchases, canReadStock, canViewInventoryReports, tab]);
 
   const selectedSiteName = useMemo(() => sites.data?.find((site) => site.id === siteId)?.name ?? "", [sites.data, siteId]);
 
@@ -170,6 +171,7 @@ export default function InventoryWorkspacePage() {
                 <TabsTrigger value="warehouses" className="gap-2"><Warehouse className="h-4 w-4" /> المخازن</TabsTrigger>
                 {canReadStock ? <TabsTrigger value="stock" className="gap-2"><ArrowLeftRight className="h-4 w-4" /> الأرصدة والحركات</TabsTrigger> : null}
                 {canReadPurchases ? <TabsTrigger value="purchases" className="gap-2"><ClipboardList className="h-4 w-4" /> المشتريات</TabsTrigger> : null}
+                {canViewInventoryReports ? <TabsTrigger value="reports" className="gap-2"><FileSpreadsheet className="h-4 w-4" /> التقارير والتصدير</TabsTrigger> : null}
               </TabsList>
             </div>
 
@@ -259,6 +261,8 @@ export default function InventoryWorkspacePage() {
                 canViewInventoryReports={canViewInventoryReports}
               />
             </TabsContent> : null}
+
+            {canViewInventoryReports ? <TabsContent value="reports" className="space-y-4"><InventoryReportsPanel siteId={siteId} isAuthenticated={isAuthenticated} canViewInventoryReports={canViewInventoryReports} /></TabsContent> : null}
 
             {canReadPurchases ? <TabsContent value="purchases" className="space-y-4">
               <InventoryPurchasesPanel

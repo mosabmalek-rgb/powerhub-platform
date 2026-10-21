@@ -109,6 +109,22 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain('"manageFuelAndConsumption"');
   });
 
+  it("wires inventory reports and CSV exports behind the dedicated report permission", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const reports = read("client/src/components/InventoryReportsPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    expect(workspace).toContain('canViewInventoryReports ? <TabsTrigger value="reports"');
+    expect(workspace).toContain("canViewInventoryReports={canViewInventoryReports}");
+    expect(reports).toContain("trpc.powerhub.inventory.stockOverview.useQuery");
+    expect(reports).toContain("trpc.powerhub.inventory.listStockMovements.useQuery");
+    expect(reports).toContain("download");
+    expect(reports).toContain("canViewInventoryReports");
+    expect(reports).toContain("lowOnly");
+    expect(reports).toContain("s.replace(/\"/g");
+    expect(reports).toContain("canViewInventoryReports");
+    expect(router).toContain('permissions.includes("viewInventoryReports")');
+  });
+
   it("wires supplier returns to the stock, supplier ledger, and optional company-account refund workflow", () => {
     const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
     const router = read("server/powerhub-inventory-router.ts");
