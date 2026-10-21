@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, ClipboardList, Eye, FilePlus2, Loader2, PackageCheck, Plus, Search, Trash2 } from "lucide-react";
+import { CheckCircle2, ClipboardList, Eye, FilePlus2, Loader2, PackageCheck, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 type DraftLine = {
@@ -123,6 +123,11 @@ export default function InventoryPurchasesPanel({
   const [receiptNotes, setReceiptNotes] = useState("");
 
   const [receiptQuantities, setReceiptQuantities] = useState<Record<number, string>>({});
+  const [returnQuantities, setReturnQuantities] = useState<Record<number, string>>({});
+  const [returnDate, setReturnDate] = useState(todayForInput);
+  const [returnReason, setReturnReason] = useState("");
+  const [returnNotes, setReturnNotes] = useState("");
+  const [returnRefundAmount, setReturnRefundAmount] = useState("0");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [companyAccountId, setCompanyAccountId] = useState("");
   const [paymentDate, setPaymentDate] = useState(todayForInput);
@@ -184,6 +189,23 @@ export default function InventoryPurchasesPanel({
       String(Math.max(0, Number(line.quantity) - Number(line.received_quantity))),
     ])));
   }, [details.data?.purchase.id, details.data?.purchase.updated_at]);
+  
+  useEffect(() => {
+    const lines = details.data?.lines;
+    const returns = details.data?.returns ?? [];
+    if (!lines) return;
+    const returnedByLine = new Map<number, number>();
+    for (const supplierReturn of returns) {
+      for (const line of supplierReturn.lines ?? []) {
+        const id = Number(line.purchase_line_id);
+        returnedByLine.set(id, (returnedByLine.get(id) ?? 0) + Number(line.quantity));
+      }
+    }
+    setReturnQuantities(Object.fromEntries(lines.map((line) => [
+      Number(line.id),
+      String(Math.max(0, Number(line.received_quantity) - (returnedByLine.get(Number(line.id)) ?? 0))),
+    ])));
+  }, [details.data?.purchase.id, details.data?.purchase.updated_at, details.data?.returns]);
 
   const previewTotal = useMemo(() => draftLines.reduce((sum, line) => {
     const quantity = Number(line.quantity);
@@ -245,6 +267,26 @@ export default function InventoryPurchasesPanel({
       await refreshPurchaseData(Number(result.purchase_id));
     },
     onError: (error) => toast.error(error.message || "تعذر إلغاء فاتورة المشتريات."),
+  });
+
+  const returnToSupplier = trpc.powerhub.inventory.returnToSupplier.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.replayed
+        ? "تم التحقق من مرتجع المورد السابق دون تكرار."
+        : `تم تسجيل المرتجع ${result.return_number}. رصيد المورد الدائن المتبقي: ${formatAmount(result.supplier_credit_remaining)}.`);
+      setReturnReason("");
+      setReturnNotes("");
+      setReturnRefundAmount("0");
+      setReturnDate(todayForInput());
+      clearOperationKey(`powerhub:inventory:${siteId}:purchase:${Number(result.purchase_id)}:return`);
+      await Promise.all([
+        refreshPurchaseData(Number(result.purchase_id)),
+        utils.powerhub.inventory.stockOverview.invalidate({ siteId }),
+        utils.powerhub.inventory.listStockMovements.invalidate({ siteId, limit: 100 }),
+        utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
+      ]);
+    },
+    onError: (error) => toast.error(error.message || "تعذر تسجيل مرتجع المورد."),
   });
 
   const reverseSupplierPayment = trpc.powerhub.inventory.reverseSupplierPayment.useMutation({
@@ -351,6 +393,43 @@ export default function InventoryPurchasesPanel({
       referenceNo: paymentReferenceNo.trim() || undefined,
       notes: paymentNotes.trim() || undefined,
       operationKey: getOrCreateOperationKey(storageKey, "supplier-payment"),
+    });
+  };
+
+  const onReturnSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedPurchaseId || !details.data) return;
+    const lines = details.data.lines
+      .map((line) => ({ purchaseLineId: Number(line.id), quantity: Number(returnQuantities[Number(line.id)] ?? 0) }))
+      .filter((line) => Number.isFinite(line.quantity) && line.quantity > 0);
+    if (!lines.length) {
+      toast.error("أدخل كمية واحدة على الأقل لإرجاعها للمورد.");
+      return;
+    }
+    if (returnReason.trim().length < 3) {
+      toast.error("أدخل سببًا واضحًا للمرتجع.");
+      return;
+    }
+    const refundAmount = Number(returnRefundAmount || 0);
+    if (!Number.isFinite(refundAmount) || refundAmount < 0 || Math.abs(refundAmount * 100 - Math.round(refundAmount * 100)) >= 1e-7) {
+      toast.error("مبلغ الاسترداد يجب أن يكون صفرًا أو موجبًا وبحد أقصى منزلتين عشريتين.");
+      return;
+    }
+    if (refundAmount > 0 && !companyAccountId) {
+      toast.error("اختر حساب الشركة الذي سيستقبل المبلغ المسترد.");
+      return;
+    }
+    const storageKey = `powerhub:inventory:${siteId}:purchase:${selectedPurchaseId}:return`;
+    returnToSupplier.mutate({
+      siteId,
+      purchaseId: selectedPurchaseId,
+      returnDate: returnDate || undefined,
+      operationKey: getOrCreateOperationKey(storageKey, "supplier-return"),
+      reason: returnReason.trim(),
+      notes: returnNotes.trim() || undefined,
+      refundAmount,
+      refundCompanyAccountId: refundAmount > 0 ? Number(companyAccountId) : undefined,
+      lines,
     });
   };
 
@@ -587,6 +666,71 @@ export default function InventoryPurchasesPanel({
                     ))}</tbody>
                   </table>
                 </div>
+
+                {details.data.returns.length ? (
+                  <div className="space-y-2">
+                    <h4 className="font-semibold">سجل مرتجعات المورد</h4>
+                    <div className="overflow-x-auto rounded-md border">
+                      <table className="w-full min-w-[760px] text-right text-sm">
+                        <thead className="bg-muted/60"><tr>{["رقم المرتجع","التاريخ","السبب","البنود",...(canViewFinancials ? ["قيمة تخفيض المورد","المسترد نقدًا","رصيد دائن متبقٍ"] : [])].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
+                        <tbody>{details.data.returns.map((supplierReturn) => (
+                          <tr key={supplierReturn.id} className="border-t align-top">
+                            <td className="p-3 font-medium">{supplierReturn.return_number}</td>
+                            <td className="p-3">{supplierReturn.return_date}</td>
+                            <td className="p-3">{supplierReturn.reason}{supplierReturn.notes ? <span className="block text-xs text-muted-foreground">{supplierReturn.notes}</span> : null}</td>
+                            <td className="p-3">{supplierReturn.lines.map((line) => <div key={line.id}>{line.itemName}: {Number(line.quantity).toLocaleString("ar-PS", { maximumFractionDigits: 3 })} {line.unit}</div>)}</td>
+                            {canViewFinancials ? <><td className="p-3 whitespace-nowrap">{formatAmount(supplierReturn.total_credit_amount)}</td><td className="p-3 whitespace-nowrap">{formatAmount(supplierReturn.refund_amount)}</td><td className="p-3 whitespace-nowrap">{formatAmount(Number(supplierReturn.total_credit_amount ?? 0) - Number(supplierReturn.refund_amount ?? 0))}</td></> : null}
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+
+
+                {canAdjustInventory && ["partially_received", "received"].includes(details.data.purchase.status) ? (
+                  <form onSubmit={onReturnSubmit} className="space-y-3 rounded-md border border-dashed p-3">
+                    <div className="flex items-center gap-2 font-semibold"><RotateCcw className="h-5 w-5" /> مرتجع إلى المورد</div>
+                    <p className="text-sm text-muted-foreground">لا يمكن إرجاع أكثر من الكمية المستلمة والمتبقية بعد المرتجعات السابقة، ولا يتجاوز المرتجع المخزون الفعلي. تخفيض استحقاق المورد يُسجل مستقلًا عن المبلغ النقدي الذي يرده فعليًا.</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <label className={inputGridClass}>تاريخ المرتجع
+                        <Input type="date" value={returnDate} onChange={(event) => setReturnDate(event.target.value)} required />
+                      </label>
+                      <label className={inputGridClass + " sm:col-span-2"}>سبب المرتجع
+                        <Input value={returnReason} onChange={(event) => setReturnReason(event.target.value)} maxLength={500} minLength={3} required placeholder="تلف، خطأ في التوريد، فائض…" />
+                      </label>
+                      <label className={inputGridClass + " sm:col-span-2"}>ملاحظات إضافية
+                        <Input value={returnNotes} onChange={(event) => setReturnNotes(event.target.value)} maxLength={2000} />
+                      </label>
+                      {canManageSupplierPayments ? <>
+                        <label className={inputGridClass}>المبلغ الذي استردته الشركة نقدًا (₪)
+                          <Input type="number" min="0" step="0.01" value={returnRefundAmount} onChange={(event) => setReturnRefundAmount(event.target.value)} required />
+                        </label>
+                        {Number(returnRefundAmount) > 0 ? <label className={inputGridClass}>حساب الشركة المستلم
+                          <select className={selectClass} value={companyAccountId} onChange={(event) => setCompanyAccountId(event.target.value)} required>
+                            <option value="">اختر حسابًا</option>
+                            {(paymentOptions.data ?? []).map((account) => <option key={account.id} value={account.id}>{account.name} — الرصيد {formatAmount(account.balance)}</option>)}
+                          </select>
+                        </label> : null}
+                      </> : null}
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {details.data.lines.filter((line) => Number(line.received_quantity) > (details.data.returns.flatMap((supplierReturn) => supplierReturn.lines).filter((returnLine) => Number(returnLine.purchase_line_id) === Number(line.id)).reduce((sum, returnLine) => sum + Number(returnLine.quantity), 0))).map((line) => {
+                        const returned = details.data.returns.flatMap((supplierReturn) => supplierReturn.lines).filter((returnLine) => Number(returnLine.purchase_line_id) === Number(line.id)).reduce((sum, returnLine) => sum + Number(returnLine.quantity), 0);
+                        const remaining = Math.max(0, Number(line.received_quantity) - returned);
+                        return <label key={line.id} className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+                          <span className="min-w-0 flex-1"><span className="block font-medium">{line.itemName}</span><span className="text-xs text-muted-foreground">المستلم غير المرتجع {remaining.toLocaleString("ar-PS", { maximumFractionDigits: 3 })} {line.unit}</span></span>
+                          <span className="w-32 shrink-0"><Input type="number" min="0" max={remaining} step="0.001" value={returnQuantities[Number(line.id)] ?? "0"} onChange={(event) => setReturnQuantities((current) => ({ ...current, [Number(line.id)]: event.target.value }))} aria-label={`كمية الإرجاع ${line.itemName}`} /></span>
+                        </label>;
+                      })}
+                    </div>
+                    <div className="flex justify-end">
+                      <Button type="submit" disabled={returnToSupplier.isPending}>
+                        {returnToSupplier.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <RotateCcw className="ml-2 h-4 w-4" />} تسجيل مرتجع المورد
+                      </Button>
+                    </div>
+                  </form>
+                ) : null}
 
                 {details.data.receipts.length ? (
                   <div className="space-y-2">
