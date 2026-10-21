@@ -1137,6 +1137,162 @@ begin
 end;
 $inventory_fk_index_assertions$;
 
+
+set role service_role;
+do $supplier_return_assertions$
+declare
+  v_purchase_id bigint;
+  v_line1 bigint;
+  v_line2 bigint;
+  v_return_id bigint;
+  v_return_number text;
+  v_status text;
+  v_credit numeric(14,2);
+  v_stock_cost numeric(14,2);
+  v_refund numeric(14,2);
+  v_remaining numeric(14,2);
+  v_account_balance numeric(14,2);
+  v_replayed boolean;
+  v_stock_before numeric(14,3);
+  v_stock_after numeric(14,3);
+  v_movements integer;
+  v_return_lines integer;
+  v_ledger integer;
+  v_cash_entries integer;
+  v_audits integer;
+  v_expected_credit numeric(14,2);
+begin
+  select id into v_purchase_id from public.supplier_purchases
+    where tenant_id=10 and operation_key='purchase-workflow:create-001';
+  select id into v_line1 from public.supplier_purchase_lines
+    where tenant_id=10 and purchase_id=v_purchase_id order by id limit 1;
+  select id into v_line2 from public.supplier_purchase_lines
+    where tenant_id=10 and purchase_id=v_purchase_id order by id desc limit 1;
+  if v_purchase_id is null or v_line1 is null or v_line2 is null then
+    raise exception 'SUPPLIER_RETURN_FIXTURE_MISSING';
+  end if;
+
+  select coalesce(sum(case when m.movement_type in
+    ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+    then m.quantity else -m.quantity end),0)::numeric(14,3)
+  into v_stock_before from public.inventory_stock_movements m
+  where m.tenant_id=10 and m.site_id=100 and m.warehouse_id=(
+    select warehouse_id from public.supplier_purchases where tenant_id=10 and id=v_purchase_id
+  ) and m.item_id=(select item_id from public.supplier_purchase_lines where tenant_id=10 and id=v_line1);
+
+  select return_id,return_number,status,total_credit_amount,stock_cost_amount,refund_amount,
+    supplier_credit_remaining,account_balance,replayed
+  into v_return_id,v_return_number,v_status,v_credit,v_stock_cost,v_refund,v_remaining,v_account_balance,v_replayed
+  from public.powerhub_inventory_return_to_supplier(
+    10,100,2,v_purchase_id,current_date,'supplier-return:workflow-001',
+    'Damaged packaging','Return partial quantity',
+    jsonb_build_array(
+      jsonb_build_object('purchase_line_id',v_line1,'quantity',1),
+      jsonb_build_object('purchase_line_id',v_line2,'quantity',1)
+    ),10,1000
+  );
+  v_expected_credit :=
+    round((select line_total from public.supplier_purchase_lines where tenant_id=10 and id=v_line1)*1/
+      (select quantity from public.supplier_purchase_lines where tenant_id=10 and id=v_line1),2)
+    + round((select line_total from public.supplier_purchase_lines where tenant_id=10 and id=v_line2)*1/
+      (select quantity from public.supplier_purchase_lines where tenant_id=10 and id=v_line2),2);
+  if v_return_id is null or v_status<>'posted' or v_replayed
+    or v_credit<>v_expected_credit or v_refund<>10 or v_remaining<>v_expected_credit-10
+    or v_account_balance<>410 then
+    raise exception 'SUPPLIER_RETURN_POST_FAILED id=% status=% credit=% expected=% refund=% remaining=% balance=% replayed=%',
+      v_return_id,v_status,v_credit,v_expected_credit,v_refund,v_remaining,v_account_balance,v_replayed;
+  end if;
+
+  select coalesce(sum(case when m.movement_type in
+    ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+    then m.quantity else -m.quantity end),0)::numeric(14,3)
+  into v_stock_after from public.inventory_stock_movements m
+  where m.tenant_id=10 and m.site_id=100 and m.warehouse_id=(
+    select warehouse_id from public.supplier_purchases where tenant_id=10 and id=v_purchase_id
+  ) and m.item_id=(select item_id from public.supplier_purchase_lines where tenant_id=10 and id=v_line1);
+  if v_stock_after<>v_stock_before-2 then
+    raise exception 'SUPPLIER_RETURN_STOCK_BALANCE_MISMATCH before=% after=%',v_stock_before,v_stock_after;
+  end if;
+
+  select count(*) into v_return_lines from public.supplier_purchase_return_lines
+  where tenant_id=10 and return_id=v_return_id;
+  select count(*) into v_movements from public.inventory_stock_movements
+  where tenant_id=10 and purchase_id=v_purchase_id and movement_type='supplier_return'
+    and operation_key like 'supplier-return:'||v_return_id||':%';
+  select count(*) into v_ledger from public.supplier_ledger_entries
+  where tenant_id=10 and supplier_return_id=v_return_id and entry_type='supplier_return'
+    and debit_amount=v_expected_credit;
+  select count(*) into v_cash_entries from public.account_transactions
+  where tenant_id=10 and related_supplier_return_id=v_return_id and transaction_type='deposit' and amount=10;
+  select count(*) into v_audits from public.audit_logs
+  where tenant_id=10 and site_id=100 and entity_type='supplier_purchase_return'
+    and entity_id=v_return_id::text and action='post';
+  if v_return_lines<>2 or v_movements<>2 or v_ledger<>1 or v_cash_entries<>1 or v_audits<>1 then
+    raise exception 'SUPPLIER_RETURN_LINKAGE_FAILED lines=% movements=% ledger=% cash=% audit=%',
+      v_return_lines,v_movements,v_ledger,v_cash_entries,v_audits;
+  end if;
+  if exists(select 1 from public.supplier_ledger_entries
+    where tenant_id=10 and supplier_return_id=v_return_id and entry_type='credit_note') then
+    raise exception 'SUPPLIER_RETURN_CASH_REFUND_MUST_NOT_OFFSET_SUPPLIER_DEBIT';
+  end if;
+
+  select return_id,return_number,status,total_credit_amount,stock_cost_amount,refund_amount,
+    supplier_credit_remaining,account_balance,replayed
+  into v_return_id,v_return_number,v_status,v_credit,v_stock_cost,v_refund,v_remaining,v_account_balance,v_replayed
+  from public.powerhub_inventory_return_to_supplier(
+    10,100,2,v_purchase_id,current_date,'supplier-return:workflow-001',
+    'Damaged packaging','Return partial quantity',
+    jsonb_build_array(
+      jsonb_build_object('purchase_line_id',v_line1,'quantity',1),
+      jsonb_build_object('purchase_line_id',v_line2,'quantity',1)
+    ),10,1000
+  );
+  if not v_replayed or v_return_id is null or v_account_balance<>410 then
+    raise exception 'SUPPLIER_RETURN_REPLAY_FAILED';
+  end if;
+  select count(*) into v_movements from public.inventory_stock_movements
+  where tenant_id=10 and operation_key like 'supplier-return:'||v_return_id||':%';
+  if v_movements<>2 then raise exception 'SUPPLIER_RETURN_REPLAY_DUPLICATED_STOCK'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_return_to_supplier(
+      10,100,2,v_purchase_id,current_date,'supplier-return:workflow-overreturn',
+      'Damaged packaging',null,
+      jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',10)),0,null
+    );
+    raise exception 'SUPPLIER_RETURN_ACCEPTED_OVER_RETURN';
+  exception when others then
+    if sqlerrm='SUPPLIER_RETURN_ACCEPTED_OVER_RETURN' then raise; end if;
+    if sqlerrm not like '%SUPPLIER_RETURN_EXCEEDS_UNRETURNED_RECEIPT%' then raise; end if;
+  end;
+  if exists(select 1 from public.supplier_purchase_returns
+    where tenant_id=10 and operation_key='supplier-return:workflow-overreturn') then
+    raise exception 'SUPPLIER_RETURN_OVERAGE_LEFT_HEADER';
+  end if;
+
+  begin
+    perform * from public.powerhub_inventory_return_to_supplier(
+      10,100,2,v_purchase_id,current_date,'supplier-return:workflow-wrong-refund',
+      'Damaged packaging',null,
+      jsonb_build_array(jsonb_build_object('purchase_line_id',v_line1,'quantity',1)),999,1000
+    );
+    raise exception 'SUPPLIER_RETURN_ACCEPTED_REFUND_ABOVE_CREDIT';
+  exception when others then
+    if sqlerrm='SUPPLIER_RETURN_ACCEPTED_REFUND_ABOVE_CREDIT' then raise; end if;
+    if sqlerrm not like '%SUPPLIER_RETURN_REFUND_EXCEEDS_CREDIT%' then raise; end if;
+  end;
+
+  if has_function_privilege('anon','public.powerhub_inventory_return_to_supplier(bigint,bigint,bigint,bigint,date,text,text,text,jsonb,numeric,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_return_to_supplier(bigint,bigint,bigint,bigint,date,text,text,text,jsonb,numeric,bigint)','EXECUTE') then
+    raise exception 'UNTRUSTED_ROLE_CAN_RETURN_TO_SUPPLIER';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_return_to_supplier(bigint,bigint,bigint,bigint,date,text,text,text,jsonb,numeric,bigint)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_RETURN_TO_SUPPLIER';
+  end if;
+end;
+$supplier_return_assertions$;
+reset role;
+
 select 'inventory purchase receiving, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
 
