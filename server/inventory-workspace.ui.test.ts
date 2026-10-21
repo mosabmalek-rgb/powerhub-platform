@@ -99,6 +99,7 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("مرتجع إلى المورد");
     expect(panel).toContain("المبلغ الذي استردته الشركة نقدًا");
     expect(panel).toContain("canAdjustInventory");
+    expect(panel).toContain('setReturnQuantities(Object.fromEntries(lines.map((line) => [Number(line.id), "0"])))');
     expect(workspace).toContain("canAdjustInventory={canAdjustInventory}");
     expect(router).toContain("powerhub_inventory_return_to_supplier");
     expect(router).toContain('"adjustInventory"');
