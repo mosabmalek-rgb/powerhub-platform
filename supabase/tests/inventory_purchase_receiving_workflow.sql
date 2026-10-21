@@ -149,7 +149,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021085549_powerhub_inventory_purchase_receiving_workflow.sql
 \ir ../migrations/20261021085557_powerhub_inventory_supplier_payment.sql
 \ir ../migrations/20261021091113_powerhub_inventory_supplier_payment_actor_role_fix.sql
-\ir ../migrations/20261021100000_powerhub_inventory_stock_operations.sql
+\ir ../migrations/20261021101548_powerhub_inventory_stock_operations.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
