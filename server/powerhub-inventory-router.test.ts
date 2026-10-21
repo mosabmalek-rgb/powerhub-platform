@@ -287,6 +287,9 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
     expect(result.items).toHaveLength(2);
     expect(result.hasMore).toBe(true);
+    expect(result.items[0]).not.toHaveProperty("unit_cost");
+    expect(result.items[0]).not.toHaveProperty("operation_key");
+    expect(result.items[0]).not.toHaveProperty("created_by_user_id");
     expect(result.nextCursor).toEqual({
       beforeOccurredAt: "2026-10-21T09:00:00Z", beforeMovementId: 989,
     });
