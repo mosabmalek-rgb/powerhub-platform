@@ -126,7 +126,7 @@ describe("inventory workspace UI contract", () => {
     expect(reports).toContain("hasMore");
     expect(reports).toContain("exportingMoves");
     expect(reports).toContain("setTimeout");
-    expect(reports).toContain("s.replace(/\\"/g");
+    expect(reports).toContain('s.replace(/"/g');
     expect(router).toContain('permissions.includes("viewInventoryReports")');
     expect(router).toContain("powerhub_inventory_list_stock_movement_report");
     expect(menuAccess).toContain('"/inventory": { capabilities: ["viewInventory", "viewInventoryReports"] }');
