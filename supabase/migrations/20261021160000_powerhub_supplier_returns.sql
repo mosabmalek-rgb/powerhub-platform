@@ -512,3 +512,500 @@ revoke all on function public.powerhub_inventory_return_to_supplier(bigint,bigin
   from public,anon,authenticated;
 grant execute on function public.powerhub_inventory_return_to_supplier(bigint,bigint,bigint,bigint,date,text,text,text,jsonb,numeric,bigint)
   to service_role;
+
+
+-- Return credits participate in supplier payable calculations, including replay paths.
+
+
+-- Net supplier credit applied to this purchase: gross return value less the part
+-- settled as an actual cash refund. Used for invoice balances and payment validation.
+create or replace function public.powerhub_inventory_purchase_supplier_return_credit(
+  p_tenant_id bigint,
+  p_purchase_id bigint
+)
+returns numeric
+language sql
+stable
+security invoker
+set search_path=public,pg_temp
+as $$
+  select coalesce(sum(r.total_credit_amount-r.refund_amount),0)::numeric(14,2)
+  from public.supplier_purchase_returns as r
+  where r.tenant_id=p_tenant_id and r.purchase_id=p_purchase_id and r.status='posted';
+$$;
+
+revoke all on function public.powerhub_inventory_purchase_supplier_return_credit(bigint,bigint)
+  from public,anon,authenticated;
+grant execute on function public.powerhub_inventory_purchase_supplier_return_credit(bigint,bigint)
+  to service_role;
+
+create or replace function public.powerhub_inventory_record_supplier_payment(
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_user_id bigint,
+  p_purchase_id bigint,
+  p_company_account_id bigint,
+  p_amount numeric,
+  p_payment_date date,
+  p_reference_no text,
+  p_notes text,
+  p_operation_key text
+)
+returns table(
+  payment_id bigint,
+  purchase_id bigint,
+  company_account_id bigint,
+  account_transaction_id bigint,
+  amount numeric,
+  payment_date date,
+  paid_amount numeric,
+  outstanding_amount numeric,
+  account_balance numeric,
+  replayed boolean
+)
+language plpgsql
+security invoker
+set search_path=public,pg_temp
+as $$
+declare
+  v_payment public.supplier_payments%rowtype;
+  v_purchase public.supplier_purchases%rowtype;
+  v_account public.company_accounts%rowtype;
+  v_actor_platform_role text;
+  v_operation_key text;
+  v_payment_date date;
+  v_payload_hash text;
+  v_account_balance numeric(14,2);
+  v_paid_before numeric(14,2);
+  v_return_credit_before numeric(14,2);
+  v_paid_after numeric(14,2);
+  v_outstanding_before numeric(14,2);
+  v_outstanding_after numeric(14,2);
+  v_account_transaction_id bigint;
+begin
+  v_operation_key := nullif(btrim(p_operation_key),'');
+  v_payment_date := coalesce(p_payment_date,current_date);
+
+  if v_operation_key is null or length(v_operation_key)>180 then
+    raise exception 'INVALID_OPERATION_KEY' using errcode='P0001';
+  end if;
+  if p_amount is null or p_amount<=0 or p_amount<>round(p_amount,2) then
+    raise exception 'INVALID_SUPPLIER_PAYMENT_AMOUNT' using errcode='P0001';
+  end if;
+
+  v_payload_hash := md5(jsonb_build_object(
+    'site_id',p_site_id,
+    'purchase_id',p_purchase_id,
+    'company_account_id',p_company_account_id,
+    'amount',p_amount,
+    'payment_date',v_payment_date,
+    'reference_no',nullif(btrim(p_reference_no),''),
+    'notes',nullif(btrim(p_notes),'')
+  )::text);
+
+  -- Same key is serialized, and a key cannot be replayed with different payment data.
+  perform pg_advisory_xact_lock(hashtextextended(
+    p_tenant_id::text||':supplier-payment:'||v_operation_key,0
+  ));
+  select sp.* into v_payment
+  from public.supplier_payments as sp
+  where sp.tenant_id=p_tenant_id and sp.operation_key=v_operation_key
+  for update;
+
+  if found then
+    if v_payment.operation_payload_hash is distinct from v_payload_hash then
+      raise exception 'IDEMPOTENCY_KEY_REUSED' using errcode='P0001';
+    end if;
+
+    select p.* into v_purchase
+    from public.supplier_purchases as p
+    where p.tenant_id=p_tenant_id and p.site_id=p_site_id and p.id=p_purchase_id
+      and exists (
+        select 1 from public.supplier_payment_allocations as existing_allocation
+        where existing_allocation.tenant_id=p_tenant_id
+          and existing_allocation.payment_id=v_payment.id
+          and existing_allocation.purchase_id=p.id
+      );
+    if not found then raise exception 'PURCHASE_NOT_FOUND' using errcode='P0001'; end if;
+
+    select ca.* into v_account
+    from public.company_accounts as ca
+    where ca.tenant_id=p_tenant_id and ca.id=v_payment.company_account_id;
+    if not found then raise exception 'COMPANY_ACCOUNT_NOT_FOUND' using errcode='P0001'; end if;
+
+    select v_account.opening_balance + coalesce(sum(
+      case when atx.transaction_type in ('deposit','transfer_in','collection')
+        then atx.amount else -atx.amount end
+    ),0)
+    into v_account_balance
+    from public.account_transactions as atx
+    where atx.tenant_id=p_tenant_id and atx.account_id=v_account.id;
+
+    select coalesce(sum(a.amount),0)::numeric(14,2)
+    into v_paid_after
+    from public.supplier_payment_allocations as a
+    join public.supplier_payments as sp
+      on sp.tenant_id=a.tenant_id and sp.id=a.payment_id
+    where a.tenant_id=p_tenant_id and a.purchase_id=v_purchase.id and sp.status='posted';
+
+    select coalesce(sum(r.total_credit_amount-r.refund_amount),0)::numeric(14,2)
+    into v_return_credit_before
+    from public.supplier_purchase_returns as r
+    where r.tenant_id=p_tenant_id and r.purchase_id=v_purchase.id and r.status='posted';
+
+    return query select v_payment.id,v_purchase.id,v_account.id,
+      v_payment.account_transaction_id,v_payment.amount,v_payment.payment_date,
+      v_paid_after,greatest(0,v_purchase.total_amount-v_paid_after-v_return_credit_before),
+      v_account_balance,true;
+    return;
+  end if;
+
+  -- Use the same advisory account lock as powerhub_add_account_movement so a
+  -- concurrent expense/withdrawal cannot spend the same balance twice.
+  perform pg_advisory_xact_lock(p_company_account_id);
+  select ca.* into v_account
+  from public.company_accounts as ca
+  where ca.tenant_id=p_tenant_id and ca.id=p_company_account_id
+  for update;
+  if not found then raise exception 'COMPANY_ACCOUNT_NOT_FOUND' using errcode='P0001'; end if;
+  if not v_account.is_active then raise exception 'COMPANY_ACCOUNT_INACTIVE' using errcode='P0001'; end if;
+
+  -- Accounts with no explicit site links are tenant-wide, matching existing PowerHub semantics.
+  if exists (
+    select 1 from public.company_account_sites as cas
+    where cas.tenant_id=p_tenant_id and cas.account_id=v_account.id
+  ) and not exists (
+    select 1 from public.company_account_sites as cas
+    where cas.tenant_id=p_tenant_id and cas.account_id=v_account.id and cas.site_id=p_site_id
+  ) then
+    raise exception 'COMPANY_ACCOUNT_OUT_OF_SCOPE' using errcode='P0001';
+  end if;
+
+  select p.* into v_purchase
+  from public.supplier_purchases as p
+  where p.tenant_id=p_tenant_id and p.site_id=p_site_id and p.id=p_purchase_id
+  for update;
+  if not found then raise exception 'PURCHASE_NOT_FOUND' using errcode='P0001'; end if;
+  if v_purchase.status not in ('confirmed','partially_received','received') then
+    raise exception 'PURCHASE_NOT_PAYABLE' using errcode='P0001';
+  end if;
+
+  if exists (
+    select 1 from public.financial_settlements as fs
+    where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked'
+      and (
+        (fs.period_start<=now() and fs.period_end>=now())
+        or (fs.period_start::date<=v_payment_date and fs.period_end::date>=v_payment_date)
+      )
+  ) then
+    raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001';
+  end if;
+
+  select coalesce(sum(a.amount),0)::numeric(14,2)
+  into v_paid_before
+  from public.supplier_payment_allocations as a
+  join public.supplier_payments as sp
+    on sp.tenant_id=a.tenant_id and sp.id=a.payment_id
+  where a.tenant_id=p_tenant_id and a.purchase_id=v_purchase.id and sp.status='posted';
+
+  select coalesce(sum(r.total_credit_amount-r.refund_amount),0)::numeric(14,2)
+  into v_return_credit_before
+  from public.supplier_purchase_returns as r
+  where r.tenant_id=p_tenant_id and r.purchase_id=v_purchase.id and r.status='posted';
+
+  v_outstanding_before := greatest(0,v_purchase.total_amount-v_paid_before-v_return_credit_before);
+  if p_amount>v_outstanding_before then
+    raise exception 'PURCHASE_BALANCE_EXCEEDED' using errcode='P0001';
+  end if;
+
+  select u.platform_role into v_actor_platform_role
+  from public.users as u where u.id=p_user_id;
+  if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
+
+  select v_account.opening_balance + coalesce(sum(
+    case when atx.transaction_type in ('deposit','transfer_in','collection')
+      then atx.amount else -atx.amount end
+  ),0)
+  into v_account_balance
+  from public.account_transactions as atx
+  where atx.tenant_id=p_tenant_id and atx.account_id=v_account.id;
+
+  if p_amount>v_account_balance then
+    raise exception 'INSUFFICIENT_ACCOUNT_BALANCE' using errcode='P0001';
+  end if;
+
+  insert into public.supplier_payments(
+    tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,
+    reference_no,notes,operation_key,operation_payload_hash,posted_at,posted_by_user_id
+  ) values (
+    p_tenant_id,p_site_id,v_purchase.supplier_id,v_account.id,p_amount,v_payment_date,'posted',
+    nullif(btrim(p_reference_no),''),nullif(btrim(p_notes),''),v_operation_key,
+    v_payload_hash,now(),p_user_id
+  ) returning * into v_payment;
+
+  insert into public.account_transactions(
+    tenant_id,account_id,transaction_type,amount,description,reference_no,
+    related_supplier_payment_id,created_by_user_id,occurred_at
+  ) values (
+    p_tenant_id,v_account.id,'withdrawal',p_amount,
+    'دفعة مورد — فاتورة '||v_purchase.purchase_number,
+    nullif(btrim(p_reference_no),''),v_payment.id,p_user_id,v_payment_date::timestamptz
+  ) returning id into v_account_transaction_id;
+
+  update public.supplier_payments as sp
+  set account_transaction_id=v_account_transaction_id,updated_at=now()
+  where sp.tenant_id=p_tenant_id and sp.id=v_payment.id;
+
+  insert into public.supplier_payment_allocations(
+    tenant_id,payment_id,purchase_id,amount
+  ) values(p_tenant_id,v_payment.id,v_purchase.id,p_amount);
+
+  insert into public.supplier_ledger_entries(
+    tenant_id,site_id,supplier_id,entry_type,debit_amount,purchase_id,supplier_payment_id,
+    entry_key,reference_no,description,occurred_at,created_by_user_id
+  ) values (
+    p_tenant_id,p_site_id,v_purchase.supplier_id,'payment',p_amount,v_purchase.id,v_payment.id,
+    'supplier-payment:'||v_payment.id,nullif(btrim(p_reference_no),''),
+    'دفعة للمورد — فاتورة '||v_purchase.purchase_number,
+    v_payment_date::timestamptz,p_user_id
+  );
+
+  v_paid_after := v_paid_before+p_amount;
+  v_outstanding_after := greatest(0,v_purchase.total_amount-v_paid_after-v_return_credit_before);
+
+  insert into public.audit_logs(
+    tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,
+    before_data,after_data,metadata
+  ) values (
+    p_tenant_id,p_site_id,p_user_id,v_actor_platform_role,'supplier_payment',
+    v_payment.id::text,'post_payment',
+    jsonb_build_object('accountBalance',v_account_balance,'paidAmount',v_paid_before,
+      'outstandingAmount',v_outstanding_before),
+    jsonb_build_object('purchaseId',v_purchase.id,'purchaseNumber',v_purchase.purchase_number,
+      'companyAccountId',v_account.id,'accountTransactionId',v_account_transaction_id,
+      'amount',p_amount,'paymentDate',v_payment_date,'paidAmount',v_paid_after,
+      'outstandingAmount',v_outstanding_after,'accountBalance',v_account_balance-p_amount),
+    jsonb_build_object('operationKey',v_operation_key,'referenceNo',nullif(btrim(p_reference_no),''))
+  );
+
+  return query select v_payment.id,v_purchase.id,v_account.id,v_account_transaction_id,
+    v_payment.amount,v_payment.payment_date,v_paid_after,v_outstanding_after,
+    v_account_balance-p_amount,false;
+end;
+$$;
+
+create or replace function public.powerhub_inventory_reverse_supplier_payment(
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_user_id bigint,
+  p_payment_id bigint,
+  p_reason text
+)
+returns table(
+  payment_id bigint,purchase_id bigint,status text,amount numeric,
+  paid_amount numeric,outstanding_amount numeric,account_balance numeric,replayed boolean
+)
+language plpgsql
+security invoker
+set search_path=public,pg_temp
+as $$
+declare
+  v_payment public.supplier_payments%rowtype;
+  v_purchase public.supplier_purchases%rowtype;
+  v_account public.company_accounts%rowtype;
+  v_allocation public.supplier_payment_allocations%rowtype;
+  v_platform_role text;
+  v_reason text := nullif(btrim(p_reason),'');
+  v_account_balance numeric(14,2);
+  v_paid_amount numeric(14,2);
+  v_outstanding numeric(14,2);
+  v_return_credit numeric(14,2);
+  v_period_locked boolean;
+  v_replayed boolean := false;
+begin
+  if v_reason is null or length(v_reason)>500 then
+    raise exception 'SUPPLIER_PAYMENT_REVERSAL_REASON_REQUIRED' using errcode='P0001';
+  end if;
+
+  -- Read the immutable account link first; lock order matches payment posting (account -> purchase -> payment).
+  select sp.* into v_payment
+  from public.supplier_payments sp
+  where sp.tenant_id=p_tenant_id and sp.site_id=p_site_id and sp.id=p_payment_id;
+  if not found then raise exception 'SUPPLIER_PAYMENT_NOT_FOUND' using errcode='P0001'; end if;
+
+  perform pg_advisory_xact_lock(v_payment.company_account_id);
+  select ca.* into v_account
+  from public.company_accounts ca
+  where ca.tenant_id=p_tenant_id and ca.id=v_payment.company_account_id
+  for update;
+  if not found then raise exception 'COMPANY_ACCOUNT_NOT_FOUND' using errcode='P0001'; end if;
+
+  select a.* into v_allocation
+  from public.supplier_payment_allocations a
+  where a.tenant_id=p_tenant_id and a.payment_id=p_payment_id
+  order by a.id limit 1;
+  if not found then raise exception 'SUPPLIER_PAYMENT_ALLOCATION_NOT_FOUND' using errcode='P0001'; end if;
+
+  select p.* into v_purchase
+  from public.supplier_purchases p
+  where p.tenant_id=p_tenant_id and p.site_id=p_site_id and p.id=v_allocation.purchase_id
+  for update;
+  if not found then raise exception 'PURCHASE_NOT_FOUND' using errcode='P0001'; end if;
+
+  select sp.* into v_payment
+  from public.supplier_payments sp
+  where sp.tenant_id=p_tenant_id and sp.site_id=p_site_id and sp.id=p_payment_id
+  for update;
+  if not found then raise exception 'SUPPLIER_PAYMENT_NOT_FOUND' using errcode='P0001'; end if;
+
+  if v_payment.supplier_id<>v_purchase.supplier_id
+    or (select count(*) from public.supplier_payment_allocations a
+        where a.tenant_id=p_tenant_id and a.payment_id=v_payment.id)<>1
+    or v_allocation.amount<>v_payment.amount then
+    raise exception 'SUPPLIER_PAYMENT_ALLOCATION_MISMATCH' using errcode='P0001';
+  end if;
+
+  if v_payment.account_transaction_id is null or not exists (
+    select 1 from public.account_transactions atx
+    where atx.tenant_id=p_tenant_id and atx.id=v_payment.account_transaction_id
+      and atx.account_id=v_payment.company_account_id and atx.transaction_type='withdrawal'
+      and atx.amount=v_payment.amount and atx.related_supplier_payment_id=v_payment.id
+  ) then
+    raise exception 'SUPPLIER_PAYMENT_ORIGINAL_TRANSACTION_MISMATCH' using errcode='P0001';
+  end if;
+
+  select u.platform_role into v_platform_role from public.users u where u.id=p_user_id;
+  if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
+
+  if v_payment.status='reversed' then
+    v_replayed := true;
+  elsif v_payment.status='posted' then
+    select exists (
+      select 1 from public.financial_settlements fs
+      where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked'
+        and (
+          (fs.period_start<=now() and fs.period_end>=now())
+          or (fs.period_start::date<=v_payment.payment_date and fs.period_end::date>=v_payment.payment_date)
+        )
+    ) into v_period_locked;
+    if v_period_locked then raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001'; end if;
+
+    -- Preserve history: compensate the withdrawal with a new deposit, never edit/delete the original transaction.
+    insert into public.account_transactions(
+      tenant_id,account_id,transaction_type,amount,description,reference_no,
+      related_supplier_payment_id,created_by_user_id,occurred_at
+    ) values (
+      p_tenant_id,v_account.id,'deposit',v_payment.amount,
+      'عكس دفعة مورد #'||v_payment.id||' — '||v_reason,
+      'REV-SUPPLIER-PAYMENT-'||v_payment.id,
+      null,p_user_id,now()
+    );
+
+    insert into public.supplier_ledger_entries(
+      tenant_id,site_id,supplier_id,entry_type,credit_amount,purchase_id,supplier_payment_id,
+      entry_key,reference_no,description,occurred_at,created_by_user_id
+    ) values (
+      p_tenant_id,p_site_id,v_payment.supplier_id,'reversal',v_payment.amount,v_purchase.id,v_payment.id,
+      'supplier-payment-reversal:'||v_payment.id,v_payment.reference_no,
+      'عكس دفعة المورد #'||v_payment.id||' — '||v_reason,now(),p_user_id
+    );
+
+    update public.supplier_payments sp
+    set status='reversed',reversed_at=now(),reversed_by_user_id=p_user_id,
+        reversal_reason=v_reason,updated_at=now()
+    where sp.tenant_id=p_tenant_id and sp.id=v_payment.id
+    returning * into v_payment;
+
+    insert into public.audit_logs(
+      tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,
+      before_data,after_data,metadata
+    ) values (
+      p_tenant_id,p_site_id,p_user_id,v_platform_role,'supplier_payment',v_payment.id::text,'reverse',
+      jsonb_build_object('status','posted','amount',v_payment.amount,
+        'companyAccountId',v_account.id,'accountTransactionId',v_payment.account_transaction_id),
+      jsonb_build_object('status',v_payment.status,'reversedAt',v_payment.reversed_at,
+        'reason',v_reason,'purchaseId',v_purchase.id),
+      jsonb_build_object('compensatingDepositReference','REV-SUPPLIER-PAYMENT-'||v_payment.id)
+    );
+  end if;
+
+  select v_account.opening_balance + coalesce(sum(
+    case when atx.transaction_type in ('deposit','transfer_in','collection')
+      then atx.amount else -atx.amount end
+  ),0)
+  into v_account_balance
+  from public.account_transactions atx
+  where atx.tenant_id=p_tenant_id and atx.account_id=v_account.id;
+
+  select coalesce(sum(a.amount),0)::numeric(14,2)
+  into v_paid_amount
+  from public.supplier_payment_allocations a
+  join public.supplier_payments sp on sp.tenant_id=a.tenant_id and sp.id=a.payment_id
+  where a.tenant_id=p_tenant_id and a.purchase_id=v_purchase.id and sp.status='posted';
+
+  select coalesce(sum(r.total_credit_amount-r.refund_amount),0)::numeric(14,2)
+  into v_return_credit
+  from public.supplier_purchase_returns as r
+  where r.tenant_id=p_tenant_id and r.purchase_id=v_purchase.id and r.status='posted';
+
+  v_outstanding := greatest(0,v_purchase.total_amount-v_paid_amount-v_return_credit);
+  return query select v_payment.id,v_purchase.id,v_payment.status,v_payment.amount,
+    v_paid_amount,v_outstanding,v_account_balance,v_replayed;
+end;
+$$;
+
+create or replace function public.powerhub_inventory_supplier_ledger_statement(
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_supplier_id bigint,
+  p_limit integer default 200
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path=public,pg_temp
+as $$
+declare
+  v_supplier public.suppliers%rowtype;
+  v_balance numeric(14,2);
+  v_entries jsonb;
+begin
+  if p_tenant_id is null or p_site_id is null or p_supplier_id is null then
+    raise exception 'SUPPLIER_LEDGER_SCOPE_REQUIRED' using errcode='P0001';
+  end if;
+  if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then
+    raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001';
+  end if;
+  select s.* into v_supplier from public.suppliers s where s.tenant_id=p_tenant_id and s.id=p_supplier_id;
+  if not found then raise exception 'SUPPLIER_OUT_OF_SCOPE' using errcode='P0001'; end if;
+
+  select coalesce(sum(e.credit_amount-e.debit_amount),0)::numeric(14,2)
+  into v_balance from public.supplier_ledger_entries e
+  where e.tenant_id=p_tenant_id and e.site_id=p_site_id and e.supplier_id=p_supplier_id;
+
+  select coalesce(jsonb_agg(to_jsonb(page) order by page.occurred_at desc,page.id desc),'[]'::jsonb)
+  into v_entries from (
+    select e.id,e.entry_type,e.debit_amount,e.credit_amount,e.purchase_id,e.supplier_payment_id,e.supplier_return_id,
+      e.entry_key,e.reference_no,e.description,e.occurred_at,e.created_at
+    from public.supplier_ledger_entries e
+    where e.tenant_id=p_tenant_id and e.site_id=p_site_id and e.supplier_id=p_supplier_id
+    order by e.occurred_at desc,e.id desc
+    limit greatest(1,least(coalesce(p_limit,200),500))
+  ) page;
+
+  return jsonb_build_object(
+    'supplier',jsonb_build_object('id',v_supplier.id,'name',v_supplier.name,'supplier_code',v_supplier.supplier_code),
+    'site_id',p_site_id,'balance',v_balance,
+    'entry_count',(select count(*) from public.supplier_ledger_entries e
+      where e.tenant_id=p_tenant_id and e.site_id=p_site_id and e.supplier_id=p_supplier_id),
+    'entries',v_entries
+  );
+end;
+$$;
+
+revoke all on function public.powerhub_inventory_record_supplier_payment(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text) from public,anon,authenticated;
+grant execute on function public.powerhub_inventory_record_supplier_payment(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text) to service_role;
+revoke all on function public.powerhub_inventory_reverse_supplier_payment(bigint,bigint,bigint,bigint,text) from public,anon,authenticated;
+grant execute on function public.powerhub_inventory_reverse_supplier_payment(bigint,bigint,bigint,bigint,text) to service_role;
+revoke all on function public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer) from public,anon,authenticated;
+grant execute on function public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer) to service_role;
