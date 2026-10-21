@@ -192,10 +192,16 @@ end;
 # Race duplicate supplier-return submissions against the same received purchase line.
 purchase_id="$("${psql_base[@]}" --command "select id from public.supplier_purchases where tenant_id=10 and operation_key='purchase-workflow:cost-rounding:create'")"
 purchase_line_id="$("${psql_base[@]}" --command "select id from public.supplier_purchase_lines where tenant_id=10 and purchase_id=${purchase_id} order by id limit 1")"
+warehouse_id="$("${psql_base[@]}" --command "select warehouse_id from public.supplier_purchases where tenant_id=10 and id=${purchase_id}")"
+return_item_id="$("${psql_base[@]}" --command "select item_id from public.supplier_purchase_lines where tenant_id=10 and purchase_id=${purchase_id} and id=${purchase_line_id}")"
 [[ "$purchase_id" =~ ^[0-9]+$ && "$purchase_line_id" =~ ^[0-9]+$ ]] || {
   echo "Could not resolve received purchase line for concurrent supplier-return test"
   exit 1
 }
+[[ "$warehouse_id" =~ ^[0-9]+$ && "$return_item_id" =~ ^[0-9]+$ ]] || { echo "Could not resolve supplier-return stock scope"; exit 1; }
+
+# Isolate this race from earlier test cases by seeding one explicit stock unit in the purchase warehouse.
+PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select movement_id from public.powerhub_inventory_record_stock_movement(10,100,1,${warehouse_id},${return_item_id},'opening_balance',1,1.00,null,'CONC-RETURN-OPEN','isolated supplier-return concurrency stock seed','inventory-concurrency:supplier-return:stock-seed')"
 
 PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select return_id::text || ':' || replayed::text from public.powerhub_inventory_return_to_supplier(10,100,1,${purchase_id},current_date,'inventory-concurrency:supplier-return:once','Concurrent idempotent supplier return',null,jsonb_build_array(jsonb_build_object('purchase_line_id',${purchase_line_id},'quantity',1)),0,null)" >/tmp/inventory-supplier-return-a.log 2>&1 &
 pid_a=$!
