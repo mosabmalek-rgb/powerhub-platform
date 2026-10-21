@@ -20,6 +20,10 @@ const categoryLabels: Record<string, string> = {
   maintenance_supply: "مستلزمات صيانة",
   other: "أخرى",
 };
+function formatLedgerAmount(value: unknown) {
+  const amount = Number(value ?? 0);
+  return `₪${new Intl.NumberFormat("ar-PS", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0)}`;
+}
 const unitLabels: Record<string, string> = {
   liter: "لتر",
   milliliter: "ملليلتر",
@@ -45,6 +49,7 @@ export default function InventoryWorkspacePage() {
     staleTime: 30_000,
   });
   const canViewSuppliers = supplierAccess.data?.permissions.includes("viewSuppliers") ?? false;
+  const canViewSupplierLedger = supplierAccess.data?.permissions.includes("viewSupplierLedger") ?? false;
   const canViewInventory = supplierAccess.data?.permissions.includes("viewInventory") ?? false;
   const canViewInventoryReports = supplierAccess.data?.permissions.includes("viewInventoryReports") ?? false;
   const canIssueInventory = supplierAccess.data?.permissions.includes("issueInventory") ?? false;
@@ -62,6 +67,7 @@ export default function InventoryWorkspacePage() {
   const [tab, setTab] = useState("catalog");
   const [itemSearch, setItemSearch] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
+  const [selectedSupplierLedgerId, setSelectedSupplierLedgerId] = useState<number | null>(null);
   const [showItemForm, setShowItemForm] = useState(false);
   const [showSupplierForm, setShowSupplierForm] = useState(false);
   const [showWarehouseForm, setShowWarehouseForm] = useState(false);
@@ -93,6 +99,10 @@ export default function InventoryWorkspacePage() {
   const suppliers = trpc.powerhub.inventory.listSuppliers.useQuery(
     { siteId, search: supplierSearch || undefined },
     { enabled: Boolean(siteId && isAuthenticated && canViewSuppliers), staleTime: 30_000 },
+  );
+  const supplierLedger = trpc.powerhub.inventory.supplierLedgerStatement.useQuery(
+    { siteId, supplierId: selectedSupplierLedgerId ?? 0, limit: 200 },
+    { enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger && selectedSupplierLedgerId), staleTime: 15_000 },
   );
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery(
     { siteId },
@@ -205,8 +215,22 @@ export default function InventoryWorkspacePage() {
                   <div className="flex items-end"><Button type="submit" disabled={createSupplier.isPending || !supplierName.trim()}>{createSupplier.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} حفظ المورد</Button></div>
                 </form></CardContent> : null}
                 <CardContent className="space-y-3"><div className="relative max-w-md"><Search className="absolute right-3 top-3 h-4 w-4 text-muted-foreground" /><Input className="pr-9" value={supplierSearch} onChange={(e) => setSupplierSearch(e.target.value)} placeholder="ابحث باسم المورد أو الرمز أو الهاتف…" /></div>
-                  {suppliers.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل الموردين…</p> : suppliers.error ? <p className="py-8 text-center text-destructive">تعذر تحميل الموردين. تحقق من صلاحياتك.</p> : !suppliers.data?.length ? <p className="py-8 text-center text-muted-foreground">لا يوجد موردون مسجلون بعد.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[650px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المورد","الرمز","مسؤول التواصل","الهاتف","أجل السداد","الحالة"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{suppliers.data.map((supplier) => <tr key={supplier.id} className="border-t"><td className="p-3 font-medium">{supplier.name}<div className="text-xs text-muted-foreground">{supplier.email || ""}</div></td><td className="p-3">{supplier.supplier_code || "—"}</td><td className="p-3">{supplier.contact_name || "—"}</td><td className="p-3">{supplier.phone || "—"}</td><td className="p-3">{supplier.default_payment_terms_days} يوم</td><td className="p-3">{supplier.is_active ? "نشط" : "موقوف"}</td></tr>)}</tbody></table></div>}
+                  {suppliers.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل الموردين…</p> : suppliers.error ? <p className="py-8 text-center text-destructive">تعذر تحميل الموردين. تحقق من صلاحياتك.</p> : !suppliers.data?.length ? <p className="py-8 text-center text-muted-foreground">لا يوجد موردون مسجلون بعد.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[650px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المورد","الرمز","مسؤول التواصل","الهاتف","أجل السداد","الحالة",...(canViewSupplierLedger ? ["كشف الحساب"] : [])].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{suppliers.data.map((supplier) => <tr key={supplier.id} className="border-t"><td className="p-3 font-medium">{supplier.name}<div className="text-xs text-muted-foreground">{supplier.email || ""}</div></td><td className="p-3">{supplier.supplier_code || "—"}</td><td className="p-3">{supplier.contact_name || "—"}</td><td className="p-3">{supplier.phone || "—"}</td><td className="p-3">{supplier.default_payment_terms_days} يوم</td><td className="p-3">{supplier.is_active ? "نشط" : "موقوف"}</td>{canViewSupplierLedger ? <td className="p-3"><Button type="button" variant="outline" size="sm" onClick={() => setSelectedSupplierLedgerId(Number(supplier.id))}>كشف الحساب</Button></td> : null}</tr>)}</tbody></table></div>}
                 </CardContent>
+                {canViewSupplierLedger && selectedSupplierLedgerId ? <div className="space-y-3 rounded-md border p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold">كشف حساب المورد — {supplierLedger.data?.supplier?.name ?? "جارٍ التحميل…"}</h3>
+                      <p className="text-sm text-muted-foreground">حركات دفتر المورد لهذا الفرع؛ الرصيد الموجب يعني مبلغًا مستحقًا للمورد.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-left"><p className="text-xs text-muted-foreground">الرصيد المستحق</p><p className="font-semibold tabular-nums">{supplierLedger.data ? formatLedgerAmount(supplierLedger.data.balance) : "—"}</p></div>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSupplierLedgerId(null)}>إغلاق</Button>
+                    </div>
+                  </div>
+                  {supplierLedger.isLoading ? <p className="py-4 text-center text-muted-foreground">جارٍ تحميل كشف الحساب…</p> : supplierLedger.error ? <p className="py-4 text-center text-destructive">تعذر تحميل كشف الحساب. تحقق من صلاحية عرض دفتر الموردين.</p> : !supplierLedger.data?.entries?.length ? <p className="py-4 text-center text-muted-foreground">لا توجد حركات مالية مسجلة لهذا المورد في الفرع الحالي.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[760px] text-right text-sm"><thead className="bg-muted/60"><tr>{["التاريخ","نوع الحركة","البيان","المرجع","مدين","دائن"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{supplierLedger.data.entries.map((entry: any) => <tr key={entry.id} className="border-t"><td className="p-3 whitespace-nowrap">{new Date(entry.occurred_at).toLocaleDateString("ar-PS")}</td><td className="p-3">{({purchase:"فاتورة مشتريات",payment:"دفعة مورد",opening_balance:"رصيد افتتاحي",supplier_return:"مرتجع مورد",debit_note:"إشعار مدين",credit_note:"إشعار دائن",adjustment:"تسوية",reversal:"عكس قيد"} as Record<string,string>)[entry.entry_type] ?? entry.entry_type}</td><td className="p-3">{entry.description}</td><td className="p-3">{entry.reference_no || "—"}</td><td className="p-3 tabular-nums">{formatLedgerAmount(entry.debit_amount)}</td><td className="p-3 tabular-nums">{formatLedgerAmount(entry.credit_amount)}</td></tr>)}</tbody></table></div>}
+                  {supplierLedger.data?.entry_count > (supplierLedger.data?.entries?.length ?? 0) ? <p className="text-xs text-muted-foreground">يعرض آخر {supplierLedger.data.entries.length} حركة من أصل {supplierLedger.data.entry_count}؛ الرصيد محسوب من كامل السجل.</p> : null}
+                </div> : null}
               </Card>
             </TabsContent>
 
