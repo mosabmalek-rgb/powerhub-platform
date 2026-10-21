@@ -191,7 +191,7 @@ end;
 
 # Race duplicate supplier-payment submissions against the same received purchase.
 # A retry storm must create one payment, one account withdrawal, one allocation, one ledger entry, and one audit row.
-payment_purchase_id="$(\"${psql_base[@]}\" --command \"select id from public.supplier_purchases where tenant_id=10 and operation_key='purchase-workflow:cost-rounding:create'\")"
+payment_purchase_id="$("${psql_base[@]}" --command "select id from public.supplier_purchases where tenant_id=10 and operation_key='purchase-workflow:cost-rounding:create'")"
 [[ "$payment_purchase_id" =~ ^[0-9]+$ ]] || { echo "Could not resolve received purchase for concurrent supplier-payment test"; exit 1; }
 PGOPTIONS="$role_opts" "${psql_base[@]}" --command "select pg_sleep(0.15); select payment_id::text || ':' || replayed::text from public.powerhub_inventory_record_supplier_payment(10,100,1,${payment_purchase_id},1000,1.00,current_date,'CONC-PAYMENT-ONCE','Concurrent idempotent supplier payment','inventory-concurrency:supplier-payment:once')" >/tmp/inventory-supplier-payment-a.log 2>&1 &
 payment_pid_a=$!
@@ -216,7 +216,7 @@ if ! { [[ "$payment_result_a" == "$payment_id_a:false" && "$payment_result_b" ==
   exit 1
 fi
 "${psql_base[@]}" --command "
-do \\$supplier_payment_concurrency_reconciliation\\$
+do \$supplier_payment_concurrency_reconciliation\$
 declare
   v_payment_id bigint;
 begin
@@ -231,7 +231,7 @@ begin
     raise exception 'CONCURRENT_SUPPLIER_PAYMENT_DUPLICATED_OR_PARTIAL_POSTING';
   end if;
 end;
-\\$supplier_payment_concurrency_reconciliation\\$;
+\$supplier_payment_concurrency_reconciliation\$;
 "
 
 # Race duplicate supplier-return submissions against the same received purchase line.
