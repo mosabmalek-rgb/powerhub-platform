@@ -138,6 +138,15 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres inventory_purchase_receiving_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_purchase_receiving_workflow.sql
 
+      - name: Verify concurrent inventory issues, idempotency, and ledger reconciliation
+        env:
+          PGPASSWORD: postgres
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGDATABASE: inventory_purchase_receiving_test
+        run: bash supabase/tests/inventory_concurrency_and_reconciliation.sh
+
       - name: Verify per-user fine-grained permissions in isolated PostgreSQL
         env:
           PGPASSWORD: postgres
