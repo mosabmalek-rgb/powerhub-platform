@@ -519,16 +519,18 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
-  it("rejects transfers between the same warehouse before authorization or database access", async () => {
+  it("validates that source and destination warehouses differ before running the resolver", async () => {
     state.rpc.mockClear();
     state.access.mockClear();
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const mutation = (powerhubInventoryRouter as any)._def.record.transferStock;
-    await expect(mutation._def.resolver({
-      ctx: { user: { id: 98 } },
-      input: { siteId: 7, itemId: 12, sourceWarehouseId: 3, destinationWarehouseId: 3,
-        quantity: 2, operationKey: "stock-transfer:same-warehouse" },
-    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const inputParser = mutation._def.inputs?.[0];
+    expect(inputParser).toBeDefined();
+    expect(() => inputParser.parse({
+      siteId: 7, itemId: 12, sourceWarehouseId: 3, destinationWarehouseId: 3,
+      quantity: 2, operationKey: "stock-transfer:same-warehouse",
+    })).toThrow();
+    expect(state.access).not.toHaveBeenCalled();
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
