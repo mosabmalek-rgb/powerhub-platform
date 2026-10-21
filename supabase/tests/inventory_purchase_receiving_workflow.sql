@@ -150,6 +150,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021085557_powerhub_inventory_supplier_payment.sql
 \ir ../migrations/20261021091113_powerhub_inventory_supplier_payment_actor_role_fix.sql
 \ir ../migrations/20261021101548_powerhub_inventory_stock_operations.sql
+\ir ../migrations/20261021103929_powerhub_inventory_supplier_ledger_statement.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -932,6 +933,36 @@ begin
   end if;
 end;
 $stock_operation_assertions$;
+
+do $supplier_statement_assertions$
+declare
+  v_statement jsonb;
+begin
+  select public.powerhub_inventory_supplier_ledger_statement(10,100,1,200)
+  into v_statement;
+  if v_statement->'supplier'->>'name' <> 'Supplier A' then
+    raise exception 'SUPPLIER_STATEMENT_WRONG_SUPPLIER';
+  end if;
+  if (v_statement->>'balance')::numeric <> 55.00 then
+    raise exception 'SUPPLIER_STATEMENT_BALANCE_MISMATCH expected=55 actual=%',v_statement->>'balance';
+  end if;
+  if (v_statement->>'entry_count')::integer <> 2 then
+    raise exception 'SUPPLIER_STATEMENT_ENTRY_COUNT_MISMATCH expected=2 actual=%',v_statement->>'entry_count';
+  end if;
+  if jsonb_array_length(v_statement->'entries') <> 2 then
+    raise exception 'SUPPLIER_STATEMENT_ENTRIES_MISSING';
+  end if;
+  if has_function_privilege('anon','public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'ANON_CAN_EXECUTE_SUPPLIER_STATEMENT_RPC';
+  end if;
+  if has_function_privilege('authenticated','public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_SUPPLIER_STATEMENT_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_SUPPLIER_STATEMENT_RPC';
+  end if;
+end;
+$supplier_statement_assertions$;
 reset role;
 
 select 'inventory purchase receiving and stock operations PostgreSQL integration passed' as result;
