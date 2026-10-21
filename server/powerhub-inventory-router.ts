@@ -215,6 +215,49 @@ export const powerhubInventoryRouter = router({
       });
     }),
 
+  listStockMovementReport: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      limit: z.number().int().min(1).max(200).default(100),
+      beforeOccurredAt: z.string().datetime().optional(),
+      beforeMovementId: z.number().int().positive().optional(),
+      fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      warehouseId: z.number().int().positive().optional(),
+      search: z.string().trim().max(150).optional(),
+    }).refine((value) => Boolean(value.beforeOccurredAt) === Boolean(value.beforeMovementId), {
+      message: "مؤشر صفحة الحركات غير مكتمل.",
+    }).refine((value) => !value.fromDate || !value.toDate || value.fromDate <= value.toDate, {
+      message: "نطاق تاريخ الحركات غير صحيح.",
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStockReadAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض أو تصدير تقارير المخزون." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_stock_movement_report", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_limit: input.limit + 1,
+        p_before_occurred_at: input.beforeOccurredAt ?? null,
+        p_before_movement_id: input.beforeMovementId ?? null,
+        p_from_date: input.fromDate ?? null,
+        p_to_date: input.toDate ?? null,
+        p_warehouse_id: input.warehouseId ?? null,
+        p_search: input.search?.trim() || null,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تقرير حركات المخزون." });
+      const rows = (data ?? []) as InventoryStockMovementRow[];
+      const hasMore = rows.length > input.limit;
+      const items = hasMore ? rows.slice(0, input.limit) : rows;
+      const last = items[items.length - 1] as (InventoryStockMovementRow & { movement_id: number; occurred_at: string }) | undefined;
+      return {
+        items,
+        hasMore,
+        nextCursor: hasMore && last ? { beforeOccurredAt: last.occurred_at, beforeMovementId: Number(last.movement_id) } : null,
+      };
+    }),
+
   recordStockMovement: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
