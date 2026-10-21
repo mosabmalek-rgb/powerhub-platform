@@ -112,13 +112,9 @@ begin
   loop
     execute format('alter table public.%I enable row level security',table_name);
     execute format('drop policy if exists %I on public.%I',table_name||'_tenant_read',table_name);
-    execute format(
-      'create policy %I on public.%I for select to authenticated using (tenant_id = any(powerhub_private.current_tenant_ids()) or powerhub_private.is_platform_user())',
-      table_name||'_tenant_read',table_name
-    );
-    execute format('revoke all on table public.%I from public,anon',table_name);
-    execute format('revoke insert,update,delete,truncate,references,trigger on table public.%I from authenticated',table_name);
-    execute format('grant select on table public.%I to authenticated',table_name);
+    -- Return rows contain costs, refund amounts, and account IDs. They are read only
+    -- through the permission-checking server router, which masks financial fields.
+    execute format('revoke all on table public.%I from public,anon,authenticated',table_name);
     execute format('grant all on table public.%I to service_role',table_name);
     execute format('grant usage,select on sequence public.%I to service_role',table_name||'_id_seq');
   end loop;
