@@ -16,6 +16,42 @@ type Props = {
   canViewInventoryReports: boolean;
 };
 
+type StockOverviewRow = {
+  warehouse_id: number;
+  warehouse_code: string;
+  warehouse_name: string;
+  item_id: number;
+  sku: string | null;
+  item_name: string;
+  category: string;
+  base_unit: string;
+  reorder_point: number | string;
+  on_hand_quantity: number | string;
+  stock_value?: number | string;
+  average_unit_cost?: number | string;
+  below_reorder_point: boolean;
+};
+
+type StockMovementRow = {
+  movement_id: number;
+  warehouse_id: number;
+  warehouse_code: string;
+  warehouse_name: string;
+  item_id: number;
+  sku: string | null;
+  item_name: string;
+  base_unit: string;
+  generator_id: number | null;
+  movement_type: string;
+  quantity: number | string;
+  unit_cost?: number | string;
+  total_cost_amount?: number | string;
+  reference_no: string | null;
+  notes: string | null;
+  operation_key: string;
+  occurred_at: string;
+};
+
 const movementLabels: Record<MovementType, string> = {
   issue: "صرف صنف",
   adjustment_in: "تسوية زيادة",
@@ -128,9 +164,11 @@ export default function InventoryStockOperationsPanel({
     setOperationKey(getOrCreateOperationKey(storageKey));
   }, [storageKey]);
 
-  const selectedStock = stock.data?.find((row) => String(row.warehouse_id) === warehouseId && String(row.item_id) === itemId);
+  const stockRows = (stock.data ?? []) as StockOverviewRow[];
+  const movementRows = (movements.data ?? []) as StockMovementRow[];
+  const selectedStock = stockRows.find((row) => String(row.warehouse_id) === warehouseId && String(row.item_id) === itemId);
   const currentQuantity = Number(selectedStock?.on_hand_quantity ?? 0);
-  const visibleStock = (stock.data ?? []).filter((row) => {
+  const visibleStock = stockRows.filter((row) => {
     if (!stockSearch.trim()) return true;
     const query = stockSearch.trim().toLocaleLowerCase();
     return (String(row.item_name ?? "") + " " + String(row.sku ?? "") + " " + String(row.warehouse_name ?? "")).toLocaleLowerCase().includes(query);
@@ -303,7 +341,7 @@ export default function InventoryStockOperationsPanel({
                     <thead className="bg-muted/60"><tr>
                       {["التاريخ","الحركة","الصنف","المخزن","الكمية","المولد","المرجع",...(canViewInventoryReports ? ["التكلفة"] : [])].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}
                     </tr></thead>
-                    <tbody>{movements.data.map((movement) => (
+                    <tbody>{movementRows.map((movement) => (
                       <tr key={movement.movement_id} className="border-t">
                         <td className="p-3 whitespace-nowrap">{new Date(movement.occurred_at).toLocaleString("ar-PS")}</td>
                         <td className="p-3">{movementLabels[movement.movement_type as MovementType] ?? movement.movement_type}</td>
