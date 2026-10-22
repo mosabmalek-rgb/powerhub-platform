@@ -491,6 +491,7 @@ const policyCapabilities: Array<{ id: PowerCapability; label: string }> = [
   { id: "approvePurchases", label: "اعتماد المشتريات" },
   { id: "receiveInventory", label: "تأكيد استلام الأصناف" },
   { id: "manageSupplierPayments", label: "تسجيل دفعات الموردين" },
+  { id: "reverseSupplierPayments", label: "عكس دفعات الموردين بسبب موثق" },
   { id: "viewSupplierLedger", label: "عرض ذمم وكشوف الموردين" },
   { id: "issueInventory", label: "صرف الأصناف للمولدات" },
   { id: "adjustInventory", label: "الجرد والتسويات المخزنية" },
