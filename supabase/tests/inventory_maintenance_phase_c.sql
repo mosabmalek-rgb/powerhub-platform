@@ -31,6 +31,14 @@ declare
   v_correction_plan record;
   v_correction_alert record;
 begin
+  -- Partial tenant/site scope must not turn into an unbounded evaluator.
+  begin
+    perform * from public.powerhub_maintenance_evaluate_due_plans(null,100);
+    raise exception 'MAINTENANCE_PARTIAL_EVALUATOR_SCOPE_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_SCOPE_REQUIRED' then raise; end if;
+  end;
+
   -- Create a disposable stock item and seed it through the same audited ledger.
   insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
   values(10,'MAINT-PHASE-C-01','Maintenance spare part','spare_part','piece',0,1)
