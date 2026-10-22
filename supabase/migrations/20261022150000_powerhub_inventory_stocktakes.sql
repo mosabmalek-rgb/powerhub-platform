@@ -236,6 +236,75 @@ revoke all on public.inventory_stocktakes,public.inventory_stocktake_lines from 
 grant select,insert,update on public.inventory_stocktakes,public.inventory_stocktake_lines to service_role;
 grant usage,select on sequence public.inventory_stocktakes_id_seq,public.inventory_stocktake_lines_id_seq to service_role;
 
+-- Fuel tanks can contain fuel catalogue items only, regardless of which server workflow posts a movement.
+create or replace function public.powerhub_inventory_validate_location_item()
+returns trigger
+language plpgsql
+security invoker
+set search_path=public,pg_temp
+as $
+declare
+  v_location_type text;
+  v_category text;
+begin
+  select w.location_type,i.category into v_location_type,v_category
+  from public.inventory_warehouses w
+  join public.inventory_items i on i.tenant_id=new.tenant_id and i.id=new.item_id
+  where w.tenant_id=new.tenant_id and w.site_id=new.site_id and w.id=new.warehouse_id;
+  if not found then raise exception 'STOCK_WAREHOUSE_OUT_OF_SCOPE' using errcode='P0001'; end if;
+  if v_location_type in ('fixed_fuel_tank','generator_fuel_tank') and v_category<>'fuel' then
+    raise exception 'FUEL_ITEM_REQUIRED_FOR_TANK' using errcode='P0001';
+  end if;
+  return new;
+end;
+$;
+drop trigger if exists inventory_stock_movements_location_item_guard on public.inventory_stock_movements;
+create trigger inventory_stock_movements_location_item_guard
+before insert on public.inventory_stock_movements
+for each row execute function public.powerhub_inventory_validate_location_item();
+
+-- Keep stock overview aligned with typed storage locations: tanks expose only fuel catalogue items.
+create or replace function public.powerhub_inventory_stock_overview(
+  p_tenant_id bigint,
+  p_site_id bigint
+)
+returns table(
+  warehouse_id bigint,warehouse_code text,warehouse_name text,item_id bigint,sku text,item_name text,
+  category text,base_unit text,reorder_point numeric,on_hand_quantity numeric,stock_value numeric,
+  average_unit_cost numeric,below_reorder_point boolean
+)
+language sql
+stable
+security invoker
+set search_path=public,pg_temp
+as $
+  with balances as (
+    select m.tenant_id,m.site_id,m.warehouse_id,m.item_id,
+      sum(case when m.movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+        then m.quantity else -m.quantity end)::numeric(14,3) as on_hand_quantity,
+      sum(case when m.movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+        then m.total_cost_amount else -m.total_cost_amount end)::numeric(14,2) as stock_value
+    from public.inventory_stock_movements m
+    where m.tenant_id=p_tenant_id and m.site_id=p_site_id
+    group by m.tenant_id,m.site_id,m.warehouse_id,m.item_id
+  )
+  select w.id,w.code,w.name,i.id,i.sku,i.name,i.category,i.base_unit,i.reorder_point,
+    coalesce(b.on_hand_quantity,0)::numeric(14,3),greatest(coalesce(b.stock_value,0),0)::numeric(14,2),
+    case when coalesce(b.on_hand_quantity,0)>0
+      then (greatest(coalesce(b.stock_value,0),0)/b.on_hand_quantity)::numeric(14,4)
+      else 0::numeric end,
+    coalesce(b.on_hand_quantity,0)<=i.reorder_point
+  from public.inventory_warehouses w
+  join public.inventory_items i on i.tenant_id=w.tenant_id and i.is_active=true
+  left join balances b on b.tenant_id=w.tenant_id and b.site_id=w.site_id
+    and b.warehouse_id=w.id and b.item_id=i.id
+  where w.tenant_id=p_tenant_id and w.site_id=p_site_id and w.is_active=true
+    and (w.location_type not in ('fixed_fuel_tank','generator_fuel_tank') or i.category='fuel')
+    and (coalesce(b.on_hand_quantity,0)>0 or (i.reorder_point>0 and coalesce(b.on_hand_quantity,0)<=i.reorder_point))
+  order by (coalesce(b.on_hand_quantity,0)<=i.reorder_point) desc,i.name,w.name
+  limit 5000;
+$;
+
 create or replace function public.powerhub_inventory_stocktake_snapshot_is_current(
   p_tenant_id bigint,p_site_id bigint,p_stocktake_id bigint
 )
@@ -247,22 +316,27 @@ set search_path=public,pg_temp
 as $$
 declare
   v_warehouse_id bigint;
+  v_location_type text;
   v_valid boolean;
 begin
-  select st.warehouse_id into v_warehouse_id
+  select st.warehouse_id,w.location_type into v_warehouse_id,v_location_type
   from public.inventory_stocktakes st
+  join public.inventory_warehouses w
+    on w.tenant_id=st.tenant_id and w.site_id=st.site_id and w.id=st.warehouse_id
   where st.tenant_id=p_tenant_id and st.site_id=p_site_id and st.id=p_stocktake_id;
   if not found then return false; end if;
 
   if exists(
     select 1 from public.inventory_items i
     where i.tenant_id=p_tenant_id and i.is_active
+      and (v_location_type not in ('fixed_fuel_tank','generator_fuel_tank') or i.category='fuel')
       and not exists(select 1 from public.inventory_stocktake_lines l
         where l.tenant_id=p_tenant_id and l.stocktake_id=p_stocktake_id and l.item_id=i.id)
   ) or exists(
     select 1 from public.inventory_stocktake_lines l
     join public.inventory_items i on i.tenant_id=l.tenant_id and i.id=l.item_id
-    where l.tenant_id=p_tenant_id and l.stocktake_id=p_stocktake_id and not i.is_active
+    where l.tenant_id=p_tenant_id and l.stocktake_id=p_stocktake_id
+      and (not i.is_active or (v_location_type in ('fixed_fuel_tank','generator_fuel_tank') and i.category<>'fuel'))
   ) then return false; end if;
 
   select not exists(
@@ -393,7 +467,8 @@ begin
     case when coalesce(b.quantity,0)>0 then round(coalesce(b.value,0)/b.quantity,4) else 0 end
   from public.inventory_items i
   left join balances b on b.item_id=i.id
-  where i.tenant_id=p_tenant_id and i.is_active;
+  where i.tenant_id=p_tenant_id and i.is_active
+    and (v_warehouse.location_type not in ('fixed_fuel_tank','generator_fuel_tank') or i.category='fuel');
 
   select count(*)::integer into v_item_count from public.inventory_stocktake_lines l
   where l.tenant_id=p_tenant_id and l.stocktake_id=v_stocktake.id;
@@ -427,6 +502,8 @@ declare
   v_stocktake public.inventory_stocktakes%rowtype;
   v_line public.inventory_stocktake_lines%rowtype;
   v_platform_role text;
+  v_before_counted_quantity numeric(14,3);
+  v_before_counted_unit_cost numeric(14,4);
   v_notes text:=nullif(btrim(p_count_notes),'');
 begin
   if not exists(select 1 from public.sites s where s.tenant_id=p_tenant_id and s.id=p_site_id) then
@@ -451,6 +528,8 @@ begin
   select l.* into v_line from public.inventory_stocktake_lines l
   where l.tenant_id=p_tenant_id and l.stocktake_id=p_stocktake_id and l.item_id=p_item_id for update;
   if not found then raise exception 'STOCKTAKE_ITEM_NOT_FOUND' using errcode='P0001'; end if;
+  v_before_counted_quantity:=v_line.counted_quantity;
+  v_before_counted_unit_cost:=v_line.counted_unit_cost;
   select coalesce(u.platform_role,'tenant_user') into v_platform_role from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
 
@@ -464,7 +543,7 @@ begin
     tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,before_data,after_data
   ) values(
     p_tenant_id,p_site_id,p_user_id,v_platform_role,'inventory_stocktake_line',v_line.id::text,'record_count',
-    jsonb_build_object('countedQuantity',case when v_line.counted_quantity is null then null else v_line.counted_quantity end),
+    jsonb_build_object('countedQuantity',v_before_counted_quantity,'countedUnitCost',v_before_counted_unit_cost),
     jsonb_build_object('stocktakeId',p_stocktake_id,'itemId',p_item_id,'systemQuantity',v_line.system_quantity,
       'countedQuantity',v_line.counted_quantity,'varianceQuantity',v_line.variance_quantity,
       'countedUnitCost',v_line.counted_unit_cost,'notes',v_line.count_notes)
