@@ -89,6 +89,9 @@ export default function InventoryWorkspacePage() {
   const [showInactiveSuppliers, setShowInactiveSuppliers] = useState(false);
   const [showInactiveWarehouses, setShowInactiveWarehouses] = useState(false);
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
+  const [selectedItemUnitsId, setSelectedItemUnitsId] = useState<number | null>(null);
+  const [purchaseUnitLabel, setPurchaseUnitLabel] = useState("");
+  const [purchaseUnitFactor, setPurchaseUnitFactor] = useState("1");
   const [editingSupplierId, setEditingSupplierId] = useState<number | null>(null);
   const [editingWarehouseId, setEditingWarehouseId] = useState<number | null>(null);
   const [showItemForm, setShowItemForm] = useState(false);
@@ -122,6 +125,10 @@ export default function InventoryWorkspacePage() {
   const items = trpc.powerhub.inventory.listItems.useQuery(
     { siteId, search: itemSearch || undefined, includeInactive: showInactiveItems },
     { enabled: Boolean(siteId && isAuthenticated && canViewInventory), staleTime: 30_000 },
+  );
+  const itemUnits = trpc.powerhub.inventory.listItemUnits.useQuery(
+    { siteId, itemId: selectedItemUnitsId ?? 0, includeInactive: true },
+    { enabled: Boolean(siteId && isAuthenticated && canViewInventory && selectedItemUnitsId), staleTime: 15_000 },
   );
   const suppliers = trpc.powerhub.inventory.listSuppliers.useQuery(
     { siteId, search: supplierSearch || undefined, includeInactive: showInactiveSuppliers },
@@ -165,6 +172,28 @@ export default function InventoryWorkspacePage() {
       await Promise.all([utils.powerhub.inventory.listItems.invalidate(), utils.powerhub.inventory.stockOverview.invalidate()]);
     },
     onError: (error) => toast.error(error.message || "تعذر تغيير حالة الصنف."),
+  });
+
+  const createItemUnit = trpc.powerhub.inventory.createItemUnit.useMutation({
+    onSuccess: async () => {
+      toast.success("تمت إضافة وحدة الشراء ومعامل تحويلها.");
+      setPurchaseUnitLabel(""); setPurchaseUnitFactor("1");
+      await Promise.all([
+        utils.powerhub.inventory.listItemUnits.invalidate(),
+        utils.powerhub.inventory.listPurchaseOptions.invalidate({ siteId }),
+      ]);
+    },
+    onError: (error) => toast.error(error.message || "تعذرت إضافة وحدة الشراء."),
+  });
+  const setItemUnitActive = trpc.powerhub.inventory.setItemUnitActive.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.is_active ? "تمت إعادة تفعيل وحدة الشراء." : "تم إيقاف وحدة الشراء مع الحفاظ على سجلها.");
+      await Promise.all([
+        utils.powerhub.inventory.listItemUnits.invalidate(),
+        utils.powerhub.inventory.listPurchaseOptions.invalidate({ siteId }),
+      ]);
+    },
+    onError: (error) => toast.error(error.message || "تعذر تغيير حالة وحدة الشراء."),
   });
 
   const createSupplier = trpc.powerhub.inventory.createSupplier.useMutation({
@@ -298,9 +327,33 @@ export default function InventoryWorkspacePage() {
                 </CardContent> : null}
                 <CardContent className="space-y-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="relative max-w-md flex-1"><Search className="absolute right-3 top-3 h-4 w-4 text-muted-foreground" /><Input className="pr-9" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="ابحث باسم الصنف أو رمزه…" /></div><label className="flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={showInactiveItems} onChange={(e) => setShowInactiveItems(e.target.checked)} /> إظهار الأصناف الموقوفة</label></div>
-                  {items.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل الأصناف…</p> : items.error ? <p className="py-8 text-center text-destructive">تعذر تحميل دليل الأصناف. حدّث الصفحة أو تحقق من صلاحياتك.</p> : !items.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد أصناف بعد. استخدم «إضافة صنف» لبدء الدليل.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[720px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","الرمز","التصنيف","الوحدة","حد إعادة الطلب","الحالة","إجراءات"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{items.data.map((item) => <tr key={item.id} className="border-t"><td className="p-3 font-medium">{item.name}<div className="text-xs text-muted-foreground">{item.specification || ""}</div></td><td className="p-3">{item.sku || "—"}</td><td className="p-3">{categoryLabels[item.category] || item.category}</td><td className="p-3">{unitLabels[item.base_unit] || item.base_unit}</td><td className="p-3 tabular-nums">{Number(item.reorder_point).toLocaleString("ar", { maximumFractionDigits: 3 })}</td><td className="p-3">{item.is_active ? "نشط" : "موقوف"}</td><td className="p-3"><div className="flex flex-wrap gap-1">{canManageInventoryItems ? <><Button type="button" size="sm" variant="outline" onClick={() => { setEditingItemId(Number(item.id)); setSku(item.sku ?? ""); setItemName(item.name); setCategory(item.category); setBaseUnit(item.base_unit); setReorderPoint(String(item.reorder_point)); setSpecification(item.specification ?? ""); setItemNotes(item.notes ?? ""); setShowItemForm(true); }}>تعديل</Button><Button type="button" size="sm" variant="outline" disabled={setItemActive.isPending} onClick={() => { const reason = item.is_active ? window.prompt("أدخل سبب إيقاف الصنف (مطلوب):")?.trim() : undefined; if (item.is_active && (!reason || reason.length < 3)) { toast.error("أدخل سببًا واضحًا من 3 أحرف على الأقل."); return; } setItemActive.mutate({ siteId, itemId: Number(item.id), isActive: !item.is_active, ...(reason ? { reason } : {}) }); }}>{item.is_active ? "إيقاف" : "إعادة تفعيل"}</Button></> : "—"}</div></td></tr>)}</tbody></table></div>}
+                  {items.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل الأصناف…</p> : items.error ? <p className="py-8 text-center text-destructive">تعذر تحميل دليل الأصناف. حدّث الصفحة أو تحقق من صلاحياتك.</p> : !items.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد أصناف بعد. استخدم «إضافة صنف» لبدء الدليل.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[720px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","الرمز","التصنيف","الوحدة","حد إعادة الطلب","الحالة","إجراءات"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{items.data.map((item) => <tr key={item.id} className="border-t"><td className="p-3 font-medium">{item.name}<div className="text-xs text-muted-foreground">{item.specification || ""}</div></td><td className="p-3">{item.sku || "—"}</td><td className="p-3">{categoryLabels[item.category] || item.category}</td><td className="p-3">{unitLabels[item.base_unit] || item.base_unit}</td><td className="p-3 tabular-nums">{Number(item.reorder_point).toLocaleString("ar", { maximumFractionDigits: 3 })}</td><td className="p-3">{item.is_active ? "نشط" : "موقوف"}</td><td className="p-3"><div className="flex flex-wrap gap-1">{canManageInventoryItems ? <><Button type="button" size="sm" variant="outline" onClick={() => { setEditingItemId(Number(item.id)); setSku(item.sku ?? ""); setItemName(item.name); setCategory(item.category); setBaseUnit(item.base_unit); setReorderPoint(String(item.reorder_point)); setSpecification(item.specification ?? ""); setItemNotes(item.notes ?? ""); setShowItemForm(true); }}>تعديل</Button><Button type="button" size="sm" variant="outline" onClick={() => { setSelectedItemUnitsId(Number(item.id)); setPurchaseUnitLabel(""); setPurchaseUnitFactor("1"); }}>وحدات الشراء</Button><Button type="button" size="sm" variant="outline" disabled={setItemActive.isPending} onClick={() => { const reason = item.is_active ? window.prompt("أدخل سبب إيقاف الصنف (مطلوب):")?.trim() : undefined; if (item.is_active && (!reason || reason.length < 3)) { toast.error("أدخل سببًا واضحًا من 3 أحرف على الأقل."); return; } setItemActive.mutate({ siteId, itemId: Number(item.id), isActive: !item.is_active, ...(reason ? { reason } : {}) }); }}>{item.is_active ? "إيقاف" : "إعادة تفعيل"}</Button></> : "—"}</div></td></tr>)}</tbody></table></div>}
                 </CardContent>
               </Card>
+              {selectedItemUnitsId ? <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+                  <div>
+                    <CardTitle>وحدات الشراء — {items.data?.find((item) => Number(item.id) === selectedItemUnitsId)?.name ?? "الصنف المحدد"}</CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">معامل التحويل يحدد عدد وحدات الصنف الأساسية داخل وحدة الشراء الواحدة. مثال: عبوة زيت 4 لترات = 4.</p>
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => setSelectedItemUnitsId(null)}>إغلاق</Button>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {canManageInventoryItems ? <form className="grid grid-cols-1 gap-3 sm:grid-cols-3" onSubmit={(event) => {
+                    event.preventDefault();
+                    const factor = Number(purchaseUnitFactor);
+                    if (!purchaseUnitLabel.trim() || !Number.isFinite(factor) || factor <= 0 || Math.abs(factor * 1_000_000 - Math.round(factor * 1_000_000)) > 1e-5) {
+                      toast.error("أدخل اسم وحدة ومعامل تحويل موجبًا حتى 6 منازل عشرية."); return;
+                    }
+                    createItemUnit.mutate({ siteId, itemId: selectedItemUnitsId, unitLabel: purchaseUnitLabel.trim(), factorToBase: factor });
+                  }}>
+                    <label className="space-y-1 text-sm">اسم وحدة الشراء *<Input required maxLength={40} value={purchaseUnitLabel} onChange={(event) => setPurchaseUnitLabel(event.target.value)} placeholder="عبوة، كرتونة، جالون…" /></label>
+                    <label className="space-y-1 text-sm">عدد الوحدات الأساسية داخلها *<Input required type="number" min="0.000001" step="0.000001" value={purchaseUnitFactor} onChange={(event) => setPurchaseUnitFactor(event.target.value)} /></label>
+                    <div className="flex items-end"><Button type="submit" disabled={createItemUnit.isPending || !purchaseUnitLabel.trim()}>إضافة وحدة شراء</Button></div>
+                  </form> : null}
+                  {itemUnits.isLoading ? <p className="text-sm text-muted-foreground">جارٍ تحميل وحدات الشراء…</p> : itemUnits.error ? <p className="text-sm text-destructive">تعذر تحميل وحدات الشراء.</p> : !itemUnits.data?.length ? <p className="text-sm text-muted-foreground">لا توجد وحدات شراء إضافية. يمكن الشراء بالوحدة الأساسية مباشرة.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[540px] text-right text-sm"><thead className="bg-muted/60"><tr>{["وحدة الشراء","معامل التحويل إلى الوحدة الأساسية","الحالة",...(canManageInventoryItems ? ["إجراءات"] : [])].map((heading) => <th key={heading} className="p-3">{heading}</th>)}</tr></thead><tbody>{itemUnits.data.map((unit) => <tr key={unit.id} className="border-t"><td className="p-3">{unit.unit_label}</td><td className="p-3 tabular-nums">{Number(unit.factor_to_base).toLocaleString("ar-PS", { maximumFractionDigits: 6 })}</td><td className="p-3">{unit.is_active ? "نشطة" : "موقوفة"}</td>{canManageInventoryItems ? <td className="p-3"><Button type="button" size="sm" variant="outline" disabled={setItemUnitActive.isPending} onClick={() => { const reason = unit.is_active ? window.prompt("أدخل سبب إيقاف وحدة الشراء (مطلوب):")?.trim() : undefined; if (unit.is_active && (!reason || reason.length < 3)) { toast.error("أدخل سببًا واضحًا من 3 أحرف على الأقل."); return; } setItemUnitActive.mutate({ siteId, itemId: selectedItemUnitsId, unitId: Number(unit.id), isActive: !unit.is_active, ...(reason ? { reason } : {}) }); }}>{unit.is_active ? "إيقاف" : "إعادة تفعيل"}</Button></td> : null}</tr>)}</tbody></table></div>}
+                </CardContent>
+              </Card> : null}
             </TabsContent> : null}
 
             <TabsContent value="suppliers" className="space-y-4">
