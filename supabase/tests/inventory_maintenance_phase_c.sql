@@ -175,6 +175,16 @@ begin
   if v_transition.status<>'completed' or v_transition.total_cost_amount<>63 then
     raise exception 'MAINTENANCE_COMPLETION_CORRECTION_COST_FAILED';
   end if;
+  begin
+    perform * from public.powerhub_maintenance_transition_work_order(
+      10,100,1,v_order.work_order_id,'correct_completion',
+      'Replaced and tested; corrected record',null,46,null,6,
+      'Corrected technician cost and downtime','maint-test-correct-completion-c-01'
+    );
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_IDEMPOTENCY_PAYLOAD_CONFLICT_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_IDEMPOTENCY_KEY_REUSED' then raise; end if;
+  end;
   if (select completed_at from public.generator_maintenance_work_orders where id=v_order.work_order_id)
        is distinct from v_correction_completed_at then
     raise exception 'MAINTENANCE_COMPLETION_CORRECTION_CHANGED_COMPLETION_TIME';
