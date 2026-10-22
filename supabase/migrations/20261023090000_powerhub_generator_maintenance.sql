@@ -26,6 +26,7 @@ create table public.generator_maintenance_work_orders (
   assigned_to_user_id bigint references public.users(id) on delete set null,
   assigned_supplier_id bigint,
   preventive_plan_id bigint,
+  reopened_from_work_order_id bigint,
   operating_hours_at_open numeric(14,2),
   operating_hours_at_close numeric(14,2),
   downtime_minutes integer not null default 0 check (downtime_minutes >= 0),
@@ -48,6 +49,11 @@ create table public.generator_maintenance_work_orders (
     unique (tenant_id,site_id,id),
   constraint generator_maintenance_work_orders_tenant_site_id_generator_unique
     unique (tenant_id,site_id,id,generator_id),
+  constraint generator_maintenance_work_orders_reopened_from_fk
+    foreign key (tenant_id,site_id,reopened_from_work_order_id,generator_id)
+    references public.generator_maintenance_work_orders(tenant_id,site_id,id,generator_id),
+  constraint generator_maintenance_work_orders_not_self_reopened_check
+    check (reopened_from_work_order_id is null or reopened_from_work_order_id<>id),
   constraint generator_maintenance_work_orders_scope_number_unique
     unique (tenant_id,site_id,work_order_number),
   constraint generator_maintenance_work_orders_operation_unique
@@ -653,6 +659,117 @@ begin
 end;
 $$;
 
+create or replace function public.powerhub_maintenance_reopen_completed_work_order(
+  p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_work_order_id bigint,p_reason text,p_operation_key text
+)
+returns table(work_order_id bigint,work_order_number text,source_work_order_id bigint,status text,replayed boolean)
+language plpgsql security invoker set search_path=public,pg_temp
+as $maintenance_reopen$
+declare
+  v_source public.generator_maintenance_work_orders%rowtype;
+  v_new public.generator_maintenance_work_orders%rowtype;
+  v_generator public.generators%rowtype;
+  v_existing record;
+  v_hash text;
+  v_new_operation_key text;
+  v_number text;
+  v_now timestamptz:=clock_timestamp();
+begin
+  if p_tenant_id is null or p_site_id is null or p_user_id is null or p_work_order_id is null then
+    raise exception 'MAINTENANCE_SCOPE_REQUIRED' using errcode='P0001';
+  end if;
+  if p_operation_key is null or length(btrim(p_operation_key)) not between 1 and 180 then
+    raise exception 'INVALID_OPERATION_KEY' using errcode='P0001';
+  end if;
+  if p_reason is null or length(btrim(p_reason)) not between 3 and 500 then
+    raise exception 'MAINTENANCE_REOPEN_REASON_REQUIRED' using errcode='P0001';
+  end if;
+  if not exists(select 1 from public.users where id=p_user_id) then
+    raise exception 'MAINTENANCE_ACTOR_NOT_FOUND' using errcode='P0001';
+  end if;
+
+  v_hash:=md5(jsonb_build_object(
+    'tenant_id',p_tenant_id,'site_id',p_site_id,'source_work_order_id',p_work_order_id,
+    'reason',btrim(p_reason)
+  )::text);
+  perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':maintenance-reopen:'||btrim(p_operation_key),0));
+
+  select a.entity_id,a.after_data into v_existing
+    from public.generator_maintenance_audit_events a
+    where a.tenant_id=p_tenant_id and a.site_id=p_site_id
+      and a.entity_type='work_order' and a.action='reopen_completed'
+      and a.operation_key=btrim(p_operation_key)
+    for update;
+  if found then
+    if v_existing.after_data->>'payload_hash' is distinct from v_hash
+       or v_existing.after_data->>'source_work_order_id' is distinct from p_work_order_id::text then
+      raise exception 'MAINTENANCE_IDEMPOTENCY_KEY_REUSED' using errcode='P0001';
+    end if;
+    select * into v_new from public.generator_maintenance_work_orders w
+      where w.tenant_id=p_tenant_id and w.site_id=p_site_id
+        and w.id=v_existing.entity_id and w.reopened_from_work_order_id=p_work_order_id;
+    if not found then raise exception 'MAINTENANCE_REOPEN_RESULT_MISSING' using errcode='P0001'; end if;
+    return query select v_new.id,v_new.work_order_number,p_work_order_id,v_new.status,true;
+    return;
+  end if;
+
+  select * into v_source from public.generator_maintenance_work_orders w
+    where w.tenant_id=p_tenant_id and w.site_id=p_site_id and w.id=p_work_order_id
+    for update;
+  if not found then raise exception 'MAINTENANCE_WORK_ORDER_NOT_FOUND' using errcode='P0001'; end if;
+  if v_source.status<>'completed' then
+    raise exception 'MAINTENANCE_REOPEN_REQUIRES_COMPLETED_ORDER' using errcode='P0001';
+  end if;
+  if v_source.order_type='preventive' and exists(
+    select 1 from public.generator_maintenance_work_orders w
+    where w.tenant_id=p_tenant_id and w.site_id=p_site_id
+      and w.preventive_plan_id=v_source.preventive_plan_id
+      and w.order_type='preventive'
+      and w.status in ('scheduled','new','in_progress','waiting_for_parts')
+  ) then
+    raise exception 'MAINTENANCE_PREVENTIVE_ORDER_ALREADY_OPEN' using errcode='P0001';
+  end if;
+  select * into v_generator from public.generators g
+    where g.tenant_id=p_tenant_id and g.site_id=p_site_id and g.id=v_source.generator_id
+    for share;
+  if not found then raise exception 'MAINTENANCE_GENERATOR_OUT_OF_SCOPE' using errcode='P0001'; end if;
+
+  v_new_operation_key:='maintenance-reopen:'||md5(p_tenant_id::text||':'||btrim(p_operation_key));
+  v_number:='MW-'||to_char(v_now at time zone 'UTC','YYYYMMDD')||'-'||
+    lpad(nextval('public.generator_maintenance_work_order_number_seq')::text,7,'0');
+
+  insert into public.generator_maintenance_work_orders(
+    tenant_id,site_id,generator_id,work_order_number,order_type,priority,status,title,description,
+    reported_at,scheduled_for,assigned_to_user_id,assigned_supplier_id,preventive_plan_id,
+    operating_hours_at_open,reopened_from_work_order_id,operation_key,operation_payload_hash,
+    created_by_user_id,updated_by_user_id
+  ) values(
+    p_tenant_id,p_site_id,v_source.generator_id,v_number,v_source.order_type,v_source.priority,'new',
+    left('متابعة: '||v_source.title,180),v_source.description,v_now,null,null,null,
+    v_source.preventive_plan_id,v_generator.operating_hours,v_source.id,v_new_operation_key,v_hash,
+    p_user_id,p_user_id
+  ) returning * into v_new;
+
+  insert into public.generator_maintenance_audit_events(
+    tenant_id,site_id,actor_user_id,entity_type,entity_id,action,before_data,after_data,operation_key
+  ) values(
+    p_tenant_id,p_site_id,p_user_id,'work_order',v_new.id,'reopen_completed',
+    jsonb_build_object(
+      'source_work_order_id',v_source.id,'source_work_order_number',v_source.work_order_number,
+      'source_status',v_source.status,'source_completed_at',v_source.completed_at,
+      'source_total_cost_amount',v_source.total_cost_amount
+    ),
+    jsonb_build_object(
+      'source_work_order_id',v_source.id,'source_work_order_number',v_source.work_order_number,
+      'work_order_number',v_new.work_order_number,'status',v_new.status,'reason',btrim(p_reason),
+      'payload_hash',v_hash
+    ),
+    btrim(p_operation_key)
+  );
+  return query select v_new.id,v_new.work_order_number,v_source.id,v_new.status,false;
+end;
+$maintenance_reopen$;
+
 create or replace function public.powerhub_maintenance_create_preventive_plan(
   p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_generator_id bigint,p_plan_code text,p_title text,
   p_description text,p_interval_days integer,p_interval_operating_hours numeric,p_next_due_at timestamptz,
@@ -913,6 +1030,7 @@ revoke all on function public.powerhub_maintenance_create_work_order(bigint,bigi
 revoke all on function public.powerhub_maintenance_assign_supplier(bigint,bigint,bigint,bigint,bigint,text) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_add_part(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_transition_work_order(bigint,bigint,bigint,bigint,text,text,numeric,integer,numeric,numeric,text,text) from public,anon,authenticated;
+revoke all on function public.powerhub_maintenance_reopen_completed_work_order(bigint,bigint,bigint,bigint,text,text) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_create_preventive_plan(bigint,bigint,bigint,bigint,text,text,text,integer,numeric,timestamptz,numeric,integer,numeric,text) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_evaluate_due_plans(bigint,bigint) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_list_work_orders(bigint,bigint,bigint,text,integer) from public,anon,authenticated;
@@ -925,6 +1043,7 @@ grant execute on function public.powerhub_maintenance_create_work_order(bigint,b
 grant execute on function public.powerhub_maintenance_assign_supplier(bigint,bigint,bigint,bigint,bigint,text) to service_role;
 grant execute on function public.powerhub_maintenance_add_part(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text) to service_role;
 grant execute on function public.powerhub_maintenance_transition_work_order(bigint,bigint,bigint,bigint,text,text,numeric,integer,numeric,numeric,text,text) to service_role;
+grant execute on function public.powerhub_maintenance_reopen_completed_work_order(bigint,bigint,bigint,bigint,text,text) to service_role;
 grant execute on function public.powerhub_maintenance_create_preventive_plan(bigint,bigint,bigint,bigint,text,text,text,integer,numeric,timestamptz,numeric,integer,numeric,text) to service_role;
 grant execute on function public.powerhub_maintenance_evaluate_due_plans(bigint,bigint) to service_role;
 grant execute on function public.powerhub_maintenance_list_work_orders(bigint,bigint,bigint,text,integer) to service_role;
