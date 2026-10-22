@@ -1054,6 +1054,101 @@ export const powerhubInventoryRouter = router({
       return { suppliers: suppliersResult.data ?? [], payables: agingResult.data };
     }),
 
+
+  listSupplierPaymentHistory: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      supplierId: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(200).default(100),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      let paymentQuery = supabaseAdmin().from("supplier_payments")
+        .select("id,tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,reference_no,notes,account_transaction_id,posted_at,posted_by_user_id,reversed_at,reversed_by_user_id,reversal_reason")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .order("payment_date", { ascending: false }).order("id", { ascending: false }).limit(input.limit);
+      if (input.supplierId) paymentQuery = paymentQuery.eq("supplier_id", input.supplierId);
+      const { data: paymentRows, error: paymentError } = await paymentQuery;
+      if (paymentError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل دفعات الموردين." });
+      const payments = paymentRows ?? [];
+      if (!payments.length) return [];
+      const paymentIds = payments.map((row) => Number(row.id));
+      const supplierIds = [...new Set(payments.map((row) => Number(row.supplier_id)))];
+      const accountIds = [...new Set(payments.map((row) => Number(row.company_account_id)))];
+      const [allocationResult, supplierResult, accountResult] = await Promise.all([
+        supabaseAdmin().from("supplier_payment_allocations")
+          .select("payment_id,purchase_id,supplier_ledger_entry_id,amount")
+          .eq("tenant_id", access.tenantId).in("payment_id", paymentIds).order("id", { ascending: true }),
+        supabaseAdmin().from("suppliers").select("id,name,supplier_code")
+          .eq("tenant_id", access.tenantId).in("id", supplierIds),
+        supabaseAdmin().from("company_accounts").select("id,name,account_type")
+          .eq("tenant_id", access.tenantId).in("id", accountIds),
+      ]);
+      if (allocationResult.error || supplierResult.error || accountResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تخصيصات الدفعات والموردين والحسابات المرتبطة بها." });
+      }
+      const allocations = allocationResult.data ?? [];
+      const purchaseIds = [...new Set(allocations.filter((row) => row.purchase_id != null).map((row) => Number(row.purchase_id)))];
+      const openingEntryIds = [...new Set(allocations.filter((row) => row.supplier_ledger_entry_id != null).map((row) => Number(row.supplier_ledger_entry_id)))];
+      const [purchaseResult, openingResult] = await Promise.all([
+        purchaseIds.length
+          ? supabaseAdmin().from("supplier_purchases").select("id,purchase_number").eq("tenant_id", access.tenantId).in("id", purchaseIds)
+          : Promise.resolve({ data: [], error: null }),
+        openingEntryIds.length
+          ? supabaseAdmin().from("supplier_ledger_entries").select("id,reference_no,description").eq("tenant_id", access.tenantId).in("id", openingEntryIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (purchaseResult.error || openingResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مراجع المستندات المسددة." });
+      }
+      const suppliers = new Map((supplierResult.data ?? []).map((row) => [Number(row.id), row]));
+      const accounts = new Map((accountResult.data ?? []).map((row) => [Number(row.id), row]));
+      const purchases = new Map((purchaseResult.data ?? []).map((row) => [Number(row.id), row]));
+      const openingEntries = new Map((openingResult.data ?? []).map((row) => [Number(row.id), row]));
+      const allocationsByPayment = new Map<number, Array<{
+        purchase_id: number | null;
+        supplier_ledger_entry_id: number | null;
+        amount: number;
+        document_type: "purchase_invoice" | "opening_balance";
+        document_reference: string;
+      }>>();
+      for (const row of allocations) {
+        const paymentId = Number(row.payment_id);
+        const isPurchase = row.purchase_id != null;
+        const purchase = isPurchase ? purchases.get(Number(row.purchase_id)) : undefined;
+        const opening = row.supplier_ledger_entry_id != null ? openingEntries.get(Number(row.supplier_ledger_entry_id)) : undefined;
+        const entry = {
+          purchase_id: row.purchase_id == null ? null : Number(row.purchase_id),
+          supplier_ledger_entry_id: row.supplier_ledger_entry_id == null ? null : Number(row.supplier_ledger_entry_id),
+          amount: Number(row.amount),
+          document_type: (isPurchase ? "purchase_invoice" : "opening_balance") as "purchase_invoice" | "opening_balance",
+          document_reference: purchase?.purchase_number ?? opening?.reference_no ?? opening?.description ?? "رصيد افتتاحي",
+        };
+        allocationsByPayment.set(paymentId, [...(allocationsByPayment.get(paymentId) ?? []), entry]);
+      }
+      return payments.map((payment) => ({
+        id: Number(payment.id),
+        supplier_id: Number(payment.supplier_id),
+        supplier_name: suppliers.get(Number(payment.supplier_id))?.name ?? "مورد غير متاح",
+        supplier_code: suppliers.get(Number(payment.supplier_id))?.supplier_code ?? null,
+        company_account_id: Number(payment.company_account_id),
+        company_account_name: accounts.get(Number(payment.company_account_id))?.name ?? "حساب غير متاح",
+        company_account_type: accounts.get(Number(payment.company_account_id))?.account_type ?? null,
+        amount: Number(payment.amount),
+        payment_date: payment.payment_date,
+        status: payment.status as "posted" | "reversed",
+        reference_no: payment.reference_no ?? null,
+        notes: payment.notes ?? null,
+        account_transaction_id: payment.account_transaction_id == null ? null : Number(payment.account_transaction_id),
+        posted_at: payment.posted_at ?? null,
+        posted_by_user_id: payment.posted_by_user_id == null ? null : Number(payment.posted_by_user_id),
+        reversed_at: payment.reversed_at ?? null,
+        reversed_by_user_id: payment.reversed_by_user_id == null ? null : Number(payment.reversed_by_user_id),
+        reversal_reason: payment.reversal_reason ?? null,
+        allocations: allocationsByPayment.get(Number(payment.id)) ?? [],
+      }));
+    }),
+
   cancelPurchase: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
