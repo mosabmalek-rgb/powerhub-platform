@@ -102,7 +102,7 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   approvePurchases: ["owner", "manager", "accountant"],
   receiveInventory: ["owner", "manager", "accountant", "technician"],
   manageSupplierPayments: ["owner", "accountant"],
-  reverseSupplierPayments: ["owner", "manager"],
+  reverseSupplierPayments: ["owner", "accountant"],
   viewSupplierLedger: ["owner", "manager", "accountant"],
   issueInventory: ["owner", "manager", "technician"],
   adjustInventory: ["owner", "manager"],
