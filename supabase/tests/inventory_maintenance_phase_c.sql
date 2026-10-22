@@ -27,6 +27,7 @@ declare
   v_supplier_assign record;
   v_supplier_assign_replay record;
   v_correction_generator_id bigint;
+  v_order_generator_id bigint;
   v_correction_original_reading_id bigint;
   v_correction_plan record;
   v_correction_alert record;
@@ -160,9 +161,13 @@ begin
   select count(*) into v_correction_parts_before
     from public.generator_maintenance_work_order_parts
     where tenant_id=10 and site_id=100 and work_order_id=v_order.work_order_id;
+  select generator_id into v_order_generator_id
+    from public.generator_maintenance_work_orders
+    where tenant_id=10 and site_id=100 and id=v_order.work_order_id;
+  if v_order_generator_id is null then raise exception 'MAINTENANCE_CORRECTION_ORDER_GENERATOR_MISSING'; end if;
   select count(*) into v_correction_readings_before
     from public.generator_fuel_readings
-    where tenant_id=10 and site_id=100 and generator_id=v_order.generator_id
+    where tenant_id=10 and site_id=100 and generator_id=v_order_generator_id
       and reading_type='operating_hours';
   select completed_at,total_cost_amount into v_correction_completed_at,v_correction_cost_before
     from public.generator_maintenance_work_orders where id=v_order.work_order_id;
@@ -194,7 +199,7 @@ begin
     raise exception 'MAINTENANCE_COMPLETION_CORRECTION_DUPLICATED_STOCK';
   end if;
   if (select count(*) from public.generator_fuel_readings
-      where tenant_id=10 and site_id=100 and generator_id=v_order.generator_id
+      where tenant_id=10 and site_id=100 and generator_id=v_order_generator_id
         and reading_type='operating_hours')<>v_correction_readings_before then
     raise exception 'MAINTENANCE_COMPLETION_CORRECTION_DUPLICATED_METER_READING';
   end if;
