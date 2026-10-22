@@ -61,6 +61,9 @@ function mapPurchaseDatabaseError(
   error: { code?: string; message?: string } | null,
   fallback: string,
 ): never {
+  if (error?.code === "23505" && (error.message ?? "").includes("inventory_item_units_label_unique_idx")) {
+    throw new TRPCError({ code: "CONFLICT", message: "وحدة شراء بهذا الاسم موجودة لهذا الصنف." });
+  }
   if (error?.code === "23505") {
     throw new TRPCError({ code: "CONFLICT", message: "يوجد رقم فاتورة أو مفتاح عملية مستخدم مسبقًا." });
   }
@@ -583,7 +586,7 @@ export const powerhubInventoryRouter = router({
     .input(z.object({
       siteId: z.number().int().positive(), itemId: z.number().int().positive(),
       unitLabel: z.string().trim().min(1).max(40),
-      factorToBase: z.number().finite().positive().max(1_000_000_000)
+      factorToBase: z.number().finite().positive().max(99_999_999.999999)
         .refine((value) => Math.abs(value * 1_000_000 - Math.round(value * 1_000_000)) < 1e-5,
           "معامل التحويل يقبل 6 منازل عشرية كحد أقصى."),
     }))
