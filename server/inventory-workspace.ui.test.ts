@@ -277,4 +277,26 @@ describe("inventory workspace UI contract", () => {
     expect(integration).toContain("AUTHENTICATED_CAN_EXECUTE_SUPPLIER_BATCH_FINANCIAL_RPC");
   });
 
+
+  it("wires typed stock locations and enforces generator-tank ownership", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const migration = read("supabase/migrations/20261022143000_powerhub_inventory_location_types.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+
+    expect(workspace).toContain("warehouseTypeLabels");
+    expect(workspace).toContain("warehouseGenerators = trpc.powerhub.generators.list.useQuery");
+    expect(workspace).toContain('value="generator_fuel_tank"');
+    expect(workspace).toContain("warehouse.generator_id");
+    expect(router).toContain("powerhub_inventory_create_warehouse_with_location");
+    expect(router).toContain("powerhub_inventory_update_warehouse_with_location");
+    expect(router).toContain("location_type,generator_id");
+    expect(migration).toContain("inventory_warehouses_generator_site_tenant_fk");
+    expect(migration).toContain("WAREHOUSE_IDENTITY_IMMUTABLE_AFTER_USE");
+    expect(migration).toContain("STOCK_GENERATOR_OUT_OF_SCOPE");
+    expect(integration).toContain("$inventory_location_type_assertions$");
+    expect(integration).toContain("CROSS_SITE_GENERATOR_TANK_ACCEPTED");
+    expect(integration).toContain("USED_WAREHOUSE_LOCATION_TYPE_CHANGED");
+  });
+
 });
