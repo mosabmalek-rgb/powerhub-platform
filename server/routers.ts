@@ -21,7 +21,13 @@ const adminRuntimeRouter = router({
   ...adminFeatureControlsRouter._def.record,
 });
 
-const powerhubAppRouter = mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })) as unknown as typeof powerhubRuntimeRouter & { performance: typeof powerhubDashboardRouter };
+type PowerhubAppRouterRecord = typeof powerhubRuntimeRouter["_def"]["record"] & {
+  performance: typeof powerhubDashboardRouter;
+};
+type PowerhubAppRouter = Omit<typeof powerhubRuntimeRouter, "_def"> & {
+  _def: Omit<typeof powerhubRuntimeRouter["_def"], "record"> & { record: PowerhubAppRouterRecord };
+};
+const powerhubAppRouter = mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })) as unknown as PowerhubAppRouter;
 
 const platformContactSettingsRouter = router({
   public: publicProcedure.query(async () => {
@@ -102,7 +108,11 @@ export const appRouter = router({
   admin: adminRuntimeRouter,
 });
 
-export type AppRouter = Omit<typeof appRouter, "admin" | "powerhub"> & {
+type AppRouterRecord = Omit<typeof appRouter["_def"]["record"], "powerhub"> & {
+  powerhub: typeof powerhubAppRouter;
+};
+export type AppRouter = Omit<typeof appRouter, "admin" | "powerhub" | "_def"> & {
+  _def: Omit<typeof appRouter["_def"], "record"> & { record: AppRouterRecord };
   admin: typeof adminRuntimeRouter;
-  powerhub: typeof powerhubRuntimeRouter & { performance: typeof powerhubDashboardRouter };
+  powerhub: typeof powerhubAppRouter;
 };
