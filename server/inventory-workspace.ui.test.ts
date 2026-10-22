@@ -44,6 +44,10 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain("trpc.powerhub.inventory.createWarehouse.useMutation");
     const purchasePanel = read("client/src/components/InventoryPurchasesPanel.tsx");
     expect(purchasePanel).toContain("recordSupplierPayment.useMutation");
+    expect(purchasePanel).toContain("حالة السداد");
+    expect(purchasePanel).toContain("مسددة بالكامل");
+    expect(purchasePanel).toContain("مسددة جزئيًا");
+    expect(purchasePanel).toContain("على الحساب — غير مدفوعة");
     expect(purchasePanel).toContain("سجل دفعات المورد");
     expect(purchasePanel).toContain("تُسجل الدفعة والسحب من حساب الشركة وتخصيص الفاتورة وقيد المورد في معاملة واحدة");
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
