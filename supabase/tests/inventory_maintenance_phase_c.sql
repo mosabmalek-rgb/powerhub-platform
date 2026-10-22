@@ -30,6 +30,10 @@ declare
   v_correction_original_reading_id bigint;
   v_correction_plan record;
   v_correction_alert record;
+  v_correction_parts_before bigint;
+  v_correction_readings_before bigint;
+  v_correction_completed_at timestamptz;
+  v_correction_cost_before numeric;
 begin
   -- Partial tenant/site scope must not turn into an unbounded evaluator.
   begin
@@ -150,6 +154,56 @@ begin
     10,100,1,v_order.work_order_id,'complete','Replaced and tested successfully',null,45,30,5,null,'maint-test-complete-c-01'
   );
   if not v_transition.replayed then raise exception 'MAINTENANCE_TRANSITION_IDEMPOTENCY_FAILED'; end if;
+
+  -- A completed-order correction is audited and record-only: no duplicate stock issue,
+  -- no second operating-hour reading, no change to the original completion timestamp.
+  select count(*) into v_correction_parts_before
+    from public.generator_maintenance_work_order_parts
+    where tenant_id=10 and site_id=100 and work_order_id=v_order.work_order_id;
+  select count(*) into v_correction_readings_before
+    from public.generator_fuel_readings
+    where tenant_id=10 and site_id=100 and generator_id=v_order.generator_id
+      and reading_type='operating_hours';
+  select completed_at,total_cost_amount into v_correction_completed_at,v_correction_cost_before
+    from public.generator_maintenance_work_orders where id=v_order.work_order_id;
+
+  select * into v_transition from public.powerhub_maintenance_transition_work_order(
+    10,100,1,v_order.work_order_id,'correct_completion',
+    'Replaced and tested; corrected record',null,46,32,6,
+    'Corrected technician cost and downtime','maint-test-correct-completion-c-01'
+  );
+  if v_transition.status<>'completed' or v_transition.total_cost_amount<>63 then
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_COST_FAILED';
+  end if;
+  if (select completed_at from public.generator_maintenance_work_orders where id=v_order.work_order_id)
+       is distinct from v_correction_completed_at then
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_CHANGED_COMPLETION_TIME';
+  end if;
+  if (select count(*) from public.generator_maintenance_work_order_parts
+      where tenant_id=10 and site_id=100 and work_order_id=v_order.work_order_id)<>v_correction_parts_before then
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_DUPLICATED_STOCK';
+  end if;
+  if (select count(*) from public.generator_fuel_readings
+      where tenant_id=10 and site_id=100 and generator_id=v_order.generator_id
+        and reading_type='operating_hours')<>v_correction_readings_before then
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_DUPLICATED_METER_READING';
+  end if;
+  if not exists(select 1 from public.generator_maintenance_audit_events
+      where tenant_id=10 and site_id=100 and entity_type='work_order'
+        and entity_id=v_order.work_order_id and action='correct_completion'
+        and after_data->>'reason'='Corrected technician cost and downtime'
+        and before_data->>'status'='completed') then
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_AUDIT_MISSING';
+  end if;
+  begin
+    perform * from public.powerhub_maintenance_transition_work_order(
+      10,100,1,v_order.work_order_id,'correct_completion',
+      'Invalid correction',null,null,null,null,null,'maint-test-correction-no-reason-c-01'
+    );
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_WITHOUT_REASON_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_COMPLETION_CORRECTION_REASON_REQUIRED' then raise; end if;
+  end;
 
   if (select next_due_at from public.generator_maintenance_preventive_plans where id=v_plan.plan_id) is distinct from v_due_before
      or (select last_completed_at from public.generator_maintenance_preventive_plans where id=v_plan.plan_id) is not null
