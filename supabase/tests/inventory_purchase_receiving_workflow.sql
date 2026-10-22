@@ -162,6 +162,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021194100_powerhub_supplier_return_exact_cost_reconciliation.sql
 \ir ../migrations/20261021200000_powerhub_inventory_atomic_warehouse_transfers.sql
 \ir ../migrations/20261021220000_powerhub_inventory_movement_report_paging.sql
+\ir ../migrations/20261022120000_powerhub_inventory_entity_lifecycle.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -2383,6 +2384,175 @@ end;
 $inventory_concurrency_fixture$;
 
 
+
+
+-- Phase A master-data lifecycle: historical rows are preserved and deactivation respects balances.
+do $inventory_entity_lifecycle_assertions$
+declare
+  v_item_id bigint;
+  v_warehouse_id bigint;
+  v_supplier_id bigint;
+  v_returned_id bigint;
+  v_is_active boolean;
+  v_replayed boolean;
+  v_movement_id bigint;
+  v_before_count integer;
+  v_after_count integer;
+  v_name text;
+  v_unit text;
+begin
+  select id into v_item_id from public.powerhub_inventory_create_item(
+    10,100,1,'LIFECYCLE-DIESEL','Lifecycle diesel','fuel','liter',0,'Genset grade','initial test item'
+  );
+  select id into v_warehouse_id from public.powerhub_inventory_create_warehouse(
+    10,100,1,'LIFE-WH','Lifecycle warehouse','disposable lifecycle fixture'
+  );
+
+  select movement_id into v_movement_id from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'opening_balance',5,2,null,
+    'LIFE-OPEN','test opening stock for lifecycle gate','inventory-lifecycle:opening'
+  );
+  if v_movement_id is null then raise exception 'LIFECYCLE_OPENING_BALANCE_NOT_CREATED'; end if;
+
+  select id,name,base_unit into v_returned_id,v_name,v_unit
+  from public.powerhub_inventory_update_item(
+    10,100,1,v_item_id,'LIFECYCLE-DIESEL','Lifecycle diesel revised','fuel','liter',2,
+    'Revised spec','Updated through lifecycle RPC'
+  );
+  if v_returned_id<>v_item_id or v_name<>'Lifecycle diesel revised' or v_unit<>'liter' then
+    raise exception 'INVENTORY_ITEM_UPDATE_FAILED';
+  end if;
+  if not exists(
+    select 1 from public.audit_logs where tenant_id=10 and site_id=100
+      and entity_type='inventory_item' and entity_id=v_item_id::text and action='update'
+  ) then raise exception 'INVENTORY_ITEM_UPDATE_AUDIT_MISSING'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_update_item(
+      10,100,1,v_item_id,'LIFECYCLE-DIESEL','Lifecycle diesel revised','fuel','piece',2,
+      'Revised spec','Illegal unit change'
+    );
+    raise exception 'ITEM_UNIT_CHANGE_AFTER_USE_WAS_ALLOWED';
+  exception when others then
+    if sqlerrm='ITEM_UNIT_CHANGE_AFTER_USE_WAS_ALLOWED' then raise; end if;
+    if sqlerrm<>'ITEM_BASE_UNIT_IMMUTABLE_AFTER_USE' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_set_item_active(
+      10,100,1,v_item_id,false,'Deactivation must be blocked while stock remains'
+    );
+    raise exception 'ITEM_WITH_STOCK_WAS_DEACTIVATED';
+  exception when others then
+    if sqlerrm='ITEM_WITH_STOCK_WAS_DEACTIVATED' then raise; end if;
+    if sqlerrm<>'INVENTORY_ITEM_HAS_STOCK' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_set_warehouse_active(
+      10,100,1,v_warehouse_id,false,'Deactivation must be blocked while stock remains'
+    );
+    raise exception 'WAREHOUSE_WITH_STOCK_WAS_DEACTIVATED';
+  exception when others then
+    if sqlerrm='WAREHOUSE_WITH_STOCK_WAS_DEACTIVATED' then raise; end if;
+    if sqlerrm<>'WAREHOUSE_HAS_STOCK' then raise; end if;
+  end;
+
+  select movement_id into v_movement_id from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'issue',5,null,null,
+    'LIFE-ISSUE','clear test fixture balance before deactivation','inventory-lifecycle:issue'
+  );
+  if v_movement_id is null then raise exception 'LIFECYCLE_STOCK_CLEAR_FAILED'; end if;
+
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_warehouse_active(
+    10,100,1,v_warehouse_id,false,'Warehouse closed after stock was fully cleared'
+  );
+  if v_returned_id<>v_warehouse_id or v_is_active or v_replayed then raise exception 'WAREHOUSE_DEACTIVATION_FAILED'; end if;
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_warehouse_active(
+    10,100,1,v_warehouse_id,false,'Warehouse closed after stock was fully cleared'
+  );
+  if not v_replayed or v_is_active then raise exception 'WAREHOUSE_DEACTIVATION_REPLAY_FAILED'; end if;
+
+  select count(*) into v_before_count from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_item_active(
+    10,100,1,v_item_id,false,'Item discontinued after stock was cleared'
+  );
+  if v_returned_id<>v_item_id or v_is_active or v_replayed then raise exception 'ITEM_DEACTIVATION_FAILED'; end if;
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_item_active(
+    10,100,1,v_item_id,false,'Item discontinued after stock was cleared'
+  );
+  if not v_replayed or v_is_active then raise exception 'ITEM_DEACTIVATION_REPLAY_FAILED'; end if;
+  select count(*) into v_after_count from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  if v_after_count<>v_before_count then raise exception 'ITEM_DEACTIVATION_CHANGED_HISTORY'; end if;
+
+  select id into v_supplier_id from public.powerhub_inventory_create_supplier(
+    10,100,1,'LIFECYCLE-SUP','Lifecycle supplier','Finance contact','0599000000',
+    'finance@example.test','Supplier address','TAX-LIFE-01',30,'Initial profile'
+  );
+  perform * from public.powerhub_inventory_update_supplier(
+    10,100,1,v_supplier_id,'LIFECYCLE-SUP','Lifecycle supplier revised','Finance lead','0599111111',
+    'finance@example.test','Revised address','TAX-LIFE-02',45,'Profile updated'
+  );
+  if not exists(select 1 from public.suppliers where tenant_id=10 and id=v_supplier_id
+    and address='Revised address' and tax_number='TAX-LIFE-02' and default_payment_terms_days=45) then
+    raise exception 'SUPPLIER_PROFILE_UPDATE_FAILED';
+  end if;
+  if not exists(select 1 from public.audit_logs where tenant_id=10 and site_id=100
+    and entity_type='supplier' and entity_id=v_supplier_id::text and action='update') then
+    raise exception 'SUPPLIER_UPDATE_AUDIT_MISSING';
+  end if;
+
+  insert into public.supplier_ledger_entries(
+    tenant_id,site_id,supplier_id,entry_type,credit_amount,entry_key,description,created_by_user_id
+  ) values (10,100,v_supplier_id,'purchase',20,'lifecycle-supplier-payable:'||v_supplier_id,
+    'Disposable integration-test payable',1);
+  begin
+    perform * from public.powerhub_inventory_set_supplier_active(
+      10,100,1,v_supplier_id,false,'Supplier cannot close while payable remains'
+    );
+    raise exception 'SUPPLIER_WITH_PAYABLE_WAS_DEACTIVATED';
+  exception when others then
+    if sqlerrm='SUPPLIER_WITH_PAYABLE_WAS_DEACTIVATED' then raise; end if;
+    if sqlerrm<>'SUPPLIER_HAS_OUTSTANDING_PAYABLE' then raise; end if;
+  end;
+
+  insert into public.supplier_ledger_entries(
+    tenant_id,site_id,supplier_id,entry_type,debit_amount,entry_key,description,created_by_user_id
+  ) values (10,100,v_supplier_id,'payment',20,'lifecycle-supplier-settled:'||v_supplier_id,
+    'Disposable integration-test settlement',1);
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_supplier_active(
+    10,100,1,v_supplier_id,false,'Supplier closed after settling test payable'
+  );
+  if v_returned_id<>v_supplier_id or v_is_active or v_replayed then raise exception 'SUPPLIER_DEACTIVATION_FAILED'; end if;
+  if (select count(*) from public.supplier_ledger_entries where tenant_id=10 and supplier_id=v_supplier_id)<>2 then
+    raise exception 'SUPPLIER_DEACTIVATION_CHANGED_FINANCIAL_HISTORY';
+  end if;
+
+  if has_function_privilege('authenticated','public.powerhub_inventory_update_item(bigint,bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_set_item_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_update_supplier(bigint,bigint,bigint,bigint,text,text,text,text,text,text,text,integer,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_set_supplier_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_update_warehouse(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_set_warehouse_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_INVENTORY_LIFECYCLE_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_update_item(bigint,bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_set_item_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_update_supplier(bigint,bigint,bigint,bigint,text,text,text,text,text,text,text,integer,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_set_supplier_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_update_warehouse(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_set_warehouse_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_INVENTORY_LIFECYCLE_RPC';
+  end if;
+end;
+$inventory_entity_lifecycle_assertions$;
 
 select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
