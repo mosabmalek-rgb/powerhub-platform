@@ -96,10 +96,11 @@ The Phase B release gate remains open until a Preview is verified to use staging
 
 - [x] Tenant/site/generator-scoped work orders with unique numbers, type, priority, fault/work summary, dates, assigned staff/supplier, downtime, spare-part cost, labour/service cost capture and total cost.
 - [x] Lifecycle states: scheduled, new, in progress, waiting for parts, completed and cancelled; invalid transitions and cancellation without a reason are rejected.
-- [ ] Reopen or correct completed work orders through an explicitly audited compensating workflow.
+- [x] Correct completed work orders through an explicitly audited record-only workflow requiring a reason and corrected summary; it preserves the close-out operating-hours reading, stock movements, preventive-plan schedule and alert state, and never posts a second expense.
+- [ ] Reopen completed work orders as a new execution cycle; this remains intentionally separate from record correction.
 - [x] Preventive plans by calendar date and/or operating hours; due-soon/overdue detection and next-due advancement on linked preventive close-out.
 - [x] Spare-parts/oils issue linked to the work order and stock ledger, with atomic rollback and operation-key idempotency.
-- [ ] Define any required accounting/expense posting policy for labour and external services; current maintenance costs are captured and reported but are not automatically posted to company accounts.
+- [ ] Define any required accounting/expense posting policy for labour and external services; current maintenance costs are captured and reported but are not automatically posted to company accounts. Duplicate posting is prohibited until a source-of-truth expense ledger and idempotent posting key are defined.
 - [x] Atomic close-out records completion actor, effective operating-hour reading, generator last-maintenance timestamp, linked plan advancement, cost totals and immutable maintenance audit.
 - [x] Deduplicated in-app preventive alerts and per-generator/date-range CSV cost/downtime summary.
 - [ ] Complete role-by-role capability verification, broader tenant/site/generator isolation and rollback acceptance, recurring-fault semantics review, full company-wide reports and branded Excel/PDF exports, and authorized staging/browser E2E.
