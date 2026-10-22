@@ -3249,6 +3249,7 @@ $inventory_item_units_assertions$;
 do $tenant_actor_audit_role_assertions$
 declare
   v_item_id bigint;
+  v_item_unit_id bigint;
   v_supplier_id bigint;
   v_warehouse_id bigint;
   v_purchase_id bigint;
@@ -3260,6 +3261,7 @@ declare
   v_replayed boolean;
   v_amount numeric(14,2);
   v_balance numeric(14,2);
+  v_balance_before numeric(14,2);
   v_allocation_count integer;
   v_posted_count integer;
   v_returned_payment_id bigint;
@@ -3273,9 +3275,9 @@ begin
     10,100,2,v_warehouse_id,'TENANT-AUDIT-WH','Tenant audit test warehouse updated',
     'Updated by non-platform tenant actor','branch_warehouse',null
   );
-  perform * from public.powerhub_inventory_create_item_unit(10,100,2,v_item_id,'audit-pack',4);
+  select id into v_item_unit_id from public.powerhub_inventory_create_item_unit(10,100,2,v_item_id,'audit-pack',4);
   perform * from public.powerhub_inventory_set_item_unit_active(
-    10,100,2,v_item_id,1,false,'Disable disposable audit test unit'
+    10,100,2,v_item_id,v_item_unit_id,false,'Disable disposable audit test unit'
   );
 
   select id into v_supplier_id from public.powerhub_inventory_create_supplier(
@@ -3306,6 +3308,7 @@ begin
   );
   if v_opening_entry_id is null or v_amount<>5 then raise exception 'TENANT_AUDIT_OPENING_BALANCE_FAILED'; end if;
 
+  select balance into v_balance_before from public.powerhub_company_account_balance_rollup(10,array[1000]::bigint[]);
   select payment_id,allocation_count,account_balance,replayed
   into v_payment_id,v_allocation_count,v_balance,v_replayed
   from public.powerhub_inventory_record_supplier_payment_batch(
@@ -3313,7 +3316,7 @@ begin
     'tenant-audit:payment',
     jsonb_build_array(jsonb_build_object('purchase_id',v_purchase_id,'supplier_ledger_entry_id',null,'amount',5))
   );
-  if v_payment_id is null or v_allocation_count<>1 or v_replayed or v_balance<>495 then
+  if v_payment_id is null or v_allocation_count<>1 or v_replayed or v_balance<>v_balance_before-5 then
     raise exception 'TENANT_AUDIT_BATCH_PAYMENT_FAILED';
   end if;
   select payment_id,status,account_balance,replayed
@@ -3321,7 +3324,7 @@ begin
   from public.powerhub_inventory_reverse_supplier_payment_flexible(
     10,100,2,v_payment_id,'Tenant actor test reversal'
   );
-  if v_returned_payment_id<>v_payment_id or v_status<>'reversed' or v_balance<>500 or v_replayed then
+  if v_returned_payment_id<>v_payment_id or v_status<>'reversed' or v_balance<>v_balance_before or v_replayed then
     raise exception 'TENANT_AUDIT_PAYMENT_REVERSAL_FAILED';
   end if;
 
