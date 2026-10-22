@@ -85,6 +85,23 @@ describe("inventory workspace UI contract", () => {
     expect(admin).toContain("استثناء فردي — يحدد الحالة الفعلية");
   });
 
+  it("keeps tenant audit actors compatible with the shared audit schema", () => {
+    const actorFix = read("supabase/migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql");
+    const supplierReturnFix = read("supabase/migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql");
+    const unitAuditFix = read("supabase/migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+    expect(actorFix).not.toContain("coalesce(u.platform_role,'tenant_user')");
+    expect(supplierReturnFix).not.toContain("coalesce(u.platform_role,'tenant_user')");
+    expect(unitAuditFix).toContain("u.platform_role");
+    expect(unitAuditFix).toContain("action,before_data,after_data,metadata");
+    expect(unitAuditFix).toContain("jsonb_build_object('reason',v_reason)");
+    expect(unitAuditFix).not.toContain("after_data,reason");
+    expect(integration).toContain("\\\\ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql");
+    expect(integration).toContain("\\\\ir ../migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql");
+    expect(integration).toContain("\\\\ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql");
+    expect(integration).toContain("TENANT_AUDIT_SUPPLIER_RETURN_FAILED");
+  });
+
   it("renders a source-backed Phase A dashboard with permission-aware metrics and truthful Phase B/C placeholders", () => {
     const page = read("client/src/pages/InventoryWorkspacePage.tsx");
     const dashboard = read("client/src/components/InventoryDashboardPanel.tsx");
