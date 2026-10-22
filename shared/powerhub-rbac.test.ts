@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { can } from "./powerhub-rbac";
 
+describe("maintenance read and management capabilities", () => {
+  it("allows the documented read-only roles to view inventory without granting maintenance mutation", () => {
+    expect(can("accountant", "viewInventory")).toBe(true);
+    expect(can("viewer", "viewInventory")).toBe(true);
+    expect(can("accountant", "manageMaintenance")).toBe(false);
+    expect(can("viewer", "manageMaintenance")).toBe(false);
+    expect(can("technician", "manageMaintenance")).toBe(true);
+  });
+});
+
 describe("payment documentation approval capability", () => {
   it("does not grant approval by role alone", () => {
     expect(can("manager", "approvePaymentDocumentation")).toBe(false);
