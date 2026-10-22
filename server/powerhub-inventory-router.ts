@@ -235,6 +235,13 @@ function mapFuelDatabaseError(error: { code?: string; message?: string } | null,
     OPERATING_HOURS_BELOW_GENERATOR_BASELINE: { code: "CONFLICT", message: "القراءة أقل من القيمة المحفوظة للمولد؛ استخدم تصحيحًا موثقًا." },
     FUEL_TANK_REQUIRED: { code: "BAD_REQUEST", message: "اختر خزانًا لقراءة مستوى الوقود." },
     OPERATING_HOURS_DO_NOT_USE_TANK: { code: "BAD_REQUEST", message: "قراءة ساعات التشغيل لا ترتبط بخزان." },
+    INVALID_FUEL_ALERT_SETTINGS: { code: "BAD_REQUEST", message: "أدخل حد مستوى الوقود أو حد الاستهلاك، وتحقق من الحد الأدنى لساعات القياس." },
+    FUEL_ALERT_IDEMPOTENCY_KEY_REUSED: { code: "CONFLICT", message: "مفتاح حفظ إعدادات التنبيه استُخدم بإعدادات مختلفة." },
+    FUEL_REPORT_TANK_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "الخزان المحدد لا يتبع المولد أو الفرع المحدد." },
+    INVALID_FUEL_REPORT_PERIOD: { code: "BAD_REQUEST", message: "نوع فترة التقرير غير صالح." },
+    FUEL_REPORT_ANCHOR_DATE_REQUIRED: { code: "BAD_REQUEST", message: "حدد التاريخ المرجعي للفترة." },
+    INVALID_FUEL_REPORT_DATE_RANGE: { code: "BAD_REQUEST", message: "نطاق تاريخ التقرير غير صالح." },
+    FUEL_ALERT_SITE_REQUIRES_TENANT: { code: "BAD_REQUEST", message: "يجب تحديد المؤسسة مع الفرع." },
     SITE_OUT_OF_SCOPE: { code: "FORBIDDEN", message: "الفرع المحدد غير متاح لحسابك." },
   };
   const match = Object.entries(known).find(([key]) => message.includes(key));
@@ -1782,6 +1789,100 @@ export const powerhubInventoryRouter = router({
         p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب تقرير استهلاك الوقود المقاس." });
+      return data ?? [];
+    }),
+
+  fuelConsumptionReportPeriod: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      periodType: z.enum(["day", "cycle", "month", "custom"]),
+      anchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      generatorId: z.number().int().positive().optional(),
+      tankWarehouseId: z.number().int().positive().optional(),
+    }).superRefine((value, ctx) => {
+      if (value.periodType !== "custom" && !value.anchorDate) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["anchorDate"], message: "حدد التاريخ المرجعي للفترة." });
+      }
+      if (value.periodType === "custom" && (!value.fromDate || !value.toDate || value.fromDate > value.toDate)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fromDate"], message: "حدد نطاقًا زمنيًا صحيحًا للتقرير." });
+      }
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقرير استهلاك الوقود." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_fuel_consumption_report_period", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_period_type: input.periodType,
+        p_anchor_date: input.anchorDate ?? null, p_from_date: input.fromDate ?? null,
+        p_to_date: input.toDate ?? null, p_generator_id: input.generatorId ?? null,
+        p_tank_warehouse_id: input.tankWarehouseId ?? null,
+      });
+      if (error) mapFuelDatabaseError(error, "تعذر احتساب تقرير الوقود للفترة المحددة.");
+      return data ?? [];
+    }),
+
+  listFuelAlertSettings: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireFuelReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_fuel_alert_settings", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعدادات تنبيهات الوقود." });
+      return data ?? [];
+    }),
+
+  upsertFuelAlertSettings: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      generatorId: z.number().int().positive(),
+      tankWarehouseId: z.number().int().positive(),
+      lowLevelThresholdLiters: z.number().finite().min(0).max(1_000_000_000).nullable(),
+      abnormalLitresPerHourThreshold: z.number().finite().min(0.001).max(1_000_000_000).nullable(),
+      minimumHoursDelta: z.number().finite().positive().max(1_000_000).default(1),
+      isEnabled: z.boolean(),
+      operationKey: z.string().trim().min(1).max(180),
+    }).refine((value) => !value.isEnabled || value.lowLevelThresholdLiters !== null || value.abnormalLitresPerHourThreshold !== null, {
+      message: "عند تفعيل التنبيه أدخل حدًا واحدًا على الأقل.",
+      path: ["lowLevelThresholdLiters"],
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageFuelAndConsumption");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_upsert_fuel_alert_settings", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_generator_id: input.generatorId, p_tank_warehouse_id: input.tankWarehouseId,
+        p_low_level_threshold_liters: input.lowLevelThresholdLiters,
+        p_abnormal_litres_per_hour_threshold: input.abnormalLitresPerHourThreshold,
+        p_minimum_hours_delta: input.minimumHoursDelta, p_is_enabled: input.isEnabled,
+        p_operation_key: input.operationKey,
+      });
+      if (error || !data?.[0]) mapFuelDatabaseError(error, "تعذر حفظ إعدادات تنبيهات الوقود.");
+      return data[0];
+    }),
+
+  listFuelAlertDispatches: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      generatorId: z.number().int().positive().optional(),
+      tankWarehouseId: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(500).default(100),
+    }).refine((value) => !value.fromDate || !value.toDate || value.fromDate <= value.toDate, {
+      message: "نطاق تاريخ التنبيهات غير صحيح.",
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireFuelReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_fuel_alert_dispatches", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_from_date: input.fromDate ?? null, p_to_date: input.toDate ?? null,
+        p_generator_id: input.generatorId ?? null, p_tank_warehouse_id: input.tankWarehouseId ?? null,
+        p_limit: input.limit,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل تنبيهات الوقود." });
       return data ?? [];
     }),
 

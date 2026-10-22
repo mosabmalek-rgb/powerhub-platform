@@ -111,6 +111,21 @@ B1 is intentionally not the Phase B release gate: low-level/abnormal-use alert d
 - [ ] Required gate run: type-check, full test suite/build, security, Supabase admin guard, PostgreSQL integration, all permission-denial and tenant/site isolation checks.
 - [ ] Stage end-to-end and migration parity; production rollout only after explicit release gate and safe migration review.
 
+## Phase B fuel completion package (2026-10-22)
+
+B1 is merged as PR #318 and deployed. The remaining Phase B work is being assembled into one follow-up PR on `feat/inventory-phase-b-completion`.
+
+- [x] Fuel-fill events are linked to atomic stock transfers; tank-level and operating-hour readings are append-only and corrections are documented.
+- [x] Service-role UPDATE/DELETE/TRUNCATE access to the fuel event and reading ledgers is revoked; server-side RPCs remain the write path.
+- [x] Canonical report-window migration supports local timezone day, configured PowerHub reading cycle, calendar month, and custom ranges, filtered by generator and tank.
+- [x] Fuel alert settings are scoped to tenant/site/generator/tank; save operations are idempotent and auditable.
+- [x] Low-level and measured-abnormal-consumption alerts use episode state plus a unique dispatch key; only one in-app notification is produced for each transition into an active episode. No SMS provider is called.
+- [x] New fuel reads/fills call the evaluator in their transaction. The existing protected Supabase Cron route calls the evaluator as a periodic backstop; no second cron job is added.
+- [x] SQL integration coverage includes day/cycle/month/custom reports, alert activation/recovery/re-arm, operation-key replay/reuse, RLS and RPC/table privilege assertions.
+- [ ] Full PR CI, staging migration parity and preview deployment smoke test. Production migration/deployment remains gated on these results.
+
+The abnormal-consumption alert is emitted only when the report returns a valid measured window and a sufficient positive operating-hours delta. Missing readings or reconciliation anomalies do not become fabricated zero-consumption or rate values. Preview evaluation remains disabled unless the dedicated `POWERHUB_ALLOW_PREVIEW_FUEL_ALERTS=true` opt-in is explicitly set.
+
 ## Current verified gap snapshot (2026-10-22)
 
 - The existing workspace has eight logical tabs before Phase B fuel work; this branch adds the ninth “الوقود والاستهلاك” tab. Final design remains nine logical tabs before the Phase C maintenance surfaces are assessed.

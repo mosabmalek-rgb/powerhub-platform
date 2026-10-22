@@ -684,4 +684,64 @@ describe("PowerHub inventory catalog and supplier API", () => {
   });
 
 
+  it("requires report permission and calls the cycle-aware fuel report with generator and tank filters", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.fuelConsumptionReportPeriod;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10, tankWarehouseId: 20 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).not.toHaveBeenCalled();
+
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["viewInventoryReports"] });
+    state.rpc.mockReset().mockResolvedValue({ data: [{ generator_id: 10, tank_warehouse_id: 20, actual_consumption_liters: "3.000" }], error: null });
+    const result = await query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10, tankWarehouseId: 20 },
+    });
+    expect(result).toMatchObject([{ generator_id: 10, tank_warehouse_id: 20, actual_consumption_liters: "3.000" }]);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_fuel_consumption_report_period", {
+      p_tenant_id: 44, p_site_id: 7, p_period_type: "cycle", p_anchor_date: "2026-10-22",
+      p_from_date: null, p_to_date: null, p_generator_id: 10, p_tank_warehouse_id: 20,
+    });
+  });
+
+  it("requires manageFuelAndConsumption before changing alert thresholds", async () => {
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.upsertFuelAlertSettings;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, generatorId: 10, tankWarehouseId: 20, lowLevelThresholdLiters: 12,
+        abnormalLitresPerHourThreshold: 0.8, minimumHoursDelta: 1, isEnabled: true, operationKey: "alert-config:denied" },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(55, 7, expect.any(Array), "manageFuelAndConsumption");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("persists fuel alert settings with the authorized tenant and a replay-safe operation key", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      setting_id: 300, generator_id: 10, tank_warehouse_id: 20,
+      low_level_threshold_liters: "12.000", abnormal_litres_per_hour_threshold: "0.800",
+      minimum_hours_delta: "1.000", is_enabled: true, replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.upsertFuelAlertSettings;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, generatorId: 10, tankWarehouseId: 20, lowLevelThresholdLiters: 12,
+        abnormalLitresPerHourThreshold: 0.8, minimumHoursDelta: 1, isEnabled: true, operationKey: "alert-config:1" },
+    });
+    expect(result).toMatchObject({ setting_id: 300, is_enabled: true, replayed: false });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_upsert_fuel_alert_settings", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 55, p_generator_id: 10, p_tank_warehouse_id: 20,
+      p_low_level_threshold_liters: 12, p_abnormal_litres_per_hour_threshold: 0.8,
+      p_minimum_hours_delta: 1, p_is_enabled: true, p_operation_key: "alert-config:1",
+    });
+  });
+
 });
