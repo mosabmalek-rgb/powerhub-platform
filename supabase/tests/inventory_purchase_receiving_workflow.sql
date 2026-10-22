@@ -168,6 +168,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261022150000_powerhub_inventory_stocktakes.sql
 \ir ../migrations/20261022160000_powerhub_inventory_item_units.sql
 \ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql
+\ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -3243,6 +3244,108 @@ begin
   end if;
 end;
 $inventory_item_units_assertions$;
+
+-- Tenant users have NULL platform_role; new inventory audit paths must not synthesize an invalid role.
+do $tenant_actor_audit_role_assertions$
+declare
+  v_item_id bigint;
+  v_supplier_id bigint;
+  v_warehouse_id bigint;
+  v_purchase_id bigint;
+  v_purchase_line_id bigint;
+  v_stocktake_id bigint;
+  v_payment_id bigint;
+  v_opening_entry_id bigint;
+  v_status text;
+  v_replayed boolean;
+  v_amount numeric(14,2);
+  v_balance numeric(14,2);
+  v_allocation_count integer;
+  v_posted_count integer;
+  v_returned_payment_id bigint;
+  v_audit_count integer;
+begin
+  select id into v_item_id from public.inventory_items where tenant_id=10 and sku='DSL-01';
+  select id into v_warehouse_id from public.powerhub_inventory_create_warehouse_with_location(
+    10,100,2,'TENANT-AUDIT-WH','Tenant audit test warehouse','Disposable integration fixture','branch_warehouse',null
+  );
+  perform * from public.powerhub_inventory_update_warehouse_with_location(
+    10,100,2,v_warehouse_id,'TENANT-AUDIT-WH','Tenant audit test warehouse updated',
+    'Updated by non-platform tenant actor','branch_warehouse',null
+  );
+  perform * from public.powerhub_inventory_create_item_unit(10,100,2,v_item_id,'audit-pack',4);
+  perform * from public.powerhub_inventory_set_item_unit_active(
+    10,100,2,v_item_id,1,false,'Disable disposable audit test unit'
+  );
+
+  select id into v_supplier_id from public.powerhub_inventory_create_supplier(
+    10,100,2,'TENANT-AUDIT-SUP','Tenant audit role supplier',null,null,null,null,null,30,
+    'Disposable non-platform actor fixture'
+  );
+  select purchase_id,total_amount into v_purchase_id,v_amount
+  from public.powerhub_inventory_create_purchase(
+    10,100,2,v_supplier_id,v_warehouse_id,'TENANT-AUDIT-INV',current_date,current_date+30,30,
+    'TENANT-AUDIT-REF','Non-platform audit role fixture','tenant-audit:create-purchase',
+    jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',2,'unit','liter',
+      'units_to_base_factor',1,'unit_price',10,'discount_amount',0,'tax_amount',0))
+  );
+  if v_amount<>20 then raise exception 'TENANT_AUDIT_PURCHASE_CREATE_FAILED'; end if;
+  select status,replayed into v_status,v_replayed
+  from public.powerhub_inventory_confirm_purchase(10,100,2,v_purchase_id);
+  if v_status<>'confirmed' or v_replayed then raise exception 'TENANT_AUDIT_PURCHASE_CONFIRM_FAILED'; end if;
+  select id into v_purchase_line_id from public.supplier_purchase_lines
+  where tenant_id=10 and purchase_id=v_purchase_id order by id limit 1;
+  perform * from public.powerhub_inventory_receive_purchase(
+    10,100,2,v_purchase_id,current_date,'tenant-audit:receipt','Tenant actor receipt',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',2))
+  );
+
+  select ledger_entry_id,amount into v_opening_entry_id,v_amount
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,2,v_supplier_id,5,current_date,'TENANT-AUDIT-OPEN','Tenant actor opening payable'
+  );
+  if v_opening_entry_id is null or v_amount<>5 then raise exception 'TENANT_AUDIT_OPENING_BALANCE_FAILED'; end if;
+
+  select payment_id,allocation_count,account_balance,replayed
+  into v_payment_id,v_allocation_count,v_balance,v_replayed
+  from public.powerhub_inventory_record_supplier_payment_batch(
+    10,100,2,v_supplier_id,1000,5,current_date,'TENANT-AUDIT-PAY','Tenant actor payment',
+    'tenant-audit:payment',
+    jsonb_build_array(jsonb_build_object('purchase_id',v_purchase_id,'supplier_ledger_entry_id',null,'amount',5))
+  );
+  if v_payment_id is null or v_allocation_count<>1 or v_replayed or v_balance<>495 then
+    raise exception 'TENANT_AUDIT_BATCH_PAYMENT_FAILED';
+  end if;
+  select payment_id,status,account_balance,replayed
+  into v_returned_payment_id,v_status,v_balance,v_replayed
+  from public.powerhub_inventory_reverse_supplier_payment_flexible(
+    10,100,2,v_payment_id,'Tenant actor test reversal'
+  );
+  if v_returned_payment_id<>v_payment_id or v_status<>'reversed' or v_balance<>500 or v_replayed then
+    raise exception 'TENANT_AUDIT_PAYMENT_REVERSAL_FAILED';
+  end if;
+
+  select stocktake_id,status into v_stocktake_id,v_status
+  from public.powerhub_inventory_create_stocktake(
+    10,100,2,v_warehouse_id,'Tenant actor audit stocktake','Disposable fixture','tenant-audit:stocktake'
+  );
+  if v_status<>'counting' then raise exception 'TENANT_AUDIT_STOCKTAKE_CREATE_FAILED'; end if;
+  perform * from public.powerhub_inventory_record_stocktake_count(
+    10,100,2,v_stocktake_id,v_item_id,1,null,'Tenant actor count'
+  );
+  select status into v_status from public.powerhub_inventory_submit_stocktake(10,100,2,v_stocktake_id);
+  if v_status<>'submitted' then raise exception 'TENANT_AUDIT_STOCKTAKE_SUBMIT_FAILED'; end if;
+  select status,posted_movement_count into v_status,v_posted_count
+  from public.powerhub_inventory_post_stocktake(10,100,2,v_stocktake_id);
+  if v_status<>'posted' or v_posted_count<>1 then raise exception 'TENANT_AUDIT_STOCKTAKE_POST_FAILED'; end if;
+
+  select count(*) into v_audit_count from public.audit_logs
+  where tenant_id=10 and user_id=2 and actor_platform_role is null
+    and entity_type in ('inventory_warehouse','inventory_item_unit','supplier_opening_balance',
+      'supplier_payment','inventory_stocktake','inventory_stocktake_line');
+  if v_audit_count<8 then raise exception 'TENANT_AUDIT_NULL_PLATFORM_ROLE_ROWS_MISSING count=%',v_audit_count; end if;
+end;
+$tenant_actor_audit_role_assertions$;
 
 select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
