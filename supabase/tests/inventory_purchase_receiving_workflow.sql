@@ -3565,7 +3565,9 @@ declare
   v_alert_notifications integer;
   v_opening_time timestamptz := ((current_date-2)::timestamp + interval '20 hours') at time zone 'Asia/Gaza';
   v_fill_time timestamptz := ((current_date-1)::timestamp + interval '23 hours 30 minutes') at time zone 'Asia/Gaza';
-  v_end_time timestamptz := now();
+  -- Keep the fixture's later correction readings in the past relative to Phase C close-out tests;
+  -- now() is transaction-stable, so avoid synthetic +2-second readings in its future.
+  v_end_time timestamptz := now() - interval '5 minutes';
   v_replay_count integer;
   v_transfer_count integer;
 begin
