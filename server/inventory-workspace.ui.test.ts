@@ -96,9 +96,9 @@ describe("inventory workspace UI contract", () => {
     expect(unitAuditFix).toContain("action,before_data,after_data,metadata");
     expect(unitAuditFix).toContain("jsonb_build_object('reason',v_reason)");
     expect(unitAuditFix).not.toContain("after_data,reason");
-    expect(integration).toContain("\\\\ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql");
-    expect(integration).toContain("\\\\ir ../migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql");
-    expect(integration).toContain("\\\\ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql");
+    expect(integration).toContain("\\ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql");
+    expect(integration).toContain("\\ir ../migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql");
+    expect(integration).toContain("\\ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql");
     expect(integration).toContain("TENANT_AUDIT_SUPPLIER_RETURN_FAILED");
   });
 
