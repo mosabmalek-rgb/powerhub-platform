@@ -55,6 +55,15 @@ describe("inventory workspace UI contract", () => {
     expect(workspace).toContain("canManageSupplierPayments={canManageSupplierPayments}");
   });
 
+  it("shows effective per-user inventory permissions after role-policy restrictions and overrides", () => {
+    const admin = read("client/src/pages/AdminAdvancedWorkspace.tsx");
+    expect(admin).toContain('const inherited = effectiveBase.has(capability.id) && (lookup.get(`${selectedProfile.role}:${capability.id}`) ?? true)');
+    expect(admin).toContain('explicit ? Boolean(userOverrides.get(capability.id)) : inherited');
+    expect(admin).toContain("مسموحة فعليًا — موروثة من الدور");
+    expect(admin).toContain("ممنوعة فعليًا — موروثة من الدور");
+    expect(admin).toContain("استثناء فردي — يحدد الحالة الفعلية");
+  });
+
   it("renders a source-backed Phase A dashboard with permission-aware metrics and truthful Phase B/C placeholders", () => {
     const page = read("client/src/pages/InventoryWorkspacePage.tsx");
     const dashboard = read("client/src/components/InventoryDashboardPanel.tsx");
