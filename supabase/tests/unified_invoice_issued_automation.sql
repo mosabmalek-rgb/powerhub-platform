@@ -271,7 +271,7 @@ insert into public.invoices(
   previous_reading,current_reading,consumption_kwh,status,created_at
 ) values (
   501,10,20,101,'TEST-501','2026-10',12.99,8.79,now()+interval '7 days',
-  90,100,10,'issued',now()
+  90,100,10,'issued','2026-10-22 19:00:00+03'::timestamptz
 );
 
 do $enqueue_assertions$
