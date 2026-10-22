@@ -488,6 +488,8 @@ const policyCapabilities: Array<{ id: PowerCapability; label: string }> = [
   { id: "manageFuelAndConsumption", label: "إدارة الوقود والاستهلاك" },
   { id: "manageMaintenance", label: "إدارة أوامر الصيانة" },
   { id: "viewInventoryReports", label: "تقارير المخزون" },
+  { id: "manageStocktakes", label: "إنشاء جلسات الجرد وإدخال نتائج العد" },
+  { id: "approveStocktakes", label: "اعتماد وترحيل الجرد المخزني" },
 ];
 
 export function PlatformRolePoliciesPanel() {
