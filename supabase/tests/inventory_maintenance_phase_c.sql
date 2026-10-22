@@ -97,6 +97,10 @@ begin
     or not has_function_privilege('service_role','public.powerhub_maintenance_assign_supplier(bigint,bigint,bigint,bigint,bigint,text)','EXECUTE') then
     raise exception 'MAINTENANCE_SUPPLIER_ASSIGNMENT_ACL_FAILED';
   end if;
+  if not has_sequence_privilege('service_role','public.generator_maintenance_work_order_number_seq','USAGE')
+    or not has_sequence_privilege('service_role','public.generator_maintenance_work_order_number_seq','SELECT') then
+    raise exception 'MAINTENANCE_WORK_ORDER_NUMBER_SEQUENCE_ACL_FAILED';
+  end if;
   begin
     perform * from public.powerhub_maintenance_assign_supplier(10,100,1,v_order.work_order_id,null,'maint-test-assign-supplier-c-01');
     raise exception 'MAINTENANCE_SUPPLIER_ASSIGNMENT_KEY_REUSE_ACCEPTED';
