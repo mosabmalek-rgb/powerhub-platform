@@ -254,8 +254,8 @@ export const powerhubMaintenanceRouter = router({
     reason: z.string().max(500).optional(), operationKey,
   })).mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
-    if ((input.action === "complete" || input.action === "correct_completion")
-        && ((input.laborCost ?? 0) > 0 || (input.externalServiceCost ?? 0) > 0)
+    if (((input.action === "complete" && ((input.laborCost ?? 0) > 0 || (input.externalServiceCost ?? 0) > 0))
+        || (input.action === "correct_completion" && (input.laborCost !== undefined || input.externalServiceCost !== undefined)))
         && !access.permissions.includes("manageExpenses")) {
       throw new TRPCError({ code: "FORBIDDEN", message: "تحتاج إلى صلاحية إدارة المصروفات لاعتماد تكاليف الإغلاق." });
     }
