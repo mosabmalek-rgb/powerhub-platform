@@ -2946,9 +2946,7 @@ begin
     order by l.item_id
   loop
     if v_line.item_id=v_item_id then
-      select stocktake_id,item_id,system_quantity,counted_quantity,variance_quantity,counted_at,replayed
-      into v_line
-      from public.powerhub_inventory_record_stocktake_count(
+      perform * from public.powerhub_inventory_record_stocktake_count(
         10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel'
       );
     else
