@@ -139,7 +139,7 @@ export const powerhubMaintenanceRouter = router({
     toDate: z.string().refine(isDateOnly, { message: "تاريخ النهاية غير صالح." }),
     generatorId: z.number().int().positive().optional(),
   })).query(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventoryReports");
     return rpc<MaintenanceReportRow[]>("powerhub_maintenance_report_by_generator", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId,
       p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
