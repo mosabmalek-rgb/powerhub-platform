@@ -24,6 +24,12 @@ const categoryLabels: Record<string, string> = {
   maintenance_supply: "مستلزمات صيانة",
   other: "أخرى",
 };
+const warehouseTypeLabels: Record<string, string> = {
+  central_warehouse: "المخزن المركزي",
+  branch_warehouse: "مخزن فرع",
+  fixed_fuel_tank: "خزان وقود ثابت",
+  generator_fuel_tank: "خزان مرتبط بمولد",
+};
 const unitLabels: Record<string, string> = {
   liter: "لتر",
   milliliter: "ملليلتر",
@@ -105,6 +111,8 @@ export default function InventoryWorkspacePage() {
   const [warehouseCode, setWarehouseCode] = useState("");
   const [warehouseName, setWarehouseName] = useState("");
   const [warehouseNotes, setWarehouseNotes] = useState("");
+  const [warehouseLocationType, setWarehouseLocationType] = useState("branch_warehouse");
+  const [warehouseGeneratorId, setWarehouseGeneratorId] = useState("");
 
   const items = trpc.powerhub.inventory.listItems.useQuery(
     { siteId, search: itemSearch || undefined, includeInactive: showInactiveItems },
@@ -121,6 +129,10 @@ export default function InventoryWorkspacePage() {
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery(
     { siteId, includeInactive: showInactiveWarehouses },
     { enabled: Boolean(siteId && isAuthenticated && canViewInventory), staleTime: 30_000 },
+  );
+  const warehouseGenerators = trpc.powerhub.generators.list.useQuery(
+    { siteId },
+    { enabled: Boolean(siteId && isAuthenticated && canManageInventoryItems), staleTime: 30_000 },
   );
 
   const createItem = trpc.powerhub.inventory.createItem.useMutation({
@@ -181,7 +193,9 @@ export default function InventoryWorkspacePage() {
   const createWarehouse = trpc.powerhub.inventory.createWarehouse.useMutation({
     onSuccess: async () => {
       toast.success("تم إنشاء المخزن.");
-      setWarehouseCode(""); setWarehouseName(""); setWarehouseNotes(""); setShowWarehouseForm(false);
+      setWarehouseCode(""); setWarehouseName(""); setWarehouseNotes("");
+      setWarehouseLocationType("branch_warehouse"); setWarehouseGeneratorId("");
+      setEditingWarehouseId(null); setShowWarehouseForm(false);
       await utils.powerhub.inventory.listWarehouses.invalidate();
     },
     onError: (error) => toast.error(error.message || "تعذر إنشاء المخزن."),
@@ -192,6 +206,7 @@ export default function InventoryWorkspacePage() {
       toast.success("تم تحديث بيانات المخزن.");
       setEditingWarehouseId(null); setShowWarehouseForm(false);
       setWarehouseCode(""); setWarehouseName(""); setWarehouseNotes("");
+      setWarehouseLocationType("branch_warehouse"); setWarehouseGeneratorId("");
       await utils.powerhub.inventory.listWarehouses.invalidate();
     },
     onError: (error) => toast.error(error.message || "تعذر تعديل بيانات المخزن."),
@@ -320,13 +335,34 @@ export default function InventoryWorkspacePage() {
 
             {canViewInventory ? <TabsContent value="warehouses" className="space-y-4">
               <Card><CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0"><div><CardTitle>المخازن</CardTitle><p className="mt-1 text-sm text-muted-foreground">كل مخزن مرتبط بالفرع الحالي؛ لا توجد حركة كمية بمجرد إنشائه.</p></div>{canManageInventoryItems ? <Button onClick={() => { setEditingWarehouseId(null); setShowWarehouseForm((value) => !value); }}><Warehouse className="ml-2 h-4 w-4" /> {showWarehouseForm && editingWarehouseId === null ? "إلغاء" : "إنشاء مخزن"}</Button> : null}</CardHeader>
-                {showWarehouseForm ? <CardContent className="border-t pt-4"><form className="grid grid-cols-1 gap-3 md:grid-cols-3" onSubmit={(event) => {event.preventDefault(); const payload = {siteId,code:warehouseCode.trim(),name:warehouseName.trim(),notes:warehouseNotes.trim() || undefined}; if (editingWarehouseId) updateWarehouse.mutate({...payload,warehouseId:editingWarehouseId}); else createWarehouse.mutate(payload);}}>
-                  <label className="space-y-1 text-sm">رمز المخزن *<Input required maxLength={40} value={warehouseCode} onChange={(e) => setWarehouseCode(e.target.value)} /></label>
-                  <label className="space-y-1 text-sm">اسم المخزن *<Input required maxLength={120} value={warehouseName} onChange={(e) => setWarehouseName(e.target.value)} /></label>
+                {showWarehouseForm ? <CardContent className="border-t pt-4"><form className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3" onSubmit={(event) => {
+                  event.preventDefault();
+                  if (warehouseLocationType === "generator_fuel_tank" && !warehouseGeneratorId) { toast.error("اختر المولد المرتبط بالخزان."); return; }
+                  const payload = {
+                    siteId, code: warehouseCode.trim(), name: warehouseName.trim(), notes: warehouseNotes.trim() || undefined,
+                    locationType: warehouseLocationType as "central_warehouse" | "branch_warehouse" | "fixed_fuel_tank" | "generator_fuel_tank",
+                    ...(warehouseLocationType === "generator_fuel_tank" ? { generatorId: Number(warehouseGeneratorId) } : {}),
+                  };
+                  if (editingWarehouseId) updateWarehouse.mutate({...payload, warehouseId: editingWarehouseId});
+                  else createWarehouse.mutate(payload);
+                }}>
+                  <label className="space-y-1 text-sm">رمز موقع التخزين *<Input required maxLength={40} value={warehouseCode} onChange={(e) => setWarehouseCode(e.target.value)} /></label>
+                  <label className="space-y-1 text-sm">اسم موقع التخزين *<Input required maxLength={120} value={warehouseName} onChange={(e) => setWarehouseName(e.target.value)} /></label>
+                  <label className="space-y-1 text-sm">نوع الموقع
+                    <select className="h-10 w-full rounded-md border bg-background px-3" value={warehouseLocationType} onChange={(e) => { setWarehouseLocationType(e.target.value); if (e.target.value !== "generator_fuel_tank") setWarehouseGeneratorId(""); }}>
+                      {Object.entries(warehouseTypeLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                  </label>
+                  {warehouseLocationType === "generator_fuel_tank" ? <label className="space-y-1 text-sm">المولد المرتبط *
+                    <select required className="h-10 w-full rounded-md border bg-background px-3" value={warehouseGeneratorId} onChange={(e) => setWarehouseGeneratorId(e.target.value)}>
+                      <option value="">اختر المولد</option>
+                      {(warehouseGenerators.data ?? []).map((generator) => <option key={generator.id} value={generator.id}>{generator.name} — #{generator.id}</option>)}
+                    </select>
+                  </label> : null}
                   <label className="space-y-1 text-sm">ملاحظات<Input maxLength={2000} value={warehouseNotes} onChange={(e) => setWarehouseNotes(e.target.value)} /></label>
-                  <div><Button type="submit" disabled={createWarehouse.isPending || updateWarehouse.isPending || !warehouseCode.trim() || !warehouseName.trim()}>{createWarehouse.isPending || updateWarehouse.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} {editingWarehouseId ? "حفظ التعديلات" : "حفظ المخزن"}</Button>{editingWarehouseId ? <Button type="button" variant="outline" onClick={() => { setEditingWarehouseId(null); setShowWarehouseForm(false); setWarehouseCode(""); setWarehouseName(""); setWarehouseNotes(""); }}>إلغاء التعديل</Button> : null}</div>
+                  <div className="flex flex-wrap items-end gap-2"><Button type="submit" disabled={createWarehouse.isPending || updateWarehouse.isPending || !warehouseCode.trim() || !warehouseName.trim() || (warehouseLocationType === "generator_fuel_tank" && !warehouseGeneratorId)}>{createWarehouse.isPending || updateWarehouse.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} {editingWarehouseId ? "حفظ التعديلات" : "حفظ موقع التخزين"}</Button>{editingWarehouseId ? <Button type="button" variant="outline" onClick={() => { setEditingWarehouseId(null); setShowWarehouseForm(false); setWarehouseCode(""); setWarehouseName(""); setWarehouseNotes(""); setWarehouseLocationType("branch_warehouse"); setWarehouseGeneratorId(""); }}>إلغاء التعديل</Button> : null}</div>
                 </form></CardContent> : null}
-                <CardContent><div className="mb-3 flex justify-end"><label className="flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={showInactiveWarehouses} onChange={(e) => setShowInactiveWarehouses(e.target.checked)} /> إظهار المخازن الموقوفة</label></div>{warehouses.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل المخازن…</p> : warehouses.error ? <p className="py-8 text-center text-destructive">تعذر تحميل المخازن. تحقق من صلاحياتك.</p> : !warehouses.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد مخازن لهذا الفرع.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full text-right text-sm"><thead className="bg-muted/60"><tr>{["الرمز","اسم المخزن","ملاحظات","الحالة","إجراءات"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{warehouses.data.map((warehouse) => <tr key={warehouse.id} className="border-t"><td className="p-3">{warehouse.code}</td><td className="p-3 font-medium">{warehouse.name}</td><td className="p-3">{warehouse.notes || "—"}</td><td className="p-3">{warehouse.is_active ? "نشط" : "موقوف"}</td><td className="p-3"><div className="flex flex-wrap gap-1">{canManageInventoryItems ? <><Button type="button" size="sm" variant="outline" onClick={() => { setEditingWarehouseId(Number(warehouse.id)); setWarehouseCode(warehouse.code); setWarehouseName(warehouse.name); setWarehouseNotes(warehouse.notes ?? ""); setShowWarehouseForm(true); }}>تعديل</Button><Button type="button" size="sm" variant="outline" disabled={setWarehouseActive.isPending} onClick={() => { const reason = warehouse.is_active ? window.prompt("أدخل سبب إيقاف المخزن (مطلوب):")?.trim() : undefined; if (warehouse.is_active && (!reason || reason.length < 3)) { toast.error("أدخل سببًا واضحًا من 3 أحرف على الأقل."); return; } setWarehouseActive.mutate({ siteId, warehouseId: Number(warehouse.id), isActive: !warehouse.is_active, ...(reason ? { reason } : {}) }); }}>{warehouse.is_active ? "إيقاف" : "إعادة تفعيل"}</Button></> : "—"}</div></td></tr>)}</tbody></table></div>}</CardContent>
+                <CardContent><div className="mb-3 flex justify-end"><label className="flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={showInactiveWarehouses} onChange={(e) => setShowInactiveWarehouses(e.target.checked)} /> إظهار المخازن الموقوفة</label></div>{warehouses.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل المخازن…</p> : warehouses.error ? <p className="py-8 text-center text-destructive">تعذر تحميل المخازن. تحقق من صلاحياتك.</p> : !warehouses.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد مخازن لهذا الفرع.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full text-right text-sm"><thead className="bg-muted/60"><tr>{["الرمز","اسم موقع التخزين","النوع","المولد المرتبط","ملاحظات","الحالة","إجراءات"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{warehouses.data.map((warehouse) => <tr key={warehouse.id} className="border-t"><td className="p-3">{warehouse.code}</td><td className="p-3 font-medium">{warehouse.name}</td><td className="p-3">{warehouseTypeLabels[warehouse.location_type] ?? warehouse.location_type ?? "مخزن فرع"}</td><td className="p-3">{warehouse.generator_id ? (warehouseGenerators.data ?? []).find((generator) => Number(generator.id) === Number(warehouse.generator_id))?.name ?? `مولد #${warehouse.generator_id}` : "—"}</td><td className="p-3">{warehouse.notes || "—"}</td><td className="p-3">{warehouse.is_active ? "نشط" : "موقوف"}</td><td className="p-3"><div className="flex flex-wrap gap-1">{canManageInventoryItems ? <><Button type="button" size="sm" variant="outline" onClick={() => { setEditingWarehouseId(Number(warehouse.id)); setWarehouseCode(warehouse.code); setWarehouseName(warehouse.name); setWarehouseNotes(warehouse.notes ?? ""); setWarehouseLocationType(warehouse.location_type || "branch_warehouse"); setWarehouseGeneratorId(warehouse.generator_id ? String(warehouse.generator_id) : ""); setShowWarehouseForm(true); }}>تعديل</Button><Button type="button" size="sm" variant="outline" disabled={setWarehouseActive.isPending} onClick={() => { const reason = warehouse.is_active ? window.prompt("أدخل سبب إيقاف المخزن (مطلوب):")?.trim() : undefined; if (warehouse.is_active && (!reason || reason.length < 3)) { toast.error("أدخل سببًا واضحًا من 3 أحرف على الأقل."); return; } setWarehouseActive.mutate({ siteId, warehouseId: Number(warehouse.id), isActive: !warehouse.is_active, ...(reason ? { reason } : {}) }); }}>{warehouse.is_active ? "إيقاف" : "إعادة تفعيل"}</Button></> : "—"}</div></td></tr>)}</tbody></table></div>}</CardContent>
               </Card>
             </TabsContent> : null}
 
