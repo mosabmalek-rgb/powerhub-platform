@@ -483,7 +483,7 @@ begin
   if p_operation_key is null or length(btrim(p_operation_key)) not between 1 and 180 then
     raise exception 'INVALID_OPERATION_KEY' using errcode='P0001';
   end if;
-  if p_action not in ('start','wait_for_parts','complete','cancel') then raise exception 'INVALID_MAINTENANCE_ACTION' using errcode='P0001'; end if;
+  if p_action not in ('start','wait_for_parts','complete','cancel','correct_completion') then raise exception 'INVALID_MAINTENANCE_ACTION' using errcode='P0001'; end if;
   if coalesce(p_labor_cost,0)<0 or coalesce(p_external_service_cost,0)<0
      or coalesce(p_labor_cost,0)>1000000000 or coalesce(p_external_service_cost,0)>1000000000
      or coalesce(p_labor_cost,0)*100<>trunc(coalesce(p_labor_cost,0)*100)
@@ -496,6 +496,15 @@ begin
   end if;
   if p_action='cancel' and (nullif(btrim(p_reason),'') is null or length(btrim(p_reason)) not between 3 and 500) then
     raise exception 'MAINTENANCE_CANCEL_REASON_REQUIRED' using errcode='P0001';
+  end if;
+  if p_action='correct_completion' and (nullif(btrim(p_reason),'') is null or length(btrim(p_reason)) not between 3 and 500) then
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_REASON_REQUIRED' using errcode='P0001';
+  end if;
+  if p_action='correct_completion' and (nullif(btrim(p_work_summary),'') is null or length(btrim(p_work_summary))>5000) then
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_SUMMARY_REQUIRED' using errcode='P0001';
+  end if;
+  if p_action='correct_completion' and p_meter_hours_close is not null then
+    raise exception 'MAINTENANCE_COMPLETION_CORRECTION_CANNOT_CHANGE_METER' using errcode='P0001';
   end if;
   v_hash:=md5(jsonb_build_object('site_id',p_site_id,'work_order_id',p_work_order_id,'action',p_action,
     'work_summary',nullif(btrim(p_work_summary),''),'meter_hours_close',p_meter_hours_close,
@@ -521,8 +530,14 @@ begin
   select * into v_order from public.generator_maintenance_work_orders
     where tenant_id=p_tenant_id and site_id=p_site_id and id=p_work_order_id for update;
   if not found then raise exception 'MAINTENANCE_WORK_ORDER_NOT_FOUND' using errcode='P0001'; end if;
-  v_previous:=jsonb_build_object('status',v_order.status,'labor_cost',v_order.labor_cost,
-    'external_service_cost',v_order.external_service_cost,'downtime_minutes',v_order.downtime_minutes);
+  v_previous:=jsonb_build_object(
+    'status',v_order.status,'work_summary',v_order.work_summary,
+    'completed_at',v_order.completed_at,'completed_by_user_id',v_order.completed_by_user_id,
+    'operating_hours_at_close',v_order.operating_hours_at_close,'downtime_minutes',v_order.downtime_minutes,
+    'parts_cost',v_order.parts_cost,'labor_cost',v_order.labor_cost,
+    'external_service_cost',v_order.external_service_cost,'total_cost_amount',v_order.total_cost_amount,
+    'cancel_reason',v_order.cancel_reason,'closeout_revision',v_order.closeout_revision
+  );
   if p_action='start' then
     if v_order.status not in ('new','scheduled','waiting_for_parts') then raise exception 'MAINTENANCE_INVALID_STATE_TRANSITION' using errcode='P0001'; end if;
     v_next_status:='in_progress';
@@ -538,6 +553,25 @@ begin
     v_next_status:='cancelled';
     update public.generator_maintenance_work_orders set status=v_next_status,cancelled_at=v_now,cancel_reason=btrim(p_reason),
       updated_by_user_id=p_user_id,updated_at=v_now where id=v_order.id and tenant_id=p_tenant_id returning * into v_order;
+  elsif p_action='correct_completion' then
+    if v_order.status<>'completed' then
+      raise exception 'MAINTENANCE_COMPLETION_CORRECTION_REQUIRES_COMPLETED_ORDER' using errcode='P0001';
+    end if;
+    if not exists(select 1 from public.users where id=p_user_id) then
+      raise exception 'MAINTENANCE_ACTOR_NOT_FOUND' using errcode='P0001';
+    end if;
+    v_next_status:='completed';
+    update public.generator_maintenance_work_orders set
+      work_summary=btrim(p_work_summary),
+      downtime_minutes=coalesce(p_downtime_minutes,downtime_minutes),
+      labor_cost=coalesce(p_labor_cost,labor_cost),
+      external_service_cost=coalesce(p_external_service_cost,external_service_cost),
+      total_cost_amount=parts_cost+coalesce(p_labor_cost,labor_cost)+coalesce(p_external_service_cost,external_service_cost),
+      updated_by_user_id=p_user_id,updated_at=v_now
+    where tenant_id=p_tenant_id and site_id=p_site_id and id=p_work_order_id
+    returning * into v_order;
+    -- A correction changes the recorded close-out only. It never issues/returns stock,
+    -- creates a new meter reading, advances a preventive plan, or posts a second expense.
   else
     if v_order.status not in ('in_progress','waiting_for_parts') then raise exception 'MAINTENANCE_INVALID_STATE_TRANSITION' using errcode='P0001'; end if;
     if not exists(select 1 from public.users where id=p_user_id) then raise exception 'MAINTENANCE_ACTOR_NOT_FOUND' using errcode='P0001'; end if;
@@ -602,8 +636,10 @@ begin
   insert into public.generator_maintenance_audit_events(tenant_id,site_id,actor_user_id,entity_type,entity_id,action,before_data,after_data,operation_key)
   values(p_tenant_id,p_site_id,p_user_id,'work_order',v_order.id,p_action,v_previous,
     jsonb_build_object('status',v_order.status,'work_summary',v_order.work_summary,'operating_hours_at_close',v_order.operating_hours_at_close,
+      'completed_at',v_order.completed_at,'completed_by_user_id',v_order.completed_by_user_id,
       'downtime_minutes',v_order.downtime_minutes,'labor_cost',v_order.labor_cost,'external_service_cost',v_order.external_service_cost,
-      'parts_cost',v_order.parts_cost,'total_cost_amount',v_order.total_cost_amount,'reason',nullif(btrim(p_reason),'')),
+      'parts_cost',v_order.parts_cost,'total_cost_amount',v_order.total_cost_amount,'reason',nullif(btrim(p_reason),''),
+      'correction_policy',case when p_action='correct_completion' then 'record-only-no-ledger-side-effects' else null end),
     btrim(p_operation_key));
   if not exists(select 1 from public.generator_maintenance_audit_events
     where tenant_id=p_tenant_id and operation_key=btrim(p_operation_key) and action='transition_operation') then
