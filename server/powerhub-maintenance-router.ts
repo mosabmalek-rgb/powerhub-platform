@@ -119,6 +119,20 @@ const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> =
 };
 
 export const powerhubMaintenanceRouter = router({
+  listGenerators: authenticatedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
+      const { data, error } = await supabaseAdmin()
+        .from("generators")
+        .select("id,name,code")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .order("name", { ascending: true });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مولدات الفرع للصيانة." });
+      return (data ?? []).map((row) => ({ id: Number(row.id), name: row.name, code: row.code }));
+    }),
+
   reportByGenerator: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(),
     fromDate: z.string().refine(isDateOnly, { message: "تاريخ البداية غير صالح." }),
