@@ -163,6 +163,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021200000_powerhub_inventory_atomic_warehouse_transfers.sql
 \ir ../migrations/20261021220000_powerhub_inventory_movement_report_paging.sql
 \ir ../migrations/20261022120000_powerhub_inventory_entity_lifecycle.sql
+\ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -2564,6 +2565,222 @@ begin
   end if;
 end;
 $inventory_entity_lifecycle_assertions$;
+
+
+-- Phase A supplier opening payable balances, multi-document payments, aging and reversal.
+do $supplier_batch_payment_assertions$
+declare
+  v_supplier_id bigint;
+  v_warehouse_id bigint:=1;
+  v_item_id bigint:=1;
+  v_purchase_id bigint;
+  v_purchase_number text;
+  v_total numeric(14,2);
+  v_status text;
+  v_replayed boolean;
+  v_opening_entry_id bigint;
+  v_opening_amount numeric(14,2);
+  v_opening_date date;
+  v_payment_id bigint;
+  v_return_supplier_id bigint;
+  v_company_account_id bigint;
+  v_account_transaction_id bigint;
+  v_payment_amount numeric(14,2);
+  v_payment_date date;
+  v_allocation_count integer;
+  v_allocation_summary jsonb;
+  v_balance_before numeric(14,2);
+  v_balance_after numeric(14,2);
+  v_aging jsonb;
+  v_aging_count integer;
+  v_aging_total numeric(14,2);
+  v_reverse_payment_id bigint;
+  v_reverse_purchase_id bigint;
+  v_reverse_status text;
+  v_reverse_amount numeric(14,2);
+  v_reverse_paid numeric(14,2);
+  v_reverse_outstanding numeric(14,2);
+  v_reverse_balance numeric(14,2);
+  v_reverse_replayed boolean;
+  v_count integer;
+begin
+  select ca.opening_balance+coalesce(sum(
+    case when atx.transaction_type in ('deposit','transfer_in','collection') then atx.amount else -atx.amount end
+  ),0)::numeric(14,2)
+  into v_balance_before
+  from public.company_accounts ca
+  left join public.account_transactions atx on atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  where ca.tenant_id=10 and ca.id=1000
+  group by ca.opening_balance;
+  if v_balance_before<10 then raise exception 'BATCH_PAYMENT_TEST_ACCOUNT_BALANCE_TOO_LOW'; end if;
+
+  select id into v_supplier_id from public.powerhub_inventory_create_supplier(
+    10,100,1,'BATCH-OPENING-SUP','Batch/opening balance supplier','AP contact','0599111222',
+    'ap.batch@example.test','Finance street','TAX-BATCH-01',30,'Disposable multi-allocation fixture'
+  );
+  select purchase_id,purchase_number,total_amount into v_purchase_id,v_purchase_number,v_total
+  from public.powerhub_inventory_create_purchase(
+    10,100,1,v_supplier_id,v_warehouse_id,'BATCH-OPENING-INV',current_date,null,30,
+    'BATCH-OPENING-REF','Disposable multi-allocation fixture','batch-open:create-purchase',
+    jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',2,'unit','liter',
+      'units_to_base_factor',1,'unit_price',10,'discount_amount',0,'tax_amount',0,'notes','test line'))
+  );
+  if v_purchase_id is null or v_total<>20 then
+    raise exception 'BATCH_PAYMENT_TEST_PURCHASE_CREATE_FAILED id=% total=%',v_purchase_id,v_total;
+  end if;
+
+  select purchase_id,status,replayed into v_purchase_id,v_status,v_replayed
+  from public.powerhub_inventory_confirm_purchase(10,100,1,v_purchase_id);
+  if v_status<>'confirmed' or v_replayed then
+    raise exception 'BATCH_PAYMENT_TEST_PURCHASE_CONFIRM_FAILED status=%',v_status;
+  end if;
+
+  select ledger_entry_id,amount,as_of_date,replayed
+  into v_opening_entry_id,v_opening_amount,v_opening_date,v_replayed
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_supplier_id,5.00,current_date,'OPEN-BATCH-01','Supplier payable at onboarding'
+  );
+  if v_opening_entry_id is null or v_opening_amount<>5 or v_opening_date<>current_date or v_replayed then
+    raise exception 'SUPPLIER_OPENING_BALANCE_CREATE_FAILED';
+  end if;
+  select ledger_entry_id,amount,as_of_date,replayed
+  into v_opening_entry_id,v_opening_amount,v_opening_date,v_replayed
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_supplier_id,5.00,current_date,'OPEN-BATCH-01','Supplier payable at onboarding'
+  );
+  if not v_replayed then raise exception 'SUPPLIER_OPENING_BALANCE_REPLAY_FAILED'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_record_supplier_opening_balance(
+      10,100,1,v_supplier_id,6.00,current_date,'OPEN-BATCH-01','Changed opening balance'
+    );
+    raise exception 'SUPPLIER_OPENING_BALANCE_SECOND_AMOUNT_ACCEPTED';
+  exception when others then
+    if sqlerrm='SUPPLIER_OPENING_BALANCE_SECOND_AMOUNT_ACCEPTED' then raise; end if;
+    if sqlerrm not like '%SUPPLIER_OPENING_BALANCE_ALREADY_EXISTS%' then raise; end if;
+  end;
+
+  select payment_id,supplier_id,company_account_id,account_transaction_id,amount,payment_date,
+    allocation_count,allocation_summary,account_balance,replayed
+  into v_payment_id,v_return_supplier_id,v_company_account_id,v_account_transaction_id,v_payment_amount,
+    v_payment_date,v_allocation_count,v_allocation_summary,v_balance_after,v_replayed
+  from public.powerhub_inventory_record_supplier_payment_batch(
+    10,100,1,v_supplier_id,1000,5.00,current_date,'BATCH-PAY-01','Two documents in one bank payment',
+    'batch-open:payment-001',
+    jsonb_build_array(
+      jsonb_build_object('purchase_id',v_purchase_id,'supplier_ledger_entry_id',null,'amount',2.50),
+      jsonb_build_object('purchase_id',null,'supplier_ledger_entry_id',v_opening_entry_id,'amount',2.50)
+    )
+  );
+  if v_payment_id is null or v_return_supplier_id<>v_supplier_id or v_company_account_id<>1000
+    or v_account_transaction_id is null or v_payment_amount<>5 or v_allocation_count<>2
+    or v_balance_after<>v_balance_before-5 or v_replayed then
+    raise exception 'BATCH_SUPPLIER_PAYMENT_CREATE_FAILED payment=% count=% balance_before=% balance_after=%',
+      v_payment_id,v_allocation_count,v_balance_before,v_balance_after;
+  end if;
+
+  select count(*) into v_count from public.supplier_payment_allocations a
+  where a.tenant_id=10 and a.payment_id=v_payment_id
+    and ((a.purchase_id=v_purchase_id and a.supplier_ledger_entry_id is null and a.amount=2.5)
+      or (a.purchase_id is null and a.supplier_ledger_entry_id=v_opening_entry_id and a.amount=2.5));
+  if v_count<>2 then raise exception 'BATCH_SUPPLIER_PAYMENT_ALLOCATIONS_FAILED count=%',v_count; end if;
+  select count(*) into v_count from public.supplier_ledger_entries e
+  where e.tenant_id=10 and e.supplier_payment_id=v_payment_id and e.entry_type='payment'
+    and e.purchase_id is null and e.debit_amount=5;
+  if v_count<>1 then raise exception 'BATCH_SUPPLIER_PAYMENT_LEDGER_POSTING_FAILED'; end if;
+  select count(*) into v_count from public.account_transactions atx
+  where atx.tenant_id=10 and atx.related_supplier_payment_id=v_payment_id
+    and atx.transaction_type='withdrawal' and atx.amount=5;
+  if v_count<>1 then raise exception 'BATCH_SUPPLIER_PAYMENT_ACCOUNT_WITHDRAWAL_FAILED'; end if;
+
+  select payment_id,supplier_id,company_account_id,account_transaction_id,amount,payment_date,
+    allocation_count,allocation_summary,account_balance,replayed
+  into v_reverse_payment_id,v_return_supplier_id,v_company_account_id,v_account_transaction_id,v_payment_amount,
+    v_payment_date,v_allocation_count,v_allocation_summary,v_balance_after,v_replayed
+  from public.powerhub_inventory_record_supplier_payment_batch(
+    10,100,1,v_supplier_id,1000,5.00,current_date,'BATCH-PAY-01','Two documents in one bank payment',
+    'batch-open:payment-001',
+    jsonb_build_array(
+      jsonb_build_object('purchase_id',v_purchase_id,'supplier_ledger_entry_id',null,'amount',2.50),
+      jsonb_build_object('purchase_id',null,'supplier_ledger_entry_id',v_opening_entry_id,'amount',2.50)
+    )
+  );
+  if v_reverse_payment_id<>v_payment_id or not v_replayed or v_allocation_count<>2
+    or v_balance_after<>v_balance_before-5 then
+    raise exception 'BATCH_SUPPLIER_PAYMENT_REPLAY_FAILED';
+  end if;
+  select count(*) into v_count from public.account_transactions
+  where tenant_id=10 and related_supplier_payment_id=v_payment_id and transaction_type='withdrawal';
+  if v_count<>1 then raise exception 'BATCH_SUPPLIER_PAYMENT_REPLAY_DUPLICATED_WITHDRAWAL'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_record_supplier_payment_batch(
+      10,100,1,v_supplier_id,1000,5.00,current_date,'BATCH-PAY-01','Changed allocation',
+      'batch-open:payment-001',
+      jsonb_build_array(
+        jsonb_build_object('purchase_id',v_purchase_id,'supplier_ledger_entry_id',null,'amount',3.00),
+        jsonb_build_object('purchase_id',null,'supplier_ledger_entry_id',v_opening_entry_id,'amount',2.00)
+      )
+    );
+    raise exception 'BATCH_PAYMENT_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+  exception when others then
+    if sqlerrm='BATCH_PAYMENT_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+    if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+  end;
+
+  select public.powerhub_inventory_supplier_payables_aging(10,100,current_date) into v_aging;
+  select count(*)::integer,coalesce(sum((r.value->>'outstanding_amount')::numeric),0)::numeric(14,2)
+  into v_aging_count,v_aging_total
+  from jsonb_array_elements(v_aging->'rows') as r(value)
+  where (r.value->>'supplier_id')::bigint=v_supplier_id;
+  if v_aging_count<>2 or v_aging_total<>20 then
+    raise exception 'SUPPLIER_PAYABLE_AGING_MISMATCH count=% amount=%',v_aging_count,v_aging_total;
+  end if;
+
+  select payment_id,purchase_id,status,amount,paid_amount,outstanding_amount,account_balance,replayed
+  into v_reverse_payment_id,v_reverse_purchase_id,v_reverse_status,v_reverse_amount,v_reverse_paid,
+    v_reverse_outstanding,v_reverse_balance,v_reverse_replayed
+  from public.powerhub_inventory_reverse_supplier_payment_flexible(
+    10,100,1,v_payment_id,'Reverse a test bank posting spanning two supplier documents'
+  );
+  if v_reverse_payment_id<>v_payment_id or v_reverse_purchase_id is not null or v_reverse_status<>'reversed'
+    or v_reverse_amount<>5 or v_reverse_paid is not null or v_reverse_outstanding is not null
+    or v_reverse_balance<>v_balance_before or v_reverse_replayed then
+    raise exception 'BATCH_SUPPLIER_PAYMENT_REVERSAL_FAILED payment=% balance=% expected=% status=%',
+      v_reverse_payment_id,v_reverse_balance,v_balance_before,v_reverse_status;
+  end if;
+  select count(*) into v_count from public.account_transactions
+  where tenant_id=10 and account_id=1000 and transaction_type='deposit'
+    and reference_no='REV-SUPPLIER-PAYMENT-'||v_payment_id;
+  if v_count<>1 then raise exception 'BATCH_SUPPLIER_PAYMENT_REVERSAL_DEPOSIT_FAILED'; end if;
+
+  select payment_id,purchase_id,status,amount,paid_amount,outstanding_amount,account_balance,replayed
+  into v_reverse_payment_id,v_reverse_purchase_id,v_reverse_status,v_reverse_amount,v_reverse_paid,
+    v_reverse_outstanding,v_reverse_balance,v_reverse_replayed
+  from public.powerhub_inventory_reverse_supplier_payment_flexible(
+    10,100,1,v_payment_id,'Reverse a test bank posting spanning two supplier documents'
+  );
+  if not v_reverse_replayed or v_reverse_balance<>v_balance_before then
+    raise exception 'BATCH_SUPPLIER_PAYMENT_REVERSAL_REPLAY_FAILED';
+  end if;
+  select count(*) into v_count from public.supplier_ledger_entries
+  where tenant_id=10 and supplier_id=v_supplier_id;
+  if v_count<>4 then raise exception 'BATCH_SUPPLIER_PAYMENT_LEDGER_HISTORY_NOT_PRESERVED count=%',v_count; end if;
+
+  if has_function_privilege('authenticated','public.powerhub_inventory_record_supplier_opening_balance(bigint,bigint,bigint,bigint,numeric,date,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_record_supplier_payment_batch(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text,jsonb)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_reverse_supplier_payment_flexible(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_supplier_payables_aging(bigint,bigint,date)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_SUPPLIER_BATCH_FINANCIAL_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_record_supplier_opening_balance(bigint,bigint,bigint,bigint,numeric,date,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_record_supplier_payment_batch(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text,jsonb)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_reverse_supplier_payment_flexible(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_supplier_payables_aging(bigint,bigint,date)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_SUPPLIER_BATCH_FINANCIAL_RPC';
+  end if;
+end;
+$supplier_batch_payment_assertions$;
 
 select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
