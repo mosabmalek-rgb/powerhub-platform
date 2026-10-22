@@ -106,6 +106,7 @@ function mapPurchaseDatabaseError(
     INVENTORY_ITEM_NOT_FOUND: { code: "NOT_FOUND", message: "الصنف غير موجود في هذه المؤسسة." },
     INVENTORY_ITEM_INACTIVE: { code: "CONFLICT", message: "الصنف موقوف؛ أعد تفعيله قبل تعديل بياناته." },
     ITEM_BASE_UNIT_IMMUTABLE_AFTER_USE: { code: "CONFLICT", message: "لا يمكن تغيير وحدة الصنف الأساسية بعد استخدامه في حركة أو فاتورة؛ أنشئ صنفًا جديدًا إذا تغيرت الوحدة." },
+    ITEM_IDENTITY_IMMUTABLE_AFTER_USE: { code: "CONFLICT", message: "لا يمكن تغيير الرمز أو الاسم أو التصنيف لصنف له حركات تاريخية؛ أنشئ صنفًا جديدًا حتى تبقى التقارير السابقة دقيقة." },
     INVENTORY_ITEM_HAS_STOCK: { code: "CONFLICT", message: "لا يمكن إيقاف الصنف ما دام له رصيد في أي مخزن. صفّر الأرصدة أولًا." },
     INVENTORY_ITEM_HAS_OPEN_PURCHASE: { code: "CONFLICT", message: "لا يمكن إيقاف الصنف مع وجود كميات معلقة في فواتير شراء مفتوحة." },
     INVALID_ACTIVE_STATE: { code: "BAD_REQUEST", message: "حالة التفعيل غير صالحة." },
