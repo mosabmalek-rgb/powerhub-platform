@@ -33,6 +33,14 @@ create table public.users (
   id bigint primary key, name text, platform_role text,
   role text not null default 'user', account_status text not null default 'active'
 );
+create table public.tenant_members (
+  tenant_id bigint not null references public.tenants(id) on delete cascade,
+  user_id bigint not null references public.users(id) on delete cascade,
+  role text not null check (role in ('owner','member')),
+  is_active boolean not null default true,
+  membership_status text not null default 'active',
+  primary key (tenant_id,user_id)
+);
 create table public.sites (
   id bigint primary key, tenant_id bigint not null references public.tenants(id)
 );
