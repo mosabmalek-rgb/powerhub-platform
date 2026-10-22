@@ -40,6 +40,7 @@ export type PowerCapability =
   | "approvePurchases"
   | "receiveInventory"
   | "manageSupplierPayments"
+  | "reverseSupplierPayments"
   | "viewSupplierLedger"
   | "issueInventory"
   | "adjustInventory"
@@ -101,6 +102,7 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   approvePurchases: ["owner", "manager", "accountant"],
   receiveInventory: ["owner", "manager", "accountant", "technician"],
   manageSupplierPayments: ["owner", "accountant"],
+  reverseSupplierPayments: ["owner", "manager"],
   viewSupplierLedger: ["owner", "manager", "accountant"],
   issueInventory: ["owner", "manager", "technician"],
   adjustInventory: ["owner", "manager"],
@@ -144,7 +146,8 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   createPurchases: "إنشاء فواتير المشتريات",
   approvePurchases: "اعتماد المشتريات",
   receiveInventory: "تأكيد استلام الأصناف",
-  manageSupplierPayments: "تسجيل واعتماد دفعات الموردين",
+  manageSupplierPayments: "تسجيل دفعات الموردين",
+  reverseSupplierPayments: "عكس دفعات الموردين بسبب موثق",
   viewSupplierLedger: "عرض ذمم وكشوف الموردين",
   issueInventory: "صرف الأصناف للمولدات",
   adjustInventory: "الجرد والتسويات المخزنية",
