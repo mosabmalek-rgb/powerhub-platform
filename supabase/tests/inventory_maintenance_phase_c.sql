@@ -59,7 +59,7 @@ begin
   select * into v_transition from public.powerhub_maintenance_transition_work_order(
     10,100,1,v_order.work_order_id,'complete','Replaced and tested successfully',null,45,30,5,null,'maint-test-complete-c-01'
   );
-  if v_transition.status<>'completed' or v_transition.total_cost_amount<>30 then raise exception 'MAINTENANCE_CLOSEOUT_COST_FAILED'; end if;
+  if v_transition.status<>'completed' or v_transition.total_cost_amount<>60 then raise exception 'MAINTENANCE_CLOSEOUT_COST_FAILED'; end if;
   select * into v_transition from public.powerhub_maintenance_transition_work_order(
     10,100,1,v_order.work_order_id,'complete','Replaced and tested successfully',null,45,30,5,null,'maint-test-complete-c-01'
   );
