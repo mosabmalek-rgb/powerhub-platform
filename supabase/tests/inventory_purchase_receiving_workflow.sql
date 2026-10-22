@@ -3045,6 +3045,70 @@ begin
   );
   if v_status<>'cancelled' or v_replayed then raise exception 'STOCKTAKE_CANCEL_FAILED'; end if;
 
+  -- Recovery path: a stocktake can become stale after it has already been submitted.
+  -- Posting must reject the stale snapshot, then an audited cancellation must release
+  -- the warehouse's open-session guard so a fresh session can start.
+  select stocktake_id,status into v_stocktake_id,v_status
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Verify recovery from a stale submitted stocktake',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-003'
+  );
+  if v_status<>'counting' then raise exception 'STOCKTAKE_SUBMITTED_DRIFT_FIXTURE_CREATE_FAILED'; end if;
+
+  for v_line in
+    select l.item_id,l.system_quantity,l.system_unit_cost
+    from public.inventory_stocktake_lines l
+    where l.tenant_id=10 and l.stocktake_id=v_stocktake_id
+    order by l.item_id
+  loop
+    perform * from public.powerhub_inventory_record_stocktake_count(
+      10,100,1,v_stocktake_id,v_line.item_id,v_line.system_quantity,v_line.system_unit_cost,
+      'Counted snapshot quantity before submission'
+    );
+  end loop;
+
+  select stocktake_id,status,item_count,variance_count,replayed
+  into v_stocktake_id,v_status,v_count,v_variance_count,v_replayed
+  from public.powerhub_inventory_submit_stocktake(10,100,1,v_stocktake_id);
+  if v_status<>'submitted' or v_count<1 or v_variance_count<>0 or v_replayed then
+    raise exception 'STOCKTAKE_SUBMITTED_DRIFT_FIXTURE_SUBMIT_FAILED';
+  end if;
+
+  select movement_id into v_posted_movement_id
+  from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'issue',1.000,null,null,
+    'ISSUE-AFTER-SUBMITTED-STOCKTAKE','Movement after submitted stocktake snapshot',
+    'stocktake-workflow:submitted-drift-issue'
+  );
+  if v_posted_movement_id is null then raise exception 'STOCKTAKE_SUBMITTED_DRIFT_ISSUE_FAILED'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_post_stocktake(10,100,1,v_stocktake_id);
+    raise exception 'STALE_SUBMITTED_STOCKTAKE_WAS_POSTED';
+  exception when others then
+    if sqlerrm='STALE_SUBMITTED_STOCKTAKE_WAS_POSTED' then raise; end if;
+    if sqlerrm not like '%STOCKTAKE_STOCK_CHANGED_DURING_COUNT%' then raise; end if;
+  end;
+
+  select stocktake_id,status,replayed into v_stocktake_id,v_status,v_replayed
+  from public.powerhub_inventory_cancel_stocktake(
+    10,100,1,v_stocktake_id,'Cancel stale submitted session after a verified stock change'
+  );
+  if v_status<>'cancelled' or v_replayed then raise exception 'STALE_SUBMITTED_STOCKTAKE_CANCEL_FAILED'; end if;
+
+  select stocktake_id,status into v_stocktake_id,v_status
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Confirm new session after stale submitted cancellation',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-004'
+  );
+  if v_status<>'counting' then raise exception 'NEW_STOCKTAKE_BLOCKED_AFTER_STALE_CANCELLATION'; end if;
+
+  select stocktake_id,status,replayed into v_stocktake_id,v_status,v_replayed
+  from public.powerhub_inventory_cancel_stocktake(
+    10,100,1,v_stocktake_id,'Close final disposable stocktake fixture'
+  );
+  if v_status<>'cancelled' or v_replayed then raise exception 'STOCKTAKE_FINAL_FIXTURE_CLEANUP_FAILED'; end if;
+
   -- Item-line count and history are immutable once posted; every dedicated RPC is service-only.
   if exists(
     select 1 from public.inventory_stocktake_lines l
