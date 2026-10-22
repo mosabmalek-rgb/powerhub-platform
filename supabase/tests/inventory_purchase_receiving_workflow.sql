@@ -3492,7 +3492,6 @@ begin
   exception when sqlstate 'P0001' then
     if sqlerrm<>'IDEMPOTENCY_KEY_REUSED' then raise; end if;
   end;
-  end;
 
   perform * from public.powerhub_inventory_record_stock_movement(
     10,100,1,v_generator_tank_id,v_fuel_item_id,'fuel_consumption',3,null,10000,
@@ -3547,7 +3546,6 @@ begin
     raise exception 'PHASE_B_BACKWARDS_HOURS_ACCEPTED';
   exception when sqlstate 'P0001' then
     if sqlerrm<>'OPERATING_HOURS_BACKWARDS' then raise; end if;
-  end;
   end;
 
   select * into v_reading from public.powerhub_inventory_record_fuel_reading(
