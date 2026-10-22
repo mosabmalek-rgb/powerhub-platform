@@ -50,6 +50,7 @@ type MaintenanceReportRow = {
   first_reported_at: string;
   last_reported_at: string;
 };
+type MaintenanceAssignableSupplierRow = { id: number; supplier_code: string | null; name: string };
 type MaintenancePartListRow = {
   part_id: number;
   item_id: number;
@@ -81,6 +82,9 @@ type MaintenanceWorkOrderListRow = {
   started_at: string | null;
   completed_at: string | null;
   assigned_to_user_id: number | null;
+  assigned_supplier_id: number | null;
+  assigned_supplier_name: string | null;
+  assigned_supplier_code: string | null;
   operating_hours_at_open: number | null;
   operating_hours_at_close: number | null;
   downtime_minutes: number;
@@ -104,9 +108,10 @@ const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> =
       "MAINTENANCE_PLAN_INTERVAL_REQUIRED", "MAINTENANCE_PLAN_DATE_DUE_REQUIRED",
       "MAINTENANCE_PLAN_HOURS_DUE_REQUIRED", "MAINTENANCE_PLAN_OUT_OF_SCOPE",
       "MAINTENANCE_PREVENTIVE_PLAN_REQUIRED", "INVALID_MAINTENANCE_REPORT_RANGE",
+      "MAINTENANCE_SUPPLIER_OUT_OF_SCOPE",
       "generator_maintenance_work_orders_preventive_open_plan_unique"
     ].find((candidate) => message.includes(candidate));
-    if (code) throw new TRPCError({ code: "BAD_REQUEST", message: code === "generator_maintenance_work_orders_preventive_open_plan_unique" ? "توجد بالفعل مهمة صيانة وقائية مفتوحة لهذه الخطة. أكملها أو ألغها قبل إنشاء أمر جديد." : code === "INVALID_MAINTENANCE_REPORT_RANGE" ? "نطاق التقرير غير صحيح؛ اختر تاريخ بداية ونهاية خلال مدة لا تتجاوز 366 يومًا." : code });
+    if (code) throw new TRPCError({ code: "BAD_REQUEST", message: code === "generator_maintenance_work_orders_preventive_open_plan_unique" ? "توجد بالفعل مهمة صيانة وقائية مفتوحة لهذه الخطة. أكملها أو ألغها قبل إنشاء أمر جديد." : code === "INVALID_MAINTENANCE_REPORT_RANGE" ? "نطاق التقرير غير صحيح؛ اختر تاريخ بداية ونهاية خلال مدة لا تتجاوز 366 يومًا." : code === "MAINTENANCE_SUPPLIER_OUT_OF_SCOPE" ? "المورد غير نشط أو لا ينتمي إلى حسابك." : code });
     console.error("[PowerHub maintenance RPC]", { name, code: error.code });
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تنفيذ عملية الصيانة. تحقق من البيانات والصلاحيات ثم أعد المحاولة." });
   }
@@ -124,6 +129,27 @@ export const powerhubMaintenanceRouter = router({
     return rpc<MaintenanceReportRow[]>("powerhub_maintenance_report_by_generator", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId,
       p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
+    });
+  }),
+  listAssignableSuppliers: authenticatedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
+    const { data, error } = await supabaseAdmin().from("suppliers")
+      .select("id,supplier_code,name").eq("tenant_id", access.tenantId).eq("is_active", true)
+      .order("name", { ascending: true }).limit(250);
+    if (error) {
+      console.error("[PowerHub maintenance suppliers]", { code: error.code });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قائمة الموردين النشطين." });
+    }
+    return (data ?? []) as MaintenanceAssignableSupplierRow[];
+  }),
+  assignSupplier: authenticatedProcedure.input(z.object({
+    siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
+    supplierId: z.number().int().positive().nullable(), operationKey,
+  })).mutation(async ({ ctx, input }) => {
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
+    return rpc("powerhub_maintenance_assign_supplier", {
+      p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+      p_work_order_id: input.workOrderId, p_supplier_id: input.supplierId, p_operation_key: input.operationKey,
     });
   }),
   listWorkOrders: authenticatedProcedure.input(z.object({

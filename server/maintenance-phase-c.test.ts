@@ -18,6 +18,9 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(panel).toContain("trpc.powerhub.maintenance.addPart.useMutation");
     expect(panel).toContain("trpc.powerhub.maintenance.createPreventivePlan.useMutation");
     expect(router).toContain("reportByGenerator");
+    expect(router).toContain("listAssignableSuppliers");
+    expect(router).toContain("assignSupplier: authenticatedProcedure");
+    expect(panel).toContain("trpc.powerhub.maintenance.assignSupplier.useMutation");
     expect(panel).toContain("trpc.powerhub.maintenance.reportByGenerator.useQuery");
     const worker = read("server/notification-worker.ts");
     const route = read("server/_core/index.ts");
@@ -51,6 +54,8 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("from public,anon,authenticated");
     expect(integration).toContain("MAINTENANCE_PART_DUPLICATED_STOCK_ISSUE");
     expect(integration).toContain("MAINTENANCE_REPORT_COST_RECONCILIATION_FAILED");
+    expect(integration).toContain("MAINTENANCE_SUPPLIER_ASSIGNMENT_IDEMPOTENCY_FAILED");
+    expect(integration).toContain("MAINTENANCE_CROSS_TENANT_SUPPLIER_ACCEPTED");
     expect(integration).toContain("MAINTENANCE_ALERT_NOTIFICATION_DUPLICATED");
     expect(integration).toContain("MAINTENANCE_CROSS_GENERATOR_PART_ACCEPTED");
     expect(integration).toContain("MAINTENANCE_AUDIT_MUTABLE_ACCESS_GRANTED");

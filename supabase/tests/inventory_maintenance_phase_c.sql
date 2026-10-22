@@ -23,6 +23,9 @@ declare
   v_notification_count_after bigint;
   v_report_rows bigint;
   v_report_cost numeric;
+  v_supplier_id bigint;
+  v_supplier_assign record;
+  v_supplier_assign_replay record;
 begin
   -- Create a disposable stock item and seed it through the same audited ledger.
   insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
@@ -57,6 +60,37 @@ begin
     now(),null,null,'maint-test-order-c-01'
   );
   if v_order.work_order_id is null or v_order.replayed then raise exception 'MAINTENANCE_CREATE_FAILED'; end if;
+  select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='PUR-WF-SUP' and is_active=true;
+  if v_supplier_id is null then raise exception 'MAINTENANCE_TEST_SUPPLIER_MISSING'; end if;
+  select * into v_supplier_assign from public.powerhub_maintenance_assign_supplier(
+    10,100,1,v_order.work_order_id,v_supplier_id,'maint-test-assign-supplier-c-01'
+  );
+  if v_supplier_assign.replayed or v_supplier_assign.assigned_supplier_id<>v_supplier_id then raise exception 'MAINTENANCE_SUPPLIER_ASSIGNMENT_FAILED'; end if;
+  select * into v_supplier_assign_replay from public.powerhub_maintenance_assign_supplier(
+    10,100,1,v_order.work_order_id,v_supplier_id,'maint-test-assign-supplier-c-01'
+  );
+  if not v_supplier_assign_replay.replayed or v_supplier_assign_replay.assigned_supplier_id<>v_supplier_id then raise exception 'MAINTENANCE_SUPPLIER_ASSIGNMENT_IDEMPOTENCY_FAILED'; end if;
+  if (select count(*) from public.generator_maintenance_audit_events where tenant_id=10 and operation_key='maint-test-assign-supplier-c-01' and action='assign_supplier')<>1 then raise exception 'MAINTENANCE_SUPPLIER_ASSIGNMENT_AUDIT_DUPLICATED'; end if;
+  if has_function_privilege('anon','public.powerhub_maintenance_assign_supplier(bigint,bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_maintenance_assign_supplier(bigint,bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_maintenance_assign_supplier(bigint,bigint,bigint,bigint,bigint,text)','EXECUTE') then
+    raise exception 'MAINTENANCE_SUPPLIER_ASSIGNMENT_ACL_FAILED';
+  end if;
+  begin
+    perform * from public.powerhub_maintenance_assign_supplier(10,100,1,v_order.work_order_id,null,'maint-test-assign-supplier-c-01');
+    raise exception 'MAINTENANCE_SUPPLIER_ASSIGNMENT_KEY_REUSE_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_IDEMPOTENCY_KEY_REUSED' then raise; end if;
+  end;
+  begin
+    perform * from public.powerhub_maintenance_assign_supplier(
+      10,100,1,v_order.work_order_id,(select id from public.suppliers where tenant_id=20 and supplier_code='SUP-01' limit 1),
+      'maint-test-assign-cross-tenant-c-01'
+    );
+    raise exception 'MAINTENANCE_CROSS_TENANT_SUPPLIER_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_SUPPLIER_OUT_OF_SCOPE' then raise; end if;
+  end;
   select * into v_replay from public.powerhub_maintenance_create_work_order(
     10,100,1,10000,null,'breakdown','high','Phase C test repair','Disposable integration case',
     (select reported_at from public.generator_maintenance_work_orders where id=v_order.work_order_id),null,null,'maint-test-order-c-01'

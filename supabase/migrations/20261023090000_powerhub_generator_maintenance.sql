@@ -24,6 +24,7 @@ create table public.generator_maintenance_work_orders (
   completed_at timestamptz,
   cancelled_at timestamptz,
   assigned_to_user_id bigint references public.users(id) on delete set null,
+  assigned_supplier_id bigint,
   preventive_plan_id bigint,
   operating_hours_at_open numeric(14,2),
   operating_hours_at_close numeric(14,2),
@@ -128,6 +129,12 @@ alter table public.generator_maintenance_work_orders
   add constraint generator_maintenance_work_orders_preventive_plan_fk
   foreign key (tenant_id,site_id,generator_id,preventive_plan_id)
   references public.generator_maintenance_preventive_plans(tenant_id,site_id,generator_id,id);
+alter table public.generator_maintenance_work_orders
+  add constraint generator_maintenance_work_orders_supplier_tenant_fk
+  foreign key (tenant_id,assigned_supplier_id) references public.suppliers(tenant_id,id) on delete restrict;
+create index generator_maintenance_work_orders_supplier_idx
+  on public.generator_maintenance_work_orders(tenant_id,assigned_supplier_id,status)
+  where assigned_supplier_id is not null;
 create index generator_maintenance_work_orders_preventive_plan_idx
   on public.generator_maintenance_work_orders(tenant_id,site_id,preventive_plan_id)
   where preventive_plan_id is not null;
@@ -296,6 +303,78 @@ begin
   return query select v_order.id,v_order.work_order_number,v_order.status,false;
 end;
 $$;
+
+create or replace function public.powerhub_maintenance_assign_supplier(
+  p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_work_order_id bigint,p_supplier_id bigint,p_operation_key text
+)
+returns table(work_order_id bigint,assigned_supplier_id bigint,replayed boolean)
+language plpgsql security invoker set search_path=public,pg_temp
+as $maintenance_assign$
+declare
+  v_order public.generator_maintenance_work_orders%rowtype;
+  v_supplier public.suppliers%rowtype;
+  v_existing record;
+  v_hash text;
+  v_previous_supplier_id bigint;
+begin
+  if p_tenant_id is null or p_site_id is null or p_user_id is null or p_work_order_id is null then
+    raise exception 'MAINTENANCE_SCOPE_REQUIRED' using errcode='P0001';
+  end if;
+  if p_operation_key is null or length(btrim(p_operation_key)) not between 1 and 180 then
+    raise exception 'INVALID_OPERATION_KEY' using errcode='P0001';
+  end if;
+  if not exists(select 1 from public.users where id=p_user_id) then
+    raise exception 'MAINTENANCE_ACTOR_NOT_FOUND' using errcode='P0001';
+  end if;
+
+  v_hash:=md5(jsonb_build_object('tenant_id',p_tenant_id,'site_id',p_site_id,
+    'work_order_id',p_work_order_id,'supplier_id',p_supplier_id)::text);
+  perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':maintenance-supplier:'||btrim(p_operation_key),0));
+
+  select a.entity_id,a.after_data into v_existing
+    from public.generator_maintenance_audit_events a
+    where a.tenant_id=p_tenant_id and a.entity_type='work_order'
+      and a.action='assign_supplier' and a.operation_key=btrim(p_operation_key)
+    limit 1;
+  if found then
+    if v_existing.entity_id<>p_work_order_id
+       or v_existing.after_data->>'operation_payload_hash' is distinct from v_hash then
+      raise exception 'MAINTENANCE_IDEMPOTENCY_KEY_REUSED' using errcode='P0001';
+    end if;
+    return query select p_work_order_id,(v_existing.after_data->>'assigned_supplier_id')::bigint,true;
+    return;
+  end if;
+
+  select * into v_order from public.generator_maintenance_work_orders w
+    where w.tenant_id=p_tenant_id and w.site_id=p_site_id and w.id=p_work_order_id for update;
+  if not found then raise exception 'MAINTENANCE_WORK_ORDER_NOT_FOUND' using errcode='P0001'; end if;
+  if v_order.status not in ('scheduled','new','in_progress','waiting_for_parts') then
+    raise exception 'MAINTENANCE_WORK_ORDER_NOT_OPEN' using errcode='P0001';
+  end if;
+  if p_supplier_id is not null then
+    select * into v_supplier from public.suppliers s
+      where s.tenant_id=p_tenant_id and s.id=p_supplier_id and s.is_active=true for share;
+    if not found then raise exception 'MAINTENANCE_SUPPLIER_OUT_OF_SCOPE' using errcode='P0001'; end if;
+  end if;
+
+  v_previous_supplier_id:=v_order.assigned_supplier_id;
+  update public.generator_maintenance_work_orders set assigned_supplier_id=p_supplier_id,
+    updated_by_user_id=p_user_id,updated_at=now()
+    where tenant_id=p_tenant_id and site_id=p_site_id and id=p_work_order_id
+    returning * into v_order;
+  insert into public.generator_maintenance_audit_events(
+    tenant_id,site_id,actor_user_id,entity_type,entity_id,action,before_data,after_data,operation_key
+  ) values(
+    p_tenant_id,p_site_id,p_user_id,'work_order',p_work_order_id,'assign_supplier',
+    jsonb_build_object('assigned_supplier_id',v_previous_supplier_id),
+    jsonb_build_object('assigned_supplier_id',v_order.assigned_supplier_id,
+      'supplier_name',case when p_supplier_id is null then null else v_supplier.name end,
+      'operation_payload_hash',v_hash),
+    btrim(p_operation_key)
+  );
+  return query select v_order.id,v_order.assigned_supplier_id,false;
+end;
+$maintenance_assign$;
 
 create or replace function public.powerhub_maintenance_add_part(
   p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_work_order_id bigint,
@@ -720,22 +799,25 @@ begin
 end;
 $maintenance_report$;
 
+drop function if exists public.powerhub_maintenance_list_work_orders(bigint,bigint,bigint,text,integer);
 create or replace function public.powerhub_maintenance_list_work_orders(
   p_tenant_id bigint,p_site_id bigint,p_generator_id bigint default null,p_status text default null,p_limit integer default 50
 )
 returns table(
   work_order_id bigint,work_order_number text,generator_id bigint,generator_name text,preventive_plan_id bigint,order_type text,priority text,status text,
   title text,description text,work_summary text,reported_at timestamptz,scheduled_for timestamptz,started_at timestamptz,completed_at timestamptz,
-  assigned_to_user_id bigint,operating_hours_at_open numeric,operating_hours_at_close numeric,downtime_minutes integer,
+  assigned_to_user_id bigint,assigned_supplier_id bigint,assigned_supplier_name text,assigned_supplier_code text,
+  operating_hours_at_open numeric,operating_hours_at_close numeric,downtime_minutes integer,
   labor_cost numeric,external_service_cost numeric,parts_cost numeric,total_cost_amount numeric,created_by_user_id bigint
 )
 language sql stable security invoker set search_path=public,pg_temp
 as $$
   select w.id,w.work_order_number,w.generator_id,g.name,w.preventive_plan_id,w.order_type,w.priority,w.status,w.title,w.description,w.work_summary,
-    w.reported_at,w.scheduled_for,w.started_at,w.completed_at,w.assigned_to_user_id,w.operating_hours_at_open,
+    w.reported_at,w.scheduled_for,w.started_at,w.completed_at,w.assigned_to_user_id,w.assigned_supplier_id,s.name,s.supplier_code,w.operating_hours_at_open,
     w.operating_hours_at_close,w.downtime_minutes,w.labor_cost,w.external_service_cost,w.parts_cost,w.total_cost_amount,w.created_by_user_id
   from public.generator_maintenance_work_orders w
   join public.generators g on g.tenant_id=w.tenant_id and g.site_id=w.site_id and g.id=w.generator_id
+  left join public.suppliers s on s.tenant_id=w.tenant_id and s.id=w.assigned_supplier_id
   where w.tenant_id=p_tenant_id and w.site_id=p_site_id
     and (p_generator_id is null or w.generator_id=p_generator_id)
     and (p_status is null or w.status=p_status)
@@ -782,6 +864,7 @@ as $$
 $$;
 
 revoke all on function public.powerhub_maintenance_create_work_order(bigint,bigint,bigint,bigint,bigint,text,text,text,text,timestamptz,timestamptz,bigint,text) from public,anon,authenticated;
+revoke all on function public.powerhub_maintenance_assign_supplier(bigint,bigint,bigint,bigint,bigint,text) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_add_part(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_transition_work_order(bigint,bigint,bigint,bigint,text,text,numeric,integer,numeric,numeric,text,text) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_create_preventive_plan(bigint,bigint,bigint,bigint,text,text,text,integer,numeric,timestamptz,numeric,integer,numeric,text) from public,anon,authenticated;
@@ -793,6 +876,7 @@ revoke all on function public.powerhub_maintenance_report_by_generator(bigint,bi
 
 grant usage,select on sequence public.powerhub_user_notifications_id_seq to service_role;
 grant execute on function public.powerhub_maintenance_create_work_order(bigint,bigint,bigint,bigint,bigint,text,text,text,text,timestamptz,timestamptz,bigint,text) to service_role;
+grant execute on function public.powerhub_maintenance_assign_supplier(bigint,bigint,bigint,bigint,bigint,text) to service_role;
 grant execute on function public.powerhub_maintenance_add_part(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text) to service_role;
 grant execute on function public.powerhub_maintenance_transition_work_order(bigint,bigint,bigint,bigint,text,text,numeric,integer,numeric,numeric,text,text) to service_role;
 grant execute on function public.powerhub_maintenance_create_preventive_plan(bigint,bigint,bigint,bigint,text,text,text,integer,numeric,timestamptz,numeric,integer,numeric,text) to service_role;
