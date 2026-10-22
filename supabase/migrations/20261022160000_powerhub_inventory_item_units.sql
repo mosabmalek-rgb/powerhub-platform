@@ -62,7 +62,7 @@ begin
   if lower(v_label)=lower(v_item.base_unit) then
     raise exception 'ITEM_UNIT_EQUALS_BASE_UNIT' using errcode='P0001';
   end if;
-  select coalesce(u.platform_role,'tenant_user') into v_platform_role
+  select u.platform_role into v_platform_role
     from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
 
@@ -134,7 +134,7 @@ begin
 
   v_before:=jsonb_build_object('itemId',v_unit.item_id,'unitLabel',v_unit.unit_label,
     'factorToBase',v_unit.factor_to_base,'isActive',v_unit.is_active);
-  select coalesce(u.platform_role,'tenant_user') into v_platform_role
+  select u.platform_role into v_platform_role
     from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
 
