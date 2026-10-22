@@ -286,7 +286,9 @@ describe("inventory workspace UI contract", () => {
 
     expect(workspace).toContain("warehouseTypeLabels");
     expect(workspace).toContain("warehouseGenerators = trpc.powerhub.generators.list.useQuery");
-    expect(workspace).toContain('value="generator_fuel_tank"');
+    expect(workspace).toContain('generator_fuel_tank: "خزان مرتبط بمولد"');
+    expect(workspace).toContain('value={warehouseLocationType}');
+    expect(workspace).toContain('warehouseLocationType === "generator_fuel_tank"');
     expect(workspace).toContain("warehouse.generator_id");
     expect(router).toContain("powerhub_inventory_create_warehouse_with_location");
     expect(router).toContain("powerhub_inventory_update_warehouse_with_location");
