@@ -111,6 +111,16 @@ begin
   if not v_plan_replay.replayed or v_plan_replay.work_order_id<>v_replay.work_order_id then
     raise exception 'MAINTENANCE_NULL_REPORTED_AT_IDEMPOTENCY_FAILED';
   end if;
+  begin
+    select * into v_plan_replay from public.powerhub_maintenance_create_work_order(
+      10,100,1,10000,v_plan.plan_id,'preventive','normal','Duplicate preventive service','Preventive duplicate guard',
+      null,null,null,'maint-test-preventive-duplicate-c-01'
+    );
+    raise exception 'MAINTENANCE_DUPLICATE_OPEN_PREVENTIVE_ACCEPTED';
+  exception when unique_violation then
+    get stacked diagnostics v_constraint_name = constraint_name;
+    if v_constraint_name<>'generator_maintenance_work_orders_preventive_open_plan_unique' then raise; end if;
+  end;
   select * into v_transition from public.powerhub_maintenance_transition_work_order(
     10,100,1,v_replay.work_order_id,'start',null,null,null,0,0,null,'maint-test-preventive-start-c-01'
   );

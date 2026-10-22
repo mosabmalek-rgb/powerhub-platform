@@ -79,9 +79,9 @@ const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> =
       "MAINTENANCE_PART_CATEGORY_INVALID", "MAINTENANCE_CANCEL_REASON_REQUIRED",
       "MAINTENANCE_PLAN_INTERVAL_REQUIRED", "MAINTENANCE_PLAN_DATE_DUE_REQUIRED",
       "MAINTENANCE_PLAN_HOURS_DUE_REQUIRED", "MAINTENANCE_PLAN_OUT_OF_SCOPE",
-      "MAINTENANCE_PREVENTIVE_PLAN_REQUIRED"
+      "MAINTENANCE_PREVENTIVE_PLAN_REQUIRED", "generator_maintenance_work_orders_preventive_open_plan_unique"
     ].find((candidate) => message.includes(candidate));
-    if (code) throw new TRPCError({ code: "BAD_REQUEST", message: code });
+    if (code) throw new TRPCError({ code: "BAD_REQUEST", message: code === "generator_maintenance_work_orders_preventive_open_plan_unique" ? "توجد بالفعل مهمة صيانة وقائية مفتوحة لهذه الخطة. أكملها أو ألغها قبل إنشاء أمر جديد." : code });
     console.error("[PowerHub maintenance RPC]", { name, code: error.code });
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تنفيذ عملية الصيانة. تحقق من البيانات والصلاحيات ثم أعد المحاولة." });
   }

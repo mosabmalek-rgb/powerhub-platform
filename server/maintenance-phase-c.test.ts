@@ -37,6 +37,7 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("preventive_plan_id");
     expect(migration).toContain("foreign key (tenant_id,site_id,work_order_id,generator_id)");
     expect(migration).toContain("foreign key (tenant_id,site_id,generator_id,plan_id)");
+    expect(migration).toContain("generator_maintenance_work_orders_preventive_open_plan_unique");
     expect(migration).toContain("'reported_at',p_reported_at");
     expect(migration).toContain("powerhub_maintenance_evaluate_due_plans");
     expect(migration).toContain("generator_maintenance_audit_events");
@@ -47,6 +48,7 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(integration).toContain("MAINTENANCE_AUDIT_MUTABLE_ACCESS_GRANTED");
     expect(integration).toContain("MAINTENANCE_BREAKDOWN_MUST_NOT_COMPLETE_UNLINKED_PLAN");
     expect(integration).toContain("MAINTENANCE_NULL_REPORTED_AT_IDEMPOTENCY_FAILED");
+    expect(integration).toContain("MAINTENANCE_DUPLICATE_OPEN_PREVENTIVE_ACCEPTED");
     expect(integration).toContain("MAINTENANCE_TRANSITION_IDEMPOTENCY_FAILED");
     expect(integration).toContain("MAINTENANCE_OVERDUE_ALERT_MISSING");
     expect(integration).toContain("MAINTENANCE_RPC_ACL_FAILED");
