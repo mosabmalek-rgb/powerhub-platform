@@ -51,7 +51,7 @@ The final workspace should expose these nine logical tabs beneath the single “
 - [ ] Complete supplier lifecycle: edit/deactivate; expose approved profile fields (including address/tax number where required) without erasing historic finance data.
 - [ ] Complete warehouse/location lifecycle and model location type (central warehouse, branch warehouse, fixed fuel tank, generator-associated tank) so balances cannot be conflated across locations.
 - [ ] Full stocktake workflow: session/date, counted quantity, system quantity, variance, reason, approval, posted adjustment and audit. Existing manual adjustment is not equivalent to a stocktake session.
-- [ ] Confirm durable item-level units-of-measure conversions and validations; do not silently convert incompatible units.
+- [ ] Confirm durable item-level units-of-measure conversions and validations; do not silently convert incompatible units. (Implementation and isolated PostgreSQL/UI contract assertions added in the current PR; mark accepted only after CI passes.)
 - [ ] Supplier opening payable balance with traceable date/reference/reason and balanced ledger representation.
 - [ ] Supplier payment batch allocated to multiple invoices, with row locks, amount validation, idempotency, company-account movement, ledger postings and audit in one transaction.
 - [ ] Explicitly support and test purchase payment intent (paid in full / partially paid / on credit) without double-debiting the company account or double-counting inventory cost. The current UI can record payments from invoice details; acceptance is the approved end-to-end user flow, not field presence.
