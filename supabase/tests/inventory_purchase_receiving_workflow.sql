@@ -3566,7 +3566,8 @@ declare
   v_local_today date := (now() at time zone 'Asia/Gaza')::date;
   v_opening_time timestamptz := ((v_local_today-2)::timestamp + interval '20 hours') at time zone 'Asia/Gaza';
   v_fill_time timestamptz := ((v_local_today-1)::timestamp + interval '23 hours 30 minutes') at time zone 'Asia/Gaza';
-  v_end_time timestamptz := now();
+  -- Keep all later correction timestamps safely before wall-clock maintenance close-out tests.
+  v_end_time timestamptz := now() - interval '1 minute';
   v_replay_count integer;
   v_transfer_count integer;
 begin
