@@ -2,6 +2,7 @@
 -- All client access flows through service_role-only RPCs guarded by server capability checks.
 
 create sequence if not exists public.generator_maintenance_work_order_number_seq;
+grant usage, select on sequence public.generator_maintenance_work_order_number_seq to service_role;
 
 -- Track the last completed maintenance event without assuming this field exists in older generator schemas.
 alter table public.generators add column if not exists last_maintenance_at timestamptz;
