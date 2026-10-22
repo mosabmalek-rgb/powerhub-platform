@@ -271,7 +271,7 @@ export default function InventoryStocktakePanel({
       toast.error("تكلفة الوحدة تقبل أربع منازل عشرية كحد أقصى.");
       return;
     }
-    if (line.system_quantity <= 0 && countedQuantity > 0 && countedUnitCost == null) {
+    if (Number(line.system_quantity) <= 0 && countedQuantity > 0 && countedUnitCost == null) {
       toast.error("أدخل تكلفة وحدة لتقييم الزيادة لأن الصنف لا يملك رصيدًا سابقًا.");
       return;
     }
