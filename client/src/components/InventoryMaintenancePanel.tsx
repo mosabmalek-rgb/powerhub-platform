@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { CalendarClock, ClipboardList, Download, Loader2, PackagePlus, RefreshCw, Wrench } from "lucide-react";
+import { CalendarClock, ClipboardList, Download, FileSpreadsheet, FileText, Loader2, PackagePlus, RefreshCw, Wrench } from "lucide-react";
+import { loadExcelJS } from "@/lib/lazy-report-deps";
+import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 
 type OrderType = "breakdown" | "preventive" | "inspection" | "repair" | "other";
 type OrderStatus = "scheduled" | "new" | "in_progress" | "waiting_for_parts" | "completed" | "cancelled";
@@ -53,6 +55,7 @@ export default function InventoryMaintenancePanel({
   const [reportGeneratorId, setReportGeneratorId] = useState("");
   const [reportFromDate, setReportFromDate] = useState(() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; });
   const [reportToDate, setReportToDate] = useState(() => localDateInput(new Date()));
+  const [reportExporting, setReportExporting] = useState(false);
 
   const generators = trpc.powerhub.maintenance.listGenerators.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 30_000 });
   const orders = trpc.powerhub.maintenance.listWorkOrders.useQuery({ siteId, generatorId: orderGeneratorFilter ? Number(orderGeneratorFilter) : undefined, status: filter || undefined, limit: 200 }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 15_000 });
@@ -60,6 +63,9 @@ export default function InventoryMaintenancePanel({
   const maintenanceReport = trpc.powerhub.maintenance.reportByGenerator.useQuery(
     { siteId, fromDate: reportFromDate, toDate: reportToDate, generatorId: reportGeneratorId ? Number(reportGeneratorId) : undefined },
     { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport && reportFromDate && reportToDate && reportFromDate <= reportToDate), staleTime: 30_000 },
+  );
+  const reportBranding = trpc.powerhub.reportBranding.get.useQuery(
+    { siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport), staleTime: 60_000 },
   );
   const plans = trpc.powerhub.maintenance.listPreventivePlans.useQuery({ siteId, generatorId: planGeneratorId ? Number(planGeneratorId) : undefined }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 15_000 });
   const items = trpc.powerhub.inventory.listItems.useQuery({ siteId, includeInactive: false }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance && canIssueInventory), staleTime: 30_000 });
@@ -178,6 +184,127 @@ export default function InventoryMaintenancePanel({
     toast.success(`تم تصدير ${reportRows.length.toLocaleString("ar-PS")} مجموعة من تقرير الصيانة.`);
   };
 
+  const ensureReportReady = () => {
+    if (!canViewMaintenanceReport) { toast.error("ليست لديك صلاحية عرض أو تصدير تقرير الصيانة."); return false; }
+    if (maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError) {
+      toast.error("انتظر نجاح تحميل تقرير الصيانة قبل التصدير."); return false;
+    }
+    return true;
+  };
+
+  const exportMaintenanceExcel = async () => {
+    if (reportExporting || !ensureReportReady()) return;
+    setReportExporting(true);
+    try {
+      const { default: ExcelJS } = await loadExcelJS();
+      const workbook = new ExcelJS.Workbook();
+      const generatedAt = new Date();
+      workbook.creator = "PowerHub";
+      workbook.created = generatedAt;
+
+      const summary = workbook.addWorksheet("ملخص الصيانة", { views: [{ rightToLeft: true }] });
+      summary.addRows([
+        [reportBranding.data?.companyName || "PowerHub", "تقرير الصيانة والأعطال"],
+        ["الفرع", siteId],
+        ["من تاريخ البلاغ", reportFromDate],
+        ["إلى تاريخ البلاغ", reportToDate],
+        ["المولد", reportGeneratorId ? generators.data?.find((g) => g.id === Number(reportGeneratorId))?.name ?? reportGeneratorId : "كل المولدات"],
+        ["تاريخ ووقت التصدير", generatedAt.toLocaleString("ar-PS")],
+        ["عدد مجموعات الأعطال", reportRows.length],
+        ["أوامر الصيانة", reportTotals.workOrders],
+        ["بلاغات الأعطال", reportTotals.breakdowns],
+        ["التوقف (دقيقة)", reportTotals.downtime],
+        ["تكلفة القطع", reportTotals.cost - reportRows.reduce((s, r) => s + Number(r.labor_cost ?? 0) + Number(r.external_service_cost ?? 0), 0)],
+        ["تكلفة العمل", reportRows.reduce((s, r) => s + Number(r.labor_cost ?? 0), 0)],
+        ["الخدمات الخارجية", reportRows.reduce((s, r) => s + Number(r.external_service_cost ?? 0), 0)],
+        ["إجمالي التكلفة", reportTotals.cost],
+        ["سياسة الاحتساب", "التقرير يجمع تكاليف أوامر الصيانة المسجلة؛ لا ينشئ قيودًا مالية أو مصروفات إضافية."],
+      ]);
+      summary.columns = [{ width: 34 }, { width: 52 }];
+      summary.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 14 };
+      summary.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
+      summary.getRow(1).alignment = { horizontal: "right", vertical: "middle" };
+      summary.eachRow((row, index) => { if (index > 1) row.alignment = { horizontal: "right", vertical: "middle" }; });
+
+      const details = workbook.addWorksheet("تفاصيل الصيانة", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
+      details.addRow(["رقم المولد", "المولد", "العطل / العمل المتكرر", "عدد الأوامر", "الأعطال", "الوقائية", "المكتملة", "المفتوحة", "التوقف (دقيقة)", "تكلفة القطع", "تكلفة العمل", "الخدمات الخارجية", "إجمالي التكلفة", "أول بلاغ", "آخر بلاغ"]);
+      for (const row of reportRows) {
+        details.addRow([
+          row.generator_id, row.generator_name, row.fault_title, row.work_order_count, row.breakdown_count,
+          row.preventive_count, row.completed_count, row.open_count, row.downtime_minutes, row.parts_cost,
+          row.labor_cost, row.external_service_cost, row.total_cost_amount, row.first_reported_at, row.last_reported_at,
+        ]);
+      }
+      details.columns = [
+        { width: 14 }, { width: 26 }, { width: 36 }, { width: 15 }, { width: 12 }, { width: 12 },
+        { width: 12 }, { width: 12 }, { width: 16 }, { width: 18 }, { width: 18 }, { width: 20 },
+        { width: 18 }, { width: 24 }, { width: 24 },
+      ];
+      details.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: details.columnCount } };
+      details.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      details.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
+      details.getRow(1).alignment = { horizontal: "right", vertical: "middle", wrapText: true };
+      for (let index = 2; index <= details.rowCount; index++) details.getRow(index).alignment = { horizontal: "right", vertical: "middle" };
+      for (const column of [10, 11, 12, 13]) {
+        details.getColumn(column).numFmt = '#,##0.00';
+      }
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `powerhub-maintenance-report-${siteId}-${reportFromDate}-${reportToDate}.xlsx`;
+      document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(`تم تصدير تقرير Excel بورقتين و${reportRows.length.toLocaleString("ar-PS")} مجموعة.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر إنشاء تقرير Excel للصيانة.");
+    } finally {
+      setReportExporting(false);
+    }
+  };
+
+  const exportMaintenancePdf = async () => {
+    if (reportExporting || !ensureReportReady()) return;
+    if (reportRows.length > 500) { toast.error("تقرير PDF يتجاوز 500 مجموعة؛ استخدم Excel للتقرير الكامل أو ضيّق نطاق التاريخ."); return; }
+    setReportExporting(true);
+    let root: HTMLDivElement | undefined;
+    try {
+      const generatedAt = new Date();
+      const cell = (value: unknown) => "<td style=\"border:1px solid #d1d5db;padding:5px;vertical-align:top\">" + escapeHtml(String(value ?? "—")) + "</td>";
+      const headers = ["المولد", "العطل / العمل المتكرر", "الأوامر", "الأعطال", "التوقف (دقيقة)", "القطع", "العمل", "الخدمات", "الإجمالي"];
+      const body = reportRows.map((row) => "<tr>" + [
+        row.generator_name, row.fault_title, row.work_order_count, row.breakdown_count, row.downtime_minutes,
+        money(row.parts_cost), money(row.labor_cost), money(row.external_service_cost), money(row.total_cost_amount),
+      ].map(cell).join("") + "</tr>").join("");
+      const logo = reportBranding.data?.logoUrl
+        ? "<img alt=\"شعار الشركة\" src=\"" + escapeHtml(reportBranding.data.logoUrl) + "\" style=\"max-width:135px;max-height:68px;object-fit:contain;float:left\">"
+        : "";
+      root = document.createElement("div");
+      root.dir = "rtl";
+      root.style.cssText = "position:fixed;left:-20000px;top:0;width:1400px;background:#fff;color:#111827;padding:28px;font-family:Arial,sans-serif;direction:rtl;text-align:right";
+      root.innerHTML =
+        "<h1 style=\"font-size:22px;border-bottom:3px solid #d4a017;padding-bottom:10px\">" +
+        escapeHtml(reportBranding.data?.companyName || "PowerHub") + " — تقرير الصيانة والأعطال</h1>" + logo +
+        "<p>الفرع: " + escapeHtml(String(siteId)) + " | من: " + escapeHtml(reportFromDate) + " | إلى: " + escapeHtml(reportToDate) + "</p>" +
+        "<p>المولد: " + escapeHtml(reportGeneratorId ? generators.data?.find((g) => g.id === Number(reportGeneratorId))?.name ?? String(reportGeneratorId) : "كل المولدات") +
+        " | وقت التصدير: " + escapeHtml(generatedAt.toLocaleString("ar-PS")) + "</p>" +
+        "<p>أوامر الصيانة: " + reportTotals.workOrders + " | بلاغات الأعطال: " + reportTotals.breakdowns +
+        " | التوقف: " + reportTotals.downtime + " دقيقة | إجمالي التكلفة: " + escapeHtml(money(reportTotals.cost)) + "</p>" +
+        "<table style=\"width:100%;border-collapse:collapse;margin:16px 0;font-size:10px;table-layout:auto\"><thead><tr style=\"background:#0d1117;color:#fff\">" +
+        headers.map((header) => "<th style=\"border:1px solid #9ca3af;padding:6px\">" + escapeHtml(header) + "</th>").join("") +
+        "</tr></thead><tbody>" + body + "</tbody></table>";
+      document.body.appendChild(root);
+      await downloadReportHtmlAsPdf(root, `تقرير-الصيانة-${siteId}-${reportFromDate}-${reportToDate}.pdf`, { landscape: true, title: "تقرير الصيانة - PowerHub" });
+      toast.success("تم إنشاء تقرير PDF عربي بهوية الشركة.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر إنشاء تقرير PDF للصيانة.");
+    } finally {
+      root?.remove();
+      setReportExporting(false);
+    }
+  };
+
   return <div className="space-y-4" dir="rtl">
     {canManageMaintenance ? (
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Wrench className="h-5 w-5" /> تسجيل عطل أو أمر صيانة</CardTitle></CardHeader>
@@ -227,7 +354,11 @@ export default function InventoryMaintenancePanel({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div><CardTitle>تقرير الصيانة والأعطال حسب المولد</CardTitle><p className="mt-1 text-sm text-muted-foreground">الأعطال المتكررة وأوامر الصيانة ومدة التوقف وتكاليف القطع والعمل والخدمات للفترة المختارة.</p></div>
-          <Button type="button" variant="outline" onClick={exportMaintenanceReport} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError}><Download className="ml-2 h-4 w-4" /> تصدير CSV</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={exportMaintenanceReport} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError || reportExporting}><Download className="ml-2 h-4 w-4" /> CSV</Button>
+            <Button type="button" variant="outline" onClick={() => void exportMaintenanceExcel()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError || reportExporting}><FileSpreadsheet className="ml-2 h-4 w-4" /> Excel</Button>
+            <Button type="button" variant="outline" onClick={() => void exportMaintenancePdf()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError || reportExporting}><FileText className="ml-2 h-4 w-4" /> PDF</Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
