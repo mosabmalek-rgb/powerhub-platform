@@ -550,7 +550,11 @@ export default function InventoryPurchasesPanel({
                         <label className={inputGridClass}>الصنف
                           <select className={selectClass} value={line.itemId} onChange={(event) => {
                             const item = options.data?.items.find((candidate) => String(candidate.id) === event.target.value);
-                            setDraftLines((lines) => updateLine(lines, line.key, { itemId: event.target.value, unit: item?.base_unit ?? "" }));
+                            setDraftLines((lines) => updateLine(lines, line.key, {
+                              itemId: event.target.value,
+                              unit: item?.base_unit ?? "",
+                              unitsToBaseFactor: "1",
+                            }));
                           }} required>
                             <option value="">اختر الصنف</option>
                             {options.data?.items.map((item) => <option key={item.id} value={item.id}>{item.name}{item.sku ? ` — ${item.sku}` : ""}</option>)}
@@ -560,10 +564,22 @@ export default function InventoryPurchasesPanel({
                           <Input type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => setDraftLines((lines) => updateLine(lines, line.key, { quantity: event.target.value }))} required />
                         </label>
                         <label className={inputGridClass}>وحدة الشراء
-                          <Input value={line.unit} onChange={(event) => setDraftLines((lines) => updateLine(lines, line.key, { unit: event.target.value }))} maxLength={40} required />
+                          <select className={selectClass} value={line.unit} onChange={(event) => {
+                            const itemUnit = options.data?.units.find((candidate) => Number(candidate.item_id) === Number(line.itemId) && candidate.unit_label === event.target.value);
+                            const baseUnit = options.data?.items.find((candidate) => String(candidate.id) === line.itemId)?.base_unit;
+                            setDraftLines((lines) => updateLine(lines, line.key, {
+                              unit: event.target.value,
+                              unitsToBaseFactor: event.target.value === baseUnit ? "1" : String(itemUnit?.factor_to_base ?? ""),
+                            }));
+                          }} required disabled={!selectedItem}>
+                            {selectedItem ? <option value={selectedItem.base_unit}>{selectedItem.base_unit} (الوحدة الأساسية)</option> : <option value="">اختر الصنف أولًا</option>}
+                            {options.data?.units.filter((candidate) => Number(candidate.item_id) === Number(line.itemId)).map((candidate) => (
+                              <option key={candidate.id} value={candidate.unit_label}>{candidate.unit_label}</option>
+                            ))}
+                          </select>
                         </label>
-                        <label className={inputGridClass}>كمية الوحدة الأساسية لكل وحدة شراء
-                          <Input type="number" min="0.000001" step="0.000001" value={line.unitsToBaseFactor} onChange={(event) => setDraftLines((lines) => updateLine(lines, line.key, { unitsToBaseFactor: event.target.value }))} required />
+                        <label className={inputGridClass}>معامل التحويل (وحدة أساسية لكل وحدة شراء)
+                          <Input type="number" min="0.000001" step="0.000001" value={line.unitsToBaseFactor} readOnly disabled required />
                         </label>
                         <label className={inputGridClass}>سعر الوحدة
                           <Input type="number" min="0" step="0.0001" value={line.unitPrice} onChange={(event) => setDraftLines((lines) => updateLine(lines, line.key, { unitPrice: event.target.value }))} required />
