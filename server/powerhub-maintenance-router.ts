@@ -7,6 +7,31 @@ import { supabaseAdmin } from "./supabase-admin";
 const maintenanceRoles = ["owner", "manager", "technician"] as const;
 const readRoles = ["owner", "manager", "technician", "accountant", "viewer"] as const;
 const operationKey = z.string().trim().min(8).max(180);
+type MaintenanceWorkOrderListRow = {
+  work_order_id: number;
+  work_order_number: string;
+  generator_id: number;
+  generator_name: string;
+  order_type: "breakdown" | "preventive" | "inspection" | "repair" | "other";
+  priority: "low" | "normal" | "high" | "urgent";
+  status: "scheduled" | "new" | "in_progress" | "waiting_for_parts" | "completed" | "cancelled";
+  title: string;
+  description: string | null;
+  work_summary: string | null;
+  reported_at: string;
+  scheduled_for: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  assigned_to_user_id: number | null;
+  operating_hours_at_open: number | null;
+  operating_hours_at_close: number | null;
+  downtime_minutes: number;
+  labor_cost: number;
+  external_service_cost: number;
+  parts_cost: number;
+  total_cost_amount: number;
+  created_by_user_id: number | null;
+};
 const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> => {
   const { data, error } = await supabaseAdmin().rpc(name, args);
   if (error) {
@@ -36,7 +61,7 @@ export const powerhubMaintenanceRouter = router({
     limit: z.number().int().min(1).max(200).default(50),
   })).query(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "manageMaintenance");
-    return rpc("powerhub_maintenance_list_work_orders", {
+    return rpc<MaintenanceWorkOrderListRow[]>("powerhub_maintenance_list_work_orders", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId,
       p_generator_id: input.generatorId ?? null, p_status: input.status ?? null, p_limit: input.limit,
     });
