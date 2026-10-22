@@ -468,7 +468,12 @@ begin
     select greatest(coalesce(v_generator.operating_hours,0),coalesce(max(r.reading_value),0)) into v_latest_hours
       from public.generator_fuel_readings r
       where r.tenant_id=p_tenant_id and r.site_id=p_site_id and r.generator_id=v_order.generator_id
-        and r.reading_type='operating_hours' and r.corrects_reading_id is null;
+        and r.reading_type='operating_hours'
+        -- A documented correction supersedes its target; include the correction value, not the stale row.
+        and not exists (
+          select 1 from public.generator_fuel_readings correction
+          where correction.tenant_id=r.tenant_id and correction.corrects_reading_id=r.id
+        );
     if p_meter_hours_close is not null and (p_meter_hours_close<coalesce(v_latest_hours,0)
        or p_meter_hours_close>1000000000 or p_meter_hours_close*100<>trunc(p_meter_hours_close*100)) then
       raise exception 'MAINTENANCE_HOURS_BACKWARDS' using errcode='P0001';

@@ -136,10 +136,14 @@ begin
     10,100,1,v_replay.work_order_id,'start',null,null,null,0,0,null,'maint-test-preventive-start-c-01'
   );
   if v_transition.status<>'in_progress' then raise exception 'MAINTENANCE_PREVENTIVE_START_FAILED'; end if;
-  select greatest(coalesce(g.operating_hours,0),coalesce(max(r.reading_value),0))+1 into v_close_hours
+  select greatest(coalesce(g.operating_hours,0),coalesce(max(r.reading_value),0)) into v_close_hours
     from public.generators g left join public.generator_fuel_readings r
       on r.tenant_id=g.tenant_id and r.site_id=g.site_id and r.generator_id=g.id
-      and r.reading_type='operating_hours' and r.corrects_reading_id is null
+      and r.reading_type='operating_hours'
+      and not exists (
+        select 1 from public.generator_fuel_readings correction
+        where correction.tenant_id=r.tenant_id and correction.corrects_reading_id=r.id
+      )
     where g.tenant_id=10 and g.site_id=100 and g.id=10000 group by g.operating_hours;
   select * into v_transition from public.powerhub_maintenance_transition_work_order(
     10,100,1,v_replay.work_order_id,'complete','Oil and filters serviced',v_close_hours,20,0,0,null,'maint-test-preventive-complete-c-01'
