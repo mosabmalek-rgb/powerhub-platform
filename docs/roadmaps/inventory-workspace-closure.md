@@ -164,3 +164,24 @@ After each cohesive PR:
 2. List newly discovered gaps instead of silently narrowing scope.
 3. Do not mark staging/production end-to-end complete unless actually executed and evidenced.
 4. Carry this file and this path into new conversations: `docs/roadmaps/inventory-workspace-closure.md`.
+
+## Phase C — Generator maintenance and breakdown management
+
+Status: implementation in progress on `feat/inventory-phase-c-maintenance`. This section is not an acceptance claim until CI and the disposable PostgreSQL workflow pass.
+
+### Scope delivered in this branch
+- Tenant/site/generator-scoped maintenance work orders with validated lifecycle transitions, closeout summary, downtime, operating-hours checks, labour/service/parts costs, and append-only audit events.
+- Spare-parts issue is executed through the existing stock-movement RPC inside the same PostgreSQL transaction as the work-order part row and recalculated order costs. Operation keys are payload-bound and replay-safe; insufficient stock or later insert/audit failure rolls the transaction back.
+- Preventive plans support date and/or operating-hour intervals, due-soon thresholds, overdue alerts, cycle-key deduplication, and resolution when a work order completes.
+- Direct table access is revoked from `anon` and `authenticated`; API requests go through authenticated server procedures with the existing `manageMaintenance` capability, plus `issueInventory` for parts and `manageExpenses` for closeout costs.
+- The inventory workspace has a maintenance tab for creating and tracking breakdown work orders and performing state transitions.
+- Added a disposable PostgreSQL integration script and a required workflow step, plus router/schema contract tests.
+
+### Required closure evidence
+1. Run the full required CI and PostgreSQL workflow on the final branch head.
+2. Fix any migration/test failures; do not weaken assertions to obtain a green run.
+3. Verify migration against a clean PostgreSQL 17 database and confirm cross-tenant generator, item, warehouse, assignee, and work-order references are rejected.
+4. Add/verify concurrency and failure rollback cases for concurrent duplicate part issues and stock movement failure.
+5. Verify role policy and capability configuration UI exposes `manageMaintenance` consistently to owners/managers/technicians.
+6. Verify the deployed migration list and actual schema before any staging rollout; production rollout remains gated on merge/release approval.
+7. Browser UI test is not part of this branch's claimed evidence until explicitly run; do not report it as passed merely because component contract tests pass.
