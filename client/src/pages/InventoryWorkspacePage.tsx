@@ -9,13 +9,14 @@ import InventorySupplierPaymentsPanel from "@/components/InventorySupplierPaymen
 import InventorySupplierPayablesAgingPanel from "@/components/InventorySupplierPayablesAgingPanel";
 import InventoryStocktakePanel from "@/components/InventoryStocktakePanel";
 import InventoryDashboardPanel from "@/components/InventoryDashboardPanel";
+import InventoryFuelConsumptionPanel from "@/components/InventoryFuelConsumptionPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck, LayoutDashboard } from "lucide-react";
+import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck, LayoutDashboard, Droplet } from "lucide-react";
 import { toast } from "sonner";
 
 const categoryLabels: Record<string, string> = {
@@ -263,18 +264,19 @@ export default function InventoryWorkspacePage() {
   });
 
   useEffect(() => {
-    if ((!canViewSuppliers && tab === "suppliers") || (!canManageSupplierPayments && tab === "supplierPayments") || (!canReadPurchases && tab === "purchases") || ((!canViewInventory && !canAccessStocktakes) && tab === "stock") || (!canViewInventoryReports && tab === "reports") || (!canViewInventory && tab === "catalog") || (!canViewInventory && tab === "warehouses")) {
+    if ((!canViewSuppliers && tab === "suppliers") || (!canManageSupplierPayments && tab === "supplierPayments") || (!canReadPurchases && tab === "purchases") || ((!canViewInventory && !canAccessStocktakes) && tab === "stock") || (!canViewInventoryReports && tab === "reports") || (!(canManageFuelAndConsumption || canViewInventoryReports) && tab === "fuel") || (!canViewInventory && tab === "catalog") || (!canViewInventory && tab === "warehouses")) {
       setTab(
         canViewInventory ? "catalog"
           : canViewSuppliers ? "suppliers"
           : canManageSupplierPayments ? "supplierPayments"
           : canAccessStocktakes ? "stock"
           : canReadPurchases ? "purchases"
+          : canManageFuelAndConsumption || canViewInventoryReports ? "fuel"
           : canViewInventoryReports ? "reports"
           : "catalog",
       );
     }
-  }, [canViewSuppliers, canManageSupplierPayments, canReadPurchases, canViewInventory, canViewInventoryReports, canAccessStocktakes, tab]);
+  }, [canViewSuppliers, canManageSupplierPayments, canReadPurchases, canViewInventory, canViewInventoryReports, canManageFuelAndConsumption, canAccessStocktakes, tab]);
 
   const selectedSiteName = useMemo(() => sites.data?.find((site) => site.id === siteId)?.name ?? "", [sites.data, siteId]);
 
@@ -306,6 +308,7 @@ export default function InventoryWorkspacePage() {
                 {canViewInventory ? <TabsTrigger value="warehouses" className="gap-2"><Warehouse className="h-4 w-4" /> المخازن</TabsTrigger> : null}
                 {canViewInventory || canAccessStocktakes ? <TabsTrigger value="stock" className="gap-2">{canAccessStocktakes && !canViewInventory ? <ClipboardCheck className="h-4 w-4" /> : <ArrowLeftRight className="h-4 w-4" />} {canAccessStocktakes && !canViewInventory ? "الجرد الفعلي" : "الأرصدة والحركات"}</TabsTrigger> : null}
                 {canReadPurchases ? <TabsTrigger value="purchases" className="gap-2"><ClipboardList className="h-4 w-4" /> المشتريات</TabsTrigger> : null}
+                {canManageFuelAndConsumption || canViewInventoryReports ? <TabsTrigger value="fuel" className="gap-2"><Droplet className="h-4 w-4" /> الوقود والاستهلاك</TabsTrigger> : null}
                 {canViewInventoryReports ? <TabsTrigger value="reports" className="gap-2"><FileSpreadsheet className="h-4 w-4" /> التقارير والتصدير</TabsTrigger> : null}
               </TabsList>
             </div>
@@ -473,6 +476,14 @@ export default function InventoryWorkspacePage() {
               /> : null}
             </TabsContent> : null}
 
+            {(canManageFuelAndConsumption || canViewInventoryReports) ? <TabsContent value="fuel" className="space-y-4">
+              <InventoryFuelConsumptionPanel
+                siteId={siteId}
+                isAuthenticated={isAuthenticated}
+                canManageFuelAndConsumption={canManageFuelAndConsumption}
+                canViewInventoryReports={canViewInventoryReports}
+              />
+            </TabsContent> : null}
             {canViewInventoryReports ? <TabsContent value="reports" className="space-y-4"><InventoryReportsPanel siteId={siteId} isAuthenticated={isAuthenticated} canViewInventoryReports={canViewInventoryReports} /></TabsContent> : null}
 
             {canReadPurchases ? <TabsContent value="purchases" className="space-y-4">

@@ -212,6 +212,46 @@ function mapPurchaseDatabaseError(
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
 }
 
+function mapFuelDatabaseError(error: { code?: string; message?: string } | null, fallback: string): never {
+  if (error?.code === "23505") throw new TRPCError({ code: "CONFLICT", message: "سبق تسجيل العملية نفسها؛ حدّث السجل قبل إعادة المحاولة." });
+  const message = error?.message ?? "";
+  const known: Record<string, { code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND" | "FORBIDDEN"; message: string }> = {
+    IDEMPOTENCY_KEY_REUSED: { code: "CONFLICT", message: "مفتاح العملية مستخدم بطلب مختلف." },
+    INSUFFICIENT_STOCK: { code: "CONFLICT", message: "رصيد مصدر الوقود لا يكفي للتعبئة." },
+    INVENTORY_BALANCE_INVALID: { code: "CONFLICT", message: "رصيد موقع الوقود غير متزن." },
+    FUEL_GENERATOR_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المولد لا يتبع هذا الفرع." },
+    FUEL_TANK_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "خزان الوقود لا يرتبط بالمولد المحدد." },
+    FUEL_SOURCE_LOCATION_INVALID: { code: "BAD_REQUEST", message: "موقع مصدر الوقود غير صالح." },
+    FUEL_DESTINATION_TANK_INVALID: { code: "BAD_REQUEST", message: "اختر خزان الوقود المرتبط بالمولد المحدد." },
+    FUEL_ITEM_MUST_BE_LITRES: { code: "BAD_REQUEST", message: "اختر صنف وقود وحدته الأساسية اللتر." },
+    INVALID_FUEL_FILL: { code: "BAD_REQUEST", message: "تحقق من كمية التعبئة والتاريخ ومستوى الخزان." },
+    INVALID_FUEL_READING: { code: "BAD_REQUEST", message: "تحقق من نوع القراءة وقيمتها وتاريخها." },
+    FUEL_READING_CORRECTION_TARGET_REQUIRED: { code: "BAD_REQUEST", message: "حدد القراءة السابقة التي تصححها." },
+    FUEL_READING_CORRECTION_TARGET_INVALID: { code: "CONFLICT", message: "صحح أحدث قراءة من النوع والخزان نفسيهما فقط." },
+    FUEL_READING_CORRECTION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا موثقًا للتصحيح." },
+    OPERATING_HOURS_BACKWARDS: { code: "CONFLICT", message: "عداد ساعات التشغيل رجع إلى قيمة أقل من القراءة السابقة." },
+    OPERATING_HOURS_BELOW_PREVIOUS_READING: { code: "CONFLICT", message: "قراءة ساعات التشغيل المصححة لا تتسق مع القراءة السابقة." },
+    OPERATING_HOURS_ABOVE_NEXT_READING: { code: "CONFLICT", message: "ساعات التشغيل تتجاوز قراءة لاحقة." },
+    OPERATING_HOURS_BELOW_GENERATOR_BASELINE: { code: "CONFLICT", message: "القراءة أقل من القيمة المحفوظة للمولد؛ استخدم تصحيحًا موثقًا." },
+    FUEL_TANK_REQUIRED: { code: "BAD_REQUEST", message: "اختر خزانًا لقراءة مستوى الوقود." },
+    OPERATING_HOURS_DO_NOT_USE_TANK: { code: "BAD_REQUEST", message: "قراءة ساعات التشغيل لا ترتبط بخزان." },
+    SITE_OUT_OF_SCOPE: { code: "FORBIDDEN", message: "الفرع المحدد غير متاح لحسابك." },
+  };
+  const match = Object.entries(known).find(([key]) => message.includes(key));
+  if (match) throw new TRPCError({ code: match[1].code, message: match[1].message });
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
+}
+
+async function requireFuelReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const canManageFuel = access.permissions.includes("manageFuelAndConsumption");
+  const canViewFuelReports = access.permissions.includes("viewInventoryReports");
+  if (!canManageFuel && !canViewFuelReports) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجلات الوقود أو تقاريره." });
+  }
+  return { ...access, canManageFuel, canViewFuelReports };
+}
+
 async function requirePurchaseReadAccess(userId: number, siteId: number) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   const canManageSupplierPayments = access.permissions.includes("manageSupplierPayments");
@@ -1258,7 +1298,7 @@ export const powerhubInventoryRouter = router({
   supplierPayablesAging: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
-      asOfDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewSupplierLedger");
@@ -1270,7 +1310,7 @@ export const powerhubInventoryRouter = router({
     }),
 
   listSupplierPaymentBatchOptions: protectedProcedure
-    .input(z.object({ siteId: z.number().int().positive(), asOfDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional() }))
+    .input(z.object({ siteId: z.number().int().positive(), asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }))
     .query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
       const [suppliersResult, agingResult] = await Promise.all([
@@ -1464,7 +1504,7 @@ export const powerhubInventoryRouter = router({
       supplierId: z.number().int().positive(),
       amount: z.number().finite().positive().max(1_000_000_000)
         .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7, "يجب ألا يزيد الرصيد الافتتاحي عن منزلتين عشريتين."),
-      asOfDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       referenceNo: z.string().trim().max(120).optional(),
       notes: z.string().trim().max(500).optional(),
     }))
@@ -1486,7 +1526,7 @@ export const powerhubInventoryRouter = router({
       companyAccountId: z.number().int().positive(),
       amount: z.number().finite().positive().max(1_000_000_000)
         .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7, "يجب ألا يزيد مبلغ الدفعة عن منزلتين عشريتين."),
-      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       referenceNo: z.string().trim().max(120).optional(),
       notes: z.string().trim().max(2000).optional(),
       operationKey: z.string().trim().min(1).max(180),
@@ -1631,6 +1671,199 @@ export const powerhubInventoryRouter = router({
         p_lines: input.lines.map((line) => ({ purchase_line_id: line.purchaseLineId, quantity: line.quantity })),
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل استلام المشتريات.");
+      return data[0];
+    }),
+
+
+  fuelWorkspaceOptions: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireFuelReadAccess(ctx.user.id, input.siteId);
+      const admin = supabaseAdmin();
+      const [generatorsResult, tanksResult, itemsResult, sourcesResult] = await Promise.all([
+        admin.from("generators").select("id,code,name,fuel_type,fuel_level_liters,operating_hours,status")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+          .order("name", { ascending: true }).limit(200),
+        admin.from("inventory_warehouses").select("id,code,name,location_type,generator_id")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+          .eq("is_active", true).eq("location_type", "generator_fuel_tank")
+          .order("name", { ascending: true }).limit(200),
+        access.canManageFuel
+          ? admin.from("inventory_items").select("id,sku,name,category,base_unit")
+              .eq("tenant_id", access.tenantId).eq("category", "fuel").eq("base_unit", "liter")
+              .eq("is_active", true).order("name", { ascending: true }).limit(300)
+          : Promise.resolve({ data: [], error: null }),
+        access.canManageFuel
+          ? admin.from("inventory_warehouses").select("id,code,name,location_type")
+              .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("is_active", true)
+              .in("location_type", ["central_warehouse", "branch_warehouse", "fixed_fuel_tank"])
+              .order("name", { ascending: true }).limit(200)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (generatorsResult.error || tanksResult.error || itemsResult.error || sourcesResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل خيارات الوقود والخزانات." });
+      }
+      const generators = (generatorsResult.data ?? []).map((row) => ({
+        id: Number(row.id), code: row.code, name: row.name, fuelType: row.fuel_type,
+        fuelLevelLiters: row.fuel_level_liters, operatingHours: row.operating_hours, status: row.status,
+      }));
+      const generatorIds = new Set(generators.map((row) => row.id));
+      return {
+        generators,
+        generatorTanks: (tanksResult.data ?? []).filter((row) => generatorIds.has(Number(row.generator_id))).map((row) => ({
+          id: Number(row.id), code: row.code, name: row.name, generatorId: Number(row.generator_id),
+        })),
+        fuelItems: (itemsResult.data ?? []).map((row) => ({ id: Number(row.id), sku: row.sku, name: row.name, baseUnit: row.base_unit })),
+        sourceLocations: (sourcesResult.data ?? []).map((row) => ({ id: Number(row.id), code: row.code, name: row.name, locationType: row.location_type })),
+        canManageFuel: access.canManageFuel,
+        canViewFuelReports: access.canViewFuelReports,
+      };
+    }),
+
+  listFuelEvents: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      generatorId: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(500).default(100),
+    }).refine((value) => !value.fromDate || !value.toDate || value.fromDate <= value.toDate, {
+      message: "نطاق تاريخ التعبئة غير صحيح.",
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireFuelReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_fuel_events", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_from_date: input.fromDate ?? null, p_to_date: input.toDate ?? null,
+        p_generator_id: input.generatorId ?? null, p_limit: input.limit,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل تعبئة الوقود." });
+      if (access.canViewFuelReports) return data ?? [];
+      return (data ?? []).map((row: Record<string, unknown>) => {
+        const { unit_cost: _unitCost, total_cost_amount: _totalCost, ...visible } = row;
+        return visible;
+      });
+    }),
+
+  listFuelReadings: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      generatorId: z.number().int().positive().optional(),
+      readingType: z.enum(["tank_level", "operating_hours"]).optional(),
+      limit: z.number().int().min(1).max(500).default(100),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireFuelReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_fuel_readings", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_generator_id: input.generatorId ?? null, p_reading_type: input.readingType ?? null,
+        p_limit: input.limit,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قراءات الوقود وساعات التشغيل." });
+      return data ?? [];
+    }),
+
+  fuelConsumptionReport: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      generatorId: z.number().int().positive().optional(),
+    }).refine((value) => value.fromDate <= value.toDate, {
+      message: "تاريخ بداية التقرير يجب ألا يتجاوز تاريخ نهايته.",
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقرير استهلاك الوقود." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_fuel_consumption_report", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب تقرير استهلاك الوقود المقاس." });
+      return data ?? [];
+    }),
+
+  recordFuelFill: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      generatorId: z.number().int().positive(),
+      fuelItemId: z.number().int().positive(),
+      sourceWarehouseId: z.number().int().positive(),
+      destinationWarehouseId: z.number().int().positive(),
+      litres: z.number().finite().positive().max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7, "كمية الوقود تقبل ثلاث منازل عشرية."),
+      occurredAt: z.string().datetime({ offset: true }),
+      levelBeforeLiters: z.number().finite().min(0).max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7).nullable().optional(),
+      levelAfterLiters: z.number().finite().min(0).max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7).nullable().optional(),
+      operatingHours: z.number().finite().min(0).max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7).nullable().optional(),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      operationKey: z.string().trim().min(1).max(150),
+    }).refine((value) => value.sourceWarehouseId !== value.destinationWarehouseId, {
+      message: "مصدر الوقود وخزان المولد يجب أن يكونا مختلفين.", path: ["destinationWarehouseId"],
+    }).refine((value) => (value.levelBeforeLiters == null) === (value.levelAfterLiters == null), {
+      message: "أدخل مستوى الخزان قبل التعبئة وبعدها معًا، أو اتركهما غير محددين.", path: ["levelAfterLiters"],
+    }).refine((value) => value.levelBeforeLiters == null || Number(value.levelAfterLiters) >= Number(value.levelBeforeLiters), {
+      message: "مستوى الخزان بعد التعبئة لا يجوز أن يقل عن المستوى المسجل قبلها.", path: ["levelAfterLiters"],
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageFuelAndConsumption");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_fuel_fill", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_generator_id: input.generatorId, p_fuel_item_id: input.fuelItemId,
+        p_source_warehouse_id: input.sourceWarehouseId, p_destination_warehouse_id: input.destinationWarehouseId,
+        p_litres: input.litres, p_occurred_at: input.occurredAt,
+        p_level_before_liters: input.levelBeforeLiters ?? null, p_level_after_liters: input.levelAfterLiters ?? null,
+        p_operating_hours: input.operatingHours ?? null, p_reference_no: input.referenceNo || null,
+        p_notes: input.notes || null, p_operation_key: input.operationKey,
+      });
+      if (error || !data?.[0]) mapFuelDatabaseError(error, "تعذر تسجيل تعبئة الوقود وترحيل حركة المخزون.");
+      if (access.permissions.includes("viewInventoryReports")) return data[0];
+      const { total_cost_amount: _totalCost, ...withoutCost } = data[0];
+      return withoutCost;
+    }),
+
+  recordFuelReading: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      generatorId: z.number().int().positive(),
+      readingType: z.enum(["tank_level", "operating_hours"]),
+      tankWarehouseId: z.number().int().positive().nullable().optional(),
+      readingValue: z.number().finite().min(0).max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7, "القراءة تقبل ثلاث منازل عشرية."),
+      recordedAt: z.string().datetime({ offset: true }),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      correctsReadingId: z.number().int().positive().nullable().optional(),
+      correctionReason: z.string().trim().min(3).max(500).optional(),
+      operationKey: z.string().trim().min(1).max(180),
+    }).superRefine((value, ctx) => {
+      if (value.readingType === "tank_level" && !value.tankWarehouseId) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tankWarehouseId"], message: "اختر خزانًا لقراءة مستوى الوقود." });
+      }
+      if (value.readingType === "operating_hours" && value.tankWarehouseId != null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tankWarehouseId"], message: "قراءة ساعات التشغيل لا ترتبط بخزان." });
+      }
+      if (value.correctsReadingId != null && !value.correctionReason?.trim()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["correctionReason"], message: "أدخل سببًا موثقًا للتصحيح." });
+      }
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageFuelAndConsumption");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_fuel_reading", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_generator_id: input.generatorId, p_reading_type: input.readingType,
+        p_tank_warehouse_id: input.tankWarehouseId ?? null, p_reading_value: input.readingValue,
+        p_recorded_at: input.recordedAt, p_reference_no: input.referenceNo || null, p_notes: input.notes || null,
+        p_corrects_reading_id: input.correctsReadingId ?? null, p_correction_reason: input.correctionReason || null,
+        p_operation_key: input.operationKey,
+      });
+      if (error || !data?.[0]) mapFuelDatabaseError(error, "تعذر تسجيل قراءة الوقود أو ساعات التشغيل.");
       return data[0];
     }),
 

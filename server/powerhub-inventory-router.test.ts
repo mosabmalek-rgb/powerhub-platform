@@ -609,4 +609,79 @@ describe("PowerHub inventory catalog and supplier API", () => {
   });
 
 
+  it("blocks a fuel fill before calling the database when the actor lacks the fuel capability", async () => {
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordFuelFill;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: {
+        siteId: 7, generatorId: 10, fuelItemId: 12, sourceWarehouseId: 4, destinationWarehouseId: 5,
+        litres: 5, occurredAt: "2026-10-22T09:00:00.000Z", operationKey: "fuel-fill:test-denied",
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenCalledWith(55, 7, expect.any(Array), "manageFuelAndConsumption");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("forwards a documented fuel reading correction through the protected RPC", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      reading_id: 901, reading_type: "operating_hours", reading_value: 102,
+      recorded_at: "2026-10-22T09:00:00.000Z", corrects_reading_id: 900, replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordFuelReading;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: {
+        siteId: 7, generatorId: 10, readingType: "operating_hours", readingValue: 102,
+        recordedAt: "2026-10-22T09:00:00.000Z", correctsReadingId: 900,
+        correctionReason: "Correct meter transcription", operationKey: "fuel-reading:correction-1",
+      },
+    });
+    expect(result).toMatchObject({ reading_id: 901, corrects_reading_id: 900 });
+    expect(state.access).toHaveBeenCalledWith(55, 7, expect.any(Array), "manageFuelAndConsumption");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_record_fuel_reading", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 55, p_generator_id: 10,
+      p_reading_type: "operating_hours", p_tank_warehouse_id: null,
+      p_reading_value: 102, p_recorded_at: "2026-10-22T09:00:00.000Z",
+      p_reference_no: null, p_notes: null, p_corrects_reading_id: 900,
+      p_correction_reason: "Correct meter transcription", p_operation_key: "fuel-reading:correction-1",
+    });
+  });
+
+  it("requires report permission before computing measured fuel consumption", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.fuelConsumptionReport;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-22" },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7);
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("hides fuel cost fields from users who can manage fuel but lack report permission", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      event_id: 80, generator_id: 10, litres: "5.000", unit_cost: "9.5000", total_cost_amount: "47.50",
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listFuelEvents;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-22", limit: 50 },
+    });
+    expect(result).toEqual([{ event_id: 80, generator_id: 10, litres: "5.000" }]);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_list_fuel_events", {
+      p_tenant_id: 44, p_site_id: 7, p_from_date: "2026-10-01", p_to_date: "2026-10-22",
+      p_generator_id: null, p_limit: 50,
+    });
+  });
+
+
 });
