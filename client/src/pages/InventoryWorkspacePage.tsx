@@ -206,7 +206,14 @@ export default function InventoryWorkspacePage() {
 
   useEffect(() => {
     if ((!canViewSuppliers && tab === "suppliers") || (!canManageSupplierPayments && tab === "supplierPayments") || (!canReadPurchases && tab === "purchases") || (!canViewInventory && tab === "stock") || (!canViewInventoryReports && tab === "reports") || (!canViewInventory && tab === "catalog") || (!canViewInventory && tab === "warehouses")) {
-      setTab(canViewInventoryReports ? "reports" : "catalog");
+      setTab(
+        canViewInventory ? "catalog"
+          : canViewSuppliers ? "suppliers"
+          : canManageSupplierPayments ? "supplierPayments"
+          : canReadPurchases ? "purchases"
+          : canViewInventoryReports ? "reports"
+          : "catalog",
+      );
     }
   }, [canViewSuppliers, canManageSupplierPayments, canReadPurchases, canViewInventory, canViewInventoryReports, tab]);
 
