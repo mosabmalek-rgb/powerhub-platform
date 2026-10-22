@@ -55,7 +55,7 @@ begin
     for update;
   if not found then raise exception 'INVENTORY_ITEM_NOT_FOUND' using errcode='P0001'; end if;
   if length(v_label) not between 1 and 40 or p_factor_to_base is null
-    or p_factor_to_base<=0 or p_factor_to_base>1000000000
+    or p_factor_to_base<=0 or p_factor_to_base>99999999.999999
     or p_factor_to_base<>round(p_factor_to_base,6) then
     raise exception 'INVALID_ITEM_UNIT_CONVERSION' using errcode='P0001';
   end if;
