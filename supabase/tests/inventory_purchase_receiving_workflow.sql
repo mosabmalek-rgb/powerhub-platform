@@ -355,6 +355,12 @@ create trigger fail_purchase_receipt_audit_for_test before insert on public.audi
 set role service_role;
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'viewPurchases',true);
 select * from public.powerhub_admin_save_role_policy(1,'manager','viewPurchases',true);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'createInventoryItems',true);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'editSuppliers',true);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'deactivateWarehouses',true);
+select * from public.powerhub_admin_save_role_policy(1,'manager','createInventoryItems',true);
+select * from public.powerhub_admin_save_role_policy(1,'manager','editSuppliers',true);
+select * from public.powerhub_admin_save_role_policy(1,'manager','deactivateWarehouses',true);
 
 do $purchase_workflow_assertions$
 declare
