@@ -180,7 +180,7 @@ export default function InventoryFuelConsumptionPanel({
     },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 15_000 },
   );
-  const selectedAlertSetting = (alertSettings.data ?? []).find((row) =>
+  const selectedAlertSetting = ((alertSettings.data ?? []) as FuelAlertSetting[]).find((row) =>
     Number(row.generator_id) === Number(activeAlertGeneratorId) &&
     Number(row.tank_warehouse_id) === Number(alertTankId),
   );

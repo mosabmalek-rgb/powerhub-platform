@@ -16,7 +16,7 @@ create table if not exists public.generator_fuel_alert_settings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (tenant_id,site_id,id),
-  unique (tenant_id,site_id,generator_id,tank_warehouse_id),
+  constraint generator_fuel_alert_settings_scope_unique unique (tenant_id,site_id,generator_id,tank_warehouse_id),
   constraint generator_fuel_alert_settings_site_fk
     foreign key (tenant_id,site_id) references public.sites(tenant_id,id) on delete restrict,
   constraint generator_fuel_alert_settings_generator_fk
@@ -178,7 +178,7 @@ begin
     p_tenant_id,p_site_id,p_generator_id,p_tank_warehouse_id,p_low_level_threshold_liters,
     p_abnormal_litres_per_hour_threshold,p_minimum_hours_delta,p_is_enabled,p_user_id,now()
   )
-  on conflict(tenant_id,site_id,generator_id,tank_warehouse_id) do update set
+  on conflict on constraint generator_fuel_alert_settings_scope_unique do update set
     low_level_threshold_liters=excluded.low_level_threshold_liters,
     abnormal_litres_per_hour_threshold=excluded.abnormal_litres_per_hour_threshold,
     minimum_hours_delta=excluded.minimum_hours_delta,is_enabled=excluded.is_enabled,
