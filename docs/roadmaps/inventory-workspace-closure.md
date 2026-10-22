@@ -73,21 +73,23 @@ The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed Powe
 ## Phase B — measured fuel and consumption (implementation and release status)
 
 - [x] Model independent stock locations/tanks and source/target tank relations (implemented in the Phase A location-type migration; Phase B reuses that model).
-- [ ] Append-only refuelling events: generator, date/time, litres, source item/location, destination generator tank, cost, level before/after, meter hours, reference and actor.
-- [ ] Append-only dated readings for tank level and hour meter; reject impossible/backwards readings except documented corrections.
-- [ ] Keep purchased, received, issued/filled, and measured consumed quantities distinct.
-- [ ] Compute measured consumption using documented opening stock + fills - ending stock - recorded withdrawals/returns as applicable.
-- [ ] When readings are insufficient, report filled/issued quantity honestly rather than asserting actual consumption.
-- [ ] Compute litres/hour from two dated, valid operating-hour readings; litres/kWh only when a reliable generator-output meter exists.
-- [ ] Configurable low-level and abnormal-use alerts with idempotent dispatch.
-- [ ] Reports by day, PowerHub cycle, month, generator, branch, stock location and cost.
-- [ ] Server/database authorization, audit, idempotency, concurrency and integration tests.
+- [x] Append-only refuelling events: generator, date/time, litres, source item/location, destination generator tank, cost, level before/after, meter hours, reference and actor (B1 / PR #318).
+- [x] Append-only dated tank-level and operating-hour readings; reject backwards readings except documented corrections (B1 / PR #318).
+- [x] Keep received/filled, stock movement outflows, recorded consumption, and measured consumption distinct.
+- [x] Calculate actual use from opening tank level + fills/inflows - stock outflows - ending tank level; return explicit insufficient-reading or reconciliation-anomaly status rather than inventing consumption.
+- [x] Compute litres/hour only with a valid positive operating-hour delta; no rate is fabricated without sufficient meter readings.
+- [x] Configurable low-level and abnormal-measured-use alerts, episode-state deduplication, recovery/re-arm, and audited idempotent settings.
+- [x] Report by day, configured PowerHub reading cycle, month, and custom range, with site/generator/tank filters and fill cost/quantity.
+- [x] Server/RPC authorization, tenant/site scoping, append-only ACL, idempotency/concurrency assertions, PostgreSQL integration tests, and the 11 fuel-domain FK support indexes.
+- [ ] Release acceptance: final-head CI green, safe staging-only Preview, real browser journey, and release/migration parity review.
 
 ### Phase B1 — auditable fuel-entry and measured-consumption foundation
 
-**PR #318 — B1 merged into main.** The merged delivery adds append-only fuel-fill events tied to atomic stock transfers, dated tank/hour readings with documented corrections, and measurement-aware reports. Current read-only migration-ledger and schema checks (2026-10-22) confirm that the B1 event/reading tables and ACL migration are present in both `powerhub-staging-dr` and production. These checks do not constitute a full UI rehearsal. The two B2 migrations for report windows and alert settings/evaluation are present only on `feat/inventory-phase-b-completion`; they were not applied to staging or production during this review.
+**PR #318 — B1 merged into main.** The merged delivery adds append-only fuel-fill events tied to atomic stock transfers and dated tank/hour readings with documented corrections. Read-only checks confirm the B1 schema and ACL migration in both `powerhub-staging-dr` and production.
 
-B1 is intentionally not the Phase B release gate: low-level/abnormal-use alert dispatch, PowerHub-cycle reporting, broader cost/report exports, concurrency hardening, and verified staging end-to-end remain open until their own tests and operational evidence pass. The disposable PostgreSQL integration test for this slice is appended to the existing inventory purchasing/receiving test, so it uses the established CI gate rather than creating a separate workflow for each small addition.
+B2 reporting and alert evaluation are implemented on PR #319. The three B2 follow-up migrations are now applied to staging only: report windows, alert settings/evaluator, and fuel-domain FK support indexes. Their PostgreSQL integration suite passed on recent PR heads, and the core implementation passed all four required GitHub Actions workflows. The latest documentation/index follow-up head must still finish PowerHub CI before the final code gate is declared green.
+
+The Phase B release gate remains open until a Preview is verified to use staging-only credentials and an actual browser E2E completes. No production B2 migration or SMS send was performed in this review. The existing inventory PostgreSQL integration workflow remains the CI gate; no separate workflow was added for this small follow-up migration.
 
 ## Phase C — complete maintenance (not yet complete)
 
@@ -122,14 +124,17 @@ B1 is merged as PR #318 and deployed. The remaining Phase B work is being assemb
 - [x] Low-level and measured-abnormal-consumption alerts use episode state plus a unique dispatch key; only one in-app notification is produced for each transition into an active episode. No SMS provider is called.
 - [x] New fuel reads/fills call the evaluator in their transaction. The existing protected Supabase Cron route calls the evaluator as a periodic backstop; no second cron job is added.
 - [x] SQL integration coverage includes day/cycle/month/custom reports, alert activation/recovery/re-arm, operation-key replay/reuse, RLS and RPC/table privilege assertions.
-- [ ] Full PR CI, staging migration parity and preview deployment smoke test. Production migration/deployment remains gated on these results.
+- [x] Staging schema/migration verification: all three B2 migrations are recorded and their tables/functions/indexes and RPC privileges were checked on `powerhub-staging-dr`.
+- [x] PostgreSQL integration, Security and Supabase Admin Guard passed on current documentation/index follow-up head; PowerHub CI is re-running and must be green on the final PR head before merge.
+- [ ] Preview deployment and browser E2E: blocked until Vercel Preview URL, publishable key, and sensitive service-role credential are each verified as staging-only. Do not use production credentials as fallback.
+- [ ] Production release/migration review; production remains unchanged by this B2 work.
 
 The abnormal-consumption alert is emitted only when the report returns a valid measured window and a sufficient positive operating-hours delta. Missing readings or reconciliation anomalies do not become fabricated zero-consumption or rate values. Preview evaluation remains disabled unless the dedicated `POWERHUB_ALLOW_PREVIEW_FUEL_ALERTS=true` opt-in is explicitly set.
 
 ## Phase B2 branch and release evidence (2026-10-22)
 
-- Current `main` SHA: `43575b04506ebdf9354066d1ba79538c0f50730b` (PR #318 merged). The consolidated Phase B2 work is tracked in [PR #319](https://github.com/mosabmalek-rgb/powerhub-platform/pull/319), currently open as a draft, head `7474018d16250c269b23482cd403475adf3a36f5`; branch is five commits ahead of main and not behind.
-- The four required GitHub Actions gates passed on that exact B2 head: [PowerHub CI](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808151664) (TypeScript, tests, production build), [PostgreSQL integration](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808151798), [Supabase Admin Guard](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808151735), and [Security](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808152099). These results are CI evidence and do not replace a browser end-to-end rehearsal.
+- Current `main` SHA: `43575b04506ebdf9354066d1ba79538c0f50730b` (PR #318 merged). The consolidated Phase B2 work is tracked in [PR #319](https://github.com/mosabmalek-rgb/powerhub-platform/pull/319), currently open as a draft. Check the live PR head and compare status before merge; the branch is ahead of main and not behind at this verification point.
+- The core B2 code head passed all four GitHub Actions gates: [PowerHub CI](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808151664) (TypeScript, tests, production build), [PostgreSQL integration](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808151798), [Supabase Admin Guard](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808151735), and [Security](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808152099). The added forward-only index migration also passed PostgreSQL integration, and Security/Guard passed on its implementation head. The latest documentation/index follow-up head is re-running all required gates; check live checks before merge. These results do not replace a browser end-to-end rehearsal.
 - Staging project `powerhub-staging-dr` (`iyuryuhaylhisjfcrwkz`) now has the two functional B2 migrations plus a forward-only fuel foreign-key index migration recorded after pre-application checks found them absent: `powerhub_fuel_report_windows` at version `20261022155753`, `powerhub_fuel_alert_settings_and_evaluator` at `20261022155913`, and `powerhub_fuel_foreign_key_indexes` at `20261022160631`. A read-only smoke call to the period-report RPC for a non-existent tenant/site returned zero rows without error. All three were applied to staging only; production was not modified.
 - Post-migration schema verification found all four alert tables present with RLS enabled; `anon` and `authenticated` have no direct SELECT on those tables or EXECUTE on the report/alert RPCs; `service_role` has the expected function execution. The two fuel insert triggers are enabled. Supabase performance advisors originally identified 11 unindexed fuel-domain foreign keys; the forward-only index migration created all 11 supporting indexes, and a fresh advisor result no longer reports fuel-related unindexed foreign keys. This staging project has no `cron` schema, and the migrations create no Cron job; do not add a duplicate scheduler. Production has not been modified by this B2 review.
 - The Vercel project is linked to this repository, but no Preview deployment exists for this branch. The matching branch-scoped frontend URL and publishable key currently belong to a different feature branch, and the Vercel API does not return the sensitive service-role key value for verification. Do **not** create/use a Preview or claim browser E2E until all three bindings are proven to point to staging; never fall back to production credentials.
