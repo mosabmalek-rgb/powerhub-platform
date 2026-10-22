@@ -145,6 +145,22 @@ begin
         where correction.tenant_id=r.tenant_id and correction.corrects_reading_id=r.id
       )
     where g.tenant_id=10 and g.site_id=100 and g.id=10000 group by g.operating_hours;
+
+  -- A close-out that jumps ahead of a later-dated meter reading must roll back all earlier writes.
+  begin
+    perform * from public.powerhub_maintenance_transition_work_order(
+      10,100,1,v_replay.work_order_id,'complete','Oil and filters serviced',v_close_hours+1,20,0,0,null,'maint-test-preventive-invalid-close-c-01'
+    );
+    raise exception 'MAINTENANCE_INVALID_METER_CLOSEOUT_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'OPERATING_HOURS_ABOVE_NEXT_READING' then raise; end if;
+  end;
+  if (select status from public.generator_maintenance_work_orders where id=v_replay.work_order_id)<>'in_progress'
+     or (select last_completed_at from public.generator_maintenance_preventive_plans where id=v_plan.plan_id) is not null
+     or exists(select 1 from public.generator_fuel_readings
+       where tenant_id=10 and operation_key='maintenance-closeout-hours:'||v_replay.work_order_id::text)
+  then raise exception 'MAINTENANCE_CLOSEOUT_FAILURE_NOT_ATOMIC'; end if;
+
   select * into v_transition from public.powerhub_maintenance_transition_work_order(
     10,100,1,v_replay.work_order_id,'complete','Oil and filters serviced',v_close_hours,20,0,0,null,'maint-test-preventive-complete-c-01'
   );
