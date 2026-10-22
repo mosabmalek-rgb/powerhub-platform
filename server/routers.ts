@@ -21,6 +21,8 @@ const adminRuntimeRouter = router({
   ...adminFeatureControlsRouter._def.record,
 });
 
+const powerhubAppRouter = mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })) as unknown as typeof powerhubRuntimeRouter & { performance: typeof powerhubDashboardRouter };
+
 const platformContactSettingsRouter = router({
   public: publicProcedure.query(async () => {
     const { data, error } = await supabaseAdmin().from("platform_settings").select("is_enabled,value").eq("setting_key","platform_contact").maybeSingle();
@@ -93,11 +95,14 @@ export const appRouter = router({
       return { success: true } as const;
     }),
   }),
-  powerhub: mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter })),
+  powerhub: powerhubAppRouter,
   support: supportRouter,
   aiSupport: aiSupportRouter,
   platformAnnouncements: platformAnnouncementsRouter,
   admin: adminRuntimeRouter,
 });
 
-export type AppRouter = Omit<typeof appRouter, "admin"> & { admin: typeof adminRuntimeRouter };
+export type AppRouter = Omit<typeof appRouter, "admin" | "powerhub"> & {
+  admin: typeof adminRuntimeRouter;
+  powerhub: typeof powerhubRuntimeRouter & { performance: typeof powerhubDashboardRouter };
+};
