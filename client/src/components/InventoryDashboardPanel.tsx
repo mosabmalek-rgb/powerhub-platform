@@ -24,6 +24,8 @@ type Props = {
   canViewInventory: boolean;
   canViewInventoryReports: boolean;
   canViewSupplierLedger: boolean;
+  canReadPurchases: boolean;
+  canAccessStocktakes: boolean;
   onNavigate: (tab: string) => void;
 };
 
@@ -44,7 +46,7 @@ function Metric({ label, value, description, icon: Icon }: {
 }
 
 export default function InventoryDashboardPanel({
-  siteId, isAuthenticated, canViewInventory, canViewInventoryReports, canViewSupplierLedger, onNavigate,
+  siteId, isAuthenticated, canViewInventory, canViewInventoryReports, canViewSupplierLedger, canReadPurchases, canAccessStocktakes, onNavigate,
 }: Props) {
   const enabled = Boolean(siteId && isAuthenticated);
   const stock = trpc.powerhub.inventory.stockOverview.useQuery(
@@ -97,8 +99,8 @@ export default function InventoryDashboardPanel({
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       {[
         { title: "دليل الأصناف", description: "تعريف الأصناف ووحدات الشراء وحدود إعادة الطلب.", tab: "catalog", icon: Boxes, show: canViewInventory || canViewInventoryReports },
-        { title: "المشتريات والاستلام", description: "المسودات والاستلام الجزئي والكامل وحالة السداد.", tab: "purchases", icon: ClipboardList, show: true },
-        { title: "المخزون والحركات", description: "الأرصدة والتحويلات والصرف والجرد الفعلي.", tab: "stock", icon: ArrowLeftRight, show: canViewInventory },
+        { title: "المشتريات والاستلام", description: "المسودات والاستلام الجزئي والكامل وحالة السداد.", tab: "purchases", icon: ClipboardList, show: canReadPurchases },
+        { title: "المخزون والحركات", description: "الأرصدة والتحويلات والصرف والجرد الفعلي.", tab: "stock", icon: ArrowLeftRight, show: canViewInventory || canAccessStocktakes },
         { title: "التقارير والتصدير", description: "الأرصدة والتكلفة وسجل الحركات الكامل.", tab: "reports", icon: CircleDollarSign, show: canViewInventoryReports },
       ].filter((entry) => entry.show).map(({ title, description, tab, icon: Icon }) => <Card key={tab}><CardContent className="flex h-full flex-col gap-3 p-4"><Icon className="h-5 w-5 text-primary" /><div className="font-semibold">{title}</div><p className="flex-1 text-sm leading-6 text-muted-foreground">{description}</p><Button type="button" variant="outline" className="w-full" onClick={() => onNavigate(tab)}>فتح المساحة</Button></CardContent></Card>)}
     </div>
