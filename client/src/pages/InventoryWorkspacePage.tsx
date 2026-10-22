@@ -5,13 +5,15 @@ import InventoryPurchasesPanel from "@/components/InventoryPurchasesPanel";
 import InventoryStockOperationsPanel from "@/components/InventoryStockOperationsPanel";
 import InventoryWarehouseTransferPanel from "@/components/InventoryWarehouseTransferPanel";
 import InventoryReportsPanel from "@/components/InventoryReportsPanel";
+import InventorySupplierPaymentsPanel from "@/components/InventorySupplierPaymentsPanel";
+import InventorySupplierPayablesAgingPanel from "@/components/InventorySupplierPayablesAgingPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet } from "lucide-react";
+import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 
 const categoryLabels: Record<string, string> = {
@@ -203,10 +205,10 @@ export default function InventoryWorkspacePage() {
   });
 
   useEffect(() => {
-    if ((!canViewSuppliers && tab === "suppliers") || (!canReadPurchases && tab === "purchases") || (!canViewInventory && tab === "stock") || (!canViewInventoryReports && tab === "reports") || (!canViewInventory && tab === "catalog") || (!canViewInventory && tab === "warehouses")) {
+    if ((!canViewSuppliers && tab === "suppliers") || (!canManageSupplierPayments && tab === "supplierPayments") || (!canReadPurchases && tab === "purchases") || (!canViewInventory && tab === "stock") || (!canViewInventoryReports && tab === "reports") || (!canViewInventory && tab === "catalog") || (!canViewInventory && tab === "warehouses")) {
       setTab(canViewInventoryReports ? "reports" : "catalog");
     }
-  }, [canViewSuppliers, canReadPurchases, canViewInventory, canViewInventoryReports, tab]);
+  }, [canViewSuppliers, canManageSupplierPayments, canReadPurchases, canViewInventory, canViewInventoryReports, tab]);
 
   const selectedSiteName = useMemo(() => sites.data?.find((site) => site.id === siteId)?.name ?? "", [sites.data, siteId]);
 
@@ -232,7 +234,8 @@ export default function InventoryWorkspacePage() {
             <div className="overflow-x-auto pb-1">
               <TabsList className="inline-flex min-w-max gap-1">
                 {canViewInventory ? <TabsTrigger value="catalog" className="gap-2"><Boxes className="h-4 w-4" /> دليل الأصناف</TabsTrigger> : null}
-                {canViewSuppliers ? <TabsTrigger value="suppliers" className="gap-2"><Store className="h-4 w-4" /> الموردون</TabsTrigger> : null}
+                {canViewSuppliers ? <TabsTrigger value="suppliers" className="gap-2"><Store className="h-4 w-4" /> الموردون والذمم</TabsTrigger> : null}
+                {canManageSupplierPayments ? <TabsTrigger value="supplierPayments" className="gap-2"><CreditCard className="h-4 w-4" /> دفعات الموردين</TabsTrigger> : null}
                 {canViewInventory ? <TabsTrigger value="warehouses" className="gap-2"><Warehouse className="h-4 w-4" /> المخازن</TabsTrigger> : null}
                 {canViewInventory ? <TabsTrigger value="stock" className="gap-2"><ArrowLeftRight className="h-4 w-4" /> الأرصدة والحركات</TabsTrigger> : null}
                 {canReadPurchases ? <TabsTrigger value="purchases" className="gap-2"><ClipboardList className="h-4 w-4" /> المشتريات</TabsTrigger> : null}
@@ -291,6 +294,7 @@ export default function InventoryWorkspacePage() {
                   {suppliers.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل الموردين…</p> : suppliers.error ? <p className="py-8 text-center text-destructive">تعذر تحميل الموردين. تحقق من صلاحياتك.</p> : !suppliers.data?.length ? <p className="py-8 text-center text-muted-foreground">لا يوجد موردون مسجلون بعد.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[650px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المورد","الرمز","مسؤول التواصل","الهاتف","أجل السداد","الحالة",...(canViewSupplierLedger ? ["كشف الحساب"] : []),...(canManageSuppliers ? ["إجراءات"] : [])].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{suppliers.data.map((supplier) => <tr key={supplier.id} className="border-t"><td className="p-3 font-medium">{supplier.name}<div className="text-xs text-muted-foreground">{supplier.email || ""}</div></td><td className="p-3">{supplier.supplier_code || "—"}</td><td className="p-3">{supplier.contact_name || "—"}</td><td className="p-3">{supplier.phone || "—"}</td><td className="p-3">{supplier.default_payment_terms_days} يوم</td><td className="p-3">{supplier.is_active ? "نشط" : "موقوف"}</td>{canViewSupplierLedger ? <td className="p-3"><Button type="button" variant="outline" size="sm" onClick={() => setSelectedSupplierLedgerId(Number(supplier.id))}>كشف الحساب</Button></td> : null}{canManageSuppliers ? <td className="p-3"><div className="flex flex-wrap gap-1"><Button type="button" size="sm" variant="outline" onClick={() => { setEditingSupplierId(Number(supplier.id)); setSupplierCode(supplier.supplier_code ?? ""); setSupplierName(supplier.name); setContactName(supplier.contact_name ?? ""); setPhone(supplier.phone ?? ""); setEmail(supplier.email ?? ""); setSupplierAddress(supplier.address ?? ""); setSupplierTaxNumber(supplier.tax_number ?? ""); setPaymentTerms(String(supplier.default_payment_terms_days)); setSupplierNotes(supplier.notes ?? ""); setShowSupplierForm(true); }}>تعديل</Button><Button type="button" size="sm" variant="outline" disabled={setSupplierActive.isPending} onClick={() => { const reason = supplier.is_active ? window.prompt("أدخل سبب إيقاف المورد (مطلوب):")?.trim() : undefined; if (supplier.is_active && (!reason || reason.length < 3)) { toast.error("أدخل سببًا واضحًا من 3 أحرف على الأقل."); return; } setSupplierActive.mutate({ siteId, supplierId: Number(supplier.id), isActive: !supplier.is_active, ...(reason ? { reason } : {}) }); }}>{supplier.is_active ? "إيقاف" : "إعادة تفعيل"}</Button></div></td> : null}</tr>)}</tbody></table></div>}
                 </CardContent>
               </Card>
+              <InventorySupplierPayablesAgingPanel siteId={siteId} isAuthenticated={isAuthenticated} canViewSupplierLedger={canViewSupplierLedger} />
                 {canViewSupplierLedger && selectedSupplierLedgerId ? <Card>
                   <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
                     <div><CardTitle>كشف حساب المورد — {supplierLedger.data?.supplier?.name ?? "جارٍ التحميل…"}</CardTitle><p className="mt-1 text-sm text-muted-foreground">كشف الفرع الحالي؛ الرصيد الموجب يمثل مبلغًا مستحقًا للمورد.</p></div>
@@ -302,6 +306,10 @@ export default function InventoryWorkspacePage() {
                   </CardContent>
                 </Card> : null}
             </TabsContent>
+
+            {canManageSupplierPayments ? <TabsContent value="supplierPayments" className="space-y-4">
+              <InventorySupplierPaymentsPanel siteId={siteId} isAuthenticated={isAuthenticated} canManageSupplierPayments={canManageSupplierPayments} />
+            </TabsContent> : null}
 
             {canViewInventory ? <TabsContent value="warehouses" className="space-y-4">
               <Card><CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0"><div><CardTitle>المخازن</CardTitle><p className="mt-1 text-sm text-muted-foreground">كل مخزن مرتبط بالفرع الحالي؛ لا توجد حركة كمية بمجرد إنشائه.</p></div>{canManageInventoryItems ? <Button onClick={() => { setEditingWarehouseId(null); setShowWarehouseForm((value) => !value); }}><Warehouse className="ml-2 h-4 w-4" /> {showWarehouseForm && editingWarehouseId === null ? "إلغاء" : "إنشاء مخزن"}</Button> : null}</CardHeader>
