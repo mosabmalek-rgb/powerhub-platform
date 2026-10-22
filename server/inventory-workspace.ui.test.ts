@@ -55,6 +55,27 @@ describe("inventory workspace UI contract", () => {
     expect(workspace).toContain("canManageSupplierPayments={canManageSupplierPayments}");
   });
 
+  it("separates supplier payment posting and reversal permissions at UI, server, RBAC, and SQL layers", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const panel = read("client/src/components/InventorySupplierPaymentsPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const admin = read("client/src/pages/AdminAdvancedWorkspace.tsx");
+    const api = read("server/admin-role-policy-router.ts");
+    const rbac = read("shared/powerhub-rbac.ts");
+    const migration = read("supabase/migrations/20261022170000_powerhub_inventory_operation_permissions.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+    expect(workspace).toContain('permissions.includes("reverseSupplierPayments")');
+    expect(workspace).toContain("canReverseSupplierPayments={canReverseSupplierPayments}");
+    expect(panel).toContain("canReverseSupplierPayments: boolean");
+    expect(panel).toContain("!canReverseSupplierPayments");
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "reverseSupplierPayments")');
+    expect(admin).toContain('id: "reverseSupplierPayments"');
+    expect(api).toContain('"reverseSupplierPayments"');
+    expect(rbac).toContain('reverseSupplierPayments: ["owner", "accountant"]');
+    expect(migration).toContain("'reverseSupplierPayments'");
+    expect(integration).toContain("'reverseSupplierPayments'");
+  });
+
   it("shows effective per-user inventory permissions after role-policy restrictions and overrides", () => {
     const admin = read("client/src/pages/AdminAdvancedWorkspace.tsx");
     expect(admin).toContain('const inherited = effectiveBase.has(capability.id) && (lookup.get(`${selectedProfile.role}:${capability.id}`) ?? true)');
