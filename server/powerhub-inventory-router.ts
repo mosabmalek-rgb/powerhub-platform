@@ -1406,7 +1406,7 @@ export const powerhubInventoryRouter = router({
       reason: z.string().trim().min(3).max(500),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "reverseSupplierPayments");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_reverse_supplier_payment_flexible", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_payment_id: input.paymentId, p_reason: input.reason,
