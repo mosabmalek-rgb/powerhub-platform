@@ -85,6 +85,8 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(integration).toContain("MAINTENANCE_DUPLICATE_OPEN_PREVENTIVE_ACCEPTED");
     expect(integration).toContain("MAINTENANCE_TRANSITION_IDEMPOTENCY_FAILED");
     expect(integration).toContain("MAINTENANCE_COMPLETION_CORRECTION_COST_FAILED");
+    expect(integration).toContain("MAINTENANCE_COMPLETION_CORRECTION_IDEMPOTENCY_PAYLOAD_CONFLICT_ACCEPTED");
+    expect(migration).toContain("case when p_action='correct_completion' then p_labor_cost");
     expect(integration).toContain("MAINTENANCE_COMPLETION_CORRECTION_DUPLICATED_STOCK");
     expect(integration).toContain("MAINTENANCE_COMPLETION_CORRECTION_DUPLICATED_METER_READING");
     expect(integration).toContain("MAINTENANCE_COMPLETION_CORRECTION_AUDIT_MISSING");
