@@ -407,7 +407,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
-  it("requires supplier-payment management permission before reversing a payment", async () => {
+  it("requires the independent supplier-payment reversal permission before reversing a payment", async () => {
     state.rpc.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
@@ -415,7 +415,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
     await expect(mutation._def.resolver({
       ctx: { user: { id: 92 } }, input: { siteId: 7, paymentId: 15, reason: "duplicate bank entry" },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(state.access).toHaveBeenCalledWith(92, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.access).toHaveBeenCalledWith(92, 7, expect.any(Array), "reverseSupplierPayments");
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
