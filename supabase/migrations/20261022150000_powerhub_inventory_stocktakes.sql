@@ -623,6 +623,7 @@ declare
   v_warehouse public.inventory_warehouses%rowtype;
   v_line public.inventory_stocktake_lines%rowtype;
   v_platform_role text;
+  v_lock_item_id bigint;
   v_variance numeric(14,3);
   v_unit_cost numeric(14,4);
   v_movement_id bigint;
@@ -643,12 +644,27 @@ begin
     return;
   end if;
   if v_stocktake.status<>'submitted' then raise exception 'STOCKTAKE_NOT_APPROVED' using errcode='P0001'; end if;
-  if not public.powerhub_inventory_stocktake_snapshot_is_current(p_tenant_id,p_site_id,p_stocktake_id) then
-    raise exception 'STOCKTAKE_STOCK_CHANGED_DURING_COUNT' using errcode='P0001';
-  end if;
+
+  -- Serialize with all stock mutations in the same warehouse before verifying the snapshot.
+  -- Lock items deterministically so a receipt, issue, transfer, or return cannot slip
+  -- between drift validation and the series of adjustment postings.
   select w.* into v_warehouse from public.inventory_warehouses w
   where w.tenant_id=p_tenant_id and w.site_id=p_site_id and w.id=v_stocktake.warehouse_id for update;
   if not found or not v_warehouse.is_active then raise exception 'STOCK_WAREHOUSE_INACTIVE' using errcode='P0001'; end if;
+
+  for v_lock_item_id in
+    select l.item_id from public.inventory_stocktake_lines l
+    where l.tenant_id=p_tenant_id and l.stocktake_id=p_stocktake_id
+    order by l.item_id
+  loop
+    perform pg_advisory_xact_lock(hashtextextended(
+      p_tenant_id::text||':inventory-stock:'||v_stocktake.warehouse_id::text||':'||v_lock_item_id::text,0
+    ));
+  end loop;
+
+  if not public.powerhub_inventory_stocktake_snapshot_is_current(p_tenant_id,p_site_id,p_stocktake_id) then
+    raise exception 'STOCKTAKE_STOCK_CHANGED_DURING_COUNT' using errcode='P0001';
+  end if;
   select coalesce(u.platform_role,'tenant_user') into v_platform_role from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
 
