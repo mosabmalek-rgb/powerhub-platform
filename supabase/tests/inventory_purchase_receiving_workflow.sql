@@ -33,6 +33,14 @@ create table public.users (
   id bigint primary key, name text, platform_role text,
   role text not null default 'user', account_status text not null default 'active'
 );
+create table public.tenant_members (
+  tenant_id bigint not null references public.tenants(id) on delete cascade,
+  user_id bigint not null references public.users(id) on delete cascade,
+  role text not null check (role in ('owner','member')),
+  is_active boolean not null default true,
+  membership_status text not null default 'active',
+  primary key (tenant_id,user_id)
+);
 create table public.sites (
   id bigint primary key, tenant_id bigint not null references public.tenants(id)
 );
@@ -162,6 +170,18 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021194100_powerhub_supplier_return_exact_cost_reconciliation.sql
 \ir ../migrations/20261021200000_powerhub_inventory_atomic_warehouse_transfers.sql
 \ir ../migrations/20261021220000_powerhub_inventory_movement_report_paging.sql
+\ir ../migrations/20261022120000_powerhub_inventory_entity_lifecycle.sql
+\ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
+\ir ../migrations/20261022143000_powerhub_inventory_location_types.sql
+\ir ../migrations/20261022150000_powerhub_inventory_stocktakes.sql
+\ir ../migrations/20261022160000_powerhub_inventory_item_units.sql
+\ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql
+\ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql
+\ir ../migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql
+\ir ../migrations/20261022190000_powerhub_inventory_phase_a_fk_indexes.sql
+\ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql
+\ir ../migrations/20261022200000_powerhub_owner_capability_overrides.sql
+\ir ../migrations/20261022203000_powerhub_inventory_supplier_ledger_statement_reconcile.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -349,6 +369,14 @@ create trigger fail_purchase_receipt_audit_for_test before insert on public.audi
 set role service_role;
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'viewPurchases',true);
 select * from public.powerhub_admin_save_role_policy(1,'manager','viewPurchases',true);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'createInventoryItems',true);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'editSuppliers',true);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'deactivateWarehouses',true);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'reverseSupplierPayments',true);
+select * from public.powerhub_admin_save_role_policy(1,'accountant','reverseSupplierPayments',true);
+select * from public.powerhub_admin_save_role_policy(1,'manager','createInventoryItems',true);
+select * from public.powerhub_admin_save_role_policy(1,'manager','editSuppliers',true);
+select * from public.powerhub_admin_save_role_policy(1,'manager','deactivateWarehouses',true);
 
 do $purchase_workflow_assertions$
 declare
@@ -1211,6 +1239,14 @@ begin
     or (v_statement->>'entry_count')::integer<>v_expected_entry_count
     or jsonb_array_length(v_statement->'entries')>1 then
     raise exception 'SUPPLIER_LEDGER_STATEMENT_TOTAL_OR_LIMIT_MISMATCH';
+  end if;
+
+  if has_function_privilege('anon','public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'UNTRUSTED_ROLE_CAN_READ_SUPPLIER_LEDGER_STATEMENT_DIRECTLY';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_READ_SUPPLIER_LEDGER_STATEMENT';
   end if;
 
   if has_function_privilege('anon','public.powerhub_inventory_cancel_purchase(bigint,bigint,bigint,bigint,text)','EXECUTE')
@@ -2383,6 +2419,984 @@ end;
 $inventory_concurrency_fixture$;
 
 
+
+
+-- Phase A master-data lifecycle: historical rows are preserved and deactivation respects balances.
+do $inventory_entity_lifecycle_assertions$
+declare
+  v_item_id bigint;
+  v_warehouse_id bigint;
+  v_supplier_id bigint;
+  v_returned_id bigint;
+  v_is_active boolean;
+  v_replayed boolean;
+  v_movement_id bigint;
+  v_before_count integer;
+  v_after_count integer;
+  v_name text;
+  v_unit text;
+begin
+  select id into v_item_id from public.powerhub_inventory_create_item(
+    10,100,1,'LIFECYCLE-DIESEL','Lifecycle diesel','fuel','liter',0,'Genset grade','initial test item'
+  );
+  select id into v_warehouse_id from public.powerhub_inventory_create_warehouse(
+    10,100,1,'LIFE-WH','Lifecycle warehouse','disposable lifecycle fixture'
+  );
+
+  select movement_id into v_movement_id from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'opening_balance',5,2,null,
+    'LIFE-OPEN','test opening stock for lifecycle gate','inventory-lifecycle:opening'
+  );
+  if v_movement_id is null then raise exception 'LIFECYCLE_OPENING_BALANCE_NOT_CREATED'; end if;
+
+  select id,name,base_unit into v_returned_id,v_name,v_unit
+  from public.powerhub_inventory_update_item(
+    10,100,1,v_item_id,'LIFECYCLE-DIESEL','Lifecycle diesel','fuel','liter',2,
+    'Revised spec','Updated through lifecycle RPC'
+  );
+  if v_returned_id<>v_item_id or v_name<>'Lifecycle diesel' or v_unit<>'liter' then
+    raise exception 'INVENTORY_ITEM_UPDATE_FAILED';
+  end if;
+
+  begin
+    perform * from public.powerhub_inventory_update_item(
+      10,100,1,v_item_id,'LIFECYCLE-DIESEL','Lifecycle diesel renamed','fuel','liter',2,
+      'Revised spec','Historical identity change must be rejected'
+    );
+    raise exception 'ITEM_NAME_CHANGE_AFTER_USE_WAS_ALLOWED';
+  exception when others then
+    if sqlerrm='ITEM_NAME_CHANGE_AFTER_USE_WAS_ALLOWED' then raise; end if;
+    if sqlerrm<>'ITEM_IDENTITY_IMMUTABLE_AFTER_USE' then raise; end if;
+  end;
+  if not exists(
+    select 1 from public.audit_logs where tenant_id=10 and site_id=100
+      and entity_type='inventory_item' and entity_id=v_item_id::text and action='update'
+  ) then raise exception 'INVENTORY_ITEM_UPDATE_AUDIT_MISSING'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_update_item(
+      10,100,1,v_item_id,'LIFECYCLE-DIESEL','Lifecycle diesel revised','fuel','piece',2,
+      'Revised spec','Illegal unit change'
+    );
+    raise exception 'ITEM_UNIT_CHANGE_AFTER_USE_WAS_ALLOWED';
+  exception when others then
+    if sqlerrm='ITEM_UNIT_CHANGE_AFTER_USE_WAS_ALLOWED' then raise; end if;
+    if sqlerrm<>'ITEM_BASE_UNIT_IMMUTABLE_AFTER_USE' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_set_item_active(
+      10,100,1,v_item_id,false,'Deactivation must be blocked while stock remains'
+    );
+    raise exception 'ITEM_WITH_STOCK_WAS_DEACTIVATED';
+  exception when others then
+    if sqlerrm='ITEM_WITH_STOCK_WAS_DEACTIVATED' then raise; end if;
+    if sqlerrm<>'INVENTORY_ITEM_HAS_STOCK' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_set_warehouse_active(
+      10,100,1,v_warehouse_id,false,'Deactivation must be blocked while stock remains'
+    );
+    raise exception 'WAREHOUSE_WITH_STOCK_WAS_DEACTIVATED';
+  exception when others then
+    if sqlerrm='WAREHOUSE_WITH_STOCK_WAS_DEACTIVATED' then raise; end if;
+    if sqlerrm<>'WAREHOUSE_HAS_STOCK' then raise; end if;
+  end;
+
+  select movement_id into v_movement_id from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'issue',5,null,null,
+    'LIFE-ISSUE','clear test fixture balance before deactivation','inventory-lifecycle:issue'
+  );
+  if v_movement_id is null then raise exception 'LIFECYCLE_STOCK_CLEAR_FAILED'; end if;
+
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_warehouse_active(
+    10,100,1,v_warehouse_id,false,'Warehouse closed after stock was fully cleared'
+  );
+  if v_returned_id<>v_warehouse_id or v_is_active or v_replayed then raise exception 'WAREHOUSE_DEACTIVATION_FAILED'; end if;
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_warehouse_active(
+    10,100,1,v_warehouse_id,false,'Warehouse closed after stock was fully cleared'
+  );
+  if not v_replayed or v_is_active then raise exception 'WAREHOUSE_DEACTIVATION_REPLAY_FAILED'; end if;
+
+  select count(*) into v_before_count from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_item_active(
+    10,100,1,v_item_id,false,'Item discontinued after stock was cleared'
+  );
+  if v_returned_id<>v_item_id or v_is_active or v_replayed then raise exception 'ITEM_DEACTIVATION_FAILED'; end if;
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_item_active(
+    10,100,1,v_item_id,false,'Item discontinued after stock was cleared'
+  );
+  if not v_replayed or v_is_active then raise exception 'ITEM_DEACTIVATION_REPLAY_FAILED'; end if;
+  select count(*) into v_after_count from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  if v_after_count<>v_before_count then raise exception 'ITEM_DEACTIVATION_CHANGED_HISTORY'; end if;
+
+  select id into v_supplier_id from public.powerhub_inventory_create_supplier(
+    10,100,1,'LIFECYCLE-SUP','Lifecycle supplier','Finance contact','0599000000',
+    'finance@example.test','Supplier address','TAX-LIFE-01',30,'Initial profile'
+  );
+  perform * from public.powerhub_inventory_update_supplier(
+    10,100,1,v_supplier_id,'LIFECYCLE-SUP','Lifecycle supplier revised','Finance lead','0599111111',
+    'finance@example.test','Revised address','TAX-LIFE-02',45,'Profile updated'
+  );
+  if not exists(select 1 from public.suppliers where tenant_id=10 and id=v_supplier_id
+    and address='Revised address' and tax_number='TAX-LIFE-02' and default_payment_terms_days=45) then
+    raise exception 'SUPPLIER_PROFILE_UPDATE_FAILED';
+  end if;
+  if not exists(select 1 from public.audit_logs where tenant_id=10 and site_id=100
+    and entity_type='supplier' and entity_id=v_supplier_id::text and action='update') then
+    raise exception 'SUPPLIER_UPDATE_AUDIT_MISSING';
+  end if;
+
+  insert into public.supplier_ledger_entries(
+    tenant_id,site_id,supplier_id,entry_type,credit_amount,entry_key,description,created_by_user_id
+  ) values (10,100,v_supplier_id,'purchase',20,'lifecycle-supplier-payable:'||v_supplier_id,
+    'Disposable integration-test payable',1);
+  begin
+    perform * from public.powerhub_inventory_set_supplier_active(
+      10,100,1,v_supplier_id,false,'Supplier cannot close while payable remains'
+    );
+    raise exception 'SUPPLIER_WITH_PAYABLE_WAS_DEACTIVATED';
+  exception when others then
+    if sqlerrm='SUPPLIER_WITH_PAYABLE_WAS_DEACTIVATED' then raise; end if;
+    if sqlerrm<>'SUPPLIER_HAS_OUTSTANDING_PAYABLE' then raise; end if;
+  end;
+
+  insert into public.supplier_ledger_entries(
+    tenant_id,site_id,supplier_id,entry_type,debit_amount,entry_key,description,created_by_user_id
+  ) values (10,100,v_supplier_id,'payment',20,'lifecycle-supplier-settled:'||v_supplier_id,
+    'Disposable integration-test settlement',1);
+  select id,is_active,replayed into v_returned_id,v_is_active,v_replayed
+  from public.powerhub_inventory_set_supplier_active(
+    10,100,1,v_supplier_id,false,'Supplier closed after settling test payable'
+  );
+  if v_returned_id<>v_supplier_id or v_is_active or v_replayed then raise exception 'SUPPLIER_DEACTIVATION_FAILED'; end if;
+  if (select count(*) from public.supplier_ledger_entries where tenant_id=10 and supplier_id=v_supplier_id)<>2 then
+    raise exception 'SUPPLIER_DEACTIVATION_CHANGED_FINANCIAL_HISTORY';
+  end if;
+
+  if has_function_privilege('authenticated','public.powerhub_inventory_update_item(bigint,bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_set_item_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_update_supplier(bigint,bigint,bigint,bigint,text,text,text,text,text,text,text,integer,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_set_supplier_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_update_warehouse(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_set_warehouse_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_INVENTORY_LIFECYCLE_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_update_item(bigint,bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_set_item_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_update_supplier(bigint,bigint,bigint,bigint,text,text,text,text,text,text,text,integer,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_set_supplier_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_update_warehouse(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_set_warehouse_active(bigint,bigint,bigint,bigint,boolean,text)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_INVENTORY_LIFECYCLE_RPC';
+  end if;
+end;
+$inventory_entity_lifecycle_assertions$;
+
+
+-- Phase A supplier opening payable balances, multi-document payments, aging and reversal.
+do $supplier_batch_payment_assertions$
+declare
+  v_supplier_id bigint;
+  v_warehouse_id bigint:=1;
+  v_item_id bigint:=1;
+  v_purchase_id bigint;
+  v_purchase_number text;
+  v_total numeric(14,2);
+  v_status text;
+  v_replayed boolean;
+  v_opening_entry_id bigint;
+  v_opening_amount numeric(14,2);
+  v_opening_date date;
+  v_payment_id bigint;
+  v_return_supplier_id bigint;
+  v_company_account_id bigint;
+  v_account_transaction_id bigint;
+  v_payment_amount numeric(14,2);
+  v_payment_date date;
+  v_allocation_count integer;
+  v_allocation_summary jsonb;
+  v_balance_before numeric(14,2);
+  v_balance_after numeric(14,2);
+  v_aging jsonb;
+  v_aging_count integer;
+  v_aging_total numeric(14,2);
+  v_reverse_payment_id bigint;
+  v_reverse_purchase_id bigint;
+  v_reverse_status text;
+  v_reverse_amount numeric(14,2);
+  v_reverse_paid numeric(14,2);
+  v_reverse_outstanding numeric(14,2);
+  v_reverse_balance numeric(14,2);
+  v_reverse_replayed boolean;
+  v_count integer;
+begin
+  select ca.opening_balance+coalesce(sum(
+    case when atx.transaction_type in ('deposit','transfer_in','collection') then atx.amount else -atx.amount end
+  ),0)::numeric(14,2)
+  into v_balance_before
+  from public.company_accounts ca
+  left join public.account_transactions atx on atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  where ca.tenant_id=10 and ca.id=1000
+  group by ca.opening_balance;
+  if v_balance_before<10 then raise exception 'BATCH_PAYMENT_TEST_ACCOUNT_BALANCE_TOO_LOW'; end if;
+
+  select id into v_supplier_id from public.powerhub_inventory_create_supplier(
+    10,100,1,'BATCH-OPENING-SUP','Batch/opening balance supplier','AP contact','0599111222',
+    'ap.batch@example.test','Finance street','TAX-BATCH-01',30,'Disposable multi-allocation fixture'
+  );
+  select purchase_id,purchase_number,total_amount into v_purchase_id,v_purchase_number,v_total
+  from public.powerhub_inventory_create_purchase(
+    10,100,1,v_supplier_id,v_warehouse_id,'BATCH-OPENING-INV',current_date,null,30,
+    'BATCH-OPENING-REF','Disposable multi-allocation fixture','batch-open:create-purchase',
+    jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',2,'unit','liter',
+      'units_to_base_factor',1,'unit_price',10,'discount_amount',0,'tax_amount',0,'notes','test line'))
+  );
+  if v_purchase_id is null or v_total<>20 then
+    raise exception 'BATCH_PAYMENT_TEST_PURCHASE_CREATE_FAILED id=% total=%',v_purchase_id,v_total;
+  end if;
+
+  select purchase_id,status,replayed into v_purchase_id,v_status,v_replayed
+  from public.powerhub_inventory_confirm_purchase(10,100,1,v_purchase_id);
+  if v_status<>'confirmed' or v_replayed then
+    raise exception 'BATCH_PAYMENT_TEST_PURCHASE_CONFIRM_FAILED status=%',v_status;
+  end if;
+
+  select ledger_entry_id,amount,as_of_date,replayed
+  into v_opening_entry_id,v_opening_amount,v_opening_date,v_replayed
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_supplier_id,5.00,current_date,'OPEN-BATCH-01','Supplier payable at onboarding'
+  );
+  if v_opening_entry_id is null or v_opening_amount<>5 or v_opening_date<>current_date or v_replayed then
+    raise exception 'SUPPLIER_OPENING_BALANCE_CREATE_FAILED';
+  end if;
+  select ledger_entry_id,amount,as_of_date,replayed
+  into v_opening_entry_id,v_opening_amount,v_opening_date,v_replayed
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_supplier_id,5.00,current_date,'OPEN-BATCH-01','Supplier payable at onboarding'
+  );
+  if not v_replayed then raise exception 'SUPPLIER_OPENING_BALANCE_REPLAY_FAILED'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_record_supplier_opening_balance(
+      10,100,1,v_supplier_id,6.00,current_date,'OPEN-BATCH-01','Changed opening balance'
+    );
+    raise exception 'SUPPLIER_OPENING_BALANCE_SECOND_AMOUNT_ACCEPTED';
+  exception when others then
+    if sqlerrm='SUPPLIER_OPENING_BALANCE_SECOND_AMOUNT_ACCEPTED' then raise; end if;
+    if sqlerrm not like '%SUPPLIER_OPENING_BALANCE_ALREADY_EXISTS%' then raise; end if;
+  end;
+
+  select payment_id,supplier_id,company_account_id,account_transaction_id,amount,payment_date,
+    allocation_count,allocation_summary,account_balance,replayed
+  into v_payment_id,v_return_supplier_id,v_company_account_id,v_account_transaction_id,v_payment_amount,
+    v_payment_date,v_allocation_count,v_allocation_summary,v_balance_after,v_replayed
+  from public.powerhub_inventory_record_supplier_payment_batch(
+    10,100,1,v_supplier_id,1000,5.00,current_date,'BATCH-PAY-01','Two documents in one bank payment',
+    'batch-open:payment-001',
+    jsonb_build_array(
+      jsonb_build_object('purchase_id',v_purchase_id,'supplier_ledger_entry_id',null,'amount',2.50),
+      jsonb_build_object('purchase_id',null,'supplier_ledger_entry_id',v_opening_entry_id,'amount',2.50)
+    )
+  );
+  if v_payment_id is null or v_return_supplier_id<>v_supplier_id or v_company_account_id<>1000
+    or v_account_transaction_id is null or v_payment_amount<>5 or v_allocation_count<>2
+    or v_balance_after<>v_balance_before-5 or v_replayed then
+    raise exception 'BATCH_SUPPLIER_PAYMENT_CREATE_FAILED payment=% count=% balance_before=% balance_after=%',
+      v_payment_id,v_allocation_count,v_balance_before,v_balance_after;
+  end if;
+
+  select count(*) into v_count from public.supplier_payment_allocations a
+  where a.tenant_id=10 and a.payment_id=v_payment_id
+    and ((a.purchase_id=v_purchase_id and a.supplier_ledger_entry_id is null and a.amount=2.5)
+      or (a.purchase_id is null and a.supplier_ledger_entry_id=v_opening_entry_id and a.amount=2.5));
+  if v_count<>2 then raise exception 'BATCH_SUPPLIER_PAYMENT_ALLOCATIONS_FAILED count=%',v_count; end if;
+  select count(*) into v_count from public.supplier_ledger_entries e
+  where e.tenant_id=10 and e.supplier_payment_id=v_payment_id and e.entry_type='payment'
+    and e.purchase_id is null and e.debit_amount=5;
+  if v_count<>1 then raise exception 'BATCH_SUPPLIER_PAYMENT_LEDGER_POSTING_FAILED'; end if;
+  select count(*) into v_count from public.account_transactions atx
+  where atx.tenant_id=10 and atx.related_supplier_payment_id=v_payment_id
+    and atx.transaction_type='withdrawal' and atx.amount=5;
+  if v_count<>1 then raise exception 'BATCH_SUPPLIER_PAYMENT_ACCOUNT_WITHDRAWAL_FAILED'; end if;
+
+  select payment_id,supplier_id,company_account_id,account_transaction_id,amount,payment_date,
+    allocation_count,allocation_summary,account_balance,replayed
+  into v_reverse_payment_id,v_return_supplier_id,v_company_account_id,v_account_transaction_id,v_payment_amount,
+    v_payment_date,v_allocation_count,v_allocation_summary,v_balance_after,v_replayed
+  from public.powerhub_inventory_record_supplier_payment_batch(
+    10,100,1,v_supplier_id,1000,5.00,current_date,'BATCH-PAY-01','Two documents in one bank payment',
+    'batch-open:payment-001',
+    jsonb_build_array(
+      jsonb_build_object('purchase_id',v_purchase_id,'supplier_ledger_entry_id',null,'amount',2.50),
+      jsonb_build_object('purchase_id',null,'supplier_ledger_entry_id',v_opening_entry_id,'amount',2.50)
+    )
+  );
+  if v_reverse_payment_id<>v_payment_id or not v_replayed or v_allocation_count<>2
+    or v_balance_after<>v_balance_before-5 then
+    raise exception 'BATCH_SUPPLIER_PAYMENT_REPLAY_FAILED';
+  end if;
+  select count(*) into v_count from public.account_transactions
+  where tenant_id=10 and related_supplier_payment_id=v_payment_id and transaction_type='withdrawal';
+  if v_count<>1 then raise exception 'BATCH_SUPPLIER_PAYMENT_REPLAY_DUPLICATED_WITHDRAWAL'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_record_supplier_payment_batch(
+      10,100,1,v_supplier_id,1000,5.00,current_date,'BATCH-PAY-01','Changed allocation',
+      'batch-open:payment-001',
+      jsonb_build_array(
+        jsonb_build_object('purchase_id',v_purchase_id,'supplier_ledger_entry_id',null,'amount',3.00),
+        jsonb_build_object('purchase_id',null,'supplier_ledger_entry_id',v_opening_entry_id,'amount',2.00)
+      )
+    );
+    raise exception 'BATCH_PAYMENT_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+  exception when others then
+    if sqlerrm='BATCH_PAYMENT_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+    if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+  end;
+
+  select public.powerhub_inventory_supplier_payables_aging(10,100,current_date) into v_aging;
+  select count(*)::integer,coalesce(sum((r.value->>'outstanding_amount')::numeric),0)::numeric(14,2)
+  into v_aging_count,v_aging_total
+  from jsonb_array_elements(v_aging->'rows') as r(value)
+  where (r.value->>'supplier_id')::bigint=v_supplier_id;
+  if v_aging_count<>2 or v_aging_total<>20 then
+    raise exception 'SUPPLIER_PAYABLE_AGING_MISMATCH count=% amount=%',v_aging_count,v_aging_total;
+  end if;
+
+  select payment_id,purchase_id,status,amount,paid_amount,outstanding_amount,account_balance,replayed
+  into v_reverse_payment_id,v_reverse_purchase_id,v_reverse_status,v_reverse_amount,v_reverse_paid,
+    v_reverse_outstanding,v_reverse_balance,v_reverse_replayed
+  from public.powerhub_inventory_reverse_supplier_payment_flexible(
+    10,100,1,v_payment_id,'Reverse a test bank posting spanning two supplier documents'
+  );
+  if v_reverse_payment_id<>v_payment_id or v_reverse_purchase_id is not null or v_reverse_status<>'reversed'
+    or v_reverse_amount<>5 or v_reverse_paid is not null or v_reverse_outstanding is not null
+    or v_reverse_balance<>v_balance_before or v_reverse_replayed then
+    raise exception 'BATCH_SUPPLIER_PAYMENT_REVERSAL_FAILED payment=% balance=% expected=% status=%',
+      v_reverse_payment_id,v_reverse_balance,v_balance_before,v_reverse_status;
+  end if;
+  select count(*) into v_count from public.account_transactions
+  where tenant_id=10 and account_id=1000 and transaction_type='deposit'
+    and reference_no='REV-SUPPLIER-PAYMENT-'||v_payment_id;
+  if v_count<>1 then raise exception 'BATCH_SUPPLIER_PAYMENT_REVERSAL_DEPOSIT_FAILED'; end if;
+
+  select payment_id,purchase_id,status,amount,paid_amount,outstanding_amount,account_balance,replayed
+  into v_reverse_payment_id,v_reverse_purchase_id,v_reverse_status,v_reverse_amount,v_reverse_paid,
+    v_reverse_outstanding,v_reverse_balance,v_reverse_replayed
+  from public.powerhub_inventory_reverse_supplier_payment_flexible(
+    10,100,1,v_payment_id,'Reverse a test bank posting spanning two supplier documents'
+  );
+  if not v_reverse_replayed or v_reverse_balance<>v_balance_before then
+    raise exception 'BATCH_SUPPLIER_PAYMENT_REVERSAL_REPLAY_FAILED';
+  end if;
+  select count(*) into v_count from public.supplier_ledger_entries
+  where tenant_id=10 and supplier_id=v_supplier_id;
+  if v_count<>4 then raise exception 'BATCH_SUPPLIER_PAYMENT_LEDGER_HISTORY_NOT_PRESERVED count=%',v_count; end if;
+
+  if has_function_privilege('authenticated','public.powerhub_inventory_record_supplier_opening_balance(bigint,bigint,bigint,bigint,numeric,date,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_record_supplier_payment_batch(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text,jsonb)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_reverse_supplier_payment_flexible(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_supplier_payables_aging(bigint,bigint,date)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_SUPPLIER_BATCH_FINANCIAL_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_record_supplier_opening_balance(bigint,bigint,bigint,bigint,numeric,date,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_record_supplier_payment_batch(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text,jsonb)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_reverse_supplier_payment_flexible(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_supplier_payables_aging(bigint,bigint,date)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_SUPPLIER_BATCH_FINANCIAL_RPC';
+  end if;
+end;
+$supplier_batch_payment_assertions$;
+
+
+-- Warehouse location types: enforce a real generator link for generator tanks and preserve identity after use.
+do $inventory_location_type_assertions$
+declare
+  v_item_id bigint;
+  v_warehouse_id bigint;
+  v_returned_id bigint;
+  v_movement_id bigint;
+  v_location_type text;
+  v_generator_id bigint;
+  v_count integer;
+begin
+  select id into v_item_id from public.inventory_items where tenant_id=10 and sku='DSL-01';
+  if v_item_id is null then raise exception 'INVENTORY_LOCATION_TEST_ITEM_MISSING'; end if;
+
+  select id,location_type,generator_id
+  into v_warehouse_id,v_location_type,v_generator_id
+  from public.powerhub_inventory_create_warehouse_with_location(
+    10,100,1,'GEN-TANK-WF-01','Workflow generator fuel tank','Linked to generator 10000',
+    'generator_fuel_tank',10000
+  );
+  if v_warehouse_id is null or v_location_type<>'generator_fuel_tank' or v_generator_id<>10000 then
+    raise exception 'GENERATOR_TANK_LINK_FAILED';
+  end if;
+  if not exists(select 1 from public.audit_logs where tenant_id=10 and site_id=100
+    and entity_type='inventory_warehouse' and entity_id=v_warehouse_id::text and action='create'
+    and after_data->>'locationType'='generator_fuel_tank' and (after_data->>'generatorId')::bigint=10000) then
+    raise exception 'GENERATOR_TANK_AUDIT_MISSING';
+  end if;
+
+  select id,location_type,generator_id into v_returned_id,v_location_type,v_generator_id
+  from public.powerhub_inventory_create_warehouse_with_location(
+    10,100,1,'FIXED-TANK-WF-01','Workflow fixed tank','No single generator association',
+    'fixed_fuel_tank',null
+  );
+  if v_returned_id is null or v_location_type<>'fixed_fuel_tank' or v_generator_id is not null then
+    raise exception 'FIXED_TANK_CREATE_FAILED';
+  end if;
+
+  begin
+    perform * from public.powerhub_inventory_create_warehouse_with_location(
+      10,100,1,'GEN-TANK-BAD-SITE','Invalid generator tank','Generator belongs to another site',
+      'generator_fuel_tank',20000
+    );
+    raise exception 'CROSS_SITE_GENERATOR_TANK_ACCEPTED';
+  exception when others then
+    if sqlerrm='CROSS_SITE_GENERATOR_TANK_ACCEPTED' then raise; end if;
+    if sqlerrm<>'STOCK_GENERATOR_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_create_warehouse_with_location(
+      10,100,1,'GEN-TANK-NO-GEN','Unlinked generator tank','Missing associated generator',
+      'generator_fuel_tank',null
+    );
+    raise exception 'GENERATOR_TANK_WITHOUT_GENERATOR_ACCEPTED';
+  exception when others then
+    if sqlerrm='GENERATOR_TANK_WITHOUT_GENERATOR_ACCEPTED' then raise; end if;
+    if sqlerrm<>'INVALID_INVENTORY_LOCATION_TYPE' then raise; end if;
+  end;
+
+  select movement_id into v_movement_id from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'opening_balance',10,5,null,
+    'GEN-TANK-OPENING','Fixture opening stock on generator tank','inventory-location:opening'
+  );
+  if v_movement_id is null then raise exception 'GENERATOR_TANK_OPENING_STOCK_FAILED'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_update_warehouse_with_location(
+      10,100,1,v_warehouse_id,'GEN-TANK-WF-01','Workflow generator fuel tank',
+      'Identity change must be blocked after movements','branch_warehouse',null
+    );
+    raise exception 'USED_WAREHOUSE_LOCATION_TYPE_CHANGED';
+  exception when others then
+    if sqlerrm='USED_WAREHOUSE_LOCATION_TYPE_CHANGED' then raise; end if;
+    if sqlerrm<>'WAREHOUSE_IDENTITY_IMMUTABLE_AFTER_USE' then raise; end if;
+  end;
+  select count(*) into v_count from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  if v_count<>1 then raise exception 'LOCATION_TYPE_CHANGE_MUTATED_MOVEMENT_HISTORY'; end if;
+
+  if has_function_privilege('authenticated','public.powerhub_inventory_create_warehouse_with_location(bigint,bigint,bigint,text,text,text,text,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_update_warehouse_with_location(bigint,bigint,bigint,bigint,text,text,text,text,bigint)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_WAREHOUSE_LOCATION_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_create_warehouse_with_location(bigint,bigint,bigint,text,text,text,text,bigint)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_update_warehouse_with_location(bigint,bigint,bigint,bigint,text,text,text,text,bigint)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_WAREHOUSE_LOCATION_RPC';
+  end if;
+end;
+$inventory_location_type_assertions$;
+
+
+-- Stocktake workflow: snapshot -> count -> submit -> approve/post, with drift rejection and replay safety.
+do $inventory_stocktake_assertions$
+declare
+  v_warehouse_id bigint;
+  v_item_id bigint;
+  v_stocktake_id bigint;
+  v_stocktake_number text;
+  v_status text;
+  v_count integer;
+  v_counted_count integer;
+  v_variance_count integer;
+  v_posted_count integer;
+  v_replayed boolean;
+  v_line record;
+  v_movement_count_before integer;
+  v_movement_count_after integer;
+  v_quantity numeric(14,3);
+  v_opening_value numeric(14,2);
+  v_posted_movement_id bigint;
+  v_bad_count integer;
+begin
+  select id into v_warehouse_id from public.inventory_warehouses
+  where tenant_id=10 and site_id=100 and code='FIXED-TANK-WF-01' and is_active;
+  select id into v_item_id from public.inventory_items
+  where tenant_id=10 and sku='DSL-01' and is_active;
+  if v_warehouse_id is null or v_item_id is null then
+    raise exception 'STOCKTAKE_TEST_FIXTURE_MISSING';
+  end if;
+
+  select stocktake_id,stocktake_number,status,item_count,replayed
+  into v_stocktake_id,v_stocktake_number,v_status,v_count,v_replayed
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Cycle count validation for fixed fuel tank',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-001'
+  );
+  if v_stocktake_id is null or v_status<>'counting' or v_count<1 or v_replayed then
+    raise exception 'STOCKTAKE_CREATE_FAILED id=% status=% count=%',v_stocktake_id,v_status,v_count;
+  end if;
+
+  select stocktake_id,stocktake_number,status,item_count,replayed
+  into v_stocktake_id,v_stocktake_number,v_status,v_count,v_replayed
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Cycle count validation for fixed fuel tank',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-001'
+  );
+  if not v_replayed or v_status<>'counting' or v_count<1 then
+    raise exception 'STOCKTAKE_CREATE_REPLAY_FAILED';
+  end if;
+
+  -- The same operation key cannot create a session for changed data.
+  begin
+    perform * from public.powerhub_inventory_create_stocktake(
+      10,100,1,v_warehouse_id,'Different reason must not replay',
+      'Disposable PostgreSQL fixture','stocktake-workflow:create-001'
+    );
+    raise exception 'STOCKTAKE_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+  exception when others then
+    if sqlerrm='STOCKTAKE_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+    if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+  end;
+
+  -- Explicitly count every active fuel item at this fixed fuel tank.
+  for v_line in
+    select l.item_id,l.system_quantity,l.system_unit_cost
+    from public.inventory_stocktake_lines l
+    where l.tenant_id=10 and l.stocktake_id=v_stocktake_id
+    order by l.item_id
+  loop
+    if v_line.item_id=v_item_id then
+      perform * from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel'
+      );
+    else
+      perform * from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,v_line.system_quantity,v_line.system_unit_cost,
+        'No variance observed in the test fixture'
+      );
+    end if;
+  end loop;
+
+  select stocktake_id,status,item_count,variance_count,replayed
+  into v_stocktake_id,v_status,v_count,v_variance_count,v_replayed
+  from public.powerhub_inventory_submit_stocktake(10,100,1,v_stocktake_id);
+  if v_status<>'submitted' or v_count<1 or v_variance_count<1 or v_replayed then
+    raise exception 'STOCKTAKE_SUBMIT_FAILED status=% items=% variances=%',v_status,v_count,v_variance_count;
+  end if;
+
+  select count(*) into v_movement_count_before from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  select stocktake_id,stocktake_number,status,item_count,variance_count,posted_movement_count,replayed
+  into v_stocktake_id,v_stocktake_number,v_status,v_count,v_variance_count,v_posted_count,v_replayed
+  from public.powerhub_inventory_post_stocktake(10,100,1,v_stocktake_id);
+  if v_status<>'posted' or v_count<1 or v_posted_count<>v_variance_count or v_replayed then
+    raise exception 'STOCKTAKE_POST_FAILED status=% count=% variance=% movement_count=%',
+      v_status,v_count,v_variance_count,v_posted_count;
+  end if;
+
+  select m.id into v_posted_movement_id
+  from public.inventory_stocktake_lines l
+  join public.inventory_stock_movements m
+    on m.tenant_id=l.tenant_id and m.id=l.posted_movement_id
+  where l.tenant_id=10 and l.stocktake_id=v_stocktake_id and l.item_id=v_item_id
+    and m.movement_type='adjustment_in'
+    and m.operation_key='stocktake:'||v_stocktake_id::text||':item:'||v_item_id::text;
+  if v_posted_movement_id is null then raise exception 'STOCKTAKE_MOVEMENT_NOT_LINKED'; end if;
+
+  select on_hand_quantity,stock_value into v_quantity,v_opening_value
+  from public.powerhub_inventory_stock_overview(10,100)
+  where warehouse_id=v_warehouse_id and item_id=v_item_id;
+  if v_quantity<>2 or v_opening_value<>12 then
+    raise exception 'STOCKTAKE_POSTED_BALANCE_MISMATCH qty=% value=%',v_quantity,v_opening_value;
+  end if;
+
+  select stocktake_id,status,item_count,variance_count,posted_movement_count,replayed
+  into v_stocktake_id,v_status,v_count,v_variance_count,v_posted_count,v_replayed
+  from public.powerhub_inventory_post_stocktake(10,100,1,v_stocktake_id);
+  if v_status<>'posted' or not v_replayed or v_posted_count<>v_variance_count then
+    raise exception 'STOCKTAKE_POST_REPLAY_FAILED';
+  end if;
+  select count(*) into v_movement_count_after from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  if v_movement_count_after<>v_movement_count_before+1 then
+    raise exception 'STOCKTAKE_POST_REPLAY_DUPLICATED_MOVEMENT before=% after=%',
+      v_movement_count_before,v_movement_count_after;
+  end if;
+
+  -- A second stocktake records what the counter saw, but an intervening stock issue must block submit.
+  select stocktake_id,status into v_stocktake_id,v_status
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Verify stale stocktake drift is rejected',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-002'
+  );
+  if v_status<>'counting' then raise exception 'STOCKTAKE_DRIFT_FIXTURE_CREATE_FAILED'; end if;
+
+  for v_line in
+    select l.item_id,l.system_quantity,l.system_unit_cost
+    from public.inventory_stocktake_lines l
+    where l.tenant_id=10 and l.stocktake_id=v_stocktake_id
+    order by l.item_id
+  loop
+    perform * from public.powerhub_inventory_record_stocktake_count(
+      10,100,1,v_stocktake_id,v_line.item_id,v_line.system_quantity,v_line.system_unit_cost,
+      'Counter recorded the snapshot quantity'
+    );
+  end loop;
+
+  select movement_id into v_posted_movement_id
+  from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'issue',1.000,null,null,
+    'ISSUE-AFTER-STOCKTAKE-SNAPSHOT','Movement posted while count was in progress',
+    'stocktake-workflow:drift-issue'
+  );
+  if v_posted_movement_id is null then raise exception 'STOCKTAKE_DRIFT_ISSUE_FIXTURE_FAILED'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_submit_stocktake(10,100,1,v_stocktake_id);
+    raise exception 'STOCKTAKE_WITH_STALE_SNAPSHOT_WAS_SUBMITTED';
+  exception when others then
+    if sqlerrm='STOCKTAKE_WITH_STALE_SNAPSHOT_WAS_SUBMITTED' then raise; end if;
+    if sqlerrm not like '%STOCKTAKE_STOCK_CHANGED_DURING_COUNT%' then raise; end if;
+  end;
+
+  select stocktake_id,status,replayed into v_stocktake_id,v_status,v_replayed
+  from public.powerhub_inventory_cancel_stocktake(
+    10,100,1,v_stocktake_id,'Cancel the stale snapshot test session'
+  );
+  if v_status<>'cancelled' or v_replayed then raise exception 'STOCKTAKE_CANCEL_FAILED'; end if;
+
+  -- Recovery path: a stocktake can become stale after it has already been submitted.
+  -- Posting must reject the stale snapshot, then an audited cancellation must release
+  -- the warehouse's open-session guard so a fresh session can start.
+  select stocktake_id,status into v_stocktake_id,v_status
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Verify recovery from a stale submitted stocktake',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-003'
+  );
+  if v_status<>'counting' then raise exception 'STOCKTAKE_SUBMITTED_DRIFT_FIXTURE_CREATE_FAILED'; end if;
+
+  for v_line in
+    select l.item_id,l.system_quantity,l.system_unit_cost
+    from public.inventory_stocktake_lines l
+    where l.tenant_id=10 and l.stocktake_id=v_stocktake_id
+    order by l.item_id
+  loop
+    perform * from public.powerhub_inventory_record_stocktake_count(
+      10,100,1,v_stocktake_id,v_line.item_id,v_line.system_quantity,v_line.system_unit_cost,
+      'Counted snapshot quantity before submission'
+    );
+  end loop;
+
+  select stocktake_id,status,item_count,variance_count,replayed
+  into v_stocktake_id,v_status,v_count,v_variance_count,v_replayed
+  from public.powerhub_inventory_submit_stocktake(10,100,1,v_stocktake_id);
+  if v_status<>'submitted' or v_count<1 or v_variance_count<>0 or v_replayed then
+    raise exception 'STOCKTAKE_SUBMITTED_DRIFT_FIXTURE_SUBMIT_FAILED';
+  end if;
+
+  select movement_id into v_posted_movement_id
+  from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'issue',1.000,null,null,
+    'ISSUE-AFTER-SUBMITTED-STOCKTAKE','Movement after submitted stocktake snapshot',
+    'stocktake-workflow:submitted-drift-issue'
+  );
+  if v_posted_movement_id is null then raise exception 'STOCKTAKE_SUBMITTED_DRIFT_ISSUE_FAILED'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_post_stocktake(10,100,1,v_stocktake_id);
+    raise exception 'STALE_SUBMITTED_STOCKTAKE_WAS_POSTED';
+  exception when others then
+    if sqlerrm='STALE_SUBMITTED_STOCKTAKE_WAS_POSTED' then raise; end if;
+    if sqlerrm not like '%STOCKTAKE_STOCK_CHANGED_DURING_COUNT%' then raise; end if;
+  end;
+
+  select stocktake_id,status,replayed into v_stocktake_id,v_status,v_replayed
+  from public.powerhub_inventory_cancel_stocktake(
+    10,100,1,v_stocktake_id,'Cancel stale submitted session after a verified stock change'
+  );
+  if v_status<>'cancelled' or v_replayed then raise exception 'STALE_SUBMITTED_STOCKTAKE_CANCEL_FAILED'; end if;
+
+  select stocktake_id,status into v_stocktake_id,v_status
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Confirm new session after stale submitted cancellation',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-004'
+  );
+  if v_status<>'counting' then raise exception 'NEW_STOCKTAKE_BLOCKED_AFTER_STALE_CANCELLATION'; end if;
+
+  select stocktake_id,status,replayed into v_stocktake_id,v_status,v_replayed
+  from public.powerhub_inventory_cancel_stocktake(
+    10,100,1,v_stocktake_id,'Close final disposable stocktake fixture'
+  );
+  if v_status<>'cancelled' or v_replayed then raise exception 'STOCKTAKE_FINAL_FIXTURE_CLEANUP_FAILED'; end if;
+
+  -- Item-line count and history are immutable once posted; every dedicated RPC is service-only.
+  if exists(
+    select 1 from public.inventory_stocktake_lines l
+    where l.tenant_id=10 and l.stocktake_id=(
+      select id from public.inventory_stocktakes where tenant_id=10 and operation_key='stocktake-workflow:create-001'
+    ) and l.posted_movement_id is null and l.variance_quantity<>0
+  ) then raise exception 'STOCKTAKE_POSTED_VARIANCE_MISSING_MOVEMENT'; end if;
+
+  if has_function_privilege('authenticated','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_list_stocktakes(bigint,bigint,bigint,integer)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_list_stocktake_lines(bigint,bigint,bigint)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_STOCKTAKE_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_list_stocktakes(bigint,bigint,bigint,integer)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_list_stocktake_lines(bigint,bigint,bigint)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_STOCKTAKE_RPC';
+  end if;
+  if not exists(select 1 from public.platform_role_policies where role='manager' and capability='manageStocktakes')
+    or not exists(select 1 from public.platform_role_policies where role='manager' and capability='approveStocktakes') then
+    -- A dedicated manager approve grant is deliberately a valid default for this test persona.
+    insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id)
+    values('manager','manageStocktakes',true,1),('manager','approveStocktakes',true,1)
+    on conflict(role,capability) do update set is_allowed=excluded.is_allowed;
+  end if;
+  if not exists(select 1 from public.staff_profile_capability_overrides where tenant_id=10
+    and profile_id=101 and capability='manageStocktakes') then
+    insert into public.staff_profile_capability_overrides(tenant_id,profile_id,capability,is_allowed,updated_by_user_id)
+    values(10,101,'manageStocktakes',true,1);
+  end if;
+end;
+$inventory_stocktake_assertions$;
+
+
+do $inventory_item_units_assertions$
+declare
+  v_item_id bigint;
+  v_purchase_id bigint;
+  v_unit_id bigint;
+  v_unit_factor numeric;
+  v_failed boolean;
+  v_error text;
+begin
+  select id into v_item_id from public.inventory_items
+    where tenant_id=10 and sku='DSL-01';
+  select id into v_purchase_id from public.supplier_purchases
+    where tenant_id=10 order by id limit 1;
+  if v_item_id is null or v_purchase_id is null then
+    raise exception 'ITEM_UNIT_DISPOSABLE_FIXTURE_MISSING';
+  end if;
+
+  select id,factor_to_base into v_unit_id,v_unit_factor
+  from public.powerhub_inventory_create_item_unit(10,100,v_item_id,1,'jerrycan',20);
+  if v_unit_id is null or v_unit_factor<>20 then
+    raise exception 'ITEM_UNIT_CREATE_FACTOR_MISMATCH';
+  end if;
+
+  -- A valid configured unit can be used in a purchase line, but this probe rolls back.
+  v_failed:=false;
+  begin
+    insert into public.supplier_purchase_lines(
+      tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,unit_price,discount_amount,tax_amount
+    ) values (10,v_purchase_id,v_item_id,1,'jerrycan',20,1,0,0);
+    raise exception 'ITEM_UNIT_VALID_LINE_PROBE_ROLLBACK';
+  exception when others then
+    if sqlerrm='ITEM_UNIT_VALID_LINE_PROBE_ROLLBACK' then
+      v_failed:=true;
+    else
+      raise;
+    end if;
+  end;
+  if not v_failed then raise exception 'ITEM_UNIT_VALID_PURCHASE_LINE_REJECTED'; end if;
+
+  -- A client cannot forge a different conversion factor.
+  v_failed:=false;
+  begin
+    insert into public.supplier_purchase_lines(
+      tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,unit_price,discount_amount,tax_amount
+    ) values (10,v_purchase_id,v_item_id,1,'jerrycan',19,1,0,0);
+    raise exception 'ITEM_UNIT_MISMATCH_PROBE_SHOULD_FAIL';
+  exception when others then
+    v_error:=sqlerrm;
+    if v_error='ITEM_UNIT_MISMATCH_PROBE_SHOULD_FAIL'
+      or v_error not like '%PURCHASE_UNIT_CONVERSION_MISMATCH%' then
+      raise;
+    end if;
+  end;
+
+  v_failed:=false;
+  begin
+    insert into public.supplier_purchase_lines(
+      tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,unit_price,discount_amount,tax_amount
+    ) values (10,v_purchase_id,v_item_id,1,'unconfigured-pack',20,1,0,0);
+    raise exception 'ITEM_UNIT_UNKNOWN_PROBE_SHOULD_FAIL';
+  exception when others then
+    v_error:=sqlerrm;
+    if v_error='ITEM_UNIT_UNKNOWN_PROBE_SHOULD_FAIL'
+      or v_error not like '%PURCHASE_UNIT_NOT_CONFIGURED%' then
+      raise;
+    end if;
+  end;
+
+  if has_function_privilege('authenticated',
+      'public.powerhub_inventory_create_item_unit(bigint,bigint,bigint,bigint,text,numeric)','EXECUTE')
+    or has_function_privilege('authenticated',
+      'public.powerhub_inventory_set_item_unit_active(bigint,bigint,bigint,bigint,bigint,boolean,text)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_ITEM_UNIT_RPC';
+  end if;
+  if not has_function_privilege('service_role',
+      'public.powerhub_inventory_create_item_unit(bigint,bigint,bigint,bigint,text,numeric)','EXECUTE')
+    or not has_function_privilege('service_role',
+      'public.powerhub_inventory_set_item_unit_active(bigint,bigint,bigint,bigint,bigint,boolean,text)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_ITEM_UNIT_RPC';
+  end if;
+end;
+$inventory_item_units_assertions$;
+
+-- Tenant users have NULL platform_role; new inventory audit paths must not synthesize an invalid role.
+do $tenant_actor_audit_role_assertions$
+declare
+  v_item_id bigint;
+  v_line record;
+  v_item_unit_id bigint;
+  v_supplier_id bigint;
+  v_supplier_return_id bigint;
+  v_supplier_credit numeric(14,2);
+  v_warehouse_id bigint;
+  v_purchase_id bigint;
+  v_purchase_line_id bigint;
+  v_stocktake_id bigint;
+  v_payment_id bigint;
+  v_opening_entry_id bigint;
+  v_status text;
+  v_replayed boolean;
+  v_amount numeric(14,2);
+  v_balance numeric(14,2);
+  v_balance_before numeric(14,2);
+  v_allocation_count integer;
+  v_posted_count integer;
+  v_returned_payment_id bigint;
+  v_audit_count integer;
+begin
+  select id into v_item_id from public.inventory_items where tenant_id=10 and sku='DSL-01';
+  select id into v_warehouse_id from public.powerhub_inventory_create_warehouse_with_location(
+    10,100,2,'TENANT-AUDIT-WH','Tenant audit test warehouse','Disposable integration fixture','branch_warehouse',null
+  );
+  perform * from public.powerhub_inventory_update_warehouse_with_location(
+    10,100,2,v_warehouse_id,'TENANT-AUDIT-WH','Tenant audit test warehouse updated',
+    'Updated by non-platform tenant actor','branch_warehouse',null
+  );
+  select id into v_item_unit_id from public.powerhub_inventory_create_item_unit(10,100,v_item_id,2,'audit-pack',4);
+  perform * from public.powerhub_inventory_set_item_unit_active(
+    10,100,v_item_id,v_item_unit_id,2,false,'Disable disposable audit test unit'
+  );
+
+  select id into v_supplier_id from public.powerhub_inventory_create_supplier(
+    10,100,2,'TENANT-AUDIT-SUP','Tenant audit role supplier',null,null,null,null,null,30,
+    'Disposable non-platform actor fixture'
+  );
+  select purchase_id,total_amount into v_purchase_id,v_amount
+  from public.powerhub_inventory_create_purchase(
+    10,100,2,v_supplier_id,v_warehouse_id,'TENANT-AUDIT-INV',current_date,current_date+30,30,
+    'TENANT-AUDIT-REF','Non-platform audit role fixture','tenant-audit:create-purchase',
+    jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',2,'unit','liter',
+      'units_to_base_factor',1,'unit_price',10,'discount_amount',0,'tax_amount',0))
+  );
+  if v_amount<>20 then raise exception 'TENANT_AUDIT_PURCHASE_CREATE_FAILED'; end if;
+  select status,replayed into v_status,v_replayed
+  from public.powerhub_inventory_confirm_purchase(10,100,2,v_purchase_id);
+  if v_status<>'confirmed' or v_replayed then raise exception 'TENANT_AUDIT_PURCHASE_CONFIRM_FAILED'; end if;
+  select id into v_purchase_line_id from public.supplier_purchase_lines
+  where tenant_id=10 and purchase_id=v_purchase_id order by id limit 1;
+  perform * from public.powerhub_inventory_receive_purchase(
+    10,100,2,v_purchase_id,current_date,'tenant-audit:receipt','Tenant actor receipt',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',2))
+  );
+
+  select ledger_entry_id,amount into v_opening_entry_id,v_amount
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,2,v_supplier_id,5,current_date,'TENANT-AUDIT-OPEN','Tenant actor opening payable'
+  );
+  if v_opening_entry_id is null or v_amount<>5 then raise exception 'TENANT_AUDIT_OPENING_BALANCE_FAILED'; end if;
+
+  select ca.opening_balance+coalesce(sum(
+    case when atx.transaction_type in ('deposit','transfer_in','collection') then atx.amount else -atx.amount end
+  ),0)::numeric(14,2)
+  into v_balance_before
+  from public.company_accounts ca
+  left join public.account_transactions atx on atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  where ca.tenant_id=10 and ca.id=1000
+  group by ca.opening_balance;
+  select payment_id,allocation_count,account_balance,replayed
+  into v_payment_id,v_allocation_count,v_balance,v_replayed
+  from public.powerhub_inventory_record_supplier_payment_batch(
+    10,100,2,v_supplier_id,1000,5,current_date,'TENANT-AUDIT-PAY','Tenant actor payment',
+    'tenant-audit:payment',
+    jsonb_build_array(jsonb_build_object('purchase_id',v_purchase_id,'supplier_ledger_entry_id',null,'amount',5))
+  );
+  if v_payment_id is null or v_allocation_count<>1 or v_replayed or v_balance<>v_balance_before-5 then
+    raise exception 'TENANT_AUDIT_BATCH_PAYMENT_FAILED';
+  end if;
+  select payment_id,status,account_balance,replayed
+  into v_returned_payment_id,v_status,v_balance,v_replayed
+  from public.powerhub_inventory_reverse_supplier_payment_flexible(
+    10,100,2,v_payment_id,'Tenant actor test reversal'
+  );
+  if v_returned_payment_id<>v_payment_id or v_status<>'reversed' or v_balance<>v_balance_before or v_replayed then
+    raise exception 'TENANT_AUDIT_PAYMENT_REVERSAL_FAILED';
+  end if;
+
+  select stocktake_id,status into v_stocktake_id,v_status
+  from public.powerhub_inventory_create_stocktake(
+    10,100,2,v_warehouse_id,'Tenant actor audit stocktake','Disposable fixture','tenant-audit:stocktake'
+  );
+  if v_status<>'counting' then raise exception 'TENANT_AUDIT_STOCKTAKE_CREATE_FAILED'; end if;
+  for v_line in
+    select item_id,system_quantity from public.inventory_stocktake_lines
+    where tenant_id=10 and stocktake_id=v_stocktake_id
+  loop
+    perform * from public.powerhub_inventory_record_stocktake_count(
+      10,100,2,v_stocktake_id,v_line.item_id,
+      case when v_line.item_id=v_item_id then greatest(v_line.system_quantity-1,0) else v_line.system_quantity end,
+      null,'Tenant actor count'
+    );
+  end loop;
+  select status into v_status from public.powerhub_inventory_submit_stocktake(10,100,2,v_stocktake_id);
+  if v_status<>'submitted' then raise exception 'TENANT_AUDIT_STOCKTAKE_SUBMIT_FAILED'; end if;
+  select status,posted_movement_count into v_status,v_posted_count
+  from public.powerhub_inventory_post_stocktake(10,100,2,v_stocktake_id);
+  if v_status<>'posted' or v_posted_count<>1 then raise exception 'TENANT_AUDIT_STOCKTAKE_POST_FAILED'; end if;
+
+  select return_id,total_credit_amount into v_supplier_return_id,v_supplier_credit
+  from public.powerhub_inventory_return_to_supplier(
+    10,100,2,v_purchase_id,current_date,'tenant-audit:supplier-return',
+    'Tenant actor supplier return','No cash refund in tenant audit test',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1)),0,null
+  );
+  if v_supplier_return_id is null or v_supplier_credit<>10 then
+    raise exception 'TENANT_AUDIT_SUPPLIER_RETURN_FAILED';
+  end if;
+
+  select count(*) into v_audit_count from public.audit_logs
+  where tenant_id=10 and user_id=2 and actor_platform_role is null
+    and entity_type in ('inventory_warehouse','inventory_item_unit','supplier_opening_balance',
+      'supplier_payment','inventory_stocktake','inventory_stocktake_line');
+  if v_audit_count<8 then raise exception 'TENANT_AUDIT_NULL_PLATFORM_ROLE_ROWS_MISSING count=%',v_audit_count; end if;
+end;
+$tenant_actor_audit_role_assertions$;
 
 select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 

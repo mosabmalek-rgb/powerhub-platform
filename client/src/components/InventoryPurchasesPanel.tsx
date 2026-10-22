@@ -289,8 +289,11 @@ export default function InventoryPurchasesPanel({
       toast.success(result.replayed ? "تم التحقق من أن الدفعة معكوسة مسبقًا." : "تم عكس دفعة المورد وإعادة المبلغ إلى حساب الشركة.");
       setPaymentReversalReasons((current) => ({ ...current, [Number(result.payment_id)]: "" }));
       await Promise.all([
-        refreshPurchaseData(Number(result.purchase_id)),
+        refreshPurchaseData(result.purchase_id == null ? undefined : Number(result.purchase_id)),
         utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
+        utils.powerhub.inventory.listSupplierPaymentBatchOptions.invalidate(),
+        utils.powerhub.inventory.listSupplierPaymentHistory.invalidate(),
+        utils.powerhub.inventory.supplierPayablesAging.invalidate(),
       ]);
     },
     onError: (error) => toast.error(error.message || "تعذر عكس دفعة المورد."),
@@ -547,7 +550,11 @@ export default function InventoryPurchasesPanel({
                         <label className={inputGridClass}>الصنف
                           <select className={selectClass} value={line.itemId} onChange={(event) => {
                             const item = options.data?.items.find((candidate) => String(candidate.id) === event.target.value);
-                            setDraftLines((lines) => updateLine(lines, line.key, { itemId: event.target.value, unit: item?.base_unit ?? "" }));
+                            setDraftLines((lines) => updateLine(lines, line.key, {
+                              itemId: event.target.value,
+                              unit: item?.base_unit ?? "",
+                              unitsToBaseFactor: "1",
+                            }));
                           }} required>
                             <option value="">اختر الصنف</option>
                             {options.data?.items.map((item) => <option key={item.id} value={item.id}>{item.name}{item.sku ? ` — ${item.sku}` : ""}</option>)}
@@ -557,10 +564,22 @@ export default function InventoryPurchasesPanel({
                           <Input type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => setDraftLines((lines) => updateLine(lines, line.key, { quantity: event.target.value }))} required />
                         </label>
                         <label className={inputGridClass}>وحدة الشراء
-                          <Input value={line.unit} onChange={(event) => setDraftLines((lines) => updateLine(lines, line.key, { unit: event.target.value }))} maxLength={40} required />
+                          <select className={selectClass} value={line.unit} onChange={(event) => {
+                            const itemUnit = options.data?.units.find((candidate) => Number(candidate.item_id) === Number(line.itemId) && candidate.unit_label === event.target.value);
+                            const baseUnit = options.data?.items.find((candidate) => String(candidate.id) === line.itemId)?.base_unit;
+                            setDraftLines((lines) => updateLine(lines, line.key, {
+                              unit: event.target.value,
+                              unitsToBaseFactor: event.target.value === baseUnit ? "1" : String(itemUnit?.factor_to_base ?? ""),
+                            }));
+                          }} required disabled={!selectedItem}>
+                            {selectedItem ? <option value={selectedItem.base_unit}>{selectedItem.base_unit} (الوحدة الأساسية)</option> : <option value="">اختر الصنف أولًا</option>}
+                            {options.data?.units.filter((candidate) => Number(candidate.item_id) === Number(line.itemId)).map((candidate) => (
+                              <option key={candidate.id} value={candidate.unit_label}>{candidate.unit_label}</option>
+                            ))}
+                          </select>
                         </label>
-                        <label className={inputGridClass}>كمية الوحدة الأساسية لكل وحدة شراء
-                          <Input type="number" min="0.000001" step="0.000001" value={line.unitsToBaseFactor} onChange={(event) => setDraftLines((lines) => updateLine(lines, line.key, { unitsToBaseFactor: event.target.value }))} required />
+                        <label className={inputGridClass}>معامل التحويل (وحدة أساسية لكل وحدة شراء)
+                          <Input type="number" min="0.000001" step="0.000001" value={line.unitsToBaseFactor} readOnly disabled required />
                         </label>
                         <label className={inputGridClass}>سعر الوحدة
                           <Input type="number" min="0" step="0.0001" value={line.unitPrice} onChange={(event) => setDraftLines((lines) => updateLine(lines, line.key, { unitPrice: event.target.value }))} required />
@@ -644,7 +663,7 @@ export default function InventoryPurchasesPanel({
                   <div><p className="text-xs text-muted-foreground">المخزن</p><p className="font-semibold">{details.data.purchase.warehouseName}</p></div>
                   <div><p className="text-xs text-muted-foreground">الحالة</p><p className="font-semibold">{statusLabels[details.data.purchase.status] ?? details.data.purchase.status}</p></div>
                   <div><p className="text-xs text-muted-foreground">تاريخ الفاتورة</p><p>{details.data.purchase.invoice_date}</p></div>
-                  {canViewFinancials ? <><div><p className="text-xs text-muted-foreground">الإجمالي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.total_amount)}</p></div><div><p className="text-xs text-muted-foreground">الاستحقاق</p><p>{details.data.purchase.due_date || "—"}</p></div><div><p className="text-xs text-muted-foreground">المرجع</p><p>{details.data.purchase.reference_no || "—"}</p></div><div><p className="text-xs text-muted-foreground">إجمالي المدفوع</p><p className="font-semibold">{formatAmount(details.data.purchase.paidAmount)}</p></div><div><p className="text-xs text-muted-foreground">المتبقي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.outstandingAmount)}</p></div></> : null}
+                  {canViewFinancials ? <><div><p className="text-xs text-muted-foreground">الإجمالي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.total_amount)}</p></div><div><p className="text-xs text-muted-foreground">الاستحقاق</p><p>{details.data.purchase.due_date || "—"}</p></div><div><p className="text-xs text-muted-foreground">المرجع</p><p>{details.data.purchase.reference_no || "—"}</p></div><div><p className="text-xs text-muted-foreground">إجمالي المدفوع</p><p className="font-semibold">{formatAmount(details.data.purchase.paidAmount)}</p></div><div><p className="text-xs text-muted-foreground">المتبقي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.outstandingAmount)}</p></div><div><p className="text-xs text-muted-foreground">حالة السداد</p><p className="font-semibold">{Number(details.data.purchase.total_amount) <= 0 ? "لا يوجد مبلغ مستحق" : Number(details.data.purchase.outstandingAmount) <= 0 ? "مسددة بالكامل" : Number(details.data.purchase.paidAmount) > 0 || Number(details.data.purchase.supplierReturnCreditAmount) > 0 ? "مسددة جزئيًا" : "على الحساب — غير مدفوعة"}</p></div></> : null}
                 </div>
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full min-w-[850px] text-right text-sm">

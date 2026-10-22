@@ -36,4 +36,17 @@ describe("tenant sidebar access", () => {
   it("does not expose unknown routes", () => {
     expect(tenantMenuRouteAllowed("/does-not-exist", "owner")).toBe(false);
   });
+
+  it("allows supplier-payment-only overrides to reach the inventory workspace", () => {
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["manageSupplierPayments"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["manageSuppliers"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/inventory", "technician", [], true)).toBe(false);
+  });
+
+  it("allows stocktake-only staff to reach the shared inventory workspace", () => {
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["viewStocktakes"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["manageStocktakes"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["approveStocktakes"], true)).toBe(true);
+  });
+
 });

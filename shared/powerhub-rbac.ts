@@ -27,16 +27,29 @@ export type PowerCapability =
   | "viewPurchases"
   | "manageInventoryItems"
   | "manageSuppliers"
+  | "createInventoryItems"
+  | "editInventoryItems"
+  | "deactivateInventoryItems"
+  | "createSuppliers"
+  | "editSuppliers"
+  | "deactivateSuppliers"
+  | "createWarehouses"
+  | "editWarehouses"
+  | "deactivateWarehouses"
   | "createPurchases"
   | "approvePurchases"
   | "receiveInventory"
   | "manageSupplierPayments"
+  | "reverseSupplierPayments"
   | "viewSupplierLedger"
   | "issueInventory"
   | "adjustInventory"
   | "manageFuelAndConsumption"
   | "manageMaintenance"
-  | "viewInventoryReports";
+  | "viewInventoryReports"
+  | "viewStocktakes"
+  | "manageStocktakes"
+  | "approveStocktakes";
 
 export const powerRoleLabels: Record<PowerRole, string> = {
   owner: "صاحب مولد",
@@ -76,16 +89,29 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   viewPurchases: ["owner", "manager", "accountant", "viewer"],
   manageInventoryItems: ["owner", "manager"],
   manageSuppliers: ["owner", "manager", "accountant"],
+  createInventoryItems: ["owner", "manager"],
+  editInventoryItems: ["owner", "manager"],
+  deactivateInventoryItems: ["owner", "manager"],
+  createSuppliers: ["owner", "manager", "accountant"],
+  editSuppliers: ["owner", "manager", "accountant"],
+  deactivateSuppliers: ["owner", "manager"],
+  createWarehouses: ["owner", "manager"],
+  editWarehouses: ["owner", "manager"],
+  deactivateWarehouses: ["owner", "manager"],
   createPurchases: ["owner", "manager", "accountant"],
   approvePurchases: ["owner", "manager", "accountant"],
   receiveInventory: ["owner", "manager", "accountant", "technician"],
   manageSupplierPayments: ["owner", "accountant"],
+  reverseSupplierPayments: ["owner", "accountant"],
   viewSupplierLedger: ["owner", "manager", "accountant"],
   issueInventory: ["owner", "manager", "technician"],
   adjustInventory: ["owner", "manager"],
   manageFuelAndConsumption: ["owner", "manager", "technician"],
   manageMaintenance: ["owner", "manager", "technician"],
   viewInventoryReports: ["owner", "manager", "accountant", "viewer"],
+  viewStocktakes: ["owner", "manager", "accountant", "viewer"],
+  manageStocktakes: ["owner", "manager", "accountant"],
+  approveStocktakes: ["owner", "manager"],
 };
 
 export const powerCapabilityLabels: Record<PowerCapability, string> = {
@@ -106,18 +132,31 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   viewInventory: "عرض المخزون",
   viewSuppliers: "عرض دليل الموردين",
   viewPurchases: "عرض المشتريات",
-  manageInventoryItems: "إدارة دليل الأصناف والمستودعات",
-  manageSuppliers: "إدارة الموردين",
+  manageInventoryItems: "إدارة الأصناف والمستودعات (صلاحية توافقية)",
+  manageSuppliers: "إدارة الموردين (صلاحية توافقية)",
+  createInventoryItems: "إنشاء الأصناف ووحدات الشراء",
+  editInventoryItems: "تعديل بيانات الأصناف",
+  deactivateInventoryItems: "إيقاف وإعادة تفعيل الأصناف ووحدات الشراء",
+  createSuppliers: "إنشاء الموردين",
+  editSuppliers: "تعديل بيانات الموردين",
+  deactivateSuppliers: "إيقاف وإعادة تفعيل الموردين",
+  createWarehouses: "إنشاء مواقع التخزين",
+  editWarehouses: "تعديل مواقع التخزين",
+  deactivateWarehouses: "إيقاف وإعادة تفعيل مواقع التخزين",
   createPurchases: "إنشاء فواتير المشتريات",
   approvePurchases: "اعتماد المشتريات",
   receiveInventory: "تأكيد استلام الأصناف",
-  manageSupplierPayments: "تسجيل واعتماد دفعات الموردين",
+  manageSupplierPayments: "تسجيل دفعات الموردين",
+  reverseSupplierPayments: "عكس دفعات الموردين بسبب موثق",
   viewSupplierLedger: "عرض ذمم وكشوف الموردين",
   issueInventory: "صرف الأصناف للمولدات",
   adjustInventory: "الجرد والتسويات المخزنية",
   manageFuelAndConsumption: "إدارة الوقود والاستهلاك",
   manageMaintenance: "إدارة أوامر الصيانة",
   viewInventoryReports: "عرض وتصدير تقارير المخزون",
+  viewStocktakes: "عرض سجل جلسات الجرد ونتائج العد",
+  manageStocktakes: "إنشاء جلسات الجرد وإدخال نتائج العد",
+  approveStocktakes: "اعتماد وترحيل الجرد المخزني",
 };
 
 export function can(role: PowerRole | undefined | null, capability: PowerCapability, permissions?: readonly PowerCapability[] | null) {
