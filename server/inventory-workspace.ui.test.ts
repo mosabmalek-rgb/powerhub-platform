@@ -295,7 +295,7 @@ describe("inventory workspace UI contract", () => {
     expect(workspace).toContain("setItemUnitActive.useMutation");
     expect(workspace).toContain("عدد الوحدات الأساسية داخلها");
     expect(purchases).toContain("options.data?.units.filter");
-    expect(purchases).toContain("unitsToBaseFactor: String(itemUnit?.factor_to_base");
+    expect(purchases).toContain('String(itemUnit?.factor_to_base ?? "")');
     expect(purchases).toContain("readOnly disabled");
     expect(router).toContain("listItemUnits: protectedProcedure");
     expect(router).toContain("createItemUnit: protectedProcedure");
