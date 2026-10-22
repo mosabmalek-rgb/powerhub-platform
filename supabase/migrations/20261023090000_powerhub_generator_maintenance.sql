@@ -720,6 +720,14 @@ begin
   if v_source.status<>'completed' then
     raise exception 'MAINTENANCE_REOPEN_REQUIRES_COMPLETED_ORDER' using errcode='P0001';
   end if;
+  if exists(
+    select 1 from public.generator_maintenance_work_orders w
+    where w.tenant_id=p_tenant_id and w.site_id=p_site_id
+      and w.reopened_from_work_order_id=v_source.id
+      and w.status in ('scheduled','new','in_progress','waiting_for_parts')
+  ) then
+    raise exception 'MAINTENANCE_FOLLOWUP_ALREADY_OPEN' using errcode='P0001';
+  end if;
   if v_source.order_type='preventive' and exists(
     select 1 from public.generator_maintenance_work_orders w
     where w.tenant_id=p_tenant_id and w.site_id=p_site_id
