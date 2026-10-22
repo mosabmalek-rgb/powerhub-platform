@@ -26,6 +26,23 @@ type MaintenancePreventivePlanListRow = {
   alert_type: "due_soon" | "overdue" | "resolved" | null;
   observed_operating_hours: number | null;
 };
+type MaintenanceReportRow = {
+  generator_id: number;
+  generator_name: string;
+  fault_title: string;
+  work_order_count: number;
+  breakdown_count: number;
+  preventive_count: number;
+  completed_count: number;
+  open_count: number;
+  downtime_minutes: number;
+  parts_cost: number;
+  labor_cost: number;
+  external_service_cost: number;
+  total_cost_amount: number;
+  first_reported_at: string;
+  last_reported_at: string;
+};
 type MaintenancePartListRow = {
   part_id: number;
   item_id: number;
@@ -79,9 +96,10 @@ const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> =
       "MAINTENANCE_PART_CATEGORY_INVALID", "MAINTENANCE_CANCEL_REASON_REQUIRED",
       "MAINTENANCE_PLAN_INTERVAL_REQUIRED", "MAINTENANCE_PLAN_DATE_DUE_REQUIRED",
       "MAINTENANCE_PLAN_HOURS_DUE_REQUIRED", "MAINTENANCE_PLAN_OUT_OF_SCOPE",
-      "MAINTENANCE_PREVENTIVE_PLAN_REQUIRED", "generator_maintenance_work_orders_preventive_open_plan_unique"
+      "MAINTENANCE_PREVENTIVE_PLAN_REQUIRED", "INVALID_MAINTENANCE_REPORT_RANGE",
+      "generator_maintenance_work_orders_preventive_open_plan_unique"
     ].find((candidate) => message.includes(candidate));
-    if (code) throw new TRPCError({ code: "BAD_REQUEST", message: code === "generator_maintenance_work_orders_preventive_open_plan_unique" ? "توجد بالفعل مهمة صيانة وقائية مفتوحة لهذه الخطة. أكملها أو ألغها قبل إنشاء أمر جديد." : code });
+    if (code) throw new TRPCError({ code: "BAD_REQUEST", message: code === "generator_maintenance_work_orders_preventive_open_plan_unique" ? "توجد بالفعل مهمة صيانة وقائية مفتوحة لهذه الخطة. أكملها أو ألغها قبل إنشاء أمر جديد." : code === "INVALID_MAINTENANCE_REPORT_RANGE" ? "نطاق التقرير غير صحيح؛ اختر تاريخ بداية ونهاية خلال مدة لا تتجاوز 366 يومًا." : code });
     console.error("[PowerHub maintenance RPC]", { name, code: error.code });
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تنفيذ عملية الصيانة. تحقق من البيانات والصلاحيات ثم أعد المحاولة." });
   }
@@ -89,6 +107,18 @@ const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> =
 };
 
 export const powerhubMaintenanceRouter = router({
+  reportByGenerator: authenticatedProcedure.input(z.object({
+    siteId: z.number().int().positive(),
+    fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+    toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+    generatorId: z.number().int().positive().optional(),
+  })).query(async ({ ctx, input }) => {
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "manageMaintenance");
+    return rpc<MaintenanceReportRow[]>("powerhub_maintenance_report_by_generator", {
+      p_tenant_id: access.tenantId, p_site_id: input.siteId,
+      p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
+    });
+  }),
   listWorkOrders: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(),
     generatorId: z.number().int().positive().optional(),

@@ -21,6 +21,8 @@ declare
   v_constraint_name text;
   v_notification_count_before bigint;
   v_notification_count_after bigint;
+  v_report_rows bigint;
+  v_report_cost numeric;
 begin
   -- Create a disposable stock item and seed it through the same audited ledger.
   insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
@@ -172,6 +174,11 @@ begin
     or has_table_privilege('authenticated','public.generator_maintenance_preventive_plans','SELECT') then
     raise exception 'MAINTENANCE_DIRECT_TABLE_ACCESS_GRANTED';
   end if;
+  if has_function_privilege('anon','public.powerhub_maintenance_report_by_generator(bigint,bigint,date,date,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_maintenance_report_by_generator(bigint,bigint,date,date,bigint)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_maintenance_report_by_generator(bigint,bigint,date,date,bigint)','EXECUTE') then
+    raise exception 'MAINTENANCE_REPORT_RPC_ACL_FAILED';
+  end if;
   if has_function_privilege('anon','public.powerhub_maintenance_create_work_order(bigint,bigint,bigint,bigint,bigint,text,text,text,text,timestamp with time zone,timestamp with time zone,bigint,text)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_maintenance_create_work_order(bigint,bigint,bigint,bigint,bigint,text,text,text,text,timestamp with time zone,timestamp with time zone,bigint,text)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_maintenance_create_work_order(bigint,bigint,bigint,bigint,bigint,text,text,text,text,timestamp with time zone,timestamp with time zone,bigint,text)','EXECUTE') then
@@ -180,6 +187,26 @@ begin
   if (select count(*) from public.generator_maintenance_audit_events where tenant_id=10 and operation_key='maint-test-part-c-01')<>1 then
     raise exception 'MAINTENANCE_PART_AUDIT_DUPLICATED';
   end if;
+
+  select count(*) into v_report_rows from public.powerhub_maintenance_report_by_generator(
+    10,100,(now() at time zone 'Asia/Gaza')::date-1,(now() at time zone 'Asia/Gaza')::date+1,null
+  );
+  if v_report_rows<2 then raise exception 'MAINTENANCE_REPORT_MISSING_WORK_ORDER_GROUPS'; end if;
+  select coalesce(sum(r.total_cost_amount),0) into v_report_cost from public.powerhub_maintenance_report_by_generator(
+    10,100,(now() at time zone 'Asia/Gaza')::date-1,(now() at time zone 'Asia/Gaza')::date+1,null
+  ) r;
+  if v_report_cost<>80 then raise exception 'MAINTENANCE_REPORT_COST_RECONCILIATION_FAILED'; end if;
+  if exists(select 1 from public.powerhub_maintenance_report_by_generator(
+    10,100,(now() at time zone 'Asia/Gaza')::date-1,(now() at time zone 'Asia/Gaza')::date+1,20000
+  )) then raise exception 'MAINTENANCE_REPORT_GENERATOR_SCOPE_FAILED'; end if;
+  begin
+    perform * from public.powerhub_maintenance_report_by_generator(
+      10,100,(now() at time zone 'Asia/Gaza')::date-400,(now() at time zone 'Asia/Gaza')::date,null
+    );
+    raise exception 'MAINTENANCE_REPORT_RANGE_LIMIT_NOT_ENFORCED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'INVALID_MAINTENANCE_REPORT_RANGE' then raise; end if;
+  end;
 end;
 $maintenance_phase_c$;
 

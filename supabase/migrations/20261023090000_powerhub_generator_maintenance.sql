@@ -655,6 +655,56 @@ begin
 end;
 $maintenance_eval$;
 
+create or replace function public.powerhub_maintenance_report_by_generator(
+  p_tenant_id bigint,p_site_id bigint,p_from_date date,p_to_date date,p_generator_id bigint default null
+)
+returns table(
+  generator_id bigint,generator_name text,fault_title text,work_order_count bigint,
+  breakdown_count bigint,preventive_count bigint,completed_count bigint,open_count bigint,
+  downtime_minutes bigint,parts_cost numeric,labor_cost numeric,external_service_cost numeric,
+  total_cost_amount numeric,first_reported_at timestamptz,last_reported_at timestamptz
+)
+language plpgsql stable security invoker set search_path=public,pg_temp
+as $maintenance_report$
+declare
+  v_timezone text;
+begin
+  if p_tenant_id is null or p_site_id is null or p_from_date is null or p_to_date is null
+     or p_from_date>p_to_date or (p_to_date-p_from_date)>365 then
+    raise exception 'INVALID_MAINTENANCE_REPORT_RANGE' using errcode='P0001';
+  end if;
+
+  select coalesce(nullif(btrim(c.timezone),''),'Asia/Gaza') into v_timezone
+    from public.tenant_reading_cycle_configurations c
+    where c.tenant_id=p_tenant_id and c.site_id=p_site_id;
+  v_timezone:=coalesce(v_timezone,'Asia/Gaza');
+
+  return query
+  select w.generator_id,g.name,min(btrim(w.title)),
+    count(*)::bigint,
+    count(*) filter(where w.order_type='breakdown')::bigint,
+    count(*) filter(where w.order_type='preventive')::bigint,
+    count(*) filter(where w.status='completed')::bigint,
+    count(*) filter(where w.status in ('scheduled','new','in_progress','waiting_for_parts'))::bigint,
+    coalesce(sum(w.downtime_minutes),0)::bigint,
+    coalesce(sum(w.parts_cost),0)::numeric,
+    coalesce(sum(w.labor_cost),0)::numeric,
+    coalesce(sum(w.external_service_cost),0)::numeric,
+    coalesce(sum(w.total_cost_amount),0)::numeric,
+    min(coalesce(w.reported_at,w.created_at)),
+    max(coalesce(w.reported_at,w.created_at))
+  from public.generator_maintenance_work_orders w
+  join public.generators g
+    on g.tenant_id=w.tenant_id and g.site_id=w.site_id and g.id=w.generator_id
+  where w.tenant_id=p_tenant_id and w.site_id=p_site_id
+    and (p_generator_id is null or w.generator_id=p_generator_id)
+    and coalesce(w.reported_at,w.created_at) >= (p_from_date::timestamp at time zone v_timezone)
+    and coalesce(w.reported_at,w.created_at) < ((p_to_date+1)::timestamp at time zone v_timezone)
+  group by w.generator_id,g.name,lower(regexp_replace(btrim(w.title),'[[:space:]]+',' ','g'))
+  order by g.name,count(*) desc,min(coalesce(w.reported_at,w.created_at)) desc;
+end;
+$maintenance_report$;
+
 create or replace function public.powerhub_maintenance_list_work_orders(
   p_tenant_id bigint,p_site_id bigint,p_generator_id bigint default null,p_status text default null,p_limit integer default 50
 )
@@ -724,6 +774,7 @@ revoke all on function public.powerhub_maintenance_evaluate_due_plans(bigint,big
 revoke all on function public.powerhub_maintenance_list_work_orders(bigint,bigint,bigint,text,integer) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_list_parts(bigint,bigint,bigint) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_list_preventive_plans(bigint,bigint,bigint) from public,anon,authenticated;
+revoke all on function public.powerhub_maintenance_report_by_generator(bigint,bigint,date,date,bigint) from public,anon,authenticated;
 
 grant usage,select on sequence public.powerhub_user_notifications_id_seq to service_role;
 grant execute on function public.powerhub_maintenance_create_work_order(bigint,bigint,bigint,bigint,bigint,text,text,text,text,timestamptz,timestamptz,bigint,text) to service_role;
@@ -734,3 +785,4 @@ grant execute on function public.powerhub_maintenance_evaluate_due_plans(bigint,
 grant execute on function public.powerhub_maintenance_list_work_orders(bigint,bigint,bigint,text,integer) to service_role;
 grant execute on function public.powerhub_maintenance_list_parts(bigint,bigint,bigint) to service_role;
 grant execute on function public.powerhub_maintenance_list_preventive_plans(bigint,bigint,bigint) to service_role;
+grant execute on function public.powerhub_maintenance_report_by_generator(bigint,bigint,date,date,bigint) to service_role;

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { CalendarClock, ClipboardList, Loader2, PackagePlus, RefreshCw, Wrench } from "lucide-react";
+import { CalendarClock, ClipboardList, Download, Loader2, PackagePlus, RefreshCw, Wrench } from "lucide-react";
 
 type OrderType = "breakdown" | "preventive" | "inspection" | "repair" | "other";
 type OrderStatus = "scheduled" | "new" | "in_progress" | "waiting_for_parts" | "completed" | "cancelled";
@@ -16,6 +16,8 @@ const alertLabels: Record<string, string> = { due_soon: "اقترب الاستح
 const money = (value: unknown) => new Intl.NumberFormat("ar-PS", { style: "currency", currency: "ILS", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0));
 const openStatuses: OrderStatus[] = ["new", "scheduled", "in_progress", "waiting_for_parts"];
 const operationKey = (prefix: string) => prefix + "-" + crypto.randomUUID();
+const localDateInput = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+const csvCell = (value: unknown) => { let s=String(value??""); if (/^[\\u0000-\\u0020]*[=+@\\-]/.test(s) || /^[\\t\\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
 
 export default function InventoryMaintenancePanel({
   siteId, isAuthenticated, canManageMaintenance, canIssueInventory, canManageExpenses,
@@ -41,9 +43,17 @@ export default function InventoryMaintenancePanel({
   const [partWarehouseId, setPartWarehouseId] = useState("");
   const [partQuantity, setPartQuantity] = useState("1");
   const [partNotes, setPartNotes] = useState("");
+  const [orderGeneratorFilter, setOrderGeneratorFilter] = useState("");
+  const [reportGeneratorId, setReportGeneratorId] = useState("");
+  const [reportFromDate, setReportFromDate] = useState(() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; });
+  const [reportToDate, setReportToDate] = useState(() => localDateInput(new Date()));
 
   const generators = trpc.powerhub.generators.list.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance), staleTime: 30_000 });
-  const orders = trpc.powerhub.maintenance.listWorkOrders.useQuery({ siteId, status: filter || undefined, limit: 100 }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance), staleTime: 15_000 });
+  const orders = trpc.powerhub.maintenance.listWorkOrders.useQuery({ siteId, generatorId: orderGeneratorFilter ? Number(orderGeneratorFilter) : undefined, status: filter || undefined, limit: 200 }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance), staleTime: 15_000 });
+  const maintenanceReport = trpc.powerhub.maintenance.reportByGenerator.useQuery(
+    { siteId, fromDate: reportFromDate, toDate: reportToDate, generatorId: reportGeneratorId ? Number(reportGeneratorId) : undefined },
+    { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance && reportFromDate && reportToDate && reportFromDate <= reportToDate), staleTime: 30_000 },
+  );
   const plans = trpc.powerhub.maintenance.listPreventivePlans.useQuery({ siteId, generatorId: planGeneratorId ? Number(planGeneratorId) : undefined }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance), staleTime: 15_000 });
   const items = trpc.powerhub.inventory.listItems.useQuery({ siteId, includeInactive: false }, { enabled: Boolean(siteId && isAuthenticated && canIssueInventory), staleTime: 30_000 });
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery({ siteId, includeInactive: false }, { enabled: Boolean(siteId && isAuthenticated && canIssueInventory), staleTime: 30_000 });
@@ -138,6 +148,20 @@ export default function InventoryMaintenancePanel({
   if (!canManageMaintenance) return <Card><CardContent className="p-6 text-sm text-muted-foreground">لا تملك صلاحية عرض أوامر الصيانة لهذا الفرع.</CardContent></Card>;
   const itemsForMaintenance = (items.data ?? []).filter((item) => ["spare_part", "oil", "filter", "maintenance_supply", "other"].includes(item.category));
   const openOrders = (orders.data ?? []).filter((order) => openStatuses.includes(order.status));
+  const reportRows = maintenanceReport.data ?? [];
+  const reportTotals = reportRows.reduce((sum, row) => ({
+    workOrders: sum.workOrders + Number(row.work_order_count ?? 0),
+    breakdowns: sum.breakdowns + Number(row.breakdown_count ?? 0),
+    downtime: sum.downtime + Number(row.downtime_minutes ?? 0),
+    cost: sum.cost + Number(row.total_cost_amount ?? 0),
+  }), { workOrders: 0, breakdowns: 0, downtime: 0, cost: 0 });
+  const exportMaintenanceReport = () => {
+    if (maintenanceReport.isError || maintenanceReport.isLoading) { toast.error("حمّل تقرير الصيانة بنجاح قبل التصدير."); return; }
+    const rows = [["المولد","العطل / العمل","عدد الأوامر","الأعطال","الصيانة الوقائية","المكتملة","المفتوحة","التوقف بالدقائق","تكلفة القطع","تكلفة العمل","الخدمات الخارجية","إجمالي التكلفة","أول بلاغ","آخر بلاغ"], ...reportRows.map((r) => [r.generator_name,r.fault_title,r.work_order_count,r.breakdown_count,r.preventive_count,r.completed_count,r.open_count,r.downtime_minutes,r.parts_cost,r.labor_cost,r.external_service_cost,r.total_cost_amount,r.first_reported_at,r.last_reported_at])];
+    const blob = new Blob(["\\uFEFF"+rows.map((row) => row.map(csvCell).join(",")).join("\\r\\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href=url; anchor.download=`powerhub-maintenance-report-${siteId}-${reportFromDate}-${reportToDate}.csv`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast.success(`تم تصدير ${reportRows.length.toLocaleString("ar-PS")} مجموعة من تقرير الصيانة.`);
+  };
 
   return <div className="space-y-4" dir="rtl">
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Wrench className="h-5 w-5" /> تسجيل عطل أو أمر صيانة</CardTitle></CardHeader>
@@ -179,7 +203,33 @@ export default function InventoryMaintenancePanel({
       {parts.isLoading ? <p className="text-sm text-muted-foreground">جارٍ تحميل تفاصيل الصرف…</p> : parts.error ? <p className="text-sm text-destructive">تعذر تحميل سجل الصرف لهذا الأمر.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[650px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","المخزن","الكمية","تكلفة الوحدة","الإجمالي","وقت الصرف"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{(parts.data ?? []).map((p) => <tr key={p.part_id} className="border-t"><td className="p-3">{p.item_name}</td><td className="p-3">{p.warehouse_name}</td><td className="p-3">{p.quantity}</td><td className="p-3">{money(p.unit_cost)}</td><td className="p-3">{money(p.total_cost_amount)}</td><td className="p-3">{new Date(p.issued_at).toLocaleString("ar-PS")}</td></tr>)}{!parts.data?.length ? <tr><td className="p-4 text-center text-muted-foreground" colSpan={6}>لا توجد قطع مصروفة لهذا الأمر.</td></tr> : null}</tbody></table></div>}
     </CardContent></Card> : null}
 
-    <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5" /> أوامر الصيانة وسجل الأعطال</CardTitle><div className="flex gap-2"><select aria-label="تصفية حالة أمر الصيانة" className="h-9 rounded-md border bg-background px-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value as OrderStatus | "")}><option value="">كل الحالات</option>{Object.entries(statusLabels).map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select><Button variant="outline" size="icon" onClick={() => orders.refetch()} aria-label="تحديث القائمة"><RefreshCw className="h-4 w-4" /></Button></div></div></CardHeader><CardContent>
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><CardTitle>تقرير الصيانة والأعطال حسب المولد</CardTitle><p className="mt-1 text-sm text-muted-foreground">الأعطال المتكررة وأوامر الصيانة ومدة التوقف وتكاليف القطع والعمل والخدمات للفترة المختارة.</p></div>
+          <Button type="button" variant="outline" onClick={exportMaintenanceReport} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError}><Download className="ml-2 h-4 w-4" /> تصدير CSV</Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-4">
+          <label className="space-y-1 text-sm"><span>من تاريخ البلاغ</span><Input type="date" value={reportFromDate} max={reportToDate || undefined} onChange={(e) => setReportFromDate(e.target.value)} /></label>
+          <label className="space-y-1 text-sm"><span>إلى تاريخ البلاغ</span><Input type="date" value={reportToDate} min={reportFromDate || undefined} onChange={(e) => setReportToDate(e.target.value)} /></label>
+          <label className="space-y-1 text-sm"><span>المولد</span><select className="h-10 w-full rounded-md border bg-background px-3" value={reportGeneratorId} onChange={(e) => setReportGeneratorId(e.target.value)}><option value="">كل المولدات</option>{(generators.data ?? []).map((g) => <option key={g.id} value={g.id}>{g.name} — {g.code}</option>)}</select></label>
+          <div className="flex items-end"><Button type="button" variant="outline" onClick={() => void maintenanceReport.refetch()} disabled={maintenanceReport.isFetching || !reportFromDate || !reportToDate || reportFromDate > reportToDate}><RefreshCw className="ml-2 h-4 w-4" /> تحديث التقرير</Button></div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">أوامر الصيانة</p><p className="text-2xl font-semibold">{maintenanceReport.isLoading || maintenanceReport.isError ? "—" : reportTotals.workOrders.toLocaleString("ar-PS")}</p></div>
+          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">بلاغات الأعطال</p><p className="text-2xl font-semibold">{maintenanceReport.isLoading || maintenanceReport.isError ? "—" : reportTotals.breakdowns.toLocaleString("ar-PS")}</p></div>
+          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">التوقف المسجل</p><p className="text-2xl font-semibold">{maintenanceReport.isLoading || maintenanceReport.isError ? "—" : reportTotals.downtime.toLocaleString("ar-PS") + " دقيقة"}</p></div>
+          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">إجمالي التكلفة</p><p className="text-2xl font-semibold">{maintenanceReport.isLoading || maintenanceReport.isError ? "—" : money(reportTotals.cost)}</p></div>
+        </div>
+        {maintenanceReport.isLoading ? <p className="py-6 text-center text-muted-foreground">جارٍ تجميع تقرير الصيانة…</p>
+          : maintenanceReport.error ? <p role="alert" className="py-6 text-center text-destructive">تعذر تحميل التقرير. اختر نطاقًا لا يتجاوز 366 يومًا ثم أعد المحاولة.</p>
+          : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[1120px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المولد","العطل / العمل المتكرر","الأوامر","الأعطال","الوقائية","المكتملة","المفتوحة","التوقف (دقيقة)","القطع","العمل","الخدمات","الإجمالي"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{reportRows.map((r) => <tr key={r.generator_id + ":" + r.fault_title} className="border-t"><td className="p-3">{r.generator_name} <span className="text-xs text-muted-foreground">#{r.generator_id}</span></td><td className="p-3">{r.fault_title}</td><td className="p-3">{r.work_order_count}</td><td className="p-3">{r.breakdown_count}</td><td className="p-3">{r.preventive_count}</td><td className="p-3">{r.completed_count}</td><td className="p-3">{r.open_count}</td><td className="p-3">{r.downtime_minutes}</td><td className="p-3 whitespace-nowrap">{money(r.parts_cost)}</td><td className="p-3 whitespace-nowrap">{money(r.labor_cost)}</td><td className="p-3 whitespace-nowrap">{money(r.external_service_cost)}</td><td className="p-3 whitespace-nowrap font-semibold">{money(r.total_cost_amount)}</td></tr>)}{!reportRows.length ? <tr><td colSpan={12} className="p-5 text-center text-muted-foreground">لا توجد أوامر صيانة في الفترة المحددة.</td></tr> : null}</tbody></table></div>}
+      </CardContent>
+    </Card>
+
+    <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5" /> أوامر الصيانة وسجل الأعطال</CardTitle><div className="flex gap-2"><select aria-label="تصفية المولد" className="h-9 rounded-md border bg-background px-2 text-sm" value={orderGeneratorFilter} onChange={(e) => setOrderGeneratorFilter(e.target.value)}><option value="">كل المولدات</option>{(generators.data ?? []).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select><select aria-label="تصفية حالة أمر الصيانة" className="h-9 rounded-md border bg-background px-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value as OrderStatus | "")}><option value="">كل الحالات</option>{Object.entries(statusLabels).map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select><Button variant="outline" size="icon" onClick={() => orders.refetch()} aria-label="تحديث القائمة"><RefreshCw className="h-4 w-4" /></Button></div></div></CardHeader><CardContent>
       {orders.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل أوامر الصيانة…</p> : orders.error ? <p className="py-8 text-center text-destructive">تعذر تحميل السجل. تحقق من الصلاحيات ومخطط قاعدة البيانات.</p> : !orders.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد أوامر صيانة في هذا العرض.</p> :
       <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[940px] text-right text-sm"><thead className="bg-muted/60"><tr>{["رقم الأمر","المولد","العطل / العمل","النوع","الأولوية","الحالة","تاريخ البلاغ","تكلفة القطع","التكلفة الإجمالية","الإجراءات"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{orders.data.map((o) => <tr key={o.work_order_id} className="border-t"><td className="p-3 font-mono">{o.work_order_number}</td><td className="p-3">{o.generator_name} <span className="text-muted-foreground">#{o.generator_id}</span></td><td className="max-w-64 p-3"><div className="font-medium">{o.title}</div><div className="line-clamp-2 text-xs text-muted-foreground">{o.description || "—"}</div></td><td className="p-3">{orderTypeLabels[o.order_type] ?? o.order_type}{o.preventive_plan_id ? <div className="text-xs text-muted-foreground">خطة #{o.preventive_plan_id}</div> : null}</td><td className="p-3">{priorityLabels[o.priority] ?? o.priority}</td><td className="p-3">{statusLabels[o.status] ?? o.status}</td><td className="p-3 whitespace-nowrap">{new Date(o.reported_at).toLocaleString("ar-PS")}</td><td className="p-3 whitespace-nowrap">{money(o.parts_cost)}</td><td className="p-3 whitespace-nowrap font-medium">{money(o.total_cost_amount)}</td><td className="p-3"><div className="flex gap-1">{["new","scheduled","waiting_for_parts"].includes(o.status) ? <Button size="sm" variant="outline" disabled={transition.isPending} onClick={() => doTransition(o,"start")}>بدء</Button> : null}{o.status==="in_progress" ? <><Button size="sm" variant="outline" disabled={transition.isPending} onClick={() => doTransition(o,"wait_for_parts")}>انتظار قطع</Button><Button size="sm" disabled={transition.isPending} onClick={() => doTransition(o,"complete")}>إغلاق</Button></> : null}{openStatuses.includes(o.status) ? <Button size="sm" variant="ghost" disabled={transition.isPending} onClick={() => doTransition(o,"cancel")}>إلغاء</Button> : null}</div></td></tr>)}</tbody></table></div>}
     </CardContent></Card>
