@@ -43,4 +43,10 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/inventory", "technician", [], true)).toBe(false);
   });
 
+  it("allows stocktake-only staff to reach the shared inventory workspace", () => {
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["viewStocktakes"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["manageStocktakes"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["approveStocktakes"], true)).toBe(true);
+  });
+
 });
