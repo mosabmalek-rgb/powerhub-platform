@@ -94,14 +94,15 @@ The Phase B release gate remains open until a Preview is verified to use staging
 
 ## Phase C — complete maintenance (not yet complete)
 
-- [ ] Work orders with unique number, type, generator, priority, symptoms/fault, dates, technician/vendor, downtime, work summary, parts/oils, labour, external service and total cost.
-- [ ] Lifecycle states: scheduled, new, in progress, waiting for parts, completed; documented cancel/reopen/correction transitions.
-- [ ] Preventive plans by time and/or operating hours; due-soon/overdue; next due is whichever trigger arrives first where configured.
-- [ ] Link issues of stock parts/oils to the order; consume and value materials exactly once.
-- [ ] Correct financial treatment for labour/external service, without duplicate company-account or expense posting.
-- [ ] Atomic close-out updates last maintenance/hour reading/next due, actor/approver and audit.
-- [ ] Notifications without duplicate dispatch; detailed generator maintenance history and recurring-fault/downtime/cost reports.
-- [ ] Permission, tenant/site isolation, stock locks, idempotency and failure rollback tests.
+- [x] Tenant/site/generator-scoped work orders with unique numbers, type, priority, fault/work summary, dates, assigned staff/supplier, downtime, spare-part cost, labour/service cost capture and total cost.
+- [x] Lifecycle states: scheduled, new, in progress, waiting for parts, completed and cancelled; invalid transitions and cancellation without a reason are rejected.
+- [ ] Reopen or correct completed work orders through an explicitly audited compensating workflow.
+- [x] Preventive plans by calendar date and/or operating hours; due-soon/overdue detection and next-due advancement on linked preventive close-out.
+- [x] Spare-parts/oils issue linked to the work order and stock ledger, with atomic rollback and operation-key idempotency.
+- [ ] Define any required accounting/expense posting policy for labour and external services; current maintenance costs are captured and reported but are not automatically posted to company accounts.
+- [x] Atomic close-out records completion actor, effective operating-hour reading, generator last-maintenance timestamp, linked plan advancement, cost totals and immutable maintenance audit.
+- [x] Deduplicated in-app preventive alerts and per-generator/date-range CSV cost/downtime summary.
+- [ ] Complete role-by-role capability verification, broader tenant/site/generator isolation and rollback acceptance, recurring-fault semantics review, full company-wide reports and branded Excel/PDF exports, and authorized staging/browser E2E.
 
 ## Phase D — dashboard, reporting and release closure (not yet complete)
 
