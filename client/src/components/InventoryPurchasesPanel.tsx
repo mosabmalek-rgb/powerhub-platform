@@ -289,8 +289,11 @@ export default function InventoryPurchasesPanel({
       toast.success(result.replayed ? "تم التحقق من أن الدفعة معكوسة مسبقًا." : "تم عكس دفعة المورد وإعادة المبلغ إلى حساب الشركة.");
       setPaymentReversalReasons((current) => ({ ...current, [Number(result.payment_id)]: "" }));
       await Promise.all([
-        refreshPurchaseData(Number(result.purchase_id)),
+        refreshPurchaseData(result.purchase_id == null ? undefined : Number(result.purchase_id)),
         utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
+        utils.powerhub.inventory.listSupplierPaymentBatchOptions.invalidate(),
+        utils.powerhub.inventory.listSupplierPaymentHistory.invalidate(),
+        utils.powerhub.inventory.supplierPayablesAging.invalidate(),
       ]);
     },
     onError: (error) => toast.error(error.message || "تعذر عكس دفعة المورد."),
