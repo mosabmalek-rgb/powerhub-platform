@@ -6,6 +6,17 @@ import { supabaseAdmin } from "./supabase-admin";
 
 const maintenanceRoles = ["owner", "manager", "technician"] as const;
 const readRoles = ["owner", "manager", "technician", "accountant", "viewer"] as const;
+async function requireMaintenanceReadAccess(userId: number, siteId: number) {
+  try {
+    return await requireSupabaseSiteRole(userId, siteId, [...readRoles], "viewInventory");
+  } catch (error) {
+    // A custom permission set may grant maintenance management without the general inventory-view capability.
+    // Preserve normal platform-policy checks and allow the explicit maintenance capability as the alternate read grant.
+    if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error;
+    return requireSupabaseSiteRole(userId, siteId, [...maintenanceRoles], "manageMaintenance");
+  }
+}
+
 const operationKey = z.string().trim().min(8).max(180);
 const isDateOnly = (value: string) => {
   if (value.length !== 10 || value[4] !== "-" || value[7] !== "-") return false;
@@ -122,7 +133,7 @@ export const powerhubMaintenanceRouter = router({
   listGenerators: authenticatedProcedure
     .input(z.object({ siteId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
+      const access = await requireMaintenanceReadAccess(ctx.user.id, input.siteId);
       const { data, error } = await supabaseAdmin()
         .from("generators")
         .select("id,name,code")
@@ -172,7 +183,7 @@ export const powerhubMaintenanceRouter = router({
     status: z.enum(["scheduled", "new", "in_progress", "waiting_for_parts", "completed", "cancelled"]).optional(),
     limit: z.number().int().min(1).max(200).default(50),
   })).query(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
+    const access = await requireMaintenanceReadAccess(ctx.user.id, input.siteId);
     return rpc<MaintenanceWorkOrderListRow[]>("powerhub_maintenance_list_work_orders", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId,
       p_generator_id: input.generatorId ?? null, p_status: input.status ?? null, p_limit: input.limit,
@@ -181,7 +192,7 @@ export const powerhubMaintenanceRouter = router({
   listPreventivePlans: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive().optional(),
   })).query(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
+    const access = await requireMaintenanceReadAccess(ctx.user.id, input.siteId);
     return rpc<MaintenancePreventivePlanListRow[]>("powerhub_maintenance_list_preventive_plans", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_generator_id: input.generatorId ?? null,
     });
@@ -193,7 +204,7 @@ export const powerhubMaintenanceRouter = router({
   listParts: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
   })).query(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
+    const access = await requireMaintenanceReadAccess(ctx.user.id, input.siteId);
     return rpc<MaintenancePartListRow[]>("powerhub_maintenance_list_parts", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_work_order_id: input.workOrderId,
     });
