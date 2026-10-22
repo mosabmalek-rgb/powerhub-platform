@@ -29,6 +29,19 @@ type FuelReading = {
   recorded_at: string; reference_no: string | null; notes: string | null;
   corrects_reading_id: number | null; correction_reason: string | null;
 };
+type FuelAlertSetting = {
+  setting_id: number; generator_id: number; generator_name: string; tank_warehouse_id: number; tank_name: string;
+  low_level_threshold_liters: number | string | null; abnormal_litres_per_hour_threshold: number | string | null;
+  minimum_hours_delta: number | string; is_enabled: boolean; updated_at: string;
+  low_level_alert_active: boolean; low_level_last_triggered_at: string | null;
+  abnormal_alert_active: boolean; abnormal_last_triggered_at: string | null;
+};
+type FuelAlertDispatch = {
+  dispatch_id: number; setting_id: number; alert_type: "low_fuel_level" | "abnormal_consumption";
+  episode_no: number; generator_id: number; generator_name: string; tank_warehouse_id: number; tank_name: string;
+  signal_key: string; measured_value: number | string; threshold_value: number | string;
+  recipient_count: number; created_at: string;
+};
 type FuelReportRow = {
   generator_id: number; generator_name: string; tank_warehouse_id: number; tank_name: string;
   fuel_filled_liters: number | string; fuel_filled_cost: number | string; recorded_consumption_liters: number | string;
@@ -105,6 +118,18 @@ export default function InventoryFuelConsumptionPanel({
   const [fromDate, setFromDate] = useState(() => today);
   const [toDate, setToDate] = useState(() => today);
   const [reportGeneratorId, setReportGeneratorId] = useState("");
+  const [reportPeriodType, setReportPeriodType] = useState<"day" | "cycle" | "month" | "custom">("day");
+  const [reportAnchorDate, setReportAnchorDate] = useState(() => today);
+  const [reportFromDate, setReportFromDate] = useState(() => today);
+  const [reportToDate, setReportToDate] = useState(() => today);
+  const [reportTankId, setReportTankId] = useState("");
+  const [alertLowThreshold, setAlertLowThreshold] = useState("");
+  const [alertRateThreshold, setAlertRateThreshold] = useState("");
+  const [alertMinimumHours, setAlertMinimumHours] = useState("1");
+  const [alertsEnabled, setAlertsEnabled] = useState(true);
+  const [alertGeneratorId, setAlertGeneratorId] = useState("");
+  const [alertTankId, setAlertTankId] = useState("");
+  const [alertSettingKey, setAlertSettingKey] = useState(() => operationKey("fuel-alert-settings"));
 
   const options = trpc.powerhub.inventory.fuelWorkspaceOptions.useQuery(
     { siteId },
@@ -117,6 +142,8 @@ export default function InventoryFuelConsumptionPanel({
   const tanks = options.data?.generatorTanks ?? [];
   const generatorTanks = tanks.filter((tank) => tank.generatorId === Number(activeGeneratorId));
   const readingTanks = tanks.filter((tank) => tank.generatorId === Number(activeReadingGeneratorId));
+  const activeAlertGeneratorId = alertGeneratorId || String(generators[0]?.id ?? "");
+  const alertTanks = tanks.filter((tank) => tank.generatorId === Number(activeAlertGeneratorId));
 
   const events = trpc.powerhub.inventory.listFuelEvents.useQuery(
     { siteId, fromDate: fromDate || undefined, toDate: toDate || undefined,
@@ -127,9 +154,35 @@ export default function InventoryFuelConsumptionPanel({
     { siteId, generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 10_000 },
   );
-  const report = trpc.powerhub.inventory.fuelConsumptionReport.useQuery(
-    { siteId, fromDate, toDate, generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined },
-    { enabled: Boolean(siteId && isAuthenticated && canViewInventoryReports && fromDate && toDate && fromDate <= toDate), staleTime: 15_000 },
+  const report = trpc.powerhub.inventory.fuelConsumptionReportPeriod.useQuery(
+    {
+      siteId,
+      periodType: reportPeriodType,
+      anchorDate: reportPeriodType === "custom" ? undefined : reportAnchorDate,
+      fromDate: reportPeriodType === "custom" ? reportFromDate : undefined,
+      toDate: reportPeriodType === "custom" ? reportToDate : undefined,
+      generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined,
+      tankWarehouseId: reportTankId ? Number(reportTankId) : undefined,
+    },
+    { enabled: Boolean(siteId && isAuthenticated && canViewInventoryReports &&
+      (reportPeriodType === "custom" ? reportFromDate && reportToDate && reportFromDate <= reportToDate : reportAnchorDate)), staleTime: 15_000 },
+  );
+  const alertSettings = trpc.powerhub.inventory.listFuelAlertSettings.useQuery(
+    { siteId },
+    { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 15_000 },
+  );
+  const alertDispatches = trpc.powerhub.inventory.listFuelAlertDispatches.useQuery(
+    {
+      siteId,
+      generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined,
+      tankWarehouseId: reportTankId ? Number(reportTankId) : undefined,
+      limit: 50,
+    },
+    { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 15_000 },
+  );
+  const selectedAlertSetting = ((alertSettings.data ?? []) as FuelAlertSetting[]).find((row) =>
+    Number(row.generator_id) === Number(activeAlertGeneratorId) &&
+    Number(row.tank_warehouse_id) === Number(alertTankId),
   );
 
   useEffect(() => {
@@ -157,6 +210,29 @@ export default function InventoryFuelConsumptionPanel({
     if (!items.some((row) => String(row.id) === fuelItemId)) setFuelItemId(String(items[0]?.id ?? ""));
   }, [options.data?.fuelItems, fuelItemId]);
 
+  useEffect(() => {
+    if (!generators.some((row) => String(row.id) === alertGeneratorId) && generators[0]) {
+      setAlertGeneratorId(String(generators[0].id));
+    }
+  }, [generators, alertGeneratorId]);
+
+  useEffect(() => {
+    if (!alertTanks.some((tank) => String(tank.id) === alertTankId)) {
+      setAlertTankId(String(alertTanks[0]?.id ?? ""));
+    }
+  }, [alertTanks, alertTankId]);
+
+  useEffect(() => {
+    setAlertLowThreshold(selectedAlertSetting?.low_level_threshold_liters == null ? "" : String(selectedAlertSetting.low_level_threshold_liters));
+    setAlertRateThreshold(selectedAlertSetting?.abnormal_litres_per_hour_threshold == null ? "" : String(selectedAlertSetting.abnormal_litres_per_hour_threshold));
+    setAlertMinimumHours(selectedAlertSetting ? String(selectedAlertSetting.minimum_hours_delta) : "1");
+    setAlertsEnabled(selectedAlertSetting?.is_enabled ?? true);
+  }, [
+    activeAlertGeneratorId, alertTankId, selectedAlertSetting?.setting_id,
+    selectedAlertSetting?.low_level_threshold_liters, selectedAlertSetting?.abnormal_litres_per_hour_threshold,
+    selectedAlertSetting?.minimum_hours_delta, selectedAlertSetting?.is_enabled,
+  ]);
+
   const fillMutation = trpc.powerhub.inventory.recordFuelFill.useMutation({
     onSuccess: async (result) => {
       toast.success(result.replayed ? "تم تأكيد التعبئة السابقة دون تكرار حركة المخزون." : `تم تسجيل التعبئة ${qty(result.litres)} لتر وترحيلها إلى خزان المولد.`);
@@ -166,6 +242,9 @@ export default function InventoryFuelConsumptionPanel({
         utils.powerhub.inventory.listFuelEvents.invalidate(),
         utils.powerhub.inventory.listFuelReadings.invalidate(),
         utils.powerhub.inventory.fuelConsumptionReport.invalidate(),
+        utils.powerhub.inventory.fuelConsumptionReportPeriod.invalidate(),
+        utils.powerhub.inventory.listFuelAlertSettings.invalidate(),
+        utils.powerhub.inventory.listFuelAlertDispatches.invalidate(),
         utils.powerhub.inventory.stockOverview.invalidate({ siteId }),
         utils.powerhub.inventory.listStockMovements.invalidate({ siteId }),
       ]);
@@ -180,9 +259,23 @@ export default function InventoryFuelConsumptionPanel({
       await Promise.all([
         utils.powerhub.inventory.listFuelReadings.invalidate(),
         utils.powerhub.inventory.fuelConsumptionReport.invalidate(),
+        utils.powerhub.inventory.fuelConsumptionReportPeriod.invalidate(),
+        utils.powerhub.inventory.listFuelAlertSettings.invalidate(),
+        utils.powerhub.inventory.listFuelAlertDispatches.invalidate(),
       ]);
     },
     onError: (error) => toast.error(error.message || "تعذر تسجيل القراءة."),
+  });
+  const alertSettingsMutation = trpc.powerhub.inventory.upsertFuelAlertSettings.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.replayed ? "تم تأكيد إعدادات التنبيه السابقة دون إنشاء نسخة." : "تم حفظ إعدادات تنبيهات الوقود وتدقيق العملية.");
+      setAlertSettingKey(operationKey("fuel-alert-settings"));
+      await Promise.all([
+        utils.powerhub.inventory.listFuelAlertSettings.invalidate(),
+        utils.powerhub.inventory.listFuelAlertDispatches.invalidate(),
+      ]);
+    },
+    onError: (error) => toast.error(error.message || "تعذر حفظ إعدادات تنبيهات الوقود."),
   });
 
   const submitFill = (event: FormEvent) => {
@@ -234,7 +327,12 @@ export default function InventoryFuelConsumptionPanel({
   const eventRows = (events.data ?? []) as FuelEvent[];
   const readingRows = (readings.data ?? []) as FuelReading[];
   const reportRows = (report.data ?? []) as FuelReportRow[];
+  const alertSettingRows = (alertSettings.data ?? []) as FuelAlertSetting[];
+  const alertDispatchRows = (alertDispatches.data ?? []) as FuelAlertDispatch[];
   const selectedGenerator = generators.find((row) => row.id === Number(activeGeneratorId));
+  const reportTanks = reportGeneratorId
+    ? tanks.filter((tank) => tank.generatorId === Number(reportGeneratorId))
+    : tanks;
 
   if (!canManageFuelAndConsumption && !canViewInventoryReports) {
     return <Card><CardContent className="py-6 text-sm text-muted-foreground">لا تتوفر لديك صلاحية الوقود أو تقاريره.</CardContent></Card>;
@@ -360,6 +458,85 @@ export default function InventoryFuelConsumptionPanel({
       </Card>
     </> : null}
 
+    {canManageFuelAndConsumption ? <Card>
+      <CardHeader>
+        <CardTitle>إعدادات تنبيهات الوقود</CardTitle>
+        <p className="text-sm text-muted-foreground">يُرسل تنبيه داخل المنصة عند نزول المستوى عن الحد أو تجاوز معدل الاستهلاك المقاس. لا يُحتسب المعدل عند نقص القراءات أو تعارض التسوية.</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={(event) => {
+          event.preventDefault();
+          const low = alertLowThreshold.trim() ? Number(alertLowThreshold) : null;
+          const rate = alertRateThreshold.trim() ? Number(alertRateThreshold) : null;
+          const hours = Number(alertMinimumHours);
+          if ((low != null && (!Number.isFinite(low) || low < 0 || Math.abs(low * 1000 - Math.round(low * 1000)) > 1e-7)) ||
+              (rate != null && (!Number.isFinite(rate) || rate <= 0 || Math.abs(rate * 1000 - Math.round(rate * 1000)) > 1e-7)) ||
+              !Number.isFinite(hours) || hours <= 0) {
+            toast.error("تحقق من حدود التنبيه؛ القيم حتى ثلاث منازل عشرية، والحد الأدنى للساعات أكبر من صفر."); return;
+          }
+          if (alertsEnabled && low == null && rate == null) {
+            toast.error("أدخل حدًا واحدًا على الأقل قبل تفعيل التنبيهات."); return;
+          }
+          if (!activeAlertGeneratorId || !alertTankId) {
+            toast.error("اختر المولد وخزان الوقود المرتبط به."); return;
+          }
+          alertSettingsMutation.mutate({
+            siteId, generatorId: Number(activeAlertGeneratorId), tankWarehouseId: Number(alertTankId),
+            lowLevelThresholdLiters: low, abnormalLitresPerHourThreshold: rate,
+            minimumHoursDelta: hours, isEnabled: alertsEnabled, operationKey: alertSettingKey,
+          });
+        }}>
+          <label className="grid gap-1.5 text-sm">المولد
+            <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={activeAlertGeneratorId} onChange={(e) => setAlertGeneratorId(e.target.value)}>
+              <option value="">اختر المولد</option>
+              {generators.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm">خزان المولد
+            <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={alertTankId} onChange={(e) => setAlertTankId(e.target.value)}>
+              <option value="">اختر خزانًا</option>
+              {alertTanks.map((w) => <option key={w.id} value={w.id}>{w.name} · {w.code}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm">حد انخفاض المستوى (لتر)
+            <Input type="number" min="0" step="0.001" value={alertLowThreshold} onChange={(e) => setAlertLowThreshold(e.target.value)} placeholder="اختياري" />
+          </label>
+          <label className="grid gap-1.5 text-sm">حد الاستهلاك غير الاعتيادي (لتر/ساعة)
+            <Input type="number" min="0.001" step="0.001" value={alertRateThreshold} onChange={(e) => setAlertRateThreshold(e.target.value)} placeholder="اختياري" />
+          </label>
+          <label className="grid gap-1.5 text-sm">الحد الأدنى لساعات القياس
+            <Input type="number" min="0.001" step="0.001" required value={alertMinimumHours} onChange={(e) => setAlertMinimumHours(e.target.value)} />
+          </label>
+          <label className="flex items-center gap-2 self-end pb-2 text-sm">
+            <input type="checkbox" checked={alertsEnabled} onChange={(e) => setAlertsEnabled(e.target.checked)} />
+            تفعيل تنبيهات هذا المولد والخزان
+          </label>
+          <div className="md:col-span-2 xl:col-span-3 flex flex-wrap items-center gap-2">
+            <Button type="submit" disabled={alertSettingsMutation.isPending || options.isLoading || !activeAlertGeneratorId || !alertTankId}>
+              {alertSettingsMutation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />}
+              حفظ إعدادات التنبيه
+            </Button>
+            {selectedAlertSetting ? <span className="text-xs text-muted-foreground">آخر تحديث: {dateTime(selectedAlertSetting.updated_at)}</span> : null}
+          </div>
+        </form>
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-muted/50 text-right">
+              <th className="p-2">المولد / الخزان</th><th className="p-2">حد المستوى</th><th className="p-2">حد لتر/ساعة</th><th className="p-2">الحالة</th><th className="p-2">آخر تنبيه</th>
+            </tr></thead>
+            <tbody>{alertSettingRows.map((row) => <tr key={row.setting_id} className="border-t">
+              <td className="p-2">{row.generator_name}<div className="text-xs text-muted-foreground">{row.tank_name}</div></td>
+              <td className="p-2">{row.low_level_threshold_liters == null ? "—" : qty(row.low_level_threshold_liters) + " لتر"}</td>
+              <td className="p-2">{row.abnormal_litres_per_hour_threshold == null ? "—" : qty(row.abnormal_litres_per_hour_threshold) + " لتر/ساعة"}</td>
+              <td className="p-2"><div>{row.is_enabled ? "مفعّل" : "موقوف"}</div><div className="text-xs text-muted-foreground">{row.low_level_alert_active ? "مستوى منخفض نشط" : row.abnormal_alert_active ? "استهلاك غير اعتيادي نشط" : "لا يوجد تنبيه نشط"}</div></td>
+              <td className="p-2">{dateTime(row.abnormal_last_triggered_at || row.low_level_last_triggered_at)}</td>
+            </tr>)}
+            {alertSettingRows.length === 0 ? <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">لم تُضبط تنبيهات لهذا الفرع بعد.</td></tr> : null}</tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card> : null}
+
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div><CardTitle>سجل التعبئات والقراءات</CardTitle><p className="mt-1 text-sm text-muted-foreground">السجلات مرتبة زمنيًا مع مرجع العملية؛ لا يُستبدل السجل القديم عند التصحيح.</p></div>
@@ -382,6 +559,38 @@ export default function InventoryFuelConsumptionPanel({
             </select>
           </label>
         </div>
+        {canViewInventoryReports ? <div className="rounded-md border p-3 space-y-3">
+          <h3 className="font-medium">تقرير الوقود حسب الفترة المحاسبية</h3>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <label className="grid gap-1.5 text-sm">الفترة
+              <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={reportPeriodType} onChange={(e) => setReportPeriodType(e.target.value as "day" | "cycle" | "month" | "custom")}>
+                <option value="day">يوم</option><option value="cycle">دورة القراءات المعتمدة</option><option value="month">شهر تقويمي</option><option value="custom">نطاق مخصص</option>
+              </select>
+            </label>
+            {reportPeriodType !== "custom" ? <label className="grid gap-1.5 text-sm">التاريخ المرجعي
+              <Input type="date" required value={reportAnchorDate} onChange={(e) => setReportAnchorDate(e.target.value)} />
+            </label> : <>
+              <label className="grid gap-1.5 text-sm">من تاريخ
+                <Input type="date" required value={reportFromDate} onChange={(e) => setReportFromDate(e.target.value)} />
+              </label>
+              <label className="grid gap-1.5 text-sm">إلى تاريخ
+                <Input type="date" required value={reportToDate} onChange={(e) => setReportToDate(e.target.value)} />
+              </label>
+            </>}
+            <label className="grid gap-1.5 text-sm">المولد
+              <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={reportGeneratorId} onChange={(e) => { setReportGeneratorId(e.target.value); setReportTankId(""); }}>
+                <option value="">جميع المولدات</option>{generators.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm">خزان الوقود
+              <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={reportTankId} onChange={(e) => setReportTankId(e.target.value)}>
+                <option value="">جميع الخزانات</option>{reportTanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.name}</option>)}
+              </select>
+            </label>
+          </div>
+          {reportPeriodType === "cycle" ? <p className="text-xs text-muted-foreground">يستخدم التقرير تعريف دورة القراءات والمنطقة الزمنية المحفوظين للفرع، بما في ذلك الدورات الأسبوعية و10 أيام و15 يومًا والشهرية.</p> : null}
+          {report.isLoading ? <p className="text-sm text-muted-foreground">جارٍ احتساب التقرير…</p> : report.error ? <p className="text-sm text-destructive">تعذر احتساب التقرير. تحقق من إعدادات الدورة والصلاحيات.</p> : null}
+        </div> : null}
         {canViewInventoryReports ? <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right">
@@ -431,5 +640,30 @@ export default function InventoryFuelConsumptionPanel({
         </div>
       </CardContent>
     </Card>
+    {(canManageFuelAndConsumption || canViewInventoryReports) ? <Card>
+      <CardHeader>
+        <CardTitle>سجل تنبيهات الوقود</CardTitle>
+        <p className="text-sm text-muted-foreground">كل صف يمثل بداية حالة تنبيه جديدة؛ لا تكرر إعادة التقييم التنبيه ما دامت الحالة مستمرة.</p>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-muted/50 text-right">
+              <th className="p-2">وقت التنبيه</th><th className="p-2">المولد / الخزان</th><th className="p-2">نوع التنبيه</th><th className="p-2">القراءة</th><th className="p-2">الحد</th><th className="p-2">الحالة</th>
+            </tr></thead>
+            <tbody>{alertDispatchRows.map((row) => <tr key={row.dispatch_id} className="border-t">
+              <td className="p-2 whitespace-nowrap">{dateTime(row.created_at)}</td>
+              <td className="p-2">{row.generator_name}<div className="text-xs text-muted-foreground">{row.tank_name}</div></td>
+              <td className="p-2">{row.alert_type === "low_fuel_level" ? "مستوى وقود منخفض" : "استهلاك غير اعتيادي"}<div className="text-xs text-muted-foreground">حالة #{row.episode_no}</div></td>
+              <td className="p-2">{qty(row.measured_value)} {row.alert_type === "low_fuel_level" ? "لتر" : "لتر/ساعة"}</td>
+              <td className="p-2">{qty(row.threshold_value)} {row.alert_type === "low_fuel_level" ? "لتر" : "لتر/ساعة"}</td>
+              <td className="p-2">{row.recipient_count > 0 ? "أُنشئ إشعار داخل المنصة" : "لم يوجد مستلم نشط وقت التقييم"}</td>
+            </tr>)}
+            {alertDispatchRows.length === 0 ? <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">لا توجد تنبيهات مسجلة ضمن المرشحات.</td></tr> : null}</tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card> : null}
+
   </div>;
 }

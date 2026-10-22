@@ -545,7 +545,15 @@ describe("inventory workspace UI contract", () => {
     expect(workspace).toContain("canViewInventoryReports={canViewInventoryReports}");
     expect(panel).toContain("trpc.powerhub.inventory.recordFuelFill.useMutation");
     expect(panel).toContain("trpc.powerhub.inventory.recordFuelReading.useMutation");
-    expect(panel).toContain("trpc.powerhub.inventory.fuelConsumptionReport.useQuery");
+    expect(panel).toContain("trpc.powerhub.inventory.fuelConsumptionReportPeriod.useQuery");
+    expect(panel).toContain('periodType: reportPeriodType');
+    expect(panel).toContain("تقرير الوقود حسب الفترة المحاسبية");
+    expect(panel).toContain("دورة القراءات المعتمدة");
+    expect(panel).toContain("trpc.powerhub.inventory.upsertFuelAlertSettings.useMutation");
+    expect(panel).toContain("trpc.powerhub.inventory.listFuelAlertSettings.useQuery");
+    expect(panel).toContain("trpc.powerhub.inventory.listFuelAlertDispatches.useQuery");
+    expect(panel).toContain("إعدادات تنبيهات الوقود");
+    expect(panel).toContain("سجل تنبيهات الوقود");
     expect(panel).toContain("recorded_consumption_liters");
     expect(migration).toContain("as recorded_consumption_liters");
     expect(panel).toContain("insufficient_level_readings");

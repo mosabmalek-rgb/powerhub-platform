@@ -473,3 +473,42 @@ export async function processAutomaticInvoiceNotifications(now = new Date()) {
     results,
   };
 }
+
+/**
+ * Periodic backstop for fuel alerts. Inserts into fuel events/readings also evaluate
+ * the same database function in the write transaction; this scheduled pass recovers
+ * from missed triggers/deploy interruptions without sending duplicate notifications.
+ */
+export async function processAutomaticFuelAlertEvaluation(): Promise<{
+  skipped: boolean;
+  evaluatedSettings: number;
+  lowLevelAlerts: number;
+  abnormalConsumptionAlerts: number;
+  notificationsCreated: number;
+}> {
+  if (process.env.VERCEL_ENV === "preview" && process.env.POWERHUB_ALLOW_PREVIEW_FUEL_ALERTS !== "true") {
+    return { skipped: true, evaluatedSettings: 0, lowLevelAlerts: 0, abnormalConsumptionAlerts: 0, notificationsCreated: 0 };
+  }
+
+  const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_evaluate_fuel_alerts", {
+    p_tenant_id: null,
+    p_site_id: null,
+  });
+  if (error) {
+    logSupabaseWorkerQueryFailure("fuel-alerts", error);
+    throw new Error("تعذر تقييم تنبيهات الوقود المجدولة.");
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  const nonNegativeCount = (value: unknown) => {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+  };
+  return {
+    skipped: false,
+    evaluatedSettings: nonNegativeCount(row?.evaluated_settings),
+    lowLevelAlerts: nonNegativeCount(row?.low_level_alerts),
+    abnormalConsumptionAlerts: nonNegativeCount(row?.abnormal_consumption_alerts),
+    notificationsCreated: nonNegativeCount(row?.notifications_created),
+  };
+}

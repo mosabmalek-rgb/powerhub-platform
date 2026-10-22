@@ -4,6 +4,7 @@ import path from "node:path";
 
 const root = process.cwd();
 const runtime = fs.readFileSync(path.join(root, "server/powerhub-unified-messaging.ts"), "utf8");
+const notificationWorker = fs.readFileSync(path.join(root, "server/notification-worker.ts"), "utf8");
 const manualFreeSmsMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261019090000_powerhub_free_manual_sms.sql"), "utf8");
 const manualSmsHistoryScopeMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261019120000_powerhub_manual_sms_history_scope.sql"), "utf8");
 const invoiceAutomationMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261020123000_powerhub_unify_invoice_issued_automation.sql"), "utf8");
@@ -39,6 +40,9 @@ describe("unified messaging runtime contract", () => {
     expect(scheduler).toContain('app.all("/api/scheduled/process-invoice-notifications"');
     expect(scheduler).toContain("processUnifiedMessagingAutomations()");
     expect(scheduler).toContain("processAutomaticInvoiceNotifications()");
+    expect(scheduler).toContain("processAutomaticFuelAlertEvaluation()");
+    expect(notificationWorker).toContain('POWERHUB_ALLOW_PREVIEW_FUEL_ALERTS !== "true"');
+    expect(notificationWorker).toContain('rpc("powerhub_inventory_evaluate_fuel_alerts"');
   });
 
   it("uses canonical campaigns and deterministic operation ids for manual sends", () => {
