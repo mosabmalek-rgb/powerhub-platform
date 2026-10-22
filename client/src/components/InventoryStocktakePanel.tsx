@@ -62,7 +62,8 @@ export default function InventoryStocktakePanel({
 }: Props) {
   const utils = trpc.useUtils();
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [warehouseId, setWarehouseId] = useState("");
+  const [filterWarehouseId, setFilterWarehouseId] = useState("");
+  const [createWarehouseId, setCreateWarehouseId] = useState("");
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const [operationKey, setOperationKey] = useState(stocktakeOperationKey);
@@ -77,7 +78,7 @@ export default function InventoryStocktakePanel({
     { enabled, staleTime: 30_000 },
   );
   const stocktakesQuery = trpc.powerhub.inventory.listStocktakes.useQuery(
-    { siteId, warehouseId: warehouseId ? Number(warehouseId) : undefined, limit: 100 },
+    { siteId, warehouseId: filterWarehouseId ? Number(filterWarehouseId) : undefined, limit: 100 },
     { enabled, staleTime: 10_000 },
   );
   const linesQuery = trpc.powerhub.inventory.listStocktakeLines.useQuery(
@@ -94,10 +95,13 @@ export default function InventoryStocktakePanel({
   const itemCount = Number(selectedStocktake?.item_count ?? 0);
 
   useEffect(() => {
-    if (warehouseId && !warehouses.some((warehouse) => String(warehouse.id) === warehouseId)) {
-      setWarehouseId("");
+    if (filterWarehouseId && !warehouses.some((warehouse) => String(warehouse.id) === filterWarehouseId)) {
+      setFilterWarehouseId("");
     }
-  }, [warehouseId, warehouses]);
+    if (createWarehouseId && !warehouses.some((warehouse) => String(warehouse.id) === createWarehouseId)) {
+      setCreateWarehouseId("");
+    }
+  }, [filterWarehouseId, createWarehouseId, warehouses]);
 
   useEffect(() => {
     if (selectedStocktakeId && stocktakes.some((stocktake) => Number(stocktake.stocktake_id) === selectedStocktakeId)) return;
@@ -199,11 +203,11 @@ export default function InventoryStocktakePanel({
 
   const onCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!warehouseId) { toast.error("اختر موقع التخزين الذي ستجري جرده."); return; }
+    if (!createWarehouseId) { toast.error("اختر موقع التخزين الذي ستجري جرده."); return; }
     if (reason.trim().length < 3) { toast.error("أدخل سببًا واضحًا لبدء الجرد."); return; }
     createStocktake.mutate({
       siteId,
-      warehouseId: Number(warehouseId),
+      warehouseId: Number(createWarehouseId),
       reason: reason.trim(),
       notes: notes.trim() || undefined,
       operationKey,
@@ -275,7 +279,7 @@ export default function InventoryStocktakePanel({
         {showCreateForm && canManageStocktakes ? <CardContent className="border-t pt-4">
           <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={onCreate}>
             <label className="grid gap-1.5 text-sm">موقع التخزين *
-              <select required className="h-10 rounded-md border bg-background px-3" value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
+              <select required className="h-10 rounded-md border bg-background px-3" value={createWarehouseId} onChange={(event) => setCreateWarehouseId(event.target.value)}>
                 <option value="">اختر الموقع</option>
                 {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name} — {locationLabels[warehouse.location_type] ?? warehouse.location_type}</option>)}
               </select>
@@ -286,7 +290,7 @@ export default function InventoryStocktakePanel({
             <label className="grid gap-1.5 text-sm">ملاحظات
               <Input maxLength={2000} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات إدارية" />
             </label>
-            <div className="flex items-end"><Button type="submit" className="w-full" disabled={createStocktake.isPending || !warehouseId || reason.trim().length < 3}>
+            <div className="flex items-end"><Button type="submit" className="w-full" disabled={createStocktake.isPending || !createWarehouseId || reason.trim().length < 3}>
               {createStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="ml-2 h-4 w-4" />} فتح الجلسة وتصوير الأرصدة
             </Button></div>
           </form>
@@ -295,7 +299,7 @@ export default function InventoryStocktakePanel({
         <CardContent className="space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <label className="grid max-w-md flex-1 gap-1.5 text-sm">تصفية سجل الجرد بموقع التخزين
-              <select className="h-10 rounded-md border bg-background px-3" value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
+              <select className="h-10 rounded-md border bg-background px-3" value={filterWarehouseId} onChange={(event) => setFilterWarehouseId(event.target.value)}>
                 <option value="">كل المواقع</option>
                 {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
               </select>
