@@ -66,11 +66,9 @@ export default function InventoryWorkspacePage() {
   const canCreateInventoryItems = supplierAccess.data?.permissions.includes("createInventoryItems") ?? false;
   const canEditInventoryItems = supplierAccess.data?.permissions.includes("editInventoryItems") ?? false;
   const canDeactivateInventoryItems = supplierAccess.data?.permissions.includes("deactivateInventoryItems") ?? false;
-  const canManageInventoryItems = canCreateInventoryItems || canEditInventoryItems || canDeactivateInventoryItems;
   const canCreateSuppliers = supplierAccess.data?.permissions.includes("createSuppliers") ?? false;
   const canEditSuppliers = supplierAccess.data?.permissions.includes("editSuppliers") ?? false;
   const canDeactivateSuppliers = supplierAccess.data?.permissions.includes("deactivateSuppliers") ?? false;
-  const canManageSuppliers = canCreateSuppliers || canEditSuppliers || canDeactivateSuppliers;
   const canCreateWarehouses = supplierAccess.data?.permissions.includes("createWarehouses") ?? false;
   const canEditWarehouses = supplierAccess.data?.permissions.includes("editWarehouses") ?? false;
   const canDeactivateWarehouses = supplierAccess.data?.permissions.includes("deactivateWarehouses") ?? false;
