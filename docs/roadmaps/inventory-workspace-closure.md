@@ -1,7 +1,7 @@
 # PowerHub Inventory, Fuel, Purchasing & Maintenance — Closure Register
 
 **Status date:** 2026-10-22  
-**Baseline:** `main` at `6f7087ad6ff8bfe3d72bce33fa0fabf556e389d7`  
+**Baseline:** `main` at `43575b04506ebdf9354066d1ba79538c0f50730b` (verified after PR #318 merge on 2026-10-22)  
 **Approved source:** the 19-page user-approved proposal for “إدارة الوقود والمخزون والصيانة PowerHub”.  
 **Purpose:** durable source of truth for implementation across PRs and conversations. Do not treat visible tabs, capability names, or passing CI alone as proof that a workflow is complete.
 
@@ -128,8 +128,8 @@ The abnormal-consumption alert is emitted only when the report returns a valid m
 
 ## Phase B2 branch and release evidence (2026-10-22)
 
-- Current `main` SHA: `43575b04506ebdf9354066d1ba79538c0f50730b` (PR #318); the Phase B completion branch is `feat/inventory-phase-b-completion` at `e6aafdd1bf7fcedafcfd3f554e277c4df98bf2f2`, one commit ahead of main and not yet associated with a PR at the time of inspection.
-- The B2 branch contains the report-window and alert-settings/evaluator migrations plus UI/router/test changes. No GitHub Actions runs or status checks were returned for that exact branch SHA, so its CI result is **unverified**.
+- Current `main` SHA: `43575b04506ebdf9354066d1ba79538c0f50730b` (PR #318); the Phase B completion branch tip is `85d31d8f84c160ec49c53846f84a7f48d18ff878`, two commits ahead of main: one B2 implementation commit (`e6aafdd1bf7fcedafcfd3f554e277c4df98bf2f2`) plus this documentation reconciliation. The branch had no associated PR when this evidence was captured.
+- The B2 implementation is the first commit above main; the current documentation-only tip also has no GitHub Actions run. No CI result exists for either the implementation SHA or current branch tip at the time of this inspection, so B2 CI is **unverified**.
 - Read-only checks against the Supabase migration ledgers and schema confirmed the B1 event/reading tables exist in both `powerhub-staging-dr` and production, while the B2 report/alert tables and report-period/evaluator RPCs are absent from both. No B2 migration was applied by this review.
 - The Vercel project is linked to this GitHub repository. Preview environment variables for `VITE_SUPABASE_URL`, `SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` were found scoped to other branches, not this Phase B branch. No Preview deployment exists for the Phase B branch. Do not run a browser E2E against a Preview until staging-only environment bindings (including a matching staging service-role credential held in Vercel, not in logs) are verified; production variables must never be used as a fallback.
 - The current main deployment is READY at `43575b04506ebdf9354066d1ba79538c0f50730b`. This only proves the B1 commit is deployed, not that B2 is released.
