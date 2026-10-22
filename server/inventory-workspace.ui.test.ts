@@ -185,4 +185,35 @@ describe("inventory workspace UI contract", () => {
   });
 
 
+
+  it("wires guarded lifecycle operations for items, suppliers, and warehouses without historical deletion", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const migration = read("supabase/migrations/20261022120000_powerhub_inventory_entity_lifecycle.sql");
+    expect(workspace).toContain("trpc.powerhub.inventory.updateItem.useMutation");
+    expect(workspace).toContain("trpc.powerhub.inventory.setItemActive.useMutation");
+    expect(workspace).toContain("trpc.powerhub.inventory.updateSupplier.useMutation");
+    expect(workspace).toContain("trpc.powerhub.inventory.setSupplierActive.useMutation");
+    expect(workspace).toContain("trpc.powerhub.inventory.updateWarehouse.useMutation");
+    expect(workspace).toContain("trpc.powerhub.inventory.setWarehouseActive.useMutation");
+    expect(workspace).toContain("إظهار الأصناف الموقوفة");
+    expect(workspace).toContain("إظهار الموردين الموقوفين");
+    expect(workspace).toContain("إظهار المخازن الموقوفة");
+    expect(workspace).toContain("supplierTaxNumber");
+    expect(workspace).toContain("supplierAddress");
+    expect(workspace).toContain("أدخل سبب إيقاف الصنف");
+    expect(workspace).toContain("أدخل سبب إيقاف المورد");
+    expect(workspace).toContain("أدخل سبب إيقاف المخزن");
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSuppliers")');
+    expect(migration).toContain("ITEM_BASE_UNIT_IMMUTABLE_AFTER_USE");
+    expect(migration).toContain("INVENTORY_ITEM_HAS_STOCK");
+    expect(migration).toContain("SUPPLIER_HAS_OUTSTANDING_PAYABLE");
+    expect(migration).toContain("WAREHOUSE_HAS_STOCK");
+    expect(migration).toContain("historicalRowsPreserved");
+    expect(migration).toContain("revoke all on function public.powerhub_inventory_update_item");
+    expect(migration).toContain("revoke all on function public.powerhub_inventory_set_supplier_active");
+  });
+  
+
 });
