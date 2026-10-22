@@ -74,6 +74,22 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain("powerhub_inventory_supplier_payables_aging");
   });
 
+  it("exports complete filtered stock reports to multi-sheet Excel and Arabic RTL PDF", () => {
+    const reports = read("client/src/components/InventoryReportsPanel.tsx");
+    expect(reports).toContain('import { loadExcelJS } from "@/lib/lazy-report-deps"');
+    expect(reports).toContain('import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf"');
+    expect(reports).toContain('workbook.addWorksheet("ملخص التقرير"');
+    expect(reports).toContain('workbook.addWorksheet("أرصدة المخزون"');
+    expect(reports).toContain('workbook.addWorksheet("حركات المخزون"');
+    expect(reports).toContain("await loadAllFilteredMoves()");
+    expect(reports).toContain("await downloadReportHtmlAsPdf(root");
+    expect(reports).toContain('dir="rtl"');
+    expect(reports).toContain("Excel متعدد الأوراق");
+    expect(reports).toContain("PDF عربي");
+    expect(reports).toContain("100,000 حركة");
+    expect(reports).toContain("5,000 حركة");
+  });
+
   it("wires purchase draft, approval and receipt UI to guarded purchase procedures", () => {
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
