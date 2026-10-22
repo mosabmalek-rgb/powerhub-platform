@@ -27,6 +27,15 @@ export type PowerCapability =
   | "viewPurchases"
   | "manageInventoryItems"
   | "manageSuppliers"
+  | "createInventoryItems"
+  | "editInventoryItems"
+  | "deactivateInventoryItems"
+  | "createSuppliers"
+  | "editSuppliers"
+  | "deactivateSuppliers"
+  | "createWarehouses"
+  | "editWarehouses"
+  | "deactivateWarehouses"
   | "createPurchases"
   | "approvePurchases"
   | "receiveInventory"
@@ -79,6 +88,15 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   viewPurchases: ["owner", "manager", "accountant", "viewer"],
   manageInventoryItems: ["owner", "manager"],
   manageSuppliers: ["owner", "manager", "accountant"],
+  createInventoryItems: ["owner", "manager"],
+  editInventoryItems: ["owner", "manager"],
+  deactivateInventoryItems: ["owner", "manager"],
+  createSuppliers: ["owner", "manager", "accountant"],
+  editSuppliers: ["owner", "manager", "accountant"],
+  deactivateSuppliers: ["owner", "manager"],
+  createWarehouses: ["owner", "manager"],
+  editWarehouses: ["owner", "manager"],
+  deactivateWarehouses: ["owner", "manager"],
   createPurchases: ["owner", "manager", "accountant"],
   approvePurchases: ["owner", "manager", "accountant"],
   receiveInventory: ["owner", "manager", "accountant", "technician"],
@@ -112,8 +130,17 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   viewInventory: "عرض المخزون",
   viewSuppliers: "عرض دليل الموردين",
   viewPurchases: "عرض المشتريات",
-  manageInventoryItems: "إدارة دليل الأصناف والمستودعات",
-  manageSuppliers: "إدارة الموردين",
+  manageInventoryItems: "إدارة الأصناف والمستودعات (صلاحية توافقية)",
+  manageSuppliers: "إدارة الموردين (صلاحية توافقية)",
+  createInventoryItems: "إنشاء الأصناف ووحدات الشراء",
+  editInventoryItems: "تعديل بيانات الأصناف",
+  deactivateInventoryItems: "إيقاف وإعادة تفعيل الأصناف ووحدات الشراء",
+  createSuppliers: "إنشاء الموردين",
+  editSuppliers: "تعديل بيانات الموردين",
+  deactivateSuppliers: "إيقاف وإعادة تفعيل الموردين",
+  createWarehouses: "إنشاء مواقع التخزين",
+  editWarehouses: "تعديل مواقع التخزين",
+  deactivateWarehouses: "إيقاف وإعادة تفعيل مواقع التخزين",
   createPurchases: "إنشاء فواتير المشتريات",
   approvePurchases: "اعتماد المشتريات",
   receiveInventory: "تأكيد استلام الأصناف",
