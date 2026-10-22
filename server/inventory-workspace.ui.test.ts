@@ -217,4 +217,61 @@ describe("inventory workspace UI contract", () => {
   });
   
 
+
+  it("wires standalone supplier payment batching, opening payable balances, aging, history and safe reversal", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const payments = read("client/src/components/InventorySupplierPaymentsPanel.tsx");
+    const aging = read("client/src/components/InventorySupplierPayablesAgingPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const migration = read("supabase/migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+
+    expect(workspace).toContain('TabsTrigger value="supplierPayments"');
+    expect(workspace).toContain('TabsContent value="supplierPayments"');
+    expect(workspace).toContain("InventorySupplierPaymentsPanel");
+    expect(workspace).toContain("InventorySupplierPayablesAgingPanel");
+    expect(workspace).toContain('tab === "supplierPayments"');
+
+    expect(payments).toContain("listSupplierPaymentBatchOptions.useQuery");
+    expect(payments).toContain("listSupplierPaymentOptions.useQuery");
+    expect(payments).toContain("recordSupplierOpeningBalance.useMutation");
+    expect(payments).toContain("recordSupplierPaymentBatch.useMutation");
+    expect(payments).toContain("listSupplierPaymentHistory.useQuery");
+    expect(payments).toContain("reverseSupplierPayment.useMutation");
+    expect(payments).toContain("مبلغ التخصيص");
+    expect(payments).toContain("مجموع التخصيصات");
+    expect(payments).toContain("رصيد افتتاحي مستحق للمورد");
+
+    expect(aging).toContain("supplierPayablesAging.useQuery");
+    expect(aging).toContain("days_1_30");
+    expect(aging).toContain("days_31_60");
+    expect(aging).toContain("days_61_90");
+    expect(aging).toContain("days_91_plus");
+
+    expect(router).toContain("supplierPayablesAging: protectedProcedure");
+    expect(router).toContain("listSupplierPaymentBatchOptions: protectedProcedure");
+    expect(router).toContain("listSupplierPaymentHistory: protectedProcedure");
+    expect(router).toContain("recordSupplierOpeningBalance: protectedProcedure");
+    expect(router).toContain("recordSupplierPaymentBatch: protectedProcedure");
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewSupplierLedger")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments")');
+    expect(router).toContain("powerhub_inventory_reverse_supplier_payment_flexible");
+    expect(router).toContain("supplier_ledger_entry_id: allocation.openingBalanceEntryId ?? null");
+
+    expect(migration).toContain("powerhub_inventory_record_supplier_opening_balance");
+    expect(migration).toContain("powerhub_inventory_record_supplier_payment_batch");
+    expect(migration).toContain("powerhub_inventory_reverse_supplier_payment_flexible");
+    expect(migration).toContain("powerhub_inventory_supplier_payables_aging");
+    expect(migration).toContain("supplier_payment_allocations_document_target_ck");
+    expect(migration).toContain("SUPPLIER_PAYMENT_ALLOCATION_TOTAL_MISMATCH");
+    expect(migration).toContain("revoke all on function public.powerhub_inventory_record_supplier_payment_batch");
+    expect(migration).toContain("grant execute on function public.powerhub_inventory_record_supplier_payment_batch");
+
+    expect(integration).toContain("$supplier_batch_payment_assertions$");
+    expect(integration).toContain("BATCH_SUPPLIER_PAYMENT_CREATE_FAILED");
+    expect(integration).toContain("SUPPLIER_PAYABLE_AGING_MISMATCH");
+    expect(integration).toContain("BATCH_SUPPLIER_PAYMENT_REVERSAL_FAILED");
+    expect(integration).toContain("AUTHENTICATED_CAN_EXECUTE_SUPPLIER_BATCH_FINANCIAL_RPC");
+  });
+
 });
