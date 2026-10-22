@@ -118,7 +118,8 @@ describe("inventory workspace UI contract", () => {
     const migration = read("supabase/migrations/20261021220000_powerhub_inventory_movement_report_paging.sql");
     expect(workspace).toContain('canViewInventoryReports ? <TabsTrigger value="reports"');
     expect(workspace).toContain("canViewInventoryReports={canViewInventoryReports}");
-    expect(workspace).toContain('canViewInventory ? <TabsContent value="stock"');
+    expect(workspace).toContain('canViewInventory || canAccessStocktakes ? <TabsContent value="stock"');
+    expect(workspace).toContain('canAccessStocktakes ? <InventoryStocktakePanel');
     expect(reports).toContain("trpc.powerhub.inventory.stockOverview.useQuery");
     expect(reports).toContain("trpc.powerhub.inventory.listStockMovementReport.useQuery");
     expect(reports).toContain("listStockMovementReport.fetch");
