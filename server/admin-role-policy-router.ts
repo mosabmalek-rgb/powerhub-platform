@@ -36,6 +36,9 @@ const capabilitySchema = z.enum([
   "manageFuelAndConsumption",
   "manageMaintenance",
   "viewInventoryReports",
+  "viewStocktakes",
+  "manageStocktakes",
+  "approveStocktakes",
 ]);
 
 export const adminRolePolicyRouter = router({
