@@ -55,6 +55,25 @@ describe("inventory workspace UI contract", () => {
     expect(workspace).toContain("canManageSupplierPayments={canManageSupplierPayments}");
   });
 
+  it("renders a source-backed Phase A dashboard with permission-aware metrics and truthful Phase B/C placeholders", () => {
+    const page = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const dashboard = read("client/src/components/InventoryDashboardPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    expect(page).toContain('const [tab, setTab] = useState("dashboard")');
+    expect(page).toContain('TabsTrigger value="dashboard"');
+    expect(page).toContain('TabsContent value="dashboard"');
+    expect(page).toContain("InventoryDashboardPanel");
+    expect(dashboard).toContain("trpc.powerhub.inventory.stockOverview.useQuery");
+    expect(dashboard).toContain("trpc.powerhub.inventory.supplierPayablesAging.useQuery");
+    expect(dashboard).toContain("canViewInventoryReports ? <Metric label=\"القيمة الدفترية للمخزون\"");
+    expect(dashboard).toContain("canViewSupplierLedger ? <Metric label=\"الذمم المستحقة للموردين\"");
+    expect(dashboard).toContain("المرحلة B");
+    expect(dashboard).toContain("المرحلة C");
+    expect(dashboard).toContain("لا نستبدل البيانات المفقودة بأرقام تقديرية");
+    expect(router).toContain("powerhub_inventory_stock_overview");
+    expect(router).toContain("powerhub_inventory_supplier_payables_aging");
+  });
+
   it("wires purchase draft, approval and receipt UI to guarded purchase procedures", () => {
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
