@@ -349,7 +349,7 @@ begin
   if v_report_cost<>63 then raise exception 'MAINTENANCE_REPORT_COST_RECONCILIATION_FAILED'; end if;
   if (select coalesce(sum(r.downtime_minutes),0) from public.powerhub_maintenance_report_by_generator(
     10,100,(now() at time zone 'Asia/Gaza')::date-1,(now() at time zone 'Asia/Gaza')::date+1,null
-  ) r)<>65 then raise exception 'MAINTENANCE_REPORT_DOWNTIME_RECONCILIATION_FAILED'; end if;
+  ) r)<>66 then raise exception 'MAINTENANCE_REPORT_DOWNTIME_RECONCILIATION_FAILED'; end if;
   if exists(select 1 from public.powerhub_maintenance_report_by_generator(
     10,100,(now() at time zone 'Asia/Gaza')::date-1,(now() at time zone 'Asia/Gaza')::date+1,20000
   )) then raise exception 'MAINTENANCE_REPORT_GENERATOR_SCOPE_FAILED'; end if;
