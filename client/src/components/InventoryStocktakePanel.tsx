@@ -390,7 +390,7 @@ export default function InventoryStocktakePanel({
             {selectedStocktake.status === "submitted" && canApproveStocktakes ? <Button type="button" onClick={() => selectedStocktakeId && postStocktake.mutate({ siteId, stocktakeId: selectedStocktakeId })} disabled={postStocktake.isPending}>
               {postStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <PackageCheck className="ml-2 h-4 w-4" />} اعتماد وترحيل
             </Button> : null}
-            {selectedStocktake.status === "counting" && canManageStocktakes ? <Button type="button" variant="outline" onClick={requestCancel} disabled={cancelStocktake.isPending}>
+            {(selectedStocktake.status === "counting" || selectedStocktake.status === "submitted") && canManageStocktakes ? <Button type="button" variant="outline" onClick={requestCancel} disabled={cancelStocktake.isPending}>
               {cancelStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <XCircle className="ml-2 h-4 w-4" />} إلغاء الجلسة
             </Button> : null}
           </div>
@@ -428,7 +428,7 @@ export default function InventoryStocktakePanel({
             <span>عدد الفروقات: {varianceCount}</span>
             <span>الكمية الصافية للفرق: {qty(selectedStocktake.variance_quantity)}</span>
           </div>
-          {selectedStocktake.status === "submitted" ? <p className="mt-3 rounded-md border p-3 text-sm text-muted-foreground">أرسلت هذه الجلسة للاعتماد؛ تُراجع فروقاتها قبل الترحيل. إذا تغيّر الرصيد منذ اللقطة، سيرفض الخادم الترحيل ويجب فتح جلسة جديدة.</p> : null}
+          {selectedStocktake.status === "submitted" ? <p className="mt-3 rounded-md border p-3 text-sm text-muted-foreground">أرسلت هذه الجلسة للاعتماد؛ تُراجع فروقاتها قبل الترحيل. إذا تغيّر الرصيد منذ اللقطة، سيرفض الخادم الترحيل. ألغِ الجلسة بسبب موثق ثم افتح جلسة جديدة؛ ولا تُلغى جلسة بعد ترحيل أي حركة.</p> : null}
           {selectedStocktake.status === "posted" ? <p className="mt-3 rounded-md border p-3 text-sm text-muted-foreground">تم ترحيل الفروقات إلى سجل حركات المخزون كحركات تسوية مرتبطة برقم الجرد. إعادة المحاولة لا تنشئ حركات مكررة.</p> : null}
         </CardContent>
       </Card> : null}
