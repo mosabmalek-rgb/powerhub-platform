@@ -44,4 +44,4 @@ export const powerhubRuntimeRouter = router({
   inventory: powerhubInventoryRouter,
   maintenance: powerhubMaintenanceRouter,
   readingCycle: legacyRecord.readingCycle,
-});
+}) as typeof powerhubRouter & { maintenance: typeof powerhubMaintenanceRouter };
