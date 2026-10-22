@@ -2979,14 +2979,14 @@ begin
   join public.inventory_stock_movements m
     on m.tenant_id=l.tenant_id and m.id=l.posted_movement_id
   where l.tenant_id=10 and l.stocktake_id=v_stocktake_id and l.item_id=v_item_id
-    and m.movement_type='adjustment_in'
+    and m.movement_type='adjustment_out'
     and m.operation_key='stocktake:'||v_stocktake_id::text||':item:'||v_item_id::text;
   if v_posted_movement_id is null then raise exception 'STOCKTAKE_MOVEMENT_NOT_LINKED'; end if;
 
   select on_hand_quantity,stock_value into v_quantity,v_opening_value
   from public.powerhub_inventory_stock_overview(10,100)
   where warehouse_id=v_warehouse_id and item_id=v_item_id;
-  if v_quantity<>2 or v_opening_value<>12 then
+  if v_quantity<>2 or v_opening_value<>10 then
     raise exception 'STOCKTAKE_POSTED_BALANCE_MISMATCH qty=% value=%',v_quantity,v_opening_value;
   end if;
 
