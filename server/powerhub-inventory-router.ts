@@ -136,7 +136,7 @@ function mapPurchaseDatabaseError(
     STOCKTAKE_SURPLUS_UNIT_COST_REQUIRED: { code: "BAD_REQUEST", message: "أدخل تكلفة وحدة للكمية الزائدة عندما لا يوجد رصيد سابق لتقييمها." },
     STOCKTAKE_POSTING_MOVEMENT_FAILED: { code: "CONFLICT", message: "تعذر إنشاء حركة التسوية الناتجة عن الجرد؛ لم تُرحّل الجلسة." },
     STOCKTAKE_CANCEL_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإلغاء جلسة الجرد." },
-    STOCKTAKE_NOT_CANCELLABLE: { code: "CONFLICT", message: "لا يمكن إلغاء جلسة جرد أُرسلت للاعتماد أو رُحّلت." },
+    STOCKTAKE_NOT_CANCELLABLE: { code: "CONFLICT", message: "لا يمكن إلغاء جلسة جرد مُرحّلة أو لها حركات تسوية مرتبطة." },
 
     STOCK_WAREHOUSE_INACTIVE: { code: "CONFLICT", message: "المخزن موقوف؛ أعد تفعيله قبل تعديل بياناته." },
     WAREHOUSE_DEACTIVATION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإيقاف المخزن." },
