@@ -358,6 +358,8 @@ select * from public.powerhub_admin_save_role_policy(1,'manager','viewPurchases'
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'createInventoryItems',true);
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'editSuppliers',true);
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'deactivateWarehouses',true);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'reverseSupplierPayments',true);
+select * from public.powerhub_admin_save_role_policy(1,'accountant','reverseSupplierPayments',true);
 select * from public.powerhub_admin_save_role_policy(1,'manager','createInventoryItems',true);
 select * from public.powerhub_admin_save_role_policy(1,'manager','editSuppliers',true);
 select * from public.powerhub_admin_save_role_policy(1,'manager','deactivateWarehouses',true);
