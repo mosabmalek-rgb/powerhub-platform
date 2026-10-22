@@ -80,6 +80,7 @@ export default function InventoryWorkspacePage() {
   const canAdjustInventory = supplierAccess.data?.permissions.includes("adjustInventory") ?? false;
   const canManageFuelAndConsumption = supplierAccess.data?.permissions.includes("manageFuelAndConsumption") ?? false;
   const canManageMaintenance = supplierAccess.data?.permissions.includes("manageMaintenance") ?? false;
+  const canViewMaintenance = canViewInventory;
   const canViewStocktakes = supplierAccess.data?.permissions.includes("viewStocktakes") ?? false;
   const canManageStocktakes = supplierAccess.data?.permissions.includes("manageStocktakes") ?? false;
   const canApproveStocktakes = supplierAccess.data?.permissions.includes("approveStocktakes") ?? false;
@@ -311,7 +312,7 @@ export default function InventoryWorkspacePage() {
                 {canViewInventory || canAccessStocktakes ? <TabsTrigger value="stock" className="gap-2">{canAccessStocktakes && !canViewInventory ? <ClipboardCheck className="h-4 w-4" /> : <ArrowLeftRight className="h-4 w-4" />} {canAccessStocktakes && !canViewInventory ? "الجرد الفعلي" : "الأرصدة والحركات"}</TabsTrigger> : null}
                 {canReadPurchases ? <TabsTrigger value="purchases" className="gap-2"><ClipboardList className="h-4 w-4" /> المشتريات</TabsTrigger> : null}
                 {canManageFuelAndConsumption || canViewInventoryReports ? <TabsTrigger value="fuel" className="gap-2"><Droplet className="h-4 w-4" /> الوقود والاستهلاك</TabsTrigger> : null}
-                {canManageMaintenance ? <TabsTrigger value="maintenance" className="gap-2"><Wrench className="h-4 w-4" /> الصيانة والأعطال</TabsTrigger> : null}
+                {canViewMaintenance ? <TabsTrigger value="maintenance" className="gap-2"><Wrench className="h-4 w-4" /> الصيانة والأعطال</TabsTrigger> : null}
                 {canViewInventoryReports ? <TabsTrigger value="reports" className="gap-2"><FileSpreadsheet className="h-4 w-4" /> التقارير والتصدير</TabsTrigger> : null}
               </TabsList>
             </div>
@@ -479,9 +480,10 @@ export default function InventoryWorkspacePage() {
               /> : null}
             </TabsContent> : null}
 
-            {canManageMaintenance ? <TabsContent value="maintenance" className="space-y-4"><InventoryMaintenancePanel
+            {canViewMaintenance ? <TabsContent value="maintenance" className="space-y-4"><InventoryMaintenancePanel
                 siteId={siteId}
                 isAuthenticated={isAuthenticated}
+                canViewMaintenance={canViewMaintenance}
                 canManageMaintenance={canManageMaintenance}
                 canIssueInventory={canIssueInventory}
                 canManageExpenses={supplierAccess.data?.permissions.includes("manageExpenses") ?? false}
