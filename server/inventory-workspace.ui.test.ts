@@ -102,6 +102,20 @@ describe("inventory workspace UI contract", () => {
     expect(integration).toContain("TENANT_AUDIT_SUPPLIER_RETURN_FAILED");
   });
 
+  it("exports supplier payable aging as a full Excel worksheet and Arabic PDF under ledger permission", () => {
+    const panel = read("client/src/components/InventorySupplierPayablesAgingPanel.tsx");
+    expect(panel).toContain("canViewSupplierLedger");
+    expect(panel).toContain('import { loadExcelJS } from "@/lib/lazy-report-deps"');
+    expect(panel).toContain('import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf"');
+    expect(panel).toContain('workbook.addWorksheet("أعمار ذمم الموردين"');
+    expect(panel).toContain("result.rows.map");
+    expect(panel).toContain("downloadReportHtmlAsPdf(root");
+    expect(panel).toContain("PDF عربي");
+    expect(panel).toContain("Excel");
+    expect(panel).toContain("5_000");
+    expect(panel).toContain('views: [{ rightToLeft: true');
+  });
+
   it("renders a source-backed Phase A dashboard with permission-aware metrics and truthful Phase B/C placeholders", () => {
     const page = read("client/src/pages/InventoryWorkspacePage.tsx");
     const dashboard = read("client/src/components/InventoryDashboardPanel.tsx");
