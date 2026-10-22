@@ -17,6 +17,7 @@ declare
   v_close_hours numeric;
   v_due_before timestamptz;
   v_plan_replay record;
+  v_constraint_name text;
 begin
   -- Create a disposable stock item and seed it through the same audited ledger.
   insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
@@ -65,6 +66,19 @@ begin
   if v_before-v_after<>2 then raise exception 'MAINTENANCE_PART_DUPLICATED_STOCK_ISSUE'; end if;
   select count(*) into v_movement_count from public.generator_maintenance_work_order_parts where tenant_id=10 and work_order_id=v_order.work_order_id;
   if v_movement_count<>1 then raise exception 'MAINTENANCE_PART_ROW_DUPLICATED'; end if;
+
+  -- An order's part cannot be attributed to a different generator, even through direct SQL.
+  begin
+    insert into public.generator_maintenance_work_order_parts(
+      tenant_id,site_id,work_order_id,generator_id,item_id,warehouse_id,quantity,unit_cost,total_cost_amount,
+      stock_movement_id,operation_key,operation_payload_hash
+    ) values(10,100,v_order.work_order_id,999999,v_movement_count,1,1,12.50,12.50,
+      999999,'maint-test-cross-generator-part-c','test-hash');
+    raise exception 'MAINTENANCE_CROSS_GENERATOR_PART_ACCEPTED';
+  exception when foreign_key_violation then
+    get stacked diagnostics v_constraint_name = constraint_name;
+    if v_constraint_name<>'generator_maintenance_parts_order_fk' then raise; end if;
+  end;
 
   select * into v_transition from public.powerhub_maintenance_transition_work_order(
     10,100,1,v_order.work_order_id,'start',null,null,null,0,0,null,'maint-test-start-c-01'
@@ -128,6 +142,10 @@ begin
     raise exception 'MAINTENANCE_AUDIT_EVENT_MISSING';
   end if;
 
+  if has_table_privilege('service_role','public.generator_maintenance_audit_events','UPDATE')
+    or has_table_privilege('service_role','public.generator_maintenance_audit_events','DELETE') then
+    raise exception 'MAINTENANCE_AUDIT_MUTABLE_ACCESS_GRANTED';
+  end if;
   if has_table_privilege('anon','public.generator_maintenance_work_orders','SELECT')
     or has_table_privilege('authenticated','public.generator_maintenance_work_orders','SELECT')
     or has_table_privilege('anon','public.generator_maintenance_preventive_plans','SELECT')

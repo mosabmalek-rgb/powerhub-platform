@@ -45,6 +45,8 @@ create table public.generator_maintenance_work_orders (
     references public.generators(tenant_id,site_id,id),
   constraint generator_maintenance_work_orders_tenant_site_id_unique
     unique (tenant_id,site_id,id),
+  constraint generator_maintenance_work_orders_tenant_site_id_generator_unique
+    unique (tenant_id,site_id,id,generator_id),
   constraint generator_maintenance_work_orders_scope_number_unique
     unique (tenant_id,site_id,work_order_number),
   constraint generator_maintenance_work_orders_operation_unique
@@ -72,8 +74,8 @@ create table public.generator_maintenance_work_order_parts (
   issued_by_user_id bigint references public.users(id) on delete set null,
   issued_at timestamptz not null default now(),
   constraint generator_maintenance_parts_order_fk
-    foreign key (tenant_id,site_id,work_order_id)
-    references public.generator_maintenance_work_orders(tenant_id,site_id,id),
+    foreign key (tenant_id,site_id,work_order_id,generator_id)
+    references public.generator_maintenance_work_orders(tenant_id,site_id,id,generator_id),
   constraint generator_maintenance_parts_item_fk
     foreign key (tenant_id,item_id) references public.inventory_items(tenant_id,id),
   constraint generator_maintenance_parts_warehouse_fk
@@ -142,11 +144,8 @@ create table public.generator_maintenance_alert_events (
   resolved_at timestamptz,
   updated_at timestamptz not null default now(),
   constraint generator_maintenance_alert_plan_fk
-    foreign key (tenant_id,site_id,plan_id)
-    references public.generator_maintenance_preventive_plans(tenant_id,site_id,id),
-  constraint generator_maintenance_alert_generator_fk
-    foreign key (tenant_id,site_id,generator_id)
-    references public.generators(tenant_id,site_id,id),
+    foreign key (tenant_id,site_id,generator_id,plan_id)
+    references public.generator_maintenance_preventive_plans(tenant_id,site_id,generator_id,id),
   constraint generator_maintenance_alert_key_unique unique (tenant_id,alert_key)
 );
 
