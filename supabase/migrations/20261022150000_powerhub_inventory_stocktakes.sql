@@ -137,7 +137,7 @@ begin
   end if;
   insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id,updated_at)
   values(p_role,p_capability,p_is_allowed,p_actor_user_id,now())
-  on conflict(role,capability) do update
+  on conflict on constraint platform_role_policies_role_capability_key do update
     set is_allowed=excluded.is_allowed,updated_by_user_id=excluded.updated_by_user_id,updated_at=now()
   returning id into v_id;
   return query select true,v_id,p_role,p_capability,p_is_allowed,false;
