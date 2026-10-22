@@ -1,6 +1,7 @@
 \set ON_ERROR_STOP on
 -- Reuse the full disposable inventory fixture; never connect to a deployed project.
 \ir inventory_purchase_receiving_workflow.sql
+\ir ../migrations/20261023090000_powerhub_generator_maintenance.sql
 
 do $maintenance_phase_c$
 declare
