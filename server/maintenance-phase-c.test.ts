@@ -12,10 +12,12 @@ describe("PowerHub Phase C maintenance integration", () => {
     const panel = read("client/src/components/InventoryMaintenancePanel.tsx");
     expect(runtime).toContain("maintenance: powerhubMaintenanceRouter");
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance")');
-    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory")');
+    expect(router).toContain('requireSupabaseSiteRole(userId, siteId, [...readRoles], "viewInventory")');
+    expect(router).toContain('requireSupabaseSiteRole(userId, siteId, [...maintenanceRoles], "manageMaintenance")');
+    expect(router).toContain("requireMaintenanceReadAccess(ctx.user.id, input.siteId)");
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventoryReports")');
     expect(router).toContain("listGenerators: authenticatedProcedure");
-    expect(page).toContain("canViewMaintenance");
+    expect(page).toContain("canViewMaintenance = canViewInventory || canManageMaintenance");
     expect(page).toContain("canViewMaintenanceReport");
     expect(panel).toContain("canManageMaintenance ? (");
     expect(panel).toContain("canViewMaintenanceReport ? (");
