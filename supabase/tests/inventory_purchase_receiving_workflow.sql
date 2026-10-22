@@ -172,6 +172,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql
 \ir ../migrations/20261022190000_powerhub_inventory_phase_a_fk_indexes.sql
 \ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql
+\ir ../migrations/20261022203000_powerhub_inventory_supplier_ledger_statement_reconcile.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -1229,6 +1230,14 @@ begin
     or (v_statement->>'entry_count')::integer<>v_expected_entry_count
     or jsonb_array_length(v_statement->'entries')>1 then
     raise exception 'SUPPLIER_LEDGER_STATEMENT_TOTAL_OR_LIMIT_MISMATCH';
+  end if;
+
+  if has_function_privilege('anon','public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'UNTRUSTED_ROLE_CAN_READ_SUPPLIER_LEDGER_STATEMENT_DIRECTLY';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_supplier_ledger_statement(bigint,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_READ_SUPPLIER_LEDGER_STATEMENT';
   end if;
 
   if has_function_privilege('anon','public.powerhub_inventory_cancel_purchase(bigint,bigint,bigint,bigint,text)','EXECUTE')
