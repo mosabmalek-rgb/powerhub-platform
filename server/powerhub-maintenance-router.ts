@@ -244,6 +244,16 @@ export const powerhubMaintenanceRouter = router({
       p_quantity: input.quantity, p_notes: input.notes ?? null, p_operation_key: input.operationKey,
     });
   }),
+  reopenCompletedWorkOrder: authenticatedProcedure.input(z.object({
+    siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
+    reason: z.string().trim().min(3).max(500), operationKey,
+  })).mutation(async ({ ctx, input }) => {
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
+    return rpc("powerhub_maintenance_reopen_completed_work_order", {
+      p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+      p_work_order_id: input.workOrderId, p_reason: input.reason, p_operation_key: input.operationKey,
+    });
+  }),
   transitionWorkOrder: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
     action: z.enum(["start", "wait_for_parts", "complete", "cancel", "correct_completion"]),
