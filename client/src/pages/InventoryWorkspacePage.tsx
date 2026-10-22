@@ -63,8 +63,17 @@ export default function InventoryWorkspacePage() {
   const canViewSuppliers = supplierAccess.data?.permissions.includes("viewSuppliers") ?? false;
   const canViewSupplierLedger = supplierAccess.data?.permissions.includes("viewSupplierLedger") ?? false;
   const canViewInventory = supplierAccess.data?.permissions.includes("viewInventory") ?? false;
-  const canManageInventoryItems = supplierAccess.data?.permissions.includes("manageInventoryItems") ?? false;
-  const canManageSuppliers = supplierAccess.data?.permissions.includes("manageSuppliers") ?? false;
+  const canCreateInventoryItems = supplierAccess.data?.permissions.includes("createInventoryItems") ?? false;
+  const canEditInventoryItems = supplierAccess.data?.permissions.includes("editInventoryItems") ?? false;
+  const canDeactivateInventoryItems = supplierAccess.data?.permissions.includes("deactivateInventoryItems") ?? false;
+  const canManageInventoryItems = canCreateInventoryItems || canEditInventoryItems || canDeactivateInventoryItems;
+  const canCreateSuppliers = supplierAccess.data?.permissions.includes("createSuppliers") ?? false;
+  const canEditSuppliers = supplierAccess.data?.permissions.includes("editSuppliers") ?? false;
+  const canDeactivateSuppliers = supplierAccess.data?.permissions.includes("deactivateSuppliers") ?? false;
+  const canManageSuppliers = canCreateSuppliers || canEditSuppliers || canDeactivateSuppliers;
+  const canCreateWarehouses = supplierAccess.data?.permissions.includes("createWarehouses") ?? false;
+  const canEditWarehouses = supplierAccess.data?.permissions.includes("editWarehouses") ?? false;
+  const canDeactivateWarehouses = supplierAccess.data?.permissions.includes("deactivateWarehouses") ?? false;
   const canViewInventoryReports = supplierAccess.data?.permissions.includes("viewInventoryReports") ?? false;
   const canIssueInventory = supplierAccess.data?.permissions.includes("issueInventory") ?? false;
   const canAdjustInventory = supplierAccess.data?.permissions.includes("adjustInventory") ?? false;
@@ -144,7 +153,7 @@ export default function InventoryWorkspacePage() {
   );
   const warehouseGenerators = trpc.powerhub.generators.list.useQuery(
     { siteId },
-    { enabled: Boolean(siteId && isAuthenticated && canManageInventoryItems), staleTime: 30_000 },
+    { enabled: Boolean(siteId && isAuthenticated && (canCreateWarehouses || canEditWarehouses)), staleTime: 30_000 },
   );
 
   const createItem = trpc.powerhub.inventory.createItem.useMutation({
