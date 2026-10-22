@@ -19,15 +19,15 @@
 
 The final workspace should expose these nine logical tabs beneath the single “المخزون والمشتريات والصيانة” header; implementation can share components internally but must not lose any function:
 
-- [ ] لوحة التحكم — real, source-backed balances, usage, shortage, outstanding supplier debt, maintenance due, and operating-cost metrics.
-- [ ] دليل الأصناف — create, view, edit and deactivate; durable item code, category, base unit, reorder point, specification; prevent duplicate codes and preserve referenced history.
+- [x] لوحة التحكم — source-backed current inventory metrics and supplier debt; fuel/maintenance KPIs remain Phase B/C.
+- [x] دليل الأصناف — create/view/edit/deactivate; durable item code, category, base unit, reorder point, specification; duplicate protection and referenced-history guards.
 - [ ] المشتريات — supplier invoices and lines, purchase/due dates, unit conversions, discounts/tax/charges, draft/approval, physical partial/full receipts, and payment state.
 - [ ] المخزون والحركات — per-site warehouses and stock locations/tanks, opening balances, receipts, issues, transfers, supplier/issue returns, stocktake, corrections/reversals, item balances and immutable movement history.
 - [ ] الموردون والذمم — supplier profile lifecycle, opening balance, account statement, invoices, payments, returns/credits, outstanding balance, due/overdue aging.
 - [ ] دفعات الموردين — one or multiple invoice allocations, existing company-account selector, partial/full settlement, reference, reversal, atomic account/ledger/audit effects.
 - [ ] الوقود والاستهلاك — (Phase B) refuelling records, source/target tanks, historical fuel-level and operating-hour readings, measured actual consumption where inputs support it, litres/hour, alerts, reports.
 - [ ] الصيانة — (Phase C) work orders, breakdowns, preventive schedules, assigned staff, downtime, parts/oils, labour/external service cost, closeout, due alerts and machine history.
-- [ ] التقارير والتصدير — inventory/purchasing/payables/aging/fuel/maintenance/machine operating cost, unified filters and cycle semantics, complete CSV, multi-sheet Excel, RTL Arabic PDF with company identity.
+- [ ] التقارير والتصدير — Phase A now includes stock balances/movements, supplier aging, complete filtered CSV, multi-sheet Excel and branded RTL Arabic PDF; purchase/fuel/maintenance/machine-cost report coverage remains to close.
 
 ## Phase A — close stock, purchasing, suppliers and payables
 
@@ -41,25 +41,27 @@ The final workspace should expose these nine logical tabs beneath the single “
 - [x] Opening stock, manual issue, stock adjustments, fuel-consumption stock movement, issue returns and movement correction.
 - [x] Atomic same-site warehouse transfers.
 - [x] Integrated supplier returns; exact cost handling for partial receipt, stock issue/returns and supplier returns.
-- [x] Stock balances and movement report with keyset paging and complete filtered CSV export.
-- [x] Per-staff capability override infrastructure and server-side authorization checks; operation-specific coverage still must be checked.
+- [x] Stock balances and movement report with keyset paging and complete filtered CSV export; Phase A multi-sheet Excel and branded RTL Arabic PDF added.
+- [x] Per-staff capability override infrastructure and server-side authorization; operation-specific create/edit/deactivate and independent supplier-payment reversal capabilities are covered at UI/server/SQL layers. Owner-profile override scope remains an explicit open decision.
 - [x] PostgreSQL integration gates include purchase receiving, idempotency, audit rollback, tenant isolation, concurrent inventory/payment scenarios and permission checks.
 
 ### Remaining Phase A acceptance checklist
 
-- [ ] Complete item lifecycle: guarded edit/deactivate, duplicate-code handling, referenced-history preservation and audit.
-- [ ] Complete supplier lifecycle: edit/deactivate; expose approved profile fields (including address/tax number where required) without erasing historic finance data.
-- [ ] Complete warehouse/location lifecycle and model location type (central warehouse, branch warehouse, fixed fuel tank, generator-associated tank) so balances cannot be conflated across locations.
-- [ ] Full stocktake workflow: session/date, counted quantity, system quantity, variance, reason, approval, posted adjustment and audit. Existing manual adjustment is not equivalent to a stocktake session.
+The latest verified branch head `6bf1b51bdf382e69274d273fca22da93c9501bd1` passed PowerHub CI (TypeScript, test suite, production build), PostgreSQL integration, Supabase Admin Guard, and PowerHub Security. These are code-level gates, not a substitute for staging E2E or schema parity.
+
+- [x] Complete item lifecycle: guarded edit/deactivate, duplicate-code handling, referenced-history preservation and audit.
+- [x] Complete supplier lifecycle: edit/deactivate; address/tax fields exposed while historical finance records are preserved.
+- [x] Complete warehouse/location lifecycle and model central warehouse, branch warehouse, fixed fuel tank and generator-associated tank with tenant/site-safe generator linkage.
+- [x] Full stocktake workflow: session/date, counted quantity, system quantity, variance, reason, approval, posted adjustment and audit; stale submitted counts can be safely cancelled and replaced.
 - [x] Durable item-level purchase units: unique per-item labels, positive six-decimal conversion factor, immutable conversion snapshot on purchase lines, no unconfigured units or client-forged factors, audited deactivate/reactivate, and guards against changing the base unit after purchase units exist. PostgreSQL integration, UI contract, TypeScript and production build gates passed on `4c1a631dd49772914dce471b0664b27e6d4decf5`.
-- [ ] Supplier opening payable balance with traceable date/reference/reason and balanced ledger representation.
-- [ ] Supplier payment batch allocated to multiple invoices, with row locks, amount validation, idempotency, company-account movement, ledger postings and audit in one transaction.
+- [x] Supplier opening payable balance with traceable date/reference/reason and balanced ledger representation.
+- [x] Supplier payment batch allocated to multiple invoices/opening balances, with row locks, amount validation, idempotency, company-account movement, ledger postings and audit in one transaction.
 - [ ] Explicitly support and test purchase payment intent (paid in full / partially paid / on credit) without double-debiting the company account or double-counting inventory cost. The current UI can record payments from invoice details; acceptance is the approved end-to-end user flow, not field presence.
-- [ ] Supplier payable aging: open/current/due soon/overdue age bands and totals, scoped by tenant/site and financial-view permission.
+- [x] Supplier payable aging: not-due and 1–30/31–60/61–90/91+ overdue bands and totals, scoped by tenant/site and financial-view permission.
 - [ ] Complete supplier detail tabs/report/export UX where required by the nine-tab design.
 - [ ] Reconcile stock quantity/value, receipt cost, return credit, supplier balance, payment allocations and company-account transactions end-to-end.
 - [ ] Review fine-grained capabilities against each operation (view/create/edit/deactivate/approve/receive/pay/reverse/stocktake/report); show the effective permission result in platform administration. Current per-staff overrides intentionally exclude owner profiles in their current RPC; resolve this against the approved “each user” intent explicitly before closure.
-- [ ] Add or update UI-contract tests and disposable PostgreSQL integration assertions for each acceptance item.
+- [x] UI-contract tests and disposable PostgreSQL integration assertions cover lifecycle, stocktake, units, opening balance, batch payments, aging, permissions, idempotency, tenant isolation and reconciliation scenarios.
 - [ ] Staging E2E: create disposable fixture data; draft -> approve -> partial receipt -> additional receipt -> partial and multi-invoice payments -> supplier return/refund -> issue/return/transfer -> stocktake -> reports; reconcile totals; remove only explicitly created fixture data.
 - [ ] Check staging and production migration identities/schema parity after deployment, without financial mutation of production.
 
