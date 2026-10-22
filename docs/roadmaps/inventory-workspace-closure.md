@@ -97,7 +97,7 @@ The Phase B release gate remains open until a Preview is verified to use staging
 - [x] Tenant/site/generator-scoped work orders with unique numbers, type, priority, fault/work summary, dates, assigned staff/supplier, downtime, spare-part cost, labour/service cost capture and total cost.
 - [x] Lifecycle states: scheduled, new, in progress, waiting for parts, completed and cancelled; invalid transitions and cancellation without a reason are rejected.
 - [x] Correct completed work orders through an explicitly audited record-only workflow requiring a reason and corrected summary; it preserves the close-out operating-hours reading, stock movements, preventive-plan schedule and alert state, and never posts a second expense.
-- [ ] Reopen completed work orders as a new execution cycle; this remains intentionally separate from record correction.
+- [x] Reopen completed work orders as a new linked execution cycle with mandatory reason, a fresh work-order identity, idempotent retry and audit; the original completion, costs, stock issues and meter readings remain immutable and are not copied into the follow-up order.
 - [x] Preventive plans by calendar date and/or operating hours; due-soon/overdue detection and next-due advancement on linked preventive close-out.
 - [x] Spare-parts/oils issue linked to the work order and stock ledger, with atomic rollback and operation-key idempotency.
 - [ ] Define any required accounting/expense posting policy for labour and external services; current maintenance costs are captured and reported but are not automatically posted to company accounts. Duplicate posting is prohibited until a source-of-truth expense ledger and idempotent posting key are defined.
