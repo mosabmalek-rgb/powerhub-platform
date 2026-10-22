@@ -54,8 +54,6 @@ describe("PowerHub Phase C maintenance integration", () => {
     const integration = read("supabase/tests/inventory_maintenance_phase_c.sql");
     const router = read("server/powerhub-maintenance-router.ts");
     const panel = read("client/src/components/InventoryMaintenancePanel.tsx");
-    const router = read("server/powerhub-maintenance-router.ts");
-    const panel = read("client/src/components/InventoryMaintenancePanel.tsx");
     expect(migration).toContain("powerhub_inventory_record_stock_movement");
     expect(migration).toContain("pg_advisory_xact_lock");
     expect(migration).toContain("MAINTENANCE_IDEMPOTENCY_KEY_REUSED");
