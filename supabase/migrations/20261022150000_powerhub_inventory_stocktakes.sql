@@ -729,6 +729,7 @@ as $$
 declare
   v_stocktake public.inventory_stocktakes%rowtype;
   v_platform_role text;
+  v_before_status text;
   v_reason text:=nullif(btrim(p_reason),'');
 begin
   if v_reason is null or length(v_reason) not between 3 and 500 then
@@ -738,7 +739,19 @@ begin
   where st.tenant_id=p_tenant_id and st.site_id=p_site_id and st.id=p_stocktake_id for update;
   if not found then raise exception 'STOCKTAKE_NOT_FOUND' using errcode='P0001'; end if;
   if v_stocktake.status='cancelled' then return query select v_stocktake.id,v_stocktake.stocktake_number,v_stocktake.status,true; return; end if;
-  if v_stocktake.status<>'counting' then raise exception 'STOCKTAKE_NOT_CANCELLABLE' using errcode='P0001'; end if;
+
+  -- A submitted session may become stale while waiting for approval. Allow an audited
+  -- cancellation in that state so it cannot block the warehouse forever. Once any
+  -- adjustment is linked, it is no longer cancellable; posting itself is transactional.
+  if v_stocktake.status not in ('counting','submitted')
+    or exists(
+      select 1 from public.inventory_stocktake_lines l
+      where l.tenant_id=p_tenant_id and l.stocktake_id=p_stocktake_id and l.posted_movement_id is not null
+    ) then
+    raise exception 'STOCKTAKE_NOT_CANCELLABLE' using errcode='P0001';
+  end if;
+  v_before_status:=v_stocktake.status;
+
   select coalesce(u.platform_role,'tenant_user') into v_platform_role from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
   update public.inventory_stocktakes st set status='cancelled',cancelled_at=now(),cancelled_by_user_id=p_user_id,cancel_reason=v_reason
@@ -747,7 +760,7 @@ begin
     tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,before_data,after_data
   ) values(
     p_tenant_id,p_site_id,p_user_id,v_platform_role,'inventory_stocktake',v_stocktake.id::text,'cancel',
-    jsonb_build_object('status','counting'),jsonb_build_object('status','cancelled','reason',v_reason)
+    jsonb_build_object('status',v_before_status),jsonb_build_object('status','cancelled','reason',v_reason)
   );
   return query select v_stocktake.id,v_stocktake.stocktake_number,v_stocktake.status,false;
 end;
