@@ -198,6 +198,7 @@ grant select,insert,update on public.generator_maintenance_work_orders,
   public.generator_maintenance_preventive_plans,
   public.generator_maintenance_alert_events to service_role;
 grant select,insert on public.generator_maintenance_audit_events to service_role;
+revoke update,delete,truncate,references,trigger on public.generator_maintenance_audit_events from service_role;
 grant usage,select on sequence public.generator_maintenance_work_order_number_seq to service_role;
 grant usage,select on sequence public.generator_maintenance_work_orders_id_seq,
   public.generator_maintenance_work_order_parts_id_seq,
