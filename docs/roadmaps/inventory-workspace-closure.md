@@ -72,7 +72,7 @@ The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed Powe
 
 ## Phase B — measured fuel and consumption (not yet complete)
 
-- [ ] Model independent stock locations/tanks and source/target tank relations.
+- [x] Model independent stock locations/tanks and source/target tank relations (implemented in the Phase A location-type migration; Phase B reuses that model).
 - [ ] Append-only refuelling events: generator, date/time, litres, source item/location, destination generator tank, cost, level before/after, meter hours, reference and actor.
 - [ ] Append-only dated readings for tank level and hour meter; reject impossible/backwards readings except documented corrections.
 - [ ] Keep purchased, received, issued/filled, and measured consumed quantities distinct.
@@ -82,6 +82,12 @@ The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed Powe
 - [ ] Configurable low-level and abnormal-use alerts with idempotent dispatch.
 - [ ] Reports by day, PowerHub cycle, month, generator, branch, stock location and cost.
 - [ ] Server/database authorization, audit, idempotency, concurrency and integration tests.
+
+### Phase B1 — auditable fuel-entry and measured-consumption foundation
+
+**Source implementation in review; not deployed.** The current delivery adds append-only fuel-fill events tied to atomic stock transfers, dated tank/hour readings with documented corrections, and a report that keeps recorded consumption separate from measured consumption. Historical fill events are assigned to their recorded event date in measurement reconciliation. Unexplained manual tank adjustments make measured consumption unavailable and surface a reconciliation-anomaly status.
+
+B1 is intentionally not the Phase B release gate: low-level/abnormal-use alert dispatch, PowerHub-cycle reporting, broader cost/report exports, concurrency hardening, and verified staging end-to-end remain open until their own tests and operational evidence pass. The disposable PostgreSQL integration test for this slice is appended to the existing inventory purchasing/receiving test, so it uses the established CI gate rather than creating a separate workflow for each small addition.
 
 ## Phase C — complete maintenance (not yet complete)
 
@@ -107,12 +113,12 @@ The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed Powe
 
 ## Current verified gap snapshot (2026-10-22)
 
-- The UI currently exposes six tabs: “دليل الأصناف”, “الموردون”, “المخازن”, “الأرصدة والحركات”, “المشتريات”, “التقارير والتصدير”. Final design requires nine logical tabs.
+- The existing workspace has eight logical tabs before Phase B fuel work; this branch adds the ninth “الوقود والاستهلاك” tab. Final design remains nine logical tabs before the Phase C maintenance surfaces are assessed.
 - Stock, purchasing and supplier-payables schema/RPCs are present in both production and staging.
 - Database inspection did not find dedicated maintenance-order/preventive-maintenance tables/functions, or historical generator fuel-fill/level/hour-reading tables/functions.
 - Stock/purchasing/payables tables in staging were empty at inspection time. Passing disposable PostgreSQL tests does not prove that a full staging UI journey has been run.
 - CSV movement export is complete and paginated; approved multi-sheet Excel and branded RTL PDF are not implemented in this module.
-- Latest confirmed main baseline is `6f7087ad6ff8bfe3d72bce33fa0fabf556e389d7`; re-check main/PR state before each future implementation session.
+- Confirmed main baseline at the start of the Phase B1 work is `6b182eb5a53f5c0b8fe47f8e266c03c4bb8bc29f`; re-check main/PR state before each future implementation session.
 
 ## Update protocol for every future conversation
 

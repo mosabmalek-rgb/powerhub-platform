@@ -532,4 +532,36 @@ describe("inventory workspace UI contract", () => {
     expect(menuAccess).toContain('"viewStocktakes", "manageStocktakes", "approveStocktakes"');
   });
 
+
+  it("wires measured fuel logging to tenant-scoped RPCs and the inventory workspace", () => {
+    const panel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const migration = read("supabase/migrations/20261022210000_powerhub_fuel_consumption_phase_b.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+    expect(workspace).toContain('TabsTrigger value="fuel"');
+    expect(workspace).toContain("canManageFuelAndConsumption={canManageFuelAndConsumption}");
+    expect(workspace).toContain("canViewInventoryReports={canViewInventoryReports}");
+    expect(panel).toContain("trpc.powerhub.inventory.recordFuelFill.useMutation");
+    expect(panel).toContain("trpc.powerhub.inventory.recordFuelReading.useMutation");
+    expect(panel).toContain("trpc.powerhub.inventory.fuelConsumptionReport.useQuery");
+    expect(panel).toContain("recorded_consumption_liters");
+    expect(migration).toContain("as recorded_consumption_liters");
+    expect(panel).toContain("insufficient_level_readings");
+    expect(panel).toContain("actual_consumption_liters == null ? \"غير متاح\"");
+    expect(router).toContain("requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], \"manageFuelAndConsumption\")");
+    expect(router).toContain("powerhub_inventory_record_fuel_fill");
+    expect(router).toContain("powerhub_inventory_record_fuel_reading");
+    expect(router).toContain("powerhub_inventory_fuel_consumption_report");
+    expect(migration).toContain("generator_fuel_events");
+    expect(migration).toContain("generator_fuel_readings");
+    expect(migration).toContain("IDEMPOTENCY_KEY_REUSED");
+    expect(migration).toContain("OPERATING_HOURS_BACKWARDS");
+    expect(migration).toContain("measurement_status");
+    expect(integration).toContain("\\ir ../migrations/20261022210000_powerhub_fuel_consumption_phase_b.sql");
+    expect(integration).toContain("PHASE_B_MEASURED_CONSUMPTION_RECONCILIATION_FAILED");
+    expect(integration).toContain("PHASE_B_FUEL_FILL_IDEMPOTENCY_FAILED");
+    expect(integration).toContain("PHASE_B_FUEL_READING_RPC_ACL_FAILED");
+  });
+
 });

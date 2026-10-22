@@ -131,7 +131,7 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres inventory_supplier_foundation_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_supplier_foundation_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_supplier_foundation.sql
 
-      - name: Verify purchase draft, approval, partial receipt, idempotency, audit rollback, and tenant isolation
+      - name: Verify inventory purchasing, measured fuel, idempotency, audit rollback, and tenant isolation
         env:
           PGPASSWORD: postgres
         run: |
