@@ -3252,6 +3252,7 @@ $inventory_item_units_assertions$;
 do $tenant_actor_audit_role_assertions$
 declare
   v_item_id bigint;
+  v_line record;
   v_item_unit_id bigint;
   v_supplier_id bigint;
   v_supplier_return_id bigint;
@@ -3345,9 +3346,16 @@ begin
     10,100,2,v_warehouse_id,'Tenant actor audit stocktake','Disposable fixture','tenant-audit:stocktake'
   );
   if v_status<>'counting' then raise exception 'TENANT_AUDIT_STOCKTAKE_CREATE_FAILED'; end if;
-  perform * from public.powerhub_inventory_record_stocktake_count(
-    10,100,2,v_stocktake_id,v_item_id,1,null,'Tenant actor count'
-  );
+  for v_line in
+    select item_id,system_quantity from public.inventory_stocktake_lines
+    where tenant_id=10 and stocktake_id=v_stocktake_id
+  loop
+    perform * from public.powerhub_inventory_record_stocktake_count(
+      10,100,2,v_stocktake_id,v_line.item_id,
+      case when v_line.item_id=v_item_id then greatest(v_line.system_quantity-1,0) else v_line.system_quantity end,
+      null,'Tenant actor count'
+    );
+  end loop;
   select status into v_status from public.powerhub_inventory_submit_stocktake(10,100,2,v_stocktake_id);
   if v_status<>'submitted' then raise exception 'TENANT_AUDIT_STOCKTAKE_SUBMIT_FAILED'; end if;
   select status,posted_movement_count into v_status,v_posted_count
