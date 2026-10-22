@@ -3252,6 +3252,8 @@ declare
   v_item_id bigint;
   v_item_unit_id bigint;
   v_supplier_id bigint;
+  v_supplier_return_id bigint;
+  v_supplier_credit numeric(14,2);
   v_warehouse_id bigint;
   v_purchase_id bigint;
   v_purchase_line_id bigint;
@@ -3342,6 +3344,16 @@ begin
   select status,posted_movement_count into v_status,v_posted_count
   from public.powerhub_inventory_post_stocktake(10,100,2,v_stocktake_id);
   if v_status<>'posted' or v_posted_count<>1 then raise exception 'TENANT_AUDIT_STOCKTAKE_POST_FAILED'; end if;
+
+  select return_id,total_credit_amount into v_supplier_return_id,v_supplier_credit
+  from public.powerhub_inventory_return_to_supplier(
+    10,100,2,v_purchase_id,current_date,'tenant-audit:supplier-return',
+    'Tenant actor supplier return','No cash refund in tenant audit test',
+    jsonb_build_array(jsonb_build_object('purchase_line_id',v_purchase_line_id,'quantity',1)),0,null
+  );
+  if v_supplier_return_id is null or v_supplier_credit<>10 then
+    raise exception 'TENANT_AUDIT_SUPPLIER_RETURN_FAILED';
+  end if;
 
   select count(*) into v_audit_count from public.audit_logs
   where tenant_id=10 and user_id=2 and actor_platform_role is null
