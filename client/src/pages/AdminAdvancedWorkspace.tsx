@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { can, powerRoleLabels, type PowerCapability, type PowerRole } from "@shared/powerhub-rbac";
+import { can, powerCapabilityLabels, powerRoleLabels, type PowerCapability, type PowerRole } from "@shared/powerhub-rbac";
 import { AlertTriangle, BarChart3, Building2, CircleDollarSign, Database, Radio, Search, ShieldAlert, Ticket, UsersRound, WalletCards, Wrench } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -512,13 +512,17 @@ export function PlatformRolePoliciesPanel() {
     onSuccess: async () => { await utils.admin.staffPermissionTargets.invalidate(); toast.success("تم حفظ صلاحية المستخدم وتسجيل التغيير."); },
     onError: (error) => toast.error(error.message),
   });
+  const saveOwnerOverride = trpc.admin.setOwnerCapabilityOverride.useMutation({
+    onSuccess: async () => { await utils.admin.staffPermissionTargets.invalidate(); toast.success("تم حفظ استثناء صاحب المولد وتسجيل التغيير."); },
+    onError: (error) => toast.error(error.message),
+  });
   const [scope, setScope] = useState<"role" | "user">("role");
   const [role, setRole] = useState<PowerRole>("manager");
-  const [profileId, setProfileId] = useState<number | null>(null);
+  const [targetKey, setTargetKey] = useState<string | null>(null);
   const lookup = new Map((policies.data ?? []).map((policy) => [`${policy.role}:${policy.capability}`, policy.isAllowed]));
-  const selectedProfile = (targets.data ?? []).find((target) => target.profileId === profileId);
-  const userOverrides = new Map((selectedProfile?.overrides ?? []).map((item) => [item.capability, item.isAllowed]));
-  const effectiveBase = new Set<PowerCapability>((selectedProfile?.baseCapabilities ?? []) as PowerCapability[]);
+  const selectedTarget = (targets.data ?? []).find((target) => target.targetKey === targetKey);
+  const userOverrides = new Map((selectedTarget?.overrides ?? []).map((item) => [item.capability, item.isAllowed]));
+  const effectiveBase = new Set<PowerCapability>((selectedTarget?.baseCapabilities ?? []) as PowerCapability[]);
   return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">
     <h2 className="font-bold text-white">سياسات الصلاحيات الدقيقة</h2>
     <p className="mt-1 max-w-3xl text-sm leading-7 text-slate-500">تحكم مركزي بصلاحيات الأدوار أو بمستخدم محدد. استثناءات المستخدم مستقلة عن الدور المحفوظ، ويُسجل كل تغيير في سجل تدقيق.</p>
@@ -531,31 +535,35 @@ export function PlatformRolePoliciesPanel() {
       <div className="mt-4 max-w-sm"><select value={role} onChange={(event) => setRole(event.target.value as PowerRole)} className={inputClass}>{(Object.keys(powerRoleLabels) as PowerRole[]).map((item) => <option key={item} value={item}>{powerRoleLabels[item]}</option>)}</select></div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{policyCapabilities.map((capability) => { const baseAllowed = can(role, capability.id); const allowed = lookup.get(`${role}:${capability.id}`) ?? baseAllowed; return <label key={capability.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-sm ${baseAllowed ? "border-white/8 bg-white/[.02] text-slate-200" : "border-white/5 bg-white/[.01] text-slate-600"}`}><span>{capability.label}</span><input disabled={!baseAllowed || save.isPending} checked={Boolean(allowed)} onChange={(event) => save.mutate({ role, capability: capability.id, isAllowed: event.target.checked })} type="checkbox" className="h-4 w-4 accent-[#F5B800] disabled:opacity-40" /></label>; })}</div>
     </> : <>
-      <p className="mt-3 text-xs leading-6 text-slate-500">اختر حساب موظف من أي مساحة، ثم عدّل قدراته واحدةً واحدة. «موروثة» تعني أنها من الدور أو الدور المخصص؛ التغيير هنا يضيف استثناءً لهذا الحساب فقط.</p>
+      <p className="mt-3 text-xs leading-6 text-slate-500">اختر حساب مستخدم من أي مساحة، بما في ذلك صاحب المولد، ثم عدّل صلاحياته واحدةً واحدة. استثناء صاحب المولد يسري على مساحة المستأجر بجميع فروعها؛ أما استثناء الموظف فيبقى ضمن تعيينه.</p>
       <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-        <label className="text-xs text-slate-400">المستخدم والفرع
-          <select value={profileId ?? ""} onChange={(event) => setProfileId(event.target.value ? Number(event.target.value) : null)} className={inputClass + " mt-1"} aria-label="اختيار مستخدم لتخصيص صلاحياته">
+        <label className="text-xs text-slate-400">المستخدم ونطاق الصلاحية
+          <select value={targetKey ?? ""} onChange={(event) => setTargetKey(event.target.value || null)} className={inputClass + " mt-1"} aria-label="اختيار مستخدم لتخصيص صلاحياته">
             <option value="">اختر مستخدماً</option>
-            {(targets.data ?? []).map((target) => <option key={target.profileId} value={target.profileId}>{target.userName || target.email || `مستخدم #${target.userId}`} — {target.tenantName} — {target.siteName} ({powerRoleLabels[target.role as PowerRole] ?? target.role}{target.isActive ? "" : "، غير فعال"})</option>)}
+            {(targets.data ?? []).map((target) => <option key={target.targetKey} value={target.targetKey}>{target.userName || target.email || `مستخدم #${target.userId}`} — {target.tenantName} — {target.siteName} ({powerRoleLabels[target.role as PowerRole] ?? target.role}{target.isActive ? "" : "، غير فعال"})</option>)}
           </select>
         </label>
-        <Badge className="w-fit bg-sky-400/10 text-sky-200">{targets.isLoading ? "جارٍ تحميل المستخدمين" : `${targets.data?.length ?? 0} تعيين متاح`}</Badge>
+        <Badge className="w-fit bg-sky-400/10 text-sky-200">{targets.isLoading ? "جارٍ تحميل المستخدمين" : `${targets.data?.length ?? 0} حساب متاح`}</Badge>
       </div>
-      {selectedProfile ? <>
+      {selectedTarget ? <>
         <div className="mt-3 rounded-xl border border-white/8 bg-white/[.02] p-3 text-sm">
-          <p className="font-bold text-white">{selectedProfile.userName || selectedProfile.email || `مستخدم #${selectedProfile.userId}`}</p>
-          <p className="mt-1 text-xs text-slate-400">{selectedProfile.tenantName} · {selectedProfile.siteName} · {powerRoleLabels[selectedProfile.role as PowerRole] ?? selectedProfile.role}</p>
+          <p className="font-bold text-white">{selectedTarget.userName || selectedTarget.email || `مستخدم #${selectedTarget.userId}`}</p>
+          <p className="mt-1 text-xs text-slate-400">{selectedTarget.tenantName} · {selectedTarget.siteName} · {powerRoleLabels[selectedTarget.role as PowerRole] ?? selectedTarget.role}</p>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{policyCapabilities.map((capability) => {
           const explicit = userOverrides.has(capability.id);
-          const inherited = effectiveBase.has(capability.id) && (lookup.get(`${selectedProfile.role}:${capability.id}`) ?? true);
+          const inherited = effectiveBase.has(capability.id) && (lookup.get(`${selectedTarget.role}:${capability.id}`) ?? true);
           const checked = explicit ? Boolean(userOverrides.get(capability.id)) : inherited;
           return <label key={capability.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-sm ${checked ? "border-emerald-400/20 bg-emerald-400/[.04] text-slate-100" : "border-white/8 bg-white/[.015] text-slate-400"}`}>
             <span className="min-w-0"><span className="block">{capability.label}</span><span className="mt-1 block text-[10px] text-slate-500">{explicit ? "استثناء فردي — يحدد الحالة الفعلية" : checked ? "مسموحة فعليًا — موروثة من الدور" : "ممنوعة فعليًا — موروثة من الدور"}</span></span>
-            <input type="checkbox" checked={checked} disabled={saveUserOverride.isPending} onChange={(event) => saveUserOverride.mutate({ profileId: selectedProfile.profileId, capability: capability.id, isAllowed: event.target.checked })} className="h-4 w-4 shrink-0 accent-[#F5B800] disabled:opacity-40" />
+            <input type="checkbox" checked={checked} disabled={saveUserOverride.isPending || saveOwnerOverride.isPending} onChange={(event) => {
+              const value = { capability: capability.id, isAllowed: event.target.checked };
+              if (selectedTarget.targetType === "owner") saveOwnerOverride.mutate({ tenantId: selectedTarget.tenantId, userId: selectedTarget.userId, ...value });
+              else if (selectedTarget.profileId !== null) saveUserOverride.mutate({ profileId: selectedTarget.profileId, ...value });
+            }} className="h-4 w-4 shrink-0 accent-[#F5B800] disabled:opacity-40" />
           </label>;
         })}</div>
-        <p className="mt-3 text-xs leading-6 text-slate-500">تُطبق الاستثناءات الفردية على قدرات المستخدم فقط، ولا تغيّر صلاحيات بقية أصحاب الدور. سيظل رفض العملية في الخادم هو المرجع النهائي.</p>
+        <p className="mt-3 text-xs leading-6 text-slate-500">تُطبق الاستثناءات على هذا المستخدم فقط ولا تعدّل الدور المشترك. أي صلاحية ممنوعة بسياسة منصة صريحة تظل ممنوعة؛ والتحقق النهائي دائمًا في الخادم وقاعدة البيانات.</p>
       </> : <p className="mt-6 rounded-xl border border-dashed border-white/10 py-8 text-center text-sm text-slate-500">اختر مستخدماً لعرض صلاحياته وتخصيصها.</p>}
     </>}
   </CardContent></Card>;

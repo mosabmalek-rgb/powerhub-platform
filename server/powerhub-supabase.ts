@@ -1,15 +1,12 @@
 import { TRPCError } from "@trpc/server";
-import { applyStaffCapabilityOverrides, defaultCapabilitiesForRole, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { applyStaffCapabilityOverrides, defaultCapabilitiesForRole, powerCapabilityLabels, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { isActivePlatformAdmin } from "./platform-admin";
 
-const allCapabilities: PowerCapability[] = [
-  "manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs",
-  "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit", "viewInventory", "viewSuppliers", "viewPurchases", "manageInventoryItems", "manageSuppliers", "createPurchases", "approvePurchases", "receiveInventory", "manageSupplierPayments", "viewSupplierLedger", "issueInventory", "adjustInventory", "manageFuelAndConsumption", "manageMaintenance", "viewInventoryReports",
-];
+const allCapabilities = Object.keys(powerCapabilityLabels) as PowerCapability[];
 
 type SupabaseSite = {
   id: number;
@@ -145,7 +142,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   const membershipAndSubscriptionStartedAt = performance.now();
   const [membershipResult] = await Promise.all([
     admin.from("tenant_members")
-      .select("role").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
+      .select("role,tenant_member_capability_overrides(capability,is_allowed)").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
     requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true }),
   ]);
   membershipAndSubscriptionMs = Math.round(performance.now() - membershipAndSubscriptionStartedAt);
@@ -154,8 +151,23 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
 
   if (membership.role === "owner") {
+    const ownerOverrides = Array.isArray((membership as any).tenant_member_capability_overrides)
+      ? (membership as any).tenant_member_capability_overrides.map((override: { capability: string; is_allowed: boolean }) => ({
+          capability: override.capability,
+          is_allowed: Boolean(override.is_allowed),
+        }))
+      : [];
+    const permissions = applyStaffCapabilityOverrides(allCapabilities, ownerOverrides);
     reportSlowAccess("owner");
-    return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, usesPermissionOverride: false, isPlatformAdmin: false };
+    return {
+      role: "owner",
+      permissions,
+      tenantId: site.tenantId,
+      invoiceDueDays: site.invoiceDueDays,
+      invoiceDueHours: site.invoiceDueHours,
+      usesPermissionOverride: ownerOverrides.length > 0,
+      isPlatformAdmin: false,
+    };
   }
 
   const staffProfilesStartedAt = performance.now();
