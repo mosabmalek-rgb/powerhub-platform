@@ -164,6 +164,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021220000_powerhub_inventory_movement_report_paging.sql
 \ir ../migrations/20261022120000_powerhub_inventory_entity_lifecycle.sql
 \ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
+\ir ../migrations/20261022143000_powerhub_inventory_location_types.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -2781,6 +2782,98 @@ begin
   end if;
 end;
 $supplier_batch_payment_assertions$;
+
+
+-- Warehouse location types: enforce a real generator link for generator tanks and preserve identity after use.
+do $inventory_location_type_assertions$
+declare
+  v_item_id bigint;
+  v_warehouse_id bigint;
+  v_returned_id bigint;
+  v_movement_id bigint;
+  v_location_type text;
+  v_generator_id bigint;
+  v_count integer;
+begin
+  select id into v_item_id from public.inventory_items where tenant_id=10 and sku='DSL-01';
+  if v_item_id is null then raise exception 'INVENTORY_LOCATION_TEST_ITEM_MISSING'; end if;
+
+  select id,location_type,generator_id
+  into v_warehouse_id,v_location_type,v_generator_id
+  from public.powerhub_inventory_create_warehouse_with_location(
+    10,100,1,'GEN-TANK-WF-01','Workflow generator fuel tank','Linked to generator 10000',
+    'generator_fuel_tank',10000
+  );
+  if v_warehouse_id is null or v_location_type<>'generator_fuel_tank' or v_generator_id<>10000 then
+    raise exception 'GENERATOR_TANK_LINK_FAILED';
+  end if;
+  if not exists(select 1 from public.audit_logs where tenant_id=10 and site_id=100
+    and entity_type='inventory_warehouse' and entity_id=v_warehouse_id::text and action='create'
+    and after_data->>'locationType'='generator_fuel_tank' and (after_data->>'generatorId')::bigint=10000) then
+    raise exception 'GENERATOR_TANK_AUDIT_MISSING';
+  end if;
+
+  select id,location_type,generator_id into v_returned_id,v_location_type,v_generator_id
+  from public.powerhub_inventory_create_warehouse_with_location(
+    10,100,1,'FIXED-TANK-WF-01','Workflow fixed tank','No single generator association',
+    'fixed_fuel_tank',null
+  );
+  if v_returned_id is null or v_location_type<>'fixed_fuel_tank' or v_generator_id is not null then
+    raise exception 'FIXED_TANK_CREATE_FAILED';
+  end if;
+
+  begin
+    perform * from public.powerhub_inventory_create_warehouse_with_location(
+      10,100,1,'GEN-TANK-BAD-SITE','Invalid generator tank','Generator belongs to another site',
+      'generator_fuel_tank',20000
+    );
+    raise exception 'CROSS_SITE_GENERATOR_TANK_ACCEPTED';
+  exception when others then
+    if sqlerrm='CROSS_SITE_GENERATOR_TANK_ACCEPTED' then raise; end if;
+    if sqlerrm<>'STOCK_GENERATOR_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_create_warehouse_with_location(
+      10,100,1,'GEN-TANK-NO-GEN','Unlinked generator tank','Missing associated generator',
+      'generator_fuel_tank',null
+    );
+    raise exception 'GENERATOR_TANK_WITHOUT_GENERATOR_ACCEPTED';
+  exception when others then
+    if sqlerrm='GENERATOR_TANK_WITHOUT_GENERATOR_ACCEPTED' then raise; end if;
+    if sqlerrm<>'INVALID_INVENTORY_LOCATION_TYPE' then raise; end if;
+  end;
+
+  select movement_id into v_movement_id from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'opening_balance',10,5,null,
+    'GEN-TANK-OPENING','Fixture opening stock on generator tank','inventory-location:opening'
+  );
+  if v_movement_id is null then raise exception 'GENERATOR_TANK_OPENING_STOCK_FAILED'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_update_warehouse_with_location(
+      10,100,1,v_warehouse_id,'GEN-TANK-WF-01','Workflow generator fuel tank',
+      'Identity change must be blocked after movements','branch_warehouse',null
+    );
+    raise exception 'USED_WAREHOUSE_LOCATION_TYPE_CHANGED';
+  exception when others then
+    if sqlerrm='USED_WAREHOUSE_LOCATION_TYPE_CHANGED' then raise; end if;
+    if sqlerrm<>'WAREHOUSE_IDENTITY_IMMUTABLE_AFTER_USE' then raise; end if;
+  end;
+  select count(*) into v_count from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  if v_count<>1 then raise exception 'LOCATION_TYPE_CHANGE_MUTATED_MOVEMENT_HISTORY'; end if;
+
+  if has_function_privilege('authenticated','public.powerhub_inventory_create_warehouse_with_location(bigint,bigint,bigint,text,text,text,text,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_update_warehouse_with_location(bigint,bigint,bigint,bigint,text,text,text,text,bigint)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_WAREHOUSE_LOCATION_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_create_warehouse_with_location(bigint,bigint,bigint,text,text,text,text,bigint)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_update_warehouse_with_location(bigint,bigint,bigint,bigint,text,text,text,text,bigint)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_WAREHOUSE_LOCATION_RPC';
+  end if;
+end;
+$inventory_location_type_assertions$;
 
 select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
