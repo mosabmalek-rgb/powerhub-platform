@@ -25,7 +25,12 @@ const READ_ROLES = {
 
 const TENANT_MENU_RULES: Record<string, TenantMenuRule> = {
   "/workspace": {},
-  "/inventory": { capabilities: ["viewInventory", "viewInventoryReports"] },
+  "/inventory": { capabilities: [
+    "viewInventory", "viewInventoryReports", "viewSuppliers", "viewPurchases",
+    "manageInventoryItems", "manageSuppliers", "createPurchases", "approvePurchases",
+    "receiveInventory", "manageSupplierPayments", "viewSupplierLedger",
+    "issueInventory", "adjustInventory", "manageFuelAndConsumption", "manageMaintenance",
+  ] },
   "/quick-actions": {},
   "/profile": {},
   "/announcements": {},
