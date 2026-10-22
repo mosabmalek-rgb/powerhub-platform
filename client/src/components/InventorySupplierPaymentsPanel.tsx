@@ -297,7 +297,7 @@ export default function InventorySupplierPaymentsPanel({
               <div className="flex items-center justify-between gap-3"><span className="text-sm text-muted-foreground">إجمالي التخصيصات / مبلغ الدفعة</span><span className="text-xl font-bold tabular-nums">{amount(totalAmount)}</span></div>
               <div className="mt-1 flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>عدد المستندات المحددة</span><span>{selectedAllocations.length}</span></div>
               {chosenAccount ? <div className="mt-1 flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>رصيد الحساب بعد الدفعة (تقديري)</span><span>{amount(Number(chosenAccount.balance) - totalAmount)}</span></div> : null}
-              <Button type="button" block className="mt-3 w-full" disabled={postPayment.isPending || !supplierId || !companyAccountId || !selectedAllocations.length || !allAllocationAmountsValid || totalAmount <= 0} onClick={submitPayment}>
+              <Button type="button" className="mt-3 w-full" disabled={postPayment.isPending || !supplierId || !companyAccountId || !selectedAllocations.length || !allAllocationAmountsValid || totalAmount <= 0} onClick={submitPayment}>
                 {postPayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Wallet className="ml-2 h-4 w-4" />} تسجيل الدفعة وتوزيعها ذريًا
               </Button>
               <p className="mt-2 text-xs text-muted-foreground">لن تُسجل الدفعة إلا إذا طابق مجموع التخصيصات مبلغها؛ ويعيد الخادم التحقق من الرصيد المتاح والمستحقات وحالة الفترة المالية قبل أي أثر مالي.</p>
