@@ -70,7 +70,7 @@ The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed Powe
 
 **Phase A exit gate:** all checklist items above are closed or explicitly documented as a conscious product decision approved by the user; all relevant CI gates pass; no RLS/ACL/tenant/site/account leakage; stock quantity/value and supplier/account ledgers reconcile; retry/concurrency tests pass; staging UI end-to-end passes.
 
-## Phase B — measured fuel and consumption (not yet complete)
+## Phase B — measured fuel and consumption (implementation and release status)
 
 - [x] Model independent stock locations/tanks and source/target tank relations (implemented in the Phase A location-type migration; Phase B reuses that model).
 - [ ] Append-only refuelling events: generator, date/time, litres, source item/location, destination generator tank, cost, level before/after, meter hours, reference and actor.
@@ -85,7 +85,7 @@ The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed Powe
 
 ### Phase B1 — auditable fuel-entry and measured-consumption foundation
 
-**PR #318 — B1 implementation; staged schema migration applied for verification, application not yet merged to main.** The delivery adds append-only fuel-fill events tied to atomic stock transfers, dated tank/hour readings with documented corrections, and a report that keeps recorded consumption separate from measured consumption. Historical fill events are assigned to their recorded event date in measurement reconciliation. Unexplained manual tank adjustments make measured consumption unavailable and surface a reconciliation-anomaly status. Staging verification also surfaced inherited UPDATE/DELETE/TRUNCATE grants on the service role; the follow-up ACL migration removes those grants from the event and reading ledgers, keeping only SELECT/INSERT for the server-side paths.
+**PR #318 — B1 merged into main.** The merged delivery adds append-only fuel-fill events tied to atomic stock transfers, dated tank/hour readings with documented corrections, and measurement-aware reports. Current read-only migration-ledger and schema checks (2026-10-22) confirm that the B1 event/reading tables and ACL migration are present in both `powerhub-staging-dr` and production. These checks do not constitute a full UI rehearsal. The two B2 migrations for report windows and alert settings/evaluation are present only on `feat/inventory-phase-b-completion`; they were not applied to staging or production during this review.
 
 B1 is intentionally not the Phase B release gate: low-level/abnormal-use alert dispatch, PowerHub-cycle reporting, broader cost/report exports, concurrency hardening, and verified staging end-to-end remain open until their own tests and operational evidence pass. The disposable PostgreSQL integration test for this slice is appended to the existing inventory purchasing/receiving test, so it uses the established CI gate rather than creating a separate workflow for each small addition.
 
@@ -125,6 +125,14 @@ B1 is merged as PR #318 and deployed. The remaining Phase B work is being assemb
 - [ ] Full PR CI, staging migration parity and preview deployment smoke test. Production migration/deployment remains gated on these results.
 
 The abnormal-consumption alert is emitted only when the report returns a valid measured window and a sufficient positive operating-hours delta. Missing readings or reconciliation anomalies do not become fabricated zero-consumption or rate values. Preview evaluation remains disabled unless the dedicated `POWERHUB_ALLOW_PREVIEW_FUEL_ALERTS=true` opt-in is explicitly set.
+
+## Phase B2 branch and release evidence (2026-10-22)
+
+- Current `main` SHA: `43575b04506ebdf9354066d1ba79538c0f50730b` (PR #318); the Phase B completion branch is `feat/inventory-phase-b-completion` at `e6aafdd1bf7fcedafcfd3f554e277c4df98bf2f2`, one commit ahead of main and not yet associated with a PR at the time of inspection.
+- The B2 branch contains the report-window and alert-settings/evaluator migrations plus UI/router/test changes. No GitHub Actions runs or status checks were returned for that exact branch SHA, so its CI result is **unverified**.
+- Read-only checks against the Supabase migration ledgers and schema confirmed the B1 event/reading tables exist in both `powerhub-staging-dr` and production, while the B2 report/alert tables and report-period/evaluator RPCs are absent from both. No B2 migration was applied by this review.
+- The Vercel project is linked to this GitHub repository. Preview environment variables for `VITE_SUPABASE_URL`, `SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` were found scoped to other branches, not this Phase B branch. No Preview deployment exists for the Phase B branch. Do not run a browser E2E against a Preview until staging-only environment bindings (including a matching staging service-role credential held in Vercel, not in logs) are verified; production variables must never be used as a fallback.
+- The current main deployment is READY at `43575b04506ebdf9354066d1ba79538c0f50730b`. This only proves the B1 commit is deployed, not that B2 is released.
 
 ## Current verified gap snapshot (2026-10-22)
 
