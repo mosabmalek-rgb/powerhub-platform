@@ -252,6 +252,22 @@ begin
   end if;
   begin
     perform * from public.powerhub_maintenance_reopen_completed_work_order(
+      10,100,1,v_order.work_order_id,'Missing reason','maint-test-reopen-no-reason-c-01'
+    );
+    raise exception 'MAINTENANCE_REOPEN_WITHOUT_REASON_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_REOPEN_REASON_REQUIRED' then raise; end if;
+  end;
+  begin
+    perform * from public.powerhub_maintenance_reopen_completed_work_order(
+      10,100,1,v_order.work_order_id,'Concurrent duplicate follow-up','maint-test-reopen-c-02'
+    );
+    raise exception 'MAINTENANCE_DUPLICATE_OPEN_FOLLOWUP_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_FOLLOWUP_ALREADY_OPEN' then raise; end if;
+  end;
+  begin
+    perform * from public.powerhub_maintenance_reopen_completed_work_order(
       10,100,1,v_order.work_order_id,'Different reason','maint-test-reopen-c-01'
     );
     raise exception 'MAINTENANCE_REOPEN_KEY_REUSE_ACCEPTED';
