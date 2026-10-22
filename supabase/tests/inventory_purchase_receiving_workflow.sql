@@ -2416,12 +2416,23 @@ begin
 
   select id,name,base_unit into v_returned_id,v_name,v_unit
   from public.powerhub_inventory_update_item(
-    10,100,1,v_item_id,'LIFECYCLE-DIESEL','Lifecycle diesel revised','fuel','liter',2,
+    10,100,1,v_item_id,'LIFECYCLE-DIESEL','Lifecycle diesel','fuel','liter',2,
     'Revised spec','Updated through lifecycle RPC'
   );
-  if v_returned_id<>v_item_id or v_name<>'Lifecycle diesel revised' or v_unit<>'liter' then
+  if v_returned_id<>v_item_id or v_name<>'Lifecycle diesel' or v_unit<>'liter' then
     raise exception 'INVENTORY_ITEM_UPDATE_FAILED';
   end if;
+
+  begin
+    perform * from public.powerhub_inventory_update_item(
+      10,100,1,v_item_id,'LIFECYCLE-DIESEL','Lifecycle diesel renamed','fuel','liter',2,
+      'Revised spec','Historical identity change must be rejected'
+    );
+    raise exception 'ITEM_NAME_CHANGE_AFTER_USE_WAS_ALLOWED';
+  exception when others then
+    if sqlerrm='ITEM_NAME_CHANGE_AFTER_USE_WAS_ALLOWED' then raise; end if;
+    if sqlerrm<>'ITEM_IDENTITY_IMMUTABLE_AFTER_USE' then raise; end if;
+  end;
   if not exists(
     select 1 from public.audit_logs where tenant_id=10 and site_id=100
       and entity_type='inventory_item' and entity_id=v_item_id::text and action='update'
