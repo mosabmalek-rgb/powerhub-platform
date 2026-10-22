@@ -37,6 +37,7 @@ export type PowerCapability =
   | "manageFuelAndConsumption"
   | "manageMaintenance"
   | "viewInventoryReports"
+  | "viewStocktakes"
   | "manageStocktakes"
   | "approveStocktakes";
 
@@ -88,6 +89,7 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   manageFuelAndConsumption: ["owner", "manager", "technician"],
   manageMaintenance: ["owner", "manager", "technician"],
   viewInventoryReports: ["owner", "manager", "accountant", "viewer"],
+  viewStocktakes: ["owner", "manager", "accountant", "viewer"],
   manageStocktakes: ["owner", "manager", "accountant"],
   approveStocktakes: ["owner", "manager"],
 };
@@ -122,6 +124,7 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   manageFuelAndConsumption: "إدارة الوقود والاستهلاك",
   manageMaintenance: "إدارة أوامر الصيانة",
   viewInventoryReports: "عرض وتصدير تقارير المخزون",
+  viewStocktakes: "عرض سجل جلسات الجرد ونتائج العد",
   manageStocktakes: "إنشاء جلسات الجرد وإدخال نتائج العد",
   approveStocktakes: "اعتماد وترحيل الجرد المخزني",
 };
