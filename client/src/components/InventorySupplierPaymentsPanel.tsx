@@ -67,10 +67,12 @@ export default function InventorySupplierPaymentsPanel({
   siteId,
   isAuthenticated,
   canManageSupplierPayments,
+  canReverseSupplierPayments,
 }: {
   siteId: number;
   isAuthenticated: boolean;
   canManageSupplierPayments: boolean;
+  canReverseSupplierPayments: boolean;
 }) {
   const utils = trpc.useUtils();
   const [supplierId, setSupplierId] = useState("");
@@ -347,7 +349,7 @@ export default function InventorySupplierPaymentsPanel({
                     <td className="p-3"><div className="space-y-1">{payment.allocations.map((allocation, index) => <div key={`${payment.id}:${index}`} className="flex items-center justify-between gap-3"><span>{allocation.document_type === "purchase_invoice" ? "فاتورة" : "رصيد افتتاحي"} — {allocation.document_reference}</span><span className="whitespace-nowrap">{amount(allocation.amount)}</span></div>)}</div><div className="mt-1 text-xs text-muted-foreground">{payment.notes || ""}</div></td>
                     <td className="p-3"><span className={status ? "font-medium text-destructive" : "font-medium"}>{status ? "معكوسة" : "مرحّلة"}</span>{status && payment.reversal_reason ? <span className="mt-1 block max-w-[180px] text-xs text-muted-foreground">{payment.reversal_reason}</span> : null}</td>
                     <td className="p-3">
-                      {status ? "—" : <div className="min-w-[210px] space-y-2">
+                      {status ? "—" : !canReverseSupplierPayments ? <span className="text-xs text-muted-foreground">لا تملك صلاحية عكس الدفعات</span> : <div className="min-w-[210px] space-y-2">
                         <Input value={reversalReasons[payment.id] ?? ""} maxLength={500} onChange={(event) => setReversalReasons((current) => ({ ...current, [payment.id]: event.target.value }))} placeholder="سبب العكس (مطلوب)" />
                         <Button type="button" size="sm" variant="outline" disabled={reversePayment.isPending || (reversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => reversePayment.mutate({ siteId, paymentId: payment.id, reason: reversalReasons[payment.id].trim() })}>
                           {reversePayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <RotateCcw className="ml-2 h-4 w-4" />} عكس الدفعة
