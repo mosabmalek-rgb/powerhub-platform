@@ -62,6 +62,9 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("MAINTENANCE_REOPEN_REQUIRES_COMPLETED_ORDER");
     expect(migration).toContain("generator_maintenance_work_orders_reopened_from_fk");
     expect(migration).toContain("MAINTENANCE_REOPEN_REASON_REQUIRED");
+    expect(migration).toContain("MAINTENANCE_FOLLOWUP_ALREADY_OPEN");
+    expect(integration).toContain("MAINTENANCE_DUPLICATE_OPEN_FOLLOWUP_ACCEPTED");
+    expect(integration).toContain("MAINTENANCE_REOPEN_WITHOUT_REASON_ACCEPTED");
     expect(integration).toContain("MAINTENANCE_REOPEN_IDEMPOTENCY_FAILED");
     expect(integration).toContain("MAINTENANCE_REOPEN_SOURCE_MUTATED");
     expect(migration).toContain("MAINTENANCE_COMPLETION_CORRECTION_REQUIRES_COMPLETED_ORDER");
