@@ -11,7 +11,7 @@ alter table public.platform_role_policies
     'manageMessaging','viewAudit','viewInventory','manageInventoryItems','manageSuppliers',
     'createPurchases','approvePurchases','receiveInventory','manageSupplierPayments',
     'viewSupplierLedger','issueInventory','adjustInventory','manageFuelAndConsumption',
-    'manageMaintenance','viewInventoryReports','manageStocktakes','approveStocktakes'
+    'manageMaintenance','viewInventoryReports','viewStocktakes','manageStocktakes','approveStocktakes'
   ]));
 
 alter table public.staff_profile_capability_overrides
@@ -25,7 +25,7 @@ alter table public.staff_profile_capability_overrides
     'manageMessaging','viewAudit','viewInventory','manageInventoryItems','manageSuppliers',
     'createPurchases','approvePurchases','receiveInventory','manageSupplierPayments',
     'viewSupplierLedger','issueInventory','adjustInventory','manageFuelAndConsumption',
-    'manageMaintenance','viewInventoryReports','manageStocktakes','approveStocktakes'
+    'manageMaintenance','viewInventoryReports','viewStocktakes','manageStocktakes','approveStocktakes'
   ]));
 
 
@@ -60,7 +60,7 @@ begin
     'viewInventory','manageInventoryItems','manageSuppliers','createPurchases',
     'approvePurchases','receiveInventory','manageSupplierPayments','viewSupplierLedger',
     'issueInventory','adjustInventory','manageFuelAndConsumption','manageMaintenance',
-    'viewInventoryReports','manageStocktakes','approveStocktakes'
+    'viewInventoryReports','viewStocktakes','manageStocktakes','approveStocktakes'
   ) then
     raise exception 'INVALID_CAPABILITY' using errcode='P0001';
   end if;
@@ -131,7 +131,7 @@ begin
     'viewInventory','manageInventoryItems','manageSuppliers','createPurchases',
     'approvePurchases','receiveInventory','manageSupplierPayments','viewSupplierLedger',
     'issueInventory','adjustInventory','manageFuelAndConsumption','manageMaintenance',
-    'viewInventoryReports','manageStocktakes','approveStocktakes'
+    'viewInventoryReports','viewStocktakes','manageStocktakes','approveStocktakes'
   ) then
     raise exception 'INVALID_CAPABILITY' using errcode='P0001';
   end if;
