@@ -3278,9 +3278,9 @@ begin
     10,100,2,v_warehouse_id,'TENANT-AUDIT-WH','Tenant audit test warehouse updated',
     'Updated by non-platform tenant actor','branch_warehouse',null
   );
-  select id into v_item_unit_id from public.powerhub_inventory_create_item_unit(10,100,2,v_item_id,'audit-pack',4);
+  select id into v_item_unit_id from public.powerhub_inventory_create_item_unit(10,100,v_item_id,2,'audit-pack',4);
   perform * from public.powerhub_inventory_set_item_unit_active(
-    10,100,2,v_item_id,v_item_unit_id,false,'Disable disposable audit test unit'
+    10,100,v_item_id,v_item_unit_id,2,false,'Disable disposable audit test unit'
   );
 
   select id into v_supplier_id from public.powerhub_inventory_create_supplier(
