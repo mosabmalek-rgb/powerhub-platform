@@ -36,7 +36,9 @@ export type PowerCapability =
   | "adjustInventory"
   | "manageFuelAndConsumption"
   | "manageMaintenance"
-  | "viewInventoryReports";
+  | "viewInventoryReports"
+  | "manageStocktakes"
+  | "approveStocktakes";
 
 export const powerRoleLabels: Record<PowerRole, string> = {
   owner: "صاحب مولد",
@@ -86,6 +88,8 @@ const capabilityRoles: Record<PowerCapability, readonly PowerRole[]> = {
   manageFuelAndConsumption: ["owner", "manager", "technician"],
   manageMaintenance: ["owner", "manager", "technician"],
   viewInventoryReports: ["owner", "manager", "accountant", "viewer"],
+  manageStocktakes: ["owner", "manager", "accountant"],
+  approveStocktakes: ["owner", "manager"],
 };
 
 export const powerCapabilityLabels: Record<PowerCapability, string> = {
@@ -118,6 +122,8 @@ export const powerCapabilityLabels: Record<PowerCapability, string> = {
   manageFuelAndConsumption: "إدارة الوقود والاستهلاك",
   manageMaintenance: "إدارة أوامر الصيانة",
   viewInventoryReports: "عرض وتصدير تقارير المخزون",
+  manageStocktakes: "إنشاء جلسات الجرد وإدخال نتائج العد",
+  approveStocktakes: "اعتماد وترحيل الجرد المخزني",
 };
 
 export function can(role: PowerRole | undefined | null, capability: PowerCapability, permissions?: readonly PowerCapability[] | null) {
