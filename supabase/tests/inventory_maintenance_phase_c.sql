@@ -26,6 +26,10 @@ declare
   v_supplier_id bigint;
   v_supplier_assign record;
   v_supplier_assign_replay record;
+  v_correction_generator_id bigint;
+  v_correction_original_reading_id bigint;
+  v_correction_plan record;
+  v_correction_alert record;
 begin
   -- Create a disposable stock item and seed it through the same audited ledger.
   insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
@@ -280,6 +284,43 @@ begin
   exception when sqlstate 'P0001' then
     if sqlerrm<>'INVALID_MAINTENANCE_REPORT_RANGE' then raise; end if;
   end;
+
+  -- A documented downward correction must supersede the old meter row in due evaluation.
+  insert into public.generators(
+    tenant_id,site_id,code,name,serial_number,rated_capacity_kw,fuel_type,client_operation_id
+  ) values (
+    10,100,'MAINT-C-CORR-01','Maintenance correction regression',null,25,'diesel',
+    'maint-c-correction-generator-01'
+  ) returning id into v_correction_generator_id;
+
+  select reading_id into v_correction_original_reading_id
+    from public.powerhub_inventory_record_fuel_reading(
+      10,100,1,v_correction_generator_id,'operating_hours',null,100,
+      now()-interval '2 hours','MAINT-C-HOURS-ORIGINAL','Original meter for correction regression',
+      null,null,'maint-c-hours-original-c-01'
+    );
+  if v_correction_original_reading_id is null then
+    raise exception 'MAINTENANCE_CORRECTION_FIXTURE_READING_MISSING';
+  end if;
+
+  perform * from public.powerhub_inventory_record_fuel_reading(
+    10,100,1,v_correction_generator_id,'operating_hours',null,98,
+    now()-interval '1 hour','MAINT-C-HOURS-CORRECTED','Corrected meter entry downward',
+    v_correction_original_reading_id,'Correction of transcription','maint-c-hours-corrected-c-01'
+  );
+
+  select * into v_correction_plan from public.powerhub_maintenance_create_preventive_plan(
+    10,100,1,v_correction_generator_id,'MAINT-C-CORR-PLAN-01',
+    'Meter correction regression','Due hours must use the latest effective reading',
+    null,10,null,99,0,1,'maint-c-correction-plan-01'
+  );
+  select * into v_correction_alert
+    from public.powerhub_maintenance_evaluate_due_plans(10,100)
+    where plan_id=v_correction_plan.plan_id;
+  if not found or v_correction_alert.alert_type<>'due_soon'
+     or v_correction_alert.observed_operating_hours<>98 then
+    raise exception 'MAINTENANCE_CORRECTED_HOURS_FALSE_OVERDUE_ALERT';
+  end if;
 end;
 $maintenance_phase_c$;
 
