@@ -207,6 +207,7 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems")');
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSuppliers")');
     expect(migration).toContain("ITEM_BASE_UNIT_IMMUTABLE_AFTER_USE");
+    expect(migration).toContain("ITEM_IDENTITY_IMMUTABLE_AFTER_USE");
     expect(migration).toContain("INVENTORY_ITEM_HAS_STOCK");
     expect(migration).toContain("SUPPLIER_HAS_OUTSTANDING_PAYABLE");
     expect(migration).toContain("WAREHOUSE_HAS_STOCK");
