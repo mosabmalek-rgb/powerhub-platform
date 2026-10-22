@@ -81,6 +81,7 @@ export default function InventoryWorkspacePage() {
   const canManageFuelAndConsumption = supplierAccess.data?.permissions.includes("manageFuelAndConsumption") ?? false;
   const canManageMaintenance = supplierAccess.data?.permissions.includes("manageMaintenance") ?? false;
   const canViewMaintenance = canViewInventory;
+  const canViewMaintenanceReport = canViewInventoryReports;
   const canViewStocktakes = supplierAccess.data?.permissions.includes("viewStocktakes") ?? false;
   const canManageStocktakes = supplierAccess.data?.permissions.includes("manageStocktakes") ?? false;
   const canApproveStocktakes = supplierAccess.data?.permissions.includes("approveStocktakes") ?? false;
@@ -484,6 +485,7 @@ export default function InventoryWorkspacePage() {
                 siteId={siteId}
                 isAuthenticated={isAuthenticated}
                 canViewMaintenance={canViewMaintenance}
+                canViewMaintenanceReport={canViewMaintenanceReport}
                 canManageMaintenance={canManageMaintenance}
                 canIssueInventory={canIssueInventory}
                 canManageExpenses={supplierAccess.data?.permissions.includes("manageExpenses") ?? false}
