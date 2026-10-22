@@ -118,6 +118,7 @@ function mapPurchaseDatabaseError(
     INVALID_INVENTORY_WAREHOUSE: { code: "BAD_REQUEST", message: "تحقق من رمز المخزن واسمه." },
     INVALID_INVENTORY_LOCATION_TYPE: { code: "BAD_REQUEST", message: "اختر نوع موقع التخزين واربط خزان المولد بالمولد الصحيح." },
     WAREHOUSE_IDENTITY_IMMUTABLE_AFTER_USE: { code: "CONFLICT", message: "لا يمكن تغيير رمز الموقع أو اسمه أو نوعه بعد تسجيل حركة أو فاتورة عليه؛ أنشئ موقعًا جديدًا وانقل الرصيد بطريقة موثقة." },
+    FUEL_ITEM_REQUIRED_FOR_TANK: { code: "BAD_REQUEST", message: "يقبل موقع خزان الوقود أصناف الوقود فقط." },
     STOCKTAKE_SCOPE_REQUIRED: { code: "BAD_REQUEST", message: "حدد الفرع وموقع التخزين لجلسة الجرد." },
     STOCKTAKE_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا للجرد الفعلي." },
     INVALID_STOCKTAKE_NOTES: { code: "BAD_REQUEST", message: "ملاحظات الجرد أطول من المسموح." },
@@ -216,6 +217,17 @@ async function requireStockReadAccess(userId: number, siteId: number) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   if (!access.permissions.includes("viewInventory") && !access.permissions.includes("viewInventoryReports")) {
     throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض أرصدة المخزون وحركاته." });
+  }
+  return access;
+}
+
+async function requireStocktakeReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const canReadStocktakes = access.permissions.includes("viewStocktakes")
+    || access.permissions.includes("manageStocktakes")
+    || access.permissions.includes("approveStocktakes");
+  if (!canReadStocktakes) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض جلسات الجرد." });
   }
   return access;
 }
@@ -1065,7 +1077,7 @@ export const powerhubInventoryRouter = router({
       limit: z.number().int().min(1).max(200).default(50),
     }))
     .query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewInventory");
+      const access = await requireStocktakeReadAccess(ctx.user.id, input.siteId);
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_stocktakes", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId,
         p_warehouse_id: input.warehouseId ?? null, p_limit: input.limit,
@@ -1077,7 +1089,7 @@ export const powerhubInventoryRouter = router({
   listStocktakeLines: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), stocktakeId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewInventory");
+      const access = await requireStocktakeReadAccess(ctx.user.id, input.siteId);
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_stocktake_lines", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_stocktake_id: input.stocktakeId,
       });
