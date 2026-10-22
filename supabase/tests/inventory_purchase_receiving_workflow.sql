@@ -3313,7 +3313,14 @@ begin
   );
   if v_opening_entry_id is null or v_amount<>5 then raise exception 'TENANT_AUDIT_OPENING_BALANCE_FAILED'; end if;
 
-  select balance into v_balance_before from public.powerhub_company_account_balance_rollup(10,array[1000]::bigint[]);
+  select ca.opening_balance+coalesce(sum(
+    case when atx.transaction_type in ('deposit','transfer_in','collection') then atx.amount else -atx.amount end
+  ),0)::numeric(14,2)
+  into v_balance_before
+  from public.company_accounts ca
+  left join public.account_transactions atx on atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  where ca.tenant_id=10 and ca.id=1000
+  group by ca.opening_balance;
   select payment_id,allocation_count,account_balance,replayed
   into v_payment_id,v_allocation_count,v_balance,v_replayed
   from public.powerhub_inventory_record_supplier_payment_batch(
