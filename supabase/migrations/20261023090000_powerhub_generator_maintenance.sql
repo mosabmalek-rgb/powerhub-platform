@@ -574,6 +574,8 @@ begin
 end;
 $$;
 
+drop function if exists public.powerhub_maintenance_evaluate_due_plans(bigint,bigint);
+
 create or replace function public.powerhub_maintenance_evaluate_due_plans(
   p_tenant_id bigint default null,p_site_id bigint default null
 )
@@ -723,6 +725,7 @@ revoke all on function public.powerhub_maintenance_list_work_orders(bigint,bigin
 revoke all on function public.powerhub_maintenance_list_parts(bigint,bigint,bigint) from public,anon,authenticated;
 revoke all on function public.powerhub_maintenance_list_preventive_plans(bigint,bigint,bigint) from public,anon,authenticated;
 
+grant usage,select on sequence public.powerhub_user_notifications_id_seq to service_role;
 grant execute on function public.powerhub_maintenance_create_work_order(bigint,bigint,bigint,bigint,bigint,text,text,text,text,timestamptz,timestamptz,bigint,text) to service_role;
 grant execute on function public.powerhub_maintenance_add_part(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text) to service_role;
 grant execute on function public.powerhub_maintenance_transition_work_order(bigint,bigint,bigint,bigint,text,text,numeric,integer,numeric,numeric,text,text) to service_role;
