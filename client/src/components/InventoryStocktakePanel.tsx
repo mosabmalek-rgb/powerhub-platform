@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -150,8 +150,8 @@ export default function InventoryStocktakePanel({
       setReason("");
       setNotes("");
       setOperationKey(stocktakeOperationKey());
-      setSelectedStocktakeId(Number(result.stocktake_id));
       await refresh();
+      setSelectedStocktakeId(Number(result.stocktake_id));
     },
     onError: (error) => toast.error(error.message || "تعذر فتح جلسة الجرد."),
   });
@@ -197,7 +197,7 @@ export default function InventoryStocktakePanel({
 
   const selectedLinesComplete = useMemo(() => lines.length > 0 && lines.every((line) => line.counted_quantity != null), [lines]);
 
-  const onCreate = (event: React.FormEvent<HTMLFormElement>) => {
+  const onCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!warehouseId) { toast.error("اختر موقع التخزين الذي ستجري جرده."); return; }
     if (reason.trim().length < 3) { toast.error("أدخل سببًا واضحًا لبدء الجرد."); return; }
