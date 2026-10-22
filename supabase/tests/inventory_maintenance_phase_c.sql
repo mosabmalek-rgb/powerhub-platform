@@ -294,12 +294,9 @@ begin
   end;
 
   -- A documented downward correction must supersede the old meter row in due evaluation.
-  insert into public.generators(
-    tenant_id,site_id,code,name,serial_number,rated_capacity_kw,fuel_type,client_operation_id
-  ) values (
-    10,100,'MAINT-C-CORR-01','Maintenance correction regression',null,25,'diesel',
-    'maint-c-correction-generator-01'
-  ) returning id into v_correction_generator_id;
+  insert into public.generators(id,tenant_id,site_id,name,fuel_type,operating_hours)
+  values (30000,10,100,'Maintenance correction regression','diesel',0)
+  returning id into v_correction_generator_id;
 
   select reading_id into v_correction_original_reading_id
     from public.powerhub_inventory_record_fuel_reading(
