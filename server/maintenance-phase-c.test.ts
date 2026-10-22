@@ -31,6 +31,12 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(router).toContain("assignSupplier: authenticatedProcedure");
     expect(panel).toContain("trpc.powerhub.maintenance.assignSupplier.useMutation");
     expect(panel).toContain("trpc.powerhub.maintenance.reportByGenerator.useQuery");
+    expect(panel).toContain('trpc.powerhub.reportBranding.get.useQuery');
+    expect(panel).toContain("loadExcelJS");
+    expect(panel).toContain("addWorksheet(\"تفاصيل الصيانة\"");
+    expect(panel).toContain("downloadReportHtmlAsPdf");
+    expect(panel).toContain("escapeHtml");
+    expect(panel).toContain("تصدير PDF");
     const worker = read("server/notification-worker.ts");
     const route = read("server/_core/index.ts");
     expect(worker).toContain("processAutomaticMaintenanceAlertEvaluation");
