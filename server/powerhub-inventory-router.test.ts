@@ -35,7 +35,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
       },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-    expect(state.access).toHaveBeenCalledWith(99, 3, expect.any(Array), "manageInventoryItems");
+    expect(state.access).toHaveBeenCalledWith(99, 3, expect.any(Array), "createInventoryItems");
     expect(state.from).not.toHaveBeenCalled();
   });
 
@@ -65,7 +65,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
       input: { siteId: 4, name: "Supplier A" },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-    expect(state.access).toHaveBeenCalledWith(12, 4, expect.any(Array), "manageSuppliers");
+    expect(state.access).toHaveBeenCalledWith(12, 4, expect.any(Array), "createSuppliers");
     expect(state.from).not.toHaveBeenCalled();
   });
 
