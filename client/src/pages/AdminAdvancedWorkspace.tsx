@@ -552,11 +552,17 @@ export function PlatformRolePoliciesPanel() {
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{policyCapabilities.map((capability) => {
           const explicit = userOverrides.has(capability.id);
-          const inherited = effectiveBase.has(capability.id) && (lookup.get(`${selectedTarget.role}:${capability.id}`) ?? true);
-          const checked = explicit ? Boolean(userOverrides.get(capability.id)) : inherited;
+          const policyAllows = lookup.get(`${selectedTarget.role}:${capability.id}`) ?? true;
+          const configured = explicit ? Boolean(userOverrides.get(capability.id)) : effectiveBase.has(capability.id);
+          const checked = policyAllows && configured;
+          const permissionStatus = !policyAllows
+            ? "ممنوعة بسياسة المنصة"
+            : explicit
+              ? checked ? "استثناء فردي — مسموحة" : "استثناء فردي — ممنوعة"
+              : checked ? "مسموحة فعليًا — موروثة من الدور" : "ممنوعة فعليًا — موروثة من الدور";
           return <label key={capability.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-sm ${checked ? "border-emerald-400/20 bg-emerald-400/[.04] text-slate-100" : "border-white/8 bg-white/[.015] text-slate-400"}`}>
-            <span className="min-w-0"><span className="block">{capability.label}</span><span className="mt-1 block text-[10px] text-slate-500">{explicit ? "استثناء فردي — يحدد الحالة الفعلية" : checked ? "مسموحة فعليًا — موروثة من الدور" : "ممنوعة فعليًا — موروثة من الدور"}</span></span>
-            <input type="checkbox" checked={checked} disabled={saveUserOverride.isPending || saveOwnerOverride.isPending} onChange={(event) => {
+            <span className="min-w-0"><span className="block">{capability.label}</span><span className="mt-1 block text-[10px] text-slate-500">{permissionStatus}</span></span>
+            <input type="checkbox" checked={configured} disabled={saveUserOverride.isPending || saveOwnerOverride.isPending} onChange={(event) => {
               const value = { capability: capability.id, isAllowed: event.target.checked };
               if (selectedTarget.targetType === "owner") saveOwnerOverride.mutate({ tenantId: selectedTarget.tenantId, userId: selectedTarget.userId, ...value });
               else if (selectedTarget.profileId !== null) saveUserOverride.mutate({ profileId: selectedTarget.profileId, ...value });

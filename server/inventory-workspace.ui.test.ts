@@ -76,13 +76,30 @@ describe("inventory workspace UI contract", () => {
     expect(integration).toContain("'reverseSupplierPayments'");
   });
 
-  it("shows effective per-user inventory permissions after role-policy restrictions and overrides", () => {
+  it("shows the effective permission after role-policy restrictions and supports both owners and staff", () => {
     const admin = read("client/src/pages/AdminAdvancedWorkspace.tsx");
-    expect(admin).toContain('const inherited = effectiveBase.has(capability.id) && (lookup.get(`${selectedProfile.role}:${capability.id}`) ?? true)');
-    expect(admin).toContain('explicit ? Boolean(userOverrides.get(capability.id)) : inherited');
+    const api = read("server/admin-role-policy-router.ts");
+    const resolver = read("server/powerhub-supabase.ts");
+    const ownerMigration = read("supabase/migrations/20261022200000_powerhub_owner_capability_overrides.sql");
+    const ownerIntegration = read("supabase/tests/staff_inventory_permissions.sql");
+    expect(admin).toContain('const policyAllows = lookup.get(`${selectedTarget.role}:${capability.id}`) ?? true');
+    expect(admin).toContain('const configured = explicit ? Boolean(userOverrides.get(capability.id)) : effectiveBase.has(capability.id)');
+    expect(admin).toContain("const checked = policyAllows && configured");
+    expect(admin).toContain("checked={configured}");
+    expect(admin).toContain("ممنوعة بسياسة المنصة");
     expect(admin).toContain("مسموحة فعليًا — موروثة من الدور");
     expect(admin).toContain("ممنوعة فعليًا — موروثة من الدور");
-    expect(admin).toContain("استثناء فردي — يحدد الحالة الفعلية");
+    expect(admin).toContain('targetType: "owner" as const');
+    expect(admin).toContain('targetType: "staff" as const);
+    expect(api).toContain("powerhub_admin_set_owner_capability_override");
+    expect(api).toContain("tenant_member_capability_overrides");
+    expect(resolver).toContain('tenant_member_capability_overrides(capability,is_allowed)');
+    expect(resolver).toContain("applyStaffCapabilityOverrides(allCapabilities, ownerOverrides)");
+    expect(ownerMigration).toContain("tenant_member_permission_audit");
+    expect(ownerMigration).toContain("OWNER_MEMBERSHIP_NOT_FOUND");
+    expect(ownerMigration).toContain("grant execute on function public.powerhub_admin_set_owner_capability_override");
+    expect(ownerIntegration).toContain("OWNER_INDIVIDUAL_PERMISSION_DENY_FAILED");
+    expect(ownerIntegration).toContain("OWNER_PERMISSION_AUDIT_IDEMPOTENCY_FAILED");
   });
 
   it("keeps tenant audit actors compatible with the shared audit schema", () => {
