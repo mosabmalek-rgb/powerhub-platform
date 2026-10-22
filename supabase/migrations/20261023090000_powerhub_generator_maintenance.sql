@@ -685,6 +685,10 @@ declare
   v_owner_id bigint;
   v_notification_id bigint;
 begin
+  if (p_tenant_id is null) <> (p_site_id is null) then
+    raise exception 'MAINTENANCE_SCOPE_REQUIRED' using errcode='P0001';
+  end if;
+
   for v_plan in
     select pl.* from public.generator_maintenance_preventive_plans pl
     where pl.is_active and (p_tenant_id is null or pl.tenant_id=p_tenant_id)
