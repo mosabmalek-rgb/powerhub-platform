@@ -40,6 +40,16 @@ begin
   ) then
     raise exception 'ITEM_BASE_UNIT_IMMUTABLE_AFTER_USE' using errcode='P0001';
   end if;
+  if (
+    p_sku is distinct from v_item.sku
+    or btrim(p_name) is distinct from v_item.name
+    or p_category is distinct from v_item.category
+  ) and (
+    exists(select 1 from public.inventory_stock_movements m where m.tenant_id=p_tenant_id and m.item_id=p_item_id)
+    or exists(select 1 from public.supplier_purchase_lines l where l.tenant_id=p_tenant_id and l.item_id=p_item_id)
+  ) then
+    raise exception 'ITEM_IDENTITY_IMMUTABLE_AFTER_USE' using errcode='P0001';
+  end if;
 
   select u.platform_role into v_platform_role from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
