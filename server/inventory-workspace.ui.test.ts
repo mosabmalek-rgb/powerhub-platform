@@ -324,6 +324,11 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("submitStocktake.useMutation");
     expect(panel).toContain("postStocktake.useMutation");
     expect(panel).toContain("cancelStocktake.useMutation");
+    expect(panel).toContain('(selectedStocktake.status === "counting" || selectedStocktake.status === "submitted") && canManageStocktakes');
+    expect(panel).toContain("ألغِ الجلسة بسبب موثق ثم افتح جلسة جديدة");
+    expect(migration).toContain("v_stocktake.status not in ('counting','submitted')");
+    expect(integration).toContain("STALE_SUBMITTED_STOCKTAKE_WAS_POSTED");
+    expect(integration).toContain("NEW_STOCKTAKE_BLOCKED_AFTER_STALE_CANCELLATION");
     expect(panel).toContain("لقطة أرصدة مرجعية");
     expect(panel).toContain("إرسال للاعتماد");
     expect(panel).toContain("اعتماد وترحيل");
