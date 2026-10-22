@@ -594,7 +594,7 @@ select l.generator_id,l.generator_name,l.tank_warehouse_id,l.tank_name,
     else 'measured' end
 from levels l
 left join fills f on f.tenant_id=l.tenant_id and f.site_id=l.site_id and f.generator_id=l.generator_id and f.tank_warehouse_id=l.tank_warehouse_id
-left join movements m on m.tenant_id=l.tenant_id and m.site_id=l.site_id and m.warehouse_id=l.tank_warehouse_id
+left join movements m on m.tenant_id=l.tenant_id and m.site_id=l.site_id and m.tank_warehouse_id=l.tank_warehouse_id
 order by l.generator_name,l.tank_name;
 $function$;
 
