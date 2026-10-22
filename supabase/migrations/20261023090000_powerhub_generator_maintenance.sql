@@ -39,6 +39,8 @@ create table public.generator_maintenance_work_orders (
   constraint generator_maintenance_work_orders_generator_fk
     foreign key (tenant_id,site_id,generator_id)
     references public.generators(tenant_id,site_id,id),
+  constraint generator_maintenance_work_orders_tenant_site_id_unique
+    unique (tenant_id,site_id,id),
   constraint generator_maintenance_work_orders_scope_number_unique
     unique (tenant_id,site_id,work_order_number),
   constraint generator_maintenance_work_orders_operation_unique
