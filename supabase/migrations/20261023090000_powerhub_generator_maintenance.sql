@@ -577,15 +577,17 @@ $$;
 create or replace function public.powerhub_maintenance_evaluate_due_plans(
   p_tenant_id bigint default null,p_site_id bigint default null
 )
-returns table(alert_event_id bigint,plan_id bigint,generator_id bigint,alert_type text,due_at timestamptz,due_operating_hours numeric,observed_operating_hours numeric,replayed boolean)
+returns table(alert_event_id bigint,plan_id bigint,generator_id bigint,alert_type text,due_at timestamptz,due_operating_hours numeric,observed_operating_hours numeric,replayed boolean,notification_created boolean)
 language plpgsql security invoker set search_path=public,pg_temp
-as $$
+as $
 declare
   v_plan public.generator_maintenance_preventive_plans%rowtype;
   v_hours numeric(14,2);
   v_type text;
   v_key text;
   v_alert public.generator_maintenance_alert_events%rowtype;
+  v_owner_id bigint;
+  v_notification_id bigint;
 begin
   for v_plan in
     select pl.* from public.generator_maintenance_preventive_plans pl
@@ -618,8 +620,35 @@ begin
     on conflict (tenant_id,alert_key) do update set alert_type=excluded.alert_type,
       observed_operating_hours=excluded.observed_operating_hours,resolved_at=null,updated_at=now()
     returning * into v_alert;
+
+    -- The protected scheduler and page evaluator can both run; the stable recipient/event key
+    -- guarantees at most one in-app alert per due cycle and alert type. No SMS is sent here.
+    v_owner_id:=null;
+    v_notification_id:=null;
+    select o.owner_user_id into v_owner_id
+      from public.tenant_owner_profiles o
+      join public.users u on u.id=o.owner_user_id
+      where o.tenant_id=v_plan.tenant_id and o.owner_user_id is not null
+        and u.account_status='active'
+      limit 1;
+    if v_owner_id is not null then
+      insert into public.powerhub_user_notifications(
+        user_id,tenant_id,notification_type,title,body,target_path,entity_type,entity_id,dedupe_key,metadata
+      ) values(
+        v_owner_id,v_plan.tenant_id,'system_alert',
+        case when v_type='overdue' then 'صيانة وقائية متأخرة' else 'اقترب موعد الصيانة الوقائية' end,
+        'الخطة «'||v_plan.title||'» للمولد رقم '||v_plan.generator_id::text||
+          case when v_type='overdue' then ' تجاوزت موعد الاستحقاق.' else ' اقترب موعد استحقاقها.' end,
+        '/inventory','maintenance_alert',v_alert.id::text,
+        'maintenance-alert:'||v_key||':'||v_type,
+        jsonb_build_object('site_id',v_plan.site_id,'generator_id',v_plan.generator_id,
+          'plan_id',v_plan.id,'alert_type',v_type,'due_at',v_plan.next_due_at,
+          'due_operating_hours',v_plan.next_due_operating_hours,'observed_operating_hours',v_hours)
+      ) on conflict(user_id,dedupe_key) do nothing returning id into v_notification_id;
+    end if;
     return query select v_alert.id,v_alert.plan_id,v_alert.generator_id,v_alert.alert_type,
-      v_alert.due_at,v_alert.due_operating_hours,v_alert.observed_operating_hours,false;
+      v_alert.due_at,v_alert.due_operating_hours,v_alert.observed_operating_hours,false,
+      (v_notification_id is not null);
   end loop;
 end;
 $$;

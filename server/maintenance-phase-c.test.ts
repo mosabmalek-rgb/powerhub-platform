@@ -17,6 +17,10 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(router).toContain("evaluateDuePlans");
     expect(panel).toContain("trpc.powerhub.maintenance.addPart.useMutation");
     expect(panel).toContain("trpc.powerhub.maintenance.createPreventivePlan.useMutation");
+    const worker = read("server/notification-worker.ts");
+    const route = read("server/_core/index.ts");
+    expect(worker).toContain("processAutomaticMaintenanceAlertEvaluation");
+    expect(route).toContain("maintenanceAlertEvaluationResult");
     expect(router).toContain("evaluateDuePlans");
     expect(page).toContain('TabsTrigger value="maintenance"');
     expect(page).toContain("InventoryMaintenancePanel");
@@ -44,6 +48,7 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("enable row level security");
     expect(migration).toContain("from public,anon,authenticated");
     expect(integration).toContain("MAINTENANCE_PART_DUPLICATED_STOCK_ISSUE");
+    expect(integration).toContain("MAINTENANCE_ALERT_NOTIFICATION_DUPLICATED");
     expect(integration).toContain("MAINTENANCE_CROSS_GENERATOR_PART_ACCEPTED");
     expect(integration).toContain("MAINTENANCE_AUDIT_MUTABLE_ACCESS_GRANTED");
     expect(integration).toContain("MAINTENANCE_BREAKDOWN_MUST_NOT_COMPLETE_UNLINKED_PLAN");

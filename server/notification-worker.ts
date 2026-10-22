@@ -512,3 +512,32 @@ export async function processAutomaticFuelAlertEvaluation(): Promise<{
     notificationsCreated: nonNegativeCount(row?.notifications_created),
   };
 }
+
+/**
+ * Periodic backstop for preventive-maintenance alerts. The RPC creates only
+ * deduplicated in-app notifications; it does not invoke an SMS provider.
+ */
+export async function processAutomaticMaintenanceAlertEvaluation(): Promise<{
+  skipped: boolean;
+  alertsEvaluated: number;
+  notificationsCreated: number;
+}> {
+  if (process.env.VERCEL_ENV === "preview" && process.env.POWERHUB_ALLOW_PREVIEW_MAINTENANCE_ALERTS !== "true") {
+    return { skipped: true, alertsEvaluated: 0, notificationsCreated: 0 };
+  }
+  const { data, error } = await supabaseAdmin().rpc("powerhub_maintenance_evaluate_due_plans", {
+    p_tenant_id: null,
+    p_site_id: null,
+  });
+  if (error) {
+    logSupabaseWorkerQueryFailure("maintenance-alerts", error);
+    throw new Error("تعذر تقييم تنبيهات الصيانة الوقائية المجدولة.");
+  }
+  const rows = Array.isArray(data) ? data : data ? [data] : [];
+  return {
+    skipped: false,
+    alertsEvaluated: rows.length,
+    notificationsCreated: rows.filter((row: { notification_created?: unknown }) => row.notification_created === true).length,
+  };
+}
+

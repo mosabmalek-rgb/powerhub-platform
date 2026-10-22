@@ -19,6 +19,8 @@ declare
   v_due_before timestamptz;
   v_plan_replay record;
   v_constraint_name text;
+  v_notification_count_before bigint;
+  v_notification_count_after bigint;
 begin
   -- Create a disposable stock item and seed it through the same audited ledger.
   insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
@@ -38,6 +40,13 @@ begin
   if not exists(select 1 from public.powerhub_maintenance_evaluate_due_plans(10,100) where plan_id=v_plan.plan_id and alert_type='overdue') then
     raise exception 'MAINTENANCE_OVERDUE_ALERT_MISSING';
   end if;
+  select count(*) into v_notification_count_before from public.powerhub_user_notifications
+    where tenant_id=10 and entity_type='maintenance_alert' and metadata->>'plan_id'=v_plan.plan_id::text;
+  if v_notification_count_before<>1 then raise exception 'MAINTENANCE_ALERT_NOTIFICATION_MISSING'; end if;
+  perform * from public.powerhub_maintenance_evaluate_due_plans(10,100);
+  select count(*) into v_notification_count_after from public.powerhub_user_notifications
+    where tenant_id=10 and entity_type='maintenance_alert' and metadata->>'plan_id'=v_plan.plan_id::text;
+  if v_notification_count_after<>v_notification_count_before then raise exception 'MAINTENANCE_ALERT_NOTIFICATION_DUPLICATED'; end if;
 
   select next_due_at into v_due_before from public.generator_maintenance_preventive_plans where id=v_plan.plan_id;
 
