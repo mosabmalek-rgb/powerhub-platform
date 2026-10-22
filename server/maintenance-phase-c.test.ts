@@ -60,6 +60,7 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("MAINTENANCE_COMPLETION_CORRECTION_REQUIRES_COMPLETED_ORDER");
     expect(migration).toContain("record-only-no-ledger-side-effects");
     expect(router).toContain('"correct_completion"');
+    expect(router).toContain('input.action === "correct_completion" && (input.laborCost !== undefined || input.externalServiceCost !== undefined)');
     expect(panel).toContain('doTransition(o,"correct_completion")');
     expect(migration).toContain("MAINTENANCE_HOURS_BACKWARDS");
     expect(migration).toContain("generator_maintenance_preventive_plans");
