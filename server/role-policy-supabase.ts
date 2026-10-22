@@ -1,39 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { supabaseAdmin } from "./supabase-admin";
+import type { PowerCapability, PowerRole } from "../shared/powerhub-rbac";
 
 export async function saveRolePolicy(input: {
   actorUserId: number;
-  role: "owner" | "manager" | "accountant" | "collector" | "technician" | "viewer";
-  capability:
-    | "manageSubscribers"
-    | "manageGenerators"
-    | "recordReadings"
-    | "accessFieldApp"
-    | "approveReadings"
-    | "manageTariffs"
-    | "issueInvoices"
-    | "collectPayments"
-    | "approvePaymentDocumentation"
-    | "manageExpenses"
-    | "managePayroll"
-    | "manageTeam"
-    | "manageMessaging"
-    | "viewAudit"
-    | "viewInventory"
-    | "viewSuppliers"
-    | "viewPurchases"
-    | "manageInventoryItems"
-    | "manageSuppliers"
-    | "createPurchases"
-    | "approvePurchases"
-    | "receiveInventory"
-    | "manageSupplierPayments"
-    | "viewSupplierLedger"
-    | "issueInventory"
-    | "adjustInventory"
-    | "manageFuelAndConsumption"
-    | "manageMaintenance"
-    | "viewInventoryReports";
+  role: PowerRole;
+  capability: PowerCapability;
   isAllowed: boolean;
 }) {
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_save_role_policy", {
