@@ -136,6 +136,17 @@ function mapPurchaseDatabaseError(
     SUPPLIER_PAYMENT_ALLOCATION_MISMATCH: { code: "CONFLICT", message: "تخصيص الدفعة لا يطابق فاتورة المورد؛ أوقفنا العكس لحماية الأرصدة." },
     SUPPLIER_PAYMENT_ORIGINAL_TRANSACTION_MISMATCH: { code: "CONFLICT", message: "تعذر مطابقة حركة السحب الأصلية في حساب الشركة؛ لم يُسجل أي عكس." },
     SUPPLIER_PAYMENT_REVERSAL_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لعكس دفعة المورد." },
+    SUPPLIER_OPENING_BALANCE_SCOPE_REQUIRED: { code: "BAD_REQUEST", message: "حدد الفرع والمورد والمستخدم لتسجيل الرصيد الافتتاحي." },
+    INVALID_SUPPLIER_OPENING_BALANCE: { code: "BAD_REQUEST", message: "قيمة الرصيد الافتتاحي يجب أن تكون موجبة وبمنزلتين عشريتين كحد أقصى." },
+    SUPPLIER_OPENING_BALANCE_ALREADY_EXISTS: { code: "CONFLICT", message: "تم تسجيل رصيد افتتاحي لهذا المورد والفرع مسبقًا." },
+    SUPPLIER_OPENING_BALANCE_NOT_PAYABLE: { code: "CONFLICT", message: "قيد الرصيد الافتتاحي المحدد غير صالح للتسوية." },
+    SUPPLIER_OPENING_BALANCE_EXCEEDED: { code: "CONFLICT", message: "المبلغ المخصص يتجاوز المتبقي من الرصيد الافتتاحي." },
+    SUPPLIER_PAYMENT_SCOPE_REQUIRED: { code: "BAD_REQUEST", message: "حدد الفرع والمورد وحساب الشركة لتسجيل الدفعة." },
+    INVALID_SUPPLIER_PAYMENT_ALLOCATIONS: { code: "BAD_REQUEST", message: "تحقق من الفواتير والمبالغ المحددة لتوزيع الدفعة." },
+    DUPLICATE_OR_INVALID_SUPPLIER_PAYMENT_ALLOCATION: { code: "BAD_REQUEST", message: "لا تكرر الفاتورة أو الرصيد الافتتاحي نفسه ضمن دفعة واحدة." },
+    SUPPLIER_PAYMENT_ALLOCATION_TOTAL_MISMATCH: { code: "BAD_REQUEST", message: "مجموع التخصيصات يجب أن يساوي مبلغ الدفعة تمامًا." },
+    SUPPLIER_PAYMENT_SUPPLIER_MISMATCH: { code: "FORBIDDEN", message: "يجب أن تكون كل الفواتير والأرصدة المحددة تابعة للمورد نفسه." },
+    SUPPLIER_PAYMENT_ALLOCATION_MISMATCH: { code: "CONFLICT", message: "تخصيصات الدفعة لا تطابق سجلات المورد؛ لم يتم تسجيل العكس." },
     IDEMPOTENCY_KEY_REUSED: { code: "CONFLICT", message: "مفتاح العملية مستخدم بطلب مختلف؛ أنشئ مفتاحًا جديدًا." },
     DUPLICATE_PURCHASE_LINE: { code: "BAD_REQUEST", message: "لا تكرر بند الفاتورة نفسه ضمن طلب الاستلام الواحد." },
     INVALID_SUPPLIER_PAYMENT_AMOUNT: { code: "BAD_REQUEST", message: "مبلغ دفعة المورد يجب أن يكون موجبًا وبحد أقصى منزلتين عشريتين." },
@@ -1009,6 +1020,40 @@ export const powerhubInventoryRouter = router({
       return data;
     }),
 
+
+  supplierPayablesAging: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      asOfDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewSupplierLedger");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_supplier_payables_aging", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_as_of_date: input.asOfDate || null,
+      });
+      if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل تقرير أعمار ذمم الموردين.");
+      return data;
+    }),
+
+  listSupplierPaymentBatchOptions: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), asOfDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      const [suppliersResult, agingResult] = await Promise.all([
+        supabaseAdmin().from("suppliers")
+          .select("id,name,supplier_code")
+          .eq("tenant_id", access.tenantId).eq("is_active", true)
+          .order("name", { ascending: true }).limit(500),
+        supabaseAdmin().rpc("powerhub_inventory_supplier_payables_aging", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_as_of_date: input.asOfDate || null,
+        }),
+      ]);
+      if (suppliersResult.error || agingResult.error || !agingResult.data) {
+        mapPurchaseDatabaseError(suppliersResult.error || agingResult.error, "تعذر تحميل الفواتير والذمم المفتوحة لتوزيع الدفعة.");
+      }
+      return { suppliers: suppliersResult.data ?? [], payables: agingResult.data };
+    }),
+
   cancelPurchase: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
@@ -1033,7 +1078,7 @@ export const powerhubInventoryRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_reverse_supplier_payment", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_reverse_supplier_payment_flexible", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_payment_id: input.paymentId, p_reason: input.reason,
       });
@@ -1080,6 +1125,80 @@ export const powerhubInventoryRouter = router({
         p_operation_key: input.operationKey,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل دفعة المورد.");
+      return data[0];
+    }),
+
+
+  recordSupplierOpeningBalance: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      supplierId: z.number().int().positive(),
+      amount: z.number().finite().positive().max(1_000_000_000)
+        .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7, "يجب ألا يزيد الرصيد الافتتاحي عن منزلتين عشريتين."),
+      asOfDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_supplier_opening_balance", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_supplier_id: input.supplierId, p_amount: input.amount, p_as_of_date: input.asOfDate || null,
+        p_reference_no: input.referenceNo || null, p_notes: input.notes || null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل الرصيد الافتتاحي للمورد.");
+      return data[0];
+    }),
+
+  recordSupplierPaymentBatch: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      supplierId: z.number().int().positive(),
+      companyAccountId: z.number().int().positive(),
+      amount: z.number().finite().positive().max(1_000_000_000)
+        .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7, "يجب ألا يزيد مبلغ الدفعة عن منزلتين عشريتين."),
+      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      operationKey: z.string().trim().min(1).max(180),
+      allocations: z.array(z.object({
+        purchaseId: z.number().int().positive().optional(),
+        openingBalanceEntryId: z.number().int().positive().optional(),
+        amount: z.number().finite().positive().max(1_000_000_000)
+          .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7),
+      })).min(1).max(100),
+    }).superRefine((value, issue) => {
+      const totalCents = value.allocations.reduce((sum, allocation) => sum + Math.round(allocation.amount * 100), 0);
+      if (totalCents !== Math.round(value.amount * 100)) {
+        issue.addIssue({ code: z.ZodIssueCode.custom, path: ["allocations"], message: "مجموع تخصيصات الدفعة يجب أن يساوي مبلغ الدفعة." });
+      }
+      const keys = new Set<string>();
+      for (const [index, allocation] of value.allocations.entries()) {
+        const hasPurchase = allocation.purchaseId !== undefined;
+        const hasOpening = allocation.openingBalanceEntryId !== undefined;
+        if (hasPurchase === hasOpening) {
+          issue.addIssue({ code: z.ZodIssueCode.custom, path: ["allocations", index], message: "اختر فاتورة واحدة أو رصيدًا افتتاحيًا لكل تخصيص." });
+        }
+        const key = hasPurchase ? `purchase:${allocation.purchaseId}` : `opening:${allocation.openingBalanceEntryId}`;
+        if (keys.has(key)) issue.addIssue({ code: z.ZodIssueCode.custom, path: ["allocations", index], message: "لا تكرر المستند نفسه في دفعة واحدة." });
+        keys.add(key);
+      }
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_supplier_payment_batch", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_supplier_id: input.supplierId, p_company_account_id: input.companyAccountId,
+        p_amount: input.amount, p_payment_date: input.paymentDate || null,
+        p_reference_no: input.referenceNo || null, p_notes: input.notes || null,
+        p_operation_key: input.operationKey,
+        p_allocations: input.allocations.map((allocation) => ({
+          purchase_id: allocation.purchaseId ?? null,
+          supplier_ledger_entry_id: allocation.openingBalanceEntryId ?? null,
+          amount: allocation.amount,
+        })),
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تسجيل دفعة المورد على المستندات المحددة.");
       return data[0];
     }),
 
