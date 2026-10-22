@@ -103,6 +103,7 @@ create table public.generator_maintenance_preventive_plans (
   constraint generator_maintenance_plan_generator_fk
     foreign key (tenant_id,site_id,generator_id)
     references public.generators(tenant_id,site_id,id),
+  constraint generator_maintenance_preventive_plans_tenant_site_id_unique unique (tenant_id,site_id,id),
   constraint generator_maintenance_plan_code_unique unique (tenant_id,site_id,plan_code),
   constraint generator_maintenance_plan_operation_unique unique (tenant_id,operation_key),
   constraint generator_maintenance_plan_interval_check check (interval_days is not null or interval_operating_hours is not null),
