@@ -133,7 +133,7 @@ function mapPurchaseDatabaseError(
     PURCHASE_CANCELLATION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإلغاء فاتورة المشتريات." },
     SUPPLIER_PAYMENT_NOT_FOUND: { code: "NOT_FOUND", message: "دفعة المورد غير موجودة في هذا الفرع." },
     SUPPLIER_PAYMENT_ALLOCATION_NOT_FOUND: { code: "CONFLICT", message: "لا يوجد تخصيص فاتورة صالح لهذه الدفعة." },
-    SUPPLIER_PAYMENT_ALLOCATION_MISMATCH: { code: "CONFLICT", message: "تخصيص الدفعة لا يطابق فاتورة المورد؛ أوقفنا العكس لحماية الأرصدة." },
+    SUPPLIER_PAYMENT_ALLOCATION_MISMATCH: { code: "CONFLICT", message: "تخصيصات الدفعة لا تطابق مستندات المورد أو سجلاته؛ أوقفنا العملية لحماية الأرصدة." },
     SUPPLIER_PAYMENT_ORIGINAL_TRANSACTION_MISMATCH: { code: "CONFLICT", message: "تعذر مطابقة حركة السحب الأصلية في حساب الشركة؛ لم يُسجل أي عكس." },
     SUPPLIER_PAYMENT_REVERSAL_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لعكس دفعة المورد." },
     SUPPLIER_OPENING_BALANCE_SCOPE_REQUIRED: { code: "BAD_REQUEST", message: "حدد الفرع والمورد والمستخدم لتسجيل الرصيد الافتتاحي." },
@@ -146,7 +146,7 @@ function mapPurchaseDatabaseError(
     DUPLICATE_OR_INVALID_SUPPLIER_PAYMENT_ALLOCATION: { code: "BAD_REQUEST", message: "لا تكرر الفاتورة أو الرصيد الافتتاحي نفسه ضمن دفعة واحدة." },
     SUPPLIER_PAYMENT_ALLOCATION_TOTAL_MISMATCH: { code: "BAD_REQUEST", message: "مجموع التخصيصات يجب أن يساوي مبلغ الدفعة تمامًا." },
     SUPPLIER_PAYMENT_SUPPLIER_MISMATCH: { code: "FORBIDDEN", message: "يجب أن تكون كل الفواتير والأرصدة المحددة تابعة للمورد نفسه." },
-    SUPPLIER_PAYMENT_ALLOCATION_MISMATCH: { code: "CONFLICT", message: "تخصيصات الدفعة لا تطابق سجلات المورد؛ لم يتم تسجيل العكس." },
+
     IDEMPOTENCY_KEY_REUSED: { code: "CONFLICT", message: "مفتاح العملية مستخدم بطلب مختلف؛ أنشئ مفتاحًا جديدًا." },
     DUPLICATE_PURCHASE_LINE: { code: "BAD_REQUEST", message: "لا تكرر بند الفاتورة نفسه ضمن طلب الاستلام الواحد." },
     INVALID_SUPPLIER_PAYMENT_AMOUNT: { code: "BAD_REQUEST", message: "مبلغ دفعة المورد يجب أن يكون موجبًا وبحد أقصى منزلتين عشريتين." },
