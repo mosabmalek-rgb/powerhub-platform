@@ -8,13 +8,14 @@ import InventoryReportsPanel from "@/components/InventoryReportsPanel";
 import InventorySupplierPaymentsPanel from "@/components/InventorySupplierPaymentsPanel";
 import InventorySupplierPayablesAgingPanel from "@/components/InventorySupplierPayablesAgingPanel";
 import InventoryStocktakePanel from "@/components/InventoryStocktakePanel";
+import InventoryDashboardPanel from "@/components/InventoryDashboardPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck } from "lucide-react";
+import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck, LayoutDashboard } from "lucide-react";
 import { toast } from "sonner";
 
 const categoryLabels: Record<string, string> = {
@@ -88,7 +89,7 @@ export default function InventoryWorkspacePage() {
   const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments || canAdjustInventory;
   const canViewPurchaseFinancials = canViewPurchases || canManageSupplierPayments;
   const utils = trpc.useUtils();
-  const [tab, setTab] = useState("catalog");
+  const [tab, setTab] = useState("dashboard");
   const [itemSearch, setItemSearch] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
   const [selectedSupplierLedgerId, setSelectedSupplierLedgerId] = useState<number | null>(null);
@@ -297,6 +298,7 @@ export default function InventoryWorkspacePage() {
           <Tabs value={tab} onValueChange={setTab} dir="rtl" className="space-y-4">
             <div className="overflow-x-auto pb-1">
               <TabsList className="inline-flex min-w-max gap-1">
+                <TabsTrigger value="dashboard" className="gap-2"><LayoutDashboard className="h-4 w-4" /> لوحة التحكم</TabsTrigger>
                 {canViewInventory ? <TabsTrigger value="catalog" className="gap-2"><Boxes className="h-4 w-4" /> دليل الأصناف</TabsTrigger> : null}
                 {canViewSuppliers ? <TabsTrigger value="suppliers" className="gap-2"><Store className="h-4 w-4" /> الموردون والذمم</TabsTrigger> : null}
                 {canManageSupplierPayments ? <TabsTrigger value="supplierPayments" className="gap-2"><CreditCard className="h-4 w-4" /> دفعات الموردين</TabsTrigger> : null}
@@ -306,6 +308,19 @@ export default function InventoryWorkspacePage() {
                 {canViewInventoryReports ? <TabsTrigger value="reports" className="gap-2"><FileSpreadsheet className="h-4 w-4" /> التقارير والتصدير</TabsTrigger> : null}
               </TabsList>
             </div>
+
+            <TabsContent value="dashboard" className="space-y-4">
+              <InventoryDashboardPanel
+                siteId={siteId}
+                isAuthenticated={isAuthenticated}
+                canViewInventory={canViewInventory}
+                canViewInventoryReports={canViewInventoryReports}
+                canViewSupplierLedger={canViewSupplierLedger}
+                canReadPurchases={canReadPurchases}
+                canAccessStocktakes={canAccessStocktakes}
+                onNavigate={(nextTab) => setTab(nextTab)}
+              />
+            </TabsContent>
 
             {canViewInventory ? <TabsContent value="catalog" className="space-y-4">
               <Card>
