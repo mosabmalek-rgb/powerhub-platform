@@ -301,4 +301,50 @@ describe("inventory workspace UI contract", () => {
     expect(integration).toContain("USED_WAREHOUSE_LOCATION_TYPE_CHANGED");
   });
 
+
+  it("wires physical stocktake snapshot, counting, approval and drift-safe posting", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const panel = read("client/src/components/InventoryStocktakePanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const migration = read("supabase/migrations/20261022150000_powerhub_inventory_stocktakes.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+    const rbac = read("shared/powerhub-rbac.ts");
+    const menuAccess = read("client/src/lib/tenant-menu-access.ts");
+
+    expect(workspace).toContain("InventoryStocktakePanel");
+    expect(workspace).toContain("canViewStocktakes");
+    expect(workspace).toContain("canManageStocktakes");
+    expect(workspace).toContain("canApproveStocktakes");
+    expect(panel).toContain("listStocktakeWarehouses.useQuery");
+    expect(panel).toContain("listStocktakes.useQuery");
+    expect(panel).toContain("listStocktakeLines.useQuery");
+    expect(panel).toContain("createStocktake.useMutation");
+    expect(panel).toContain("recordStocktakeCount.useMutation");
+    expect(panel).toContain("submitStocktake.useMutation");
+    expect(panel).toContain("postStocktake.useMutation");
+    expect(panel).toContain("cancelStocktake.useMutation");
+    expect(panel).toContain("لقطة الأرصدة");
+    expect(panel).toContain("إرسال للاعتماد");
+    expect(panel).toContain("اعتماد وترحيل");
+    expect(router).toContain("requireStocktakeReadAccess");
+    expect(router).toContain("requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], \"manageStocktakes\")");
+    expect(router).toContain("requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], \"approveStocktakes\")");
+    expect(migration).toContain("inventory_stocktakes_one_open_per_warehouse_idx");
+    expect(migration).toContain("STOCKTAKE_STOCK_CHANGED_DURING_COUNT");
+    expect(migration).toContain("powerhub_inventory_stocktake_snapshot_is_current");
+    expect(migration).toContain("powerhub_inventory_record_stock_movement");
+    expect(migration).toContain("FUEL_ITEM_REQUIRED_FOR_TANK");
+    expect(migration).toContain("viewStocktakes");
+    expect(migration).toContain("manageStocktakes");
+    expect(migration).toContain("approveStocktakes");
+    expect(integration).toContain("$inventory_stocktake_assertions$");
+    expect(integration).toContain("STOCKTAKE_POST_REPLAY_DUPLICATED_MOVEMENT");
+    expect(integration).toContain("STOCKTAKE_WITH_STALE_SNAPSHOT_WAS_SUBMITTED");
+    expect(integration).toContain("AUTHENTICATED_CAN_EXECUTE_STOCKTAKE_RPC");
+    expect(rbac).toContain("viewStocktakes");
+    expect(rbac).toContain("manageStocktakes");
+    expect(rbac).toContain("approveStocktakes");
+    expect(menuAccess).toContain('"viewStocktakes", "manageStocktakes", "approveStocktakes"');
+  });
+
 });
