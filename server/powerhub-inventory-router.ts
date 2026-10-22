@@ -118,6 +118,25 @@ function mapPurchaseDatabaseError(
     INVALID_INVENTORY_WAREHOUSE: { code: "BAD_REQUEST", message: "تحقق من رمز المخزن واسمه." },
     INVALID_INVENTORY_LOCATION_TYPE: { code: "BAD_REQUEST", message: "اختر نوع موقع التخزين واربط خزان المولد بالمولد الصحيح." },
     WAREHOUSE_IDENTITY_IMMUTABLE_AFTER_USE: { code: "CONFLICT", message: "لا يمكن تغيير رمز الموقع أو اسمه أو نوعه بعد تسجيل حركة أو فاتورة عليه؛ أنشئ موقعًا جديدًا وانقل الرصيد بطريقة موثقة." },
+    STOCKTAKE_SCOPE_REQUIRED: { code: "BAD_REQUEST", message: "حدد الفرع وموقع التخزين لجلسة الجرد." },
+    STOCKTAKE_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا للجرد الفعلي." },
+    INVALID_STOCKTAKE_NOTES: { code: "BAD_REQUEST", message: "ملاحظات الجرد أطول من المسموح." },
+    STOCKTAKE_CATALOG_EMPTY: { code: "CONFLICT", message: "لا توجد أصناف نشطة لإدراجها في جلسة الجرد." },
+    STOCKTAKE_NOT_FOUND: { code: "NOT_FOUND", message: "جلسة الجرد غير موجودة في هذا الفرع." },
+    STOCKTAKE_NOT_COUNTABLE: { code: "CONFLICT", message: "جلسة الجرد ليست في حالة تسمح بإدخال العد أو تعديله." },
+    STOCKTAKE_ITEM_NOT_FOUND: { code: "NOT_FOUND", message: "الصنف غير مدرج ضمن لقطة جلسة الجرد هذه." },
+    INVALID_STOCKTAKE_COUNT: { code: "BAD_REQUEST", message: "الكمية المعدودة يجب أن تكون صفرًا أو أكثر وبحد أقصى ثلاث منازل عشرية." },
+    INVALID_STOCKTAKE_UNIT_COST: { code: "BAD_REQUEST", message: "تكلفة وحدة الزيادة غير صالحة أو تتجاوز أربع منازل عشرية." },
+    INVALID_STOCKTAKE_COUNT_NOTES: { code: "BAD_REQUEST", message: "ملاحظات العد أطول من المسموح." },
+    STOCKTAKE_COUNTS_INCOMPLETE: { code: "CONFLICT", message: "لا يمكن إرسال الجرد قبل إدخال العد لكل الأصناف." },
+    STOCKTAKE_STOCK_CHANGED_DURING_COUNT: { code: "CONFLICT", message: "تغير رصيد أو قيمة المخزون أو دليل الأصناف منذ بدء العد؛ ألغِ الجلسة وافتح جردًا جديدًا حتى لا تُرحّل نتائج قديمة." },
+    STOCKTAKE_NOT_SUBMITTABLE: { code: "CONFLICT", message: "حالة جلسة الجرد لا تسمح بإرسالها للاعتماد." },
+    STOCKTAKE_NOT_APPROVED: { code: "CONFLICT", message: "يجب إرسال جلسة الجرد للاعتماد قبل ترحيلها." },
+    STOCKTAKE_SURPLUS_UNIT_COST_REQUIRED: { code: "BAD_REQUEST", message: "أدخل تكلفة وحدة للكمية الزائدة عندما لا يوجد رصيد سابق لتقييمها." },
+    STOCKTAKE_POSTING_MOVEMENT_FAILED: { code: "CONFLICT", message: "تعذر إنشاء حركة التسوية الناتجة عن الجرد؛ لم تُرحّل الجلسة." },
+    STOCKTAKE_CANCEL_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإلغاء جلسة الجرد." },
+    STOCKTAKE_NOT_CANCELLABLE: { code: "CONFLICT", message: "لا يمكن إلغاء جلسة جرد أُرسلت للاعتماد أو رُحّلت." },
+
     STOCK_WAREHOUSE_INACTIVE: { code: "CONFLICT", message: "المخزن موقوف؛ أعد تفعيله قبل تعديل بياناته." },
     WAREHOUSE_DEACTIVATION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإيقاف المخزن." },
     WAREHOUSE_HAS_STOCK: { code: "CONFLICT", message: "لا يمكن إيقاف المخزن ما دام يحتوي على كمية أو قيمة مخزون." },
@@ -1037,6 +1056,112 @@ export const powerhubInventoryRouter = router({
       return data;
     }),
 
+
+
+  listStocktakes: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      warehouseId: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(200).default(50),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewInventory");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_stocktakes", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_warehouse_id: input.warehouseId ?? null, p_limit: input.limit,
+      });
+      if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل سجل جلسات الجرد.");
+      return data ?? [];
+    }),
+
+  listStocktakeLines: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), stocktakeId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewInventory");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_stocktake_lines", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_stocktake_id: input.stocktakeId,
+      });
+      if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل تفاصيل جلسة الجرد.");
+      return data ?? [];
+    }),
+
+  createStocktake: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(), warehouseId: z.number().int().positive(),
+      reason: z.string().trim().min(3).max(500), notes: z.string().trim().max(2000).optional(),
+      operationKey: z.string().trim().min(1).max(180),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageStocktakes");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_stocktake", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_warehouse_id: input.warehouseId, p_reason: input.reason, p_notes: input.notes || null,
+        p_operation_key: input.operationKey,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر فتح جلسة الجرد.");
+      return data[0];
+    }),
+
+  recordStocktakeCount: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(), stocktakeId: z.number().int().positive(),
+      itemId: z.number().int().positive(),
+      countedQuantity: z.number().finite().min(0).max(1_000_000_000)
+        .refine((value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-7, "الكمية المعدودة تقبل ثلاث منازل عشرية كحد أقصى."),
+      countedUnitCost: z.number().finite().min(0).max(1_000_000_000)
+        .refine((value) => Math.abs(value * 10000 - Math.round(value * 10000)) < 1e-7).optional(),
+      countNotes: z.string().trim().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageStocktakes");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_stocktake_count", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_stocktake_id: input.stocktakeId, p_item_id: input.itemId,
+        p_counted_quantity: input.countedQuantity, p_counted_unit_cost: input.countedUnitCost ?? null,
+        p_count_notes: input.countNotes || null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر حفظ كمية العد الفعلية.");
+      return data[0];
+    }),
+
+  submitStocktake: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), stocktakeId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageStocktakes");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_submit_stocktake", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_user_id: ctx.user.id, p_stocktake_id: input.stocktakeId,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر إرسال الجرد للاعتماد.");
+      return data[0];
+    }),
+
+  postStocktake: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), stocktakeId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "approveStocktakes");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_post_stocktake", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_user_id: ctx.user.id, p_stocktake_id: input.stocktakeId,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر اعتماد وترحيل الجرد.");
+      return data[0];
+    }),
+
+  cancelStocktake: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(), stocktakeId: z.number().int().positive(),
+      reason: z.string().trim().min(3).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageStocktakes");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_cancel_stocktake", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_stocktake_id: input.stocktakeId, p_reason: input.reason,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر إلغاء جلسة الجرد.");
+      return data[0];
+    }),
 
   supplierPayablesAging: protectedProcedure
     .input(z.object({
