@@ -536,7 +536,7 @@ begin
     'operating_hours_at_close',v_order.operating_hours_at_close,'downtime_minutes',v_order.downtime_minutes,
     'parts_cost',v_order.parts_cost,'labor_cost',v_order.labor_cost,
     'external_service_cost',v_order.external_service_cost,'total_cost_amount',v_order.total_cost_amount,
-    'cancel_reason',v_order.cancel_reason,'closeout_revision',v_order.closeout_revision
+    'cancel_reason',v_order.cancel_reason
   );
   if p_action='start' then
     if v_order.status not in ('new','scheduled','waiting_for_parts') then raise exception 'MAINTENANCE_INVALID_STATE_TRANSITION' using errcode='P0001'; end if;
