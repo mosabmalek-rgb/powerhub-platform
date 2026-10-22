@@ -547,9 +547,10 @@ export function PlatformRolePoliciesPanel() {
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{policyCapabilities.map((capability) => {
           const explicit = userOverrides.has(capability.id);
-          const checked = explicit ? Boolean(userOverrides.get(capability.id)) : effectiveBase.has(capability.id);
+          const inherited = effectiveBase.has(capability.id) && (lookup.get(`${selectedProfile.role}:${capability.id}`) ?? true);
+          const checked = explicit ? Boolean(userOverrides.get(capability.id)) : inherited;
           return <label key={capability.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-sm ${checked ? "border-emerald-400/20 bg-emerald-400/[.04] text-slate-100" : "border-white/8 bg-white/[.015] text-slate-400"}`}>
-            <span className="min-w-0"><span className="block">{capability.label}</span><span className="mt-1 block text-[10px] text-slate-500">{explicit ? "استثناء فردي" : "موروثة من الدور"}</span></span>
+            <span className="min-w-0"><span className="block">{capability.label}</span><span className="mt-1 block text-[10px] text-slate-500">{explicit ? "استثناء فردي — يحدد الحالة الفعلية" : checked ? "مسموحة فعليًا — موروثة من الدور" : "ممنوعة فعليًا — موروثة من الدور"}</span></span>
             <input type="checkbox" checked={checked} disabled={saveUserOverride.isPending} onChange={(event) => saveUserOverride.mutate({ profileId: selectedProfile.profileId, capability: capability.id, isAllowed: event.target.checked })} className="h-4 w-4 shrink-0 accent-[#F5B800] disabled:opacity-40" />
           </label>;
         })}</div>
