@@ -86,6 +86,7 @@ export default function InventoryWorkspacePage() {
   const canApprovePurchases = supplierAccess.data?.permissions.includes("approvePurchases") ?? false;
   const canReceiveInventory = supplierAccess.data?.permissions.includes("receiveInventory") ?? false;
   const canManageSupplierPayments = supplierAccess.data?.permissions.includes("manageSupplierPayments") ?? false;
+  const canReverseSupplierPayments = supplierAccess.data?.permissions.includes("reverseSupplierPayments") ?? false;
   const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments || canAdjustInventory;
   const canViewPurchaseFinancials = canViewPurchases || canManageSupplierPayments;
   const utils = trpc.useUtils();
@@ -411,7 +412,7 @@ export default function InventoryWorkspacePage() {
             </TabsContent>
 
             {canManageSupplierPayments ? <TabsContent value="supplierPayments" className="space-y-4">
-              <InventorySupplierPaymentsPanel siteId={siteId} isAuthenticated={isAuthenticated} canManageSupplierPayments={canManageSupplierPayments} />
+              <InventorySupplierPaymentsPanel siteId={siteId} isAuthenticated={isAuthenticated} canManageSupplierPayments={canManageSupplierPayments} canReverseSupplierPayments={canReverseSupplierPayments} />
             </TabsContent> : null}
 
             {canViewInventory ? <TabsContent value="warehouses" className="space-y-4">
