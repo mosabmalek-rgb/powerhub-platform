@@ -323,7 +323,7 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("submitStocktake.useMutation");
     expect(panel).toContain("postStocktake.useMutation");
     expect(panel).toContain("cancelStocktake.useMutation");
-    expect(panel).toContain("لقطة الأرصدة");
+    expect(panel).toContain("لقطة أرصدة مرجعية");
     expect(panel).toContain("إرسال للاعتماد");
     expect(panel).toContain("اعتماد وترحيل");
     expect(router).toContain("requireStocktakeReadAccess");
