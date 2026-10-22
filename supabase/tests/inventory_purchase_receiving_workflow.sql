@@ -165,6 +165,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261022120000_powerhub_inventory_entity_lifecycle.sql
 \ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
 \ir ../migrations/20261022143000_powerhub_inventory_location_types.sql
+\ir ../migrations/20261022150000_powerhub_inventory_stocktakes.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -2874,6 +2875,218 @@ begin
   end if;
 end;
 $inventory_location_type_assertions$;
+
+
+-- Stocktake workflow: snapshot -> count -> submit -> approve/post, with drift rejection and replay safety.
+do $inventory_stocktake_assertions$
+declare
+  v_warehouse_id bigint;
+  v_item_id bigint;
+  v_stocktake_id bigint;
+  v_stocktake_number text;
+  v_status text;
+  v_count integer;
+  v_counted_count integer;
+  v_variance_count integer;
+  v_posted_count integer;
+  v_replayed boolean;
+  v_line record;
+  v_movement_count_before integer;
+  v_movement_count_after integer;
+  v_quantity numeric(14,3);
+  v_opening_value numeric(14,2);
+  v_posted_movement_id bigint;
+  v_bad_count integer;
+begin
+  select id into v_warehouse_id from public.inventory_warehouses
+  where tenant_id=10 and site_id=100 and code='FIXED-TANK-WF-01' and is_active;
+  select id into v_item_id from public.inventory_items
+  where tenant_id=10 and sku='DSL-01' and is_active;
+  if v_warehouse_id is null or v_item_id is null then
+    raise exception 'STOCKTAKE_TEST_FIXTURE_MISSING';
+  end if;
+
+  select stocktake_id,stocktake_number,status,item_count,replayed
+  into v_stocktake_id,v_stocktake_number,v_status,v_count,v_replayed
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Cycle count validation for fixed fuel tank',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-001'
+  );
+  if v_stocktake_id is null or v_status<>'counting' or v_count<1 or v_replayed then
+    raise exception 'STOCKTAKE_CREATE_FAILED id=% status=% count=%',v_stocktake_id,v_status,v_count;
+  end if;
+
+  select stocktake_id,stocktake_number,status,item_count,replayed
+  into v_stocktake_id,v_stocktake_number,v_status,v_count,v_replayed
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Cycle count validation for fixed fuel tank',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-001'
+  );
+  if not v_replayed or v_status<>'counting' or v_count<1 then
+    raise exception 'STOCKTAKE_CREATE_REPLAY_FAILED';
+  end if;
+
+  -- The same operation key cannot create a session for changed data.
+  begin
+    perform * from public.powerhub_inventory_create_stocktake(
+      10,100,1,v_warehouse_id,'Different reason must not replay',
+      'Disposable PostgreSQL fixture','stocktake-workflow:create-001'
+    );
+    raise exception 'STOCKTAKE_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+  exception when others then
+    if sqlerrm='STOCKTAKE_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+    if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+  end;
+
+  -- Explicitly count every active fuel item at this fixed fuel tank.
+  for v_line in
+    select l.item_id,l.system_quantity,l.system_unit_cost
+    from public.inventory_stocktake_lines l
+    where l.tenant_id=10 and l.stocktake_id=v_stocktake_id
+    order by l.item_id
+  loop
+    if v_line.item_id=v_item_id then
+      select stocktake_id,item_id,system_quantity,counted_quantity,variance_quantity,counted_at,replayed
+      into v_line
+      from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel'
+      );
+    else
+      perform * from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,v_line.system_quantity,v_line.system_unit_cost,
+        'No variance observed in the test fixture'
+      );
+    end if;
+  end loop;
+
+  select stocktake_id,status,item_count,variance_count,replayed
+  into v_stocktake_id,v_status,v_count,v_variance_count,v_replayed
+  from public.powerhub_inventory_submit_stocktake(10,100,1,v_stocktake_id);
+  if v_status<>'submitted' or v_count<1 or v_variance_count<1 or v_replayed then
+    raise exception 'STOCKTAKE_SUBMIT_FAILED status=% items=% variances=%',v_status,v_count,v_variance_count;
+  end if;
+
+  select count(*) into v_movement_count_before from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  select stocktake_id,stocktake_number,status,item_count,variance_count,posted_movement_count,replayed
+  into v_stocktake_id,v_stocktake_number,v_status,v_count,v_variance_count,v_posted_count,v_replayed
+  from public.powerhub_inventory_post_stocktake(10,100,1,v_stocktake_id);
+  if v_status<>'posted' or v_count<1 or v_posted_count<>v_variance_count or v_replayed then
+    raise exception 'STOCKTAKE_POST_FAILED status=% count=% variance=% movement_count=%',
+      v_status,v_count,v_variance_count,v_posted_count;
+  end if;
+
+  select m.id into v_posted_movement_id
+  from public.inventory_stocktake_lines l
+  join public.inventory_stock_movements m
+    on m.tenant_id=l.tenant_id and m.id=l.posted_movement_id
+  where l.tenant_id=10 and l.stocktake_id=v_stocktake_id and l.item_id=v_item_id
+    and m.movement_type='adjustment_in'
+    and m.operation_key='stocktake:'||v_stocktake_id::text||':item:'||v_item_id::text;
+  if v_posted_movement_id is null then raise exception 'STOCKTAKE_MOVEMENT_NOT_LINKED'; end if;
+
+  select on_hand_quantity,stock_value into v_quantity,v_opening_value
+  from public.powerhub_inventory_stock_overview(10,100)
+  where warehouse_id=v_warehouse_id and item_id=v_item_id;
+  if v_quantity<>2 or v_opening_value<>12 then
+    raise exception 'STOCKTAKE_POSTED_BALANCE_MISMATCH qty=% value=%',v_quantity,v_opening_value;
+  end if;
+
+  select stocktake_id,status,item_count,variance_count,posted_movement_count,replayed
+  into v_stocktake_id,v_status,v_count,v_variance_count,v_posted_count,v_replayed
+  from public.powerhub_inventory_post_stocktake(10,100,1,v_stocktake_id);
+  if v_status<>'posted' or not v_replayed or v_posted_count<>v_variance_count then
+    raise exception 'STOCKTAKE_POST_REPLAY_FAILED';
+  end if;
+  select count(*) into v_movement_count_after from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=v_warehouse_id and item_id=v_item_id;
+  if v_movement_count_after<>v_movement_count_before+1 then
+    raise exception 'STOCKTAKE_POST_REPLAY_DUPLICATED_MOVEMENT before=% after=%',
+      v_movement_count_before,v_movement_count_after;
+  end if;
+
+  -- A second stocktake records what the counter saw, but an intervening stock issue must block submit.
+  select stocktake_id,status into v_stocktake_id,v_status
+  from public.powerhub_inventory_create_stocktake(
+    10,100,1,v_warehouse_id,'Verify stale stocktake drift is rejected',
+    'Disposable PostgreSQL fixture','stocktake-workflow:create-002'
+  );
+  if v_status<>'counting' then raise exception 'STOCKTAKE_DRIFT_FIXTURE_CREATE_FAILED'; end if;
+
+  for v_line in
+    select l.item_id,l.system_quantity,l.system_unit_cost
+    from public.inventory_stocktake_lines l
+    where l.tenant_id=10 and l.stocktake_id=v_stocktake_id
+    order by l.item_id
+  loop
+    perform * from public.powerhub_inventory_record_stocktake_count(
+      10,100,1,v_stocktake_id,v_line.item_id,v_line.system_quantity,v_line.system_unit_cost,
+      'Counter recorded the snapshot quantity'
+    );
+  end loop;
+
+  select movement_id into v_posted_movement_id
+  from public.powerhub_inventory_record_stock_movement(
+    10,100,1,v_warehouse_id,v_item_id,'issue',1.000,null,null,
+    'ISSUE-AFTER-STOCKTAKE-SNAPSHOT','Movement posted while count was in progress',
+    'stocktake-workflow:drift-issue'
+  );
+  if v_posted_movement_id is null then raise exception 'STOCKTAKE_DRIFT_ISSUE_FIXTURE_FAILED'; end if;
+
+  begin
+    perform * from public.powerhub_inventory_submit_stocktake(10,100,1,v_stocktake_id);
+    raise exception 'STOCKTAKE_WITH_STALE_SNAPSHOT_WAS_SUBMITTED';
+  exception when others then
+    if sqlerrm='STOCKTAKE_WITH_STALE_SNAPSHOT_WAS_SUBMITTED' then raise; end if;
+    if sqlerrm not like '%STOCKTAKE_STOCK_CHANGED_DURING_COUNT%' then raise; end if;
+  end;
+
+  select stocktake_id,status,replayed into v_stocktake_id,v_status,v_replayed
+  from public.powerhub_inventory_cancel_stocktake(
+    10,100,1,v_stocktake_id,'Cancel the stale snapshot test session'
+  );
+  if v_status<>'cancelled' or v_replayed then raise exception 'STOCKTAKE_CANCEL_FAILED'; end if;
+
+  -- Item-line count and history are immutable once posted; every dedicated RPC is service-only.
+  if exists(
+    select 1 from public.inventory_stocktake_lines l
+    where l.tenant_id=10 and l.stocktake_id=(
+      select id from public.inventory_stocktakes where tenant_id=10 and operation_key='stocktake-workflow:create-001'
+    ) and l.posted_movement_id is null and l.variance_quantity<>0
+  ) then raise exception 'STOCKTAKE_POSTED_VARIANCE_MISSING_MOVEMENT'; end if;
+
+  if has_function_privilege('authenticated','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_list_stocktakes(bigint,bigint,bigint,integer)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_list_stocktake_lines(bigint,bigint,bigint)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_STOCKTAKE_RPC';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_list_stocktakes(bigint,bigint,bigint,integer)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_list_stocktake_lines(bigint,bigint,bigint)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_STOCKTAKE_RPC';
+  end if;
+  if not exists(select 1 from public.platform_role_policies where role='manager' and capability='manageStocktakes')
+    or not exists(select 1 from public.platform_role_policies where role='manager' and capability='approveStocktakes') then
+    -- A dedicated manager approve grant is deliberately a valid default for this test persona.
+    insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id)
+    values('manager','manageStocktakes',true,1),('manager','approveStocktakes',true,1)
+    on conflict(role,capability) do update set is_allowed=excluded.is_allowed;
+  end if;
+  if not exists(select 1 from public.staff_profile_capability_overrides where tenant_id=10
+    and profile_id=101 and capability='manageStocktakes') then
+    insert into public.staff_profile_capability_overrides(tenant_id,profile_id,capability,is_allowed,updated_by_user_id)
+    values(10,101,'manageStocktakes',true,1);
+  end if;
+end;
+$inventory_stocktake_assertions$;
 
 select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
