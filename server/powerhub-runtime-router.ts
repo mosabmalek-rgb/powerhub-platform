@@ -21,16 +21,6 @@ const legacyStaff = legacyRecord.staff as any;
 // the runtime bridge and callers receive NOT_FOUND for powerhub.staff.*.
 const legacyStaffRecord = legacyStaff?._def?.record ?? legacyStaff;
 
-type ReplaceRouterRecord<T extends { _def: { record: unknown } }, R> = Omit<T, "_def"> & {
-  _def: Omit<T["_def"], "record"> & { record: R };
-};
-type PowerhubRuntimeRecord = typeof powerhubRouter["_def"]["record"] & {
-  unifiedMessaging: typeof powerhubUnifiedMessagingRouter;
-  inventory: typeof powerhubInventoryRouter;
-  maintenance: typeof powerhubMaintenanceRouter;
-};
-type PowerhubRuntimeRouter = ReplaceRouterRecord<typeof powerhubRouter, PowerhubRuntimeRecord>;
-
 export const powerhubRuntimeRouter = router({
   ...legacyRecord,
   ...(legacyMobileSync?._def?.record
@@ -54,4 +44,4 @@ export const powerhubRuntimeRouter = router({
   inventory: powerhubInventoryRouter,
   maintenance: powerhubMaintenanceRouter,
   readingCycle: legacyRecord.readingCycle,
-}) as unknown as PowerhubRuntimeRouter;
+}) as unknown as typeof powerhubRouter;
