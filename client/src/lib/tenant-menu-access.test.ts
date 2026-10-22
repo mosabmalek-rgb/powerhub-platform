@@ -36,4 +36,11 @@ describe("tenant sidebar access", () => {
   it("does not expose unknown routes", () => {
     expect(tenantMenuRouteAllowed("/does-not-exist", "owner")).toBe(false);
   });
+
+  it("allows supplier-payment-only overrides to reach the inventory workspace", () => {
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["manageSupplierPayments"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["manageSuppliers"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/inventory", "technician", [], true)).toBe(false);
+  });
+
 });
