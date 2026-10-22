@@ -581,7 +581,7 @@ create or replace function public.powerhub_maintenance_evaluate_due_plans(
 )
 returns table(alert_event_id bigint,plan_id bigint,generator_id bigint,alert_type text,due_at timestamptz,due_operating_hours numeric,observed_operating_hours numeric,replayed boolean,notification_created boolean)
 language plpgsql security invoker set search_path=public,pg_temp
-as $
+as $maintenance_eval$
 declare
   v_plan public.generator_maintenance_preventive_plans%rowtype;
   v_hours numeric(14,2);
@@ -653,7 +653,7 @@ begin
       (v_notification_id is not null);
   end loop;
 end;
-$$;
+$maintenance_eval$;
 
 create or replace function public.powerhub_maintenance_list_work_orders(
   p_tenant_id bigint,p_site_id bigint,p_generator_id bigint default null,p_status text default null,p_limit integer default 50
