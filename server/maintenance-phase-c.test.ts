@@ -56,6 +56,11 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("pg_advisory_xact_lock");
     expect(migration).toContain("MAINTENANCE_IDEMPOTENCY_KEY_REUSED");
     expect(migration).toContain("MAINTENANCE_INVALID_STATE_TRANSITION");
+    expect(migration).toContain("MAINTENANCE_COMPLETION_CORRECTION_REASON_REQUIRED");
+    expect(migration).toContain("MAINTENANCE_COMPLETION_CORRECTION_REQUIRES_COMPLETED_ORDER");
+    expect(migration).toContain("record-only-no-ledger-side-effects");
+    expect(router).toContain('"correct_completion"');
+    expect(panel).toContain('doTransition(o,"correct_completion")');
     expect(migration).toContain("MAINTENANCE_HOURS_BACKWARDS");
     expect(migration).toContain("generator_maintenance_preventive_plans");
     expect(migration).toContain("preventive_plan_id");
