@@ -15,6 +15,46 @@ type Props = {
   canApproveStocktakes: boolean;
 };
 
+type StocktakeRow = {
+  stocktake_id: number;
+  stocktake_number: string | null;
+  warehouse_id: number;
+  warehouse_name: string;
+  location_type: string;
+  status: "counting" | "submitted" | "posted" | "cancelled" | string;
+  reason: string;
+  notes: string | null;
+  snapshot_at: string;
+  created_at: string;
+  created_by_user_id: number | null;
+  submitted_at: string | null;
+  submitted_by_user_id: number | null;
+  posted_at: string | null;
+  posted_by_user_id: number | null;
+  item_count: number;
+  counted_count: number;
+  variance_count: number;
+  variance_quantity: number | string;
+};
+
+type StocktakeLineRow = {
+  item_id: number;
+  sku: string | null;
+  item_name: string;
+  category: string;
+  base_unit: string;
+  system_quantity: number | string;
+  system_value: number | string;
+  system_unit_cost: number | string;
+  counted_quantity: number | string | null;
+  counted_unit_cost: number | string | null;
+  variance_quantity: number | string | null;
+  count_notes: string | null;
+  counted_by_user_id: number | null;
+  counted_at: string | null;
+  posted_movement_id: number | null;
+};
+
 const statusLabels: Record<string, string> = {
   counting: "قيد العد",
   submitted: "بانتظار الاعتماد",
@@ -87,8 +127,8 @@ export default function InventoryStocktakePanel({
   );
 
   const warehouses = warehouseQuery.data ?? [];
-  const stocktakes = stocktakesQuery.data ?? [];
-  const lines = linesQuery.data ?? [];
+  const stocktakes = (stocktakesQuery.data ?? []) as StocktakeRow[];
+  const lines = (linesQuery.data ?? []) as StocktakeLineRow[];
   const selectedStocktake = stocktakes.find((stocktake) => Number(stocktake.stocktake_id) === selectedStocktakeId) ?? null;
   const varianceCount = Number(selectedStocktake?.variance_count ?? 0);
   const countedCount = Number(selectedStocktake?.counted_count ?? 0);
