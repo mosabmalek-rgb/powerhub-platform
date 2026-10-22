@@ -256,7 +256,8 @@ language plpgsql security definer set search_path=public,pg_temp
 as $function$
 declare
   s record; st public.powerhub_fuel_alert_states%rowtype; owner_id bigint; notification_rows integer;
-  latest_level record; previous_hours record; latest_hours record; level_start record; level_end record; measured record;
+  previous_hours public.generator_fuel_readings%rowtype; latest_hours public.generator_fuel_readings%rowtype;
+  level_start public.generator_fuel_readings%rowtype; level_end public.generator_fuel_readings%rowtype; measured record;
   low_value numeric; low_signal text; rate_value numeric; rate_signal text; rate_valid boolean;
   condition_active boolean; active_episode bigint; dedupe text; dispatch_id bigint;
   n_settings integer:=0; n_low integer:=0; n_rate integer:=0; n_notifications integer:=0;
@@ -277,6 +278,7 @@ begin
     for update of x skip locked
   loop
     n_settings:=n_settings+1;
+    previous_hours:=null; latest_hours:=null; level_start:=null; level_end:=null;
     low_value:=null; low_signal:=null;
     select point_key,point_value into low_signal,low_value
     from (
@@ -344,8 +346,7 @@ begin
     -- Do not treat a single hour reading, a corrected-away row, a negative/zero hour delta,
     -- a missing end-level reading, or an unexplained stock adjustment as measured consumption.
     rate_valid:=false; rate_value:=null; rate_signal:=null;
-    rate_valid:=false; rate_value:=null; rate_signal:=null;
-    select r.id,r.reading_value,r.recorded_at into latest_hours
+    select r.* into latest_hours
     from public.generator_fuel_readings r
     where r.tenant_id=s.tenant_id and r.site_id=s.site_id and r.generator_id=s.generator_id
       and r.reading_type='operating_hours'
@@ -353,7 +354,7 @@ begin
     order by r.recorded_at desc,r.id desc limit 1;
 
     if latest_hours.id is not null then
-      select r.id,r.reading_value,r.recorded_at into previous_hours
+      select r.* into previous_hours
       from public.generator_fuel_readings r
       where r.tenant_id=s.tenant_id and r.site_id=s.site_id and r.generator_id=s.generator_id
         and r.reading_type='operating_hours'
@@ -365,7 +366,7 @@ begin
     if previous_hours.id is not null and latest_hours.id is not null
        and latest_hours.recorded_at>previous_hours.recorded_at
        and latest_hours.reading_value-previous_hours.reading_value>=s.minimum_hours_delta then
-      select r.id,r.reading_value,r.recorded_at into level_start
+      select r.* into level_start
       from public.generator_fuel_readings r
       where r.tenant_id=s.tenant_id and r.site_id=s.site_id and r.generator_id=s.generator_id
         and r.reading_type='tank_level' and r.tank_warehouse_id=s.tank_warehouse_id
@@ -375,7 +376,7 @@ begin
 
       -- Require a level observation at or after the ending hour-meter timestamp to avoid
       -- dispatching an alert from a half-written pair of field readings.
-      select r.id,r.reading_value,r.recorded_at into level_end
+      select r.* into level_end
       from public.generator_fuel_readings r
       where r.tenant_id=s.tenant_id and r.site_id=s.site_id and r.generator_id=s.generator_id
         and r.reading_type='tank_level' and r.tank_warehouse_id=s.tank_warehouse_id
