@@ -35,6 +35,10 @@ declare
   v_correction_readings_before bigint;
   v_correction_completed_at timestamptz;
   v_correction_cost_before numeric;
+  v_reopen record;
+  v_reopen_replay record;
+  v_reopened_order_id bigint;
+  v_source_snapshot jsonb;
 begin
   -- Partial tenant/site scope must not turn into an unbounded evaluator.
   begin
@@ -210,6 +214,50 @@ begin
         and before_data->>'status'='completed') then
     raise exception 'MAINTENANCE_COMPLETION_CORRECTION_AUDIT_MISSING';
   end if;
+
+  select jsonb_build_object('status',status,'completed_at',completed_at,'total_cost_amount',total_cost_amount,
+    'operating_hours_at_close',operating_hours_at_close,'parts_cost',parts_cost)
+    into v_source_snapshot from public.generator_maintenance_work_orders
+    where tenant_id=10 and site_id=100 and id=v_order.work_order_id;
+  select * into v_reopen from public.powerhub_maintenance_reopen_completed_work_order(
+    10,100,1,v_order.work_order_id,'Follow-up repair after verification','maint-test-reopen-c-01'
+  );
+  if v_reopen.status<>'new' or v_reopen.replayed or v_reopen.source_work_order_id<>v_order.work_order_id
+     or v_reopen.work_order_id=v_order.work_order_id then
+    raise exception 'MAINTENANCE_REOPEN_NEW_CYCLE_FAILED';
+  end if;
+  v_reopened_order_id:=v_reopen.work_order_id;
+  select * into v_reopen_replay from public.powerhub_maintenance_reopen_completed_work_order(
+    10,100,1,v_order.work_order_id,'Follow-up repair after verification','maint-test-reopen-c-01'
+  );
+  if not v_reopen_replay.replayed or v_reopen_replay.work_order_id<>v_reopened_order_id then
+    raise exception 'MAINTENANCE_REOPEN_IDEMPOTENCY_FAILED';
+  end if;
+  if (select jsonb_build_object('status',status,'completed_at',completed_at,'total_cost_amount',total_cost_amount,
+      'operating_hours_at_close',operating_hours_at_close,'parts_cost',parts_cost)
+      from public.generator_maintenance_work_orders where tenant_id=10 and site_id=100 and id=v_order.work_order_id)
+      is distinct from v_source_snapshot then
+    raise exception 'MAINTENANCE_REOPEN_SOURCE_MUTATED';
+  end if;
+  if not exists(select 1 from public.generator_maintenance_audit_events
+    where tenant_id=10 and site_id=100 and entity_type='work_order' and entity_id=v_reopened_order_id
+      and action='reopen_completed' and before_data->>'source_work_order_id'=v_order.work_order_id::text
+      and after_data->>'reason'='Follow-up repair after verification') then
+    raise exception 'MAINTENANCE_REOPEN_AUDIT_MISSING';
+  end if;
+  if (select count(*) from public.generator_maintenance_work_order_parts
+      where tenant_id=10 and site_id=100 and work_order_id=v_reopened_order_id)<>0
+     or (select parts_cost from public.generator_maintenance_work_orders where id=v_reopened_order_id)<>0 then
+    raise exception 'MAINTENANCE_REOPEN_DUPLICATED_PARTS_OR_COST';
+  end if;
+  begin
+    perform * from public.powerhub_maintenance_reopen_completed_work_order(
+      10,100,1,v_order.work_order_id,'Different reason','maint-test-reopen-c-01'
+    );
+    raise exception 'MAINTENANCE_REOPEN_KEY_REUSE_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_IDEMPOTENCY_KEY_REUSED' then raise; end if;
+  end;
   begin
     perform * from public.powerhub_maintenance_transition_work_order(
       10,100,1,v_order.work_order_id,'correct_completion',
