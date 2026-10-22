@@ -102,6 +102,23 @@ function mapPurchaseDatabaseError(
     SUPPLIER_RETURN_REFUND_ACCOUNT_REQUIRED: { code: "BAD_REQUEST", message: "حدد حساب الشركة إذا كان المورد سيرد مبلغًا نقديًا." },
     SUPPLIER_RETURN_REFUND_EXCEEDS_CREDIT: { code: "BAD_REQUEST", message: "مبلغ الاسترداد يتجاوز قيمة المرتجع." },
     INSUFFICIENT_STOCK_FOR_SUPPLIER_RETURN: { code: "CONFLICT", message: "الرصيد المتاح لا يكفي لإرجاع الكمية المحددة؛ راجع المخزون أولًا." },
+    INVALID_INVENTORY_ITEM: { code: "BAD_REQUEST", message: "تحقق من بيانات الصنف ووحدة القياس وحد إعادة الطلب." },
+    INVENTORY_ITEM_NOT_FOUND: { code: "NOT_FOUND", message: "الصنف غير موجود في هذه المؤسسة." },
+    INVENTORY_ITEM_INACTIVE: { code: "CONFLICT", message: "الصنف موقوف؛ أعد تفعيله قبل تعديل بياناته." },
+    ITEM_BASE_UNIT_IMMUTABLE_AFTER_USE: { code: "CONFLICT", message: "لا يمكن تغيير وحدة الصنف الأساسية بعد استخدامه في حركة أو فاتورة؛ أنشئ صنفًا جديدًا إذا تغيرت الوحدة." },
+    INVENTORY_ITEM_HAS_STOCK: { code: "CONFLICT", message: "لا يمكن إيقاف الصنف ما دام له رصيد في أي مخزن. صفّر الأرصدة أولًا." },
+    INVENTORY_ITEM_HAS_OPEN_PURCHASE: { code: "CONFLICT", message: "لا يمكن إيقاف الصنف مع وجود كميات معلقة في فواتير شراء مفتوحة." },
+    INVALID_ACTIVE_STATE: { code: "BAD_REQUEST", message: "حالة التفعيل غير صالحة." },
+    INVENTORY_DEACTIVATION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإيقاف الصنف." },
+    INVALID_SUPPLIER_PROFILE: { code: "BAD_REQUEST", message: "تحقق من بيانات المورد وأجل السداد والبريد الإلكتروني." },
+    SUPPLIER_DEACTIVATION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإيقاف المورد." },
+    SUPPLIER_HAS_OUTSTANDING_PAYABLE: { code: "CONFLICT", message: "لا يمكن إيقاف المورد قبل تسوية ذممه المستحقة." },
+    SUPPLIER_HAS_OPEN_PURCHASE: { code: "CONFLICT", message: "لا يمكن إيقاف المورد مع وجود فاتورة شراء مفتوحة." },
+    INVALID_INVENTORY_WAREHOUSE: { code: "BAD_REQUEST", message: "تحقق من رمز المخزن واسمه." },
+    STOCK_WAREHOUSE_INACTIVE: { code: "CONFLICT", message: "المخزن موقوف؛ أعد تفعيله قبل تعديل بياناته." },
+    WAREHOUSE_DEACTIVATION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإيقاف المخزن." },
+    WAREHOUSE_HAS_STOCK: { code: "CONFLICT", message: "لا يمكن إيقاف المخزن ما دام يحتوي على كمية أو قيمة مخزون." },
+    WAREHOUSE_HAS_OPEN_PURCHASE: { code: "CONFLICT", message: "لا يمكن إيقاف المخزن مع وجود فاتورة شراء مفتوحة مرتبطة به." },
     PURCHASE_LINE_NOT_FOUND: { code: "NOT_FOUND", message: "أحد بنود المشتريات غير موجود." },
     SUPPLIER_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المورد غير نشط أو لا ينتمي إلى الشركة." },
     WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن غير نشط أو لا يتبع هذا الفرع." },
@@ -456,6 +473,42 @@ export const powerhubInventoryRouter = router({
       return data[0];
     }),
 
+
+  updateItem: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(), itemId: z.number().int().positive(),
+      sku: z.string().trim().max(80).optional(),
+      name: z.string().trim().min(1).max(180), category: categorySchema, baseUnit: unitSchema,
+      reorderPoint: z.number().finite().min(0).max(1_000_000_000),
+      specification: z.string().trim().max(500).optional(), notes: z.string().trim().max(2000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_item", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_item_id: input.itemId, p_sku: input.sku || null, p_name: input.name, p_category: input.category,
+        p_base_unit: input.baseUnit, p_reorder_point: input.reorderPoint,
+        p_specification: input.specification || null, p_notes: input.notes || null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تعديل الصنف.");
+      return data[0];
+    }),
+
+  setItemActive: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(), itemId: z.number().int().positive(),
+      isActive: z.boolean(), reason: z.string().trim().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_set_item_active", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_item_id: input.itemId, p_is_active: input.isActive, p_reason: input.reason || null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تغيير حالة الصنف.");
+      return data[0];
+    }),
+
   listSuppliers: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), search: z.string().trim().max(100).optional(), includeInactive: z.boolean().default(false) }))
     .query(async ({ ctx, input }) => {
@@ -508,6 +561,44 @@ export const powerhubInventoryRouter = router({
       return data[0];
     }),
 
+
+  updateSupplier: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(), supplierId: z.number().int().positive(),
+      supplierCode: z.string().trim().max(80).optional(), name: z.string().trim().min(1).max(180),
+      contactName: z.string().trim().max(180).optional(), phone: z.string().trim().max(40).optional(),
+      email: z.string().trim().email().max(254).optional().or(z.literal("")),
+      address: z.string().trim().max(500).optional(), taxNumber: z.string().trim().max(100).optional(),
+      defaultPaymentTermsDays: z.number().int().min(0).max(3650), notes: z.string().trim().max(2000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSuppliers");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_supplier", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_supplier_id: input.supplierId, p_supplier_code: input.supplierCode || null, p_name: input.name,
+        p_contact_name: input.contactName || null, p_phone: input.phone || null, p_email: input.email || null,
+        p_address: input.address || null, p_tax_number: input.taxNumber || null,
+        p_default_payment_terms_days: input.defaultPaymentTermsDays, p_notes: input.notes || null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تعديل بيانات المورد.");
+      return data[0];
+    }),
+
+  setSupplierActive: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(), supplierId: z.number().int().positive(),
+      isActive: z.boolean(), reason: z.string().trim().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSuppliers");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_set_supplier_active", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_supplier_id: input.supplierId, p_is_active: input.isActive, p_reason: input.reason || null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تغيير حالة المورد.");
+      return data[0];
+    }),
+
   listWarehouses: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), includeInactive: z.boolean().default(false) }))
     .query(async ({ ctx, input }) => {
@@ -542,6 +633,38 @@ export const powerhubInventoryRouter = router({
         p_notes: input.notes || null,
       });
       if (error || !data?.[0]) mapDatabaseError(error, "تعذر إنشاء المخزن.");
+      return data[0];
+    }),
+
+
+  updateWarehouse: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(), warehouseId: z.number().int().positive(),
+      code: z.string().trim().min(1).max(40), name: z.string().trim().min(1).max(120),
+      notes: z.string().trim().max(2000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_warehouse", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_warehouse_id: input.warehouseId, p_code: input.code, p_name: input.name, p_notes: input.notes || null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تعديل بيانات المخزن.");
+      return data[0];
+    }),
+
+  setWarehouseActive: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(), warehouseId: z.number().int().positive(),
+      isActive: z.boolean(), reason: z.string().trim().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_set_warehouse_active", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_warehouse_id: input.warehouseId, p_is_active: input.isActive, p_reason: input.reason || null,
+      });
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تغيير حالة المخزن.");
       return data[0];
     }),
 
