@@ -7,6 +7,39 @@ import { supabaseAdmin } from "./supabase-admin";
 const maintenanceRoles = ["owner", "manager", "technician"] as const;
 const readRoles = ["owner", "manager", "technician", "accountant", "viewer"] as const;
 const operationKey = z.string().trim().min(8).max(180);
+type MaintenancePreventivePlanListRow = {
+  plan_id: number;
+  plan_code: string;
+  generator_id: number;
+  generator_name: string;
+  title: string;
+  description: string | null;
+  interval_days: number | null;
+  interval_operating_hours: number | null;
+  next_due_at: string | null;
+  next_due_operating_hours: number | null;
+  due_soon_days: number;
+  due_soon_hours: number;
+  is_active: boolean;
+  last_completed_at: string | null;
+  last_completed_operating_hours: number | null;
+  alert_type: "due_soon" | "overdue" | "resolved" | null;
+  observed_operating_hours: number | null;
+};
+type MaintenancePartListRow = {
+  part_id: number;
+  item_id: number;
+  item_name: string;
+  category: string;
+  warehouse_id: number;
+  warehouse_name: string;
+  quantity: number;
+  unit_cost: number;
+  total_cost_amount: number;
+  stock_movement_id: number;
+  issued_at: string;
+  notes: string | null;
+};
 type MaintenanceWorkOrderListRow = {
   work_order_id: number;
   work_order_number: string;
@@ -72,7 +105,7 @@ export const powerhubMaintenanceRouter = router({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive().optional(),
   })).query(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "manageMaintenance");
-    return rpc("powerhub_maintenance_list_preventive_plans", {
+    return rpc<MaintenancePreventivePlanListRow[]>("powerhub_maintenance_list_preventive_plans", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_generator_id: input.generatorId ?? null,
     });
   }),
@@ -84,7 +117,7 @@ export const powerhubMaintenanceRouter = router({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
   })).query(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "manageMaintenance");
-    return rpc("powerhub_maintenance_list_parts", {
+    return rpc<MaintenancePartListRow[]>("powerhub_maintenance_list_parts", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_work_order_id: input.workOrderId,
     });
   }),
