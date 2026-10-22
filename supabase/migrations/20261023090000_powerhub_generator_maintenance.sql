@@ -695,7 +695,11 @@ begin
     select greatest(coalesce(g.operating_hours,0),coalesce((
       select max(r.reading_value) from public.generator_fuel_readings r
       where r.tenant_id=v_plan.tenant_id and r.site_id=v_plan.site_id and r.generator_id=v_plan.generator_id
-        and r.reading_type='operating_hours' and r.corrects_reading_id is null
+        and r.reading_type='operating_hours'
+        and not exists (
+          select 1 from public.generator_fuel_readings correction
+          where correction.tenant_id=r.tenant_id and correction.corrects_reading_id=r.id
+        )
     ),0)) into v_hours from public.generators g
     where g.tenant_id=v_plan.tenant_id and g.site_id=v_plan.site_id and g.id=v_plan.generator_id;
     if not found then continue; end if;
