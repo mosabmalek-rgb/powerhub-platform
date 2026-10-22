@@ -212,8 +212,15 @@ describe("inventory workspace UI contract", () => {
     expect(workspace).toContain("أدخل سبب إيقاف الصنف");
     expect(workspace).toContain("أدخل سبب إيقاف المورد");
     expect(workspace).toContain("أدخل سبب إيقاف المخزن");
-    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems")');
-    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSuppliers")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createInventoryItems")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editInventoryItems")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "deactivateInventoryItems")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createWarehouses")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editWarehouses")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "deactivateWarehouses")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createSuppliers")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editSuppliers")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "deactivateSuppliers")');
     expect(migration).toContain("ITEM_BASE_UNIT_IMMUTABLE_AFTER_USE");
     expect(migration).toContain("ITEM_IDENTITY_IMMUTABLE_AFTER_USE");
     expect(migration).toContain("INVENTORY_ITEM_HAS_STOCK");
@@ -282,6 +289,30 @@ describe("inventory workspace UI contract", () => {
     expect(integration).toContain("AUTHENTICATED_CAN_EXECUTE_SUPPLIER_BATCH_FINANCIAL_RPC");
   });
 
+
+  it("separates create, edit, and deactivate permissions for inventory master data", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const admin = read("client/src/pages/AdminAdvancedWorkspace.tsx");
+    const schema = read("server/admin-role-policy-router.ts");
+    const rbac = read("shared/powerhub-rbac.ts");
+    const migration = read("supabase/migrations/20261022170000_powerhub_inventory_operation_permissions.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+
+    for (const capability of [
+      "createInventoryItems","editInventoryItems","deactivateInventoryItems",
+      "createSuppliers","editSuppliers","deactivateSuppliers",
+      "createWarehouses","editWarehouses","deactivateWarehouses",
+    ]) {
+      expect(workspace).toContain(`permissions.includes("${capability}")`);
+      expect(admin).toContain(`id: "${capability}"`);
+      expect(schema).toContain(`"${capability}"`);
+      expect(rbac).toContain(`"${capability}"`);
+      expect(migration).toContain(`'${capability}'`);
+    }
+    expect(integration).toContain("\\\\ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql");
+    expect(migration).toContain("powerhub_admin_set_staff_capability_override");
+    expect(migration).toContain("powerhub_admin_save_role_policy");
+  });
 
   it("enforces durable item-specific purchase-unit conversions in UI, server, and database", () => {
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
