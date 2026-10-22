@@ -89,8 +89,8 @@ describe("inventory workspace UI contract", () => {
     expect(admin).toContain("ممنوعة بسياسة المنصة");
     expect(admin).toContain("مسموحة فعليًا — موروثة من الدور");
     expect(admin).toContain("ممنوعة فعليًا — موروثة من الدور");
-    expect(admin).toContain('targetType: "owner" as const');
-    expect(admin).toContain('targetType: "staff" as const');
+    expect(api).toContain('targetType: "owner" as const');
+    expect(api).toContain('targetType: "staff" as const');
     expect(api).toContain("powerhub_admin_set_owner_capability_override");
     expect(api).toContain("tenant_member_capability_overrides");
     expect(resolver).toContain('tenant_member_capability_overrides(capability,is_allowed)');
