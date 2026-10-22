@@ -246,15 +246,16 @@ export const powerhubMaintenanceRouter = router({
   }),
   transitionWorkOrder: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
-    action: z.enum(["start", "wait_for_parts", "complete", "cancel"]),
+    action: z.enum(["start", "wait_for_parts", "complete", "cancel", "correct_completion"]),
     workSummary: z.string().max(5000).optional(), meterHoursClose: z.number().min(0).max(1000000000).optional(),
     downtimeMinutes: z.number().int().min(0).max(525600).optional(),
-    laborCost: z.number().min(0).max(1000000000).default(0),
-    externalServiceCost: z.number().min(0).max(1000000000).default(0),
+    laborCost: z.number().min(0).max(1000000000).optional(),
+    externalServiceCost: z.number().min(0).max(1000000000).optional(),
     reason: z.string().max(500).optional(), operationKey,
   })).mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
-    if (input.action === "complete" && (input.laborCost > 0 || input.externalServiceCost > 0)
+    if ((input.action === "complete" || input.action === "correct_completion")
+        && ((input.laborCost ?? 0) > 0 || (input.externalServiceCost ?? 0) > 0)
         && !access.permissions.includes("manageExpenses")) {
       throw new TRPCError({ code: "FORBIDDEN", message: "تحتاج إلى صلاحية إدارة المصروفات لاعتماد تكاليف الإغلاق." });
     }
@@ -262,7 +263,8 @@ export const powerhubMaintenanceRouter = router({
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
       p_work_order_id: input.workOrderId, p_action: input.action, p_work_summary: input.workSummary ?? null,
       p_meter_hours_close: input.meterHoursClose ?? null, p_downtime_minutes: input.downtimeMinutes ?? null,
-      p_labor_cost: input.laborCost, p_external_service_cost: input.externalServiceCost,
+      p_labor_cost: input.laborCost ?? (input.action === "correct_completion" ? null : 0),
+      p_external_service_cost: input.externalServiceCost ?? (input.action === "correct_completion" ? null : 0),
       p_reason: input.reason ?? null, p_operation_key: input.operationKey,
     });
   }),
