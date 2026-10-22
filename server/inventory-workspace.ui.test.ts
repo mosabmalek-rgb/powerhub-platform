@@ -309,7 +309,7 @@ describe("inventory workspace UI contract", () => {
       expect(rbac).toContain(`"${capability}"`);
       expect(migration).toContain(`'${capability}'`);
     }
-    expect(integration).toContain("\\\\ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql");
+    expect(integration).toContain("\\ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql");
     expect(migration).toContain("powerhub_admin_set_staff_capability_override");
     expect(migration).toContain("powerhub_admin_save_role_policy");
   });
