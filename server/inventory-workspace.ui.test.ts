@@ -279,6 +279,37 @@ describe("inventory workspace UI contract", () => {
   });
 
 
+  it("enforces durable item-specific purchase-unit conversions in UI, server, and database", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const purchases = read("client/src/components/InventoryPurchasesPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const migration = read("supabase/migrations/20261022160000_powerhub_inventory_item_units.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+
+    expect(workspace).toContain("listItemUnits.useQuery");
+    expect(workspace).toContain("createItemUnit.useMutation");
+    expect(workspace).toContain("setItemUnitActive.useMutation");
+    expect(workspace).toContain("عدد الوحدات الأساسية داخلها");
+    expect(purchases).toContain("options.data?.units.filter");
+    expect(purchases).toContain("unitsToBaseFactor: String(itemUnit?.factor_to_base");
+    expect(purchases).toContain("readOnly disabled");
+    expect(router).toContain("listItemUnits: protectedProcedure");
+    expect(router).toContain("createItemUnit: protectedProcedure");
+    expect(router).toContain("setItemUnitActive: protectedProcedure");
+    expect(router).toContain("powerhub_inventory_create_item_unit");
+    expect(router).toContain("powerhub_inventory_set_item_unit_active");
+    expect(migration).toContain("inventory_item_units_label_unique_idx");
+    expect(migration).toContain("PURCHASE_UNIT_NOT_CONFIGURED");
+    expect(migration).toContain("PURCHASE_UNIT_CONVERSION_MISMATCH");
+    expect(migration).toContain("ITEM_BASE_UNIT_HAS_PURCHASE_UNITS");
+    expect(migration).toContain("revoke all on function public.powerhub_inventory_create_item_unit");
+    expect(integration).toContain("\\ir ../migrations/20261022160000_powerhub_inventory_item_units.sql");
+    expect(integration).toContain("ITEM_UNIT_CREATE_FACTOR_MISMATCH");
+    expect(integration).toContain("ITEM_UNIT_MISMATCH_PROBE_SHOULD_FAIL");
+    expect(integration).toContain("ITEM_UNIT_UNKNOWN_PROBE_SHOULD_FAIL");
+    expect(integration).toContain("AUTHENTICATED_CAN_EXECUTE_ITEM_UNIT_RPC");
+  });
+
   it("wires typed stock locations and enforces generator-tank ownership", () => {
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     const router = read("server/powerhub-inventory-router.ts");
