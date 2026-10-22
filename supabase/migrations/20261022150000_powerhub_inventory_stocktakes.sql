@@ -8,7 +8,7 @@ alter table public.platform_role_policies
     'manageSubscribers','manageGenerators','recordReadings','accessFieldApp',
     'approveReadings','manageTariffs','issueInvoices','collectPayments',
     'approvePaymentDocumentation','manageExpenses','managePayroll','manageTeam',
-    'manageMessaging','viewAudit','viewInventory','manageInventoryItems','manageSuppliers',
+    'manageMessaging','viewAudit','viewInventory','viewSuppliers','viewPurchases','manageInventoryItems','manageSuppliers',
     'createPurchases','approvePurchases','receiveInventory','manageSupplierPayments',
     'viewSupplierLedger','issueInventory','adjustInventory','manageFuelAndConsumption',
     'manageMaintenance','viewInventoryReports','viewStocktakes','manageStocktakes','approveStocktakes'
@@ -22,7 +22,7 @@ alter table public.staff_profile_capability_overrides
     'manageSubscribers','manageGenerators','recordReadings','accessFieldApp',
     'approveReadings','manageTariffs','issueInvoices','collectPayments',
     'approvePaymentDocumentation','manageExpenses','managePayroll','manageTeam',
-    'manageMessaging','viewAudit','viewInventory','manageInventoryItems','manageSuppliers',
+    'manageMessaging','viewAudit','viewInventory','viewSuppliers','viewPurchases','manageInventoryItems','manageSuppliers',
     'createPurchases','approvePurchases','receiveInventory','manageSupplierPayments',
     'viewSupplierLedger','issueInventory','adjustInventory','manageFuelAndConsumption',
     'manageMaintenance','viewInventoryReports','viewStocktakes','manageStocktakes','approveStocktakes'
@@ -57,7 +57,7 @@ begin
     'approveReadings','manageTariffs','issueInvoices','collectPayments',
     'approvePaymentDocumentation','manageExpenses','managePayroll','manageTeam',
     'manageMessaging','viewAudit',
-    'viewInventory','manageInventoryItems','manageSuppliers','createPurchases',
+    'viewInventory','viewSuppliers','viewPurchases','manageInventoryItems','manageSuppliers','createPurchases',
     'approvePurchases','receiveInventory','manageSupplierPayments','viewSupplierLedger',
     'issueInventory','adjustInventory','manageFuelAndConsumption','manageMaintenance',
     'viewInventoryReports','viewStocktakes','manageStocktakes','approveStocktakes'
@@ -128,7 +128,7 @@ begin
     'approveReadings','manageTariffs','issueInvoices','collectPayments',
     'approvePaymentDocumentation','manageExpenses','managePayroll','manageTeam',
     'manageMessaging','viewAudit',
-    'viewInventory','manageInventoryItems','manageSuppliers','createPurchases',
+    'viewInventory','viewSuppliers','viewPurchases','manageInventoryItems','manageSuppliers','createPurchases',
     'approvePurchases','receiveInventory','manageSupplierPayments','viewSupplierLedger',
     'issueInventory','adjustInventory','manageFuelAndConsumption','manageMaintenance',
     'viewInventoryReports','viewStocktakes','manageStocktakes','approveStocktakes'
