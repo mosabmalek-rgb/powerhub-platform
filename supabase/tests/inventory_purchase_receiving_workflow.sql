@@ -190,6 +190,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261022200000_powerhub_owner_capability_overrides.sql
 \ir ../migrations/20261022203000_powerhub_inventory_supplier_ledger_statement_reconcile.sql
 \ir ../migrations/20261022210000_powerhub_fuel_consumption_phase_b.sql
+\ir ../migrations/20261022211000_powerhub_fuel_event_append_only_acl.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -3584,6 +3585,21 @@ begin
   if not (select relrowsecurity from pg_class where oid='public.generator_fuel_events'::regclass)
      or not (select relrowsecurity from pg_class where oid='public.generator_fuel_readings'::regclass) then
     raise exception 'PHASE_B_FUEL_TABLE_RLS_DISABLED';
+  end if;
+
+  if has_table_privilege('anon','public.generator_fuel_events','INSERT')
+     or has_table_privilege('authenticated','public.generator_fuel_events','INSERT')
+     or has_table_privilege('anon','public.generator_fuel_readings','INSERT')
+     or has_table_privilege('authenticated','public.generator_fuel_readings','INSERT') then
+    raise exception 'PHASE_B_PUBLIC_ROLE_CAN_WRITE_FUEL_LEDGER';
+  end if;
+  if has_table_privilege('service_role','public.generator_fuel_events','UPDATE')
+     or has_table_privilege('service_role','public.generator_fuel_events','DELETE')
+     or has_table_privilege('service_role','public.generator_fuel_events','TRUNCATE')
+     or has_table_privilege('service_role','public.generator_fuel_readings','UPDATE')
+     or has_table_privilege('service_role','public.generator_fuel_readings','DELETE')
+     or has_table_privilege('service_role','public.generator_fuel_readings','TRUNCATE') then
+    raise exception 'PHASE_B_FUEL_LEDGER_NOT_APPEND_ONLY';
   end if;
   if has_function_privilege('anon','public.powerhub_inventory_record_fuel_fill(bigint,bigint,bigint,bigint,bigint,bigint,bigint,numeric,timestamp with time zone,numeric,numeric,numeric,text,text,text)','EXECUTE')
      or has_function_privilege('authenticated','public.powerhub_inventory_record_fuel_fill(bigint,bigint,bigint,bigint,bigint,bigint,bigint,numeric,timestamp with time zone,numeric,numeric,numeric,text,text,text)','EXECUTE')

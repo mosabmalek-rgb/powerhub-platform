@@ -538,6 +538,7 @@ describe("inventory workspace UI contract", () => {
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     const router = read("server/powerhub-inventory-router.ts");
     const migration = read("supabase/migrations/20261022210000_powerhub_fuel_consumption_phase_b.sql");
+    const appendOnlyAcl = read("supabase/migrations/20261022211000_powerhub_fuel_event_append_only_acl.sql");
     const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
     expect(workspace).toContain('TabsTrigger value="fuel"');
     expect(workspace).toContain("canManageFuelAndConsumption={canManageFuelAndConsumption}");
@@ -558,7 +559,11 @@ describe("inventory workspace UI contract", () => {
     expect(migration).toContain("IDEMPOTENCY_KEY_REUSED");
     expect(migration).toContain("OPERATING_HOURS_BACKWARDS");
     expect(migration).toContain("measurement_status");
+    expect(appendOnlyAcl).toContain("revoke all privileges on table public.generator_fuel_events, public.generator_fuel_readings");
+    expect(appendOnlyAcl).toContain("grant select, insert on table public.generator_fuel_events, public.generator_fuel_readings");
     expect(integration).toContain("\\ir ../migrations/20261022210000_powerhub_fuel_consumption_phase_b.sql");
+    expect(integration).toContain("\\ir ../migrations/20261022211000_powerhub_fuel_event_append_only_acl.sql");
+    expect(integration).toContain("PHASE_B_FUEL_LEDGER_NOT_APPEND_ONLY");
     expect(integration).toContain("PHASE_B_MEASURED_CONSUMPTION_RECONCILIATION_FAILED");
     expect(integration).toContain("PHASE_B_FUEL_FILL_IDEMPOTENCY_FAILED");
     expect(integration).toContain("PHASE_B_FUEL_READING_RPC_ACL_FAILED");
