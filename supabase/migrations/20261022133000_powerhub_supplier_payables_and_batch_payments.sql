@@ -439,6 +439,7 @@ declare
   v_account public.company_accounts%rowtype;
   v_purchase public.supplier_purchases%rowtype;
   v_opening public.supplier_ledger_entries%rowtype;
+  v_allocations_json jsonb;
   v_platform_role text;
   v_reason text:=nullif(btrim(p_reason),'');
   v_allocation record;
@@ -555,7 +556,7 @@ begin
     select coalesce(jsonb_agg(jsonb_build_object(
       'purchaseId',a.purchase_id,'openingBalanceEntryId',a.supplier_ledger_entry_id,'amount',a.amount
     ) order by coalesce(a.purchase_id,0),coalesce(a.supplier_ledger_entry_id,0)),'[]'::jsonb)
-    into v_opening
+    into v_allocations_json
     from public.supplier_payment_allocations a
     where a.tenant_id=p_tenant_id and a.payment_id=v_payment.id;
 
@@ -567,7 +568,7 @@ begin
       jsonb_build_object('status','posted','amount',v_payment.amount,'companyAccountId',v_account.id,
         'accountTransactionId',v_payment.account_transaction_id),
       jsonb_build_object('status','reversed','reversedAt',v_payment.reversed_at,'reason',v_reason),
-      jsonb_build_object('allocations',v_opening,'compensatingDepositReference','REV-SUPPLIER-PAYMENT-'||v_payment.id)
+      jsonb_build_object('allocations',v_allocations_json,'compensatingDepositReference','REV-SUPPLIER-PAYMENT-'||v_payment.id)
     );
   end if;
 
