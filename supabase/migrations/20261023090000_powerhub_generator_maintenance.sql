@@ -489,6 +489,16 @@ begin
       total_cost_amount=v_parts_cost+coalesce(p_labor_cost,0)+coalesce(p_external_service_cost,0),
       updated_by_user_id=p_user_id,updated_at=v_now
       where id=v_order.id and tenant_id=p_tenant_id returning * into v_order;
+    -- Persist close-out meter hours in the canonical append-only reading ledger.
+    -- This runs in the same transaction: if the reading is invalid, close-out rolls back too.
+    if p_meter_hours_close is not null then
+      perform * from public.powerhub_inventory_record_fuel_reading(
+        p_tenant_id,p_site_id,p_user_id,v_order.generator_id,'operating_hours',null,p_meter_hours_close,v_now,
+        'MW closeout '||v_order.work_order_number,
+        'قراءة ساعات التشغيل عند إغلاق أمر الصيانة '||v_order.work_order_number,
+        null,null,'maintenance-closeout-hours:'||v_order.id::text
+      );
+    end if;
     update public.generators set last_maintenance_at=v_now,
       operating_hours=coalesce(p_meter_hours_close,operating_hours),updated_at=v_now
       where tenant_id=p_tenant_id and site_id=p_site_id and id=v_order.generator_id;

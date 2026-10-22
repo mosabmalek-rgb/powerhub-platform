@@ -145,6 +145,22 @@ begin
     10,100,1,v_replay.work_order_id,'complete','Oil and filters serviced',v_close_hours,20,0,0,null,'maint-test-preventive-complete-c-01'
   );
   if v_transition.status<>'completed' then raise exception 'MAINTENANCE_PREVENTIVE_CLOSEOUT_FAILED'; end if;
+  if not exists(select 1 from public.generator_fuel_readings r
+    where r.tenant_id=10 and r.site_id=100 and r.generator_id=10000
+      and r.reading_type='operating_hours' and r.tank_warehouse_id is null
+      and r.reading_value=v_close_hours
+      and r.operation_key='maintenance-closeout-hours:'||v_replay.work_order_id::text
+      and r.created_by_user_id=1) then
+    raise exception 'MAINTENANCE_CLOSEOUT_HOURS_READING_MISSING';
+  end if;
+  select * into v_transition from public.powerhub_maintenance_transition_work_order(
+    10,100,1,v_replay.work_order_id,'complete','Oil and filters serviced',v_close_hours,20,0,0,null,'maint-test-preventive-complete-c-01'
+  );
+  if not v_transition.replayed then raise exception 'MAINTENANCE_CLOSEOUT_REPLAY_FAILED'; end if;
+  if (select count(*) from public.generator_fuel_readings
+      where tenant_id=10 and operation_key='maintenance-closeout-hours:'||v_replay.work_order_id::text)<>1 then
+    raise exception 'MAINTENANCE_CLOSEOUT_HOURS_READING_DUPLICATED';
+  end if;
   if (select last_completed_at from public.generator_maintenance_preventive_plans where id=v_plan.plan_id) is null
      or (select next_due_operating_hours from public.generator_maintenance_preventive_plans where id=v_plan.plan_id)<>v_close_hours+100
      or not exists(select 1 from public.generator_maintenance_alert_events where plan_id=v_plan.plan_id and alert_type='resolved') then
