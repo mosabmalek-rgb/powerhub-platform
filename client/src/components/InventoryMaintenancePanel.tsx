@@ -25,8 +25,8 @@ const csvCell = (value: unknown) => {
 };
 
 export default function InventoryMaintenancePanel({
-  siteId, isAuthenticated, canViewMaintenance, canManageMaintenance, canIssueInventory, canManageExpenses,
-}: { siteId: number; isAuthenticated: boolean; canViewMaintenance: boolean; canManageMaintenance: boolean; canIssueInventory: boolean; canManageExpenses: boolean }) {
+  siteId, isAuthenticated, canViewMaintenance, canViewMaintenanceReport, canManageMaintenance, canIssueInventory, canManageExpenses,
+}: { siteId: number; isAuthenticated: boolean; canViewMaintenance: boolean; canViewMaintenanceReport: boolean; canManageMaintenance: boolean; canIssueInventory: boolean; canManageExpenses: boolean }) {
   const utils = trpc.useUtils();
   const evaluatedSiteRef = useRef<number | null>(null);
   const [generatorId, setGeneratorId] = useState("");
@@ -59,7 +59,7 @@ export default function InventoryMaintenancePanel({
   const assignableSuppliers = trpc.powerhub.maintenance.listAssignableSuppliers.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance), staleTime: 60_000 });
   const maintenanceReport = trpc.powerhub.maintenance.reportByGenerator.useQuery(
     { siteId, fromDate: reportFromDate, toDate: reportToDate, generatorId: reportGeneratorId ? Number(reportGeneratorId) : undefined },
-    { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance && reportFromDate && reportToDate && reportFromDate <= reportToDate), staleTime: 30_000 },
+    { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport && reportFromDate && reportToDate && reportFromDate <= reportToDate), staleTime: 30_000 },
   );
   const plans = trpc.powerhub.maintenance.listPreventivePlans.useQuery({ siteId, generatorId: planGeneratorId ? Number(planGeneratorId) : undefined }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 15_000 });
   const items = trpc.powerhub.inventory.listItems.useQuery({ siteId, includeInactive: false }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance && canIssueInventory), staleTime: 30_000 });
@@ -222,6 +222,7 @@ export default function InventoryMaintenancePanel({
       {parts.isLoading ? <p className="text-sm text-muted-foreground">جارٍ تحميل تفاصيل الصرف…</p> : parts.error ? <p className="text-sm text-destructive">تعذر تحميل سجل الصرف لهذا الأمر.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[650px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","المخزن","الكمية","تكلفة الوحدة","الإجمالي","وقت الصرف"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{(parts.data ?? []).map((p) => <tr key={p.part_id} className="border-t"><td className="p-3">{p.item_name}</td><td className="p-3">{p.warehouse_name}</td><td className="p-3">{p.quantity}</td><td className="p-3">{money(p.unit_cost)}</td><td className="p-3">{money(p.total_cost_amount)}</td><td className="p-3">{new Date(p.issued_at).toLocaleString("ar-PS")}</td></tr>)}{!parts.data?.length ? <tr><td className="p-4 text-center text-muted-foreground" colSpan={6}>لا توجد قطع مصروفة لهذا الأمر.</td></tr> : null}</tbody></table></div>}
     </CardContent></Card> : null}
 
+    {canViewMaintenanceReport ? (
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -247,6 +248,7 @@ export default function InventoryMaintenancePanel({
           : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[1120px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المولد","العطل / العمل المتكرر","الأوامر","الأعطال","الوقائية","المكتملة","المفتوحة","التوقف (دقيقة)","القطع","العمل","الخدمات","الإجمالي"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{reportRows.map((r) => <tr key={r.generator_id + ":" + r.fault_title} className="border-t"><td className="p-3">{r.generator_name} <span className="text-xs text-muted-foreground">#{r.generator_id}</span></td><td className="p-3">{r.fault_title}</td><td className="p-3">{r.work_order_count}</td><td className="p-3">{r.breakdown_count}</td><td className="p-3">{r.preventive_count}</td><td className="p-3">{r.completed_count}</td><td className="p-3">{r.open_count}</td><td className="p-3">{r.downtime_minutes}</td><td className="p-3 whitespace-nowrap">{money(r.parts_cost)}</td><td className="p-3 whitespace-nowrap">{money(r.labor_cost)}</td><td className="p-3 whitespace-nowrap">{money(r.external_service_cost)}</td><td className="p-3 whitespace-nowrap font-semibold">{money(r.total_cost_amount)}</td></tr>)}{!reportRows.length ? <tr><td colSpan={12} className="p-5 text-center text-muted-foreground">لا توجد أوامر صيانة في الفترة المحددة.</td></tr> : null}</tbody></table></div>}
       </CardContent>
     </Card>
+    ) : null}
 
     <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5" /> أوامر الصيانة وسجل الأعطال</CardTitle><div className="flex gap-2"><select aria-label="تصفية المولد" className="h-9 rounded-md border bg-background px-2 text-sm" value={orderGeneratorFilter} onChange={(e) => setOrderGeneratorFilter(e.target.value)}><option value="">كل المولدات</option>{(generators.data ?? []).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select><select aria-label="تصفية حالة أمر الصيانة" className="h-9 rounded-md border bg-background px-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value as OrderStatus | "")}><option value="">كل الحالات</option>{Object.entries(statusLabels).map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select><Button variant="outline" size="icon" onClick={() => orders.refetch()} aria-label="تحديث القائمة"><RefreshCw className="h-4 w-4" /></Button></div></div></CardHeader><CardContent>
       {orders.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل أوامر الصيانة…</p> : orders.error ? <p className="py-8 text-center text-destructive">تعذر تحميل السجل. تحقق من الصلاحيات ومخطط قاعدة البيانات.</p> : !orders.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد أوامر صيانة في هذا العرض.</p> :
