@@ -475,7 +475,7 @@ declare
   v_next_status text;
   v_parts_cost numeric(14,2);
   v_latest_hours numeric(14,2);
-  v_now timestamptz:=now();
+  v_now timestamptz:=clock_timestamp();
 begin
   if p_tenant_id is null or p_site_id is null or p_user_id is null or p_work_order_id is null then
     raise exception 'MAINTENANCE_SCOPE_REQUIRED' using errcode='P0001';
