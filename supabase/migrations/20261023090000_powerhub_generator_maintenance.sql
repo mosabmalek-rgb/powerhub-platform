@@ -508,8 +508,10 @@ begin
   end if;
   v_hash:=md5(jsonb_build_object('site_id',p_site_id,'work_order_id',p_work_order_id,'action',p_action,
     'work_summary',nullif(btrim(p_work_summary),''),'meter_hours_close',p_meter_hours_close,
-    'downtime_minutes',p_downtime_minutes,'labor_cost',coalesce(p_labor_cost,0),
-    'external_service_cost',coalesce(p_external_service_cost,0),'reason',nullif(btrim(p_reason),''))::text);
+    'downtime_minutes',p_downtime_minutes,
+    'labor_cost',case when p_action='correct_completion' then p_labor_cost else coalesce(p_labor_cost,0) end,
+    'external_service_cost',case when p_action='correct_completion' then p_external_service_cost else coalesce(p_external_service_cost,0) end,
+    'reason',nullif(btrim(p_reason),''))::text);
   perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':maintenance-transition:'||btrim(p_operation_key),0));
   select a.entity_id, a.after_data->>'payload_hash'
     into v_replay_entity_id, v_replay_hash
