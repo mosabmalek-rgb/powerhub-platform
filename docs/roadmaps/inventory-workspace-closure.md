@@ -47,7 +47,7 @@ The final workspace should expose these nine logical tabs beneath the single “
 
 ### Remaining Phase A acceptance checklist
 
-The latest verified branch head `6bf1b51bdf382e69274d273fca22da93c9501bd1` passed PowerHub CI (TypeScript, test suite, production build), PostgreSQL integration, Supabase Admin Guard, and PowerHub Security. These are code-level gates, not a substitute for staging E2E or schema parity.
+The last fully green CI run was on `06d0f95d961a35fe7d06c3b849bbabac8b2f655e`. Subsequent staging rehearsals exposed and fixed tenant audit-role and item-unit audit-schema mismatches; CI is being rerun on the corrected branch head. Do not treat the earlier green run as verification of later commits.
 
 - [x] Complete item lifecycle: guarded edit/deactivate, duplicate-code handling, referenced-history preservation and audit.
 - [x] Complete supplier lifecycle: edit/deactivate; address/tax fields exposed while historical finance records are preserved.
@@ -59,10 +59,13 @@ The latest verified branch head `6bf1b51bdf382e69274d273fca22da93c9501bd1` passe
 - [ ] Explicitly support and test purchase payment intent (paid in full / partially paid / on credit) without double-debiting the company account or double-counting inventory cost. The current UI can record payments from invoice details; acceptance is the approved end-to-end user flow, not field presence.
 - [x] Supplier payable aging: not-due and 1–30/31–60/61–90/91+ overdue bands and totals, scoped by tenant/site and financial-view permission.
 - [ ] Complete supplier detail tabs/report/export UX where required by the nine-tab design.
-- [ ] Reconcile stock quantity/value, receipt cost, return credit, supplier balance, payment allocations and company-account transactions end-to-end.
+- [x] Database-level reconciliation rehearsal on staging: two purchases (partial then complete receipts), opening payable, one payment allocated across two invoices, supplier return, payment reversal, warehouse transfer, issue/return, stocktake posting, final stock quantity/value and supplier aging totals all reconciled inside one transaction. The deliberate rollback sentinel aborted the transaction, and follow-up counts confirmed no fixture item, supplier, warehouse, purchase, payment, return or stocktake remained.
 - [ ] Review fine-grained capabilities against each operation (view/create/edit/deactivate/approve/receive/pay/reverse/stocktake/report); show the effective permission result in platform administration. Current per-staff overrides intentionally exclude owner profiles in their current RPC; resolve this against the approved “each user” intent explicitly before closure.
 - [x] UI-contract tests and disposable PostgreSQL integration assertions cover lifecycle, stocktake, units, opening balance, batch payments, aging, permissions, idempotency, tenant isolation and reconciliation scenarios.
-- [ ] Staging E2E: create disposable fixture data; draft -> approve -> partial receipt -> additional receipt -> partial and multi-invoice payments -> supplier return/refund -> issue/return/transfer -> stocktake -> reports; reconcile totals; remove only explicitly created fixture data.
+- [x] Tenant audit-role compatibility: platform roles are preserved, tenant actors remain `NULL` in `audit_logs.actor_platform_role`, and item-unit deactivation reasons are stored in the shared `metadata` JSONB column rather than a nonexistent `reason` column. Staging smoke checks passed after correction.
+- [x] Phase A FK index review: added indexes for item-unit actor, stocktake actor and stocktake item FKs; the post-migration staging advisor query no longer reports unindexed FKs for `inventory_item_units` or `inventory_stocktakes`.
+- [x] Staging database E2E rehearsal (rollback-only): draft/confirm -> partial and full receipts -> opening payable -> multi-invoice payment -> supplier return -> payment reversal -> issue/return/transfer -> stocktake posting -> stock and aging reconciliation. Explicitly verified fixture counts returned to zero after rollback.
+- [ ] Staging browser/UI E2E: repeat the approved workflow through the actual deployed preview/staging UI, including PDF/Excel downloads and role-specific screens. No preview deployment was created during this code/DB validation pass.
 - [ ] Check staging and production migration identities/schema parity after deployment, without financial mutation of production.
 
 **Phase A exit gate:** all checklist items above are closed or explicitly documented as a conscious product decision approved by the user; all relevant CI gates pass; no RLS/ACL/tenant/site/account leakage; stock quantity/value and supplier/account ledgers reconcile; retry/concurrency tests pass; staging UI end-to-end passes.
