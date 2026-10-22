@@ -33,9 +33,6 @@ begin
   select i.* into v_item from public.inventory_items i
   where i.tenant_id=p_tenant_id and i.id=p_item_id for update;
   if not found then raise exception 'INVENTORY_ITEM_NOT_FOUND' using errcode='P0001'; end if;
-  if not v_item.is_active then
-    raise exception 'INVENTORY_ITEM_INACTIVE' using errcode='P0001';
-  end if;
 
   if p_base_unit is distinct from v_item.base_unit and (
     exists(select 1 from public.inventory_stock_movements m where m.tenant_id=p_tenant_id and m.item_id=p_item_id)
@@ -168,7 +165,6 @@ begin
   end if;
   select s.* into v_supplier from public.suppliers s where s.tenant_id=p_tenant_id and s.id=p_supplier_id for update;
   if not found then raise exception 'SUPPLIER_OUT_OF_SCOPE' using errcode='P0001'; end if;
-  if not v_supplier.is_active then raise exception 'SUPPLIER_INACTIVE' using errcode='P0001'; end if;
   select u.platform_role into v_platform_role from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
 
@@ -274,7 +270,6 @@ begin
   select w.* into v_warehouse from public.inventory_warehouses w
   where w.tenant_id=p_tenant_id and w.site_id=p_site_id and w.id=p_warehouse_id for update;
   if not found then raise exception 'STOCK_WAREHOUSE_OUT_OF_SCOPE' using errcode='P0001'; end if;
-  if not v_warehouse.is_active then raise exception 'STOCK_WAREHOUSE_INACTIVE' using errcode='P0001'; end if;
   select u.platform_role into v_platform_role from public.users u where u.id=p_user_id;
   if not found then raise exception 'ACTOR_NOT_FOUND' using errcode='P0001'; end if;
 
