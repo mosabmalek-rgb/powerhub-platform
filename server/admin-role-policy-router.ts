@@ -39,6 +39,7 @@ const capabilitySchema = z.enum([
   "approvePurchases",
   "receiveInventory",
   "manageSupplierPayments",
+  "reverseSupplierPayments",
   "viewSupplierLedger",
   "issueInventory",
   "adjustInventory",
