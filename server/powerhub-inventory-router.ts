@@ -121,6 +121,7 @@ function mapPurchaseDatabaseError(
     WAREHOUSE_HAS_OPEN_PURCHASE: { code: "CONFLICT", message: "لا يمكن إيقاف المخزن مع وجود فاتورة شراء مفتوحة مرتبطة به." },
     PURCHASE_LINE_NOT_FOUND: { code: "NOT_FOUND", message: "أحد بنود المشتريات غير موجود." },
     SUPPLIER_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المورد غير نشط أو لا ينتمي إلى الشركة." },
+    SUPPLIER_INACTIVE: { code: "CONFLICT", message: "المورد موقوف؛ أعد تفعيله قبل تعديل بياناته." },
     WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن غير نشط أو لا يتبع هذا الفرع." },
     ITEM_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "أحد الأصناف غير نشط أو لا ينتمي إلى الشركة." },
     OVER_RECEIPT: { code: "CONFLICT", message: "كمية الاستلام تتجاوز الكمية المتبقية في الفاتورة." },
