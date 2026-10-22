@@ -15,6 +15,8 @@ alter table public.platform_role_policies
     'createInventoryItems','editInventoryItems','deactivateInventoryItems',
     'createSuppliers','editSuppliers','deactivateSuppliers',
     'createWarehouses','editWarehouses','deactivateWarehouses'
+  ,
+    'reverseSupplierPayments'
   ]));
 
 alter table public.staff_profile_capability_overrides
@@ -33,6 +35,8 @@ alter table public.staff_profile_capability_overrides
     'createInventoryItems','editInventoryItems','deactivateInventoryItems',
     'createSuppliers','editSuppliers','deactivateSuppliers',
     'createWarehouses','editWarehouses','deactivateWarehouses'
+  ,
+    'reverseSupplierPayments'
   ]));
 
 -- Preserve existing grants/denials while migrating the former bundled capabilities.
@@ -110,8 +114,50 @@ set permissions = (
     ) expanded
   ) unique_caps
 )
+
 where p.permissions is not null
   and (p.permissions ? 'manageInventoryItems' or p.permissions ? 'manageSuppliers');
+
+-- Keep the former payment-management grant effective for reversals, while allowing
+-- future per-user policy to deny reversal independently.
+insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id,updated_at)
+select p.role,'reverseSupplierPayments',p.is_allowed,p.updated_by_user_id,now()
+from public.platform_role_policies p
+where p.capability='manageSupplierPayments'
+on conflict on constraint platform_role_policies_role_capability_key do nothing;
+
+insert into public.staff_profile_capability_overrides
+  (tenant_id,profile_id,capability,is_allowed,updated_by_user_id,updated_at)
+select o.tenant_id,o.profile_id,'reverseSupplierPayments',o.is_allowed,o.updated_by_user_id,now()
+from public.staff_profile_capability_overrides o
+where o.capability='manageSupplierPayments'
+on conflict on constraint staff_profile_capability_override_unique do nothing;
+
+update public.custom_permission_roles r
+set permissions = (
+  select coalesce(jsonb_agg(to_jsonb(capability) order by capability),'[]'::jsonb)
+  from (
+    select distinct capability
+    from (
+      select jsonb_array_elements_text(r.permissions) as capability
+      union all select 'reverseSupplierPayments' where r.permissions ? 'manageSupplierPayments'
+    ) expanded
+  ) unique_caps
+)
+where r.permissions ? 'manageSupplierPayments';
+
+update public.staff_profiles p
+set permissions = (
+  select coalesce(jsonb_agg(to_jsonb(capability) order by capability),'[]'::jsonb)
+  from (
+    select distinct capability
+    from (
+      select jsonb_array_elements_text(p.permissions) as capability
+      union all select 'reverseSupplierPayments' where p.permissions ? 'manageSupplierPayments'
+    ) expanded
+  ) unique_caps
+)
+where p.permissions is not null and p.permissions ? 'manageSupplierPayments';
 
 create or replace function public.powerhub_admin_set_staff_capability_override(
   p_actor_user_id bigint,
@@ -143,6 +189,8 @@ begin
     'createInventoryItems','editInventoryItems','deactivateInventoryItems',
     'createSuppliers','editSuppliers','deactivateSuppliers',
     'createWarehouses','editWarehouses','deactivateWarehouses'
+  ,
+    'reverseSupplierPayments'
   ) then raise exception 'INVALID_CAPABILITY' using errcode='P0001'; end if;
   select * into v_profile from public.staff_profiles where id=p_profile_id and tenant_id is not null;
   if not found then raise exception 'STAFF_PROFILE_NOT_FOUND' using errcode='P0001'; end if;
@@ -192,6 +240,8 @@ begin
     'createInventoryItems','editInventoryItems','deactivateInventoryItems',
     'createSuppliers','editSuppliers','deactivateSuppliers',
     'createWarehouses','editWarehouses','deactivateWarehouses'
+  ,
+    'reverseSupplierPayments'
   ) then raise exception 'INVALID_CAPABILITY' using errcode='P0001'; end if;
   insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id,updated_at)
   values(p_role,p_capability,p_is_allowed,p_actor_user_id,now())
