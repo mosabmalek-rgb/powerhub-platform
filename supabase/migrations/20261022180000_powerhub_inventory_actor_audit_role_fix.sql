@@ -1242,12 +1242,12 @@ begin
     where u.tenant_id=p_tenant_id and u.item_id=p_item_id and u.id=p_unit_id
     returning * into v_unit;
   insert into public.audit_logs(
-    tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,before_data,after_data,reason
+    tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,before_data,after_data,metadata
   ) values (
     p_tenant_id,p_site_id,p_user_id,v_platform_role,'inventory_item_unit',v_unit.id::text,
     case when p_is_active then 'reactivate' else 'deactivate' end,v_before,
     jsonb_build_object('itemId',v_unit.item_id,'unitLabel',v_unit.unit_label,
-      'factorToBase',v_unit.factor_to_base,'isActive',v_unit.is_active),v_reason
+      'factorToBase',v_unit.factor_to_base,'isActive',v_unit.is_active),jsonb_build_object('reason',v_reason)
   );
   return query select v_unit.id,v_unit.tenant_id,v_unit.item_id,v_unit.unit_label,
     v_unit.factor_to_base,v_unit.is_active,v_unit.created_at,v_unit.updated_at;
