@@ -479,7 +479,13 @@ export default function InventoryWorkspacePage() {
               /> : null}
             </TabsContent> : null}
 
-            {canManageMaintenance ? <TabsContent value="maintenance" className="space-y-4"><InventoryMaintenancePanel siteId={siteId} isAuthenticated={isAuthenticated} canManageMaintenance={canManageMaintenance} /></TabsContent> : null}
+            {canManageMaintenance ? <TabsContent value="maintenance" className="space-y-4"><InventoryMaintenancePanel
+                siteId={siteId}
+                isAuthenticated={isAuthenticated}
+                canManageMaintenance={canManageMaintenance}
+                canIssueInventory={canIssueInventory}
+                canManageExpenses={supplierAccess.data?.permissions.includes("manageExpenses") ?? false}
+              /></TabsContent> : null}
 
             {(canManageFuelAndConsumption || canViewInventoryReports) ? <TabsContent value="fuel" className="space-y-4">
               <InventoryFuelConsumptionPanel

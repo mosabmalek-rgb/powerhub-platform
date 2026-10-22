@@ -14,6 +14,10 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance")');
     expect(router).toContain('"issueInventory"');
     expect(router).toContain('"manageExpenses"');
+    expect(router).toContain("evaluateDuePlans");
+    expect(panel).toContain("trpc.powerhub.maintenance.addPart.useMutation");
+    expect(panel).toContain("trpc.powerhub.maintenance.createPreventivePlan.useMutation");
+    expect(router).toContain("evaluateDuePlans");
     expect(page).toContain('TabsTrigger value="maintenance"');
     expect(page).toContain("InventoryMaintenancePanel");
     expect(panel).toContain("trpc.powerhub.maintenance.listWorkOrders.useQuery");
@@ -30,11 +34,15 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("MAINTENANCE_INVALID_STATE_TRANSITION");
     expect(migration).toContain("MAINTENANCE_HOURS_BACKWARDS");
     expect(migration).toContain("generator_maintenance_preventive_plans");
+    expect(migration).toContain("preventive_plan_id");
+    expect(migration).toContain("'reported_at',p_reported_at");
     expect(migration).toContain("powerhub_maintenance_evaluate_due_plans");
     expect(migration).toContain("generator_maintenance_audit_events");
     expect(migration).toContain("enable row level security");
     expect(migration).toContain("from public,anon,authenticated");
     expect(integration).toContain("MAINTENANCE_PART_DUPLICATED_STOCK_ISSUE");
+    expect(integration).toContain("MAINTENANCE_BREAKDOWN_MUST_NOT_COMPLETE_UNLINKED_PLAN");
+    expect(integration).toContain("MAINTENANCE_NULL_REPORTED_AT_IDEMPOTENCY_FAILED");
     expect(integration).toContain("MAINTENANCE_TRANSITION_IDEMPOTENCY_FAILED");
     expect(integration).toContain("MAINTENANCE_OVERDUE_ALERT_MISSING");
     expect(integration).toContain("MAINTENANCE_RPC_ACL_FAILED");

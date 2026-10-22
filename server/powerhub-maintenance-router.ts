@@ -12,6 +12,7 @@ type MaintenanceWorkOrderListRow = {
   work_order_number: string;
   generator_id: number;
   generator_name: string;
+  preventive_plan_id: number | null;
   order_type: "breakdown" | "preventive" | "inspection" | "repair" | "other";
   priority: "low" | "normal" | "high" | "urgent";
   status: "scheduled" | "new" | "in_progress" | "waiting_for_parts" | "completed" | "cancelled";
@@ -44,7 +45,8 @@ const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> =
       "MAINTENANCE_GENERATOR_OUT_OF_SCOPE", "MAINTENANCE_PART_ITEM_OUT_OF_SCOPE",
       "MAINTENANCE_PART_CATEGORY_INVALID", "MAINTENANCE_CANCEL_REASON_REQUIRED",
       "MAINTENANCE_PLAN_INTERVAL_REQUIRED", "MAINTENANCE_PLAN_DATE_DUE_REQUIRED",
-      "MAINTENANCE_PLAN_HOURS_DUE_REQUIRED"
+      "MAINTENANCE_PLAN_HOURS_DUE_REQUIRED", "MAINTENANCE_PLAN_OUT_OF_SCOPE",
+      "MAINTENANCE_PREVENTIVE_PLAN_REQUIRED"
     ].find((candidate) => message.includes(candidate));
     if (code) throw new TRPCError({ code: "BAD_REQUEST", message: code });
     console.error("[PowerHub maintenance RPC]", { name, code: error.code });
@@ -74,6 +76,10 @@ export const powerhubMaintenanceRouter = router({
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_generator_id: input.generatorId ?? null,
     });
   }),
+  evaluateDuePlans: authenticatedProcedure.input(z.object({ siteId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
+    return rpc("powerhub_maintenance_evaluate_due_plans", { p_tenant_id: access.tenantId, p_site_id: input.siteId });
+  }),
   listParts: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
   })).query(async ({ ctx, input }) => {
@@ -85,15 +91,20 @@ export const powerhubMaintenanceRouter = router({
   createWorkOrder: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive(),
     orderType: z.enum(["breakdown", "preventive", "inspection", "repair", "other"]),
+    preventivePlanId: z.number().int().positive().optional(),
     priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
     title: z.string().trim().min(3).max(180), description: z.string().max(5000).optional(),
     reportedAt: z.string().datetime().optional(), scheduledFor: z.string().datetime().optional(),
     assignedToUserId: z.number().int().positive().optional(), operationKey,
+  }).superRefine((value, issue) => {
+    if (value.orderType === "preventive" && !value.preventivePlanId) issue.addIssue({ code: z.ZodIssueCode.custom, path: ["preventivePlanId"], message: "اختر خطة الصيانة الوقائية المرتبطة بالأمر." });
+    if (value.orderType !== "preventive" && value.preventivePlanId) issue.addIssue({ code: z.ZodIssueCode.custom, path: ["preventivePlanId"], message: "لا يمكن ربط خطة وقائية بأمر من نوع آخر." });
   })).mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
     return rpc("powerhub_maintenance_create_work_order", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
-      p_generator_id: input.generatorId, p_order_type: input.orderType, p_priority: input.priority,
+      p_generator_id: input.generatorId, p_preventive_plan_id: input.preventivePlanId ?? null,
+      p_order_type: input.orderType, p_priority: input.priority,
       p_title: input.title, p_description: input.description ?? null,
       p_reported_at: input.reportedAt ?? null, p_scheduled_for: input.scheduledFor ?? null,
       p_assigned_to_user_id: input.assignedToUserId ?? null, p_operation_key: input.operationKey,
@@ -122,7 +133,8 @@ export const powerhubMaintenanceRouter = router({
     reason: z.string().max(500).optional(), operationKey,
   })).mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
-    if (input.action === "complete" && !access.permissions.includes("manageExpenses")) {
+    if (input.action === "complete" && (input.laborCost > 0 || input.externalServiceCost > 0)
+        && !access.permissions.includes("manageExpenses")) {
       throw new TRPCError({ code: "FORBIDDEN", message: "تحتاج إلى صلاحية إدارة المصروفات لاعتماد تكاليف الإغلاق." });
     }
     return rpc("powerhub_maintenance_transition_work_order", {
