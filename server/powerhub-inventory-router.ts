@@ -512,7 +512,7 @@ export const powerhubInventoryRouter = router({
       notes: z.string().trim().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createInventoryItems");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_item", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
@@ -539,7 +539,7 @@ export const powerhubInventoryRouter = router({
       specification: z.string().trim().max(500).optional(), notes: z.string().trim().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editInventoryItems");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_item", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_item_id: input.itemId, p_sku: input.sku || null, p_name: input.name, p_category: input.category,
@@ -556,7 +556,7 @@ export const powerhubInventoryRouter = router({
       isActive: z.boolean(), reason: z.string().trim().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "deactivateInventoryItems");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_set_item_active", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_item_id: input.itemId, p_is_active: input.isActive, p_reason: input.reason || null,
@@ -591,7 +591,7 @@ export const powerhubInventoryRouter = router({
           "معامل التحويل يقبل 6 منازل عشرية كحد أقصى."),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createInventoryItems");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_item_unit", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_item_id: input.itemId,
         p_user_id: ctx.user.id, p_unit_label: input.unitLabel, p_factor_to_base: input.factorToBase,
@@ -606,7 +606,7 @@ export const powerhubInventoryRouter = router({
       isActive: z.boolean(), reason: z.string().trim().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "deactivateInventoryItems");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_set_item_unit_active", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_item_id: input.itemId, p_unit_id: input.unitId,
         p_user_id: ctx.user.id, p_is_active: input.isActive, p_reason: input.reason || null,
@@ -648,7 +648,7 @@ export const powerhubInventoryRouter = router({
       notes: z.string().trim().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSuppliers");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createSuppliers");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_supplier", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
@@ -678,7 +678,7 @@ export const powerhubInventoryRouter = router({
       defaultPaymentTermsDays: z.number().int().min(0).max(3650), notes: z.string().trim().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSuppliers");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editSuppliers");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_supplier", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_supplier_id: input.supplierId, p_supplier_code: input.supplierCode || null, p_name: input.name,
@@ -696,7 +696,7 @@ export const powerhubInventoryRouter = router({
       isActive: z.boolean(), reason: z.string().trim().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSuppliers");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "deactivateSuppliers");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_set_supplier_active", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_supplier_id: input.supplierId, p_is_active: input.isActive, p_reason: input.reason || null,
@@ -735,7 +735,7 @@ export const powerhubInventoryRouter = router({
       }
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createWarehouses");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_warehouse_with_location", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
@@ -764,7 +764,7 @@ export const powerhubInventoryRouter = router({
       }
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editWarehouses");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_warehouse_with_location", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_warehouse_id: input.warehouseId, p_code: input.code, p_name: input.name, p_notes: input.notes || null,
@@ -780,7 +780,7 @@ export const powerhubInventoryRouter = router({
       isActive: z.boolean(), reason: z.string().trim().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "deactivateWarehouses");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_set_warehouse_active", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_warehouse_id: input.warehouseId, p_is_active: input.isActive, p_reason: input.reason || null,
