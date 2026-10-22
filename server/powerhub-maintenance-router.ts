@@ -125,7 +125,7 @@ export const powerhubMaintenanceRouter = router({
     toDate: z.string().refine(isDateOnly, { message: "تاريخ النهاية غير صالح." }),
     generatorId: z.number().int().positive().optional(),
   })).query(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "manageMaintenance");
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
     return rpc<MaintenanceReportRow[]>("powerhub_maintenance_report_by_generator", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId,
       p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
@@ -158,7 +158,7 @@ export const powerhubMaintenanceRouter = router({
     status: z.enum(["scheduled", "new", "in_progress", "waiting_for_parts", "completed", "cancelled"]).optional(),
     limit: z.number().int().min(1).max(200).default(50),
   })).query(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "manageMaintenance");
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
     return rpc<MaintenanceWorkOrderListRow[]>("powerhub_maintenance_list_work_orders", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId,
       p_generator_id: input.generatorId ?? null, p_status: input.status ?? null, p_limit: input.limit,
@@ -167,7 +167,7 @@ export const powerhubMaintenanceRouter = router({
   listPreventivePlans: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive().optional(),
   })).query(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "manageMaintenance");
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
     return rpc<MaintenancePreventivePlanListRow[]>("powerhub_maintenance_list_preventive_plans", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_generator_id: input.generatorId ?? null,
     });
@@ -179,7 +179,7 @@ export const powerhubMaintenanceRouter = router({
   listParts: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
   })).query(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "manageMaintenance");
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory");
     return rpc<MaintenancePartListRow[]>("powerhub_maintenance_list_parts", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_work_order_id: input.workOrderId,
     });
