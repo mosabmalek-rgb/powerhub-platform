@@ -36,7 +36,7 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(panel).toContain("addWorksheet(\"تفاصيل الصيانة\"");
     expect(panel).toContain("downloadReportHtmlAsPdf");
     expect(panel).toContain("escapeHtml");
-    expect(panel).toContain("تصدير PDF");
+    expect(panel).toContain("FileText");
     const worker = read("server/notification-worker.ts");
     const route = read("server/_core/index.ts");
     expect(worker).toContain("processAutomaticMaintenanceAlertEvaluation");
