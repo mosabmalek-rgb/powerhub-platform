@@ -7,6 +7,13 @@ import { supabaseAdmin } from "./supabase-admin";
 const maintenanceRoles = ["owner", "manager", "technician"] as const;
 const readRoles = ["owner", "manager", "technician", "accountant", "viewer"] as const;
 const operationKey = z.string().trim().min(8).max(180);
+const isDateOnly = (value: string) => {
+  if (value.length !== 10 || value[4] !== "-" || value[7] !== "-") return false;
+  const digits = value.slice(0, 4) + value.slice(5, 7) + value.slice(8, 10);
+  if ([...digits].some((character) => character < "0" || character > "9")) return false;
+  const parsed = new Date(value + "T00:00:00.000Z");
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+};
 type MaintenancePreventivePlanListRow = {
   plan_id: number;
   plan_code: string;
@@ -109,8 +116,8 @@ const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> =
 export const powerhubMaintenanceRouter = router({
   reportByGenerator: authenticatedProcedure.input(z.object({
     siteId: z.number().int().positive(),
-    fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
-    toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+    fromDate: z.string().refine(isDateOnly, { message: "تاريخ البداية غير صالح." }),
+    toDate: z.string().refine(isDateOnly, { message: "تاريخ النهاية غير صالح." }),
     generatorId: z.number().int().positive().optional(),
   })).query(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "manageMaintenance");

@@ -17,7 +17,12 @@ const money = (value: unknown) => new Intl.NumberFormat("ar-PS", { style: "curre
 const openStatuses: OrderStatus[] = ["new", "scheduled", "in_progress", "waiting_for_parts"];
 const operationKey = (prefix: string) => prefix + "-" + crypto.randomUUID();
 const localDateInput = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
-const csvCell = (value: unknown) => { let s=String(value??""); if (/^[\\u0000-\\u0020]*[=+@\\-]/.test(s) || /^[\\t\\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
+const csvCell = (value: unknown) => {
+  let s = String(value ?? "");
+  const first = s.trimStart()[0];
+  if (first === "=" || first === "+" || first === "-" || first === "@") s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"' ;
+};
 
 export default function InventoryMaintenancePanel({
   siteId, isAuthenticated, canManageMaintenance, canIssueInventory, canManageExpenses,
@@ -158,7 +163,7 @@ export default function InventoryMaintenancePanel({
   const exportMaintenanceReport = () => {
     if (maintenanceReport.isError || maintenanceReport.isLoading) { toast.error("حمّل تقرير الصيانة بنجاح قبل التصدير."); return; }
     const rows = [["المولد","العطل / العمل","عدد الأوامر","الأعطال","الصيانة الوقائية","المكتملة","المفتوحة","التوقف بالدقائق","تكلفة القطع","تكلفة العمل","الخدمات الخارجية","إجمالي التكلفة","أول بلاغ","آخر بلاغ"], ...reportRows.map((r) => [r.generator_name,r.fault_title,r.work_order_count,r.breakdown_count,r.preventive_count,r.completed_count,r.open_count,r.downtime_minutes,r.parts_cost,r.labor_cost,r.external_service_cost,r.total_cost_amount,r.first_reported_at,r.last_reported_at])];
-    const blob = new Blob(["\\uFEFF"+rows.map((row) => row.map(csvCell).join(",")).join("\\r\\n")], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([String.fromCharCode(0xfeff) + rows.map((row) => row.map(csvCell).join(",")).join(String.fromCharCode(13, 10))], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href=url; anchor.download=`powerhub-maintenance-report-${siteId}-${reportFromDate}-${reportToDate}.csv`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast.success(`تم تصدير ${reportRows.length.toLocaleString("ar-PS")} مجموعة من تقرير الصيانة.`);
   };
