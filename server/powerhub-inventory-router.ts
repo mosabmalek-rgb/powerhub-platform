@@ -116,6 +116,8 @@ function mapPurchaseDatabaseError(
     SUPPLIER_HAS_OUTSTANDING_PAYABLE: { code: "CONFLICT", message: "لا يمكن إيقاف المورد قبل تسوية ذممه المستحقة." },
     SUPPLIER_HAS_OPEN_PURCHASE: { code: "CONFLICT", message: "لا يمكن إيقاف المورد مع وجود فاتورة شراء مفتوحة." },
     INVALID_INVENTORY_WAREHOUSE: { code: "BAD_REQUEST", message: "تحقق من رمز المخزن واسمه." },
+    INVALID_INVENTORY_LOCATION_TYPE: { code: "BAD_REQUEST", message: "اختر نوع موقع التخزين واربط خزان المولد بالمولد الصحيح." },
+    WAREHOUSE_IDENTITY_IMMUTABLE_AFTER_USE: { code: "CONFLICT", message: "لا يمكن تغيير رمز الموقع أو اسمه أو نوعه بعد تسجيل حركة أو فاتورة عليه؛ أنشئ موقعًا جديدًا وانقل الرصيد بطريقة موثقة." },
     STOCK_WAREHOUSE_INACTIVE: { code: "CONFLICT", message: "المخزن موقوف؛ أعد تفعيله قبل تعديل بياناته." },
     WAREHOUSE_DEACTIVATION_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لإيقاف المخزن." },
     WAREHOUSE_HAS_STOCK: { code: "CONFLICT", message: "لا يمكن إيقاف المخزن ما دام يحتوي على كمية أو قيمة مخزون." },
@@ -617,7 +619,7 @@ export const powerhubInventoryRouter = router({
     .query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewInventory");
       let query = supabaseAdmin().from("inventory_warehouses")
-        .select("id,tenant_id,site_id,code,name,notes,is_active,created_at,updated_at")
+        .select("id,tenant_id,site_id,code,name,notes,is_active,location_type,generator_id,created_at,updated_at")
         .eq("tenant_id", access.tenantId)
         .eq("site_id", input.siteId)
         .order("name", { ascending: true })
@@ -634,18 +636,26 @@ export const powerhubInventoryRouter = router({
       code: z.string().trim().min(1).max(40),
       name: z.string().trim().min(1).max(120),
       notes: z.string().trim().max(2000).optional(),
+      locationType: z.enum(["central_warehouse", "branch_warehouse", "fixed_fuel_tank", "generator_fuel_tank"]).default("branch_warehouse"),
+      generatorId: z.number().int().positive().optional(),
+    }).superRefine((value, issue) => {
+      if ((value.locationType === "generator_fuel_tank") !== (value.generatorId !== undefined)) {
+        issue.addIssue({ code: z.ZodIssueCode.custom, path: ["generatorId"], message: "خزان المولد يتطلب اختيار مولد واحد، ولا يقبل الأنواع الأخرى ربط مولد." });
+      }
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_warehouse", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_warehouse_with_location", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
         p_user_id: ctx.user.id,
         p_code: input.code,
         p_name: input.name,
         p_notes: input.notes || null,
+        p_location_type: input.locationType,
+        p_generator_id: input.generatorId ?? null,
       });
-      if (error || !data?.[0]) mapDatabaseError(error, "تعذر إنشاء المخزن.");
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر إنشاء موقع التخزين.");
       return data[0];
     }),
 
@@ -655,14 +665,21 @@ export const powerhubInventoryRouter = router({
       siteId: z.number().int().positive(), warehouseId: z.number().int().positive(),
       code: z.string().trim().min(1).max(40), name: z.string().trim().min(1).max(120),
       notes: z.string().trim().max(2000).optional(),
+      locationType: z.enum(["central_warehouse", "branch_warehouse", "fixed_fuel_tank", "generator_fuel_tank"]),
+      generatorId: z.number().int().positive().optional(),
+    }).superRefine((value, issue) => {
+      if ((value.locationType === "generator_fuel_tank") !== (value.generatorId !== undefined)) {
+        issue.addIssue({ code: z.ZodIssueCode.custom, path: ["generatorId"], message: "خزان المولد يتطلب اختيار مولد واحد، ولا يقبل الأنواع الأخرى ربط مولد." });
+      }
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageInventoryItems");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_warehouse", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_warehouse_with_location", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_warehouse_id: input.warehouseId, p_code: input.code, p_name: input.name, p_notes: input.notes || null,
+        p_location_type: input.locationType, p_generator_id: input.generatorId ?? null,
       });
-      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تعديل بيانات المخزن.");
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تعديل موقع التخزين.");
       return data[0];
     }),
 
