@@ -1070,6 +1070,19 @@ export const powerhubInventoryRouter = router({
 
 
 
+
+  listStocktakeWarehouses: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStocktakeReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().from("inventory_warehouses")
+        .select("id,tenant_id,site_id,code,name,location_type,generator_id,is_active")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .eq("is_active", true).order("name", { ascending: true }).limit(200);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مواقع التخزين المتاحة للجرد." });
+      return data ?? [];
+    }),
+
   listStocktakes: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
