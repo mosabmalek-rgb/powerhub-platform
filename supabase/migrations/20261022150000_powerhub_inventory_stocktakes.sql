@@ -242,7 +242,7 @@ returns trigger
 language plpgsql
 security invoker
 set search_path=public,pg_temp
-as $
+as $$
 declare
   v_location_type text;
   v_category text;
@@ -257,7 +257,7 @@ begin
   end if;
   return new;
 end;
-$;
+$$;
 drop trigger if exists inventory_stock_movements_location_item_guard on public.inventory_stock_movements;
 create trigger inventory_stock_movements_location_item_guard
 before insert on public.inventory_stock_movements
@@ -277,7 +277,7 @@ language sql
 stable
 security invoker
 set search_path=public,pg_temp
-as $
+as $$
   with balances as (
     select m.tenant_id,m.site_id,m.warehouse_id,m.item_id,
       sum(case when m.movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
@@ -303,7 +303,7 @@ as $
     and (coalesce(b.on_hand_quantity,0)>0 or (i.reorder_point>0 and coalesce(b.on_hand_quantity,0)<=i.reorder_point))
   order by (coalesce(b.on_hand_quantity,0)<=i.reorder_point) desc,i.name,w.name
   limit 5000;
-$;
+$$;
 
 create or replace function public.powerhub_inventory_stocktake_snapshot_is_current(
   p_tenant_id bigint,p_site_id bigint,p_stocktake_id bigint
