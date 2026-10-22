@@ -166,6 +166,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
 \ir ../migrations/20261022143000_powerhub_inventory_location_types.sql
 \ir ../migrations/20261022150000_powerhub_inventory_stocktakes.sql
+\ir ../migrations/20261022160000_powerhub_inventory_item_units.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -3149,6 +3150,90 @@ begin
   end if;
 end;
 $inventory_stocktake_assertions$;
+
+
+do $inventory_item_units_assertions$
+declare
+  v_item_id bigint;
+  v_purchase_id bigint;
+  v_unit_id bigint;
+  v_unit_factor numeric;
+  v_failed boolean;
+  v_error text;
+begin
+  select id into v_item_id from public.inventory_items
+    where tenant_id=10 and sku='DSL-01';
+  select id into v_purchase_id from public.supplier_purchases
+    where tenant_id=10 order by id limit 1;
+  if v_item_id is null or v_purchase_id is null then
+    raise exception 'ITEM_UNIT_DISPOSABLE_FIXTURE_MISSING';
+  end if;
+
+  select id,factor_to_base into v_unit_id,v_unit_factor
+  from public.powerhub_inventory_create_item_unit(10,100,v_item_id,1,'jerrycan',20);
+  if v_unit_id is null or v_unit_factor<>20 then
+    raise exception 'ITEM_UNIT_CREATE_FACTOR_MISMATCH';
+  end if;
+
+  -- A valid configured unit can be used in a purchase line, but this probe rolls back.
+  v_failed:=false;
+  begin
+    insert into public.supplier_purchase_lines(
+      tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,unit_price,discount_amount,tax_amount
+    ) values (10,v_purchase_id,v_item_id,1,'jerrycan',20,1,0,0);
+    raise exception 'ITEM_UNIT_VALID_LINE_PROBE_ROLLBACK';
+  exception when others then
+    if sqlerrm='ITEM_UNIT_VALID_LINE_PROBE_ROLLBACK' then
+      v_failed:=true;
+    else
+      raise;
+    end if;
+  end;
+  if not v_failed then raise exception 'ITEM_UNIT_VALID_PURCHASE_LINE_REJECTED'; end if;
+
+  -- A client cannot forge a different conversion factor.
+  v_failed:=false;
+  begin
+    insert into public.supplier_purchase_lines(
+      tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,unit_price,discount_amount,tax_amount
+    ) values (10,v_purchase_id,v_item_id,1,'jerrycan',19,1,0,0);
+    raise exception 'ITEM_UNIT_MISMATCH_PROBE_SHOULD_FAIL';
+  exception when others then
+    v_error:=sqlerrm;
+    if v_error='ITEM_UNIT_MISMATCH_PROBE_SHOULD_FAIL'
+      or v_error not like '%PURCHASE_UNIT_CONVERSION_MISMATCH%' then
+      raise;
+    end if;
+  end;
+
+  v_failed:=false;
+  begin
+    insert into public.supplier_purchase_lines(
+      tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,unit_price,discount_amount,tax_amount
+    ) values (10,v_purchase_id,v_item_id,1,'unconfigured-pack',20,1,0,0);
+    raise exception 'ITEM_UNIT_UNKNOWN_PROBE_SHOULD_FAIL';
+  exception when others then
+    v_error:=sqlerrm;
+    if v_error='ITEM_UNIT_UNKNOWN_PROBE_SHOULD_FAIL'
+      or v_error not like '%PURCHASE_UNIT_NOT_CONFIGURED%' then
+      raise;
+    end if;
+  end;
+
+  if has_function_privilege('authenticated',
+      'public.powerhub_inventory_create_item_unit(bigint,bigint,bigint,bigint,text,numeric)','EXECUTE')
+    or has_function_privilege('authenticated',
+      'public.powerhub_inventory_set_item_unit_active(bigint,bigint,bigint,bigint,bigint,boolean,text)','EXECUTE') then
+    raise exception 'AUTHENTICATED_CAN_EXECUTE_ITEM_UNIT_RPC';
+  end if;
+  if not has_function_privilege('service_role',
+      'public.powerhub_inventory_create_item_unit(bigint,bigint,bigint,bigint,text,numeric)','EXECUTE')
+    or not has_function_privilege('service_role',
+      'public.powerhub_inventory_set_item_unit_active(bigint,bigint,bigint,bigint,bigint,boolean,text)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_ITEM_UNIT_RPC';
+  end if;
+end;
+$inventory_item_units_assertions$;
 
 select 'inventory purchase receiving, warehouse transfers, stock operations, and accounting reversals PostgreSQL integration passed' as result;
 
