@@ -7,13 +7,14 @@ import InventoryWarehouseTransferPanel from "@/components/InventoryWarehouseTran
 import InventoryReportsPanel from "@/components/InventoryReportsPanel";
 import InventorySupplierPaymentsPanel from "@/components/InventorySupplierPaymentsPanel";
 import InventorySupplierPayablesAgingPanel from "@/components/InventorySupplierPayablesAgingPanel";
+import InventoryStocktakePanel from "@/components/InventoryStocktakePanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard } from "lucide-react";
+import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck } from "lucide-react";
 import { toast } from "sonner";
 
 const categoryLabels: Record<string, string> = {
@@ -68,6 +69,10 @@ export default function InventoryWorkspacePage() {
   const canIssueInventory = supplierAccess.data?.permissions.includes("issueInventory") ?? false;
   const canAdjustInventory = supplierAccess.data?.permissions.includes("adjustInventory") ?? false;
   const canManageFuelAndConsumption = supplierAccess.data?.permissions.includes("manageFuelAndConsumption") ?? false;
+  const canViewStocktakes = supplierAccess.data?.permissions.includes("viewStocktakes") ?? false;
+  const canManageStocktakes = supplierAccess.data?.permissions.includes("manageStocktakes") ?? false;
+  const canApproveStocktakes = supplierAccess.data?.permissions.includes("approveStocktakes") ?? false;
+  const canAccessStocktakes = canViewStocktakes || canManageStocktakes || canApproveStocktakes;
   const canViewPurchases = supplierAccess.data?.permissions.includes("viewPurchases") ?? false;
   const canCreatePurchases = supplierAccess.data?.permissions.includes("createPurchases") ?? false;
   const canApprovePurchases = supplierAccess.data?.permissions.includes("approvePurchases") ?? false;
@@ -220,17 +225,18 @@ export default function InventoryWorkspacePage() {
   });
 
   useEffect(() => {
-    if ((!canViewSuppliers && tab === "suppliers") || (!canManageSupplierPayments && tab === "supplierPayments") || (!canReadPurchases && tab === "purchases") || (!canViewInventory && tab === "stock") || (!canViewInventoryReports && tab === "reports") || (!canViewInventory && tab === "catalog") || (!canViewInventory && tab === "warehouses")) {
+    if ((!canViewSuppliers && tab === "suppliers") || (!canManageSupplierPayments && tab === "supplierPayments") || (!canReadPurchases && tab === "purchases") || ((!canViewInventory && !canAccessStocktakes) && tab === "stock") || (!canViewInventoryReports && tab === "reports") || (!canViewInventory && tab === "catalog") || (!canViewInventory && tab === "warehouses")) {
       setTab(
         canViewInventory ? "catalog"
           : canViewSuppliers ? "suppliers"
           : canManageSupplierPayments ? "supplierPayments"
+          : canAccessStocktakes ? "stock"
           : canReadPurchases ? "purchases"
           : canViewInventoryReports ? "reports"
           : "catalog",
       );
     }
-  }, [canViewSuppliers, canManageSupplierPayments, canReadPurchases, canViewInventory, canViewInventoryReports, tab]);
+  }, [canViewSuppliers, canManageSupplierPayments, canReadPurchases, canViewInventory, canViewInventoryReports, canAccessStocktakes, tab]);
 
   const selectedSiteName = useMemo(() => sites.data?.find((site) => site.id === siteId)?.name ?? "", [sites.data, siteId]);
 
@@ -259,7 +265,7 @@ export default function InventoryWorkspacePage() {
                 {canViewSuppliers ? <TabsTrigger value="suppliers" className="gap-2"><Store className="h-4 w-4" /> الموردون والذمم</TabsTrigger> : null}
                 {canManageSupplierPayments ? <TabsTrigger value="supplierPayments" className="gap-2"><CreditCard className="h-4 w-4" /> دفعات الموردين</TabsTrigger> : null}
                 {canViewInventory ? <TabsTrigger value="warehouses" className="gap-2"><Warehouse className="h-4 w-4" /> المخازن</TabsTrigger> : null}
-                {canViewInventory ? <TabsTrigger value="stock" className="gap-2"><ArrowLeftRight className="h-4 w-4" /> الأرصدة والحركات</TabsTrigger> : null}
+                {canViewInventory || canAccessStocktakes ? <TabsTrigger value="stock" className="gap-2">{canAccessStocktakes && !canViewInventory ? <ClipboardCheck className="h-4 w-4" /> : <ArrowLeftRight className="h-4 w-4" />} {canAccessStocktakes && !canViewInventory ? "الجرد الفعلي" : "الأرصدة والحركات"}</TabsTrigger> : null}
                 {canReadPurchases ? <TabsTrigger value="purchases" className="gap-2"><ClipboardList className="h-4 w-4" /> المشتريات</TabsTrigger> : null}
                 {canViewInventoryReports ? <TabsTrigger value="reports" className="gap-2"><FileSpreadsheet className="h-4 w-4" /> التقارير والتصدير</TabsTrigger> : null}
               </TabsList>
@@ -366,20 +372,29 @@ export default function InventoryWorkspacePage() {
               </Card>
             </TabsContent> : null}
 
-            {canViewInventory ? <TabsContent value="stock" className="space-y-4">
-              <InventoryWarehouseTransferPanel
+            {canViewInventory || canAccessStocktakes ? <TabsContent value="stock" className="space-y-4">
+              {canViewInventory ? <>
+                <InventoryWarehouseTransferPanel
+                  siteId={siteId}
+                  isAuthenticated={isAuthenticated}
+                  canAdjustInventory={canAdjustInventory}
+                />
+                <InventoryStockOperationsPanel
+                  siteId={siteId}
+                  isAuthenticated={isAuthenticated}
+                  canIssueInventory={canIssueInventory}
+                  canAdjustInventory={canAdjustInventory}
+                  canManageFuelAndConsumption={canManageFuelAndConsumption}
+                  canViewInventoryReports={canViewInventoryReports}
+                />
+              </> : null}
+              {canAccessStocktakes ? <InventoryStocktakePanel
                 siteId={siteId}
                 isAuthenticated={isAuthenticated}
-                canAdjustInventory={canAdjustInventory}
-              />
-              <InventoryStockOperationsPanel
-                siteId={siteId}
-                isAuthenticated={isAuthenticated}
-                canIssueInventory={canIssueInventory}
-                canAdjustInventory={canAdjustInventory}
-                canManageFuelAndConsumption={canManageFuelAndConsumption}
-                canViewInventoryReports={canViewInventoryReports}
-              />
+                canViewStocktakes={canViewStocktakes}
+                canManageStocktakes={canManageStocktakes}
+                canApproveStocktakes={canApproveStocktakes}
+              /> : null}
             </TabsContent> : null}
 
             {canViewInventoryReports ? <TabsContent value="reports" className="space-y-4"><InventoryReportsPanel siteId={siteId} isAuthenticated={isAuthenticated} canViewInventoryReports={canViewInventoryReports} /></TabsContent> : null}
