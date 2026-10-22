@@ -13,7 +13,6 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(runtime).toContain("maintenance: powerhubMaintenanceRouter");
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance")');
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventory")');
-    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance")');
     expect(router).toContain('"issueInventory"');
     expect(router).toContain('"manageExpenses"');
     expect(router).toContain("evaluateDuePlans");
