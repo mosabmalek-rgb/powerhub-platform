@@ -69,7 +69,7 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("canViewSupplierLedger ? <Metric label=\"الذمم المستحقة للموردين\"");
     expect(dashboard).toContain("المرحلة B");
     expect(dashboard).toContain("المرحلة C");
-    expect(dashboard).toContain("لا نستبدل البيانات المفقودة بأرقام تقديرية");
+    expect(dashboard).toContain("لم نستبدل البيانات المفقودة بأرقام تقديرية");
     expect(router).toContain("powerhub_inventory_stock_overview");
     expect(router).toContain("powerhub_inventory_supplier_payables_aging");
   });
