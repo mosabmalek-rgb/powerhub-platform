@@ -120,9 +120,9 @@ export default function InventorySupplierPayablesAgingPanel({
       root = document.createElement("div");
       root.dir = "rtl";
       root.style.cssText = "position:fixed;left:-20000px;top:0;width:1200px;background:#fff;color:#111827;padding:32px;font-family:Arial,sans-serif;direction:rtl;text-align:right";
-      const cell = (value: unknown) => "<td style=\\"border:1px solid #d1d5db;padding:5px;vertical-align:top\\">" + escapeHtml(String(value ?? "—")) + "</td>";
+      const cell = (value: unknown) => "<td style=\"border:1px solid #d1d5db;padding:5px;vertical-align:top\">" + escapeHtml(String(value ?? "—")) + "</td>";
       const headers = ["المورد","نوع المستند","المرجع","تاريخ المستند","الاستحقاق","قيمة المستند","المدفوع","الائتمان","المتبقي","التأخير"];
-      const table = "<table style=\\"width:100%;border-collapse:collapse;margin:16px 0;font-size:10px\\"><thead><tr style=\\"background:#111827;color:#fff\\">" + headers.map((h) => "<th style=\\"border:1px solid #9ca3af;padding:6px\\">" + escapeHtml(h) + "</th>").join("") + "</tr></thead><tbody>" + result.rows.map((row) => "<tr>" + [
+      const table = "<table style=\"width:100%;border-collapse:collapse;margin:16px 0;font-size:10px\"><thead><tr style=\"background:#111827;color:#fff\">" + headers.map((h) => "<th style=\"border:1px solid #9ca3af;padding:6px\">" + escapeHtml(h) + "</th>").join("") + "</tr></thead><tbody>" + result.rows.map((row) => "<tr>" + [
         row.supplier_name,
         row.document_type === "purchase_invoice" ? "فاتورة مشتريات" : "رصيد افتتاحي",
         row.document_number,
@@ -134,7 +134,7 @@ export default function InventorySupplierPayablesAgingPanel({
         amount(row.outstanding_amount),
         Number(row.days_overdue) > 0 ? Number(row.days_overdue) + " يومًا" : "غير متأخر",
       ].map(cell).join("") + "</tr>").join("") + "</tbody></table>";
-      root.innerHTML = "<header style=\\"display:flex;align-items:center;justify-content:space-between;gap:20px;border-bottom:3px solid #d4a017;padding-bottom:10px\\"><div><h1 style=\\"font-size:22px;margin:0\\">" + escapeHtml(branding.data?.companyName || "PowerHub") + " — أعمار ذمم الموردين</h1><p>الفرع: " + siteId + " | حتى تاريخ: " + escapeHtml(result.as_of_date) + "</p></div>" + (branding.data?.logoUrl ? "<img alt=\\"شعار الشركة\\" src=\\"" + escapeHtml(branding.data.logoUrl) + "\\" style=\\"max-width:150px;max-height:70px;object-fit:contain\\">" : "") + "</header><h2>ملخص الذمم</h2><p>غير مستحقة: " + escapeHtml(amount(totals?.not_due)) + " | 1–30: " + escapeHtml(amount(totals?.days_1_30)) + " | 31–60: " + escapeHtml(amount(totals?.days_31_60)) + " | 61–90: " + escapeHtml(amount(totals?.days_61_90)) + " | 91+: " + escapeHtml(amount(totals?.days_91_plus)) + " | الإجمالي: " + escapeHtml(amount(totals?.total_outstanding)) + "</p><h2>تفاصيل الذمم</h2>" + table;
+      root.innerHTML = "<header style=\"display:flex;align-items:center;justify-content:space-between;gap:20px;border-bottom:3px solid #d4a017;padding-bottom:10px\"><div><h1 style=\"font-size:22px;margin:0\">" + escapeHtml(branding.data?.companyName || "PowerHub") + " — أعمار ذمم الموردين</h1><p>الفرع: " + siteId + " | حتى تاريخ: " + escapeHtml(result.as_of_date) + "</p></div>" + (branding.data?.logoUrl ? "<img alt=\"شعار الشركة\" src=\"" + escapeHtml(branding.data.logoUrl) + "\" style=\"max-width:150px;max-height:70px;object-fit:contain\">" : "") + "</header><h2>ملخص الذمم</h2><p>غير مستحقة: " + escapeHtml(amount(totals?.not_due)) + " | 1–30: " + escapeHtml(amount(totals?.days_1_30)) + " | 31–60: " + escapeHtml(amount(totals?.days_31_60)) + " | 61–90: " + escapeHtml(amount(totals?.days_61_90)) + " | 91+: " + escapeHtml(amount(totals?.days_91_plus)) + " | الإجمالي: " + escapeHtml(amount(totals?.total_outstanding)) + "</p><h2>تفاصيل الذمم</h2>" + table;
       document.body.appendChild(root);
       await downloadReportHtmlAsPdf(root, "أعمار-ذمم-الموردين-" + siteId + ".pdf", { landscape: true, title: "أعمار ذمم الموردين - PowerHub" });
       toast.success("تم إنشاء تقرير PDF عربي لأعمار الذمم.");
