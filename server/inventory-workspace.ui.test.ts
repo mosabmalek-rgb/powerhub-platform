@@ -42,6 +42,7 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain("trpc.powerhub.inventory.createItem.useMutation");
     expect(page).toContain("trpc.powerhub.inventory.createSupplier.useMutation");
     expect(page).toContain("trpc.powerhub.inventory.createWarehouse.useMutation");
+    const runtimeRouter = read("server/powerhub-inventory-router.ts");
     const purchasePanel = read("client/src/components/InventoryPurchasesPanel.tsx");
     expect(purchasePanel).toContain("recordSupplierPayment.useMutation");
     expect(purchasePanel).toContain("حالة السداد");
