@@ -88,6 +88,18 @@ declare
   v_payroll_id bigint; v_net numeric; v_salary_status text; v_loan_remaining numeric; v_balance numeric;
   v_before_transactions integer; v_repayment_id bigint; v_second_payroll_id bigint; v_third_payroll_id bigint; v_cancelled boolean;
 begin
+  -- Legacy generic adjustment endpoint must not create advances without an account transaction.
+  begin
+    perform * from public.powerhub_create_employee_adjustment(1,100,10,1,'advance',50,'اختبار منع السلفة القديمة');
+    raise exception 'EXPECTED_LEGACY_ADVANCE_BLOCK';
+  exception when others then
+    if sqlerrm not in ('USE_EMPLOYEE_ADVANCE_RPC','EXPECTED_LEGACY_ADVANCE_BLOCK') then raise; end if;
+    if sqlerrm='EXPECTED_LEGACY_ADVANCE_BLOCK' then raise; end if;
+  end;
+  if (select count(*) from public.employee_adjustments where tenant_id=1)<>0 then
+    raise exception 'LEGACY_ADVANCE_BLOCK_CREATED_SIDE_EFFECT';
+  end if;
+
   -- Reject insufficient cash before creating either a receivable or cash transaction.
   begin
     perform * from public.powerhub_issue_employee_advance(1,100,10,1,'salary_advance',5001,null,1,'2026-10-04','اختبار رصيد غير كاف','issue-insufficient-1');
@@ -220,6 +232,7 @@ begin
   end;
 
   if has_function_privilege('authenticated','public.powerhub_issue_employee_advance(bigint,bigint,bigint,bigint,text,numeric,numeric,bigint,date,text,text)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_ISSUE_RPC'; end if;
+  if has_function_privilege('authenticated','public.powerhub_create_employee_adjustment(bigint,bigint,bigint,bigint,text,numeric,text)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_LEGACY_ADJUSTMENT_RPC'; end if;
   if has_function_privilege('authenticated','public.powerhub_repay_employee_advance(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_REPAY_RPC'; end if;
   if not has_function_privilege('service_role','public.powerhub_issue_employee_advance(bigint,bigint,bigint,bigint,text,numeric,numeric,bigint,date,text,text)','EXECUTE') then raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_ISSUE_RPC'; end if;
   if has_function_privilege('authenticated','public.powerhub_cancel_payroll_draft(bigint,bigint,bigint,bigint)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_CANCEL_PAYROLL_RPC'; end if;
