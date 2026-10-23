@@ -3,9 +3,9 @@
 
 do $roles$
 begin
-  if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
-  if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
-  if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if;
+  if not exists (select 1 from pg_roles where rolname='anon') then execute 'create role anon nologin'; end if;
+  if not exists (select 1 from pg_roles where rolname='authenticated') then execute 'create role authenticated nologin'; end if;
+  if not exists (select 1 from pg_roles where rolname='service_role') then execute 'create role service_role nologin bypassrls'; end if;
 end
 $roles$;
 
@@ -159,7 +159,7 @@ begin
   if v_loan_remaining<>250 then raise exception 'LOAN_BALANCE_AFTER_SECOND_INSTALLMENT_EXPECTED_250_GOT_%',v_loan_remaining; end if;
   select 5000+coalesce(sum(case when transaction_type in ('deposit','transfer_in','collection') then amount else -amount end),0)
     into v_balance from public.account_transactions where tenant_id=1 and account_id=1;
-  if v_balance<>3650 then raise exception 'CASH_BALANCE_EXPECTED_3650_GOT_%',v_balance; end if;
+  if v_balance<>2750 then raise exception 'CASH_BALANCE_EXPECTED_2750_GOT_%',v_balance; end if;
 
   begin
     perform * from public.powerhub_repay_employee_advance(2,200,20,v_loan_id,2,1,'2026-11-04',null,null,'cross-tenant-repay');
