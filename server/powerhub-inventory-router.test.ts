@@ -768,14 +768,14 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
-  it("paginates Phase D financial events and masks event types outside the user's finance capabilities", async () => {
+  it("filters Phase D financial events before pagination so hidden event cursors are never returned", async () => {
     state.siteAccess.mockReset().mockResolvedValue({
       tenantId: 44, role: "accountant", permissions: ["viewInventoryReports", "viewPurchases"], usesPermissionOverride: true,
     });
     state.rpc.mockReset().mockResolvedValue({ data: [
       { event_date: "2026-10-01", event_type: "purchase_invoice", event_id: 10, reference_no: "PO-10", counterparty_name: "Supplier A", status: "received", amount: "50.00", related_reference: "INV-10", refund_amount: "0.00", allocation_count: 0 },
-      { event_date: "2026-10-02", event_type: "supplier_payment", event_id: 20, reference_no: "PAY-20", counterparty_name: "Supplier A", status: "posted", amount: "25.00", related_reference: "PO-10", refund_amount: "0.00", allocation_count: 1 },
-      { event_date: "2026-10-03", event_type: "supplier_return", event_id: 30, reference_no: "RET-30", counterparty_name: "Supplier A", status: "posted", amount: "5.00", related_reference: "PO-10", refund_amount: "0.00", allocation_count: 0 },
+      { event_date: "2026-10-02", event_type: "purchase_invoice", event_id: 11, reference_no: "PO-11", counterparty_name: "Supplier A", status: "received", amount: "30.00", related_reference: "INV-11", refund_amount: "0.00", allocation_count: 0 },
+      { event_date: "2026-10-03", event_type: "purchase_invoice", event_id: 12, reference_no: "PO-12", counterparty_name: "Supplier A", status: "received", amount: "20.00", related_reference: "INV-12", refund_amount: "0.00", allocation_count: 0 },
     ], error: null });
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.phaseDFinancialDetails;
@@ -783,18 +783,42 @@ describe("PowerHub inventory catalog and supplier API", () => {
       ctx: { user: { id: 55 } },
       input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23", limit: 2 },
     });
-    expect(result.items).toEqual([{
-      event_date: "2026-10-01", event_type: "purchase_invoice", event_id: 10,
-      reference_no: "PO-10", counterparty_name: "Supplier A", status: "received", amount: 50,
-      related_reference: "INV-10", refund_amount: 0, allocation_count: 0,
-    }]);
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map((row: { event_id: number; event_type: string }) => [row.event_type, row.event_id])).toEqual([
+      ["purchase_invoice", 10], ["purchase_invoice", 11],
+    ]);
     expect(result.hasMore).toBe(true);
     expect(result.nextCursor).toEqual({
-      afterDate: "2026-10-02", afterEventType: "supplier_payment", afterEventId: 20,
+      afterDate: "2026-10-02", afterEventType: "purchase_invoice", afterEventId: 11,
     });
     expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_phase_d_financial_details", {
       p_tenant_id: 44, p_site_id: 7, p_from_date: "2026-10-01", p_to_date: "2026-10-23",
       p_limit: 3, p_after_date: null, p_after_event_type: null, p_after_event_id: null,
+      p_include_purchase_invoices: true, p_include_supplier_events: false,
+    });
+
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "accountant", permissions: ["viewInventoryReports", "viewSupplierLedger"], usesPermissionOverride: true,
+    });
+    state.rpc.mockReset().mockResolvedValue({ data: [
+      { event_date: "2026-10-01", event_type: "supplier_payment", event_id: 20, reference_no: "PAY-20", counterparty_name: "Supplier A", status: "posted", amount: "25.00", related_reference: "PO-10", refund_amount: "0.00", allocation_count: 1 },
+      { event_date: "2026-10-02", event_type: "supplier_return", event_id: 30, reference_no: "RET-30", counterparty_name: "Supplier A", status: "posted", amount: "5.00", related_reference: "PO-10", refund_amount: "0.00", allocation_count: 0 },
+      { event_date: "2026-10-03", event_type: "supplier_payment", event_id: 21, reference_no: "PAY-21", counterparty_name: "Supplier A", status: "posted", amount: "9.00", related_reference: "PO-11", refund_amount: "0.00", allocation_count: 1 },
+    ], error: null });
+    const supplierResult = await query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23", limit: 2 },
+    });
+    expect(supplierResult.items.map((row: { event_type: string; event_id: number }) => [row.event_type, row.event_id])).toEqual([
+      ["supplier_payment", 20], ["supplier_return", 30],
+    ]);
+    expect(supplierResult.nextCursor).toEqual({
+      afterDate: "2026-10-02", afterEventType: "supplier_return", afterEventId: 30,
+    });
+    expect(state.rpc).toHaveBeenLastCalledWith("powerhub_inventory_phase_d_financial_details", {
+      p_tenant_id: 44, p_site_id: 7, p_from_date: "2026-10-01", p_to_date: "2026-10-23",
+      p_limit: 3, p_after_date: null, p_after_event_type: null, p_after_event_id: null,
+      p_include_purchase_invoices: false, p_include_supplier_events: true,
     });
   });
   it("requires inventory report permission before querying Phase D financial totals", async () => {
