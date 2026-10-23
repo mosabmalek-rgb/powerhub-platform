@@ -247,7 +247,7 @@ create or replace function public.powerhub_approve_payroll(
 )
 returns table (payroll_run_id bigint)
 language plpgsql security invoker set search_path=public,pg_temp
-as $
+as $$
 declare v_period text; v_status text; v_period_start timestamptz; v_period_end timestamptz; v_role text;
 begin
   perform pg_advisory_xact_lock(p_site_id, hashtext('payroll-approve:' || p_payroll_run_id::text));
@@ -266,13 +266,13 @@ begin
     values(p_tenant_id,p_site_id,p_user_id,v_role,'payroll_run',p_payroll_run_id::text,'approve',jsonb_build_object('period',v_period,'previousStatus',v_status,'status','approved'));
   return query select p_payroll_run_id;
 end;
-$;
+$$;
 create or replace function public.powerhub_pay_payroll(
   p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_payroll_run_id bigint, p_account_id bigint
 )
 returns table (payroll_run_id bigint, expense_id bigint, transaction_id bigint)
 language plpgsql security invoker set search_path=public,pg_temp
-as $
+as $$
 declare
   v_run public.payroll_runs%rowtype; v_account public.company_accounts%rowtype; v_period_start timestamptz; v_period_end timestamptz;
   v_balance numeric(14,2); v_expense_id bigint; v_transaction_id bigint; v_role text; v_allocation record; v_remaining numeric(12,2); v_allocation_count integer:=0;
@@ -315,7 +315,7 @@ begin
     values(p_tenant_id,p_site_id,p_user_id,v_role,'payroll_run',p_payroll_run_id::text,'pay',jsonb_build_object('expenseId',v_expense_id,'transactionId',v_transaction_id,'accountId',p_account_id,'grossExpenseAmount',v_run.total_gross,'netPaidAmount',v_run.total_net,'totalDeductions',v_run.total_deductions,'advanceAllocationCount',v_allocation_count));
   return query select p_payroll_run_id,v_expense_id,v_transaction_id;
 end;
-$;
+$$;
 revoke execute on function public.powerhub_create_payroll_draft(bigint,bigint,bigint,text,jsonb) from public, anon, authenticated;
 grant execute on function public.powerhub_create_payroll_draft(bigint,bigint,bigint,text,jsonb) to service_role;
 create or replace function public.powerhub_create_payroll_draft(
