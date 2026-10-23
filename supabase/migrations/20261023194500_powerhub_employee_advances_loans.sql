@@ -351,9 +351,9 @@ begin
   values(p_tenant_id,p_site_id,p_user_id,v_role,'payroll_run',p_payroll_run_id::text,'cancel',
     jsonb_build_object('period',v_run.period,'status',v_run.status),
     jsonb_build_object('period',v_run.period,'status','cancelled','reservationsReleased',true));
-  return query select p_payroll_run_id,false;
+  return query select p_payroll_run_id,true;
 end;
-$$;
+$;
 
 create or replace function public.powerhub_pay_payroll(
   p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_payroll_run_id bigint, p_account_id bigint
