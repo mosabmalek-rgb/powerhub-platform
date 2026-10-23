@@ -1,6 +1,6 @@
 # PowerHub Inventory, Fuel, Purchasing & Maintenance — Closure Register
 
-**Status date:** 2026-10-22  
+**Status date:** 2026-10-23  
 **Baseline:** `main` at `43575b04506ebdf9354066d1ba79538c0f50730b` (verified after PR #318 merge on 2026-10-22)  
 **Approved source:** the 19-page user-approved proposal for “إدارة الوقود والمخزون والصيانة PowerHub”.  
 **Purpose:** durable source of truth for implementation across PRs and conversations. Do not treat visible tabs, capability names, or passing CI alone as proof that a workflow is complete.
@@ -19,7 +19,7 @@
 
 The final workspace should expose these nine logical tabs beneath the single “المخزون والمشتريات والصيانة” header; implementation can share components internally but must not lose any function:
 
-- [x] لوحة التحكم — source-backed current inventory metrics and supplier debt; fuel/maintenance KPIs remain Phase B/C.
+- [x] لوحة التحكم — source-backed inventory, supplier debt, fuel measurement, maintenance, procurement/settlement and per-generator recorded operating-cost indicators by selected branch and period.
 - [x] دليل الأصناف — create/view/edit/deactivate; durable item code, category, base unit, reorder point, specification; duplicate protection and referenced-history guards.
 - [ ] المشتريات — supplier invoices and lines, purchase/due dates, unit conversions, discounts/tax/charges, draft/approval, physical partial/full receipts, and payment state.
 - [x] Phase C maintenance now includes deduplicated in-app preventive due alerts and a site-scoped per-generator/date-range CSV report for recurring work titles, downtime, order counts and cost breakdown. Full shared Excel/RTL PDF exports and company-wide aggregation remain open.
@@ -28,7 +28,7 @@ The final workspace should expose these nine logical tabs beneath the single “
 - [ ] دفعات الموردين — one or multiple invoice allocations, existing company-account selector, partial/full settlement, reference, reversal, atomic account/ledger/audit effects.
 - [ ] الوقود والاستهلاك — (Phase B) refuelling records, source/target tanks, historical fuel-level and operating-hour readings, measured actual consumption where inputs support it, litres/hour, alerts, reports.
 - [ ] الصيانة — (Phase C) work orders, breakdowns, preventive schedules, assigned staff, downtime, parts/oils, labour/external service cost, closeout, due alerts and machine history.
-- [ ] التقارير والتصدير — Phase A now includes stock balances/movements, supplier aging, complete filtered CSV, multi-sheet Excel and branded RTL Arabic PDF; purchase/fuel/maintenance/machine-cost report coverage remains to close.
+- [x] التقارير والتصدير — Phase A stock reports plus Phase D CSV, seven-sheet Excel and branded RTL Arabic PDF for stock, paginated movements, procurement/settlement/returns, fuel measurement and maintenance costs; final release gates remain open below.
 
 ## Phase A — close stock, purchasing, suppliers and payables
 
@@ -61,7 +61,8 @@ The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed Powe
 - [x] Supplier payable aging: not-due and 1–30/31–60/61–90/91+ overdue bands and totals, scoped by tenant/site and financial-view permission.
 - [x] Supplier/payables details: supplier ledger and payment history are available; the aging report exposes as-of-date buckets and exports its full rows and totals to a right-to-left Excel worksheet and Arabic PDF.
 - [x] Database-level reconciliation rehearsal on staging: two purchases (partial then complete receipts), opening payable, one payment allocated across two invoices, supplier return, payment reversal, warehouse transfer, issue/return, stocktake posting, final stock quantity/value and supplier aging totals all reconciled inside one transaction. The deliberate rollback sentinel aborted the transaction, and follow-up counts confirmed no fixture item, supplier, warehouse, purchase, payment, return or stocktake remained.
-- [ ] Review fine-grained capabilities against each operation (view/create/edit/deactivate/approve/receive/pay/reverse/stocktake/report); show the effective permission result in platform administration. Current per-staff overrides intentionally exclude owner profiles in their current RPC; resolve this against the approved “each user” intent explicitly before closure.
+- [x] Owner and staff individual capability overrides are both supported; administration shows effective permission outcomes and records role-policy, staff-override and owner-override changes in the existing security/permission audit stores.
+- [ ] Finish the operation-by-operation capability matrix review (view/create/edit/deactivate/approve/receive/pay/reverse/stocktake/report) and verify all denials at the final branch head; the existing UI/RPC/audit paths do not replace this end-to-end acceptance gate.
 - [x] UI-contract tests and disposable PostgreSQL integration assertions cover lifecycle, stocktake, units, opening balance, batch payments, aging, permissions, idempotency, tenant isolation and reconciliation scenarios.
 - [x] Tenant audit-role compatibility: platform roles are preserved, tenant actors remain `NULL` in `audit_logs.actor_platform_role`, and item-unit deactivation reasons are stored in the shared `metadata` JSONB column rather than a nonexistent `reason` column. Staging smoke checks passed after correction.
 - [x] Phase A FK index review: added indexes for item-unit actor, stocktake actor and stocktake item FKs; the post-migration staging advisor query no longer reports unindexed FKs for `inventory_item_units` or `inventory_stocktakes`.
@@ -105,16 +106,19 @@ The Phase B release gate remains open until a Preview is verified to use staging
 - [x] Deduplicated in-app preventive alerts and per-generator/date-range CSV cost/downtime summary.
 - [ ] Complete role-by-role capability verification, broader tenant/site/generator isolation and rollback acceptance, recurring-fault semantics review, full company-wide reports and branded Excel/PDF exports, and authorized staging/browser E2E.
 
-## Phase D — dashboard, reporting and release closure (not yet complete)
+## Phase D — dashboard, reporting and release closure (implementation complete; acceptance gates open)
 
-- [ ] Dashboard with live aggregate values from canonical tables, not fixture/static values.
-- [ ] Unified branch/generator/category/item/day/cycle/month/custom-period filters; reuse PowerHub cycle configuration.
-- [ ] Complete inventory movements, low stock, purchases, supplier payments, payable aging, fuel fill/actual use, maintenance, and generator operating-cost reports.
-- [ ] Separate inventory purchases from operating consumption to prevent duplicate cost.
-- [ ] Complete CSV; multi-sheet Excel (summary/details/movements); RTL Arabic PDF with logo, branch, applied filters and report timestamp.
-- [ ] Show effective permissions in administration and audit any policy change.
-- [ ] Required gate run: type-check, full test suite/build, security, Supabase admin guard, PostgreSQL integration, all permission-denial and tenant/site isolation checks.
-- [ ] Stage end-to-end and migration parity; production rollout only after explicit release gate and safe migration review.
+- [x] Dashboard metrics now load from canonical inventory, supplier-aging, cycle, fuel, maintenance, and procurement/settlement sources. Missing/failed sources are shown as unavailable, not fabricated zeroes.
+- [x] Unified selected-branch, generator, warehouse, category, item/search, day/configured-cycle/month/custom-period filters. The shared workspace's branch selection remains the branch scope; stock and movement filters are explicit, while supplier totals remain document/branch-period values rather than being falsely allocated to stock categories.
+- [x] Completed selected-branch reports for stock balances/low stock, keyset-paginated inventory movements, approved purchase invoices, posted supplier payments, supplier return credits, payable aging, filled fuel, measured actual use, maintenance breakdown/cost/downtime, and generator-by-generator recorded fuel-transfer and maintenance costs.
+- [x] Inventory purchases, cash settlements, supplier-return credits, fuel transfer value and work-order costs remain distinct financial event types. A purchase or payment is not added again as a new operating expense; incomplete tank readings do not produce a partial value labeled as total actual consumption.
+- [x] Unified CSV; seven-sheet Excel (summary, balances, movements, fuel, maintenance, generator operating-cost breakdown, procurement/payments/returns); branded right-to-left Arabic PDF with report logo when configured, selected branch, filters, Asia/Gaza timestamp, and a 2,000 movement/financial-event PDF cap. CSV user-controlled text is guarded against spreadsheet-formula injection.
+- [x] Effective role/user permissions are visible in the existing platform administration surface. Role-policy updates and individual staff/owner overrides already use audited database RPC paths; no parallel permission system was added.
+- [x] Added permission-denial and pagination contract tests for the Phase D summary/details RPCs, category metadata on movement pages, and disposable PostgreSQL reconciliation/ACL/keyset checks for the financial event detail ledger.
+- [ ] Final-head CI must pass: TypeScript, full tests, production build, Supabase Admin Guard, Security and PostgreSQL integration. A branch file update or a successful static code review is not a CI pass.
+- [ ] Review final database migration identity, clean PostgreSQL execution, and staging migration/schema parity; do not run purchasing/payment/stock mutation scenarios against production.
+- [ ] Authorized staging/browser E2E for filter behavior and CSV/Excel/PDF download, including role-specific screens. No browser E2E is claimed by the current code/contract tests.
+- [ ] Production rollout remains gated on explicit release approval, post-merge migration review, a staging-only verification environment, and a documented rollback candidate.
 
 ## Phase B fuel completion package (2026-10-22)
 
