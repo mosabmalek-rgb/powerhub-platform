@@ -6,6 +6,10 @@ const migration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20261021085533_powerhub_inventory_supplier_foundation.sql"),
   "utf8",
 );
+const coreDmlAclMigration = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20261023160000_powerhub_core_financial_direct_dml_hardening.sql"),
+  "utf8",
+);
 
 describe("PowerHub inventory and supplier-ledger foundation", () => {
   it("creates tenant-scoped catalog, warehouses, suppliers, purchases, stock movements, and supplier ledger", () => {
@@ -58,6 +62,18 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
     expect(migration).toContain("revoke insert, update, delete, truncate, references, trigger on table public.%I from authenticated");
     expect(migration).toContain("grant select on table public.%I to authenticated");
     expect(migration).toContain("revoke all on table public.%I from public, anon");
+  });
+
+  it("blocks direct client DML on account and financial ledgers without removing read grants", () => {
+    expect(coreDmlAclMigration.toLowerCase()).toContain(
+      "revoke insert, update, delete, truncate",
+    );
+    for (const table of ["account_transactions", "audit_logs", "company_accounts", "expenses"]) {
+      expect(coreDmlAclMigration).toContain(`public.${table}`);
+    }
+    expect(coreDmlAclMigration).toContain("from anon, authenticated");
+    expect(coreDmlAclMigration.toLowerCase()).not.toContain("revoke select");
+    expect(coreDmlAclMigration.toLowerCase()).not.toContain("revoke all");
   });
 
   it("does not change existing expense records or automatically apply migrations to a live database", () => {

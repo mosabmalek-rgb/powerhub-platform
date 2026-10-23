@@ -140,6 +140,13 @@ jobs:
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/migrations/20261022090000_powerhub_inventory_foreign_key_indexes.sql
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_foreign_key_indexes.sql
 
+      - name: Verify core financial tables reject direct client mutations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres inventory_core_dml_acl_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_core_dml_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_core_direct_dml_acl.sql
+
       - name: Verify concurrent inventory issues, idempotency, and ledger reconciliation
         env:
           PGPASSWORD: postgres
