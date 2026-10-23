@@ -328,6 +328,7 @@ insert into public.tenant_reading_cycle_configurations(
 \ir ../migrations/20261022221000_powerhub_fuel_alert_settings_and_evaluator.sql
 \ir ../migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql
 \ir ../migrations/20261023120000_powerhub_inventory_phase_d_financial_details_acl_filter.sql
+\ir ../migrations/20261023130000_powerhub_inventory_phase_d_schema_cache_reload.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
