@@ -481,6 +481,17 @@ export default function InventoryDashboardPanel({
           numberOf(row.parts_cost), numberOf(row.labor_cost), numberOf(row.external_service_cost), numberOf(row.total_cost_amount),
         ]),
         [],
+        ["التكلفة التشغيلية المسجلة حسب المولد — دون جمع مصادر مالية مختلفة"],
+        ["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","الاستهلاك المقاس لتر","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],
+        ...generatorOperatingRows.map((row) => [
+          row.generator_name, row.tank_count ?? "غير متاح",
+          row.filled_liters == null ? "غير متاح" : row.filled_liters,
+          row.filled_cost == null ? "غير متاح" : row.filled_cost,
+          row.actual_consumption_liters == null ? "قياس غير مكتمل" : row.actual_consumption_liters,
+          row.maintenance_orders ?? "غير متاح", row.maintenance_downtime ?? "غير متاح",
+          row.maintenance_cost == null ? "غير متاح" : row.maintenance_cost,
+        ]),
+        [],
         ["تفاصيل فواتير المشتريات ودفعات الموردين والمرتجعات"],
         ["التاريخ","نوع الحدث","رقم المرجع","المورد","الحالة","القيمة","المرجع المرتبط","المبلغ المسترد نقدًا","عدد التوزيعات"],
         ...financialEvents.map((row) => [
@@ -550,6 +561,15 @@ export default function InventoryDashboardPanel({
         numberOf(row.external_service_cost),numberOf(row.total_cost_amount),
       ]));
       maintenance.columns = [{width:26},{width:36},{width:14},{width:16},{width:14},{width:14},{width:18},{width:18},{width:18},{width:20},{width:24}];
+      const operating = workbook.addWorksheet("تكلفة تشغيل المولدات", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
+      operating.addRow(["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","الاستهلاك المقاس لتر","أوامر الصيانة","بلاغات الأعطال","التوقف بالدقائق","تكلفة الصيانة المسجلة"]);
+      generatorOperatingRows.forEach((row) => operating.addRow([
+        row.generator_name, row.tank_count ?? "غير متاح", row.filled_liters ?? "غير متاح",
+        row.filled_cost ?? "غير متاح", row.actual_consumption_liters ?? "قياس غير مكتمل",
+        row.maintenance_orders ?? "غير متاح", row.maintenance_breakdowns ?? "غير متاح",
+        row.maintenance_downtime ?? "غير متاح", row.maintenance_cost ?? "غير متاح",
+      ]));
+      operating.columns = [{width:28},{width:16},{width:20},{width:22},{width:23},{width:18},{width:18},{width:18},{width:24}];
       const finance = workbook.addWorksheet("المشتريات والدفعات", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
       finance.addRow(["التاريخ","نوع الحدث","رقم المرجع","المورد","الحالة","القيمة","المرجع المرتبط","المبلغ المسترد نقدًا","عدد التوزيعات"]);
       financialEvents.forEach((row) => finance.addRow([
@@ -559,7 +579,7 @@ export default function InventoryDashboardPanel({
         numberOf(row.refund_amount),numberOf(row.allocation_count),
       ]));
       finance.columns = [{width:16},{width:22},{width:24},{width:28},{width:18},{width:18},{width:35},{width:22},{width:18}];
-      for (const sheet of [stockSheet,movements,fuel,maintenance,finance]) {
+      for (const sheet of [stockSheet,movements,fuel,maintenance,operating,finance]) {
         sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheet.columnCount } };
         sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
         sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
@@ -574,7 +594,7 @@ export default function InventoryDashboardPanel({
       const a = document.createElement("a");
       a.href = url; a.download = `powerhub-phase-d-report-${siteId}-${dateRange?.fromDate}-${dateRange?.toDate}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-      toast.success(`تم تصدير تقرير Phase D في ست أوراق مع ${moves.length.toLocaleString("ar-PS")} حركة و${financialEvents.length.toLocaleString("ar-PS")} حدثًا ماليًا.`);
+      toast.success(`تم تصدير تقرير Phase D في سبع أوراق مع ${moves.length.toLocaleString("ar-PS")} حركة و${financialEvents.length.toLocaleString("ar-PS")} حدثًا ماليًا.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر إنشاء تقرير Excel الموحد.");
     } finally { setExportingReport(false); }
@@ -624,6 +644,13 @@ export default function InventoryDashboardPanel({
           row.generator_name,row.tank_name,quantity(numberOf(row.fuel_filled_liters))+" لتر",amount(numberOf(row.fuel_filled_cost)),
           row.actual_consumption_liters==null?"غير متاح":quantity(numberOf(row.actual_consumption_liters))+" لتر",
           row.litres_per_hour==null?"غير متاح":quantity(numberOf(row.litres_per_hour)),row.measurement_status,
+        ])) +
+        "<h2>التكلفة التشغيلية المسجلة حسب المولد</h2>" +
+        table(["المولد","الخزانات","الوقود المعبأ","قيمة الوقود المنقول","الاستهلاك المقاس","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],generatorOperatingRows.map((row)=>[
+          row.generator_name,row.tank_count??"غير متاح",row.filled_liters==null?"غير متاح":quantity(row.filled_liters)+" لتر",
+          row.filled_cost==null?"غير متاح":amount(row.filled_cost),row.actual_consumption_liters==null?"قياس غير مكتمل":quantity(row.actual_consumption_liters)+" لتر",
+          row.maintenance_orders??"غير متاح",row.maintenance_downtime??"غير متاح",
+          row.maintenance_cost==null?"غير متاح":amount(row.maintenance_cost),
         ])) +
         "<h2>الصيانة</h2>" +
         table(["المولد","العطل","الأوامر","الأعطال","التوقف بالدقائق","القطع","العمالة","الخدمات","التكلفة المسجلة"],maintenanceRows.map((row)=>[
