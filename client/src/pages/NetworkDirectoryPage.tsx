@@ -347,7 +347,7 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
     </div>
     {kind === "generators" && canEdit && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}
     {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { refresh("create"); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace siteId={siteId!} canRemind={can(role, "manageMessaging")} initialPeriod={initialDebtorPeriod} initialScope={initialDebtorScope} initialStatus={initialDebtorStatus} autoFocus={focusDebtorCard} /></> : null}
-  </div></DashboardLayout>;
+  </div>);
 }
 
 function SubscriberPortalGuide() {
