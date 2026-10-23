@@ -30,6 +30,7 @@ type InventoryStockMovementRow = {
   item_id: number;
   sku: string | null;
   item_name: string;
+  category: string;
   base_unit: string;
   generator_id: number | null;
   movement_type: string;
@@ -390,6 +391,15 @@ export const powerhubInventoryRouter = router({
       const rows = (data ?? []) as InventoryStockMovementRow[];
       const hasMore = rows.length > input.limit;
       const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
+      const itemIds = [...new Set(pageRows.map((row) => Number(row.item_id)))];
+      const categoryResult = itemIds.length
+        ? await supabaseAdmin().from("inventory_items").select("id,category")
+            .eq("tenant_id", access.tenantId).in("id", itemIds)
+        : { data: [], error: null };
+      if (categoryResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تصنيفات أصناف الحركات." });
+      }
+      const categoryByItemId = new Map((categoryResult.data ?? []).map((row) => [Number(row.id), row.category]));
       const items = pageRows.map((row) => ({
         movement_id: row.movement_id,
         warehouse_id: row.warehouse_id,
@@ -398,7 +408,9 @@ export const powerhubInventoryRouter = router({
         item_id: row.item_id,
         sku: row.sku,
         item_name: row.item_name,
+        category: categoryByItemId.get(Number(row.item_id)) ?? "other",
         base_unit: row.base_unit,
+        generator_id: row.generator_id,
         movement_type: row.movement_type,
         quantity: row.quantity,
         total_cost_amount: row.total_cost_amount,
