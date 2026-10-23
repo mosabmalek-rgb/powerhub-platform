@@ -217,6 +217,7 @@ export default function MarketingLandingPage() {
 
       <footer className="border-t border-white/8 bg-[#090d12]">
         <div className="container flex flex-col gap-5 py-8 text-center sm:flex-row sm:items-center sm:justify-between sm:text-right"><button type="button" onClick={() => setLocation("/")} className="mx-auto rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5B800] focus-visible:ring-offset-4 focus-visible:ring-offset-[#090d12] sm:mx-0" aria-label="العودة إلى الصفحة الرئيسية عبر شعار PowerHub"><PowerHubLogo marketing /></button><p className="text-sm text-slate-500">PowerHub — إدارة الطاقة بذكاء.</p><div className="flex justify-center gap-5 text-sm font-bold text-slate-400"><a href="#features" className="hover:text-[#F5B800]">المميزات</a>{showPlans ? <a href="#plans" className="hover:text-[#F5B800]">الباقات</a> : null}<button onClick={startLogin} className="hover:text-[#F5B800]">تسجيل الدخول</button></div></div>
+        <div className="container border-t border-white/8 px-4 py-4 text-center text-xs leading-6 text-slate-500">جميع الحقوق محفوظة لشركة SAIRO للخدمات الرقمية والتقنية</div>
       </footer>
     </main>
   );
