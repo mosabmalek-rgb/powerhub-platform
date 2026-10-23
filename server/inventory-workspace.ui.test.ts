@@ -152,6 +152,10 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("maintenance.reportByGenerator.useQuery");
     expect(dashboard).toContain("readingCycle.boundsAt.useQuery");
     expect(dashboard).toContain("تصنيف الصنف");
+    expect(dashboard).toContain("listInventoryReportWarehouses.useQuery");
+    expect(dashboard).toContain("warehouseId !== \"all\"");
+    expect(dashboard).toContain("generatorOperatingRows");
+    expect(dashboard).toContain("تكلفة تشغيل المولدات");
     expect(dashboard).toContain("دفعات الموردين المرحلة");
     expect(dashboard).toContain("ائتمانات مرتجعات الموردين");
     expect(dashboard).toContain("لا يمكن أن يتجاوز نطاق التقرير 366 يومًا");
@@ -161,7 +165,7 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("downloadDashboardCsv");
     expect(dashboard).toContain("const csvCell = (value: unknown)");
     expect(dashboard).toContain("const untrustedText = typeof value === \"string\"");
-    expect(dashboard).toContain("/^[\\\\u0000-\\\\u0020]*[=+\\\\-@]/.test(value)");
+    expect(dashboard).toContain("untrustedText = typeof value === \"string\"");
     expect(dashboard).toContain("exportDashboardExcel");
     expect(dashboard).toContain("exportDashboardPdf");
     expect(dashboard).toContain("listStockMovementReport.fetch");
@@ -172,6 +176,8 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain("powerhub_inventory_stock_overview");
     expect(router).toContain("powerhub_inventory_supplier_payables_aging");
     expect(router).toContain("phaseDFinancialSummary: protectedProcedure");
+    expect(router).toContain("phaseDFinancialDetails: protectedProcedure");
+    expect(router).toContain("powerhub_inventory_phase_d_financial_details");
     expect(router).toContain('"viewInventoryReports"');
     expect(router).toContain("powerhub_inventory_phase_d_financial_summary");
     const phaseDSummary = read("supabase/migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql");
@@ -180,6 +186,10 @@ describe("inventory workspace UI contract", () => {
     expect(phaseDSummary).toContain("p.status='posted'");
     expect(phaseDSummary).toContain("r.status='posted'");
     expect(phaseDSummary).toContain("revoke all on function public.powerhub_inventory_phase_d_financial_summary");
+    expect(phaseDSummary).toContain("powerhub_inventory_phase_d_financial_details");
+    expect(phaseDSummary).toContain("INVALID_PHASE_D_FINANCIAL_CURSOR");
+    expect(integration).toContain("PHASE_D_FINANCIAL_DETAILS_CURSOR_ORDER_FAILED");
+    expect(integration).toContain("PHASE_D_FINANCIAL_DETAILS_PAYMENT_RECONCILIATION_FAILED");
     expect(integration).toContain("PHASE_D_PURCHASE_SUMMARY_RECONCILIATION_FAILED");
     expect(integration).toContain("PHASE_D_PAYMENT_SUMMARY_RECONCILIATION_FAILED");
     expect(integration).toContain("PHASE_D_FINANCIAL_SUMMARY_ACL_FAILED");
