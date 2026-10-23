@@ -10,7 +10,8 @@ set search_path = public, powerhub_private
 as $$
   select coalesce(array_agg(tm.tenant_id), '{}'::bigint[])
   from public.tenant_members tm
-  where tm.user_id = powerhub_private.current_user_id()
+  join public.users u on u.id = tm.user_id
+  where u.auth_user_id = auth.uid()
     and tm.is_active = true
     and tm.membership_status = 'active'
     and (tm.expires_at is null or tm.expires_at > now());
@@ -26,8 +27,9 @@ as $$
   select exists (
     select 1
     from public.tenant_members tm
+    join public.users u on u.id = tm.user_id
     where tm.tenant_id = target_tenant_id
-      and tm.user_id = powerhub_private.current_user_id()
+      and u.auth_user_id = auth.uid()
       and tm.is_active = true
       and tm.membership_status = 'active'
       and (tm.expires_at is null or tm.expires_at > now())
@@ -44,7 +46,7 @@ as $$
   select exists (
     select 1
     from public.users u
-    where u.id = powerhub_private.current_user_id()
+    where u.auth_user_id = auth.uid()
       and u.platform_role in ('platform_owner', 'platform_admin', 'finance_admin')
       and u.account_status = 'active'
   );
