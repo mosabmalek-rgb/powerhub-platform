@@ -436,10 +436,12 @@ export default function InventoryDashboardPanel({
           row.related_reference, numberOf(row.refund_amount), numberOf(row.allocation_count),
         ]),
       ];
-      const csv = "\uFEFF" + rows.map((row) => row.map((value) => {
-        const text = String(value ?? "");
+      const csvCell = (value: unknown) => {
+        const untrustedText = typeof value === "string" && /^[\\u0000-\\u0020]*[=+\\-@]/.test(value);
+        const text = untrustedText ? "'" + value : String(value ?? "");
         return "\"" + text.replace(/"/g, "\"\"") + "\"";
-      }).join(",")).join("\r\n");
+      };
+      const csv = "\uFEFF" + rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
       const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
       const a = document.createElement("a");
       a.href = url; a.download = `powerhub-phase-d-dashboard-${siteId}-${dateRange?.fromDate}-${dateRange?.toDate}.csv`;
