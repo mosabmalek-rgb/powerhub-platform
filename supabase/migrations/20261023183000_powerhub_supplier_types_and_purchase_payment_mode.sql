@@ -125,7 +125,7 @@ create function public.powerhub_inventory_create_purchase(
   p_notes text,
   p_operation_key text,
   p_lines jsonb,
-  p_payment_mode text default 'deferred'
+  p_payment_mode text
 )
 returns table(
   purchase_id bigint, tenant_id bigint, site_id bigint, supplier_id bigint, warehouse_id bigint,
