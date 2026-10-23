@@ -24,6 +24,7 @@ create table public.audit_logs (
   tenant_id bigint not null,
   site_id bigint not null,
   user_id bigint,
+  entity_id text,
   created_at timestamptz not null default now()
 );
 create table public.company_accounts (
@@ -41,6 +42,7 @@ create table public.expenses (
 );
 
 \ir ../migrations/20261023170000_powerhub_financial_index_trigger_reconciliation.sql
+\ir ../migrations/20261023171000_powerhub_audit_entity_id_not_null.sql
 
 do $assert_indexes$
 declare v_index text;
@@ -65,6 +67,18 @@ begin
   end loop;
 end
 $assert_indexes$;
+
+do $assert_audit_entity_contract$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='audit_logs'
+      and column_name='entity_id' and is_nullable='NO'
+  ) then
+    raise exception 'AUDIT_LOG_ENTITY_ID_NULLABILITY_NOT_RECONCILED';
+  end if;
+end
+$assert_audit_entity_contract$;
 
 do $assert_trigger$
 declare v_id bigint; v_before timestamptz; v_after timestamptz;

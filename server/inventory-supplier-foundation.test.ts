@@ -26,6 +26,10 @@ const financialIndexMigration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20261023170000_powerhub_financial_index_trigger_reconciliation.sql"),
   "utf8",
 );
+const auditEntityContractMigration = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20261023171000_powerhub_audit_entity_id_not_null.sql"),
+  "utf8",
+);
 
 describe("PowerHub inventory and supplier-ledger foundation", () => {
   it("creates tenant-scoped catalog, warehouses, suppliers, purchases, stock movements, and supplier ledger", () => {
@@ -156,6 +160,14 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
     expect(financialIndexMigration).toContain("execute function public.powerhub_set_updated_at()");
     expect(financialIndexMigration).not.toContain("create table public.expenses");
     expect(financialIndexMigration).not.toContain("alter table public.expenses add column");
+  });
+
+  it("requires audit_logs.entity_id without rewriting existing events", () => {
+    expect(auditEntityContractMigration).toContain("AUDIT_LOG_ENTITY_ID_NULL_ROWS_EXIST");
+    expect(auditEntityContractMigration).toContain("alter table public.audit_logs");
+    expect(auditEntityContractMigration).toContain("alter column entity_id set not null");
+    expect(auditEntityContractMigration.toLowerCase()).not.toContain("update public.audit_logs");
+    expect(auditEntityContractMigration.toLowerCase()).not.toContain("delete from public.audit_logs");
   });
 
   it("does not change existing expense records or automatically apply migrations to a live database", () => {
