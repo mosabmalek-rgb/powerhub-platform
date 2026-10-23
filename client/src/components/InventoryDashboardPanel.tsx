@@ -745,6 +745,33 @@ export default function InventoryDashboardPanel({
           <Metric label="توقف المولدات" value={maintenanceReport.isLoading || maintenanceReport.isError ? "—" : `${maintenanceTotals.downtime.toLocaleString("ar-PS")} دقيقة`} description="إجمالي مدة التوقف المسجلة في أوامر الصيانة ضمن النطاق." icon={Gauge} />
           <Metric label="تكلفة الصيانة المسجلة" value={maintenanceReport.isLoading || maintenanceReport.isError ? "—" : amount(maintenanceTotals.recordedCost)} description="القطع والعمالة والخدمات المسجلة؛ لا تُجمع مع المشتريات بوصفها مصروفًا جديدًا." icon={CircleDollarSign} />
         </div>
+        <div className="mt-5 space-y-3">
+          <div>
+            <h3 className="font-semibold">تفاصيل التكلفة التشغيلية المسجلة حسب المولد</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">نعرض تكلفة الوقود المنقول إلى خزانات المولد وتكلفة الصيانة في عمودين منفصلين. لا تمثل تكلفة التعبئة وحدها استهلاك الوقود الفعلي، ولا نجمع المشتريات النقدية مع تكاليف التشغيل.</p>
+          </div>
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-muted/50 text-right">
+                <th className="p-2">المولد</th><th className="p-2">الخزانات</th><th className="p-2">الوقود المعبأ</th>
+                <th className="p-2">تكلفة الوقود المنقول</th><th className="p-2">الاستهلاك المقاس</th>
+                <th className="p-2">أوامر الصيانة</th><th className="p-2">التوقف بالدقائق</th><th className="p-2">تكلفة الصيانة المسجلة</th>
+              </tr></thead>
+              <tbody>{generatorOperatingRows.map((row) => <tr key={row.generator_id} className="border-t">
+                <td className="p-2">{row.generator_name}</td>
+                <td className="p-2">{row.tank_count === null ? "—" : row.tank_count === 0 ? "لا يوجد خزان مرتبط" : row.tank_count.toLocaleString("ar-PS")}</td>
+                <td className="p-2">{row.filled_liters === null ? "—" : `${quantity(row.filled_liters)} لتر`}</td>
+                <td className="p-2">{row.filled_cost === null ? "—" : amount(row.filled_cost)}</td>
+                <td className="p-2">{row.actual_consumption_liters === null ? "غير مكتمل/غير متاح" : `${quantity(row.actual_consumption_liters)} لتر`}</td>
+                <td className="p-2">{row.maintenance_orders === null ? "—" : row.maintenance_orders.toLocaleString("ar-PS")}</td>
+                <td className="p-2">{row.maintenance_downtime === null ? "—" : row.maintenance_downtime.toLocaleString("ar-PS")}</td>
+                <td className="p-2">{row.maintenance_cost === null ? "—" : amount(row.maintenance_cost)}</td>
+              </tr>)}
+              {generatorOperatingRows.length === 0 ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">لا توجد مولدات ضمن المرشحات الحالية.</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
+        </div>
         {!reportLoading && (fuelReport.isError || maintenanceReport.isError) ? <p className="mt-3 rounded-md border border-destructive/30 p-3 text-sm text-destructive">تعذر تحميل تقرير الوقود أو الصيانة لهذا النطاق. بقيت بيانات المصدر الفاشل غير معروضة بدل إظهار أرقام صفرية.</p> : null}
       </CardContent>
     </Card> : <Card><CardContent className="p-4 text-sm text-muted-foreground">مؤشرات الوقود والصيانة والتكاليف التشغيلية لا تظهر إلا لصلاحية تقارير المخزون.</CardContent></Card>}
