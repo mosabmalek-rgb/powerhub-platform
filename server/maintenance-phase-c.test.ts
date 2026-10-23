@@ -71,8 +71,9 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("record-only-no-ledger-side-effects");
     expect(router).toContain('"correct_completion"');
     expect(router).toContain("reopenCompletedWorkOrder: authenticatedProcedure");
-    expect(router).toContain('rpc<{ work_order_id: number; work_order_number: string; source_work_order_id: number; status: string; replayed: boolean }>("powerhub_maintenance_reopen_completed_work_order"');
+    expect(router).toContain('rpc<Array<{ work_order_id: number; work_order_number: string; source_work_order_id: number; status: string; replayed: boolean }>>("powerhub_maintenance_reopen_completed_work_order"');
     expect(panel).toContain("trpc.powerhub.maintenance.reopenCompletedWorkOrder.useMutation");
+    expect(panel).toContain("Array.isArray(result) ? result[0]?.replayed === true : false");
     expect(panel).toContain("فتح متابعة");
     expect(router).toContain('input.action === "correct_completion" && (input.laborCost !== undefined || input.externalServiceCost !== undefined)');
     expect(panel).toContain('doTransition(o,"correct_completion")');
