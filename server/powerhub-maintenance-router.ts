@@ -61,6 +61,10 @@ type MaintenanceReportRow = {
   first_reported_at: string;
   last_reported_at: string;
 };
+type MaintenanceCompanyReportRow = MaintenanceReportRow & {
+  site_id: number;
+  site_name: string;
+};
 type MaintenanceAssignableSupplierRow = { id: number; supplier_code: string | null; name: string };
 type MaintenancePartListRow = {
   part_id: number;
@@ -119,7 +123,7 @@ const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> =
       "MAINTENANCE_PLAN_INTERVAL_REQUIRED", "MAINTENANCE_PLAN_DATE_DUE_REQUIRED",
       "MAINTENANCE_PLAN_HOURS_DUE_REQUIRED", "MAINTENANCE_PLAN_OUT_OF_SCOPE",
       "MAINTENANCE_PREVENTIVE_PLAN_REQUIRED", "INVALID_MAINTENANCE_REPORT_RANGE",
-      "MAINTENANCE_SUPPLIER_OUT_OF_SCOPE",
+      "MAINTENANCE_SUPPLIER_OUT_OF_SCOPE", "MAINTENANCE_GENERATOR_OUT_OF_SCOPE",
       "generator_maintenance_work_orders_preventive_open_plan_unique"
     ].find((candidate) => message.includes(candidate));
     if (code) throw new TRPCError({ code: "BAD_REQUEST", message: code === "generator_maintenance_work_orders_preventive_open_plan_unique" ? "توجد بالفعل مهمة صيانة وقائية مفتوحة لهذه الخطة. أكملها أو ألغها قبل إنشاء أمر جديد." : code === "INVALID_MAINTENANCE_REPORT_RANGE" ? "نطاق التقرير غير صحيح؛ اختر تاريخ بداية ونهاية خلال مدة لا تتجاوز 366 يومًا." : code === "MAINTENANCE_SUPPLIER_OUT_OF_SCOPE" ? "المورد غير نشط أو لا ينتمي إلى حسابك." : code });
@@ -156,6 +160,27 @@ export const powerhubMaintenanceRouter = router({
       p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
     });
   }),
+  companyReportByGenerator: authenticatedProcedure.input(z.object({
+    siteId: z.number().int().positive(),
+    fromDate: z.string().refine(isDateOnly, { message: "تاريخ البداية غير صالح." }),
+    toDate: z.string().refine(isDateOnly, { message: "تاريخ النهاية غير صالح." }),
+    generatorId: z.number().int().positive().optional(),
+  }).superRefine((input, issue) => {
+    if (input.fromDate > input.toDate ||
+      (Date.parse(input.toDate + "T00:00:00.000Z") - Date.parse(input.fromDate + "T00:00:00.000Z")) / 86_400_000 > 365) {
+      issue.addIssue({ code: z.ZodIssueCode.custom, path: ["toDate"], message: "نطاق التقرير يجب أن يكون صالحًا وألا يتجاوز 366 يومًا." });
+    }
+  })).query(async ({ ctx, input }) => {
+    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventoryReports");
+    if (access.role !== "owner" || !access.permissions.includes("viewInventoryReports")) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "تقرير جميع فروع الشركة متاح لصاحب الشركة فقط مع صلاحية تقارير المخزون." });
+    }
+    return rpc<MaintenanceCompanyReportRow[]>("powerhub_maintenance_company_report_by_generator", {
+      p_tenant_id: access.tenantId, p_from_date: input.fromDate, p_to_date: input.toDate,
+      p_generator_id: input.generatorId ?? null,
+    });
+  }),
+
   listAssignableSuppliers: authenticatedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
     const { data, error } = await supabaseAdmin().from("suppliers")
