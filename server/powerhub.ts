@@ -4185,8 +4185,22 @@ export const powerhubRouter = router({
       if (errorText.includes("EMPLOYEE_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "BAD_REQUEST", message: "توجد موظفة أو موظف غير نشط أو خارج الفرع المحدد." });
       if (errorText.includes("NEGATIVE_PAYROLL_NET")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن أن يكون صافي راتب الموظف سالباً." });
       if (errorText.includes("PAYROLL_PERIOD_ALREADY_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "يوجد كشف رواتب لهذه الفترة والفرع بالفعل." });
+      if (errorText.includes("PAYROLL_OPEN_RUN_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "يوجد كشف رواتب غير مسدد لهذا الفرع. اعتمده وصرفه أو ألغِ المسودة أولاً لتحرير حجوزات السلف." });
       if (errorText.includes("DUPLICATE_PAYROLL_EMPLOYEE") || errorText.includes("INVALID_PAYROLL_DRAFT_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات مسودة الرواتب غير صحيحة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء مسودة الرواتب في Supabase." });
+    }),
+    cancelPayrollDraft: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), payrollRunId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_cancel_payroll_draft", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_payroll_run_id: input.payrollRunId,
+      });
+      const result = (data as Array<{ payroll_run_id: number | string; cancelled: boolean }> | null)?.[0];
+      if (!error && result?.payroll_run_id) return { success: true, replayed: Boolean(result.cancelled) };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("PAYROLL_RUN_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "مسودة الرواتب غير موجودة ضمن الفرع." });
+      if (errorText.includes("PAYROLL_RUN_NOT_DRAFT")) throw new TRPCError({ code: "BAD_REQUEST", message: "يمكن إلغاء المسودة فقط قبل الاعتماد؛ لا يمكن إلغاء كشف معتمد أو مصروف." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن إلغاء مسودة الرواتب." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إلغاء مسودة الرواتب في Supabase." });
     }),
     approvePayroll: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), payrollRunId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
