@@ -326,6 +326,9 @@ insert into public.tenant_reading_cycle_configurations(
 \ir ../migrations/20261022211000_powerhub_fuel_event_append_only_acl.sql
 \ir ../migrations/20261022220000_powerhub_fuel_report_windows.sql
 \ir ../migrations/20261022221000_powerhub_fuel_alert_settings_and_evaluator.sql
+\ir ../migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql
+\ir ../migrations/20261023120000_powerhub_inventory_phase_d_financial_details_acl_filter.sql
+\ir ../migrations/20261023130000_powerhub_inventory_phase_d_schema_cache_reload.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -3872,6 +3875,186 @@ begin
   end if;
 end;
 $phase_b_fuel_assertions$;
+
+
+-- Phase D: reconcile procurement, posted settlement and supplier credits against canonical ledgers.
+do $phase_d_financial_summary_assertions$
+declare
+  v_report record;
+  v_purchase_count bigint;
+  v_purchase_amount numeric(14,2);
+  v_payment_count bigint;
+  v_payment_amount numeric(14,2);
+  v_return_count bigint;
+  v_return_amount numeric(14,2);
+begin
+  select * into v_report
+    from public.powerhub_inventory_phase_d_financial_summary(10,100,current_date-364,current_date+1);
+  if not found then raise exception 'PHASE_D_FINANCIAL_SUMMARY_RETURNED_NO_ROW'; end if;
+
+  select count(*)::bigint,coalesce(sum(p.total_amount),0)::numeric(14,2)
+    into v_purchase_count,v_purchase_amount
+    from public.supplier_purchases p
+    where p.tenant_id=10 and p.site_id=100
+      and p.invoice_date between current_date-364 and current_date+1
+      and p.status in ('confirmed','partially_received','received');
+  select count(*)::bigint,coalesce(sum(p.amount),0)::numeric(14,2)
+    into v_payment_count,v_payment_amount
+    from public.supplier_payments p
+    where p.tenant_id=10 and p.site_id=100
+      and p.payment_date between current_date-364 and current_date+1
+      and p.status='posted';
+  select count(*)::bigint,coalesce(sum(r.total_credit_amount),0)::numeric(14,2)
+    into v_return_count,v_return_amount
+    from public.supplier_purchase_returns r
+    where r.tenant_id=10 and r.site_id=100
+      and r.return_date between current_date-364 and current_date+1
+      and r.status='posted';
+
+  if v_report.purchase_invoice_count<>v_purchase_count
+    or v_report.purchase_invoice_amount<>v_purchase_amount then
+    raise exception 'PHASE_D_PURCHASE_SUMMARY_RECONCILIATION_FAILED expected_count=% actual_count=% expected_amount=% actual_amount=%',
+      v_purchase_count,v_report.purchase_invoice_count,v_purchase_amount,v_report.purchase_invoice_amount;
+  end if;
+  if v_report.supplier_payment_count<>v_payment_count
+    or v_report.supplier_payment_amount<>v_payment_amount then
+    raise exception 'PHASE_D_PAYMENT_SUMMARY_RECONCILIATION_FAILED expected_count=% actual_count=% expected_amount=% actual_amount=%',
+      v_payment_count,v_report.supplier_payment_count,v_payment_amount,v_report.supplier_payment_amount;
+  end if;
+  if v_report.supplier_return_count<>v_return_count
+    or v_report.supplier_return_credit_amount<>v_return_amount then
+    raise exception 'PHASE_D_RETURN_SUMMARY_RECONCILIATION_FAILED expected_count=% actual_count=% expected_amount=% actual_amount=%',
+      v_return_count,v_report.supplier_return_count,v_return_amount,v_report.supplier_return_credit_amount;
+  end if;
+
+  if has_function_privilege('anon','public.powerhub_inventory_phase_d_financial_summary(bigint,bigint,date,date)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_phase_d_financial_summary(bigint,bigint,date,date)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_phase_d_financial_summary(bigint,bigint,date,date)','EXECUTE') then
+    raise exception 'PHASE_D_FINANCIAL_SUMMARY_ACL_FAILED';
+  end if;
+
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_summary(10,200,current_date-1,current_date);
+    raise exception 'PHASE_D_CROSS_TENANT_SITE_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'PHASE_D_FINANCIAL_SITE_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_summary(10,100,current_date-366,current_date);
+    raise exception 'PHASE_D_RANGE_LIMIT_NOT_ENFORCED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'INVALID_PHASE_D_FINANCIAL_RANGE' then raise; end if;
+  end;
+end;
+$phase_d_financial_summary_assertions$;
+
+-- Verify the exported event ledger paginates without omissions or duplicates and reconciles with the headline summary.
+do $phase_d_financial_details_assertions$
+declare
+  v_event record;
+  v_summary record;
+  v_after_date date;
+  v_after_type text;
+  v_after_id bigint;
+  v_previous_date date;
+  v_previous_type text;
+  v_previous_id bigint;
+  v_page_count integer;
+  v_total_count bigint:=0;
+  v_purchase_count bigint:=0;
+  v_payment_count bigint:=0;
+  v_return_count bigint:=0;
+  v_purchase_amount numeric(14,2):=0;
+  v_payment_amount numeric(14,2):=0;
+  v_return_amount numeric(14,2):=0;
+begin
+  if has_function_privilege('anon','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint,boolean,boolean)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint,boolean,boolean)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint,boolean,boolean)','EXECUTE') then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_ACL_FAILED';
+  end if;
+
+  loop
+    v_page_count:=0;
+    for v_event in
+      select * from public.powerhub_inventory_phase_d_financial_details(
+        10,100,current_date-364,current_date+1,200,v_after_date,v_after_type,v_after_id
+      )
+    loop
+      if v_previous_date is not null
+        and (v_event.event_date,v_event.event_type,v_event.event_id)<=(v_previous_date,v_previous_type,v_previous_id) then
+        raise exception 'PHASE_D_FINANCIAL_DETAILS_CURSOR_ORDER_FAILED';
+      end if;
+      v_previous_date:=v_event.event_date;
+      v_previous_type:=v_event.event_type;
+      v_previous_id:=v_event.event_id;
+      v_after_date:=v_event.event_date;
+      v_after_type:=v_event.event_type;
+      v_after_id:=v_event.event_id;
+      v_page_count:=v_page_count+1;
+      v_total_count:=v_total_count+1;
+      if v_event.event_type='purchase_invoice' then
+        v_purchase_count:=v_purchase_count+1; v_purchase_amount:=v_purchase_amount+v_event.amount;
+      elsif v_event.event_type='supplier_payment' then
+        v_payment_count:=v_payment_count+1; v_payment_amount:=v_payment_amount+v_event.amount;
+      elsif v_event.event_type='supplier_return' then
+        v_return_count:=v_return_count+1; v_return_amount:=v_return_amount+v_event.amount;
+      else
+        raise exception 'PHASE_D_UNKNOWN_FINANCIAL_EVENT_TYPE';
+      end if;
+    end loop;
+    exit when v_page_count<200;
+  end loop;
+
+  select * into v_summary
+    from public.powerhub_inventory_phase_d_financial_summary(10,100,current_date-364,current_date+1);
+  if v_total_count<>v_purchase_count+v_payment_count+v_return_count then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_DUPLICATE_EVENT';
+  end if;
+  if v_purchase_count<>v_summary.purchase_invoice_count or v_purchase_amount<>v_summary.purchase_invoice_amount then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_PURCHASE_RECONCILIATION_FAILED';
+  end if;
+  if v_payment_count<>v_summary.supplier_payment_count or v_payment_amount<>v_summary.supplier_payment_amount then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_PAYMENT_RECONCILIATION_FAILED';
+  end if;
+  if v_return_count<>v_summary.supplier_return_count or v_return_amount<>v_summary.supplier_return_credit_amount then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_RETURN_RECONCILIATION_FAILED';
+  end if;
+
+  -- Event-type visibility is applied before LIMIT and cursor evaluation, not after pagination.
+  if exists (
+    select 1 from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-364,current_date+1,200,null,null,null,false,true
+    ) where event_type='purchase_invoice'
+  ) then
+    raise exception 'PHASE_D_HIDDEN_PURCHASE_EVENT_RETURNED';
+  end if;
+  if exists (
+    select 1 from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-364,current_date+1,200,null,null,null,true,false
+    ) where event_type in ('supplier_payment','supplier_return')
+  ) then
+    raise exception 'PHASE_D_HIDDEN_SUPPLIER_EVENT_RETURNED';
+  end if;
+  if exists (
+    select 1 from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-364,current_date+1,200,null,null,null,false,false
+    )
+  ) then
+    raise exception 'PHASE_D_ALL_FINANCIAL_EVENTS_HIDDEN_BUT_ROWS_RETURNED';
+  end if;
+
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-1,current_date,10,current_date,null,null
+    );
+    raise exception 'PHASE_D_PARTIAL_FINANCIAL_CURSOR_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'INVALID_PHASE_D_FINANCIAL_CURSOR' then raise; end if;
+  end;
+end;
+$phase_d_financial_details_assertions$;
 
 select 'inventory purchasing, supplier ledger, fuel fill/reading, measured consumption and stock operations PostgreSQL integration passed' as result;
 

@@ -30,6 +30,7 @@ type InventoryStockMovementRow = {
   item_id: number;
   sku: string | null;
   item_name: string;
+  category: string;
   base_unit: string;
   generator_id: number | null;
   movement_type: string;
@@ -390,6 +391,15 @@ export const powerhubInventoryRouter = router({
       const rows = (data ?? []) as InventoryStockMovementRow[];
       const hasMore = rows.length > input.limit;
       const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
+      const itemIds = [...new Set(pageRows.map((row) => Number(row.item_id)))];
+      const categoryResult = itemIds.length
+        ? await supabaseAdmin().from("inventory_items").select("id,category")
+            .eq("tenant_id", access.tenantId).in("id", itemIds)
+        : { data: [], error: null };
+      if (categoryResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تصنيفات أصناف الحركات." });
+      }
+      const categoryByItemId = new Map<number, string>((categoryResult.data ?? []).map((row) => [Number(row.id), row.category] as const));
       const items = pageRows.map((row) => ({
         movement_id: row.movement_id,
         warehouse_id: row.warehouse_id,
@@ -398,7 +408,9 @@ export const powerhubInventoryRouter = router({
         item_id: row.item_id,
         sku: row.sku,
         item_name: row.item_name,
+        category: categoryByItemId.get(Number(row.item_id)) ?? "other",
         base_unit: row.base_unit,
+        generator_id: row.generator_id,
         movement_type: row.movement_type,
         quantity: row.quantity,
         total_cost_amount: row.total_cost_amount,
@@ -1314,6 +1326,122 @@ export const powerhubInventoryRouter = router({
       });
       if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل تقرير أعمار ذمم الموردين.");
       return data;
+    }),
+
+  phaseDFinancialSummary: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).superRefine((value, issue) => {
+      const isDate = (text: string) => {
+        const parsed = new Date(text + "T00:00:00.000Z");
+        return /^\d{4}-\d{2}-\d{2}$/.test(text) &&
+          Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+      };
+      if (!isDate(value.fromDate) || !isDate(value.toDate) || value.fromDate > value.toDate) {
+        issue.addIssue({ code: z.ZodIssueCode.custom, path: ["fromDate"], message: "نطاق التقرير المالي غير صالح." });
+        return;
+      }
+      const spanDays = (Date.parse(value.toDate + "T00:00:00.000Z") - Date.parse(value.fromDate + "T00:00:00.000Z")) / 86_400_000;
+      if (spanDays > 365) issue.addIssue({ code: z.ZodIssueCode.custom, path: ["toDate"], message: "لا يمكن أن يتجاوز نطاق التقرير 366 يومًا." });
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون المالية." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_phase_d_financial_summary", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_from_date: input.fromDate, p_to_date: input.toDate,
+      });
+      if (error || !data?.[0]) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي للمخزون والمشتريات." });
+      }
+      const row = data[0] as Record<string, unknown>;
+      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
+        access.permissions.includes("manageSupplierPayments");
+      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
+        access.permissions.includes("manageSupplierPayments") ||
+        access.permissions.includes("reverseSupplierPayments");
+      return {
+        purchaseInvoiceCount: canViewPurchaseFinancials ? Number(row.purchase_invoice_count ?? 0) : null,
+        purchaseInvoiceAmount: canViewPurchaseFinancials ? Number(row.purchase_invoice_amount ?? 0) : null,
+        supplierPaymentCount: canViewSupplierFinancials ? Number(row.supplier_payment_count ?? 0) : null,
+        supplierPaymentAmount: canViewSupplierFinancials ? Number(row.supplier_payment_amount ?? 0) : null,
+        supplierReturnCount: canViewSupplierFinancials ? Number(row.supplier_return_count ?? 0) : null,
+        supplierReturnCreditAmount: canViewSupplierFinancials ? Number(row.supplier_return_credit_amount ?? 0) : null,
+      };
+    }),
+
+  phaseDFinancialDetails: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      limit: z.number().int().min(1).max(200).default(100),
+      afterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      afterEventType: z.enum(["purchase_invoice", "supplier_payment", "supplier_return"]).optional(),
+      afterEventId: z.number().int().positive().optional(),
+    }).superRefine((value, issue) => {
+      const isDate = (text: string) => {
+        const parsed = new Date(text + "T00:00:00.000Z");
+        return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+      };
+      if (!isDate(value.fromDate) || !isDate(value.toDate) || value.fromDate > value.toDate ||
+        (Date.parse(value.toDate + "T00:00:00.000Z") - Date.parse(value.fromDate + "T00:00:00.000Z")) / 86_400_000 > 365) {
+        issue.addIssue({ code: z.ZodIssueCode.custom, path: ["fromDate"], message: "نطاق التقرير المالي غير صالح أو يتجاوز 366 يومًا." });
+      }
+      const cursorCount = [value.afterDate, value.afterEventType, value.afterEventId].filter((entry) => entry !== undefined).length;
+      if (cursorCount !== 0 && cursorCount !== 3) {
+        issue.addIssue({ code: z.ZodIssueCode.custom, path: ["afterDate"], message: "مؤشر صفحة التقرير المالي غير مكتمل." });
+      }
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تفاصيل التقارير المالية." });
+      }
+      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
+        access.permissions.includes("manageSupplierPayments");
+      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
+        access.permissions.includes("manageSupplierPayments") ||
+        access.permissions.includes("reverseSupplierPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_phase_d_financial_details", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_from_date: input.fromDate, p_to_date: input.toDate, p_limit: input.limit + 1,
+        p_after_date: input.afterDate ?? null, p_after_event_type: input.afterEventType ?? null,
+        p_after_event_id: input.afterEventId ?? null,
+        p_include_purchase_invoices: canViewPurchaseFinancials,
+        p_include_supplier_events: canViewSupplierFinancials,
+      });
+      if (error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل أحداث المشتريات ودفعات الموردين." });
+      }
+      const rows = (data ?? []) as Array<Record<string, unknown>>;
+      const hasMore = rows.length > input.limit;
+      const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
+      const items = pageRows.map((row) => ({
+        event_date: String(row.event_date),
+        event_type: String(row.event_type),
+        event_id: Number(row.event_id),
+        reference_no: String(row.reference_no ?? ""),
+        counterparty_name: String(row.counterparty_name ?? ""),
+        status: String(row.status ?? ""),
+        amount: Number(row.amount ?? 0),
+        related_reference: String(row.related_reference ?? ""),
+        refund_amount: Number(row.refund_amount ?? 0),
+        allocation_count: Number(row.allocation_count ?? 0),
+      }));
+      const last = pageRows[pageRows.length - 1];
+      return {
+        items,
+        hasMore,
+        nextCursor: hasMore && last ? {
+          afterDate: String(last.event_date), afterEventType: String(last.event_type),
+          afterEventId: Number(last.event_id),
+        } : null,
+      };
     }),
 
   listSupplierPaymentBatchOptions: protectedProcedure
