@@ -252,7 +252,7 @@ language plpgsql security invoker set search_path=public,pg_temp
 as $$
 declare v_period text; v_status text; v_period_start timestamptz; v_period_end timestamptz; v_role text;
 begin
-  perform pg_advisory_xact_lock(p_site_id, hashtext('payroll-approve:' || p_payroll_run_id::text));
+  perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':payroll-approve:'||p_site_id::text||':'||p_payroll_run_id::text,0));
   select period,status into v_period,v_status from public.payroll_runs
     where id=p_payroll_run_id and tenant_id=p_tenant_id and site_id=p_site_id for update;
   if not found then raise exception 'PAYROLL_RUN_OUT_OF_SCOPE' using errcode='P0001'; end if;
@@ -279,7 +279,7 @@ declare
   v_run public.payroll_runs%rowtype; v_account public.company_accounts%rowtype; v_period_start timestamptz; v_period_end timestamptz;
   v_balance numeric(14,2); v_expense_id bigint; v_transaction_id bigint; v_role text; v_allocation record; v_remaining numeric(12,2); v_allocation_count integer:=0;
 begin
-  perform pg_advisory_xact_lock(p_site_id, hashtext('payroll-pay:' || p_payroll_run_id::text));
+  perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':payroll-pay:'||p_site_id::text||':'||p_payroll_run_id::text,0));
   select * into v_run from public.payroll_runs where id=p_payroll_run_id and tenant_id=p_tenant_id and site_id=p_site_id for update;
   if not found then raise exception 'PAYROLL_RUN_OUT_OF_SCOPE' using errcode='P0001'; end if;
   if v_run.status <> 'approved' then raise exception 'PAYROLL_RUN_NOT_APPROVED' using errcode='P0001'; end if;
@@ -340,16 +340,17 @@ begin
   end if;
   v_period_start := (p_period || '-01')::date;
   v_period_end := v_period_start + interval '1 month' - interval '1 microsecond';
-  perform pg_advisory_xact_lock(p_site_id, hashtext('payroll-draft:' || p_period));
+  perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':payroll-draft:'||p_site_id::text||':'||p_period,0));
   perform 1 from public.sites where id=p_site_id and tenant_id=p_tenant_id and status <> 'archived' for share;
   if not found then raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001'; end if;
   if exists (select 1 from public.financial_settlements where tenant_id=p_tenant_id and site_id=p_site_id and status='locked' and period_start <= v_period_end and period_end >= v_period_start) then raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001'; end if;
   if exists (select 1 from jsonb_to_recordset(p_items) as x(employee_id bigint,extra_amount numeric,advance_deduction numeric,other_deduction numeric,notes text) group by employee_id having count(*) > 1) then raise exception 'DUPLICATE_PAYROLL_EMPLOYEE' using errcode='P0001'; end if;
-  if exists (select 1 from jsonb_to_recordset(p_items) as x(employee_id bigint,extra_amount numeric,advance_deduction numeric,other_deduction numeric,notes text) where employee_id is null or coalesce(extra_amount,-1)<0 or coalesce(advance_deduction,-1)<0 or coalesce(other_deduction,-1)<0 or coalesce(extra_amount,0)>100000000 or coalesce(advance_deduction,0)>100000000 or coalesce(other_deduction,0)>100000000 or char_length(coalesce(notes,''))>500) then raise exception 'INVALID_PAYROLL_DRAFT_INPUT' using errcode='P0001'; end if;
+  if exists (select 1 from jsonb_to_recordset(p_items) as x(employee_id bigint,extra_amount numeric,advance_deduction numeric,other_deduction numeric,notes text) where employee_id is null or coalesce(extra_amount,-1)<0 or coalesce(advance_deduction,-1)<0 or coalesce(other_deduction,-1)<0 or coalesce(extra_amount,0)>100000000 or coalesce(advance_deduction,0)<>0 or coalesce(advance_deduction,0)>100000000 or coalesce(other_deduction,0)>100000000 or char_length(coalesce(notes,''))>500) then raise exception 'INVALID_PAYROLL_DRAFT_INPUT' using errcode='P0001'; end if;
   if exists (select 1 from public.payroll_runs where tenant_id=p_tenant_id and site_id=p_site_id and period=p_period) then raise exception 'PAYROLL_PERIOD_ALREADY_EXISTS' using errcode='P0001'; end if;
+  if exists (select 1 from public.payroll_runs where tenant_id=p_tenant_id and site_id=p_site_id and status in ('draft','approved')) then raise exception 'PAYROLL_OPEN_RUN_EXISTS' using errcode='P0001'; end if;
   for v_item in select * from jsonb_to_recordset(p_items) as x(employee_id bigint,extra_amount numeric,advance_deduction numeric,other_deduction numeric,notes text)
   loop
-    perform pg_advisory_xact_lock(p_tenant_id, v_item.employee_id::integer);
+    perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':employee-payroll:'||v_item.employee_id::text,0));
     select base_wage into v_base from public.employees where id=v_item.employee_id and tenant_id=p_tenant_id and (site_id=p_site_id or site_id is null) and employment_status='active' for share;
     if not found then raise exception 'EMPLOYEE_OUT_OF_SCOPE_OR_INACTIVE' using errcode='P0001'; end if;
     select coalesce(sum(case when advance_kind='salary_advance' or advance_kind is null then remaining_amount when advance_kind='employee_loan' then least(remaining_amount,coalesce(monthly_deduction,remaining_amount)) else 0 end),0) into v_open_advances from public.employee_adjustments where tenant_id=p_tenant_id and employee_id=v_item.employee_id and site_id=p_site_id and adjustment_type='advance' and status='open';
