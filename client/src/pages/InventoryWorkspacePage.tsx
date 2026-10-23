@@ -59,6 +59,7 @@ export default function InventoryWorkspacePage() {
   const siteId = selectedSiteId && sites.data?.some((site) => site.id === selectedSiteId)
     ? selectedSiteId
     : sites.data?.[0]?.id ?? 0;
+  const siteName = sites.data?.find((site) => site.id === siteId)?.name ?? "الفرع المحدد";
   const supplierAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId }, {
     enabled: Boolean(siteId && isAuthenticated),
     staleTime: 30_000,
@@ -321,6 +322,7 @@ export default function InventoryWorkspacePage() {
             <TabsContent value="dashboard" className="space-y-4">
               <InventoryDashboardPanel
                 siteId={siteId}
+                siteName={siteName}
                 isAuthenticated={isAuthenticated}
                 canViewInventory={canViewInventory}
                 canViewInventoryReports={canViewInventoryReports}
