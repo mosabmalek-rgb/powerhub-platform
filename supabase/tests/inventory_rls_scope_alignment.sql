@@ -297,7 +297,7 @@ select (
 do $assert_member_additional_scope$
 declare v_table text; v_count bigint;
 begin
-  foreach v_table in array[
+  foreach v_table in array array[
       'sites','tenant_members',
       'inventory_items','inventory_stock_movements','inventory_warehouses',
       'supplier_ledger_entries','supplier_payment_allocations','supplier_payments',
@@ -328,7 +328,7 @@ select (
 do $assert_support_additional_scope$
 declare v_table text; v_count bigint;
 begin
-  foreach v_table in array[
+  foreach v_table in array array[
       'sites','tenant_members',
       'inventory_items','inventory_stock_movements','inventory_warehouses',
       'supplier_ledger_entries','supplier_payment_allocations','supplier_payments',
@@ -357,7 +357,7 @@ select (
 do $assert_admin_additional_scope$
 declare v_table text; v_count bigint;
 begin
-  foreach v_table in array[
+  foreach v_table in array array[
       'sites','tenant_members',
       'inventory_items','inventory_stock_movements','inventory_warehouses',
       'supplier_ledger_entries','supplier_payment_allocations','supplier_payments',
@@ -387,7 +387,7 @@ select (
 do $assert_anon_additional_scope$
 declare v_table text; v_count bigint;
 begin
-  foreach v_table in array[
+  foreach v_table in array array[
       'sites','tenant_members',
       'inventory_items','inventory_stock_movements','inventory_warehouses',
       'supplier_ledger_entries','supplier_payment_allocations','supplier_payments',
