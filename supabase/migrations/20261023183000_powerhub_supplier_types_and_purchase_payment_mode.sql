@@ -303,10 +303,42 @@ begin
 end;
 $$;
 
+
+-- Keep the exact legacy signature available for existing RPC callers and ACL checks.
+-- Legacy calls always retain deferred semantics; immediate mode must be explicit.
+create or replace function public.powerhub_inventory_create_purchase(
+ p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_supplier_id bigint,p_warehouse_id bigint,
+ p_supplier_invoice_no text,p_invoice_date date,p_due_date date,p_payment_terms_days integer,
+ p_reference_no text,p_notes text,p_operation_key text,p_lines jsonb
+)
+returns table(
+ purchase_id bigint,tenant_id bigint,site_id bigint,supplier_id bigint,warehouse_id bigint,
+ purchase_number text,supplier_invoice_no text,invoice_date date,due_date date,status text,
+ subtotal_amount numeric,discount_amount numeric,tax_amount numeric,other_charges_amount numeric,
+ total_amount numeric,payment_terms_days integer,operation_key text,created_at timestamptz,
+ updated_at timestamptz,replayed boolean
+)
+language plpgsql security invoker set search_path=public,pg_temp
+as $legacy_purchase$
+begin
+ return query
+ select n.purchase_id,n.tenant_id,n.site_id,n.supplier_id,n.warehouse_id,n.purchase_number,
+   n.supplier_invoice_no,n.invoice_date,n.due_date,n.status,n.subtotal_amount,n.discount_amount,
+   n.tax_amount,n.other_charges_amount,n.total_amount,n.payment_terms_days,n.operation_key,
+   n.created_at,n.updated_at,n.replayed
+ from public.powerhub_inventory_create_purchase(
+   p_tenant_id,p_site_id,p_user_id,p_supplier_id,p_warehouse_id,p_supplier_invoice_no,
+   p_invoice_date,p_due_date,p_payment_terms_days,p_reference_no,p_notes,p_operation_key,p_lines,'deferred'
+ ) n;
+end;
+$legacy_purchase$;
+
 revoke all on function public.powerhub_inventory_create_supplier_with_type(bigint,bigint,bigint,text,text,text,text,text,text,text,integer,text,text) from public,anon,authenticated;
 grant execute on function public.powerhub_inventory_create_supplier_with_type(bigint,bigint,bigint,text,text,text,text,text,text,text,integer,text,text) to service_role;
 revoke all on function public.powerhub_inventory_update_supplier_with_type(bigint,bigint,bigint,bigint,text,text,text,text,text,text,text,integer,text,text) from public,anon,authenticated;
 grant execute on function public.powerhub_inventory_update_supplier_with_type(bigint,bigint,bigint,bigint,text,text,text,text,text,text,text,integer,text,text) to service_role;
 revoke all on function public.powerhub_inventory_create_purchase(bigint,bigint,bigint,bigint,bigint,text,date,date,integer,text,text,text,jsonb,text) from public,anon,authenticated;
 grant execute on function public.powerhub_inventory_create_purchase(bigint,bigint,bigint,bigint,bigint,text,date,date,integer,text,text,text,jsonb,text) to service_role;
+revoke all on function public.powerhub_inventory_create_purchase(bigint,bigint,bigint,bigint,bigint,text,date,date,integer,text,text,text,jsonb) from public,anon,authenticated;
+grant execute on function public.powerhub_inventory_create_purchase(bigint,bigint,bigint,bigint,bigint,text,date,date,integer,text,text,text,jsonb) to service_role;
 notify pgrst, 'reload schema';
