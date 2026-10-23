@@ -249,7 +249,7 @@ export const powerhubMaintenanceRouter = router({
     reason: z.string().trim().min(3).max(500), operationKey,
   })).mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
-    return rpc("powerhub_maintenance_reopen_completed_work_order", {
+    return rpc<{ work_order_id: number; work_order_number: string; source_work_order_id: number; status: string; replayed: boolean }>("powerhub_maintenance_reopen_completed_work_order", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
       p_work_order_id: input.workOrderId, p_reason: input.reason, p_operation_key: input.operationKey,
     });
