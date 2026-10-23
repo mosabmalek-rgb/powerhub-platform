@@ -161,6 +161,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres inventory_reading_indexes_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_reading_indexes_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_generator_reading_index_reconciliation.sql
 
+      - name: Verify financial indexes and company-account updated-at trigger
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres inventory_financial_index_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_financial_index_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_financial_index_reconciliation.sql
+
       - name: Verify concurrent inventory issues, idempotency, and ledger reconciliation
         env:
           PGPASSWORD: postgres

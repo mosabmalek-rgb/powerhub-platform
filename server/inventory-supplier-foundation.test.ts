@@ -22,6 +22,10 @@ const generatorReadingIndexMigration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20261023162500_powerhub_generator_reading_index_reconciliation.sql"),
   "utf8",
 );
+const financialIndexMigration = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20261023170000_powerhub_financial_index_trigger_reconciliation.sql"),
+  "utf8",
+);
 
 describe("PowerHub inventory and supplier-ledger foundation", () => {
   it("creates tenant-scoped catalog, warehouses, suppliers, purchases, stock movements, and supplier ledger", () => {
@@ -129,6 +133,29 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
     expect(generatorReadingIndexMigration).toContain("where approval_client_operation_id is not null");
     expect(generatorReadingIndexMigration).toContain("create trigger generators_set_updated_at");
     expect(generatorReadingIndexMigration).toContain("execute function public.powerhub_set_updated_at()");
+  });
+
+  it("restores financial/report indexes and company-account updated-at trigger", () => {
+    for (const index of [
+      "account_transactions_account_id_idx",
+      "account_transactions_payment_id_idx",
+      "account_transactions_tenant_account_date_idx",
+      "audit_logs_site_id_idx",
+      "audit_logs_tenant_site_date_idx",
+      "audit_logs_user_id_idx",
+      "company_accounts_tenant_idx",
+      "expenses_site_created_at_idx",
+      "expenses_site_date_idx",
+      "expenses_site_occurred_at_id_desc_idx",
+      "expenses_tenant_site_idx",
+      "expenses_tenant_site_occurred_at_id_idx",
+    ]) {
+      expect(financialIndexMigration).toContain(index);
+    }
+    expect(financialIndexMigration).toContain("create trigger company_accounts_set_updated_at");
+    expect(financialIndexMigration).toContain("execute function public.powerhub_set_updated_at()");
+    expect(financialIndexMigration).not.toContain("create table public.expenses");
+    expect(financialIndexMigration).not.toContain("alter table public.expenses add column");
   });
 
   it("does not change existing expense records or automatically apply migrations to a live database", () => {
