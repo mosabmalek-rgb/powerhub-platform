@@ -11,9 +11,11 @@ describe("PowerHub Phase C maintenance integration", () => {
     const worker = read("server/notification-worker.ts");
     const route = read("server/_core/index.ts");
 
-    expect(panel).not.toContain("evaluateDuePlans.useMutation");
+    expect(panel).toContain("evaluateDuePlans.useMutation");
     expect(panel).not.toContain("evaluatedSiteRef");
-    expect(panel).not.toContain("تم تحديث استحقاقات الصيانة الوقائية.");
+    expect(panel).toContain('onClick={() => evaluateDue.mutate({ siteId })}');
+    expect(panel).toContain('toast.success("تم تحديث استحقاقات الصيانة الوقائية.")');
+    expect(panel).not.toContain("evaluateDue.mutate({ siteId });\n    }\n  }, [siteId, isAuthenticated, canManageMaintenance]);");
     expect(worker).toContain("processAutomaticMaintenanceAlertEvaluation");
     expect(worker).toContain('rpc("powerhub_maintenance_evaluate_due_plans"');
     expect(route).toContain("maintenanceAlertEvaluationResult");

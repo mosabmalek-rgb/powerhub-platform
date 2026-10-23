@@ -67,6 +67,16 @@ export default function InventoryMaintenancePanel({
     { siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport), staleTime: 60_000 },
   );
   const plans = trpc.powerhub.maintenance.listPreventivePlans.useQuery({ siteId, generatorId: planGeneratorId ? Number(planGeneratorId) : undefined }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 15_000 });
+
+  // Evaluation is explicit from the "Update due dates" button. The scheduled worker
+  // performs automatic evaluation; mounting this tab must remain read-only.
+  const evaluateDue = trpc.powerhub.maintenance.evaluateDuePlans.useMutation({
+    onSuccess: async () => {
+      await utils.powerhub.maintenance.listPreventivePlans.invalidate();
+      toast.success("تم تحديث استحقاقات الصيانة الوقائية.");
+    },
+    onError: (error) => toast.error(error.message || "تعذر تحديث استحقاقات الصيانة الوقائية."),
+  });
   const items = trpc.powerhub.inventory.listItems.useQuery({ siteId, includeInactive: false }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance && canIssueInventory), staleTime: 30_000 });
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery({ siteId, includeInactive: false }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance && canIssueInventory), staleTime: 30_000 });
   const selectedPartsOrder = orders.data?.find((order) => order.work_order_id === Number(selectedPartsOrderId));
