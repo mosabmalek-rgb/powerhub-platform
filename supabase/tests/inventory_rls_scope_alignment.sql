@@ -77,13 +77,21 @@ insert into public.generators(tenant_id) values(10),(20);
 insert into public.meter_readings(tenant_id) values(10),(20);
 
 do $seed_policies$
-declare v_table text;
+declare v_table text; v_policy text;
 begin
   foreach v_table in array array['account_transactions','audit_logs','company_accounts','expenses','generators','meter_readings'] loop
     execute format('alter table public.%I enable row level security',v_table);
+    v_policy := case v_table
+      when 'account_transactions' then 'account_transaction_tenant_access'
+      when 'audit_logs' then 'audit_tenant_access'
+      when 'company_accounts' then 'company_account_tenant_access'
+      when 'expenses' then 'expense_tenant_access'
+      when 'generators' then 'generator_tenant_access'
+      else 'reading_tenant_access'
+    end;
     execute format(
       'create policy %I on public.%I for all to public using (tenant_id = any(powerhub_private.current_tenant_ids()) or powerhub_private.is_platform_user()) with check (tenant_id = any(powerhub_private.current_tenant_ids()) or powerhub_private.is_platform_user())',
-      v_table||'_legacy_policy',v_table
+      v_policy,v_table
     );
   end loop;
 end
@@ -128,6 +136,12 @@ begin
       end if;
     end loop;
   end loop;
+  if has_function_privilege('anon','powerhub_private.current_tenant_ids()','EXECUTE') or not has_function_privilege('authenticated','powerhub_private.current_tenant_ids()','EXECUTE') then
+    raise exception 'CURRENT_TENANT_IDS_HELPER_ACL_FAILED';
+  end if;
+  if has_function_privilege('anon','powerhub_private.is_platform_user()','EXECUTE') or not has_function_privilege('authenticated','powerhub_private.is_platform_user()','EXECUTE') then
+    raise exception 'PLATFORM_USER_HELPER_ACL_FAILED';
+  end if;
   if has_function_privilege('anon','powerhub_private.has_tenant_access(bigint)','EXECUTE') or not has_function_privilege('authenticated','powerhub_private.has_tenant_access(bigint)','EXECUTE') then
     raise exception 'TENANT_ACCESS_HELPER_ACL_FAILED';
   end if;
@@ -139,6 +153,12 @@ $assert_policy_acl$;
 
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
 set role authenticated;
+select (powerhub_private.current_tenant_ids() = array[20]::bigint[]) as membership_expiry_helper_ok \gset check_
+\if :check_membership_expiry_helper_ok
+\else
+  \echo 'EXPIRED_TENANT_REMAINS_IN_CURRENT_TENANT_IDS'
+  \quit 1
+\endif
 select (
  (select count(*)=0 from public.account_transactions where tenant_id=10) and (select count(*)=1 from public.account_transactions where tenant_id=20) and
  (select count(*)=0 from public.audit_logs where tenant_id=10) and (select count(*)=1 from public.audit_logs where tenant_id=20) and

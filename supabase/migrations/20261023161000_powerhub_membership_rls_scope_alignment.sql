@@ -52,6 +52,10 @@ as $$
   );
 $$;
 
+revoke all on function powerhub_private.current_tenant_ids() from public, anon;
+grant execute on function powerhub_private.current_tenant_ids() to authenticated, service_role;
+revoke all on function powerhub_private.is_platform_user() from public, anon;
+grant execute on function powerhub_private.is_platform_user() to authenticated, service_role;
 revoke all on function powerhub_private.has_tenant_access(bigint) from public, anon;
 grant usage on schema powerhub_private to authenticated;
 grant execute on function powerhub_private.has_tenant_access(bigint) to authenticated;

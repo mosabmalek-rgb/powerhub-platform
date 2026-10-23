@@ -97,6 +97,8 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
 
   it("aligns core tenant RLS with expiry-aware access and excludes support from admin bypass", () => {
     expect(membershipRlsMigration).toContain("tm.expires_at is null or tm.expires_at > now()");
+    expect(membershipRlsMigration).toContain("revoke all on function powerhub_private.current_tenant_ids() from public, anon");
+    expect(membershipRlsMigration).toContain("revoke all on function powerhub_private.is_platform_user() from public, anon");
     expect(membershipRlsMigration).toContain("create or replace function powerhub_private.has_tenant_access");
     expect(membershipRlsMigration).toContain("create or replace function powerhub_private.is_platform_admin");
     expect(membershipRlsMigration).toContain("'platform_owner', 'platform_admin', 'finance_admin'");
