@@ -326,6 +326,7 @@ insert into public.tenant_reading_cycle_configurations(
 \ir ../migrations/20261022211000_powerhub_fuel_event_append_only_acl.sql
 \ir ../migrations/20261022220000_powerhub_fuel_report_windows.sql
 \ir ../migrations/20261022221000_powerhub_fuel_alert_settings_and_evaluator.sql
+\ir ../migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -3872,6 +3873,79 @@ begin
   end if;
 end;
 $phase_b_fuel_assertions$;
+
+
+-- Phase D: reconcile procurement, posted settlement and supplier credits against canonical ledgers.
+do $phase_d_financial_summary_assertions$
+declare
+  v_report record;
+  v_purchase_count bigint;
+  v_purchase_amount numeric(14,2);
+  v_payment_count bigint;
+  v_payment_amount numeric(14,2);
+  v_return_count bigint;
+  v_return_amount numeric(14,2);
+begin
+  select * into v_report
+    from public.powerhub_inventory_phase_d_financial_summary(10,100,current_date-364,current_date+1);
+  if not found then raise exception 'PHASE_D_FINANCIAL_SUMMARY_RETURNED_NO_ROW'; end if;
+
+  select count(*)::bigint,coalesce(sum(p.total_amount),0)::numeric(14,2)
+    into v_purchase_count,v_purchase_amount
+    from public.supplier_purchases p
+    where p.tenant_id=10 and p.site_id=100
+      and p.invoice_date between current_date-364 and current_date+1
+      and p.status in ('confirmed','partially_received','received');
+  select count(*)::bigint,coalesce(sum(p.amount),0)::numeric(14,2)
+    into v_payment_count,v_payment_amount
+    from public.supplier_payments p
+    where p.tenant_id=10 and p.site_id=100
+      and p.payment_date between current_date-364 and current_date+1
+      and p.status='posted';
+  select count(*)::bigint,coalesce(sum(r.total_credit_amount),0)::numeric(14,2)
+    into v_return_count,v_return_amount
+    from public.supplier_purchase_returns r
+    where r.tenant_id=10 and r.site_id=100
+      and r.return_date between current_date-364 and current_date+1
+      and r.status='posted';
+
+  if v_report.purchase_invoice_count<>v_purchase_count
+    or v_report.purchase_invoice_amount<>v_purchase_amount then
+    raise exception 'PHASE_D_PURCHASE_SUMMARY_RECONCILIATION_FAILED expected_count=% actual_count=% expected_amount=% actual_amount=%',
+      v_purchase_count,v_report.purchase_invoice_count,v_purchase_amount,v_report.purchase_invoice_amount;
+  end if;
+  if v_report.supplier_payment_count<>v_payment_count
+    or v_report.supplier_payment_amount<>v_payment_amount then
+    raise exception 'PHASE_D_PAYMENT_SUMMARY_RECONCILIATION_FAILED expected_count=% actual_count=% expected_amount=% actual_amount=%',
+      v_payment_count,v_report.supplier_payment_count,v_payment_amount,v_report.supplier_payment_amount;
+  end if;
+  if v_report.supplier_return_count<>v_return_count
+    or v_report.supplier_return_credit_amount<>v_return_amount then
+    raise exception 'PHASE_D_RETURN_SUMMARY_RECONCILIATION_FAILED expected_count=% actual_count=% expected_amount=% actual_amount=%',
+      v_return_count,v_report.supplier_return_count,v_return_amount,v_report.supplier_return_credit_amount;
+  end if;
+
+  if has_function_privilege('anon','public.powerhub_inventory_phase_d_financial_summary(bigint,bigint,date,date)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_phase_d_financial_summary(bigint,bigint,date,date)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_phase_d_financial_summary(bigint,bigint,date,date)','EXECUTE') then
+    raise exception 'PHASE_D_FINANCIAL_SUMMARY_ACL_FAILED';
+  end if;
+
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_summary(10,200,current_date-1,current_date);
+    raise exception 'PHASE_D_CROSS_TENANT_SITE_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'PHASE_D_FINANCIAL_SITE_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_summary(10,100,current_date-366,current_date);
+    raise exception 'PHASE_D_RANGE_LIMIT_NOT_ENFORCED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'INVALID_PHASE_D_FINANCIAL_RANGE' then raise; end if;
+  end;
+end;
+$phase_d_financial_summary_assertions$;
 
 select 'inventory purchasing, supplier ledger, fuel fill/reading, measured consumption and stock operations PostgreSQL integration passed' as result;
 
