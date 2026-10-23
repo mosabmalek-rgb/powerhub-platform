@@ -872,3 +872,122 @@ describe("PowerHub inventory catalog and supplier API", () => {
   });
 
 });
+
+
+describe("PowerHub inventory mutation capability-denial matrix", () => {
+  const cases = [
+    {
+      procedure: "updateItem",
+      capability: "editInventoryItems",
+      input: { siteId: 7, itemId: 9, name: "Engine oil", category: "oil", baseUnit: "liter", reorderPoint: 0 },
+    },
+    {
+      procedure: "setItemActive",
+      capability: "deactivateInventoryItems",
+      input: { siteId: 7, itemId: 9, isActive: false, reason: "authorization matrix" },
+    },
+    {
+      procedure: "createItemUnit",
+      capability: "createInventoryItems",
+      input: { siteId: 7, itemId: 9, unitLabel: "box", factorToBase: 10 },
+    },
+    {
+      procedure: "setItemUnitActive",
+      capability: "deactivateInventoryItems",
+      input: { siteId: 7, itemId: 9, unitId: 3, isActive: false, reason: "authorization matrix" },
+    },
+    {
+      procedure: "updateSupplier",
+      capability: "editSuppliers",
+      input: { siteId: 7, supplierId: 4, name: "Supplier", defaultPaymentTermsDays: 30 },
+    },
+    {
+      procedure: "setSupplierActive",
+      capability: "deactivateSuppliers",
+      input: { siteId: 7, supplierId: 4, isActive: false, reason: "authorization matrix" },
+    },
+    {
+      procedure: "createWarehouse",
+      capability: "createWarehouses",
+      input: { siteId: 7, code: "WH-AUTH-1", name: "Warehouse", locationType: "branch_warehouse" },
+    },
+    {
+      procedure: "updateWarehouse",
+      capability: "editWarehouses",
+      input: { siteId: 7, warehouseId: 5, code: "WH-AUTH-1", name: "Warehouse", locationType: "branch_warehouse" },
+    },
+    {
+      procedure: "setWarehouseActive",
+      capability: "deactivateWarehouses",
+      input: { siteId: 7, warehouseId: 5, isActive: false, reason: "authorization matrix" },
+    },
+    {
+      procedure: "createStocktake",
+      capability: "manageStocktakes",
+      input: { siteId: 7, warehouseId: 5, reason: "Routine stocktake", operationKey: "auth-matrix:stocktake:create" },
+    },
+    {
+      procedure: "recordStocktakeCount",
+      capability: "manageStocktakes",
+      input: { siteId: 7, stocktakeId: 8, itemId: 9, countedQuantity: 1.25 },
+    },
+    {
+      procedure: "submitStocktake",
+      capability: "manageStocktakes",
+      input: { siteId: 7, stocktakeId: 8 },
+    },
+    {
+      procedure: "postStocktake",
+      capability: "approveStocktakes",
+      input: { siteId: 7, stocktakeId: 8 },
+    },
+    {
+      procedure: "cancelStocktake",
+      capability: "manageStocktakes",
+      input: { siteId: 7, stocktakeId: 8, reason: "Count must be reopened" },
+    },
+    {
+      procedure: "recordSupplierOpeningBalance",
+      capability: "manageSupplierPayments",
+      input: { siteId: 7, supplierId: 4, amount: 12.5, asOfDate: "2026-10-23" },
+    },
+    {
+      procedure: "recordSupplierPaymentBatch",
+      capability: "manageSupplierPayments",
+      input: {
+        siteId: 7, supplierId: 4, companyAccountId: 1, amount: 10,
+        paymentDate: "2026-10-23", operationKey: "auth-matrix:supplier-payment",
+        allocations: [{ purchaseId: 2, amount: 10 }],
+      },
+    },
+  ] as const;
+
+  it.each(cases)(
+    "denies $procedure before a database call when $capability is missing",
+    async ({ procedure, capability, input }) => {
+      state.from.mockClear();
+      state.rpc.mockClear();
+      state.access.mockReset().mockRejectedValue(new TRPCError({
+        code: "FORBIDDEN",
+        message: "forbidden",
+      }));
+
+      const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+      const mutation = (powerhubInventoryRouter as any)._def.record[procedure];
+
+      await expect(mutation._def.resolver({
+        ctx: { user: { id: 700 } },
+        input,
+      })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(state.access).toHaveBeenCalledWith(
+        700,
+        input.siteId,
+        expect.any(Array),
+        capability,
+      );
+      expect(state.from).not.toHaveBeenCalled();
+      expect(state.rpc).not.toHaveBeenCalled();
+    },
+  );
+});
