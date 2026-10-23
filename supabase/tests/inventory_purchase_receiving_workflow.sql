@@ -327,6 +327,7 @@ insert into public.tenant_reading_cycle_configurations(
 \ir ../migrations/20261022220000_powerhub_fuel_report_windows.sql
 \ir ../migrations/20261022221000_powerhub_fuel_alert_settings_and_evaluator.sql
 \ir ../migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql
+\ir ../migrations/20261023120000_powerhub_inventory_phase_d_financial_details_acl_filter.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -3967,9 +3968,9 @@ declare
   v_payment_amount numeric(14,2):=0;
   v_return_amount numeric(14,2):=0;
 begin
-  if has_function_privilege('anon','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint)','EXECUTE')
-    or has_function_privilege('authenticated','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint)','EXECUTE')
-    or not has_function_privilege('service_role','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint)','EXECUTE') then
+  if has_function_privilege('anon','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint,boolean,boolean)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint,boolean,boolean)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint,boolean,boolean)','EXECUTE') then
     raise exception 'PHASE_D_FINANCIAL_DETAILS_ACL_FAILED';
   end if;
 
@@ -4018,6 +4019,29 @@ begin
   end if;
   if v_return_count<>v_summary.supplier_return_count or v_return_amount<>v_summary.supplier_return_credit_amount then
     raise exception 'PHASE_D_FINANCIAL_DETAILS_RETURN_RECONCILIATION_FAILED';
+  end if;
+
+  -- Event-type visibility is applied before LIMIT and cursor evaluation, not after pagination.
+  if exists (
+    select 1 from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-364,current_date+1,200,null,null,null,false,true
+    ) where event_type='purchase_invoice'
+  ) then
+    raise exception 'PHASE_D_HIDDEN_PURCHASE_EVENT_RETURNED';
+  end if;
+  if exists (
+    select 1 from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-364,current_date+1,200,null,null,null,true,false
+    ) where event_type in ('supplier_payment','supplier_return')
+  ) then
+    raise exception 'PHASE_D_HIDDEN_SUPPLIER_EVENT_RETURNED';
+  end if;
+  if exists (
+    select 1 from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-364,current_date+1,200,null,null,null,false,false
+    )
+  ) then
+    raise exception 'PHASE_D_ALL_FINANCIAL_EVENTS_HIDDEN_BUT_ROWS_RETURNED';
   end if;
 
   begin
