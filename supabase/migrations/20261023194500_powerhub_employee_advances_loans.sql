@@ -254,7 +254,7 @@ begin
     select v_payroll_run_id,(item->>'employeeId')::bigint,(item->>'baseAmount')::numeric,(item->>'extraAmount')::numeric,(item->>'advanceDeduction')::numeric,(item->>'otherDeduction')::numeric,(item->>'netAmount')::numeric,item->>'notes' from jsonb_array_elements(v_calculated_items) as item;
   for v_item in select item from jsonb_array_elements(v_calculated_items) as item loop
     v_to_allocate := (v_item.item->>'advanceReserve')::numeric;
-    for v_adjustment in select id,remaining_amount from public.employee_adjustments where tenant_id=p_tenant_id and employee_id=(v_item.item->>'employeeId')::bigint and site_id=p_site_id and adjustment_type='advance' and status='open' order by case when advance_kind='salary_advance' or advance_kind is null then 0 else 1 end,created_at,id for share loop
+    for v_adjustment in select id,remaining_amount,advance_kind,monthly_deduction from public.employee_adjustments where tenant_id=p_tenant_id and employee_id=(v_item.item->>'employeeId')::bigint and site_id=p_site_id and adjustment_type='advance' and status='open' order by case when advance_kind='salary_advance' or advance_kind is null then 0 else 1 end,created_at,id for share loop
       exit when v_to_allocate <= 0;
       select coalesce(sum(a.amount),0) into v_reserved from public.payroll_adjustment_allocations a join public.payroll_runs r on r.id=a.payroll_run_id and r.status in ('draft','approved') where a.adjustment_id=v_adjustment.id;
       v_available := greatest((case when v_adjustment.advance_kind='employee_loan' then least(v_adjustment.remaining_amount,coalesce(v_adjustment.monthly_deduction,v_adjustment.remaining_amount)) else v_adjustment.remaining_amount end)-v_reserved,0);
