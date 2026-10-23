@@ -159,6 +159,9 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("ليست ترحيلًا محاسبيًا");
     expect(dashboard).toContain("loadAllFilteredMoves");
     expect(dashboard).toContain("downloadDashboardCsv");
+    expect(dashboard).toContain("const csvCell = (value: unknown)");
+    expect(dashboard).toContain("const untrustedText = typeof value === \"string\"");
+    expect(dashboard).toContain("/^[\\\\u0000-\\\\u0020]*[=+\\\\-@]/.test(value)");
     expect(dashboard).toContain("exportDashboardExcel");
     expect(dashboard).toContain("exportDashboardPdf");
     expect(dashboard).toContain("listStockMovementReport.fetch");
