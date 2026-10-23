@@ -1402,11 +1402,18 @@ export const powerhubInventoryRouter = router({
       if (!access.permissions.includes("viewInventoryReports")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تفاصيل التقارير المالية." });
       }
+      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
+        access.permissions.includes("manageSupplierPayments");
+      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
+        access.permissions.includes("manageSupplierPayments") ||
+        access.permissions.includes("reverseSupplierPayments");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_phase_d_financial_details", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId,
         p_from_date: input.fromDate, p_to_date: input.toDate, p_limit: input.limit + 1,
         p_after_date: input.afterDate ?? null, p_after_event_type: input.afterEventType ?? null,
         p_after_event_id: input.afterEventId ?? null,
+        p_include_purchase_invoices: canViewPurchaseFinancials,
+        p_include_supplier_events: canViewSupplierFinancials,
       });
       if (error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل أحداث المشتريات ودفعات الموردين." });
@@ -1414,16 +1421,7 @@ export const powerhubInventoryRouter = router({
       const rows = (data ?? []) as Array<Record<string, unknown>>;
       const hasMore = rows.length > input.limit;
       const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
-      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
-        access.permissions.includes("manageSupplierPayments");
-      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
-        access.permissions.includes("manageSupplierPayments") ||
-        access.permissions.includes("reverseSupplierPayments");
-      const items = pageRows.filter((row) => {
-        if (row.event_type === "purchase_invoice") return canViewPurchaseFinancials;
-        if (row.event_type === "supplier_payment" || row.event_type === "supplier_return") return canViewSupplierFinancials;
-        return false;
-      }).map((row) => ({
+      const items = pageRows.map((row) => ({
         event_date: String(row.event_date),
         event_type: String(row.event_type),
         event_id: Number(row.event_id),
