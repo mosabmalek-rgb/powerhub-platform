@@ -29,7 +29,7 @@ $enable_rls$;
 grant all privileges on table public.account_transactions, public.audit_logs, public.company_accounts, public.expenses to anon, authenticated, service_role;
 grant usage, select on all sequences in schema public to anon, authenticated, service_role;
 
-\ir ../migrations/20261023160000_powerhub_core_financial_direct_dml_hardening.sql
+\ir ../migrations/20261023151939_powerhub_core_financial_direct_dml_hardening.sql
 
 do $assert_acl$
 declare

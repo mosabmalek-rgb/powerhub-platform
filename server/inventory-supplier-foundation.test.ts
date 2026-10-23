@@ -7,7 +7,7 @@ const migration = readFileSync(
   "utf8",
 );
 const coreDmlAclMigration = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20261023160000_powerhub_core_financial_direct_dml_hardening.sql"),
+  resolve(process.cwd(), "supabase/migrations/20261023151939_powerhub_core_financial_direct_dml_hardening.sql"),
   "utf8",
 );
 
