@@ -72,7 +72,7 @@ create table public.employee_adjustments(
 );
 create table public.payroll_runs(
   id bigint generated always as identity primary key, tenant_id bigint not null, site_id bigint,
-  period text not null, status text not null default 'draft', total_gross numeric(14,2) not null default 0,
+  period text not null check (period ~ '^\\d{4}-\\d{2}$'), status text not null default 'draft', total_gross numeric(14,2) not null default 0,
   total_deductions numeric(14,2) not null default 0, total_net numeric(14,2) not null default 0,
   paid_from_account_id bigint, approved_by_user_id bigint, paid_at timestamptz,
   created_by_user_id bigint not null, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
@@ -95,6 +95,7 @@ insert into public.company_accounts(tenant_id,name,account_type,opening_balance)
 values (1,'صندوق الفرع','cash',5000),(2,'صندوق مستأجر آخر','cash',5000);
 insert into public.company_account_sites(tenant_id,account_id,site_id) values (1,1,100),(2,2,200);
 
+\ir ../migrations/20261023185500_powerhub_payroll_period_constraint_reconcile.sql
 \ir ../migrations/20261023190000_powerhub_hr_payroll_rpc_baseline.sql
 \ir ../migrations/20261023194500_powerhub_employee_advances_loans.sql
 
