@@ -17,19 +17,19 @@ create or replace function auth.uid()
 returns uuid
 language sql
 stable
-as $
+as $auth_uid$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
-$;
+$auth_uid$;
 
 create or replace function public.powerhub_set_updated_at()
 returns trigger
 language plpgsql
-as $
+as $set_updated_at$
 begin
   new.updated_at = now();
   return new;
 end;
-$;
+$set_updated_at$;
 
 create table public.users (
   id bigint primary key,
