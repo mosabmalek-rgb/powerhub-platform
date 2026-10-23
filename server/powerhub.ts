@@ -4137,6 +4137,7 @@ export const powerhubRouter = router({
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("ADVANCE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "السلفة أو الدين غير موجود ضمن الفرع." });
       if (errorText.includes("REPAYMENT_EXCEEDS_REMAINING")) throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ السداد أكبر من الرصيد المتبقي." });
+      if (errorText.includes("ADVANCE_BALANCE_RESERVED")) throw new TRPCError({ code: "CONFLICT", message: "لا يمكن سداد هذا المبلغ الآن؛ يوجد جزء من الرصيد محجوز في كشف راتب مفتوح. راجع الكشف أو ألغِه قبل المتابعة." });
       if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND") || errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الإيداع غير متاح لهذا الفرع." });
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تسجيل السداد خلالها." });
       if (errorText.includes("IDEMPOTENCY_KEY_REUSED")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح السداد مستخدم لبيانات مختلفة. راجع السجل قبل إعادة المحاولة." });
