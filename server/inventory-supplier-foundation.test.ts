@@ -18,6 +18,10 @@ const membershipRlsMigration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20261023161000_powerhub_membership_rls_scope_alignment.sql"),
   "utf8",
 );
+const generatorReadingIndexMigration = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20261023162500_powerhub_generator_reading_index_reconciliation.sql"),
+  "utf8",
+);
 
 describe("PowerHub inventory and supplier-ledger foundation", () => {
   it("creates tenant-scoped catalog, warehouses, suppliers, purchases, stock movements, and supplier ledger", () => {
@@ -107,6 +111,24 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
     expect(membershipRlsMigration).toContain("drop policy if exists generator_tenant_access on public.generators");
     expect(membershipRlsMigration).toContain("drop policy if exists reading_tenant_access on public.meter_readings");
     expect(membershipRlsMigration).not.toContain("to public using");
+  });
+
+  it("restores production-proven reading indexes and the generator updated-at trigger", () => {
+    for (const index of [
+      "generators_created_at_idx",
+      "meter_readings_approval_operation_uidx",
+      "meter_readings_opening_baseline_idx",
+      "meter_readings_status_idx",
+      "meter_readings_status_reading_at_idx",
+      "meter_readings_subscriber_date_idx",
+      "meter_readings_subscriber_id_idx",
+      "meter_readings_tenant_reading_at_id_desc_idx",
+    ]) {
+      expect(generatorReadingIndexMigration).toContain(index);
+    }
+    expect(generatorReadingIndexMigration).toContain("where approval_client_operation_id is not null");
+    expect(generatorReadingIndexMigration).toContain("create trigger generators_set_updated_at");
+    expect(generatorReadingIndexMigration).toContain("execute function public.powerhub_set_updated_at()");
   });
 
   it("does not change existing expense records or automatically apply migrations to a live database", () => {
