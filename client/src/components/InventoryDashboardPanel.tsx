@@ -207,7 +207,7 @@ export default function InventoryDashboardPanel({
   }, [period, anchorDate, customFrom, customTo, cycleBounds.data?.startAt, cycleBounds.data?.endAt]);
   const payables = trpc.powerhub.inventory.supplierPayablesAging.useQuery(
     { siteId, asOfDate: dateRange?.toDate },
-    { enabled: enabled && canViewSupplierLedger, staleTime: 15_000, retry: 1 },
+    { enabled: enabled && canViewSupplierLedger && Boolean(dateRange), staleTime: 15_000, retry: 1 },
   );
   const phaseDFinancialSummary = trpc.powerhub.inventory.phaseDFinancialSummary.useQuery(
     { siteId, fromDate: dateRange?.fromDate ?? today, toDate: dateRange?.toDate ?? today },
