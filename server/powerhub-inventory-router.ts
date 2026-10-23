@@ -1316,6 +1316,52 @@ export const powerhubInventoryRouter = router({
       return data;
     }),
 
+  phaseDFinancialSummary: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+    }).superRefine((value, issue) => {
+      const isDate = (text: string) => {
+        const parsed = new Date(text + "T00:00:00.000Z");
+        return /^\\d{4}-\\d{2}-\\d{2}$/.test(text) &&
+          Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+      };
+      if (!isDate(value.fromDate) || !isDate(value.toDate) || value.fromDate > value.toDate) {
+        issue.addIssue({ code: z.ZodIssueCode.custom, path: ["fromDate"], message: "نطاق التقرير المالي غير صالح." });
+        return;
+      }
+      const spanDays = (Date.parse(value.toDate + "T00:00:00.000Z") - Date.parse(value.fromDate + "T00:00:00.000Z")) / 86_400_000;
+      if (spanDays > 365) issue.addIssue({ code: z.ZodIssueCode.custom, path: ["toDate"], message: "لا يمكن أن يتجاوز نطاق التقرير 366 يومًا." });
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون المالية." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_phase_d_financial_summary", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_from_date: input.fromDate, p_to_date: input.toDate,
+      });
+      if (error || !data?.[0]) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي للمخزون والمشتريات." });
+      }
+      const row = data[0] as Record<string, unknown>;
+      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
+        access.permissions.includes("manageSupplierPayments");
+      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
+        access.permissions.includes("manageSupplierPayments") ||
+        access.permissions.includes("reverseSupplierPayments");
+      return {
+        purchaseInvoiceCount: canViewPurchaseFinancials ? Number(row.purchase_invoice_count ?? 0) : null,
+        purchaseInvoiceAmount: canViewPurchaseFinancials ? Number(row.purchase_invoice_amount ?? 0) : null,
+        supplierPaymentCount: canViewSupplierFinancials ? Number(row.supplier_payment_count ?? 0) : null,
+        supplierPaymentAmount: canViewSupplierFinancials ? Number(row.supplier_payment_amount ?? 0) : null,
+        supplierReturnCount: canViewSupplierFinancials ? Number(row.supplier_return_count ?? 0) : null,
+        supplierReturnCreditAmount: canViewSupplierFinancials ? Number(row.supplier_return_credit_amount ?? 0) : null,
+      };
+    }),
+
   listSupplierPaymentBatchOptions: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }))
     .query(async ({ ctx, input }) => {
