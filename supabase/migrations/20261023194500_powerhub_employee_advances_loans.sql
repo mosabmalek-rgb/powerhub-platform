@@ -388,7 +388,7 @@ begin
   end if;
   v_period_start := (p_period || '-01')::date;
   v_period_end := v_period_start + interval '1 month' - interval '1 microsecond';
-  perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':payroll-draft:'||p_site_id::text||':'||p_period,0));
+  perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':payroll-draft:'||p_site_id::text,0));
   perform 1 from public.sites where id=p_site_id and tenant_id=p_tenant_id and status <> 'archived' for share;
   if not found then raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001'; end if;
   if exists (select 1 from public.financial_settlements where tenant_id=p_tenant_id and site_id=p_site_id and status='locked' and period_start <= v_period_end and period_end >= v_period_start) then raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001'; end if;
