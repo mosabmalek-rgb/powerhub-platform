@@ -633,6 +633,30 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
+  it("denies fuel-reading writes before the RPC when the actor lacks fuel-management capability", async () => {
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordFuelReading;
+
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: {
+        siteId: 7,
+        generatorId: 10,
+        readingType: "operating_hours",
+        readingValue: 102,
+        recordedAt: "2026-10-22T09:00:00.000Z",
+        operationKey: "fuel-reading:auth-denied",
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(state.access).toHaveBeenCalledWith(55, 7, expect.any(Array), "manageFuelAndConsumption");
+    expect(state.from).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
   it("forwards a documented fuel reading correction through the protected RPC", async () => {
     state.access.mockReset().mockResolvedValue({ tenantId: 44 });
     state.rpc.mockReset().mockResolvedValue({ data: [{
