@@ -4014,6 +4014,7 @@ export const powerhubRouter = router({
     }),
     createAdjustment: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), employeeId: z.number().int().positive(), adjustmentType: z.enum(["advance", "deduction"]), amount: z.number().positive().max(100000000), reason: z.string().trim().min(3).max(255) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "manageExpenses");
+      if (input.adjustmentType === "advance") throw new TRPCError({ code: "BAD_REQUEST", message: "لا تسجل السلفة كقيد يدوي؛ استخدم «السلف والديون» لتسجيل الصرف وربطه بحساب الشركة." });
       const { data, error } = await supabaseAdmin().rpc("powerhub_create_employee_adjustment", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_employee_id: input.employeeId,
         p_adjustment_type: input.adjustmentType, p_amount: input.amount, p_reason: input.reason,
@@ -4022,6 +4023,7 @@ export const powerhubRouter = router({
       if (!error && result?.adjustment_id) return { id: Number(result.adjustment_id) };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("EMPLOYEE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير موجود ضمن نطاقك." });
+      if (errorText.includes("USE_EMPLOYEE_ADVANCE_RPC")) throw new TRPCError({ code: "BAD_REQUEST", message: "استخدم شاشة السلف والديون لتسجيل صرف السلفة بشكل صحيح." });
       if (errorText.includes("INVALID_EMPLOYEE_ADJUSTMENT_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات السلفة أو الخصم غير صحيحة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ السلفة أو الخصم في Supabase." });
     }),
