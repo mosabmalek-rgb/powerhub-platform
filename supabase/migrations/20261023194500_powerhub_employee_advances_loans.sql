@@ -108,7 +108,7 @@ begin
   perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':employee-advance:'||p_operation_key,0));
   select e.* into v_existing from public.employee_adjustments e
   where e.tenant_id=p_tenant_id and e.adjustment_type='advance'
-    and exists(select 1 from public.account_transactions t where t.id=e.disbursement_transaction_id and t.reference_no='EMP-ADV:'||p_operation_key)
+    and exists(select 1 from public.account_transactions t where t.id=e.disbursement_transaction_id and t.tenant_id=p_tenant_id and t.reference_no='EMP-ADV:'||p_operation_key)
   for update;
   if found then
     if v_existing.tenant_id<>p_tenant_id or v_existing.site_id<>p_site_id or v_existing.employee_id<>p_employee_id
@@ -173,6 +173,7 @@ declare
   v_repayment_id bigint;
   v_balance numeric(14,2);
   v_remaining numeric(12,2);
+  v_reserved numeric(12,2):=0;
   v_role text;
   v_date date:=coalesce(p_payment_date,current_date);
   v_hash text;
@@ -197,7 +198,13 @@ begin
   where a.id=p_adjustment_id and a.tenant_id=p_tenant_id and a.site_id=p_site_id and a.adjustment_type='advance' for update;
   if not found then raise exception 'ADVANCE_OUT_OF_SCOPE' using errcode='P0001'; end if;
   if v_adjustment.status<>'open' then raise exception 'ADVANCE_OUT_OF_SCOPE' using errcode='P0001'; end if;
-  if p_amount>v_adjustment.remaining_amount then raise exception 'REPAYMENT_EXCEEDS_REMAINING' using errcode='P0001'; end if;
+  select coalesce(sum(a.amount),0) into v_reserved
+    from public.payroll_adjustment_allocations a join public.payroll_runs r on r.id=a.payroll_run_id
+    where a.adjustment_id=p_adjustment_id and r.status in ('draft','approved');
+  if p_amount>greatest(v_adjustment.remaining_amount-v_reserved,0) then
+    if v_reserved>0 then raise exception 'ADVANCE_BALANCE_RESERVED' using errcode='P0001'; end if;
+    raise exception 'REPAYMENT_EXCEEDS_REMAINING' using errcode='P0001';
+  end if;
   if exists(select 1 from public.financial_settlements fs where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked' and fs.period_start<=v_date::timestamptz and fs.period_end>=v_date::timestamptz) then
     raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001';
   end if;
@@ -216,7 +223,7 @@ begin
   v_remaining:=v_adjustment.remaining_amount-p_amount;
   update public.employee_adjustments set remaining_amount=v_remaining,status=case when v_remaining=0 then 'settled' else 'open' end,updated_at=now() where id=p_adjustment_id;
   insert into public.employee_adjustment_repayments(tenant_id,site_id,adjustment_id,repayment_method,amount,company_account_id,account_transaction_id,payment_date,reference_no,notes,operation_key,operation_payload_hash,created_by_user_id)
-  values(p_tenant_id,p_site_id,p_adjustment_id,'cash',p_amount,p_account_id,v_transaction_id,v_date,nullif(btrim(p_reference_no),''),nullif(btrim(p_notes),''),p_operation_key,v_hash,p_user_id)
+  values(p_tenant_id,p_site_id,p_adjustment_id,case v_account.account_type when 'cash' then 'cash' when 'bank_of_palestine' then 'bank' else 'wallet' end,p_amount,p_account_id,v_transaction_id,v_date,nullif(btrim(p_reference_no),''),nullif(btrim(p_notes),''),p_operation_key,v_hash,p_user_id)
   returning id into v_repayment_id;
   select platform_role into v_role from public.users where id=p_user_id;
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,before_data,after_data,metadata)
@@ -343,7 +350,7 @@ begin
     select coalesce(sum(case when advance_kind='salary_advance' or advance_kind is null then remaining_amount when advance_kind='employee_loan' then least(remaining_amount,coalesce(monthly_deduction,remaining_amount)) else 0 end),0) into v_open_advances from public.employee_adjustments where tenant_id=p_tenant_id and employee_id=v_item.employee_id and site_id=p_site_id and adjustment_type='advance' and status='open';
     select v_open_advances - coalesce(sum(a.amount),0) into v_open_advances from public.payroll_adjustment_allocations a join public.payroll_runs r on r.id=a.payroll_run_id and r.status in ('draft','approved') join public.employee_adjustments e on e.id=a.adjustment_id where e.tenant_id=p_tenant_id and e.employee_id=v_item.employee_id and e.site_id=p_site_id and e.adjustment_type='advance' and e.status='open';
     v_open_advances := greatest(coalesce(v_open_advances,0),0);
-    v_advance_deduction := least(v_item.advance_deduction + v_open_advances, v_base + v_item.extra_amount);
+    v_advance_deduction := least(v_item.advance_deduction + v_open_advances, greatest(v_base + v_item.extra_amount - v_item.other_deduction,0));
     v_advance_reserve := least(v_advance_deduction, v_open_advances);
     v_net := v_base + v_item.extra_amount - v_advance_deduction - v_item.other_deduction;
     if v_net < 0 then raise exception 'NEGATIVE_PAYROLL_NET' using errcode='P0001'; end if;
