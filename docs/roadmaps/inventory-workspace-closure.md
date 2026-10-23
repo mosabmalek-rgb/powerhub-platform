@@ -1,9 +1,29 @@
 # PowerHub Inventory, Fuel, Purchasing & Maintenance — Closure Register
 
 **Status date:** 2026-10-23  
-**Baseline:** `main` at `43575b04506ebdf9354066d1ba79538c0f50730b` (verified after PR #318 merge on 2026-10-22)  
+**Baseline:** `main` at `e3fce973e9326dec5971a965390dd93ce3420fdc` (PR #321 merged on 2026-10-23; Phase B PR #319 and Phase C PR #320 are also merged)
 **Approved source:** the 19-page user-approved proposal for “إدارة الوقود والمخزون والصيانة PowerHub”.  
 **Purpose:** durable source of truth for implementation across PRs and conversations. Do not treat visible tabs, capability names, or passing CI alone as proof that a workflow is complete.
+
+
+## Latest verified state (2026-10-23; live repository and database checks)
+
+- **Git and CI:** `main` is `e3fce973e9326dec5971a965390dd93ce3420fdc`; PR #319 (Phase B), #320 (Phase C), and #321 (Phase D) are merged. On this SHA, PowerHub CI, Reading Cycle PostgreSQL Integration, Supabase Admin Guard, Security, and subsequent Operations Smoke are green. Evidence: [PowerHub CI](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39948382101), [PostgreSQL integration](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39948382094), [Admin Guard](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39948382093), [Security](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39948382083), and [Operations Smoke](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39954877897). These gates do not equal final phase acceptance.
+- **Vercel:** production deployment `dpl_2k5aDwhgiuSbaedj4tEs18n8LwEE` for this exact SHA is `READY`; no new production deployment was triggered during this review.
+- **Migration registry:** Phase B2 report-window, alert-settings/evaluator, and FK-index migration families; Phase D financial-summary and permission-filtered detail migrations; and `20261023090000_powerhub_generator_maintenance.sql` are recorded in both staging `iyuryuhaylhisjfcrwkz` and production `vvcdiqcyhaloxesvpppc`. The MCP apply path records per-environment execution-version IDs that can differ from Git filename timestamps. Do not manually rewrite migration ledger rows. A full all-object/schema parity diff remains open.
+- **Maintenance ACL and RLS:** preventive-plan, work-order, alert-event, and audit tables exist in both environments with RLS enabled; direct `anon`/`authenticated` SELECT is denied; execution of `powerhub_maintenance_evaluate_due_plans(bigint,bigint)` is denied to those roles and granted to `service_role`.
+- **Cron:** production's existing `powerhub-invoice-notifications` Supabase Cron is active at `* * * * *`; the last observed run at `2026-10-23 13:27:00 UTC` succeeded. Recent protected-route responses were HTTP 200 with `maintenanceAlerts.skipped=false`, `alertsEvaluated=0`, and `notificationsCreated=0` when no plans were due. Staging has no Cron schema/job, so do not add a duplicate scheduler.
+- **Populated maintenance-plan test:** a due plan was evaluated twice inside one staging transaction; the test asserted one overdue event, one in-app notification, and one audit-create row. Rollback completed and a read-after-rollback query found zero fixture plan, audit, owner-profile, or notification rows. No SMS provider was called and production remained read-only.
+- **Scheduler unit tests:** added direct worker tests for Preview skip behavior without opt-in, production-mode invocation of the global evaluator RPC and notification counts, and surfaced RPC errors. The focused four-file Vitest run passed 44 tests and `pnpm check` passed in the temporary workspace. The full test script did not yield a conclusive end-of-suite result there; require the new PR's full CI result before merge.
+- **Browser E2E:** **explicitly waived by the user on 2026-10-23. It is not run and is not represented as passed.** No Preview was created. Continue with source-level, CI, disposable PostgreSQL and read-only production checks. This waiver does not waive tenant/role testing, database integrity, migration review, or safe staging tests.
+- **Tooling limitation:** Vercel Sandbox refused a fresh workspace because the Hobby snapshot-storage limit was exceeded (HTTP 402; reset reported as 2026-11-01). No billing/security settings were changed to bypass it.
+
+### Open acceptance gates by phase
+
+- **A:** finish the operation-by-operation capability/denial matrix at the final head; complete the broad staging/production migration identity and schema-parity diff. Browser E2E is waived as noted above.
+- **B:** finish the broad staging/production schema-parity review. Browser E2E is waived as noted above.
+- **C:** decide the accounting policy for maintenance labour/external service costs before any posting; finish role-by-role and wider tenant/site/generator isolation checks, recurring-fault semantics, and comprehensive maintenance/report reconciliation. Browser E2E is waived as noted above.
+- **D:** finish the broad schema-parity review and verify report/filter/export behavior through source and CI tests. Actual browser downloads are not tested because the user explicitly waived Browser E2E.
 
 ## Non-negotiable delivery rules
 
@@ -13,7 +33,7 @@
 4. Never allow negative stock, cross-tenant/cross-site object references, out-of-scope company accounts, duplicate effects on retries, or unguarded direct RPC access.
 5. Purchasing/inventory consumption are distinct financial events. A stock receipt/payment must not be charged again as an operating expense when materials are issued/consumed.
 6. Reuse existing company accounts, PowerHub cycle definitions, role/permission admin surfaces, audit log, notifications, and export utilities. Do not build parallel versions.
-7. Keep work grouped into coherent PRs. A phase is done only after code review, CI, database integration, authorization tests, migration review, staging smoke/end-to-end, and production/staging schema parity checks.
+7. Keep work grouped into coherent PRs. A phase is done only after code review, CI, database integration, authorization tests, migration review, safe staging checks, and production/staging schema parity checks. Browser E2E may be waived only by explicit user instruction and must be documented as not run, never as passed.
 
 ## Final approved horizontal tabs
 
@@ -21,13 +41,13 @@ The final workspace should expose these nine logical tabs beneath the single “
 
 - [x] لوحة التحكم — source-backed inventory, supplier debt, fuel measurement, maintenance, procurement/settlement and per-generator recorded operating-cost indicators by selected branch and period.
 - [x] دليل الأصناف — create/view/edit/deactivate; durable item code, category, base unit, reorder point, specification; duplicate protection and referenced-history guards.
-- [ ] المشتريات — supplier invoices and lines, purchase/due dates, unit conversions, discounts/tax/charges, draft/approval, physical partial/full receipts, and payment state.
-- [x] Phase C maintenance now includes deduplicated in-app preventive due alerts and a site-scoped per-generator/date-range CSV report for recurring work titles, downtime, order counts and cost breakdown. Full shared Excel/RTL PDF exports and company-wide aggregation remain open.
-- [ ] المخزون والحركات — per-site warehouses and stock locations/tanks, opening balances, receipts, issues, transfers, supplier/issue returns, stocktake, corrections/reversals, item balances and immutable movement history.
-- [ ] الموردون والذمم — supplier profile lifecycle, opening balance, account statement, invoices, payments, returns/credits, outstanding balance, due/overdue aging.
-- [ ] دفعات الموردين — one or multiple invoice allocations, existing company-account selector, partial/full settlement, reference, reversal, atomic account/ledger/audit effects.
-- [ ] الوقود والاستهلاك — (Phase B) refuelling records, source/target tanks, historical fuel-level and operating-hour readings, measured actual consumption where inputs support it, litres/hour, alerts, reports.
-- [ ] الصيانة — (Phase C) work orders, breakdowns, preventive schedules, assigned staff, downtime, parts/oils, labour/external service cost, closeout, due alerts and machine history.
+- [x] المشتريات — supplier invoices and lines, purchase/due dates, unit conversions, discounts/tax/charges, draft/approval, physical partial/full receipts, and payment state.
+- [x] Maintenance execution and preventive alerts are integrated with the shared workspace; Phase D adds maintenance costs and downtime to unified selected-branch reports, seven-sheet Excel, and branded RTL Arabic PDF. Acceptance evidence and unresolved policy decisions are tracked by phase below.
+- [x] المخزون والحركات — per-site warehouses and stock locations/tanks, opening balances, receipts, issues, transfers, supplier/issue returns, stocktake, corrections/reversals, item balances and immutable movement history.
+- [x] الموردون والذمم — supplier profile lifecycle, opening balance, account statement, invoices, payments, returns/credits, outstanding balance, due/overdue aging.
+- [x] دفعات الموردين — one or multiple invoice allocations, existing company-account selector, partial/full settlement, reference, reversal, atomic account/ledger/audit effects.
+- [x] الوقود والاستهلاك — (Phase B) refuelling records, source/target tanks, historical fuel-level and operating-hour readings, measured actual consumption where inputs support it, litres/hour, alerts, reports.
+- [x] الصيانة — (Phase C) work orders, breakdowns, preventive schedules, assigned staff, downtime, parts/oils, labour/external service cost, closeout, due alerts and machine history.
 - [x] التقارير والتصدير — Phase A stock reports plus Phase D CSV, seven-sheet Excel and branded RTL Arabic PDF for stock, paginated movements, procurement/settlement/returns, fuel measurement and maintenance costs; final release gates remain open below.
 
 ## Phase A — close stock, purchasing, suppliers and payables
@@ -48,7 +68,7 @@ The final workspace should expose these nine logical tabs beneath the single “
 
 ### Remaining Phase A acceptance checklist
 
-The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed PowerHub CI (TypeScript, full tests, production build), PostgreSQL integration, Supabase Admin Guard and PowerHub Security. The staging rehearsals exposed and fixed tenant audit-role and item-unit audit-schema mismatches. A documentation-only follow-up may trigger another CI run; verify the current PR head before merge.
+Phase A implementation and reconciliation rehearsal are merged. Recent main-head CI and PostgreSQL evidence is linked in the verified-state section. Remaining gates are the operation-by-operation capability/denial review and comprehensive migration/schema parity; the user's Browser E2E waiver is recorded and is not counted as a passed UI test.
 
 - [x] Complete item lifecycle: guarded edit/deactivate, duplicate-code handling, referenced-history preservation and audit.
 - [x] Complete supplier lifecycle: edit/deactivate; address/tax fields exposed while historical finance records are preserved.
@@ -62,15 +82,15 @@ The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed Powe
 - [x] Supplier/payables details: supplier ledger and payment history are available; the aging report exposes as-of-date buckets and exports its full rows and totals to a right-to-left Excel worksheet and Arabic PDF.
 - [x] Database-level reconciliation rehearsal on staging: two purchases (partial then complete receipts), opening payable, one payment allocated across two invoices, supplier return, payment reversal, warehouse transfer, issue/return, stocktake posting, final stock quantity/value and supplier aging totals all reconciled inside one transaction. The deliberate rollback sentinel aborted the transaction, and follow-up counts confirmed no fixture item, supplier, warehouse, purchase, payment, return or stocktake remained.
 - [x] Owner and staff individual capability overrides are both supported; administration shows effective permission outcomes and records role-policy, staff-override and owner-override changes in the existing security/permission audit stores.
-- [ ] Finish the operation-by-operation capability matrix review (view/create/edit/deactivate/approve/receive/pay/reverse/stocktake/report) and verify all denials at the final branch head; the existing UI/RPC/audit paths do not replace this end-to-end acceptance gate.
+- [ ] Finish the operation-by-operation capability matrix review (view/create/edit/deactivate/approve/receive/pay/reverse/stocktake/report) and verify all denials at the final branch head; UI/RPC/audit assertions alone do not close this gate.
 - [x] UI-contract tests and disposable PostgreSQL integration assertions cover lifecycle, stocktake, units, opening balance, batch payments, aging, permissions, idempotency, tenant isolation and reconciliation scenarios.
 - [x] Tenant audit-role compatibility: platform roles are preserved, tenant actors remain `NULL` in `audit_logs.actor_platform_role`, and item-unit deactivation reasons are stored in the shared `metadata` JSONB column rather than a nonexistent `reason` column. Staging smoke checks passed after correction.
 - [x] Phase A FK index review: added indexes for item-unit actor, stocktake actor and stocktake item FKs; the post-migration staging advisor query no longer reports unindexed FKs for `inventory_item_units` or `inventory_stocktakes`.
 - [x] Staging database E2E rehearsal (rollback-only): draft/confirm -> partial and full receipts -> opening payable -> multi-invoice payment -> supplier return -> payment reversal -> issue/return/transfer -> stocktake posting -> stock and aging reconciliation. Explicitly verified fixture counts returned to zero after rollback.
-- [ ] Staging browser/UI E2E: repeat the approved workflow through the actual deployed preview/staging UI, including PDF/Excel downloads and role-specific screens. No preview deployment was created because this PR branch does not have branch-scoped staging `VITE_SUPABASE_URL` / publishable-key settings; do not deploy a preview that could fall back to production configuration.
-- [ ] Check staging and production migration identities/schema parity after deployment, without financial mutation of production.
+- [x] Browser E2E acceptance exception: explicitly waived by the user on 2026-10-23; no browser test was run and none is claimed as passed. Do not deploy a Preview that could fall back to production configuration.
+- [ ] Complete one comprehensive migration-identity/schema-parity diff for phases A–D and record intentional differences. Key B2, Phase D and maintenance migration families are individually recorded in both environments; do not run purchasing/payment/stock mutations against production.
 
-**Phase A exit gate:** all checklist items above are closed or explicitly documented as a conscious product decision approved by the user; all relevant CI gates pass; no RLS/ACL/tenant/site/account leakage; stock quantity/value and supplier/account ledgers reconcile; retry/concurrency tests pass; staging UI end-to-end passes.
+**Phase A exit gate:** remaining non-browser gates must be closed: operation-by-operation authorization denials, comprehensive schema/migration parity, green final-head CI, no RLS/ACL/tenant/site/account leakage, and reconciled stock/supplier/account ledgers under retries/concurrency. Browser E2E is an explicitly user-approved waiver, not a passed test.
 
 ## Phase B — measured fuel and consumption (implementation and release status)
 
@@ -83,17 +103,17 @@ The implementation commit `9aff03d7dc05834308c9af90e1662ba14f221469` passed Powe
 - [x] Configurable low-level and abnormal-measured-use alerts, episode-state deduplication, recovery/re-arm, and audited idempotent settings.
 - [x] Report by day, configured PowerHub reading cycle, month, and custom range, with site/generator/tank filters and fill cost/quantity.
 - [x] Server/RPC authorization, tenant/site scoping, append-only ACL, idempotency/concurrency assertions, PostgreSQL integration tests, and the 11 fuel-domain FK support indexes.
-- [ ] Release acceptance: final-head CI green, safe staging-only Preview, real browser journey, and release/migration parity review.
+- [ ] Release acceptance: final-head CI green and comprehensive staging/production migration/schema parity review. Browser E2E is explicitly waived by the user on 2026-10-23 and is not counted as passed.
 
 ### Phase B1 — auditable fuel-entry and measured-consumption foundation
 
 **PR #318 — B1 merged into main.** The merged delivery adds append-only fuel-fill events tied to atomic stock transfers and dated tank/hour readings with documented corrections. Read-only checks confirm the B1 schema and ACL migration in both `powerhub-staging-dr` and production.
 
-B2 reporting and alert evaluation are implemented on PR #319. The three B2 follow-up migrations are now applied to staging only: report windows, alert settings/evaluator, and fuel-domain FK support indexes. Their PostgreSQL integration suite passed on recent PR heads, and the core implementation passed all four required GitHub Actions workflows. The latest documentation/index follow-up head must still finish PowerHub CI before the final code gate is declared green.
+B2 reporting and alert evaluation were merged in PR #319. The three B2 migration families—report windows, alert settings/evaluator, and fuel-domain FK indexes—are recorded in both staging and production. Main-head PowerHub CI, PostgreSQL integration, Admin Guard, Security and Operations Smoke are green as linked above.
 
-The Phase B release gate remains open until a Preview is verified to use staging-only credentials and an actual browser E2E completes. No production B2 migration or SMS send was performed in this review. The existing inventory PostgreSQL integration workflow remains the CI gate; no separate workflow was added for this small follow-up migration.
+The Phase B release gate remains open for comprehensive migration/schema parity. Browser E2E was explicitly waived by the user on 2026-10-23 and is not counted as passed. No SMS sends or production stock/financial test mutations were performed in this review.
 
-## Phase C — complete maintenance (not yet complete)
+## Phase C — maintenance implementation merged (acceptance gates remain open)
 
 - [x] Tenant/site/generator-scoped work orders with unique numbers, type, priority, fault/work summary, dates, assigned staff/supplier, downtime, spare-part cost, labour/service cost capture and total cost.
 - [x] Lifecycle states: scheduled, new, in progress, waiting for parts, completed and cancelled; invalid transitions and cancellation without a reason are rejected.
@@ -104,7 +124,7 @@ The Phase B release gate remains open until a Preview is verified to use staging
 - [ ] Define any required accounting/expense posting policy for labour and external services; current maintenance costs are captured and reported but are not automatically posted to company accounts. Duplicate posting is prohibited until a source-of-truth expense ledger and idempotent posting key are defined.
 - [x] Atomic close-out records completion actor, effective operating-hour reading, generator last-maintenance timestamp, linked plan advancement, cost totals and immutable maintenance audit.
 - [x] Deduplicated in-app preventive alerts and per-generator/date-range CSV cost/downtime summary.
-- [ ] Complete role-by-role capability verification, broader tenant/site/generator isolation and rollback acceptance, recurring-fault semantics review, full company-wide reports and branded Excel/PDF exports, and authorized staging/browser E2E.
+- [ ] Complete role-by-role capability verification, broader tenant/site/generator isolation and rollback acceptance, and recurring-fault semantics review. Phase D supplies unified maintenance-cost/downtime reporting and branded Excel/PDF exports; financial and inventory reconciliation still needs comprehensive acceptance evidence. Browser E2E is explicitly waived by the user on 2026-10-23 and is not claimed as passed.
 
 ## Phase D — dashboard, reporting and release closure (implementation complete; acceptance gates open)
 
@@ -115,16 +135,16 @@ The Phase B release gate remains open until a Preview is verified to use staging
 - [x] Unified CSV; seven-sheet Excel (summary, balances, movements, fuel, maintenance, generator operating-cost breakdown, procurement/payments/returns); branded right-to-left Arabic PDF with report logo when configured, selected branch, filters, Asia/Gaza timestamp, and a 2,000 movement/financial-event PDF cap. CSV user-controlled text is guarded against spreadsheet-formula injection.
 - [x] Effective role/user permissions are visible in the existing platform administration surface. Role-policy updates and individual staff/owner overrides already use audited database RPC paths; no parallel permission system was added.
 - [x] Added permission-denial and pagination contract tests for the Phase D summary/details RPCs, category metadata on movement pages, and disposable PostgreSQL reconciliation/ACL/keyset checks for the financial event detail ledger.
-- [x] Applied the summary/details RPC migration and follow-up permission-aware financial-event paging migration to staging project `powerhub-staging-dr` only. Read-only checks verified the exact function signatures, `SECURITY INVOKER`, locked search path, denied execution for `anon`/`authenticated`, service-role-only execution, valid summary/detail responses, and the purchase-only/supplier-only/hidden-all event filters. Five malformed-input guard cases also passed in staging. Production was queried read-only and left unchanged; its Phase D RPCs remain absent pending release approval.
+- [x] Applied and verified the summary/details RPC migrations in staging and production after PR #321 merge. Read-only checks covered signatures, `SECURITY INVOKER`, locked search path, role ACLs, valid summary/detail responses and purchase-only/supplier-only/hidden-all event filters. The full cross-environment schema diff remains an open gate; no production financial or stock transactions were used for verification.
 - [x] Hardened financial detail paging so invoice/payment/return visibility flags are applied inside PostgreSQL before LIMIT and cursor creation. The server now passes the resolved capabilities to SQL and no longer derives cursors from rows it later masks. This closes a potential hidden-event cursor/date/id disclosure.
-- [ ] Final-head CI must pass after the latest cursor privacy fix: TypeScript, full tests, production build, Supabase Admin Guard, Security and PostgreSQL integration. Earlier PR-head checks passed, but those do not certify the newer commits.
-- [ ] Review migration identities and clean PostgreSQL execution, and confirm staging/production schema parity after the final branch changes; do not run purchasing/payment/stock mutations against production.
-- [ ] Authorized staging/browser E2E for filter behavior and CSV/Excel/PDF download, including role-specific screens. No browser E2E is claimed by the current code/contract tests.
-- [ ] Production rollout remains gated on explicit release approval, post-merge migration review, a staging-only verification environment, and a documented rollback candidate.
+- [x] Merged-main automated gates are green on `e3fce973e9326dec5971a965390dd93ce3420fdc`: PowerHub CI (TypeScript, tests, production build), PostgreSQL integration, Supabase Admin Guard, Security and subsequent Operations Smoke. This is CI evidence, not full phase acceptance.
+- [ ] Complete one comprehensive migration-identity/schema-parity diff for all A–D objects and record intentional differences. Key B2, Phase D and maintenance migration families are individually recorded in both environments. Do not run purchasing/payment/stock mutations against production.
+- [x] Browser E2E is explicitly waived by the user on 2026-10-23. The UI test and actual CSV/Excel/PDF downloads were not run and are not claimed as passed; continue relying on source-contract, server authorization and export-generation tests.
+- [x] Post-merge rollout checked read-only: Vercel production deployment `dpl_2k5aDwhgiuSbaedj4tEs18n8LwEE` is READY for PR #321 SHA; Phase D and maintenance migration families are recorded in both environments. Do not trigger another production deployment without a code or schema need.
 
 ## Phase B fuel completion package (2026-10-22)
 
-B1 is merged as PR #318 and deployed. The remaining Phase B work is being assembled into one follow-up PR on `feat/inventory-phase-b-completion`.
+B1 is merged as PR #318 and deployed. B2 was merged as PR #319; see the verified-state section for the current main SHA, CI evidence and migration status.
 
 - [x] Fuel-fill events are linked to atomic stock transfers; tank-level and operating-hour readings are append-only and corrections are documented.
 - [x] Service-role UPDATE/DELETE/TRUNCATE access to the fuel event and reading ledgers is revoked; server-side RPCs remain the write path.
@@ -135,30 +155,26 @@ B1 is merged as PR #318 and deployed. The remaining Phase B work is being assemb
 - [x] SQL integration coverage includes day/cycle/month/custom reports, alert activation/recovery/re-arm, operation-key replay/reuse, RLS and RPC/table privilege assertions.
 - [x] Staging schema verification: all three B2 migration names are recorded and their tables/functions/indexes and RPC privileges were checked on `powerhub-staging-dr`.
 - [x] Production schema rollout: the report-window, alert-settings/evaluator, and fuel foreign-key index migrations have been applied to production after confirming B1 dependencies and confirming none of the B2 tables/functions/migrations existed there beforehand. Post-apply schema/ACL/RLS/trigger/index checks and read-only RPC smoke calls passed.
-- [x] Browser E2E waiver recorded by explicit user instruction (2026-10-22): the actual UI test is intentionally skipped and is **not** claimed as passed. No Preview was created or used.
-- [x] CI and database verification: PowerHub CI, PostgreSQL integration, Supabase Admin Guard, and Security passed on the code/documentation release head before this last evidence update; re-check the new final head before merge.
+- [x] Browser E2E waiver reaffirmed by explicit user instruction (2026-10-23): no UI test was run and it is **not** claimed as passed. No Preview was created or used.
+- [x] CI and database verification: PowerHub CI, PostgreSQL integration, Supabase Admin Guard, Security and subsequent Operations Smoke passed on merged main SHA `e3fce973e9326dec5971a965390dd93ce3420fdc`.
 - [ ] Future CLI migration workflow reconciliation: the Supabase MCP apply path records an execution-time version different from the Git filename timestamp. The repository currently has no automatic `supabase db push` release workflow; before introducing CLI-driven pushes, use the official Supabase migration-repair/list procedure to reconcile history. Do not manually rewrite ledger rows.
 
 The abnormal-consumption alert is emitted only when the report returns a valid measured window and a sufficient positive operating-hours delta. Missing readings or reconciliation anomalies do not become fabricated zero-consumption or rate values. Preview evaluation remains disabled unless the dedicated `POWERHUB_ALLOW_PREVIEW_FUEL_ALERTS=true` opt-in is explicitly set.
 
 ## Phase B2 branch and release evidence (2026-10-22)
 
-- Current `main` SHA: `43575b04506ebdf9354066d1ba79538c0f50730b` (PR #318 merged). The consolidated Phase B2 work is tracked in [PR #319](https://github.com/mosabmalek-rgb/powerhub-platform/pull/319), ready for the final required checks after the explicitly waived browser E2E. Check the live PR head and compare status before merge; the branch is ahead of main and not behind at this verification point.
+- PR #319 is merged as `b88932cd69a1c7574eef3daade39453389b1ff35`; PR #320 (Phase C) is merged as `44eb7b12833dd73164c074dd67318c3496d447a4`; PR #321 (Phase D) is merged as `e3fce973e9326dec5971a965390dd93ce3420fdc`. Current acceptance gates are summarized at the start of this register.
 - The core B2 code head passed all four GitHub Actions gates: [PowerHub CI](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808151664) (TypeScript, tests, production build), [PostgreSQL integration](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808151798), [Supabase Admin Guard](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808151735), and [Security](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/39808152099). The added forward-only index migration also passed PostgreSQL integration, and Security/Guard passed on its implementation head. The latest documentation/index follow-up head is re-running all required gates; check live checks before merge. These results do not replace a browser end-to-end rehearsal.
 - Both staging (`iyuryuhaylhisjfcrwkz`) and production (`vvcdiqcyhaloxesvpppc`) now have all three B2 migrations applied: `powerhub_fuel_report_windows`, `powerhub_fuel_alert_settings_and_evaluator`, and `powerhub_fuel_foreign_key_indexes`. The Supabase MCP records execution-time versions per environment (staging `20261022155753`, `20261022155913`, `20261022160631`; production `20261022162411`, `20261022162439`, `20261022162517`), while Git migration filenames use their authored timestamps. This project currently has no automated `supabase db push` workflow, so the schema rollout used the established MCP apply path; before introducing CLI-driven pushes, reconcile with the official Supabase migration-list/repair process rather than manually editing ledger rows.
 - Read-only smoke calls to the report-period, alert-settings-list, and alert-dispatch-list RPCs using nonexistent tenant/site IDs returned zero rows without error in both environments. Production post-apply checks show four alert tables with RLS enabled, no direct SELECT for `anon`/`authenticated`, report/alert RPC execution restricted to `service_role`, both fuel insert triggers enabled, and all 11 supporting FK indexes present. Supabase Performance Advisor has no remaining unindexed-FK findings for the fuel domain.
 - Post-migration schema verification found all four alert tables present with RLS enabled; `anon` and `authenticated` have no direct SELECT on those tables or EXECUTE on the report/alert RPCs; `service_role` has the expected function execution. The two fuel insert triggers are enabled. Supabase performance advisors originally identified 11 unindexed fuel-domain foreign keys; the forward-only index migration created all 11 supporting indexes, and a fresh advisor result no longer reports fuel-related unindexed foreign keys. This staging project has no `cron` schema, and the migrations create no Cron job; do not add a duplicate scheduler. Production has not been modified by this B2 review.
-- The Vercel project is linked to this repository, but no Preview deployment exists for this branch. The matching branch-scoped frontend URL and publishable key currently belong to a different feature branch, and the Vercel API does not return the sensitive service-role key value for verification. Do **not** create/use a Preview or claim browser E2E until all three bindings are proven to point to staging; never fall back to production credentials.
-- At the time of this update, Vercel production has not yet been verified on the merged B2 commit. The user explicitly waived the actual browser/UI E2E; this is an acknowledged release exception, not a passed UI test. No Preview was created, no SMS was sent, and no operational/financial test transaction was performed.
+- At the earlier 2026-10-22 check, this branch lacked verified staging-only Preview bindings. The user has now explicitly waived Browser E2E; no Preview was created for this closure work and no browser test is claimed as passed.
+- Later merges deployed Phase B through Phase D; PR #321's production deployment is READY on the current main SHA. Browser E2E remains explicitly waived, not passed. No SMS or production stock/financial test mutations were performed during this closure review.
 
-## Current verified gap snapshot (2026-10-22)
+## Historical gap snapshot (2026-10-22; superseded by the live-state section above)
 
-- The existing workspace has eight logical tabs before Phase B fuel work; this branch adds the ninth “الوقود والاستهلاك” tab. Final design remains nine logical tabs before the Phase C maintenance surfaces are assessed.
-- Stock, purchasing and supplier-payables schema/RPCs are present in both production and staging.
-- Database inspection did not find dedicated maintenance-order/preventive-maintenance tables/functions. The generator fuel-fill/level/hour-reading tables and functions were added in B1 (PR #318); B2 report windows and alert tables/functions are now applied to staging only.
-- Stock/purchasing/payables tables in staging were empty at inspection time. Passing disposable PostgreSQL tests does not prove that a full staging UI journey has been run.
-- CSV movement export is complete and paginated; approved multi-sheet Excel and branded RTL PDF are not implemented in this module.
-- Verified main baseline for the current B2 closure work is `43575b04506ebdf9354066d1ba79538c0f50730b`; re-check main/PR state before each future implementation session.
+- The approved nine logical tabs are implemented across inventory, purchasing, suppliers/payables, fuel, maintenance, dashboard and reporting components. Tab presence does not replace phase acceptance.
+- The statements in the original snapshot below describe findings as of 2026-10-22 only; current migration, maintenance RLS/ACL, export and deployment evidence is summarized above. Do not treat the historical snapshot as current schema status.
 
 ## Update protocol for every future conversation
 
@@ -176,7 +192,7 @@ After each cohesive PR:
 
 ## Phase C — Generator maintenance and breakdown management
 
-Status: implementation in progress on `feat/inventory-phase-c-maintenance`. This section is not an acceptance claim until CI and the disposable PostgreSQL workflow pass.
+Status: implementation merged in PR #320 and included in Phase D reporting in PR #321. Automated code and database gates passed on merged main; acceptance still has open accounting-policy, role/tenant-isolation, recurring-fault and schema-parity questions described above.
 
 ### Scope delivered in this branch
 - Tenant/site/generator-scoped maintenance work orders with validated lifecycle transitions, closeout summary, downtime, operating-hours checks, labour/service/parts costs, and append-only audit events.
@@ -192,5 +208,5 @@ Status: implementation in progress on `feat/inventory-phase-c-maintenance`. This
 3. Verify migration against a clean PostgreSQL 17 database and confirm cross-tenant generator, item, warehouse, assignee, and work-order references are rejected.
 4. Add/verify concurrency and failure rollback cases for concurrent duplicate part issues and stock movement failure.
 5. Verify role policy and capability configuration UI exposes `manageMaintenance` consistently to owners/managers/technicians.
-6. Verify the deployed migration list and actual schema before any staging rollout; production rollout remains gated on merge/release approval.
-7. Browser UI test is not part of this branch's claimed evidence until explicitly run; do not report it as passed merely because component contract tests pass.
+6. Keep the deployed migration list and actual schema under review; production data must remain read-only for testing.
+7. Browser E2E was explicitly waived by the user on 2026-10-23. It was not run; do not report it as passed merely because component-contract tests pass.
