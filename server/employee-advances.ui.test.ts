@@ -8,6 +8,7 @@ describe("employee advances and loans workflow contract",()=>{
   it("exposes a protected HR workspace tab and dedicated advances UI",()=>{
     const workspace=read("client/src/pages/HumanResourcesWorkspacePage.tsx");
     const ui=read("client/src/pages/EmployeeAdvancesPage.tsx");
+    const payroll=read("client/src/pages/PayrollPage.tsx");
     const app=read("client/src/App.tsx");
     const preload=read("client/src/lib/route-preload.ts");
     expect(app).toContain('path={"/human-resources"}');
@@ -16,8 +17,8 @@ describe("employee advances and loans workflow contract",()=>{
     expect(ui).toContain("سلفة من الراتب");
     expect(ui).toContain("دين / قرض على الموظف");
     expect(ui).toContain("تسجيل سداد جزئي أو كامل");
-    expect(ui).toContain("cancelPayrollDraft");
-    expect(ui).toContain("إلغاء المسودة");
+    expect(payroll).toContain("cancelPayrollDraft");
+    expect(payroll).toContain("إلغاء المسودة");
     expect(ui).toContain("operationKey:newKey()");
     expect(preload).toContain('"/human-resources": () => import("../pages/HumanResourcesWorkspacePage")');
   });
