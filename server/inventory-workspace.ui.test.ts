@@ -45,6 +45,13 @@ describe("inventory workspace UI contract", () => {
     const purchasePanel = read("client/src/components/InventoryPurchasesPanel.tsx");
     expect(purchasePanel).toContain("recordSupplierPayment.useMutation");
     expect(purchasePanel).toContain("حالة السداد");
+    expect(page).toContain("supplierType");
+    expect(page).toContain("نوع المورد");
+    expect(purchasePanel).toContain('useState<"immediate" | "deferred">("deferred")');
+    expect(purchasePanel).toContain("confirmPurchase.mutateAsync");
+    expect(purchasePanel).toContain("recordSupplierPayment.mutateAsync");
+    expect(runtimeRouter).toContain("powerhub_inventory_create_supplier_with_type");
+    expect(runtimeRouter).toContain('p_payment_mode: input.paymentMode ?? "deferred"');
     expect(purchasePanel).toContain("مسددة بالكامل");
     expect(purchasePanel).toContain("مسددة جزئيًا");
     expect(purchasePanel).toContain("على الحساب — غير مدفوعة");

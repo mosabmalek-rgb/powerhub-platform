@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -132,6 +132,9 @@ export default function InventoryPurchasesPanel({
   const [returnRefundAmount, setReturnRefundAmount] = useState("0");
   const [returnRefundAccountId, setReturnRefundAccountId] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMode, setPaymentMode] = useState<"immediate" | "deferred">("deferred");
+  const immediateSettlementRef = useRef(false);
+  const pendingSettlementRef = useRef<{ mode: "immediate" | "deferred"; companyAccountId: number; paymentDate: string; referenceNo?: string; notes?: string } | null>(null);
   const [companyAccountId, setCompanyAccountId] = useState("");
   const [paymentDate, setPaymentDate] = useState(todayForInput);
   const [paymentReferenceNo, setPaymentReferenceNo] = useState("");
@@ -217,8 +220,10 @@ export default function InventoryPurchasesPanel({
 
   const createPurchase = trpc.powerhub.inventory.createPurchase.useMutation({
     onSuccess: async (result) => {
-      toast.success(`تم إنشاء مسودة المشتريات ${result.purchase_number}.`);
-      setSelectedPurchaseId(Number(result.purchase_id));
+      const settlement = pendingSettlementRef.current;
+      pendingSettlementRef.current = null;
+      const purchaseId = Number(result.purchase_id);
+      setSelectedPurchaseId(purchaseId);
       setCreateOpen(false);
       setSupplierInvoiceNo("");
       setInvoiceDate(todayForInput());
@@ -227,19 +232,50 @@ export default function InventoryPurchasesPanel({
       setReferenceNo("");
       setPurchaseNotes("");
       setDraftLines([emptyLine(options.data?.items[0])]);
+      setPaymentMode("deferred");
       clearOperationKey(createOperationStorageKey);
       setCreateOperationKey(getOrCreateOperationKey(createOperationStorageKey, "purchase-create"));
-      await refreshPurchaseData(Number(result.purchase_id));
+      if (!settlement || settlement.mode !== "immediate") {
+        toast.success(`تم إنشاء مسودة المشتريات ${result.purchase_number}.`);
+        await refreshPurchaseData(purchaseId);
+        return;
+      }
+      immediateSettlementRef.current = true;
+      toast.info("تم إنشاء الفاتورة؛ جارٍ اعتمادها ثم سداد كامل المبلغ.");
+      try {
+        await confirmPurchase.mutateAsync({ siteId, purchaseId });
+      } catch (error) {
+        immediateSettlementRef.current = false;
+        toast.error(`أُنشئت الفاتورة ${result.purchase_number} كمسودة لكن الاعتماد لم يكتمل؛ لم يُخصم مبلغ. ${error instanceof Error ? error.message : ""}`);
+        await refreshPurchaseData(purchaseId);
+        return;
+      }
+      try {
+        const amount = Math.round(Number(result.total_amount) * 100) / 100;
+        await recordSupplierPayment.mutateAsync({
+          siteId, purchaseId, companyAccountId: settlement.companyAccountId, amount,
+          paymentDate: settlement.paymentDate, referenceNo: settlement.referenceNo,
+          notes: settlement.notes || "سداد فوري من نموذج المشتريات",
+          operationKey: getOrCreateOperationKey(`powerhub:inventory:${siteId}:purchase:${purchaseId}:payment`, "supplier-payment"),
+        });
+        immediateSettlementRef.current = false;
+        toast.success(`تم إنشاء الفاتورة ${result.purchase_number} واعتمادها وسداد كامل قيمتها ${formatAmount(amount)}.`);
+        await Promise.all([refreshPurchaseData(purchaseId), utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId })]);
+      } catch (error) {
+        immediateSettlementRef.current = false;
+        toast.error(`الفاتورة ${result.purchase_number} معتمدة، لكن السداد لم يكتمل وبقي المبلغ مستحقًا؛ سجّل الدفعة من التفاصيل. ${error instanceof Error ? error.message : ""}`);
+        await refreshPurchaseData(purchaseId);
+      }
     },
-    onError: (error) => toast.error(error.message || "تعذر إنشاء فاتورة المشتريات."),
+    onError: (error) => { pendingSettlementRef.current = null; toast.error(error.message || "تعذر إنشاء فاتورة المشتريات."); },
   });
 
   const confirmPurchase = trpc.powerhub.inventory.confirmPurchase.useMutation({
     onSuccess: async (result) => {
-      toast.success(result.replayed ? "الفاتورة معتمدة مسبقًا." : "تم اعتماد فاتورة المشتريات وتسجيل استحقاق المورد.");
+      if (!immediateSettlementRef.current) toast.success(result.replayed ? "الفاتورة معتمدة مسبقًا." : "تم اعتماد فاتورة المشتريات وتسجيل استحقاق المورد.");
       await refreshPurchaseData(Number(result.purchase_id));
     },
-    onError: (error) => toast.error(error.message || "تعذر اعتماد فاتورة المشتريات."),
+    onError: (error) => { if (!immediateSettlementRef.current) toast.error(error.message || "تعذر اعتماد فاتورة المشتريات."); },
   });
 
   const receivePurchase = trpc.powerhub.inventory.receivePurchase.useMutation({
@@ -301,7 +337,7 @@ export default function InventoryPurchasesPanel({
 
   const recordSupplierPayment = trpc.powerhub.inventory.recordSupplierPayment.useMutation({
     onSuccess: async (result) => {
-      toast.success(result.replayed ? "تم التحقق من الدفعة السابقة دون خصم مكرر." : `تم تسجيل دفعة المورد بقيمة ${formatAmount(result.amount)}.`);
+      if (!immediateSettlementRef.current) toast.success(result.replayed ? "تم التحقق من الدفعة السابقة دون خصم مكرر." : `تم تسجيل دفعة المورد بقيمة ${formatAmount(result.amount)}.`);
       setPaymentReferenceNo("");
       setPaymentNotes("");
       setPaymentDate(todayForInput());
@@ -312,7 +348,7 @@ export default function InventoryPurchasesPanel({
         utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
       ]);
     },
-    onError: (error) => toast.error(error.message || "تعذر تسجيل دفعة المورد."),
+    onError: (error) => { if (!immediateSettlementRef.current) toast.error(error.message || "تعذر تسجيل دفعة المورد."); },
   });
 
   const onCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -344,14 +380,22 @@ export default function InventoryPurchasesPanel({
       toast.error("مدة السداد يجب أن تكون عدد أيام صحيحًا بين 0 و3650.");
       return;
     }
+    if (paymentMode === "immediate") {
+      if (!canApprovePurchases || !canManageSupplierPayments) { toast.error("يتطلب الدفع الفوري صلاحية اعتماد المشتريات وإدارة دفعات الموردين."); return; }
+      const account = paymentOptions.data?.find((row) => String(row.id) === companyAccountId);
+      const amount = Math.round(previewTotal * 100) / 100;
+      if (!account || amount <= 0 || amount > Number(account.balance)) { toast.error("اختر حساب شركة نشطًا يكفي رصيده لسداد إجمالي الفاتورة."); return; }
+      pendingSettlementRef.current = { mode: "immediate", companyAccountId: Number(account.id), paymentDate: paymentDate || invoiceDate || todayForInput(), referenceNo: paymentReferenceNo.trim() || undefined, notes: paymentNotes.trim() || purchaseNotes.trim() || undefined };
+    } else pendingSettlementRef.current = { mode: "deferred", companyAccountId: 0, paymentDate: paymentDate || todayForInput() };
     createPurchase.mutate({
       siteId,
       supplierId: Number(supplierId),
       warehouseId: Number(warehouseId),
       supplierInvoiceNo: supplierInvoiceNo.trim() || undefined,
       invoiceDate: invoiceDate || undefined,
-      dueDate: dueDate || undefined,
-      paymentTermsDays: terms,
+      dueDate: paymentMode === "immediate" ? (invoiceDate || todayForInput()) : (dueDate || undefined),
+      paymentTermsDays: paymentMode === "immediate" ? 0 : terms,
+      paymentMode,
       referenceNo: referenceNo.trim() || undefined,
       notes: purchaseNotes.trim() || undefined,
       operationKey: createOperationKey,
@@ -498,9 +542,10 @@ export default function InventoryPurchasesPanel({
                 <label className={inputGridClass}>المورد
                   <select className={selectClass} value={supplierId} onChange={(event) => setSupplierId(event.target.value)} required>
                     <option value="">اختر المورد</option>
-                    {options.data?.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.supplier_code ? ` — ${supplier.supplier_code}` : ""}</option>)}
+                    {options.data?.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.supplier_code ? ` — ${supplier.supplier_code}` : ""}{supplier.supplier_type === "one_time" ? " — لمرة واحدة" : ""}</option>)}
                   </select>
                 </label>
+                {canApprovePurchases && canManageSupplierPayments ? <label className={inputGridClass}>طريقة السداد<select className={selectClass} value={paymentMode} onChange={(event) => { const mode = event.target.value as "immediate" | "deferred"; setPaymentMode(mode); if (mode === "immediate") { setDueDate(invoiceDate); setPaymentTermsDays("0"); } else { setDueDate(""); setPaymentTermsDays(""); } }}><option value="deferred">آجل</option><option value="immediate">فوري — سداد كامل</option></select></label> : null}
                 <label className={inputGridClass}>المخزن المستلم
                   <select className={selectClass} value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} required>
                     <option value="">اختر المخزن</option>
@@ -514,11 +559,12 @@ export default function InventoryPurchasesPanel({
                   <Input type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} required />
                 </label>
                 <label className={inputGridClass}>تاريخ الاستحقاق (اختياري)
-                  <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} min={invoiceDate || undefined} />
+                  <Input type="date" value={paymentMode === "immediate" ? invoiceDate : dueDate} onChange={(event) => setDueDate(event.target.value)} min={invoiceDate || undefined} disabled={paymentMode === "immediate"} />
                 </label>
                 <label className={inputGridClass}>مدة السداد بالأيام
-                  <Input type="number" min={0} max={3650} step={1} value={paymentTermsDays} onChange={(event) => setPaymentTermsDays(event.target.value)} placeholder="اتركها لاستخدام مدة المورد" />
+                  <Input type="number" min={0} max={3650} step={1} value={paymentMode === "immediate" ? "0" : paymentTermsDays} onChange={(event) => setPaymentTermsDays(event.target.value)} placeholder="اتركها لاستخدام مدة المورد" disabled={paymentMode === "immediate"} />
                 </label>
+                {paymentMode === "immediate" ? <div className={inputGridClass + " sm:col-span-2 lg:col-span-3"}><label>حساب الشركة للسداد الكامل</label><select className={selectClass} value={companyAccountId} onChange={(event) => setCompanyAccountId(event.target.value)} required><option value="">اختر حسابًا يكفي رصيده</option>{paymentOptions.data?.map((account) => <option key={account.id} value={account.id}>{account.name} — {formatAmount(account.balance)}</option>)}</select><p className="text-xs text-muted-foreground">يُنشأ الشراء ثم يعتمد ثم يسدد كاملًا. إذا تعثر السداد بعد الاعتماد تبقى الفاتورة معتمدة ومستحقة ويظهر تنبيه بذلك.</p></div> : null}
                 <label className={inputGridClass}>المرجع
                   <Input value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} maxLength={120} />
                 </label>

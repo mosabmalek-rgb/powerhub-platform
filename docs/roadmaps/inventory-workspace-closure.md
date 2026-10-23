@@ -63,6 +63,8 @@ The final workspace should expose these nine logical tabs beneath the single “
 - [x] Unified `/inventory` route, shared branch selection, horizontal mobile-scrollable workspace.
 - [x] Item, supplier and warehouse create/list foundations. Defining an item does not change quantity.
 - [x] Purchase drafts/lines and confirmation; partial/full physical receiving with stock and supplier payable linkage.
+- [x] Supplier type is explicit (permanent/one-time); existing rows default to permanent, and one-time suppliers are constrained to zero default payment terms.
+- [x] Purchase mode is explicit (immediate/deferred). Immediate UI flow creates a draft, confirms it, then posts full payment through the existing atomic payment RPC. If payment fails after confirmation, the invoice remains confirmed and outstanding with an explicit recovery message.
 - [x] Existing company-account options and atomic supplier-payment posting tied to invoice allocation and supplier ledger.
 - [x] Supplier ledger statement; safe purchase cancellation and supplier-payment reversal.
 - [x] Opening stock, manual issue, stock adjustments, fuel-consumption stock movement, issue returns and movement correction.
