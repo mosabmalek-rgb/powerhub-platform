@@ -278,6 +278,50 @@ export default function InventoryDashboardPanel({
     downtime: maintenanceRows.reduce((sum, row) => sum + numberOf(row.downtime_minutes), 0),
     recordedCost: maintenanceRows.reduce((sum, row) => sum + numberOf(row.total_cost_amount), 0),
   }), [maintenanceRows]);
+
+  const generatorOperatingRows = useMemo(() => {
+    const fuelByGenerator = new Map<number, FuelReportRow[]>();
+    for (const row of fuelRows) {
+      const id = Number(row.generator_id);
+      fuelByGenerator.set(id, [...(fuelByGenerator.get(id) ?? []), row]);
+    }
+    const maintenanceByGenerator = new Map<number, {
+      orders: number; breakdowns: number; open: number; downtime: number; cost: number;
+    }>();
+    for (const row of maintenanceRows) {
+      const id = Number(row.generator_id);
+      const current = maintenanceByGenerator.get(id) ?? { orders: 0, breakdowns: 0, open: 0, downtime: 0, cost: 0 };
+      current.orders += numberOf(row.work_order_count);
+      current.breakdowns += numberOf(row.breakdown_count);
+      current.open += numberOf(row.open_count);
+      current.downtime += numberOf(row.downtime_minutes);
+      current.cost += numberOf(row.total_cost_amount);
+      maintenanceByGenerator.set(id, current);
+    }
+    return ((fuelOptions.data?.generators ?? []) as { id: number; name: string; code?: string | null }[])
+      .filter((generator) => !generatorId || Number(generator.id) === Number(generatorId))
+      .map((generator) => {
+        const rows = fuelByGenerator.get(Number(generator.id)) ?? [];
+        const measuredRows = rows.filter((row) => row.actual_consumption_liters !== null && row.actual_consumption_liters !== undefined);
+        const maintenance = maintenanceByGenerator.get(Number(generator.id));
+        return {
+          generator_id: Number(generator.id),
+          generator_name: generator.name,
+          tank_count: fuelReport.isError ? null : rows.length,
+          filled_liters: fuelReport.isLoading || fuelReport.isError ? null : rows.reduce((sum, row) => sum + numberOf(row.fuel_filled_liters), 0),
+          filled_cost: fuelReport.isLoading || fuelReport.isError ? null : rows.reduce((sum, row) => sum + numberOf(row.fuel_filled_cost), 0),
+          recorded_consumption_liters: fuelReport.isLoading || fuelReport.isError ? null : rows.reduce((sum, row) => sum + numberOf(row.recorded_consumption_liters), 0),
+          actual_consumption_liters: fuelReport.isLoading || fuelReport.isError || rows.length === 0 || measuredRows.length !== rows.length
+            ? null : measuredRows.reduce((sum, row) => sum + numberOf(row.actual_consumption_liters), 0),
+          measured_tank_count: measuredRows.length,
+          maintenance_orders: maintenanceReport.isLoading || maintenanceReport.isError ? null : maintenance?.orders ?? 0,
+          maintenance_breakdowns: maintenanceReport.isLoading || maintenanceReport.isError ? null : maintenance?.breakdowns ?? 0,
+          maintenance_open: maintenanceReport.isLoading || maintenanceReport.isError ? null : maintenance?.open ?? 0,
+          maintenance_downtime: maintenanceReport.isLoading || maintenanceReport.isError ? null : maintenance?.downtime ?? 0,
+          maintenance_cost: maintenanceReport.isLoading || maintenanceReport.isError ? null : maintenance?.cost ?? 0,
+        };
+      });
+  }, [fuelOptions.data?.generators, fuelRows, maintenanceRows, fuelReport.isLoading, fuelReport.isError, maintenanceReport.isLoading, maintenanceReport.isError, generatorId]);
   const debt = payables.data as unknown as AgingSummary | undefined;
   const reportLoading = canViewInventoryReports && (
     fuelOptions.isLoading || reportWarehouses.isLoading || fuelReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
