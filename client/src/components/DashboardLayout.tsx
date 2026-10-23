@@ -73,8 +73,6 @@ const menuGroups = [
     items: [
       { icon: BriefcaseBusiness, label: "الموارد البشرية", path: "/human-resources" },
       { icon: UsersRound, label: "الحسابات الفرعية", path: "/staff" },
-      { icon: ClipboardCheck, label: "الحضور والانصراف", path: "/attendance" },
-      { icon: BriefcaseBusiness, label: "الرواتب والأجور", path: "/payroll" },
     ],
   },
   {

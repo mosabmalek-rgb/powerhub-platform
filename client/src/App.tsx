@@ -31,7 +31,7 @@ const SubscriberPortalPage = lazy(() => import("./pages/SubscriberPortalPage"));
 const SubscriberAccountStatementPage = lazy(() => import("./pages/SubscriberAccountStatementPage"));
 const SubscriberPortalSettingsPage = lazy(() => import("./pages/SubscriberPortalSettingsPage"));
 const BranchesPage = lazy(() => import("./pages/BranchesPage"));
-const HumanResourcesPage = lazy(() => import("./pages/HumanResourcesPage"));
+const HumanResourcesWorkspacePage = lazy(() => import("./pages/HumanResourcesWorkspacePage"));
 const PayrollPage = lazy(() => import("./pages/PayrollPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
 const MobileSyncPage = lazy(() => import("./pages/MobileSyncPage"));
@@ -91,7 +91,7 @@ function Router() {
       <Route path={"/offline-sync"}>{() => <RouteAccessGate><OfflineSyncPage /></RouteAccessGate>}</Route>
       <Route path={"/settings"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/staff"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
-      <Route path={"/human-resources"}>{() => <RouteAccessGate><HumanResourcesPage /></RouteAccessGate>}</Route>
+      <Route path={"/human-resources"}>{() => <RouteAccessGate><HumanResourcesWorkspacePage /></RouteAccessGate>}</Route>
       <Route path={"/payroll"}>{() => <RouteAccessGate><PayrollPage /></RouteAccessGate>}</Route>
       <Route path={"/attendance"}>{() => <RouteAccessGate><AttendancePage /></RouteAccessGate>}</Route>
       <Route path={"/admin/trial-management"}>{() => <RouteAccessGate platformAdminOnly><TrialSubscriptionManagementPage /></RouteAccessGate>}</Route>

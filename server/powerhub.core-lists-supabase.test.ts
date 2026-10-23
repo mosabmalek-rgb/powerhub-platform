@@ -177,6 +177,8 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_employee") return resolved([{ employee_id: 125 }]);
       if (name === "powerhub_update_employee") return resolved([{ employee_id: 120 }]);
       if (name === "powerhub_create_employee_adjustment") return resolved([{ adjustment_id: 125 }]);
+      if (name === "powerhub_issue_employee_advance") return resolved([{ adjustment_id: 130, account_transaction_id: 131, remaining_amount: 250, replayed: false }]);
+      if (name === "powerhub_repay_employee_advance") return resolved([{ repayment_id: 132, adjustment_id: 121, remaining_amount: 75, account_transaction_id: 133, replayed: false }]);
       if (name === "powerhub_create_payroll_draft") return resolved([{ payroll_run_id: 126, total_net: 1100 }]);
       if (name === "powerhub_approve_payroll") return resolved([{ payroll_run_id: 122 }]);
       if (name === "powerhub_pay_payroll") return resolved([{ payroll_run_id: 122, expense_id: 125, transaction_id: 126 }]);
@@ -1178,13 +1180,40 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     })]);
   });
 
-  it("ينشئ سلفة أو خصماً عبر RPC Supabase الذرية دون MySQL", async () => {
+  it("يرفض السلفة اليدوية ويبقي الخصم العادي على مساره الذري", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.createAdjustment({ siteId: 10, employeeId: 120, adjustmentType: "advance", amount: 250, reason: "سلفة تشغيلية موثقة" }))
+      .rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.rpcCalls).toEqual([]);
+    await expect(caller.hr.createAdjustment({ siteId: 10, employeeId: 120, adjustmentType: "deduction", amount: 25, reason: "خصم إداري موثق" }))
       .resolves.toEqual({ id: 125 });
     expect(state.rpcCalls).toEqual([expect.objectContaining({
       name: "powerhub_create_employee_adjustment",
-      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_employee_id: 120, p_adjustment_type: "advance", p_amount: 250 }),
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_employee_id: 120, p_adjustment_type: "deduction", p_amount: 25 }),
+    })]);
+  });
+
+  it("يصرف السلفة من حساب الشركة عبر RPC المخصص مع مفتاح العملية", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.hr.issueEmployeeAdvance({
+      siteId: 10, employeeId: 120, advanceKind: "salary_advance", amount: 250, accountId: 90,
+      paymentDate: "2026-08-10", reason: "سلفة قبل موعد الراتب", operationKey: "550e8400-e29b-41d4-a716-446655440000",
+    })).resolves.toMatchObject({ id: 130, accountTransactionId: 131, remainingAmount: 250, replayed: false });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({
+      name: "powerhub_issue_employee_advance",
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_employee_id: 120, p_advance_kind: "salary_advance", p_amount: 250, p_account_id: 90, p_payment_date: "2026-08-10" }),
+    })]);
+  });
+
+  it("يسجل السداد الجزئي عبر RPC المخصص دون تكرار الحركة المالية", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.hr.repayEmployeeAdvance({
+      siteId: 10, adjustmentId: 121, accountId: 90, amount: 25, paymentDate: "2026-08-12",
+      notes: "سداد جزئي", operationKey: "550e8400-e29b-41d4-a716-446655440001",
+    })).resolves.toMatchObject({ id: 132, adjustmentId: 121, remainingAmount: 75, accountTransactionId: 133, replayed: false });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({
+      name: "powerhub_repay_employee_advance",
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_adjustment_id: 121, p_account_id: 90, p_amount: 25, p_payment_date: "2026-08-12" }),
     })]);
   });
 
