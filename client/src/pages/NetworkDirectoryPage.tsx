@@ -32,7 +32,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>;
 }
 
-export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) {
+export default function NetworkDirectoryPage({ kind, embedded = false }: { kind: DirectoryKind; embedded?: boolean }) {
   const { isAuthenticated, loading, user } = useAuth();
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
