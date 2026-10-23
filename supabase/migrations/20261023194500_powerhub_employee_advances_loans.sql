@@ -34,7 +34,7 @@ create or replace function public.powerhub_create_employee_adjustment(
 )
 returns table (adjustment_id bigint)
 language plpgsql security invoker set search_path=public,pg_temp
-as $
+as $$
 declare v_adjustment_id bigint; v_role text;
 begin
   if p_adjustment_type = 'advance' then raise exception 'USE_EMPLOYEE_ADVANCE_RPC' using errcode='P0001'; end if;
@@ -53,7 +53,7 @@ begin
     values(p_tenant_id,p_site_id,p_user_id,v_role,'employee_adjustment',v_adjustment_id::text,'create',jsonb_build_object('employeeId',p_employee_id,'adjustmentType',p_adjustment_type,'amount',p_amount,'reason',btrim(p_reason)));
   return query select v_adjustment_id;
 end;
-$;
+$$;
 
 
 alter table public.employee_adjustments
@@ -319,7 +319,7 @@ create or replace function public.powerhub_cancel_payroll_draft(
 )
 returns table(payroll_run_id bigint,cancelled boolean)
 language plpgsql security invoker set search_path=public,pg_temp
-as $
+as $$
 declare
   v_run public.payroll_runs%rowtype;
   v_role text;
@@ -352,7 +352,7 @@ begin
     jsonb_build_object('period',v_run.period,'status','cancelled','reservationsReleased',true));
   return query select p_payroll_run_id,false;
 end;
-$;
+$$;
 
 create or replace function public.powerhub_pay_payroll(
   p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_payroll_run_id bigint, p_account_id bigint
