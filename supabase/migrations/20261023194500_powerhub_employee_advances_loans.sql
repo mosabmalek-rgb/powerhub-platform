@@ -54,7 +54,8 @@ begin
   return query select v_adjustment_id;
 end;
 $$;
-
+revoke execute on function public.powerhub_create_employee_adjustment(bigint,bigint,bigint,bigint,text,numeric,text) from public, anon, authenticated;
+grant execute on function public.powerhub_create_employee_adjustment(bigint,bigint,bigint,bigint,text,numeric,text) to service_role;
 
 alter table public.employee_adjustments
   add constraint employee_adjustments_disbursement_account_fk
