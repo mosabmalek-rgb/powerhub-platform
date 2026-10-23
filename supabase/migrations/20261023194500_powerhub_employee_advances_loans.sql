@@ -318,8 +318,6 @@ begin
   return query select p_payroll_run_id,v_expense_id,v_transaction_id;
 end;
 $$;
-revoke execute on function public.powerhub_create_payroll_draft(bigint,bigint,bigint,text,jsonb) from public, anon, authenticated;
-grant execute on function public.powerhub_create_payroll_draft(bigint,bigint,bigint,text,jsonb) to service_role;
 revoke execute on function public.powerhub_approve_payroll(bigint,bigint,bigint,bigint) from public, anon, authenticated;
 grant execute on function public.powerhub_approve_payroll(bigint,bigint,bigint,bigint) to service_role;
 revoke execute on function public.powerhub_pay_payroll(bigint,bigint,bigint,bigint,bigint) from public, anon, authenticated;
@@ -387,5 +385,8 @@ begin
 end;
 $$;
 
+
+revoke execute on function public.powerhub_create_payroll_draft(bigint,bigint,bigint,text,jsonb) from public, anon, authenticated;
+grant execute on function public.powerhub_create_payroll_draft(bigint,bigint,bigint,text,jsonb) to service_role;
 
 notify pgrst, 'reload schema';
