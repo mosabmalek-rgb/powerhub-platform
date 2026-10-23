@@ -318,6 +318,11 @@ end;
 $$;
 revoke execute on function public.powerhub_create_payroll_draft(bigint,bigint,bigint,text,jsonb) from public, anon, authenticated;
 grant execute on function public.powerhub_create_payroll_draft(bigint,bigint,bigint,text,jsonb) to service_role;
+revoke execute on function public.powerhub_approve_payroll(bigint,bigint,bigint,bigint) from public, anon, authenticated;
+grant execute on function public.powerhub_approve_payroll(bigint,bigint,bigint,bigint) to service_role;
+revoke execute on function public.powerhub_pay_payroll(bigint,bigint,bigint,bigint,bigint) from public, anon, authenticated;
+grant execute on function public.powerhub_pay_payroll(bigint,bigint,bigint,bigint,bigint) to service_role;
+
 create or replace function public.powerhub_create_payroll_draft(
   p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_period text, p_items jsonb
 )
