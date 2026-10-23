@@ -21,7 +21,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   "/mobile-sync": () => import("../pages/MobileSyncPage"),
   "/offline-sync": () => import("../pages/OfflineSyncPage"),
   "/portal-settings": () => import("../pages/SubscriberPortalSettingsPage"),
-  "/human-resources": () => import("../pages/HumanResourcesPage"),
+  "/human-resources": () => import("../pages/HumanResourcesWorkspacePage"),
   "/payroll": () => import("../pages/PayrollPage"),
   "/attendance": () => import("../pages/AttendancePage"),
   "/company-accounts": () => import("../pages/CompanyAccountsPage"),
