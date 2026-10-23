@@ -30,6 +30,10 @@ const auditEntityContractMigration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20261023171000_powerhub_audit_entity_id_not_null.sql"),
   "utf8",
 );
+const siteMembershipInventoryReadScopeMigration = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20261023172000_powerhub_site_membership_inventory_read_scope.sql"),
+  "utf8",
+);
 
 describe("PowerHub inventory and supplier-ledger foundation", () => {
   it("creates tenant-scoped catalog, warehouses, suppliers, purchases, stock movements, and supplier ledger", () => {
@@ -168,6 +172,32 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
     expect(auditEntityContractMigration).toContain("alter column entity_id set not null");
     expect(auditEntityContractMigration.toLowerCase()).not.toContain("update public.audit_logs");
     expect(auditEntityContractMigration.toLowerCase()).not.toContain("delete from public.audit_logs");
+  });
+
+  it("reconciles site and membership DML and narrows inventory/supplier reads to tenant members and platform admins", () => {
+    expect(siteMembershipInventoryReadScopeMigration.toLowerCase()).toContain(
+      "revoke insert, update, delete, truncate",
+    );
+    expect(siteMembershipInventoryReadScopeMigration).toContain("public.sites, public.tenant_members");
+    expect(siteMembershipInventoryReadScopeMigration).toContain("private.powerhub_has_tenant_access(bigint)");
+    expect(siteMembershipInventoryReadScopeMigration).toContain("private.powerhub_is_platform_admin()");
+    for (const table of [
+      "inventory_items",
+      "inventory_stock_movements",
+      "inventory_warehouses",
+      "supplier_ledger_entries",
+      "supplier_payment_allocations",
+      "supplier_payments",
+      "supplier_purchase_lines",
+      "supplier_purchase_receipt_lines",
+      "supplier_purchase_receipts",
+      "supplier_purchases",
+      "suppliers",
+    ]) {
+      expect(siteMembershipInventoryReadScopeMigration).toContain(table);
+    }
+    expect(siteMembershipInventoryReadScopeMigration).toContain("for select to authenticated");
+    expect(siteMembershipInventoryReadScopeMigration).not.toContain("powerhub_private.is_platform_user()");
   });
 
   it("does not change existing expense records or automatically apply migrations to a live database", () => {
