@@ -88,6 +88,19 @@ declare
   v_payroll_id bigint; v_net numeric; v_salary_status text; v_loan_remaining numeric; v_balance numeric;
   v_before_transactions integer; v_repayment_id bigint; v_second_payroll_id bigint;
 begin
+  -- Reject insufficient cash before creating either a receivable or cash transaction.
+  begin
+    perform * from public.powerhub_issue_employee_advance(1,100,10,1,'salary_advance',5001,null,1,'2026-10-04','اختبار رصيد غير كاف','issue-insufficient-1');
+    raise exception 'EXPECTED_INSUFFICIENT_ACCOUNT_BALANCE';
+  exception when others then
+    if sqlerrm not in ('INSUFFICIENT_ACCOUNT_BALANCE','EXPECTED_INSUFFICIENT_ACCOUNT_BALANCE') then raise; end if;
+    if sqlerrm='EXPECTED_INSUFFICIENT_ACCOUNT_BALANCE' then raise; end if;
+  end;
+  if (select count(*) from public.employee_adjustments where tenant_id=1)<>0
+    or (select count(*) from public.account_transactions where tenant_id=1)<>0 then
+    raise exception 'INSUFFICIENT_CASH_CREATED_SIDE_EFFECTS';
+  end if;
+
   -- Issue a salary advance and ensure replays never make a second withdrawal.
   select adjustment_id,account_transaction_id,remaining_amount,replayed
     into v_salary_advance_id,v_tx,v_remaining,v_replayed
