@@ -156,6 +156,11 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("warehouseId !== \"all\"");
     expect(dashboard).toContain("generatorOperatingRows");
     expect(dashboard).toContain("تكلفة تشغيل المولدات");
+    expect(dashboard).toContain("workbook.addWorksheet");
+    expect(dashboard).toContain("التكلفة التشغيلية المسجلة حسب المولد");
+    expect(dashboard).toContain("تطبق على الأرصدة والحركات فقط");
+    expect(dashboard).toContain("gazaTimestamp()");
+    expect(dashboard).toContain("timeZone: \"Asia/Gaza\"");
     expect(dashboard).toContain("دفعات الموردين المرحلة");
     expect(dashboard).toContain("ائتمانات مرتجعات الموردين");
     expect(dashboard).toContain("لا يمكن أن يتجاوز نطاق التقرير 366 يومًا");
@@ -177,6 +182,7 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain("powerhub_inventory_supplier_payables_aging");
     expect(router).toContain("phaseDFinancialSummary: protectedProcedure");
     expect(router).toContain("phaseDFinancialDetails: protectedProcedure");
+    expect(router).toContain("new Map<number, string>");
     expect(router).toContain("powerhub_inventory_phase_d_financial_details");
     expect(router).toContain('"viewInventoryReports"');
     expect(router).toContain("powerhub_inventory_phase_d_financial_summary");
