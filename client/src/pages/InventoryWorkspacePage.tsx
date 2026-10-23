@@ -11,13 +11,14 @@ import InventoryStocktakePanel from "@/components/InventoryStocktakePanel";
 import InventoryDashboardPanel from "@/components/InventoryDashboardPanel";
 import InventoryFuelConsumptionPanel from "@/components/InventoryFuelConsumptionPanel";
 import InventoryMaintenancePanel from "@/components/InventoryMaintenancePanel";
+import NetworkDirectoryPage from "@/pages/NetworkDirectoryPage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck, LayoutDashboard, Droplet, Wrench } from "lucide-react";
+import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck, LayoutDashboard, Droplet, Wrench, Bolt } from "lucide-react";
 import { toast } from "sonner";
 
 const categoryLabels: Record<string, string> = {
@@ -64,6 +65,7 @@ export default function InventoryWorkspacePage() {
     enabled: Boolean(siteId && isAuthenticated),
     staleTime: 30_000,
   });
+  const canViewGenerators = ["owner", "manager", "technician", "viewer"].includes(supplierAccess.data?.role ?? "") || (supplierAccess.data?.permissions.includes("manageGenerators") ?? false);
   const canViewSuppliers = supplierAccess.data?.permissions.includes("viewSuppliers") ?? false;
   const canViewSupplierLedger = supplierAccess.data?.permissions.includes("viewSupplierLedger") ?? false;
   const canViewInventory = supplierAccess.data?.permissions.includes("viewInventory") ?? false;
@@ -295,8 +297,8 @@ export default function InventoryWorkspacePage() {
       <div dir="rtl" className="mx-auto w-full max-w-7xl space-y-5 p-3 md:p-6">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="flex items-center gap-2"><Boxes className="h-6 w-6 text-primary" /><h1 className="text-2xl font-bold">المخزون والمشتريات والصيانة</h1></div>
-            <p className="mt-1 text-sm text-muted-foreground">إدارة دليل الأصناف والموردين والمخازن من مساحة موحدة.</p>
+            <div className="flex items-center gap-2"><Boxes className="h-6 w-6 text-primary" /><h1 className="text-2xl font-bold">التشغيل والمشتريات</h1></div>
+            <p className="mt-1 text-sm text-muted-foreground">إدارة المولدات والوقود والصيانة والمخزون والموردين والمشتريات من مساحة تشغيل موحدة.</p>
             {selectedSiteName ? <p className="mt-1 text-xs text-muted-foreground">الفرع: {selectedSiteName}</p> : null}
           </div>
         </header>
@@ -307,6 +309,7 @@ export default function InventoryWorkspacePage() {
           <Tabs value={tab} onValueChange={setTab} dir="rtl" className="space-y-4">
             <div className="overflow-x-auto pb-1">
               <TabsList className="inline-flex min-w-max gap-1">
+                {canViewGenerators ? <TabsTrigger value="generators" className="gap-2"><Bolt className="h-4 w-4" /> المولدات</TabsTrigger> : null}
                 <TabsTrigger value="dashboard" className="gap-2"><LayoutDashboard className="h-4 w-4" /> لوحة التحكم</TabsTrigger>
                 {canViewInventory ? <TabsTrigger value="catalog" className="gap-2"><Boxes className="h-4 w-4" /> دليل الأصناف</TabsTrigger> : null}
                 {canViewSuppliers ? <TabsTrigger value="suppliers" className="gap-2"><Store className="h-4 w-4" /> الموردون والذمم</TabsTrigger> : null}
@@ -319,6 +322,8 @@ export default function InventoryWorkspacePage() {
                 {canViewInventoryReports ? <TabsTrigger value="reports" className="gap-2"><FileSpreadsheet className="h-4 w-4" /> التقارير والتصدير</TabsTrigger> : null}
               </TabsList>
             </div>
+
+            {canViewGenerators ? <TabsContent value="generators" className="space-y-4"><NetworkDirectoryPage kind="generators" embedded /></TabsContent> : null}
 
             <TabsContent value="dashboard" className="space-y-4">
               <InventoryDashboardPanel

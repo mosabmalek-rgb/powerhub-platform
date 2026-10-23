@@ -13,17 +13,20 @@ describe("inventory workspace UI contract", () => {
     const canonicalRouter = read("server/powerhub.ts");
     expect(app).toContain('const InventoryWorkspacePage = lazy(() => import("./pages/InventoryWorkspacePage"));');
     expect(app).toContain('<Route path={"/inventory"}>{() => <RouteAccessGate><InventoryWorkspacePage /></RouteAccessGate>}</Route>');
-    expect(menu).toContain('label: "المخزون والمشتريات والصيانة", path: "/inventory", capability: "viewInventory"');
+    expect(menu).toContain('label: "التشغيل والمشتريات", path: "/inventory"');
+    expect(menu).not.toContain('label: "المحطات والمولدات", path: "/generators"');
     expect(preload).toContain('"/inventory": () => import("../pages/InventoryWorkspacePage")');
     expect(runtimeRouter).toContain("inventory: powerhubInventoryRouter");
     expect(runtimeRouter).toContain("}) as unknown as typeof powerhubRouter;");
     expect(canonicalRouter).toContain("inventory: powerhubInventoryRouter");
     expect(read("client/src/pages/InventoryWorkspacePage.tsx")).toContain("InventoryPurchasesPanel");
-    expect(menu).toContain("المخزون والمشتريات والصيانة");
+    expect(menu).toContain("التشغيل والمشتريات");
   });
 
   it("keeps the unified workspace tabs horizontal and does not treat item definition as stock receipt", () => {
     const page = read("client/src/pages/InventoryWorkspacePage.tsx");
+    expect(page).toContain('TabsTrigger value="generators"');
+    expect(page).toContain('<NetworkDirectoryPage kind="generators" embedded />');
     expect(page).toContain('TabsTrigger value="catalog"');
     expect(page).toContain('TabsTrigger value="suppliers"');
     expect(page).toContain('TabsTrigger value="warehouses"');
@@ -37,7 +40,7 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain('supplierAccess.data?.permissions.includes("viewSuppliers")');
     expect(page).toContain("canViewSuppliers ? <TabsTrigger value=\"suppliers\"");
     expect(page).toContain("useBranchFilter(sites.data)");
-    expect(page).toContain("المخزون والمشتريات والصيانة");
+    expect(page).toContain("التشغيل والمشتريات");
     expect(page).toContain("تعريف الصنف لا يضيف كمية إلى المخزون");
     expect(page).toContain("trpc.powerhub.inventory.createItem.useMutation");
     expect(page).toContain("trpc.powerhub.inventory.createSupplier.useMutation");

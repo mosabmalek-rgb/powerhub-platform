@@ -16,7 +16,7 @@ export function PowerHubLogo({ compact = false, header = false, marketing = fals
     : compact
       ? "h-9 w-[9.5rem]"
       : marketing && header
-        ? "h-[3.25rem] w-[11rem] min-[400px]:h-[3.5rem] min-[400px]:w-[11.5rem] sm:h-[3.75rem] sm:w-[12.5rem] md:h-[4rem] md:w-[13.5rem] xl:h-[4.25rem] xl:w-[14.5rem]"
+        ? "h-[4.55rem] w-[15.4rem] min-[400px]:h-[4.9rem] min-[400px]:w-[16.1rem] sm:h-[5.25rem] sm:w-[17.5rem] md:h-[5.6rem] md:w-[18.9rem] xl:h-[5.95rem] xl:w-[20.3rem]"
         : marketing
           ? "h-[4.25rem] w-[13.5rem] sm:h-[5rem] sm:w-[16.5rem]"
           : header

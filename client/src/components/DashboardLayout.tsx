@@ -50,7 +50,6 @@ const menuGroups = [
     label: "التشغيل",
     items: [
       { icon: UsersRound, label: "المشتركون", path: "/subscribers" },
-      { icon: Bolt, label: "المحطات والمولدات", path: "/generators" },
       { icon: Store, label: "الأفرع", path: "/branches" },
       { icon: Gauge, label: "إضافة قراءة", path: "/readings" },
     ],
@@ -62,7 +61,7 @@ const menuGroups = [
       { icon: WalletCards, label: "التحصيلات", path: "/collections" },
       { icon: WalletCards, label: "حسابات الشركة", path: "/company-accounts" },
       { icon: Fuel, label: "المصروفات والربحية", path: "/expenses" },
-      { icon: Boxes, label: "المخزون والمشتريات والصيانة", path: "/inventory", capability: "viewInventory" as PowerCapability },
+      { icon: Boxes, label: "التشغيل والمشتريات", path: "/inventory" },
       { icon: ChartNoAxesCombined, label: "لوحة المالية", path: "/financial-dashboard" },
       { icon: ChartNoAxesCombined, label: "التسويات المالية", path: "/financial-settlements" },
       { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },
@@ -625,14 +624,14 @@ function DashboardLayoutContent({
           </div>
         )}
         {!isMobile ? (
-          <header className="sticky top-0 z-30 border-b border-black/20 bg-[#d6a204] px-3 py-3 backdrop-blur sm:px-6 sm:py-4" dir="rtl">
-            <div className="mx-auto flex max-w-7xl min-w-0 flex-col items-stretch gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+          <header className="sticky top-0 z-30 min-h-16 border-b border-black/20 bg-[#d6a204] px-3 py-3 backdrop-blur sm:px-6 sm:py-3" dir="rtl">
+            <div className="flex w-full min-w-0 flex-row items-center justify-between gap-3">
               <div className="min-w-0 flex-1 text-right">
                 <div className="truncate text-xl font-extrabold leading-tight tracking-tight text-[#111827]" style={{ WebkitTextStroke: "0px transparent", textShadow: "none" }}>{user?.role === "admin" ? "إدارة المنصة" : tenantDisplayName ?? "مساحة المولد"}</div>
                 <div className="mt-1 truncate text-sm font-semibold tracking-tight text-[#292524]">{activeMenuItem?.label ?? "لوحة التحكم"}</div>
               </div>
-              <div className="flex max-w-full shrink-0 items-center gap-3 text-left text-xs font-semibold text-[#1f2937] lg:max-w-[35%]">
-                <span className="max-w-full truncate">{displayUser.name || ""}</span>
+              <div className="flex w-auto max-w-[42%] min-w-0 shrink-0 items-center gap-3 text-left text-xs font-semibold text-[#1f2937]">
+                <span className="max-w-full min-w-0 truncate whitespace-nowrap">{displayUser.name || ""}</span>
                 {user?.id ? <NotificationCenter userId={user.id} enabled={location !== "/notifications-center"} /> : null}
               </div>
             </div>

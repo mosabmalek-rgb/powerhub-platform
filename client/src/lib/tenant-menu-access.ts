@@ -30,7 +30,7 @@ const TENANT_MENU_RULES: Record<string, TenantMenuRule> = {
     "manageInventoryItems", "manageSuppliers", "createPurchases", "approvePurchases",
     "receiveInventory", "manageSupplierPayments", "viewSupplierLedger",
     "issueInventory", "adjustInventory", "manageFuelAndConsumption", "manageMaintenance",
-    "viewStocktakes", "manageStocktakes", "approveStocktakes",
+    "viewStocktakes", "manageStocktakes", "approveStocktakes", "manageGenerators",
   ] },
   "/quick-actions": {},
   "/profile": {},

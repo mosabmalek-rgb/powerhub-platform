@@ -6,7 +6,7 @@ import { getValidOfflineAuthLease } from "@/lib/offline-auth";
 import { getOfflineAuthUser } from "@/lib/offline-query-cache";
 import { supabase } from "@/lib/supabase";
 import { probePowerHubConnectivity } from "@/lib/offline-connectivity";
-import { ArrowRight, KeyRound, Loader2, Mail, ShieldCheck } from "lucide-react";
+import { ArrowRight, KeyRound, Loader2, Mail } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
@@ -105,7 +105,6 @@ export default function LoginPage() {
           <p className="mt-14 text-sm font-bold text-[#F5B800]">إدارة الطاقة بذكاء</p>
           <h1 className="mt-4 max-w-xl text-5xl font-extrabold leading-[1.25]">مساحتك الآمنة لإدارة التشغيل والتحصيل.</h1>
           <p className="mt-6 max-w-lg text-base leading-8 text-slate-400">تسجّل الدخول بحسابك الشخصي، ثم يفتح PowerHub تلقائياً مساحة المنصة أو المولد والصلاحيات المرتبطة بك.</p>
-          <div className="mt-12 flex items-center gap-3 text-sm text-slate-300"><ShieldCheck className="h-5 w-5 text-emerald-400" />جلسة محمية عبر Supabase Auth</div>
         </section>
         <section className="relative mx-auto w-full max-w-md rounded-[28px] border border-[#dbe3ec] bg-white p-6 shadow-2xl shadow-slate-900/15 sm:p-8">
           <button onClick={() => setLocation("/")} className="mb-8 flex items-center gap-2 text-sm font-bold text-slate-400 transition hover:text-[#F5B800]"><ArrowRight className="h-4 w-4" />العودة للصفحة الرئيسية</button>
@@ -119,7 +118,6 @@ export default function LoginPage() {
             {error && <p role="alert" className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-700">{error}</p>}
             <Button disabled={pending} type="submit" className="h-11 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ المتابعة…</> : "تسجيل الدخول"}</Button>
           </form>
-          <p className="mt-6 rounded-xl border border-[#dbe3ec] bg-[#f8fafc] px-4 py-3 text-center text-xs leading-6 text-[#536477]">تُنشأ الحسابات ودعوات الوصول من إدارة PowerHub أو لوحة Supabase. إن لم يكن لديك حساب، تواصل مع إدارة المنصة.</p>
         </section>
       </div>
     </main>

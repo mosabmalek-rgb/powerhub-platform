@@ -32,7 +32,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>;
 }
 
-export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) {
+export default function NetworkDirectoryPage({ kind, embedded = false }: { kind: DirectoryKind; embedded?: boolean }) {
   const { isAuthenticated, loading, user } = useAuth();
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
@@ -330,15 +330,16 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     else createGenerator.mutate({ siteId: siteId!, code: String(values.code), name: String(values.name), serialNumber: values.serialNumber ? String(values.serialNumber) : undefined, ratedCapacityKw: String(values.ratedCapacityKw), fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other" });
   };
 
-  if (loading) return <DashboardLayout><Loading /></DashboardLayout>;
-  if (!isAuthenticated) return <DashboardLayout><LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} /></DashboardLayout>;
-  if (!user) return <DashboardLayout><LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} /></DashboardLayout>;
-  if (!sitesQuery.data?.length) return <DashboardLayout><EmptySetup /></DashboardLayout>;
+  const wrapPage = (content: ReactNode) => embedded ? content : <DashboardLayout>{content}</DashboardLayout>;
+  if (loading) return wrapPage(<Loading />);
+  if (!isAuthenticated) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
+  if (!user) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
+  if (!sitesQuery.data?.length) return wrapPage(<EmptySetup />);
   const title = kind === "subscribers" ? "المشتركون" : "المحطات والمولدات";
   const Icon = kind === "subscribers" ? UsersRound : Bolt;
   const pending = createSubscriber.isPending || updateSubscriber.isPending || createGenerator.isPending || updateGenerator.isPending;
 
-  return <DashboardLayout><div className="space-y-6 pb-12">
+  return wrapPage(<div className="space-y-6 pb-12">
     <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><div className="flex items-center gap-2">{kind === "subscribers" ? <Button type="button" variant="outline" size="sm" onClick={() => void refreshSubscriberDirectory()} disabled={isManuallyRefreshingSubscribers || subscribersQuery.isFetching} className="shrink-0 border-white/10 text-slate-200"><RefreshCw className={`ml-2 h-4 w-4 ${isManuallyRefreshingSubscribers || subscribersQuery.isFetching ? "animate-spin" : ""}`} />تحديث القائمة</Button> : null}<select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); setSubscriberPage(1); setSubscriberSearch(""); setDebouncedSubscriberSearch(""); setSubscriberTypeFilter("all"); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></div></header>
     <div className={kind === "subscribers" ? "space-y-6" : "grid gap-6 xl:grid-cols-[.8fr_1.2fr]"}>
       {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <><div className="mb-4 flex items-center justify-between gap-3"><span className={addCardCollapsed && !editing ? "text-lg font-extrabold text-white sm:text-xl" : "text-sm font-bold text-slate-300"}>{editing ? "تعديل بيانات المشترك" : "إضافة مشترك"}</span><Button type="button" size="sm" variant="outline" onClick={() => setAddCardCollapsed((value) => !value)} className="border-white/10 text-slate-200">{addCardCollapsed ? "فتح البطاقة" : "طي البطاقة"}</Button></div>{!addCardCollapsed ? <SubscriberEditor key={`${editing?.id ?? "new"}-${subscriberFormResetKey}`} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} /> : null}</> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
@@ -346,7 +347,7 @@ export default function NetworkDirectoryPage({ kind }: { kind: DirectoryKind }) 
     </div>
     {kind === "generators" && canEdit && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}
     {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { refresh("create"); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace siteId={siteId!} canRemind={can(role, "manageMessaging")} initialPeriod={initialDebtorPeriod} initialScope={initialDebtorScope} initialStatus={initialDebtorStatus} autoFocus={focusDebtorCard} /></> : null}
-  </div></DashboardLayout>;
+  </div>);
 }
 
 function SubscriberPortalGuide() {
