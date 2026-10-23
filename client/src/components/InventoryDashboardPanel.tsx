@@ -502,7 +502,7 @@ export default function InventoryDashboardPanel({
         ]),
       ];
       const csvCell = (value: unknown) => {
-        const untrustedText = typeof value === "string" && /^[\\u0000-\\u0020]*[=+\\-@]/.test(value);
+        const untrustedText = typeof value === "string" && /^[\u0000-\u0020]*[=+\-@]/.test(value);
         const text = untrustedText ? "'" + value : String(value ?? "");
         return "\"" + text.replace(/"/g, "\"\"") + "\"";
       };
