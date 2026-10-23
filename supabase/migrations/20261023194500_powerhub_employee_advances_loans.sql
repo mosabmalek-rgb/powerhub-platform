@@ -86,8 +86,9 @@ begin
   v_hash:=md5(jsonb_build_object('siteId',p_site_id,'employeeId',p_employee_id,'kind',p_advance_kind,'amount',p_amount,'monthlyDeduction',p_monthly_deduction,'accountId',p_account_id,'date',v_date,'reason',btrim(p_reason))::text);
   perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':employee-advance:'||p_operation_key,0));
   select e.* into v_existing from public.employee_adjustments e
-  where e.tenant_id=p_tenant_id and e.adjustment_type='advance' and e.reason like '%' for update
-  and exists(select 1 from public.account_transactions t where t.id=e.disbursement_transaction_id and t.reference_no='EMP-ADV:'||p_operation_key);
+  where e.tenant_id=p_tenant_id and e.adjustment_type='advance'
+    and exists(select 1 from public.account_transactions t where t.id=e.disbursement_transaction_id and t.reference_no='EMP-ADV:'||p_operation_key)
+  for update;
   if found then
     if v_existing.reason is distinct from btrim(p_reason) or v_existing.amount<>p_amount or v_existing.advance_kind is distinct from p_advance_kind
       or v_existing.monthly_deduction is distinct from p_monthly_deduction or v_existing.disbursement_account_id is distinct from p_account_id then
@@ -256,7 +257,7 @@ begin
     for v_adjustment in select id,remaining_amount from public.employee_adjustments where tenant_id=p_tenant_id and employee_id=(v_item.item->>'employeeId')::bigint and site_id=p_site_id and adjustment_type='advance' and status='open' order by case when advance_kind='salary_advance' or advance_kind is null then 0 else 1 end,created_at,id for share loop
       exit when v_to_allocate <= 0;
       select coalesce(sum(a.amount),0) into v_reserved from public.payroll_adjustment_allocations a join public.payroll_runs r on r.id=a.payroll_run_id and r.status in ('draft','approved') where a.adjustment_id=v_adjustment.id;
-      v_available := greatest(v_adjustment.remaining_amount-v_reserved,0);
+      v_available := greatest((case when v_adjustment.advance_kind='employee_loan' then least(v_adjustment.remaining_amount,coalesce(v_adjustment.monthly_deduction,v_adjustment.remaining_amount)) else v_adjustment.remaining_amount end)-v_reserved,0);
       if v_available > 0 then
         v_reserved := least(v_available,v_to_allocate);
         insert into public.payroll_adjustment_allocations(payroll_run_id,adjustment_id,amount) values(v_payroll_run_id,v_adjustment.id,v_reserved);
