@@ -330,10 +330,11 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
     else createGenerator.mutate({ siteId: siteId!, code: String(values.code), name: String(values.name), serialNumber: values.serialNumber ? String(values.serialNumber) : undefined, ratedCapacityKw: String(values.ratedCapacityKw), fuelType: values.fuelType as "diesel" | "gasoline" | "gas" | "other" });
   };
 
-  if (loading) return <DashboardLayout><Loading /></DashboardLayout>;
-  if (!isAuthenticated) return <DashboardLayout><LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} /></DashboardLayout>;
-  if (!user) return <DashboardLayout><LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} /></DashboardLayout>;
-  if (!sitesQuery.data?.length) return <DashboardLayout><EmptySetup /></DashboardLayout>;
+  const wrapPage = (content: ReactNode) => embedded ? content : <DashboardLayout>{content}</DashboardLayout>;
+  if (loading) return wrapPage(<Loading />);
+  if (!isAuthenticated) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
+  if (!user) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
+  if (!sitesQuery.data?.length) return wrapPage(<EmptySetup />);
   const title = kind === "subscribers" ? "المشتركون" : "المحطات والمولدات";
   const Icon = kind === "subscribers" ? UsersRound : Bolt;
   const pending = createSubscriber.isPending || updateSubscriber.isPending || createGenerator.isPending || updateGenerator.isPending;
