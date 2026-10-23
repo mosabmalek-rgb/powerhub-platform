@@ -44,7 +44,10 @@ create table public.sites (
 insert into public.users(id,auth_user_id,platform_role,account_status) values
   (1,'00000000-0000-0000-0000-000000000001',null,'active'),
   (2,'00000000-0000-0000-0000-000000000002','platform_support','active'),
-  (3,'00000000-0000-0000-0000-000000000003','platform_admin','active');
+  (3,'00000000-0000-0000-0000-000000000003','platform_admin','active'),
+  (4,'00000000-0000-0000-0000-000000000004','platform_owner','active'),
+  (5,'00000000-0000-0000-0000-000000000005','finance_admin','active'),
+  (6,'00000000-0000-0000-0000-000000000006',null,'active');
 insert into public.tenant_members(tenant_id,user_id,is_active,membership_status,expires_at) values
   (10,1,true,'active',now()-interval '1 hour'),
   (20,1,true,'active',null);
@@ -225,6 +228,10 @@ begin
         and cmd=case when v_table='sites' then 'ALL' else 'SELECT' end
         and coalesce(qual,'') not ilike '%is_platform_user%'
         and coalesce(qual,'') ilike '%is_platform_admin%'
+        and (v_table <> 'sites' or (
+          coalesce(with_check,'') not ilike '%is_platform_user%'
+          and coalesce(with_check,'') ilike '%is_platform_admin%'
+        ))
     ) then
       raise exception 'SITE_OR_MEMBERSHIP_POLICY_SCOPE_FAILED_ON_%',v_table;
     end if;
@@ -342,6 +349,37 @@ end
 $assert_support_additional_scope$;
 reset role;
 
+-- An ordinary active account without any membership or platform role must also
+-- remain tenant-isolated; support-specific denial alone is not sufficient.
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000006',false);
+set role authenticated;
+select (
+ (select count(*)=0 from public.account_transactions) and (select count(*)=0 from public.audit_logs) and
+ (select count(*)=0 from public.company_accounts) and (select count(*)=0 from public.expenses) and
+ (select count(*)=0 from public.generators) and (select count(*)=0 from public.meter_readings)
+) as nonmember_without_platform_role_denied \gset check_
+\if :check_nonmember_without_platform_role_denied
+\else
+  \echo 'NONMEMBER_WITHOUT_PLATFORM_ROLE_CAN_READ_CORE_TENANT_DATA'
+  \quit 1
+\endif
+do $assert_plain_nonmember_additional_scope$
+declare v_table text; v_count bigint;
+begin
+  foreach v_table in array array[
+      'sites','tenant_members',
+      'inventory_items','inventory_stock_movements','inventory_warehouses',
+      'supplier_ledger_entries','supplier_payment_allocations','supplier_payments',
+      'supplier_purchase_lines','supplier_purchase_receipt_lines','supplier_purchase_receipts',
+      'supplier_purchases','suppliers'
+    ] loop
+    execute format('select count(*) from public.%I',v_table) into v_count;
+    if v_count <> 0 then raise exception 'PLAIN_NONMEMBER_CROSS_TENANT_READ_REMAINS_ON_%',v_table; end if;
+  end loop;
+end
+$assert_plain_nonmember_additional_scope$;
+reset role;
+
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000003',false);
 set role authenticated;
 select (
@@ -371,6 +409,68 @@ begin
   end loop;
 end
 $assert_admin_additional_scope$;
+reset role;
+
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000004',false);
+set role authenticated;
+select (
+ (select count(*)=2 from public.account_transactions) and (select count(*)=2 from public.audit_logs) and
+ (select count(*)=2 from public.company_accounts) and (select count(*)=2 from public.expenses) and
+ (select count(*)=2 from public.generators) and (select count(*)=2 from public.meter_readings)
+) as platform_owner_override_ok \gset check_
+\if :check_platform_owner_override_ok
+\else
+  \echo 'PLATFORM_OWNER_OVERRIDE_FAILED'
+  \quit 1
+\endif
+do $assert_platform_owner_additional_scope$
+declare v_table text; v_count bigint;
+begin
+  foreach v_table in array array[
+      'sites','tenant_members',
+      'inventory_items','inventory_stock_movements','inventory_warehouses',
+      'supplier_ledger_entries','supplier_payment_allocations','supplier_payments',
+      'supplier_purchase_lines','supplier_purchase_receipt_lines','supplier_purchase_receipts',
+      'supplier_purchases','suppliers'
+    ] loop
+    execute format('select count(*) from public.%I where tenant_id = $1',v_table) into v_count using 10;
+    if v_count <> 1 then raise exception 'PLATFORM_OWNER_CANNOT_READ_TENANT_10_ON_%',v_table; end if;
+    execute format('select count(*) from public.%I where tenant_id = $1',v_table) into v_count using 20;
+    if v_count <> 1 then raise exception 'PLATFORM_OWNER_CANNOT_READ_TENANT_20_ON_%',v_table; end if;
+  end loop;
+end
+$assert_platform_owner_additional_scope$;
+reset role;
+
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000005',false);
+set role authenticated;
+select (
+ (select count(*)=2 from public.account_transactions) and (select count(*)=2 from public.audit_logs) and
+ (select count(*)=2 from public.company_accounts) and (select count(*)=2 from public.expenses) and
+ (select count(*)=2 from public.generators) and (select count(*)=2 from public.meter_readings)
+) as finance_admin_override_ok \gset check_
+\if :check_finance_admin_override_ok
+\else
+  \echo 'FINANCE_ADMIN_OVERRIDE_FAILED'
+  \quit 1
+\endif
+do $assert_finance_admin_additional_scope$
+declare v_table text; v_count bigint;
+begin
+  foreach v_table in array array[
+      'sites','tenant_members',
+      'inventory_items','inventory_stock_movements','inventory_warehouses',
+      'supplier_ledger_entries','supplier_payment_allocations','supplier_payments',
+      'supplier_purchase_lines','supplier_purchase_receipt_lines','supplier_purchase_receipts',
+      'supplier_purchases','suppliers'
+    ] loop
+    execute format('select count(*) from public.%I where tenant_id = $1',v_table) into v_count using 10;
+    if v_count <> 1 then raise exception 'FINANCE_ADMIN_CANNOT_READ_TENANT_10_ON_%',v_table; end if;
+    execute format('select count(*) from public.%I where tenant_id = $1',v_table) into v_count using 20;
+    if v_count <> 1 then raise exception 'FINANCE_ADMIN_CANNOT_READ_TENANT_20_ON_%',v_table; end if;
+  end loop;
+end
+$assert_finance_admin_additional_scope$;
 reset role;
 
 set role anon;
