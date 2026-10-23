@@ -2,11 +2,12 @@ import DashboardLayout from "@/components/DashboardLayout";
 import HumanResourcesPage from "@/pages/HumanResourcesPage";
 import AttendancePage from "@/pages/AttendancePage";
 import PayrollPage from "@/pages/PayrollPage";
+import EmployeeAdvancesPage from "@/pages/EmployeeAdvancesPage";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { can } from "@shared/powerhub-rbac";
-import { BriefcaseBusiness, CalendarCheck2, CircleDollarSign } from "lucide-react";
+import { BriefcaseBusiness, CalendarCheck2, CircleDollarSign, HandCoins } from "lucide-react";
 
 export default function HumanResourcesWorkspacePage() {
   const sites = trpc.powerhub.sites.list.useQuery(undefined);
@@ -17,7 +18,8 @@ export default function HumanResourcesWorkspacePage() {
   const canViewPeople = role === "owner" || role === "accountant" || can(role, "manageTeam", permissions);
   const canViewAttendance = (role === "owner" || role === "accountant") && can(role, "managePayroll", permissions);
   const canViewPayroll = (role === "owner" || role === "accountant") && can(role, "managePayroll", permissions);
-  const defaultTab = canViewPeople ? "employees" : canViewAttendance ? "attendance" : "payroll";
+  const canViewAdvances = (role === "owner" || role === "accountant") && can(role, "manageExpenses", permissions);
+  const defaultTab = canViewPeople ? "employees" : canViewAttendance ? "attendance" : canViewPayroll ? "payroll" : "advances";
   return <DashboardLayout><div dir="rtl" className="space-y-5">
     <header className="rounded-2xl border border-white/10 bg-[#111823] p-5">
       <div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><BriefcaseBusiness className="h-4 w-4" />إدارة الفريق</div>
@@ -29,10 +31,12 @@ export default function HumanResourcesWorkspacePage() {
         {canViewPeople ? <TabsTrigger value="employees" className="gap-2 border border-white/10 data-[state=active]:border-[#F5B800] data-[state=active]:bg-[#F5B800]/10"><BriefcaseBusiness className="h-4 w-4" />الموارد البشرية</TabsTrigger> : null}
         {canViewAttendance ? <TabsTrigger value="attendance" className="gap-2 border border-white/10 data-[state=active]:border-[#F5B800] data-[state=active]:bg-[#F5B800]/10"><CalendarCheck2 className="h-4 w-4" />الحضور والانصراف</TabsTrigger> : null}
         {canViewPayroll ? <TabsTrigger value="payroll" className="gap-2 border border-white/10 data-[state=active]:border-[#F5B800] data-[state=active]:bg-[#F5B800]/10"><CircleDollarSign className="h-4 w-4" />الرواتب والأجور</TabsTrigger> : null}
+        {canViewAdvances ? <TabsTrigger value="advances" className="gap-2 border border-white/10 data-[state=active]:border-[#F5B800] data-[state=active]:bg-[#F5B800]/10"><HandCoins className="h-4 w-4" />السلف والديون</TabsTrigger> : null}
       </TabsList>
       {canViewPeople ? <TabsContent value="employees" className="mt-0"><HumanResourcesPage embedded /></TabsContent> : null}
       {canViewAttendance ? <TabsContent value="attendance" className="mt-0"><AttendancePage embedded /></TabsContent> : null}
       {canViewPayroll ? <TabsContent value="payroll" className="mt-0"><PayrollPage embedded /></TabsContent> : null}
+      {canViewAdvances ? <TabsContent value="advances" className="mt-0"><EmployeeAdvancesPage embedded /></TabsContent> : null}
     </Tabs>
   </div></DashboardLayout>;
 }
