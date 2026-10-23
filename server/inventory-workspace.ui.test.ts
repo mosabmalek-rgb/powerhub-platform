@@ -40,7 +40,7 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain('supplierAccess.data?.permissions.includes("viewSuppliers")');
     expect(page).toContain("canViewSuppliers ? <TabsTrigger value=\"suppliers\"");
     expect(page).toContain("useBranchFilter(sites.data)");
-    expect(page).toContain("المخزون والمشتريات والصيانة");
+    expect(page).toContain("التشغيل والمشتريات");
     expect(page).toContain("تعريف الصنف لا يضيف كمية إلى المخزون");
     expect(page).toContain("trpc.powerhub.inventory.createItem.useMutation");
     expect(page).toContain("trpc.powerhub.inventory.createSupplier.useMutation");
