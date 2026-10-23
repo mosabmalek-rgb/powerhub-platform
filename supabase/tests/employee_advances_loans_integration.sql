@@ -222,6 +222,10 @@ begin
   if has_function_privilege('authenticated','public.powerhub_issue_employee_advance(bigint,bigint,bigint,bigint,text,numeric,numeric,bigint,date,text,text)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_ISSUE_RPC'; end if;
   if has_function_privilege('authenticated','public.powerhub_repay_employee_advance(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_REPAY_RPC'; end if;
   if not has_function_privilege('service_role','public.powerhub_issue_employee_advance(bigint,bigint,bigint,bigint,text,numeric,numeric,bigint,date,text,text)','EXECUTE') then raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_ISSUE_RPC'; end if;
+  if has_function_privilege('authenticated','public.powerhub_cancel_payroll_draft(bigint,bigint,bigint,bigint)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_CANCEL_PAYROLL_RPC'; end if;
+  if not has_function_privilege('service_role','public.powerhub_cancel_payroll_draft(bigint,bigint,bigint,bigint)','EXECUTE') then raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_CANCEL_PAYROLL_RPC'; end if;
+  if has_function_privilege('authenticated','public.powerhub_approve_payroll(bigint,bigint,bigint,bigint)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_APPROVE_PAYROLL_RPC'; end if;
+  if has_function_privilege('authenticated','public.powerhub_pay_payroll(bigint,bigint,bigint,bigint,bigint)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_PAYROLL_RPC'; end if;
 end
 $test$;
 
