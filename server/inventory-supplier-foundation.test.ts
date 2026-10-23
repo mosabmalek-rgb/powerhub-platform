@@ -31,7 +31,7 @@ const auditEntityContractMigration = readFileSync(
   "utf8",
 );
 const siteMembershipInventoryReadScopeMigration = readFileSync(
-  resolve(process.cwd(), "supabase/migrations/20261023172000_powerhub_site_membership_inventory_read_scope.sql"),
+  resolve(process.cwd(), "supabase/migrations/20261023175417_powerhub_site_membership_inventory_read_scope.sql"),
   "utf8",
 );
 

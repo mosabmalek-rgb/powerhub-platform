@@ -178,7 +178,7 @@ grant usage,select on all sequences in schema public to anon,authenticated,servi
 \ir ../migrations/20261023151939_powerhub_core_financial_direct_dml_hardening.sql
 \ir ../migrations/20261023153000_powerhub_generator_reading_direct_dml_hardening.sql
 \ir ../migrations/20261023161000_powerhub_membership_rls_scope_alignment.sql
-\ir ../migrations/20261023172000_powerhub_site_membership_inventory_read_scope.sql
+\ir ../migrations/20261023175417_powerhub_site_membership_inventory_read_scope.sql
 
 do $assert_policy_acl$
 declare v_table text; v_policy text;
