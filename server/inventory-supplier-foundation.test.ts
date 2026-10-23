@@ -196,6 +196,11 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
     ]) {
       expect(siteMembershipInventoryReadScopeMigration).toContain(table);
     }
+    expect(siteMembershipInventoryReadScopeMigration).toContain("create index if not exists sites_tenant_id_idx");
+    expect(siteMembershipInventoryReadScopeMigration).toContain("create index if not exists tenant_members_user_active_idx");
+    expect(siteMembershipInventoryReadScopeMigration).toContain("sites_set_updated_at");
+    expect(siteMembershipInventoryReadScopeMigration).toContain("tenant_members_set_updated_at");
+    expect(siteMembershipInventoryReadScopeMigration).toContain("public.powerhub_set_updated_at()");
     expect(siteMembershipInventoryReadScopeMigration).toContain("for select to authenticated");
     expect(siteMembershipInventoryReadScopeMigration).not.toContain("powerhub_private.is_platform_user()");
   });

@@ -6,6 +6,10 @@ revoke insert, update, delete, truncate
   on table public.sites, public.tenant_members
   from public, anon, authenticated;
 
+-- Match the two production access-path indexes missing from staging.
+create index if not exists sites_tenant_id_idx on public.sites (tenant_id);
+create index if not exists tenant_members_user_active_idx on public.tenant_members (user_id, is_active);
+
 do $$
 declare
   tenant_guard text;
@@ -22,6 +26,24 @@ begin
     admin_guard := 'private.powerhub_is_platform_admin';
   else
     raise exception 'POWERHUB_TENANT_AND_PLATFORM_ADMIN_GUARDS_NOT_FOUND';
+  end if;
+
+  if not exists (
+    select 1 from pg_trigger
+    where tgrelid = 'public.sites'::regclass
+      and tgname = 'sites_set_updated_at'
+      and not tgisinternal
+  ) then
+    execute 'create trigger sites_set_updated_at before update on public.sites for each row execute function public.powerhub_set_updated_at()';
+  end if;
+
+  if not exists (
+    select 1 from pg_trigger
+    where tgrelid = 'public.tenant_members'::regclass
+      and tgname = 'tenant_members_set_updated_at'
+      and not tgisinternal
+  ) then
+    execute 'create trigger tenant_members_set_updated_at before update on public.tenant_members for each row execute function public.powerhub_set_updated_at()';
   end if;
 
   execute 'drop policy if exists site_tenant_access on public.sites';
