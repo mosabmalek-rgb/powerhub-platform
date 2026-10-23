@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,7 +30,6 @@ export default function InventoryMaintenancePanel({
   siteId, isAuthenticated, canViewMaintenance, canViewMaintenanceReport, canManageMaintenance, canIssueInventory, canManageExpenses,
 }: { siteId: number; isAuthenticated: boolean; canViewMaintenance: boolean; canViewMaintenanceReport: boolean; canManageMaintenance: boolean; canIssueInventory: boolean; canManageExpenses: boolean }) {
   const utils = trpc.useUtils();
-  const evaluatedSiteRef = useRef<number | null>(null);
   const [generatorId, setGeneratorId] = useState("");
   const [orderType, setOrderType] = useState<OrderType>("breakdown");
   const [preventivePlanId, setPreventivePlanId] = useState("");
@@ -68,6 +67,16 @@ export default function InventoryMaintenancePanel({
     { siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport), staleTime: 60_000 },
   );
   const plans = trpc.powerhub.maintenance.listPreventivePlans.useQuery({ siteId, generatorId: planGeneratorId ? Number(planGeneratorId) : undefined }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 15_000 });
+
+  // Evaluation is explicit from the "Update due dates" button. The scheduled worker
+  // performs automatic evaluation; mounting this tab must remain read-only.
+  const evaluateDue = trpc.powerhub.maintenance.evaluateDuePlans.useMutation({
+    onSuccess: async () => {
+      await utils.powerhub.maintenance.listPreventivePlans.invalidate();
+      toast.success("تم تحديث استحقاقات الصيانة الوقائية.");
+    },
+    onError: (error) => toast.error(error.message || "تعذر تحديث استحقاقات الصيانة الوقائية."),
+  });
   const items = trpc.powerhub.inventory.listItems.useQuery({ siteId, includeInactive: false }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance && canIssueInventory), staleTime: 30_000 });
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery({ siteId, includeInactive: false }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance && canIssueInventory), staleTime: 30_000 });
   const selectedPartsOrder = orders.data?.find((order) => order.work_order_id === Number(selectedPartsOrderId));
@@ -105,18 +114,6 @@ export default function InventoryMaintenancePanel({
     onSuccess: async () => { toast.success("تم صرف الصنف وربط حركته بأمر الصيانة."); setPartQuantity("1"); setPartNotes(""); await Promise.all([utils.powerhub.maintenance.listParts.invalidate(), utils.powerhub.maintenance.listWorkOrders.invalidate(), utils.powerhub.inventory.stockOverview.invalidate(), utils.powerhub.inventory.listStockMovements.invalidate()]); },
     onError: (error) => toast.error(error.message || "تعذر صرف الصنف؛ تحقق من الرصيد والمخزن والصلاحيات."),
   });
-  const evaluateDue = trpc.powerhub.maintenance.evaluateDuePlans.useMutation({
-    onSuccess: async () => { await utils.powerhub.maintenance.listPreventivePlans.invalidate(); toast.success("تم تحديث استحقاقات الصيانة الوقائية."); },
-    onError: (error) => toast.error(error.message || "تعذر تحديث استحقاقات الصيانة الوقائية."),
-  });
-
-  useEffect(() => {
-    if (siteId > 0 && isAuthenticated && canManageMaintenance && evaluatedSiteRef.current !== siteId) {
-      evaluatedSiteRef.current = siteId;
-      evaluateDue.mutate({ siteId });
-    }
-  }, [siteId, isAuthenticated, canManageMaintenance]);
-
   useEffect(() => {
     if (!selectedPartsOrderId && orders.data?.length) {
       const next = orders.data.find((order) => openStatuses.includes(order.status));

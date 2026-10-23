@@ -5,6 +5,22 @@ import { resolve } from "node:path";
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("PowerHub Phase C maintenance integration", () => {
+
+  it("does not trigger scheduled preventive-plan evaluation when the maintenance tab mounts", () => {
+    const panel = read("client/src/components/InventoryMaintenancePanel.tsx");
+    const worker = read("server/notification-worker.ts");
+    const route = read("server/_core/index.ts");
+
+    expect(panel).toContain("evaluateDuePlans.useMutation");
+    expect(panel).not.toContain("evaluatedSiteRef");
+    expect(panel).toContain('onClick={() => evaluateDue.mutate({ siteId })}');
+    expect(panel).toContain('toast.success("تم تحديث استحقاقات الصيانة الوقائية.")');
+    expect(panel).not.toContain("evaluateDue.mutate({ siteId });\n    }\n  }, [siteId, isAuthenticated, canManageMaintenance]);");
+    expect(worker).toContain("processAutomaticMaintenanceAlertEvaluation");
+    expect(worker).toContain('rpc("powerhub_maintenance_evaluate_due_plans"');
+    expect(route).toContain("maintenanceAlertEvaluationResult");
+  });
+
   it("wires the tenant-scoped router and workspace tab", () => {
     const runtime = read("server/powerhub-runtime-router.ts");
     const router = read("server/powerhub-maintenance-router.ts");
