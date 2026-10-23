@@ -90,8 +90,12 @@ begin
     and exists(select 1 from public.account_transactions t where t.id=e.disbursement_transaction_id and t.reference_no='EMP-ADV:'||p_operation_key)
   for update;
   if found then
-    if v_existing.reason is distinct from btrim(p_reason) or v_existing.amount<>p_amount or v_existing.advance_kind is distinct from p_advance_kind
-      or v_existing.monthly_deduction is distinct from p_monthly_deduction or v_existing.disbursement_account_id is distinct from p_account_id then
+    if v_existing.tenant_id<>p_tenant_id or v_existing.site_id<>p_site_id or v_existing.employee_id<>p_employee_id
+      or v_existing.reason is distinct from btrim(p_reason) or v_existing.amount<>p_amount
+      or v_existing.advance_kind is distinct from p_advance_kind
+      or v_existing.monthly_deduction is distinct from p_monthly_deduction
+      or v_existing.disbursement_account_id is distinct from p_account_id
+      or v_existing.disbursed_at::date is distinct from v_date then
       raise exception 'IDEMPOTENCY_KEY_REUSED' using errcode='P0001';
     end if;
     return query select v_existing.id,v_existing.disbursement_transaction_id,v_existing.remaining_amount,true;
