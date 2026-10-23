@@ -20,6 +20,9 @@ describe("employee advances and loans workflow contract",()=>{
     expect(payroll).toContain("cancelPayrollDraft");
     expect(payroll).toContain("إلغاء المسودة");
     expect(ui).toContain("operationKey:newKey()");
+    expect(ui).toContain("repayments.map");
+    expect(ui).toContain("استرداد من الراتب");
+    expect(ui).toContain("لا توجد عمليات سداد مسجلة");
     expect(preload).toContain('"/human-resources": () => import("../pages/HumanResourcesWorkspacePage")');
   });
 
@@ -38,6 +41,9 @@ describe("employee advances and loans workflow contract",()=>{
     expect(router).toContain("listEmployeeAdvances:");
     expect(router).toContain("issueEmployeeAdvance:");
     expect(router).toContain("repayEmployeeAdvance:");
+    expect(router).toContain("payment_date");
+    expect(router).toContain("repaymentsByAdjustment");
+    expect(router).toContain("regex(/^\\d{4}-\\d{2}-\\d{2}$/)");
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "manageExpenses")');
   });
 });

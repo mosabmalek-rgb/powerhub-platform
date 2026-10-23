@@ -4050,7 +4050,12 @@ export const powerhubRouter = router({
       ]);
       if (peopleResult.error || repaymentResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل الموظفين أو سداد السلف." });
       const people = new Map((peopleResult.data ?? []).map((person) => [Number(person.id), person]));
-      const repaymentsByAdjustment = new Map<number, Array<Record<string, unknown>>>();
+      type EmployeeAdvanceRepayment = {
+        id: number; amount: string; repaymentMethod: string; companyAccountId: number | null;
+        accountTransactionId: number | null; payrollRunId: number | null; paymentDate: string;
+        referenceNo: string | null; notes: string | null; createdByUserId: number; createdAt: Date;
+      };
+      const repaymentsByAdjustment = new Map<number, EmployeeAdvanceRepayment[]>();
       for (const payment of repaymentResult.data ?? []) {
         const adjustmentId = Number(payment.adjustment_id);
         const entries = repaymentsByAdjustment.get(adjustmentId) ?? [];
@@ -4092,7 +4097,7 @@ export const powerhubRouter = router({
       amount: z.number().positive().max(100000000),
       monthlyDeduction: z.number().positive().max(100000000).optional(),
       accountId: z.number().int().positive(),
-      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       reason: z.string().trim().min(3).max(255),
       operationKey: z.string().uuid(),
     })).mutation(async ({ ctx, input }) => {
@@ -4123,7 +4128,7 @@ export const powerhubRouter = router({
     repayEmployeeAdvance: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), adjustmentId: z.number().int().positive(),
       accountId: z.number().int().positive(), amount: z.number().positive().max(100000000),
-      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       referenceNo: z.string().trim().max(100).optional(), notes: z.string().trim().max(500).optional(),
       operationKey: z.string().uuid(),
     })).mutation(async ({ ctx, input }) => {

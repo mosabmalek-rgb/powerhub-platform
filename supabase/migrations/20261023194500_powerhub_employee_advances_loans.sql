@@ -87,6 +87,9 @@ create table if not exists public.employee_adjustment_repayments (
     or (repayment_method='payroll' and payroll_run_id is not null and company_account_id is null and account_transaction_id is null)
   )
 );
+create unique index if not exists employee_adjustment_repayments_payroll_allocation_unique_idx
+  on public.employee_adjustment_repayments(tenant_id,payroll_run_id,adjustment_id)
+  where repayment_method='payroll';
 create unique index if not exists employee_adjustments_disbursement_transaction_unique_idx
   on public.employee_adjustments(disbursement_transaction_id) where disbursement_transaction_id is not null;
 create index if not exists employee_adjustment_repayments_adjustment_date_idx
@@ -353,7 +356,7 @@ begin
     jsonb_build_object('period',v_run.period,'status','cancelled','reservationsReleased',true));
   return query select p_payroll_run_id,true;
 end;
-$;
+$$;
 
 create or replace function public.powerhub_pay_payroll(
   p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_payroll_run_id bigint, p_account_id bigint
@@ -364,6 +367,7 @@ as $$
 declare
   v_run public.payroll_runs%rowtype; v_account public.company_accounts%rowtype; v_period_start timestamptz; v_period_end timestamptz;
   v_balance numeric(14,2); v_expense_id bigint; v_transaction_id bigint; v_role text; v_allocation record; v_remaining numeric(12,2); v_allocation_count integer:=0;
+  v_allocation_total numeric(14,2); v_expected_recovery numeric(14,2);
 begin
   perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':payroll-pay:'||p_site_id::text||':'||p_payroll_run_id::text,0));
   select * into v_run from public.payroll_runs where id=p_payroll_run_id and tenant_id=p_tenant_id and site_id=p_site_id for update;
@@ -373,6 +377,16 @@ begin
   v_period_end := v_period_start + interval '1 month' - interval '1 microsecond';
   if exists (select 1 from public.financial_settlements where tenant_id=p_tenant_id and site_id=p_site_id and status='locked' and ((period_start <= v_period_end and period_end >= v_period_start) or (period_start <= now() and period_end >= now()))) then
     raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001';
+  end if;
+  if round(v_run.total_gross,2) <> round(v_run.total_deductions + v_run.total_net,2) then
+    raise exception 'PAYROLL_TOTALS_INCONSISTENT' using errcode='P0001';
+  end if;
+  select coalesce(sum(advance_deduction),0) into v_expected_recovery
+    from public.payroll_items where payroll_run_id=p_payroll_run_id;
+  select coalesce(sum(amount),0) into v_allocation_total
+    from public.payroll_adjustment_allocations where payroll_run_id=p_payroll_run_id;
+  if round(v_allocation_total,2) <> round(v_expected_recovery,2) then
+    raise exception 'ADVANCE_ALLOCATION_CONFLICT' using errcode='P0001';
   end if;
   select * into v_account from public.company_accounts where id=p_account_id and tenant_id=p_tenant_id and is_active=true for update;
   if not found then raise exception 'COMPANY_ACCOUNT_NOT_FOUND' using errcode='P0001'; end if;
@@ -395,12 +409,24 @@ begin
     if v_allocation.status <> 'open' or v_allocation.remaining_amount < v_allocation.amount then raise exception 'ADVANCE_ALLOCATION_CONFLICT' using errcode='P0001'; end if;
     v_remaining := v_allocation.remaining_amount - v_allocation.amount;
     update public.employee_adjustments set remaining_amount=v_remaining,status=case when v_remaining=0 then 'settled' else 'open' end,updated_at=now() where id=v_allocation.adjustment_id;
+    insert into public.employee_adjustment_repayments(
+      tenant_id,site_id,adjustment_id,repayment_method,amount,company_account_id,
+      account_transaction_id,payroll_run_id,payment_date,reference_no,notes,
+      operation_key,operation_payload_hash,created_by_user_id
+    ) values (
+      p_tenant_id,p_site_id,v_allocation.adjustment_id,'payroll',v_allocation.amount,
+      null,null,p_payroll_run_id,current_date,'PAYROLL-'||p_payroll_run_id::text,
+      'استرداد سلفة/قسط عبر كشف الرواتب '||v_run.period,
+      'PAYROLL-RECOVERY:'||p_payroll_run_id::text||':'||v_allocation.adjustment_id::text,
+      md5(jsonb_build_object('payrollRunId',p_payroll_run_id,'adjustmentId',v_allocation.adjustment_id,'amount',v_allocation.amount,'period',v_run.period)::text),
+      p_user_id
+    );
     v_allocation_count := v_allocation_count+1;
   end loop;
   update public.payroll_runs set status='paid',paid_from_account_id=p_account_id,paid_at=now(),updated_at=now() where id=p_payroll_run_id;
   select platform_role into v_role from public.users where id=p_user_id;
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data)
-    values(p_tenant_id,p_site_id,p_user_id,v_role,'payroll_run',p_payroll_run_id::text,'pay',jsonb_build_object('expenseId',v_expense_id,'transactionId',v_transaction_id,'accountId',p_account_id,'grossExpenseAmount',v_run.total_gross,'netPaidAmount',v_run.total_net,'totalDeductions',v_run.total_deductions,'advanceAllocationCount',v_allocation_count));
+    values(p_tenant_id,p_site_id,p_user_id,v_role,'payroll_run',p_payroll_run_id::text,'pay',jsonb_build_object('expenseId',v_expense_id,'transactionId',v_transaction_id,'accountId',p_account_id,'grossExpenseAmount',v_run.total_gross,'netPaidAmount',v_run.total_net,'totalDeductions',v_run.total_deductions,'advanceAllocationCount',v_allocation_count,'advanceRepaymentEntries',v_allocation_count));
   return query select p_payroll_run_id,v_expense_id,v_transaction_id;
 end;
 $$;

@@ -155,8 +155,22 @@ begin
   if v_salary_status<>'settled' then raise exception 'SALARY_ADVANCE_NOT_SETTLED_AFTER_PAYROLL'; end if;
   select remaining_amount into v_loan_remaining from public.employee_adjustments where id=v_loan_id;
   if v_loan_remaining<>400 then raise exception 'LOAN_BALANCE_AFTER_PAYROLL_EXPECTED_400_GOT_%',v_loan_remaining; end if;
+  if (select total_gross-total_deductions from public.payroll_runs where id=v_payroll_id)<>v_net then raise exception 'PAYROLL_GROSS_DEDUCTIONS_NET_DO_NOT_RECONCILE'; end if;
+  if (select count(*) from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and repayment_method='payroll')<>2 then raise exception 'PAYROLL_REPAYMENT_LEDGER_COUNT_FAILED'; end if;
+  if (select sum(amount) from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and repayment_method='payroll')<>300 then raise exception 'PAYROLL_REPAYMENT_LEDGER_TOTAL_FAILED'; end if;
+  if (select amount from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and adjustment_id=v_salary_advance_id and repayment_method='payroll')<>200 then raise exception 'SALARY_ADVANCE_PAYROLL_REPAYMENT_ENTRY_FAILED'; end if;
+  if (select amount from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and adjustment_id=v_loan_id and repayment_method='payroll')<>100 then raise exception 'LOAN_PAYROLL_REPAYMENT_ENTRY_FAILED'; end if;
+  if exists(select 1 from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and repayment_method='payroll' and (company_account_id is not null or account_transaction_id is not null)) then raise exception 'PAYROLL_REPAYMENT_MUST_NOT_CREATE_DUPLICATE_CASH_MOVEMENT'; end if;
   if (select amount from public.expenses where reference_no='PAYROLL-'||v_payroll_id::text)<>1000 then raise exception 'PAYROLL_EXPENSE_MUST_RECORD_GROSS_WAGES'; end if;
   if (select amount from public.account_transactions where reference_no='PAYROLL-'||v_payroll_id::text)<>700 then raise exception 'PAYROLL_WITHDRAWAL_MUST_EQUAL_NET_PAY'; end if;
+  begin
+    perform * from public.powerhub_pay_payroll(1,100,10,v_payroll_id,1);
+    raise exception 'EXPECTED_DUPLICATE_PAYROLL_PAYMENT_GUARD';
+  exception when others then
+    if sqlerrm not in ('PAYROLL_RUN_NOT_APPROVED','EXPECTED_DUPLICATE_PAYROLL_PAYMENT_GUARD') then raise; end if;
+    if sqlerrm='EXPECTED_DUPLICATE_PAYROLL_PAYMENT_GUARD' then raise; end if;
+  end;
+  if (select count(*) from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and repayment_method='payroll')<>2 then raise exception 'DUPLICATE_PAYROLL_PAYMENT_CREATED_REPAYMENTS'; end if;
 
   -- Next month reserves one loan installment; direct repayment cannot spend the reserved amount.
   select payroll_run_id,total_net into v_second_payroll_id,v_net
@@ -182,6 +196,8 @@ begin
   perform * from public.powerhub_pay_payroll(1,100,10,v_second_payroll_id,1);
   select remaining_amount into v_loan_remaining from public.employee_adjustments where id=v_loan_id;
   if v_loan_remaining<>250 then raise exception 'LOAN_BALANCE_AFTER_SECOND_INSTALLMENT_EXPECTED_250_GOT_%',v_loan_remaining; end if;
+  if (select count(*) from public.employee_adjustment_repayments where payroll_run_id=v_second_payroll_id and adjustment_id=v_loan_id and repayment_method='payroll')<>1 then raise exception 'SECOND_MONTH_LOAN_REPAYMENT_ENTRY_FAILED'; end if;
+  if (select amount from public.employee_adjustment_repayments where payroll_run_id=v_second_payroll_id and adjustment_id=v_loan_id and repayment_method='payroll')<>100 then raise exception 'SECOND_MONTH_LOAN_INSTALLMENT_AMOUNT_FAILED'; end if;
   select 5000+coalesce(sum(case when transaction_type in ('deposit','transfer_in','collection') then amount else -amount end),0)
     into v_balance from public.account_transactions where tenant_id=1 and account_id=1;
   if v_balance<>2750 then raise exception 'CASH_BALANCE_EXPECTED_2750_GOT_%',v_balance; end if;
