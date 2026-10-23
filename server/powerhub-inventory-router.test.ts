@@ -269,12 +269,18 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
     state.rpc.mockReset().mockResolvedValue({
       data: [
-        { movement_id: 990, occurred_at: "2026-10-21T10:00:00Z", quantity: "2.000" },
-        { movement_id: 989, occurred_at: "2026-10-21T09:00:00Z", quantity: "1.000" },
-        { movement_id: 988, occurred_at: "2026-10-21T08:00:00Z", quantity: "1.000" },
+        { movement_id: 990, item_id: 12, generator_id: 101, occurred_at: "2026-10-21T10:00:00Z", quantity: "2.000" },
+        { movement_id: 989, item_id: 12, generator_id: 101, occurred_at: "2026-10-21T09:00:00Z", quantity: "1.000" },
+        { movement_id: 988, item_id: 12, generator_id: 101, occurred_at: "2026-10-21T08:00:00Z", quantity: "1.000" },
       ],
       error: null,
     });
+    const categoryQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ data: [{ id: 12, category: "fuel" }], error: null }),
+    };
+    state.from.mockReset().mockReturnValue(categoryQuery);
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.listStockMovementReport;
     const result = await query._def.resolver({
@@ -290,6 +296,8 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(result.items[0]).not.toHaveProperty("unit_cost");
     expect(result.items[0]).not.toHaveProperty("operation_key");
     expect(result.items[0]).not.toHaveProperty("created_by_user_id");
+    expect(result.items[0]).toMatchObject({ item_id: 12, generator_id: 101, category: "fuel" });
+    expect(categoryQuery.in).toHaveBeenCalledWith("id", [12]);
     expect(result.nextCursor).toEqual({
       beforeOccurredAt: "2026-10-21T09:00:00Z", beforeMovementId: 989,
     });
