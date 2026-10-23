@@ -36,6 +36,15 @@ type FuelReportRow = {
   measurement_status: string;
 };
 
+type PhaseDFinancialSummary = {
+  purchaseInvoiceCount: number | null;
+  purchaseInvoiceAmount: number | null;
+  supplierPaymentCount: number | null;
+  supplierPaymentAmount: number | null;
+  supplierReturnCount: number | null;
+  supplierReturnCreditAmount: number | null;
+};
+
 type MaintenanceReportRow = {
   generator_id: number | string;
   generator_name: string;
@@ -120,13 +129,13 @@ export default function InventoryDashboardPanel({
     { siteId },
     { enabled: enabled && (canViewInventory || canViewInventoryReports), staleTime: 10_000, retry: 1 },
   );
-  const payables = trpc.powerhub.inventory.supplierPayablesAging.useQuery(
-    { siteId },
-    { enabled: enabled && canViewSupplierLedger, staleTime: 15_000, retry: 1 },
-  );
-  const cycleBounds = trpc.powerhub.readingCycle.currentBounds.useQuery(
-    { siteId },
-    { enabled: enabled && canViewInventoryReports && period === "cycle", staleTime: 60_000, retry: 1 },
+  const cycleReferenceAt = useMemo(() => {
+    const parsed = new Date(`${anchorDate}T12:00:00.000Z`);
+    return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString();
+  }, [anchorDate]);
+  const cycleBounds = trpc.powerhub.readingCycle.boundsAt.useQuery(
+    { siteId, referenceAt: cycleReferenceAt },
+    { enabled: enabled && canViewInventoryReports && period === "cycle" && Boolean(anchorDate), staleTime: 60_000, retry: 1 },
   );
   const fuelOptions = trpc.powerhub.inventory.fuelWorkspaceOptions.useQuery(
     { siteId },
@@ -156,7 +165,11 @@ export default function InventoryDashboardPanel({
   }, [filteredStockRows]);
 
   const dateRange = useMemo(() => {
-    if (period === "custom") return customFrom && customTo && customFrom <= customTo ? { fromDate: customFrom, toDate: customTo } : null;
+    if (period === "custom") {
+      if (!customFrom || !customTo || customFrom > customTo) return null;
+      const spanDays = (Date.parse(customTo + "T00:00:00.000Z") - Date.parse(customFrom + "T00:00:00.000Z")) / 86_400_000;
+      return spanDays <= 365 ? { fromDate: customFrom, toDate: customTo } : null;
+    }
     if (period === "day") return anchorDate ? { fromDate: anchorDate, toDate: anchorDate } : null;
     if (period === "month") return anchorDate ? monthRange(anchorDate) : null;
     if (!cycleBounds.data?.startAt || !cycleBounds.data?.endAt) return null;
@@ -164,6 +177,14 @@ export default function InventoryDashboardPanel({
     const toDate = gazaDateKey(cycleBounds.data.endAt);
     return fromDate && toDate && fromDate <= toDate ? { fromDate, toDate } : null;
   }, [period, anchorDate, customFrom, customTo, cycleBounds.data?.startAt, cycleBounds.data?.endAt]);
+  const payables = trpc.powerhub.inventory.supplierPayablesAging.useQuery(
+    { siteId, asOfDate: dateRange?.toDate },
+    { enabled: enabled && canViewSupplierLedger, staleTime: 15_000, retry: 1 },
+  );
+  const phaseDFinancialSummary = trpc.powerhub.inventory.phaseDFinancialSummary.useQuery(
+    { siteId, fromDate: dateRange?.fromDate ?? today, toDate: dateRange?.toDate ?? today },
+    { enabled: enabled && canViewInventoryReports && Boolean(dateRange), staleTime: 15_000, retry: 1 },
+  );
 
   const fuelReport = trpc.powerhub.inventory.fuelConsumptionReportPeriod.useQuery(
     {
@@ -209,8 +230,15 @@ export default function InventoryDashboardPanel({
     recordedCost: maintenanceRows.reduce((sum, row) => sum + numberOf(row.total_cost_amount), 0),
   }), [maintenanceRows]);
   const debt = payables.data as unknown as AgingSummary | undefined;
-  const reportLoading = canViewInventoryReports && (fuelReport.isLoading || maintenanceReport.isLoading || (period === "cycle" && cycleBounds.isLoading));
-  const reportError = canViewInventoryReports && (fuelReport.isError || maintenanceReport.isError || (period === "cycle" && cycleBounds.isError));
+  const reportLoading = canViewInventoryReports && (
+    fuelReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
+    (period === "cycle" && cycleBounds.isLoading)
+  );
+  const reportError = canViewInventoryReports && (
+    fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError ||
+    (period === "cycle" && cycleBounds.isError)
+  );
+  const financialTotals = phaseDFinancialSummary.data as PhaseDFinancialSummary | undefined;
 
   const refresh = async () => {
     const work: Promise<unknown>[] = [];
@@ -219,6 +247,7 @@ export default function InventoryDashboardPanel({
     if (canViewInventoryReports) {
       work.push(fuelReport.refetch());
       work.push(maintenanceReport.refetch());
+      work.push(phaseDFinancialSummary.refetch());
       if (period === "cycle") work.push(cycleBounds.refetch());
     }
     await Promise.all(work);
@@ -228,7 +257,7 @@ export default function InventoryDashboardPanel({
   const hasError = ((canViewInventory || canViewInventoryReports) && stock.isError) ||
     (canViewSupplierLedger && payables.isError) || reportError;
   const generators = (fuelOptions.data?.generators ?? []) as { id: number; name: string; code?: string | null }[];
-  const periodLabel = period === "day" ? "اليوم المحدد" : period === "cycle" ? (cycleBounds.data?.cycleLabel || "الدورة الحالية") : period === "month" ? "الشهر المحدد" : "النطاق المخصص";
+  const periodLabel = period === "day" ? "اليوم المحدد" : period === "cycle" ? (cycleBounds.data?.cycleLabel || "الدورة المحددة") : period === "month" ? "الشهر المحدد" : "النطاق المخصص";
 
   return <div className="space-y-4">
     <Card>
@@ -270,6 +299,7 @@ export default function InventoryDashboardPanel({
         </div>
         {hasError ? <div className="rounded-md border border-destructive/30 p-3 text-sm text-destructive">تعذر تحديث بعض المؤشرات. لم نستبدل البيانات المفقودة بأرقام تقديرية؛ راجع صلاحيات التقارير أو أعد المحاولة.</div> : null}
         {period === "custom" && customFrom > customTo ? <p className="text-sm text-destructive">تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.</p> : null}
+        {period === "custom" && customFrom <= customTo && !dateRange ? <p className="text-sm text-destructive">لا يمكن أن يتجاوز نطاق التقرير 366 يومًا؛ اختر فترة أقصر.</p> : null}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {(canViewInventory || canViewInventoryReports) ? <>
             <Metric label="الأصناف المطابقة" value={stock.isLoading || stock.isError ? "—" : totals.itemCount.toLocaleString("ar-PS")} description="أصناف مميزة ضمن التصنيف والبحث المحددين." icon={Boxes} />
@@ -278,6 +308,9 @@ export default function InventoryDashboardPanel({
           </> : null}
           {canViewInventoryReports ? <Metric label="القيمة الدفترية للمخزون" value={stock.isLoading || stock.isError ? "—" : amount(totals.stockValue)} description="القيمة الحالية وفق متوسط التكلفة، وليست مصروفًا نقديًا جديدًا." icon={CircleDollarSign} /> : null}
           {canViewSupplierLedger ? <Metric label="الذمم المستحقة للموردين" value={payables.isLoading || payables.isError ? "—" : debt ? amount(numberOf(debt.totals?.total_outstanding)) : "—"} description={debt?.as_of_date ? `حتى ${debt.as_of_date}، حسب الذمم المرحلة.` : "من تقرير أعمار الذمم في الفرع المحدد."} icon={Store} /> : null}
+          {canViewInventoryReports && financialTotals?.purchaseInvoiceAmount !== null && financialTotals?.purchaseInvoiceAmount !== undefined ? <Metric label="المشتريات المعتمدة" value={phaseDFinancialSummary.isLoading || phaseDFinancialSummary.isError ? "—" : amount(numberOf(financialTotals.purchaseInvoiceAmount))} description={`${numberOf(financialTotals.purchaseInvoiceCount).toLocaleString("ar-PS")} فاتورة مؤكدة/مستلمة ضمن الفترة؛ ليست مصروف تشغيل جديدًا.`} icon={ClipboardList} /> : null}
+          {canViewInventoryReports && financialTotals?.supplierPaymentAmount !== null && financialTotals?.supplierPaymentAmount !== undefined ? <Metric label="دفعات الموردين المرحلة" value={phaseDFinancialSummary.isLoading || phaseDFinancialSummary.isError ? "—" : amount(numberOf(financialTotals.supplierPaymentAmount))} description={`${numberOf(financialTotals.supplierPaymentCount).toLocaleString("ar-PS")} دفعة غير معكوسة ضمن الفترة؛ تمثل التسوية النقدية لا قيمة مشتريات إضافية.`} icon={CircleDollarSign} /> : null}
+          {canViewInventoryReports && financialTotals?.supplierReturnCreditAmount !== null && financialTotals?.supplierReturnCreditAmount !== undefined ? <Metric label="ائتمانات مرتجعات الموردين" value={phaseDFinancialSummary.isLoading || phaseDFinancialSummary.isError ? "—" : amount(numberOf(financialTotals.supplierReturnCreditAmount))} description={`${numberOf(financialTotals.supplierReturnCount).toLocaleString("ar-PS")} مرتجعًا مرحلًا؛ يُعرض كائتمان منفصل عن الدفعات النقدية.`} icon={ArrowLeftRight} /> : null}
         </div>
       </CardContent>
     </Card>
@@ -303,6 +336,7 @@ export default function InventoryDashboardPanel({
         { title: "دليل الأصناف", description: "تعريف الأصناف ووحدات الشراء وحدود إعادة الطلب.", tab: "catalog", icon: Boxes, show: canViewInventory || canViewInventoryReports },
         { title: "المشتريات والاستلام", description: "المسودات والاستلام الجزئي والكامل وحالة السداد.", tab: "purchases", icon: ClipboardList, show: canReadPurchases },
         { title: "المخزون والحركات", description: "الأرصدة والتحويلات والصرف والجرد الفعلي.", tab: "stock", icon: ArrowLeftRight, show: canViewInventory || canAccessStocktakes },
+        { title: "الوقود والاستهلاك", description: "التعبئات والقراءات والاستهلاك المقاس والتنبيهات.", tab: "fuel", icon: Fuel, show: canManageFuelAndConsumption || canViewInventoryReports },
         { title: "التقارير والتصدير", description: "الأرصدة والتكلفة وسجل الحركات الكامل.", tab: "reports", icon: CircleDollarSign, show: canViewInventoryReports },
       ].filter((entry) => entry.show).map(({ title, description, tab, icon: Icon }) => <Card key={tab}><CardContent className="flex h-full flex-col gap-3 p-4"><Icon className="h-5 w-5 text-primary" /><div className="font-semibold">{title}</div><p className="flex-1 text-sm leading-6 text-muted-foreground">{description}</p><Button type="button" variant="outline" className="w-full" onClick={() => onNavigate(tab)}>فتح المساحة</Button></CardContent></Card>)}
     </div>
