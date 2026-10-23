@@ -1374,6 +1374,78 @@ export const powerhubInventoryRouter = router({
       };
     }),
 
+  phaseDFinancialDetails: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      limit: z.number().int().min(1).max(200).default(100),
+      afterDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      afterEventType: z.enum(["purchase_invoice", "supplier_payment", "supplier_return"]).optional(),
+      afterEventId: z.number().int().positive().optional(),
+    }).superRefine((value, issue) => {
+      const isDate = (text: string) => {
+        const parsed = new Date(text + "T00:00:00.000Z");
+        return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+      };
+      if (!isDate(value.fromDate) || !isDate(value.toDate) || value.fromDate > value.toDate ||
+        (Date.parse(value.toDate + "T00:00:00.000Z") - Date.parse(value.fromDate + "T00:00:00.000Z")) / 86_400_000 > 365) {
+        issue.addIssue({ code: z.ZodIssueCode.custom, path: ["fromDate"], message: "نطاق التقرير المالي غير صالح أو يتجاوز 366 يومًا." });
+      }
+      const cursorCount = [value.afterDate, value.afterEventType, value.afterEventId].filter((entry) => entry !== undefined).length;
+      if (cursorCount !== 0 && cursorCount !== 3) {
+        issue.addIssue({ code: z.ZodIssueCode.custom, path: ["afterDate"], message: "مؤشر صفحة التقرير المالي غير مكتمل." });
+      }
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تفاصيل التقارير المالية." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_phase_d_financial_details", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_from_date: input.fromDate, p_to_date: input.toDate, p_limit: input.limit + 1,
+        p_after_date: input.afterDate ?? null, p_after_event_type: input.afterEventType ?? null,
+        p_after_event_id: input.afterEventId ?? null,
+      });
+      if (error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل أحداث المشتريات ودفعات الموردين." });
+      }
+      const rows = (data ?? []) as Array<Record<string, unknown>>;
+      const hasMore = rows.length > input.limit;
+      const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
+      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
+        access.permissions.includes("manageSupplierPayments");
+      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
+        access.permissions.includes("manageSupplierPayments") ||
+        access.permissions.includes("reverseSupplierPayments");
+      const items = pageRows.filter((row) => {
+        if (row.event_type === "purchase_invoice") return canViewPurchaseFinancials;
+        if (row.event_type === "supplier_payment" || row.event_type === "supplier_return") return canViewSupplierFinancials;
+        return false;
+      }).map((row) => ({
+        event_date: String(row.event_date),
+        event_type: String(row.event_type),
+        event_id: Number(row.event_id),
+        reference_no: String(row.reference_no ?? ""),
+        counterparty_name: String(row.counterparty_name ?? ""),
+        status: String(row.status ?? ""),
+        amount: Number(row.amount ?? 0),
+        related_reference: String(row.related_reference ?? ""),
+        refund_amount: Number(row.refund_amount ?? 0),
+        allocation_count: Number(row.allocation_count ?? 0),
+      }));
+      const last = pageRows[pageRows.length - 1];
+      return {
+        items,
+        hasMore,
+        nextCursor: hasMore && last ? {
+          afterDate: String(last.event_date), afterEventType: String(last.event_type),
+          afterEventId: Number(last.event_id),
+        } : null,
+      };
+    }),
+
   listSupplierPaymentBatchOptions: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }))
     .query(async ({ ctx, input }) => {
