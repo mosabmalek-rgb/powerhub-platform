@@ -49,6 +49,8 @@ create table if not exists public.employee_adjustment_repayments (
     or (repayment_method='payroll' and payroll_run_id is not null and company_account_id is null and account_transaction_id is null)
   )
 );
+create unique index if not exists employee_adjustments_disbursement_transaction_unique_idx
+  on public.employee_adjustments(disbursement_transaction_id) where disbursement_transaction_id is not null;
 create index if not exists employee_adjustment_repayments_adjustment_date_idx
   on public.employee_adjustment_repayments(tenant_id,adjustment_id,payment_date desc,id desc);
 create index if not exists employee_adjustments_advance_scope_idx
@@ -124,7 +126,7 @@ begin
   end if;
   perform 1 from public.sites where id=p_site_id and tenant_id=p_tenant_id and status<>'archived' for share;
   if not found then raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001'; end if;
-  if exists(select 1 from public.financial_settlements fs where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked' and (fs.period_start<=v_date::timestamptz and fs.period_end>=(v_date::timestamptz))) then
+  if exists(select 1 from public.financial_settlements fs where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked' and ((fs.period_start<=v_date::timestamptz and fs.period_end>=v_date::timestamptz) or (fs.period_start<=now() and fs.period_end>=now()))) then
     raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001';
   end if;
   select e.* into v_employee from public.employees e
@@ -205,7 +207,7 @@ begin
     if v_reserved>0 then raise exception 'ADVANCE_BALANCE_RESERVED' using errcode='P0001'; end if;
     raise exception 'REPAYMENT_EXCEEDS_REMAINING' using errcode='P0001';
   end if;
-  if exists(select 1 from public.financial_settlements fs where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked' and fs.period_start<=v_date::timestamptz and fs.period_end>=v_date::timestamptz) then
+  if exists(select 1 from public.financial_settlements fs where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked' and ((fs.period_start<=v_date::timestamptz and fs.period_end>=v_date::timestamptz) or (fs.period_start<=now() and fs.period_end>=now()))) then
     raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001';
   end if;
   perform pg_advisory_xact_lock(p_account_id);
