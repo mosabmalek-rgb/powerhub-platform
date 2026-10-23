@@ -161,7 +161,7 @@ begin
   if (select amount from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and adjustment_id=v_salary_advance_id and repayment_method='payroll')<>200 then raise exception 'SALARY_ADVANCE_PAYROLL_REPAYMENT_ENTRY_FAILED'; end if;
   if (select amount from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and adjustment_id=v_loan_id and repayment_method='payroll')<>100 then raise exception 'LOAN_PAYROLL_REPAYMENT_ENTRY_FAILED'; end if;
   if exists(select 1 from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and repayment_method='payroll' and (company_account_id is not null or account_transaction_id is not null)) then raise exception 'PAYROLL_REPAYMENT_MUST_NOT_CREATE_DUPLICATE_CASH_MOVEMENT'; end if;
-  if (select amount from public.expenses where reference_no='PAYROLL-'||v_payroll_id::text)<>1000 then raise exception 'PAYROLL_EXPENSE_MUST_RECORD_GROSS_WAGES'; end if;
+  if (select amount from public.expenses where reference_no='PAYROLL-'||v_payroll_id::text)<>700 then raise exception 'PAYROLL_EXPENSE_MUST_MATCH_NET_CASH_PAID'; end if;
   if (select amount from public.account_transactions where reference_no='PAYROLL-'||v_payroll_id::text)<>700 then raise exception 'PAYROLL_WITHDRAWAL_MUST_EQUAL_NET_PAY'; end if;
   begin
     perform * from public.powerhub_pay_payroll(1,100,10,v_payroll_id,1);

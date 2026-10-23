@@ -381,10 +381,10 @@ begin
   if round(v_run.total_gross,2) <> round(v_run.total_deductions + v_run.total_net,2) then
     raise exception 'PAYROLL_TOTALS_INCONSISTENT' using errcode='P0001';
   end if;
-  select coalesce(sum(advance_deduction),0) into v_expected_recovery
-    from public.payroll_items where payroll_run_id=p_payroll_run_id;
-  select coalesce(sum(amount),0) into v_allocation_total
-    from public.payroll_adjustment_allocations where payroll_run_id=p_payroll_run_id;
+  select coalesce(sum(pi.advance_deduction),0) into v_expected_recovery
+    from public.payroll_items pi where pi.payroll_run_id=p_payroll_run_id;
+  select coalesce(sum(pa.amount),0) into v_allocation_total
+    from public.payroll_adjustment_allocations pa where pa.payroll_run_id=p_payroll_run_id;
   if round(v_allocation_total,2) <> round(v_expected_recovery,2) then
     raise exception 'ADVANCE_ALLOCATION_CONFLICT' using errcode='P0001';
   end if;
@@ -398,7 +398,7 @@ begin
     into v_balance from public.account_transactions where tenant_id=p_tenant_id and account_id=p_account_id;
   if v_balance < v_run.total_net then raise exception 'INSUFFICIENT_ACCOUNT_BALANCE' using errcode='P0001'; end if;
   insert into public.expenses(tenant_id,site_id,category,description,amount,reference_no,created_by_user_id)
-    values(p_tenant_id,p_site_id,'payroll','إجمالي أجر مستحق لشهر ' || v_run.period || ' — الصافي المدفوع ' || v_run.total_net,v_run.total_gross,'PAYROLL-' || p_payroll_run_id::text,p_user_id) returning id into v_expense_id;
+    values(p_tenant_id,p_site_id,'payroll','صافي الرواتب المدفوع لشهر ' || v_run.period || ' — إجمالي الأجور ' || v_run.total_gross || '، الخصومات ' || v_run.total_deductions,v_run.total_net,'PAYROLL-' || p_payroll_run_id::text,p_user_id) returning id into v_expense_id;
   insert into public.account_transactions(tenant_id,account_id,transaction_type,amount,description,reference_no,created_by_user_id,occurred_at)
     values(p_tenant_id,p_account_id,'withdrawal',v_run.total_net,'صرف رواتب شهر ' || v_run.period,'PAYROLL-' || p_payroll_run_id::text,p_user_id,now()) returning id into v_transaction_id;
   for v_allocation in
@@ -426,7 +426,7 @@ begin
   update public.payroll_runs set status='paid',paid_from_account_id=p_account_id,paid_at=now(),updated_at=now() where id=p_payroll_run_id;
   select platform_role into v_role from public.users where id=p_user_id;
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,after_data)
-    values(p_tenant_id,p_site_id,p_user_id,v_role,'payroll_run',p_payroll_run_id::text,'pay',jsonb_build_object('expenseId',v_expense_id,'transactionId',v_transaction_id,'accountId',p_account_id,'grossExpenseAmount',v_run.total_gross,'netPaidAmount',v_run.total_net,'totalDeductions',v_run.total_deductions,'advanceAllocationCount',v_allocation_count,'advanceRepaymentEntries',v_allocation_count));
+    values(p_tenant_id,p_site_id,p_user_id,v_role,'payroll_run',p_payroll_run_id::text,'pay',jsonb_build_object('expenseId',v_expense_id,'transactionId',v_transaction_id,'accountId',p_account_id,'expenseAmount',v_run.total_net,'grossWagesAmount',v_run.total_gross,'netPaidAmount',v_run.total_net,'totalDeductions',v_run.total_deductions,'advanceAllocationCount',v_allocation_count,'advanceRepaymentEntries',v_allocation_count));
   return query select p_payroll_run_id,v_expense_id,v_transaction_id;
 end;
 $$;
