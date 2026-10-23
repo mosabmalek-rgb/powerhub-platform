@@ -259,11 +259,11 @@ export default function InventoryDashboardPanel({
   }), [maintenanceRows]);
   const debt = payables.data as unknown as AgingSummary | undefined;
   const reportLoading = canViewInventoryReports && (
-    fuelReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
+    fuelOptions.isLoading || fuelReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
     (period === "cycle" && cycleBounds.isLoading)
   );
   const reportError = canViewInventoryReports && (
-    fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError ||
+    fuelOptions.isError || fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError ||
     (period === "cycle" && cycleBounds.isError)
   );
   const financialTotals = phaseDFinancialSummary.data as PhaseDFinancialSummary | undefined;
@@ -530,6 +530,7 @@ export default function InventoryDashboardPanel({
     if (canViewInventory || canViewInventoryReports) work.push(stock.refetch());
     if (canViewSupplierLedger) work.push(payables.refetch());
     if (canViewInventoryReports) {
+      work.push(fuelOptions.refetch());
       work.push(fuelReport.refetch());
       work.push(maintenanceReport.refetch());
       work.push(phaseDFinancialSummary.refetch());
@@ -547,7 +548,7 @@ export default function InventoryDashboardPanel({
   return <div className="space-y-4">
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><CardTitle>لوحة المؤشرات التشغيلية</CardTitle><p className="mt-1 text-sm text-muted-foreground">مؤشرات الفرع المحدد من سجلات النظام الفعلية. تُطبّق مرشحات الصنف والتصنيف على الأرصدة، والفترة والمولد على الوقود والصيانة والملخص المالي.</p></div>
+        <div><CardTitle>لوحة المؤشرات التشغيلية</CardTitle><p className="mt-1 text-sm text-muted-foreground">مؤشرات الفرع المحدد من السجلات الفعلية. مرشحات الصنف والتصنيف والبحث تطبق على الأرصدة والحركات؛ والفترة والمولد تطبقان على الوقود والصيانة. ملخص المشتريات والدفعات مجمع على مستوى المستند والفرع للفترة، ولا نوزع دفعة مورد على تصنيف صنف دون أساس توزيع محاسبي.</p></div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" disabled={isLoading || exportingReport} onClick={() => void refresh()}><RefreshCw className={"ml-2 h-4 w-4" + (isLoading ? " animate-spin" : "")} /> تحديث المؤشرات</Button>
           {canViewInventoryReports ? <>
@@ -585,7 +586,7 @@ export default function InventoryDashboardPanel({
             </select>
           </label>
           <label className="grid gap-1.5 text-sm sm:col-span-2 xl:col-span-3">بحث الصنف أو الرمز أو المخزن
-            <Input value={itemSearch} onChange={(event) => setItemSearch(event.target.value)} placeholder="اكتب اسم الصنف أو رمزه أو المخزن…" />
+            <Input maxLength={150} value={itemSearch} onChange={(event) => setItemSearch(event.target.value)} placeholder="اكتب اسم الصنف أو رمزه أو المخزن…" />
           </label>
           {period === "cycle" ? <p className="text-xs leading-5 text-muted-foreground sm:col-span-2 xl:col-span-4">تُحسب حدود الدورة من إعدادات الفوترة المركزية للفرع وتوقيته المحلي؛ لا تُستبدل الدورة بشهر تقويمي.</p> : null}
         </div>
