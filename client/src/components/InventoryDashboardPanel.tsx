@@ -26,6 +26,19 @@ type AgingSummary = {
   as_of_date?: string;
 };
 
+type FinancialEventRow = {
+  event_date: string;
+  event_type: "purchase_invoice" | "supplier_payment" | "supplier_return";
+  event_id: number | string;
+  reference_no: string;
+  counterparty_name: string;
+  status: string;
+  amount: number | string;
+  related_reference: string;
+  refund_amount: number | string;
+  allocation_count: number | string;
+};
+
 type StockMovementRow = {
   movement_id: number | string;
   warehouse_id: number | string;
@@ -294,6 +307,32 @@ export default function InventoryDashboardPanel({
     );
   };
 
+
+  const loadAllFinancialEvents = async () => {
+    if (!dateRange) throw new Error("اختر فترة صالحة قبل تصدير التقرير.");
+    const rows: FinancialEventRow[] = [];
+    let cursor: {
+      afterDate: string;
+      afterEventType: "purchase_invoice" | "supplier_payment" | "supplier_return";
+      afterEventId: number;
+    } | null = null;
+    let pages = 0;
+    do {
+      if (++pages > 500) throw new Error("يتجاوز التقرير 100,000 حدث مالي؛ ضيّق الفترة ثم أعد التصدير.");
+      const result = await utils.powerhub.inventory.phaseDFinancialDetails.fetch({
+        siteId, fromDate: dateRange.fromDate, toDate: dateRange.toDate, limit: 200,
+        ...(cursor ? cursor : {}),
+      });
+      rows.push(...(result.items as FinancialEventRow[]));
+      cursor = result.nextCursor ? {
+        afterDate: result.nextCursor.afterDate,
+        afterEventType: result.nextCursor.afterEventType as "purchase_invoice" | "supplier_payment" | "supplier_return",
+        afterEventId: Number(result.nextCursor.afterEventId),
+      } : null;
+    } while (cursor);
+    return rows;
+  };
+
   const exportReady = () => {
     if (!canViewInventoryReports) { toast.error("ليست لديك صلاحية تصدير التقارير المالية."); return false; }
     if (!dateRange) { toast.error("حدد نطاقًا زمنيًا صالحًا لا يتجاوز 366 يومًا."); return false; }
@@ -351,7 +390,7 @@ export default function InventoryDashboardPanel({
     if (exportingReport || !exportReady()) return;
     setExportingReport(true);
     try {
-      const moves = await loadAllFilteredMoves();
+      const [moves, financialEvents] = await Promise.all([loadAllFilteredMoves(), loadAllFinancialEvents()]);
       const rows: unknown[][] = [
         ...dashboardSummaryRows(),
         [],
@@ -387,6 +426,15 @@ export default function InventoryDashboardPanel({
           numberOf(row.completed_count), numberOf(row.open_count), numberOf(row.downtime_minutes),
           numberOf(row.parts_cost), numberOf(row.labor_cost), numberOf(row.external_service_cost), numberOf(row.total_cost_amount),
         ]),
+        [],
+        ["تفاصيل فواتير المشتريات ودفعات الموردين والمرتجعات"],
+        ["التاريخ","نوع الحدث","رقم المرجع","المورد","الحالة","القيمة","المرجع المرتبط","المبلغ المسترد نقدًا","عدد التوزيعات"],
+        ...financialEvents.map((row) => [
+          row.event_date,
+          row.event_type === "purchase_invoice" ? "فاتورة شراء" : row.event_type === "supplier_payment" ? "دفعة مورد" : "مرتجع مورد",
+          row.reference_no, row.counterparty_name, row.status, numberOf(row.amount),
+          row.related_reference, numberOf(row.refund_amount), numberOf(row.allocation_count),
+        ]),
       ];
       const csv = "\uFEFF" + rows.map((row) => row.map((value) => {
         const text = String(value ?? "");
@@ -406,7 +454,7 @@ export default function InventoryDashboardPanel({
     if (exportingReport || !exportReady()) return;
     setExportingReport(true);
     try {
-      const moves = await loadAllFilteredMoves();
+      const [moves, financialEvents] = await Promise.all([loadAllFilteredMoves(), loadAllFinancialEvents()]);
       const { default: ExcelJS } = await loadExcelJS();
       const workbook = new ExcelJS.Workbook();
       workbook.creator = "PowerHub";
@@ -446,7 +494,16 @@ export default function InventoryDashboardPanel({
         numberOf(row.external_service_cost),numberOf(row.total_cost_amount),
       ]));
       maintenance.columns = [{width:26},{width:36},{width:14},{width:16},{width:14},{width:14},{width:18},{width:18},{width:18},{width:20},{width:24}];
-      for (const sheet of [stockSheet,movements,fuel,maintenance]) {
+      const finance = workbook.addWorksheet("المشتريات والدفعات", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
+      finance.addRow(["التاريخ","نوع الحدث","رقم المرجع","المورد","الحالة","القيمة","المرجع المرتبط","المبلغ المسترد نقدًا","عدد التوزيعات"]);
+      financialEvents.forEach((row) => finance.addRow([
+        row.event_date,
+        row.event_type === "purchase_invoice" ? "فاتورة شراء" : row.event_type === "supplier_payment" ? "دفعة مورد" : "مرتجع مورد",
+        row.reference_no,row.counterparty_name,row.status,numberOf(row.amount),row.related_reference,
+        numberOf(row.refund_amount),numberOf(row.allocation_count),
+      ]));
+      finance.columns = [{width:16},{width:22},{width:24},{width:28},{width:18},{width:18},{width:35},{width:22},{width:18}];
+      for (const sheet of [stockSheet,movements,fuel,maintenance,finance]) {
         sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheet.columnCount } };
         sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
         sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
@@ -461,7 +518,7 @@ export default function InventoryDashboardPanel({
       const a = document.createElement("a");
       a.href = url; a.download = `powerhub-phase-d-report-${siteId}-${dateRange?.fromDate}-${dateRange?.toDate}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-      toast.success(`تم تصدير تقرير Phase D في خمس أوراق مع ${moves.length.toLocaleString("ar-PS")} حركة.`);
+      toast.success(`تم تصدير تقرير Phase D في ست أوراق مع ${moves.length.toLocaleString("ar-PS")} حركة و${financialEvents.length.toLocaleString("ar-PS")} حدثًا ماليًا.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر إنشاء تقرير Excel الموحد.");
     } finally { setExportingReport(false); }
@@ -472,8 +529,8 @@ export default function InventoryDashboardPanel({
     setExportingReport(true);
     let root: HTMLDivElement | undefined;
     try {
-      const moves = await loadAllFilteredMoves();
-      if (moves.length > 2000) throw new Error("يحتوي التقرير على أكثر من 2,000 حركة؛ استخدم Excel للتقرير الكامل أو ضيّق نطاق التاريخ.");
+      const [moves, financialEvents] = await Promise.all([loadAllFilteredMoves(), loadAllFinancialEvents()]);
+      if (moves.length + financialEvents.length > 2000) throw new Error("يتجاوز التقرير 2,000 حركة/حدث؛ استخدم Excel للتقرير الكامل أو ضيّق نطاق التاريخ.");
       const cell = (value: unknown) => "<td style=\"border:1px solid #d1d5db;padding:5px;vertical-align:top\">" + escapeHtml(String(value ?? "—")) + "</td>";
       const table = (headers: string[], rows: unknown[][]) =>
         "<table style=\"width:100%;border-collapse:collapse;margin:14px 0;font-size:9px;table-layout:auto\"><thead><tr style=\"background:#0d1117;color:#fff\">" +
@@ -515,6 +572,11 @@ export default function InventoryDashboardPanel({
         table(["المولد","العطل","الأوامر","الأعطال","التوقف بالدقائق","القطع","العمالة","الخدمات","التكلفة المسجلة"],maintenanceRows.map((row)=>[
           row.generator_name,row.fault_title,row.work_order_count,row.breakdown_count,row.downtime_minutes,
           amount(numberOf(row.parts_cost)),amount(numberOf(row.labor_cost)),amount(numberOf(row.external_service_cost)),amount(numberOf(row.total_cost_amount)),
+        ])) +
+        "<h2>فواتير المشتريات ودفعات الموردين والمرتجعات</h2>" +
+        table(["التاريخ","نوع الحدث","رقم المرجع","المورد","الحالة","القيمة","المرجع المرتبط","المسترد نقدًا"],financialEvents.map((row)=>[
+          row.event_date,row.event_type==="purchase_invoice"?"فاتورة شراء":row.event_type==="supplier_payment"?"دفعة مورد":"مرتجع مورد",
+          row.reference_no,row.counterparty_name,row.status,amount(numberOf(row.amount)),row.related_reference,amount(numberOf(row.refund_amount)),
         ])) +
         "<p style=\"margin-top:16px;font-size:10px\">ملاحظة: المشتريات والدفعات وائتمانات المرتجعات وتكلفة التعبئة وتكاليف الصيانة مصادر مالية منفصلة. لا يُعد دفع فاتورة الشراء مصروف تشغيل جديدًا ولا تمثل تكلفة التعبئة الاستهلاك الفعلي المقاس.</p>";
       document.body.appendChild(root);
