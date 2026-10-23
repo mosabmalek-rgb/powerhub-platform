@@ -125,6 +125,11 @@ function amount(value: number) {
 function quantity(value: number) {
   return new Intl.NumberFormat("ar-PS", { maximumFractionDigits: 3 }).format(Number.isFinite(value) ? value : 0);
 }
+function gazaTimestamp() {
+  return new Intl.DateTimeFormat("ar-PS", {
+    timeZone: "Asia/Gaza", dateStyle: "short", timeStyle: "medium",
+  }).format(new Date());
+}
 function gazaDateKey(value: string | Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit",
@@ -414,6 +419,7 @@ export default function InventoryDashboardPanel({
       ["المخزن", warehouseId === "all" ? "كل المخازن" : reportWarehouses.data?.find((row) => Number(row.id) === Number(warehouseId))?.name ?? warehouseId],
       ["تصنيف الصنف", category === "all" ? "كل التصنيفات" : categoryLabels[category] ?? category],
       ["بحث الصنف / الحركة", itemSearch.trim() || "—"],
+      ["نطاق مرشحات الصنف والمخزن", "تطبق على الأرصدة والحركات فقط؛ بيانات المشتريات ودفعات الموردين على مستوى المستند/الفرع ولا توزع على مخزن دون أساس محاسبي."],
       ["عدد الأصناف المطابقة", totals.itemCount],
       ["مواقع التخزين المطابقة", totals.locationsWithStock],
       ["مواقع تحتاج إعادة طلب", totals.lowLocations],
@@ -436,7 +442,7 @@ export default function InventoryDashboardPanel({
       ["التوقف المسجل (دقيقة)", maintenanceTotals.downtime],
       ["تكلفة الصيانة المسجلة", amount(maintenanceTotals.recordedCost)],
       ["حدود محاسبية", "المشتريات والدفعات وائتمانات المرتجعات وتكلفة التعبئة وتكاليف الصيانة أحداث مالية منفصلة؛ لا تُجمع كأنها مصروف تشغيل واحد."],
-      ["وقت التصدير", new Date().toLocaleString("ar-PS")],
+      ["وقت التصدير (Asia/Gaza)", gazaTimestamp()],
     ];
   };
 
@@ -626,7 +632,8 @@ export default function InventoryDashboardPanel({
         "<p>المولد: " + escapeHtml(generatorId ? generators.find((g)=>Number(g.id)===Number(generatorId))?.name ?? generatorId : "جميع المولدات") +
         " | المخزن: " + escapeHtml(warehouseId === "all" ? "كل المخازن" : reportWarehouses.data?.find((row) => Number(row.id) === Number(warehouseId))?.name ?? warehouseId) +
         " | التصنيف: " + escapeHtml(category === "all" ? "كل التصنيفات" : categoryLabels[category] ?? category) +
-        " | البحث: " + escapeHtml(itemSearch.trim() || "—") + " | وقت التصدير: " + escapeHtml(new Date().toLocaleString("ar-PS")) + "</p></header>" +
+        " | البحث: " + escapeHtml(itemSearch.trim() || "—") + " | وقت التصدير (Asia/Gaza): " + escapeHtml(gazaTimestamp()) + "</p>" +
+        "<p>مرشحات الصنف والمخزن تطبق على الأرصدة والحركات فقط؛ الملخص المالي للموردين على مستوى المستند/الفرع.</p></header>" +
         "<h2>الملخص المالي والتشغيلي</h2>" +
         table(["المؤشر","القيمة"],dashboardSummaryRows().map((row)=>[String(row[0]),row[1]])) +
         "<h2>أرصدة المخزون</h2>" +
