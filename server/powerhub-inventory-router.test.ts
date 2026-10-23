@@ -752,6 +752,51 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
 
+
+  it("requires inventory report permission before fetching Phase D financial event details", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "manager", permissions: ["manageFuelAndConsumption"], usesPermissionOverride: true,
+    });
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.phaseDFinancialDetails;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23", limit: 20 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7);
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("paginates Phase D financial events and masks event types outside the user's finance capabilities", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "accountant", permissions: ["viewInventoryReports", "viewPurchases"], usesPermissionOverride: true,
+    });
+    state.rpc.mockReset().mockResolvedValue({ data: [
+      { event_date: "2026-10-01", event_type: "purchase_invoice", event_id: 10, reference_no: "PO-10", counterparty_name: "Supplier A", status: "received", amount: "50.00", related_reference: "INV-10", refund_amount: "0.00", allocation_count: 0 },
+      { event_date: "2026-10-02", event_type: "supplier_payment", event_id: 20, reference_no: "PAY-20", counterparty_name: "Supplier A", status: "posted", amount: "25.00", related_reference: "PO-10", refund_amount: "0.00", allocation_count: 1 },
+      { event_date: "2026-10-03", event_type: "supplier_return", event_id: 30, reference_no: "RET-30", counterparty_name: "Supplier A", status: "posted", amount: "5.00", related_reference: "PO-10", refund_amount: "0.00", allocation_count: 0 },
+    ], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.phaseDFinancialDetails;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23", limit: 2 },
+    });
+    expect(result.items).toEqual([{
+      event_date: "2026-10-01", event_type: "purchase_invoice", event_id: 10,
+      reference_no: "PO-10", counterparty_name: "Supplier A", status: "received", amount: 50,
+      related_reference: "INV-10", refund_amount: 0, allocation_count: 0,
+    }]);
+    expect(result.hasMore).toBe(true);
+    expect(result.nextCursor).toEqual({
+      afterDate: "2026-10-02", afterEventType: "supplier_payment", afterEventId: 20,
+    });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_phase_d_financial_details", {
+      p_tenant_id: 44, p_site_id: 7, p_from_date: "2026-10-01", p_to_date: "2026-10-23",
+      p_limit: 3, p_after_date: null, p_after_event_type: null, p_after_event_id: null,
+    });
+  });
   it("requires inventory report permission before querying Phase D financial totals", async () => {
     state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
     state.rpc.mockClear();
